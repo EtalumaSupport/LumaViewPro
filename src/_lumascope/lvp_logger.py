@@ -157,6 +157,14 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 
     tb_text = ''.join(_traceback.format_exception(exc_type, exc_value, exc_traceback))
     logger.critical(f'Logger ] CRASH - Uncaught Exception:\n{tb_text}')
+    # The process is stopping: whoever started it from a terminal is told
+    # why in the exception's own words, the message the installed build's
+    # bootloader dialog shows; the traceback stays in the log. The process's
+    # own stream, since Kivy replaces sys.stderr with one that logs each
+    # line; a windowed build has none.
+    if sys.__stderr__ is not None:
+        sys.__stderr__.write(''.join(_traceback.format_exception_only(exc_type, exc_value)))
+        sys.__stderr__.flush()
 
 
 # The main and camera loggers are named in src/_lumascope/lib/log_helpers, where the drivers

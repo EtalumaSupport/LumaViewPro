@@ -63,6 +63,28 @@ def test_a_threads_uncaught_exception_prints_its_traceback():
     assert 'ValueError: kettle boiled dry' in result.stderr
 
 
+def test_an_application_that_stops_on_a_crash_says_why_on_its_terminal():
+    # The application's log, reduced to a handler that keeps nothing: the
+    # crash record would otherwise land in this checkout's own log, and with
+    # no handler at all Python's last-resort handler prints the record,
+    # traceback and all, which is not what the hook writes.
+    result = _child(
+        """
+        import logging
+        import _lumascope.lvp_logger
+        logging.getLogger().addHandler(logging.NullHandler())
+        _lumascope.lvp_logger.install_crash_hooks()
+        raise ValueError('kettle boiled dry')
+        """
+    )
+
+    assert result.returncode == 1
+    lines = [line for line in result.stderr.splitlines() if line.strip()]
+    assert lines, 'the terminal was told nothing'
+    assert lines[-1] == 'ValueError: kettle boiled dry'
+    assert 'Traceback' not in result.stderr, 'the traceback is the log record, not the terminal'
+
+
 def test_an_application_takes_the_crash_policy_by_installing_it():
     # Read as which hooks are set, not by raising through them: a raise
     # would write its crash record into this checkout's own log.
