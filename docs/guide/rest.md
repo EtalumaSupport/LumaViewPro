@@ -16,8 +16,10 @@ Two hosts serve the API, the same API from either:
 - **LumaViewPro**, beside its window, when `rest_api.enabled` is `true` in its
   settings (shipped `false`). An installed LumaViewPro serves this way.
 - **`python -m lumascope.rest`**, with no window, run from LumaViewPro's
-  source; an installed copy has no such command. It serves whatever `enabled`
-  says, though `enabled` must still be `true` or `false`.
+  source by the Python its install script installed into ([Where it
+  runs](python.md#bringing-a-session-up-in-python)); an installed copy has no
+  such command. It serves whatever `enabled` says, though `enabled` must still
+  be `true` or `false`.
 
 ```bash
 python -m lumascope.rest --simulate      # a simulated scope; leave out --simulate for the hardware
@@ -33,7 +35,8 @@ SIGTERM closes it: new calls are refused (`'server_closing'`), the session
 shuts down with the event stream open, and the stream's last event is
 `closing`. It exits `0`, or `1` when it could not take the lock or serve
 (printing why), stopped before it served, or the session did not close cleanly
-(the log says why).
+(the log says why). The log is `logs/LVP_Log/` under the source folder,
+`lumaviewpro.log` and `lumaviewpro_errors.log`.
 
 To serve a session your own program has brought up, build its server, the one
 every host serves through:
@@ -57,7 +60,11 @@ is installation-only: no call changes it, from any caller
 (`'installation_only'`), so it is edited in the installation's
 `data/current.json` ([Settings](python.md#bringing-a-session-up-in-python)),
 with LumaViewPro closed, since LumaViewPro writes its whole settings file back
-as it runs. The port is 1024 to 65535. A `rest_api` the server cannot use, or
+as it runs. A source copy that LumaViewPro has never run has no
+`current.json` and serves from the template's `rest_api`; to change it there,
+copy `data/settings.json` to `data/current.json` and edit the copy. The port is
+`rest_api.port`, 1024 to 65535, and the command takes no port of its own: to
+serve on another, change the setting. A `rest_api` the server cannot use, or
 an address and port it cannot take, is refused `RestServerNotStartedError`
 before anything is served, from every host: LumaViewPro shows it and runs on
 without a server, and `python -m lumascope.rest` prints it and exits `1`.
@@ -84,7 +91,9 @@ a path segment, so `session.scope.motion.move_xy` is
 - **Every other call is `POST`**, its arguments a JSON object by parameter
   name; `null` is None, and a parameter left out takes its default. A member
   that hands out a running call is a `POST` even when it changes nothing
-  (`last_run`).
+  (`last_run`). The parameter names are the member's, in its
+  [reference](../api-reference.md) entry and its route's body in `/docs`:
+  `move_to_well(well)` is `{"well": "B2"}`.
 - **The answer** to a finished call is `200` with its value as the body, `null`
   for None.
 - **Arguments are checked before the member runs**: a key it does not take, a
@@ -235,6 +244,11 @@ event is `closing`.
   bounds a frame's width, half the camera's frame when not given.
 - `GET /api/v1/live.jpg` -- one frame, `max_width` as for `/live`; `503`
   (`'no_frame_yet'`, with `Retry-After`) when the camera sends none in time.
+- `GET /api/v1/live_folder_listing?name=<folder>` -- what a folder in the live
+  folder holds, one level, each entry by its full name, which a download
+  takes as it is. A run's folder is its job's `progress.run_dir`
+  ([`RunProgress`](../api-reference.md#RunProgress)), there from the run's
+  start, so list it once the run's `files` job has ended.
 - `GET /api/v1/files/<name>` -- a file in the live folder, as an attachment; a
   `Range` request resumes a large download.
 - `PUT /api/v1/files/<name>` -- a new file in the live folder, answered `201`
