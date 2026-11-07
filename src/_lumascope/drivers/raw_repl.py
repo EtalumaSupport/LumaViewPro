@@ -270,8 +270,8 @@ def raw_exec(
 
         # Read until we get the two \x04 markers
         response = b''
-        start = time.time()
-        while time.time() - start < timeout:
+        start = time.monotonic()
+        while time.monotonic() - start < timeout:
             chunk = serial_port.read(1024)
             if chunk:
                 response += chunk
@@ -407,7 +407,7 @@ def read_file(serial_port, filename, verify=True):
     return data
 
 
-def write_file(serial_port, filename, data):
+def write_file(serial_port: serial.Serial, filename: str, data: bytes) -> bool:
     """Write a file to the board via raw REPL with full safety.
 
     Uses binary stdin transfer: sends a small helper script that reads
@@ -503,8 +503,8 @@ def write_file(serial_port, filename, data):
             overall_timeout = max(30, file_size // 500)
             serial_port.timeout = 2.0
             response = b''
-            deadline = time.time() + overall_timeout
-            while time.time() < deadline:
+            deadline = time.monotonic() + overall_timeout
+            while time.monotonic() < deadline:
                 chunk = serial_port.read(1024)
                 if chunk:
                     response += chunk
@@ -549,7 +549,9 @@ def write_file(serial_port, filename, data):
     return False
 
 
-def verify_firmware_running(serial_port, command='INFO', timeout=10):
+def verify_firmware_running(
+    serial_port: serial.Serial, command: str = 'INFO', timeout: float = 10
+) -> str | None:
     """Verify that firmware is running and responding after raw REPL exit.
 
     Sends the given command repeatedly until a valid response is received
@@ -558,12 +560,12 @@ def verify_firmware_running(serial_port, command='INFO', timeout=10):
 
     Returns the firmware response string, or None if firmware is not responding.
     """
-    deadline = time.time() + timeout
+    deadline = time.monotonic() + timeout
     old_timeout = serial_port.timeout
     serial_port.timeout = 2.0
 
     try:
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             try:
                 _drain_input(serial_port)
                 serial_port.write(f'{command}\n'.encode())

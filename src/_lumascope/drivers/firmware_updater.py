@@ -346,8 +346,8 @@ def _detect_bootsel_linux():
 def _wait_for_bootsel_drive(timeout=30.0):
     """Poll for BOOTSEL drive to appear. Returns mount path or None."""
     logger.info(f'Waiting for BOOTSEL drive (timeout={timeout}s)...')
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         drive = _detect_bootsel_drive()
         if drive is not None:
             return drive
@@ -359,8 +359,8 @@ def _wait_for_bootsel_drive(timeout=30.0):
 def _wait_for_drive_disappear(drive_path, timeout=DRIVE_DISAPPEAR_TIMEOUT):
     """Wait for BOOTSEL drive to disappear (indicates UF2 was accepted)."""
     logger.info('Waiting for BOOTSEL drive to disappear...')
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         if not drive_path.is_dir():
             logger.info('BOOTSEL drive disappeared -- UF2 accepted')
             return True
@@ -455,8 +455,8 @@ def _flash_uf2_picotool(uf2_path, picotool_path=None, reboot=True):
 def _wait_for_serial_port(vid, pid, timeout=30.0):
     """Wait for serial port with given VID/PID to appear. Returns port or None."""
     logger.info(f'Waiting for serial port VID=0x{vid:04X} PID=0x{pid:04X} (timeout={timeout}s)...')
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         port = _find_serial_port(vid, pid)
         if port is not None:
             logger.info(f'Serial port found: {port}')

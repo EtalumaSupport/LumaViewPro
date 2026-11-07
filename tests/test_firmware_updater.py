@@ -44,7 +44,7 @@ def _motor_bus(dialect='field'):
 # The updater's own name for time, with sleeps that return at once. Patching
 # time.sleep through it would replace the time module's sleep for every
 # thread in the process.
-_NO_WAIT_TIME = SimpleNamespace(time=time.time, sleep=lambda _s: None)
+_NO_WAIT_TIME = SimpleNamespace(monotonic=time.monotonic, sleep=lambda _s: None)
 
 
 # ---------------------------------------------------------------------------

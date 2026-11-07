@@ -11,13 +11,13 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
+from _lumascope.drivers import host_clock
 from _lumascope.lib.lumascope_error import LumascopeError
 from _lumascope.lvp_logger import logger
 
 from _lumascope.modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
 from _lumascope.modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from _lumascope.modules.protocol_state_machine import ProtocolState
-from _lumascope.modules import wall_time
 from _lumascope.modules.exceptions import (
     INTERLOCK_REASONS,
     HardwareCommandRefusedError,
@@ -308,16 +308,14 @@ class ProtocolRunLoop:
                 # once per step (scan_iterate keys the one-shot on curr_step).
                 p._auto_gain_armed_step = -1
 
-                start_scan_time = wall_time.now()
+                start_scan_ns = host_clock.steady_ns()
                 p._step_executor.scan_loop()
-                end_scan_time = wall_time.now()
-                scan_duration = end_scan_time - start_scan_time
+                scan_duration_s = (host_clock.steady_ns() - start_scan_ns) / 1e9
 
                 scan_aborted = p._aborted.is_set()
                 scan_outcome = 'aborted after' if scan_aborted else 'completed in'
                 logger.info(
-                    f'Protocol scan {p._scan_count + 1} {scan_outcome} '
-                    f'{scan_duration.total_seconds():.2f} seconds'
+                    f'Protocol scan {p._scan_count + 1} {scan_outcome} {scan_duration_s:.2f} seconds'
                 )
 
                 # The pacing anchor has two lifecycle events: it is

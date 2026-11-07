@@ -1,16 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import abc
+import datetime
 import pathlib
 import time
 from collections.abc import Callable
 
 import pandas as pd
 
+from _lumascope.drivers import host_clock
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.post_derivation as post_derivation
 import _lumascope.modules.path_utils as path_utils
-import _lumascope.modules.wall_time as wall_time
 import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.api_surface import ProgressCallback
@@ -463,7 +464,7 @@ class ProtocolPostProcessor(abc.ABC):
         select: Callable[[pd.DataFrame], pd.Series] | None = None,
         **kwargs: dict,
     ) -> dict:
-        start_ts = wall_time.now()
+        start_ns = host_clock.steady_ns()
         if not path:
             raise self._refuse('invalid_path', 'No folder was given to process.')
 
@@ -935,8 +936,7 @@ class ProtocolPostProcessor(abc.ABC):
                 excluded_inputs=excluded_inputs,
             )
 
-        end_ts = wall_time.now()
-        elapsed_time = end_ts - start_ts
+        elapsed_time = datetime.timedelta(microseconds=(host_clock.steady_ns() - start_ns) // 1000)
         logger.info(
             f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} '
             f'artifacts (significant_bits={output_significant_bits}) in {elapsed_time}.'
