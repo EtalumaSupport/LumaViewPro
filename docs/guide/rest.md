@@ -147,9 +147,11 @@ job:
  "requested": "2026-10-29T11:47:56.043-07:00", "ended": null, "progress": null}
 ```
 
-A member that starts an operation -- a run, a move, a home, a still -- is
-answered `202` with the operation's job as soon as it has started, whatever
-the wait. `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads a
+A member that returns an operation -- a run's start, `start_move_to_well`,
+`start_home`, a still's `capture` -- is answered `202` with the operation's
+job as soon as it has started, whatever the wait. Its twin that waits for
+the operation and returns its result, `move_to_well` or `home`, is a call
+like any other: `200` with the result within the wait, a `202` job past it. `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads a
 job, `200` whatever its status; with `Prefer: respond-async` it answers at
 once, a poll of the job's `progress`. Once it has ended it carries `result` or `error` (the problem). A job's
 `status` says whether the call answered a problem, not how the operation went:
