@@ -92,10 +92,11 @@ class ReadOnlyDict(dict):
     raises TypeError, so a caller holding a cell from ``steps()``, ``step()``
     or a run's copy cannot change the protocol, or another copy, behind its
     writers. What it is built from is frozen as it is built (``_read_only``):
-    a dict inside it is one, a list a tuple, every value a Python one, so
-    nothing in it can change and a cell can be shared by every step built
-    from it. A deep copy is a plain dict, all the way down, its tuples
-    lists again, for the caller that means to edit its own.
+    a dict inside it is one, a list a tuple, a numpy scalar its Python
+    value, so nothing a protocol's file can hold in it can change, and a
+    cell can be shared by every step built from it. A deep copy is a plain
+    dict, all the way down, its tuples lists again, for the caller that
+    means to edit its own.
     """
 
     def __init__(self, items=()):
@@ -121,7 +122,7 @@ class ReadOnlyDict(dict):
 
 
 def _read_only(value):
-    """``value`` made unchangeable all the way down: a dict a ``ReadOnlyDict``, a list a tuple, a numpy scalar its Python value.
+    """``value`` with every dict and list in it, at any depth, made unchangeable: a dict a ``ReadOnlyDict``, a list a tuple; a numpy scalar is made its Python value.
 
     Each dict and list is built anew, so nothing the caller holds is shared
     with the protocol; a ``ReadOnlyDict`` is returned as it is, since it was
