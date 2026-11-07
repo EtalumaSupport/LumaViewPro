@@ -77,11 +77,20 @@ def _rows(protocol):
     return rows.astype(object).where(rows.notna(), None).to_dict('records')
 
 
-def _ordered(protocol):
-    """What ``optimize_step_ordering`` would make of the protocol's steps."""
-    other = protocol.copy_for_execution()
-    other.optimize_step_ordering()
-    return _rows(other)
+def _in_order(protocol, places, column):
+    """Each step, in order, as the place it was built at (an index into ``places``) and its ``column``.
+
+    A built step is near the place it came from: a tile is within its grid,
+    a slice at it.
+    """
+
+    def place_of(row):
+        return min(
+            range(len(places)),
+            key=lambda i: abs(row['X'] - places[i]['X']) + abs(row['Y'] - places[i]['Y']),
+        )
+
+    return [(place_of(row), row[column]) for row in _rows(protocol)]
 
 
 @pytest.fixture
@@ -113,11 +122,17 @@ class TestTiling:
         # Two steps at one X with another between them: built step by step,
         # the tiles of the two would not be next to each other.
         protocol = _bf_steps_at(session, (10000, 20000, 10000))
+        places = _rows(protocol)[:2]
 
         session.apply_tiling(protocol, '2x2')
 
-        assert protocol.num_steps() == 12
-        assert _rows(protocol) == _ordered(protocol)
+        # Each place in the order it first appears; at a place, its steps in
+        # the order they were made: the first and third steps' tiles pair up.
+        assert _in_order(protocol, places, 'Tile') == [
+            (0, 'A1'), (0, 'A1'), (0, 'A2'), (0, 'A2'),
+            (0, 'B1'), (0, 'B1'), (0, 'B2'), (0, 'B2'),
+            (1, 'A1'), (1, 'A2'), (1, 'B1'), (1, 'B2'),
+        ]  # fmt: skip
 
     @pytest.mark.parametrize(
         'store',
@@ -202,11 +217,16 @@ def _bf_steps_at_center(session):
 class TestZStacking:
     def test_every_step_becomes_a_stack_in_the_order_a_run_visits(self, session):
         protocol = _bf_steps_at(session, (10000, 20000, 10000))
+        places = _rows(protocol)[:2]
 
         session.apply_zstacking(protocol, range_um=20.0, step_size_um=5.0, z_reference='center')
 
-        assert protocol.num_steps() == 15
-        assert _rows(protocol) == _ordered(protocol)
+        # Each place in the order it first appears; at a place, rising in Z,
+        # the first and third steps' slices of one Z together.
+        assert _in_order(protocol, places, 'Z-Slice') == [
+            (0, 0), (0, 0), (0, 1), (0, 1), (0, 2), (0, 2), (0, 3), (0, 3), (0, 4), (0, 4),
+            (1, 0), (1, 1), (1, 2), (1, 3), (1, 4),
+        ]  # fmt: skip
 
     @pytest.mark.parametrize(('range_um', 'step_size_um'), [(0.0, 5.0), (20.0, 0.0)])
     def test_no_extent_is_refused_and_nothing_changes(self, session, range_um, step_size_um):

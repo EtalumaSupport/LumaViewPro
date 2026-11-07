@@ -1801,7 +1801,7 @@ class Protocol:
             }
         )
         order = keys.sort_values(by=['place', 'Objective', 'Z'], kind='stable').index
-        self._set_steps(steps.iloc[order].reset_index(drop=True))
+        self._reorder_steps(order)
 
     @staticmethod
     def _create_empty_steps_df() -> pd.DataFrame:
@@ -2093,11 +2093,22 @@ class Protocol:
         self._num_steps_cache = None
         self._step_list_revision += 1
 
+    def _reorder_steps(self, order: Collection[int]) -> None:
+        """Store the steps in ``order``, a permutation of their positions, and record the change.
+
+        A reorder changes no cell, so no cell is read again: each was read
+        when ``_set_steps`` stored it. The frame is renumbered 0..n-1, as
+        ``_set_steps`` numbers it.
+        """
+        self._config['steps'] = self._config['steps'].iloc[order].reset_index(drop=True)
+        self._step_list_changed()
+
     def _set_steps(self, df: pd.DataFrame) -> None:
         """Assign the steps DataFrame and record that the step list changed.
 
         All code paths that replace self._config['steps'] should go through
-        this helper so the cache and the revision stay consistent. In-place
+        this helper so the cache and the revision stay consistent; a
+        reorder, which changes no cell, goes through ``_reorder_steps``. In-place
         row mutations (e.g. delete_step's drop(inplace=True)) must call
         _step_list_changed() explicitly.
 

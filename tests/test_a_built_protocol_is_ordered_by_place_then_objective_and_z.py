@@ -66,3 +66,19 @@ def test_the_steps_are_ordered_by_place_then_objective_and_z(make_session, tmp_p
     assert [gain for gain in place_a if gain != 4.0] == [5.0, 6.0, 1.0], order
     assert unplaced == [7.0, 2.0], order
     assert place_b == [8.0, 3.0], order
+
+
+def test_a_reorder_moves_the_revision_and_leaves_every_cell_as_it_was(make_session, tmp_path):
+    session = make_session('LS850T')
+    protocol = session.load_protocol(_protocol_file(session, tmp_path / 'unordered.tsv'))
+    before = {row['Gain']: row for row in protocol.steps().to_dict('records')}
+    revision = protocol.step_list_revision
+
+    protocol.optimize_step_ordering()
+
+    assert protocol.step_list_revision != revision
+    for row in protocol.steps().to_dict('records'):
+        was = before[row['Gain']]
+        assert row['Name'] == was['Name'], row['Gain']
+        for column in ('Video Config', 'Stim_Config'):
+            assert row[column] is was[column], (row['Gain'], column)
