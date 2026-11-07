@@ -2,7 +2,8 @@
 """The FX2 driver step takes both of the Classic's USB identities for our
 package, removing every other package that names either, and restores
 nothing at uninstall; a package of ours that cannot enter the store removes
-nothing.
+nothing. The installer's run takes over only a PC that has had a Classic;
+Repair's takes over wherever it runs.
 
 ``src/_lumascope/modules/fx2_driver_step.py`` is what the app's Repair runs elevated to
 install, and the MSI to uninstall. The machine it acts on is stood in by ``_Machine``: a driver store
@@ -297,16 +298,16 @@ def _run_frozen_from(install_dir, monkeypatch) -> None:
     monkeypatch.setattr(path_utils, 'build_root', lambda: install_dir)
 
 
-def _run_main(tmp_path, monkeypatch, machine) -> tuple[int, str]:
+def _run_main(tmp_path, monkeypatch, machine, verb='install') -> tuple[int, str]:
     package_dir = _package_dir(tmp_path)
     install_dir = package_dir.parent.parent
     (install_dir / 'version.txt').write_text('4.0.0-beta38\n', encoding='ascii')
     _run_frozen_from(install_dir, monkeypatch)
     monkeypatch.setattr(fx2_driver_step, 'WindowsMachine', lambda: machine)
 
-    code = fx2_driver_step.main(['install'])
+    code = fx2_driver_step.main([verb])
 
-    (log_file,) = (install_dir / 'logs').glob('driver_install_4.0.0-beta38_*.log')
+    (log_file,) = (install_dir / 'logs').glob(f'driver_{verb}_4.0.0-beta38_*.log')
     return code, log_file.read_text(encoding='utf-8')
 
 
@@ -366,3 +367,59 @@ def test_a_log_the_step_cannot_write_exits_with_its_own_code(tmp_path, monkeypat
 
     assert code == fx2_driver_step.LOG_UNWRITABLE_EXIT
     assert machine.commands == []
+
+
+def test_the_installer_leaves_a_pc_that_never_had_a_classic_untouched(tmp_path, monkeypatch):
+    machine = _machine(tmp_path)
+
+    code, text = _run_main(tmp_path, monkeypatch, machine, verb='install-if-classic')
+
+    assert code == 0
+    # No pnputil ran, so Windows asked the person nothing.
+    assert machine.commands == []
+    assert 'has never had a Lumascope Classic' in text
+
+
+def test_the_installer_leaves_another_vendors_fx2_alone(tmp_path):
+    # The bootloader's identity is every EEPROM-less FX2's, so it says
+    # nothing about a Classic.
+    machine = _machine(tmp_path)
+    acme = machine.publish(OTHER_VENDOR_BOOTLOADER)
+    machine.plug(FX2_BOOTLOADER, inf=acme)
+
+    installed = fx2_driver_step.install_if_classic(machine, _package_dir(tmp_path))
+
+    assert installed is fx2_driver_step.Installed.NO_CLASSIC
+    assert _bound(machine, FX2_BOOTLOADER) == [(True, 'Acme')]
+
+
+def test_the_installer_takes_over_a_pc_holding_lumaviews_package(tmp_path):
+    # The scope is not plugged in; LumaView's package in the store says a
+    # Classic belongs here.
+    machine = _machine(tmp_path)
+    machine.publish(LUMAVIEW_LIBUSBK)
+
+    installed = fx2_driver_step.install_if_classic(machine, _package_dir(tmp_path))
+
+    assert installed is fx2_driver_step.Installed.BOUND
+    assert [p.provider for p in machine.store_packages(FX2_FIRMWARE)] == ['Etaluma']
+
+
+def test_the_installer_takes_over_a_pc_where_a_classic_was_once_plugged(tmp_path):
+    machine = _machine(tmp_path)
+    machine.plug(FX2_FIRMWARE, present=False)
+
+    installed = fx2_driver_step.install_if_classic(machine, _package_dir(tmp_path))
+
+    assert installed is fx2_driver_step.Installed.BOUND
+    assert [p.provider for p in machine.store_packages(FX2_FIRMWARE)] == ['Etaluma']
+
+
+def test_repair_takes_over_a_pc_that_never_had_a_classic(tmp_path):
+    # The person runs Repair with the scope on the bus for the first time.
+    machine = _machine(tmp_path)
+
+    installed = fx2_driver_step.install(machine, _package_dir(tmp_path))
+
+    assert installed is fx2_driver_step.Installed.BOUND
+    assert [p.provider for p in machine.store_packages(FX2_FIRMWARE)] == ['Etaluma']

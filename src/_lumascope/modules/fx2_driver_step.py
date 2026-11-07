@@ -2,9 +2,11 @@
 """The Lumascope Classic's driver step on Windows: our WinUSB package takes
 both of the scope's USB identities from every other package.
 
-Run elevated: ``install`` by the app's Repair, on the person's desktop, where
-Windows can ask whether to install software from Etaluma; ``uninstall`` by
-the installer. Every step and every Windows answer goes to
+Run elevated, on the person's desktop, where Windows can ask whether to
+install software from Etaluma: ``install`` by the app's Repair, and
+``install-if-classic`` by the installer, which takes over only a PC that has
+had a Classic (``install_if_classic``); ``uninstall`` by the installer. Every
+step and every Windows answer goes to
 ``<install>\\logs\\driver_<step>_<version>_<time>.log``.
 
 Install, in order:
@@ -80,12 +82,14 @@ LOG_UNWRITABLE_EXIT = 4
 
 
 class Installed(enum.Enum):
-    """What install did: both identities bound, some step incomplete, or our
-    package not accepted into the driver store and nothing changed."""
+    """What install did: both identities bound, some step incomplete, our
+    package not accepted into the driver store and nothing changed, or (the
+    installer's run) nothing changed on a PC that has never had a Classic."""
 
     BOUND = 'bound'
     INCOMPLETE = 'incomplete'
     NOT_ACCEPTED = 'not_accepted'
+    NO_CLASSIC = 'no_classic'
 
 
 class Machine(Protocol):
@@ -151,6 +155,26 @@ def install(machine: Machine, package_dir: pathlib.Path) -> Installed:
     _record(machine, 'after install')
     complete = all((others_removed, older_removed, past_removed, bound))
     return Installed.BOUND if complete else Installed.INCOMPLETE
+
+
+def install_if_classic(machine: Machine, package_dir: pathlib.Path) -> Installed:
+    """``install`` on a PC that has had a Lumascope Classic; elsewhere nothing.
+
+    The installer runs on every PC, and most never see a Classic; on those
+    the step changes nothing and Windows asks the person nothing. A PC has
+    had one when it has seen a device of the running firmware's identity,
+    present or past, or its store holds a package naming it (LumaView's, on
+    every field PC). The bootloader's identity is every EEPROM-less Cypress
+    FX2's, so a PC with only another vendor's FX2 is not taken over. A
+    Classic first plugged in after the install is taken over by Repair.
+    """
+    if not machine.device_bindings(FX2_FIRMWARE) and not machine.store_packages(FX2_FIRMWARE):
+        log.info(
+            f'this PC has never had a Lumascope Classic: no device of {FX2_FIRMWARE} has '
+            'been seen and no package names it; nothing changed'
+        )
+        return Installed.NO_CLASSIC
+    return install(machine, package_dir)
 
 
 def uninstall(machine: Machine) -> bool:
@@ -388,9 +412,10 @@ def run_as_administrator(executable: pathlib.Path, argument: str, wait_s: float)
 
 
 def main(argv: list[str]) -> int:
-    """``lvp_fx2_driver_step install|uninstall``, run from the install folder."""
-    if len(argv) != 1 or argv[0] not in ('install', 'uninstall'):
-        print('usage: lvp_fx2_driver_step install|uninstall', file=sys.stderr)
+    """``lvp_fx2_driver_step install|install-if-classic|uninstall``, run from the
+    install folder."""
+    if len(argv) != 1 or argv[0] not in ('install', 'install-if-classic', 'uninstall'):
+        print('usage: lvp_fx2_driver_step install|install-if-classic|uninstall', file=sys.stderr)
         return 2
     install_dir = launch_root()
     version, _ = read_version()
@@ -417,6 +442,9 @@ def main(argv: list[str]) -> int:
             if argv[0] == 'install':
                 installed = install(WindowsMachine(), package_dir)
                 complete = installed is Installed.BOUND
+            elif argv[0] == 'install-if-classic':
+                installed = install_if_classic(WindowsMachine(), package_dir)
+                complete = installed in (Installed.BOUND, Installed.NO_CLASSIC)
             else:
                 complete = uninstall(WindowsMachine())
         except Exception:
