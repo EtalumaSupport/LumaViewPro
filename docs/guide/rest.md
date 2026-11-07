@@ -70,9 +70,12 @@ copy neither has run has no `current.json` and serves from the template's
 serve on another, change the setting. A `rest_api` the server cannot use, or
 an address and port it cannot take, is refused `RestServerNotStartedError`
 before anything is served, from every host: LumaViewPro shows it and runs on
-without a server, and `python -m lumascope.rest` prints it and exits `1`.
-While it serves, `server.reach` says where and to whom (`python -m
-lumascope.rest` prints it, and LumaViewPro shows it in Advanced Settings).
+without a server, and `python -m lumascope.rest` prints it and exits `1`. A
+`current.json` the server cannot use, an edit that left it short of a key or
+holding a block of the wrong kind, is `SettingsFileError`, printed the same
+way, naming the file and what is wrong; the file is not changed. While it
+serves, `server.reach` says where and to whom (`python -m lumascope.rest`
+prints it, and LumaViewPro shows it in Advanced Settings).
 
 ## Routes
 

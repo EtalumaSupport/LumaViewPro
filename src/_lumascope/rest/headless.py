@@ -62,9 +62,18 @@ def main(argv: list[str] | None = None) -> int:
     # loaded the whole API, the server's dependencies with it, before this runs.
     from _lumascope.modules.exceptions import RestServerNotStartedError
     from _lumascope.modules.scope_session import ScopeSession
+    from _lumascope.modules.settings_init import SettingsFileError
     from _lumascope.rest.server import build_server
 
-    settings = ScopeSession.load_user_settings(str(source_path))
+    # An unusable current.json is the user's to fix, told as the refusal it
+    # is; the GUI would ask, and a server has nobody to ask.
+    try:
+        settings = ScopeSession.load_user_settings(str(source_path))
+    except SettingsFileError as e:
+        logger.error(f'[REST     ] {e}')
+        print(e, file=sys.stderr)
+        instance_lock.close()
+        return 1
 
     session = ScopeSession.create(
         settings=settings,

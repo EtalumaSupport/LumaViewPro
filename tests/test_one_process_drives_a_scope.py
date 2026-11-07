@@ -301,6 +301,28 @@ def test_the_server_does_not_start_beside_a_holder(capsys, a_host_in_this_proces
     assert 'already running' in capsys.readouterr().err
 
 
+def test_the_server_prints_a_corrupt_current_json_exits_1_and_gives_the_lock_back(
+    monkeypatch, capsys, a_host_in_this_process
+):
+    import _lumascope.modules.path_utils
+    from _lumascope.rest.headless import main
+
+    port = _free_port()
+    root = installation_of_its_own()
+    current = root / 'data' / 'current.json'
+    current.write_text(json.dumps({'microscope': 'LS850', 'lvp_lock_port': port}))
+    monkeypatch.setattr(_lumascope.modules.path_utils, 'get_source_root', lambda *_args: root)
+
+    assert main(['--simulate']) == 1
+    said = capsys.readouterr()
+    assert said.err.strip().splitlines() == [
+        f"{current}: missing required keys: ['frame', 'live_folder']. "
+        'App cannot start without these keys.'
+    ]
+    assert 'REST server:' not in said.out
+    assert _another_process_can_take(port)
+
+
 def test_the_server_takes_no_host():
     from _lumascope.rest.headless import main
 
