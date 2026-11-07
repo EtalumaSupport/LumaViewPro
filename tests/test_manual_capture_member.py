@@ -229,6 +229,38 @@ class TestOverlays:
         assert all(p.is_file() for p in paths)
 
 
+class TestASumIsTakenBackToBack:
+    def test_a_summed_still_spans_its_own_frames(self, tmp_path):
+        """A still summing four frames takes four of the camera's frames:
+        the camera paces a sum, so nothing waits between its frames.
+
+        Counted in the camera's own frames, not wall time, so a slow host
+        stretches both sides alike. One frame of slack is the frame that may
+        be under way when the still starts."""
+        sum_count = 4
+        settings = _settings(tmp_path)
+        settings['BF']['sum'] = sum_count
+        settings['BF']['exposure_ms'] = 50.0
+        with _open_session(settings) as session:
+            # The simulated camera's hand-over ordinal is the frame count
+            # the claim is made in.
+            camera = session.scope._camera_driver
+            # The first still after bring-up also waits out the session's
+            # own settle; the claim is about a sum, so it is made on the next.
+            session.manual_capture.capture(false_color_on=False).result(timeout=RESULT_TIMEOUT_S)
+            before = camera.grab().seq
+            still = session.manual_capture.capture(false_color_on=False).result(
+                timeout=RESULT_TIMEOUT_S
+            )[0]
+            spanned = camera.grab().seq - before
+
+        assert still.frame.frames_summed == sum_count
+        assert spanned <= sum_count + 1, (
+            f"a still summing {sum_count} frames spanned {spanned} of the camera's "
+            'frames: something waits between the frames of a sum'
+        )
+
+
 class TestRefusalsAndFailures:
     def test_a_still_has_no_stop_so_stop_leaves_it_to_finish(self, still_session):
         """A still is an ``Operation`` with no stop: ``stop()`` while it is
@@ -258,7 +290,7 @@ class TestRefusalsAndFailures:
         assert not session.manual_capture.in_flight
 
     def test_the_guard_holds_until_the_lane_body_ends_not_the_callers_wait(self, tmp_path):
-        """A slow still -- summed frames, each settled for its exposure --
+        """A slow still -- summed frames, each a 400 ms exposure --
         is still running on the lane when its caller stops waiting; a second
         press then must not start a still beside it."""
         settings = _settings(tmp_path)

@@ -332,7 +332,6 @@ class ManualCaptureController:
                 all_ones_check=True,
                 timeout_s=_CAPTURE_RETRY_BUDGET_S,
                 sum_count=channel_config['sum'],
-                sum_delay_s=channel_config['exposure_ms'] / 1000,
             )
             if first_capture is None:
                 first_capture = scope.imaging.last_capture_info

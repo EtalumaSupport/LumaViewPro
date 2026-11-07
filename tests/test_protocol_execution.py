@@ -857,6 +857,54 @@ class TestLedStateAtEnd:
 class TestSumAveraging:
     """Protocol with sum/frame averaging > 1."""
 
+    def test_a_summed_step_spans_its_own_frames(self, executor, scope, tmp_path):
+        """A step summing four frames takes four of the camera's frames from
+        its first to its last: the camera paces a sum, so nothing waits
+        between its frames or after the last.
+
+        Counted in the camera's own frames from the first summed frame to
+        the capture's return, which leaves out the step's settle; one frame
+        of slack for the frame under way at the end. The step is unlit: the
+        simulated camera with no specimen gives a lit frame at full white,
+        and a blown frame is retried once, which would take a frame of its
+        own beside each summed one."""
+        sum_count = 4
+        protocol = _make_single_step_protocol(
+            color='BF', sum_count=sum_count, exposure=50.0, illumination=0.0
+        )
+        # The simulated camera's hand-over ordinal is the frame count the
+        # claim is made in.
+        camera = scope._camera_driver
+        seq_at_each_frame = []
+        spans = []
+        real_capture_still = scope.imaging.capture_still
+
+        # The real capture, observed: the span runs from the sum's first
+        # frame, which the sum's own per-frame callback marks, to the return.
+        def observed(*args, **kwargs):
+            each_frame = kwargs.get('sum_iteration_callback')
+
+            def marked():
+                seq_at_each_frame.append(camera.grab().seq)
+                if each_frame is not None:
+                    each_frame()
+
+            kwargs['sum_iteration_callback'] = marked
+            still = real_capture_still(*args, **kwargs)
+            spans.append(camera.grab().seq - seq_at_each_frame[0])
+            return still
+
+        scope.imaging.capture_still = observed
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+
+        assert completed
+        assert len(spans) == 1, f'the step took {len(spans)} stills, not one'
+        assert spans[0] <= sum_count, (
+            f"a step summing {sum_count} frames spanned {spans[0]} of the camera's "
+            'frames past its first: something waits between the frames of a sum '
+            f'(the camera at each summed frame: {seq_at_each_frame})'
+        )
+
     def test_sum_4_completes(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', sum_count=4)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)

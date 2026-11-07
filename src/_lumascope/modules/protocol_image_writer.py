@@ -1578,7 +1578,6 @@ class ProtocolImageWriter:
                             all_ones_check=True,
                             timeout_s=1.0,
                             sum_count=sum_count,
-                            sum_delay_s=step['Exposure'] / 1000,
                             sum_iteration_callback=sum_iteration_callback,
                         )
                     except CaptureFailedError as failed:

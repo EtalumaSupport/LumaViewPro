@@ -210,7 +210,6 @@ class TestSummingSurvivesAnOverlay:
             'the overlay path grabbed its frame without the configured frame '
             'count, so an overlay silently reduced a summed capture to one frame'
         )
-        assert kwargs['sum_delay_s'] == pytest.approx(0.1)
 
 
 class TestEngineeringModeNamesTheTurretPosition:
