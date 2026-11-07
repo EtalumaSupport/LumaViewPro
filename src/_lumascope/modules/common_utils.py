@@ -1186,6 +1186,24 @@ def _self_process():
     return _SELF_PROC
 
 
+class HostBoot(NamedTuple):
+    """When the host booted (seconds since the epoch) and how long it has
+    been up (hours)."""
+
+    boot_epoch_s: float
+    uptime_hr: float
+
+
+def host_boot() -> HostBoot:
+    """The host's boot instant and uptime, read once.
+
+    Uptime is the wall clock now less the boot instant: the host states its
+    boot on the wall clock alone, so the two are read on one clock.
+    """
+    boot_epoch_s = psutil.boot_time()
+    return HostBoot(boot_epoch_s=boot_epoch_s, uptime_hr=(_time.time() - boot_epoch_s) / 3600.0)
+
+
 def system_metrics(path: str = '/', *, collect_open_files: bool) -> dict:
     """Return a one-shot snapshot of process and host resource state.
 

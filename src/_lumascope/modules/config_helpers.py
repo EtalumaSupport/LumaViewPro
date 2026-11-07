@@ -8,7 +8,6 @@ used by LumaViewPro, the REST API, or standalone scripts.
 """
 
 import pathlib
-import time
 import typing
 
 import psutil
@@ -427,13 +426,8 @@ def log_environment_once() -> None:
     """
     import platform as _platform
 
-    try:
-        boot_ts = psutil.boot_time()
-        boot_dt = wall_time.local_time(round(boot_ts * 1e9)).isoformat(timespec='seconds')
-        uptime_hr = (time.time() - boot_ts) / 3600.0
-    except Exception:
-        boot_dt = 'NA'
-        uptime_hr = -1
+    boot = common_utils.host_boot()
+    boot_dt = wall_time.local_time(round(boot.boot_epoch_s * 1e9)).isoformat(timespec='seconds')
 
     try:
         os_release = _platform.platform()
@@ -480,7 +474,7 @@ def log_environment_once() -> None:
             pass
 
     metrics_logger.info(
-        f'[ENV METRICS] boot={boot_dt} | uptime_hr={uptime_hr:.1f} | '
+        f'[ENV METRICS] boot={boot_dt} | uptime_hr={boot.uptime_hr:.1f} | '
         f'os={os_release} | cores={ncores} | pylon={pylon_ver} | '
         f'defender={defender_state}',
     )
@@ -553,18 +547,12 @@ def log_system_metrics(
     # logged once at startup. Lets post-hoc log analysis tag each tick
     # with "system has been up for N hours" to filter out runs
     # contaminated by long-uptime memory exhaustion.
-    try:
-        import time as _time
-
-        uptime_hr = (_time.time() - psutil.boot_time()) / 3600.0
-        uptime_str = f' | uptime_hr={uptime_hr:.1f}'
-    except Exception:
-        uptime_str = ''
+    uptime_hr = common_utils.host_boot().uptime_hr
 
     metrics_logger.info(
         f'[SYSTEM METRICS] CPU Usage: {metrics["cpu_percent_total"]:.1f}% | '
         f'RAM Available: {metrics["ram_available_gb"]:.1f} GB | '
-        f'RAM Usage: {metrics["ram_percent_total"]:.1f}%{uptime_str}',
+        f'RAM Usage: {metrics["ram_percent_total"]:.1f}% | uptime_hr={uptime_hr:.1f}',
     )
     metrics_logger.info(
         f'[DISK METRICS] Disk Free: {metrics["disk_free_gb"]:.1f} GB | '

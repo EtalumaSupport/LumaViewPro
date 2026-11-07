@@ -206,6 +206,59 @@ class TestGcMetricsLine:
         assert re.search(r'\[GC METRICS\] blocks=[1-9]\d* \|', line), line
 
 
+class TestUptimeOnTheSystemLine:
+    def _system_line(self, monkeypatch, caplog, scope, tmp_path):
+        # a stand-in by design: check_disk_space needs a real number for the
+        # line to be reached at all, as in _drive_log_system_metrics.
+        monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
+        lines = _metrics_lines(
+            caplog,
+            lambda: config_helpers.log_system_metrics(
+                complete_settings(live_folder=str(tmp_path)),
+                scope=scope,
+                executors=real_executor_bundle(),
+            ),
+        )
+        (line,) = [m for m in lines if '[SYSTEM METRICS]' in m]
+        return line
+
+    def test_the_line_states_the_hosts_uptime(self, monkeypatch, caplog, sim_scope, tmp_path):
+        line = self._system_line(monkeypatch, caplog, sim_scope, tmp_path)
+        assert re.search(r'\| uptime_hr=\d+\.\d$', line), line
+
+    def test_an_unreadable_boot_time_is_raised_not_dropped(
+        self, monkeypatch, caplog, sim_scope, tmp_path
+    ):
+        """A boot time psutil cannot read reaches the tick's caller, which
+        reports it; the line is never logged without its uptime."""
+
+        refusal = psutil.Error()
+
+        def unreadable():
+            raise refusal
+
+        # a stand-in by design: a host whose boot time cannot be read is not
+        # one this host can be made into.
+        monkeypatch.setattr(psutil, 'boot_time', unreadable)
+        with pytest.raises(psutil.Error) as raised:
+            self._system_line(monkeypatch, caplog, sim_scope, tmp_path)
+        assert raised.value is refusal
+
+
+def test_an_unreadable_boot_time_is_raised_from_the_environment_line(monkeypatch):
+    refusal = psutil.Error()
+
+    def unreadable():
+        raise refusal
+
+    # a stand-in by design: a host whose boot time cannot be read is not one
+    # this host can be made into.
+    monkeypatch.setattr(psutil, 'boot_time', unreadable)
+    with pytest.raises(psutil.Error) as raised:
+        config_helpers.log_environment_once()
+    assert raised.value is refusal
+
+
 class _RecordingScheduler(ThreadingTimerScheduler):
     """The session's scheduler, recording each interval it is asked to keep."""
 
