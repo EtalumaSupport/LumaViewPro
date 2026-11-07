@@ -387,62 +387,6 @@ class TestFpsCalculation:
 # ===========================================================================
 
 
-class TestSettingsValidation:
-    """Verify settings validation logic.
-
-    Uses the same validation logic as settings_init._validate_settings
-    but reimplemented here to avoid sys.modules mock pollution from other
-    test files that replace _lumascope.modules.settings_init with a MagicMock.
-    """
-
-    # Mirror the required keys from settings_init.py
-    _REQUIRED = frozenset({'microscope', 'live_folder', 'frame'})
-
-    @staticmethod
-    def _validate(settings, filepath, logger):
-        """Inline copy of validation logic for test isolation."""
-        missing = TestSettingsValidation._REQUIRED - settings.keys()
-        if missing:
-            logger.warning(
-                f'[Settings ] {filepath} missing required keys: {sorted(missing)}. '
-                'App may not function correctly.'
-            )
-        if 'frame' in settings and not isinstance(settings['frame'], dict):
-            logger.warning(
-                f'[Settings ] {filepath}: "frame" should be a dict, '
-                f'got {type(settings["frame"]).__name__}'
-            )
-
-    def test_warns_on_missing_required_keys(self):
-        mock_logger = MagicMock()
-        self._validate({}, 'test.json', mock_logger)
-        mock_logger.warning.assert_called()
-        call_args = str(mock_logger.warning.call_args)
-        assert 'missing required keys' in call_args
-
-    def test_no_warning_when_all_keys_present(self):
-        mock_logger = MagicMock()
-        settings = {
-            'microscope': 'LS850',
-            'live_folder': './capture',
-            'frame': {'width': 1900, 'height': 1900},
-        }
-        self._validate(settings, 'test.json', mock_logger)
-        mock_logger.warning.assert_not_called()
-
-    def test_warns_on_bad_frame_type(self):
-        mock_logger = MagicMock()
-        settings = {
-            'microscope': 'LS850',
-            'live_folder': './capture',
-            'frame': 'not_a_dict',
-        }
-        self._validate(settings, 'test.json', mock_logger)
-        mock_logger.warning.assert_called()
-        call_args = str(mock_logger.warning.call_args)
-        assert 'should be a dict' in call_args
-
-
 class TestLvpLock:
     """Verify LVP lock security improvements."""
 

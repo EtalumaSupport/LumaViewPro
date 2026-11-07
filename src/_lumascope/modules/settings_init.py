@@ -166,6 +166,10 @@ def read_settings_json(path: str, logger: logging.Logger | None = None) -> dict:
         raise SettingsFileError(f'{path}: not valid JSON ({e})') from e
     except (OSError, UnicodeDecodeError) as e:
         raise SettingsFileError(f'{path}: could not be read ({e})') from e
+    # Valid JSON the reader cannot hold: an integer past Python's digit
+    # limit, or nesting past the recursion limit.
+    except (ValueError, RecursionError) as e:
+        raise SettingsFileError(f'{path}: could not be parsed ({e})') from e
 
     if not isinstance(parsed, dict):
         raise SettingsFileError(f'{path}: expected a JSON object, got {type(parsed).__name__}')
@@ -190,14 +194,40 @@ def _missing_required_keys(settings: dict) -> list[str]:
 def _validate_settings(settings: dict, filepath: str, logger) -> None:
     """Check that loaded settings contain all required keys and types.
 
-    Raises on missing critical keys. Warns on missing optional keys or
-    type mismatches -- allows the app to start with partial config.
+    Warns on missing optional keys or type mismatches -- allows the app to
+    start with partial config.
+
+    Raises:
+        SettingsFileError: the file lacks a key the app cannot start
+            without, or holds a block the load's folds cannot read: a
+            ``manual_video`` that is not a mapping, a turret slot that is not
+            a number, an ``image_mode`` that is not a string beside a retired
+            key it is derived from.
     """
     missing = _missing_required_keys(settings)
     if missing:
-        raise ValueError(
-            f'[Settings ] {filepath} missing required keys: {missing}. '
-            'App cannot start without these keys.'
+        raise SettingsFileError(
+            f'{filepath}: missing required keys: {missing}. App cannot start without these keys.'
+        )
+    if 'manual_video' in settings and not isinstance(settings['manual_video'], dict):
+        raise SettingsFileError(
+            f'{filepath}: "manual_video" should be a dict, '
+            f'got {type(settings["manual_video"]).__name__}'
+        )
+    slots = settings.get('turret_objectives')
+    if isinstance(slots, dict):
+        for slot in slots:
+            try:
+                int(slot)
+            except ValueError:
+                raise SettingsFileError(
+                    f'{filepath}: turret slot {slot!r} is not a number'
+                ) from None
+    retired = 'use_full_pixel_depth' in settings or 'false_color_16bit' in settings
+    if retired and 'image_mode' in settings and not isinstance(settings['image_mode'], str):
+        raise SettingsFileError(
+            f'{filepath}: "image_mode" should be a string, '
+            f'got {type(settings["image_mode"]).__name__}'
         )
 
     # Type checks for critical nested structures

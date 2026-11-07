@@ -234,6 +234,57 @@ def test_the_gui_comes_up_on_the_template_and_reports_what_it_set_aside(tmp_path
     assert (data_dir / 'current.json').read_text() == '{ not json at all'
 
 
+def _shipped_with(**changes) -> str:
+    """The shipped template as a current.json, with ``changes`` laid over its top level."""
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
+        current = json.load(f)
+    current.update(changes)
+    return json.dumps(current)
+
+
+# Each current.json the load cannot use, by what is wrong with it.
+_CORRUPT_CURRENT = {
+    'missing the keys the app needs': json.dumps({'microscope': 'LS850'}),
+    'manual_video not a mapping': _shipped_with(manual_video='x'),
+    'a turret slot that is not a number': _shipped_with(turret_objectives={'1.0': None}),
+    'image_mode not a string beside a retired key': _shipped_with(
+        image_mode=[], use_full_pixel_depth=True
+    ),
+    'an integer past the reader': '{"jpg_quality": 1' + '0' * 5000 + '}',
+    'nesting past the reader': '{"a": ' + '[' * 100_000 + ']' * 100_000 + '}',
+}
+
+
+def test_a_corrupt_current_json_is_a_settings_file_error_on_every_host(tmp_path):
+    """A headless caller is refused naming the file; the GUI comes up on the
+    template with the file set aside and untouched."""
+    wrong = []
+    for n, (what, text) in enumerate(_CORRUPT_CURRENT.items()):
+        root = tmp_path / str(n)
+        root.mkdir()
+        current = _data_dir(root) / 'current.json'
+        current.write_text(text)
+        try:
+            settings_init.prepare_settings(logger, str(root), fall_back_to_template=False)
+        except settings_init.SettingsFileError as e:
+            if e.reason != 'settings_file_unreadable' or str(current) not in str(e):
+                wrong.append((what, 'headless', str(e)[:200]))
+        except Exception as e:
+            wrong.append((what, 'headless', type(e).__name__))
+        else:
+            wrong.append((what, 'headless', 'loaded'))
+        try:
+            _prepared, rejected = settings_init.prepare_settings(
+                logger, str(root), fall_back_to_template=True
+            )
+        except Exception as e:
+            wrong.append((what, 'gui', type(e).__name__))
+        else:
+            if rejected is None or rejected[0] != str(current) or current.read_text() != text:
+                wrong.append((what, 'gui', rejected))
+    assert wrong == []
+
+
 def test_normalization_reports_whether_it_changed_anything():
     with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
         shipped = json.load(f)
