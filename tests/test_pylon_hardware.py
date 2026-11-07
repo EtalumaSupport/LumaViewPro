@@ -68,35 +68,35 @@ class TestPylon(unittest.TestCase):
 
     def test_grab_frame(self):
         time.sleep(0.5)  # Allow grabbing to settle
-        result, timestamp, _seq = self.camera.grab()
-        self.assertTrue(result)
-        self.assertIsNotNone(timestamp)
-        self.assertIsNotNone(self.camera.array)
+        frame = self.camera.grab()
+        self.assertIsNotNone(frame)
+        size = self.camera.get_frame_size()
+        self.assertEqual(frame.image.shape[:2], (size['height'], size['width']))
 
     def test_gain(self):
         self.camera.gain(0)  # 0 dB is always in range
         self.assertAlmostEqual(self.camera.get_gain(), 0.0, delta=0.5)
 
     def test_chunks_flow_through_grab(self):
-        """Path C commit 3 end-to-end: connect enables chunks, OnImageGrabbed
-        reads them per frame, ImageHandlerBase.last_chunks exposes them.
+        """Connect enables chunks, OnImageGrabbed reads them per frame, and
+        the frame a grab returns carries them.
         """
         time.sleep(0.5)  # let streaming settle
-        result, _ts, _seq = self.camera.grab()
-        self.assertTrue(result, 'grab failed -- chunks check requires successful frame')
+        frame = self.camera.grab()
+        self.assertIsNotNone(frame, 'grab failed -- chunks check requires a frame')
 
-        chunks = self.camera.cam_image_handler.get_last_chunks()
-        print('\n=== last_chunks after first grab ===')
+        chunks = frame.chunks
+        print('\n=== the grabbed frame chunks ===')
         print(f'  chunks: {chunks}')
         print('=====================================\n')
 
-        self.assertIsNotNone(chunks, 'Path C: last_chunks should populate after a successful grab')
+        self.assertIsNotNone(chunks, 'a grabbed Basler frame should carry its chunks')
         # All three target chunks should be present
         for key in ('ExposureTime', 'Gain', 'FrameID'):
             self.assertIn(
                 key,
                 chunks,
-                f"Path C: chunk '{key}' missing from last_chunks; got keys={sorted(chunks.keys())}",
+                f"chunk '{key}' missing from the frame's chunks; got keys={sorted(chunks.keys())}",
             )
         # Sanity: values are floats/ints, not None or weird types
         self.assertIsInstance(chunks['ExposureTime'], (int, float))
@@ -131,10 +131,10 @@ class TestPylon(unittest.TestCase):
             obs = []
             frame_ids = []
             for _ in range(10):
-                ok, _ts, _seq = self.camera.grab_new_capture(timeout_s=2.0)
-                if not ok:
+                frame = self.camera.grab_new_capture(timeout_s=2.0)
+                if frame is None:
                     continue
-                chunks = self.camera.cam_image_handler.get_last_chunks()
+                chunks = frame.chunks
                 if chunks and 'Gain' in chunks:
                     obs.append(chunks['Gain'])
                     frame_ids.append(chunks.get('FrameID'))
@@ -158,12 +158,10 @@ class TestPylon(unittest.TestCase):
             obs_us = []
             frame_ids = []
             for _ in range(5):
-                ok, _ts, _seq = self.camera.grab_new_capture(
-                    timeout_s=max(2.0, target_ms / 1000.0 * 5)
-                )
-                if not ok:
+                frame = self.camera.grab_new_capture(timeout_s=max(2.0, target_ms / 1000.0 * 5))
+                if frame is None:
                     continue
-                chunks = self.camera.cam_image_handler.get_last_chunks()
+                chunks = frame.chunks
                 if chunks and 'ExposureTime' in chunks:
                     obs_us.append(chunks['ExposureTime'])
                     frame_ids.append(chunks.get('FrameID'))

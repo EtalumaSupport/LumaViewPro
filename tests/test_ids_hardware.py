@@ -119,13 +119,12 @@ class TestIDS(unittest.TestCase):
 
     def test_grab_frame(self):
         time.sleep(1)  # Allow time for the camera to start grabbing
-        result, timestamp, _seq = self.camera.grab()
-        self.assertTrue(result)
-        # The grabbed array's row count must match the delivered frame height
+        frame = self.camera.grab()
+        self.assertIsNotNone(frame)
+        # The grabbed frame's row count must match the delivered frame height
         # (assert against the configured size, not a hard-coded resolution that
         # goes stale the moment the default frame size changes).
-        self.assertEqual(len(self.camera.array), self.camera.get_frame_size()['height'])
-        self.assertIsNotNone(timestamp)
+        self.assertEqual(len(frame.image), self.camera.get_frame_size()['height'])
 
     def _feature_node(self, group, name):
         """Read one optional-feature node's probe record (presence / access /
@@ -317,14 +316,13 @@ class TestIDS(unittest.TestCase):
         self.assertTrue(self.camera.set_pixel_format(native12), f'could not set {native12}')
 
         time.sleep(1)  # let the grab loop store a native-depth frame post-reconfigure
-        result, timestamp, _seq = self.camera.grab()
-        self.assertTrue(result)
-        self.assertIsNotNone(timestamp)
+        grabbed = self.camera.grab()
+        self.assertIsNotNone(grabbed)
 
-        frame = self.camera.array
+        frame = grabbed.image
         self.assertEqual(frame.dtype, np.uint16, 'native-depth frame must be a uint16 container')
 
-        sig = self.camera.last_significant_bits
+        sig = grabbed.significant_bits
         self.assertEqual(sig, 12, f'Mono12 native wire must deliver significant_bits=12; got {sig}')
 
         peak = int(frame.max())
