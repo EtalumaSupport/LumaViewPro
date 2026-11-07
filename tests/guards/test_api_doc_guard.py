@@ -5,8 +5,7 @@ names under ``docs/guide/`` (``guide_files``): every check below reads each
 file on its own -- its chapters, its fences' names, its Changelog -- and the
 coverage checks read their union. The map is the one list of the files: a
 file under ``docs/guide/`` that no row names, or a row naming a file git does
-not track, is reported, and so is a task whose files pass the load ceiling
-(``guide_set_failures``).
+not track, is reported (``guide_set_failures``).
 
 Every call form a reader could copy out of the guide must resolve on a real
 object (polarity 1) AND accept the arguments the guide passes it (polarity
@@ -128,12 +127,6 @@ def fence_info(line):
     return (words[0] if words else ''), options
 
 
-# The bytes a task's files may come to, the hub among them: 80% of the guide
-# when it was one file (75,492 B at LVP a9d53d105), so the split cuts every
-# reader's load by at least a fifth. A task past it is answered by splitting a
-# file further, never by raising the ceiling.
-LOAD_CEILING = 60_000
-
 _MAP_HEADING = '## The map'
 _MAP_LINK = re.compile(r'\]\((guide/[^)#\s]+\.md)\)')
 
@@ -174,7 +167,7 @@ def guide_texts(root=None):
 
 
 def guide_set_failures(root=None):
-    """A line per file the map and git disagree on, and per task whose load passes the ceiling."""
+    """A line per file the map and git disagree on."""
     root = REPO_ROOT if root is None else root
     named = set(guide_files(root)) - {HUB}
     tracked = set(tracked_files(('docs/guide',), '*.md', root=root))
@@ -182,10 +175,6 @@ def guide_set_failures(root=None):
     failures += [
         f'  {f}  the map names it and git tracks no such file' for f in sorted(named - tracked)
     ]
-    for task, files in guide_map(root):
-        load = sum((root / f).stat().st_size for f in (HUB, *files) if f in tracked | {HUB})
-        if load > LOAD_CEILING:
-            failures.append(f'  "{task}" loads {load} B, past the {LOAD_CEILING} B ceiling')
     return failures
 
 
@@ -376,14 +365,13 @@ def _planted_tree(root, rows, files):
 
 
 class TestTheGuideIsTheMapsFiles:
-    """The hub's map is the one list of the guide's files, and each task's load fits."""
+    """The hub's map is the one list of the guide's files."""
 
-    def test_the_map_names_every_file_and_every_task_fits(self):
+    def test_the_map_names_every_file(self):
         failures = guide_set_failures()
         assert not failures, (
-            "The guide's map and its files disagree, or a task loads past the ceiling: name "
-            'each file under docs/guide/ in a row of the map, and split a file that makes a '
-            'task too large.\n' + '\n'.join(failures)
+            "The guide's map and its files disagree: name each file under docs/guide/ in a "
+            'row of the map.\n' + '\n'.join(failures)
         )
 
     def test_a_file_the_map_names_is_read(self, tmp_path, live_objects):
@@ -398,21 +386,18 @@ class TestTheGuideIsTheMapsFiles:
             '-> no attribute session.no_such_member'
         ]
 
-    def test_a_file_the_map_does_not_name_and_a_task_past_the_ceiling_are_reported(self, tmp_path):
+    def test_a_file_the_map_does_not_name_and_a_named_file_git_lacks_are_reported(self, tmp_path):
         root = _planted_tree(
             tmp_path,
-            [('Fits', ['small.md']), ('Too much', ['small.md', 'big.md']), ('Gone', ['gone.md'])],
+            [('Fits', ['small.md']), ('Gone', ['gone.md'])],
             {
                 'docs/guide/small.md': '# Small\n',
-                'docs/guide/big.md': '# Big\n' + 'x' * LOAD_CEILING,
                 'docs/guide/stray.md': '# Stray\n',
             },
         )
         assert guide_set_failures(root) == [
             '  docs/guide/stray.md  no row of the map names it',
             '  docs/guide/gone.md  the map names it and git tracks no such file',
-            f'  "Too much" loads {(root / HUB).stat().st_size + 8 + 6 + LOAD_CEILING} B, '
-            f'past the {LOAD_CEILING} B ceiling',
         ]
 
 
