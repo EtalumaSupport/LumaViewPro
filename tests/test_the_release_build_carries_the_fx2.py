@@ -228,8 +228,8 @@ def test_a_signed_build_alone_carries_the_classic_driver_and_the_installer_only_
     # pin-justified: build.ps1 and the WiX sources run on the Windows build
     # box, not here. Windows accepts a driver package only with a signed
     # catalog, so an unsigned build leaves the package out; and the driver is
-    # bound by the app's Repair, where Windows can ask the person, never by an
-    # installer action running as SYSTEM.
+    # bound where Windows can ask the person (the setup bundle's step, and the
+    # app's Repair), never by an MSI action running as SYSTEM.
     build = (REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1').read_text(encoding='utf-8')
     package = (BUILD_EXE / 'wix' / 'Package.wxs').read_text(encoding='utf-8-sig')
 
@@ -244,3 +244,56 @@ def test_a_signed_build_alone_carries_the_classic_driver_and_the_installer_only_
     assert '[INSTALLFOLDER]lvp_fx2_driver_step.exe&quot; uninstall' in driver
     assert 'NOT UPGRADINGPRODUCTCODE' in driver
     assert 'lvp_fx2_driver_step.exe&quot; install' not in package
+
+
+def test_the_setup_bundle_runs_the_one_file_step_after_the_app_in_a_signed_build():
+    # pin-justified: the spec, build.ps1 and Bundle.wxs run on the Windows
+    # build box, not here. The bundle's per-machine package is what runs the
+    # step elevated on the person's desktop at install (WiX: "must be
+    # executed elevated"), where a deferred MSI action impersonating them
+    # runs with user rights; a one-file build, so it runs from the bundle's
+    # cache with the INF and catalog beside it. Not vital, so a declined
+    # prompt fails nothing and Repair completes it; permanent, so uninstall
+    # stays the MSI's; run at every install, so an upgrade takes back what a
+    # later package took. Until the signed pair is committed, only a signed
+    # build has an INF and catalog to give it.
+    spec = (CONFIG / 'lumaviewpro_win_release.spec').read_text(encoding='utf-8')
+    build = (REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1').read_text(encoding='utf-8')
+    bundle = (BUILD_EXE / 'wix' / 'Bundle.wxs').read_text(encoding='utf-8-sig')
+    min_version = int((REPO_ROOT / 'scripts' / 'appBuild' / 'MIN_BUILD_SCRIPT_VERSION').read_text())
+
+    setup = spec[spec.index('driver_step_setup_exe = EXE(') :]
+    assert "name='lvp_fx2_driver_step_setup'" in setup[: setup.index('\n)\n')]
+    assert "('version.txt', '.')" in spec[spec.index('driver_step = Analysis(') :]
+
+    lvp = bundle[bundle.index('<MsiPackage Id="LVP"') :]
+    lvp = lvp[: lvp.index('</MsiPackage>')]
+    assert '<MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />' in lvp
+    start = bundle.index('<?ifdef Fx2InfPath ?>', bundle.index('<MsiPackage Id="LVP"'))
+    step = bundle[start : bundle.index('<?endif ?>', start)]
+    for attribute in (
+        'Id="Fx2DriverStep"',
+        'SourceFile="$(var.Fx2DriverStepExe)"',
+        'PerMachine="yes"',
+        'Vital="no"',
+        'Permanent="yes"',
+        'DetectCondition="0"',
+        'InstallArguments=\'install-if-classic "[InstallFolder]logs"\'',
+        '<Payload SourceFile="$(var.Fx2InfPath)" />',
+        '<Payload SourceFile="$(var.Fx2CatPath)" />',
+    ):
+        assert attribute in step, attribute
+
+    signed = build[build.index('if ($signing_thumbprint) {\n    $fx2_dir_out') :]
+    signed = signed[: signed.index('\n}\n')]
+    assert 'Invoke-Sign $fx2_step_setup' in signed
+    defines = signed[signed.index('$bundle_args_fx2 = @(') :]
+    for define in (
+        '"Fx2DriverStepExe=$fx2_step_setup"',
+        '"Fx2InfPath=$fx2_inf"',
+        '"Fx2CatPath=$fx2_cat"',
+    ):
+        assert define in defines, define
+    assert '$bundle_args += $bundle_args_fx2' in build
+    assert 'lvp_fx2_driver_step_setup.exe' in signed
+    assert min_version >= 9

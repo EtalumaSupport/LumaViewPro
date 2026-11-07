@@ -39,6 +39,11 @@
           LogoFile="$(var.InstallerAssetsDir)\data\icons\icon.png" />
     </BootstrapperApplication>
 
+    <!-- LumaViewPro's install folder, Folders.wxs's own default, named once
+         here for the two packages that need it: the MSI installs into it and
+         the Classic driver step logs into it. -->
+    <Variable Name="InstallFolder" Value="[ProgramFiles6432Folder]$(var.ProductName)\" />
+
     <Chain>
 		<!-- VC++ Redistributable (x64). Required chain member: LVP no
 		     longer ships msvcp140/concrt140 app-local (a stale bundled
@@ -60,7 +65,35 @@
 
 		<MsiPackage Id="LVP"
 					SourceFile="$(var.LVPMsiDir)"
-					Vital="yes"/>
+					Vital="yes">
+			<MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />
+		</MsiPackage>
+
+		<!--
+		  The Lumascope Classic driver (LS460/LS560/LS620/LS720): a one-file
+		  build of the driver step (src/_lumascope/modules/fx2_driver_step.py),
+		  the INF and its signed catalog beside it, takes both of the scope's
+		  USB identities on a PC that has had a Classic and changes nothing on
+		  one that has not. Per-machine, so Burn runs it elevated on the
+		  person's desktop, where Windows asks whether to install software
+		  from Etaluma. Not vital: a declined prompt fails nothing, and
+		  LumaViewPro's Repair completes it at launch. Permanent: uninstall is
+		  the MSI's driver action. Run at every install and upgrade, so an
+		  upgrade takes back what a package installed since took. build.ps1
+		  defines Fx2InfPath only for a build that carries the package.
+		-->
+		<?ifdef Fx2InfPath ?>
+		<ExePackage Id="Fx2DriverStep"
+					SourceFile="$(var.Fx2DriverStepExe)"
+					PerMachine="yes"
+					Vital="no"
+					Permanent="yes"
+					DetectCondition="0"
+					InstallArguments='install-if-classic "[InstallFolder]logs"'>
+			<Payload SourceFile="$(var.Fx2InfPath)" />
+			<Payload SourceFile="$(var.Fx2CatPath)" />
+		</ExePackage>
+		<?endif ?>
 
 		<MsiPackage Id="PylonDriver"
 					Permanent="yes"

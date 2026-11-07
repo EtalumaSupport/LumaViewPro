@@ -246,14 +246,16 @@ exe = EXE(
     icon=['data\\icons\\icon.ico'],
 )
 
-# The FX2 driver step (src/_lumascope/modules/fx2_driver_step.py), which the installer runs
-# elevated at install and uninstall: its own small executable, without the
-# app's splash, in the same folder so it shares the app's binaries.
+# The FX2 driver step (src/_lumascope/modules/fx2_driver_step.py), which Repair and the
+# installer's uninstall run elevated: its own small executable, without the
+# app's splash, in the same folder so it shares the app's binaries. Its
+# version.txt is the app's there; the one-file build below carries it in
+# itself.
 driver_step = Analysis(
     ['scripts\\appBuild\\build_exe\\fx2_driver\\lvp_fx2_driver_step.py'],
     pathex=['.', 'src'],
     binaries=[],
-    datas=[],
+    datas=[('version.txt', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -272,6 +274,30 @@ driver_step_exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
+    console=False,
+    disable_windowed_traceback=True,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=['data\\icons\\icon.ico'],
+)
+
+# The same step as one file, which the setup bundle runs from its package
+# cache at install (Bundle.wxs, Fx2DriverStep): written to dist\\, beside the
+# app's folder, so the MSI does not carry it.
+driver_step_setup_exe = EXE(
+    PYZ(driver_step.pure, driver_step.zipped_data),
+    driver_step.scripts,
+    driver_step.binaries,
+    driver_step.datas,
+    [],
+    name='lvp_fx2_driver_step_setup',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=True,
     argv_emulation=False,

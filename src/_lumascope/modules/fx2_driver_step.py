@@ -4,8 +4,9 @@ both of the scope's USB identities from every other package.
 
 Run elevated, on the person's desktop, where Windows can ask whether to
 install software from Etaluma: ``install`` by the app's Repair, and
-``install-if-classic`` by the installer, which takes over only a PC that has
-had a Classic (``install_if_classic``); ``uninstall`` by the installer. Every
+``install-if-classic`` by the setup bundle at install, from a one-file build
+of this step, which takes over only a PC that has had a Classic
+(``install_if_classic``); ``uninstall`` by the installer. Every
 step and every Windows answer goes to
 ``<install>\\logs\\driver_<step>_<version>_<time>.log``.
 
@@ -412,14 +413,27 @@ def run_as_administrator(executable: pathlib.Path, argument: str, wait_s: float)
 
 
 def main(argv: list[str]) -> int:
-    """``lvp_fx2_driver_step install|install-if-classic|uninstall``, run from the
-    install folder."""
-    if len(argv) != 1 or argv[0] not in ('install', 'install-if-classic', 'uninstall'):
-        print('usage: lvp_fx2_driver_step install|install-if-classic|uninstall', file=sys.stderr)
+    """``lvp_fx2_driver_step install|uninstall``, run from the install folder,
+    or ``lvp_fx2_driver_step_setup install-if-classic <log folder>``.
+
+    The setup bundle runs a one-file build of the step from its package
+    cache, the INF and catalog beside it, and names the log folder in
+    LumaViewPro's install folder; Repair and the installer's uninstall run
+    the one in the install folder, its package under ``drivers\\fx2``.
+    """
+    here = launch_root()
+    if len(argv) == 1 and argv[0] in ('install', 'uninstall'):
+        package_dir, logs = here / PACKAGE_DIR, here / 'logs'
+    elif len(argv) == 2 and argv[0] == 'install-if-classic':
+        package_dir, logs = here, pathlib.Path(argv[1])
+    else:
+        print(
+            'usage: lvp_fx2_driver_step install|uninstall, '
+            'or lvp_fx2_driver_step_setup install-if-classic <log folder>',
+            file=sys.stderr,
+        )
         return 2
-    install_dir = launch_root()
     version, _ = read_version()
-    logs = install_dir / 'logs'
     stamp = wall_time.now().strftime('%Y%m%d_%H%M%S')
     try:
         logs.mkdir(exist_ok=True)
@@ -433,10 +447,8 @@ def main(argv: list[str]) -> int:
     log.setLevel(logging.INFO)
     try:
         log.info(
-            f'LumaViewPro {version} FX2 driver step: {argv[0]}, from {install_dir}, '
-            f'PID {os.getpid()}'
+            f'LumaViewPro {version} FX2 driver step: {argv[0]}, from {here}, PID {os.getpid()}'
         )
-        package_dir = install_dir / PACKAGE_DIR
         installed = None
         try:
             if argv[0] == 'install':

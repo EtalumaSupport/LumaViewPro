@@ -70,7 +70,13 @@ $ErrorActionPreference = "Stop"
 # with a signed catalog. The MSI no longer installs the driver (the app's
 # Repair does, where Windows can ask the person); it only uninstalls it. A v7
 # build of this branch ships an unsigned package that never installs.
-$script_version = 8
+#
+# v9: the setup bundle runs a one-file build of the driver step after the
+# MSI, which takes the Lumascope Classic's USB identities at install, and
+# names LumaViewPro's install folder once for the MSI and that step. A v8
+# build of this branch signs and carries the package but chains no step, so
+# a Classic PC is left on LumaView's driver until Repair.
+$script_version = 9
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -1010,6 +1016,7 @@ $msi_args = @(
     '-d', "ProductName=$product_installed",
     '-d', "Version=$wix_ver"
 )
+$bundle_args_fx2 = @()
 # The FX2 driver package, in a signed build only: its DriverVer stamped with
 # today's date and the installer version (Windows ranks equally signed
 # packages for one device by that date, so the stamp is what lets ours
@@ -1026,6 +1033,17 @@ if ($signing_thumbprint) {
     Invoke-Sign $fx2_cat
     Write-Host "FX2 driver package: $fx2_inf, $fx2_cat"
     $msi_args += @('-d', "Fx2InfPath=$fx2_inf", '-d', "Fx2CatPath=$fx2_cat")
+    # The one-file driver step the setup bundle runs at install (Bundle.wxs
+    # Fx2DriverStep), the package beside it; the spec writes it to dist\,
+    # outside the app's folder the MSI carries.
+    $fx2_step_setup = Join-Path $src "dist\lvp_fx2_driver_step_setup.exe"
+    if (-not (Test-Path $fx2_step_setup)) { Write-Host "ERROR: $fx2_step_setup was not built"; Set-Location $build_dir; Exit 1 }
+    Invoke-Sign $fx2_step_setup
+    $bundle_args_fx2 = @(
+        '-d', "Fx2DriverStepExe=$fx2_step_setup",
+        '-d', "Fx2InfPath=$fx2_inf",
+        '-d', "Fx2CatPath=$fx2_cat"
+    )
 }
 $msi_args += @('-out', $msi, 'Package.wxs', 'Folders.wxs')
 & $wix_exe @msi_args
@@ -1093,6 +1111,7 @@ if ($pylon_msi -and $vc_redist_exe) {
             '-d', "IDSPeakSetupIss=$ids_peak_iss"
         )
     }
+    $bundle_args += $bundle_args_fx2
     $bundle_args += @('-out', $bundle, 'Bundle.wxs')
     & $wix_exe @bundle_args
 

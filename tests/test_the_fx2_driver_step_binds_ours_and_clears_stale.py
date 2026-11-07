@@ -300,16 +300,33 @@ def _run_frozen_from(install_dir, monkeypatch) -> None:
     monkeypatch.setattr(path_utils, 'build_root', lambda: install_dir)
 
 
-def _run_main(tmp_path, monkeypatch, machine, verb='install') -> tuple[int, str]:
+def _run_main(tmp_path, monkeypatch, machine) -> tuple[int, str]:
     package_dir = _package_dir(tmp_path)
     install_dir = package_dir.parent.parent
     (install_dir / 'version.txt').write_text('4.0.0-beta38\n', encoding='ascii')
     _run_frozen_from(install_dir, monkeypatch)
     monkeypatch.setattr(fx2_driver_step, 'WindowsMachine', lambda: machine)
 
-    code = fx2_driver_step.main([verb])
+    code = fx2_driver_step.main(['install'])
 
-    (log_file,) = (install_dir / 'logs').glob(f'driver_{verb}_4.0.0-beta38_*.log')
+    (log_file,) = (install_dir / 'logs').glob('driver_install_4.0.0-beta38_*.log')
+    return code, log_file.read_text(encoding='utf-8')
+
+
+def _run_from_the_bundle(tmp_path, monkeypatch, machine) -> tuple[int, str]:
+    """The step as the setup bundle runs it: a one-file build in the bundle's
+    package cache, the INF and catalog beside it, told LumaViewPro's log
+    folder."""
+    cache = _package_dir(tmp_path)
+    logs = tmp_path / 'LumaViewPro 4.0.0' / 'logs'
+    logs.parent.mkdir()
+    (cache / 'version.txt').write_text('4.0.0-beta38\n', encoding='ascii')
+    _run_frozen_from(cache, monkeypatch)
+    monkeypatch.setattr(fx2_driver_step, 'WindowsMachine', lambda: machine)
+
+    code = fx2_driver_step.main(['install-if-classic', str(logs)])
+
+    (log_file,) = logs.glob('driver_install-if-classic_4.0.0-beta38_*.log')
     return code, log_file.read_text(encoding='utf-8')
 
 
@@ -374,7 +391,7 @@ def test_a_log_the_step_cannot_write_exits_with_its_own_code(tmp_path, monkeypat
 def test_the_installer_leaves_a_pc_that_never_had_a_classic_untouched(tmp_path, monkeypatch):
     machine = _machine(tmp_path)
 
-    code, text = _run_main(tmp_path, monkeypatch, machine, verb='install-if-classic')
+    code, text = _run_from_the_bundle(tmp_path, monkeypatch, machine)
 
     assert code == 0
     # No pnputil ran, so Windows asked the person nothing.
@@ -425,3 +442,16 @@ def test_repair_takes_over_a_pc_that_never_had_a_classic(tmp_path):
 
     assert installed is fx2_driver_step.Installed.BOUND
     assert [p.provider for p in machine.store_packages(FX2_FIRMWARE)] == ['Etaluma']
+
+
+def test_the_setup_bundles_run_takes_its_package_from_beside_it_and_logs_where_told(
+    tmp_path, monkeypatch
+):
+    machine = _machine(tmp_path)
+    machine.publish(LUMAVIEW_LIBUSBK)
+
+    code, text = _run_from_the_bundle(tmp_path, monkeypatch, machine)
+
+    assert code == 0
+    assert [p.provider for p in machine.store_packages(FX2_FIRMWARE)] == ['Etaluma']
+    assert text.rstrip().endswith('install-if-classic complete')
