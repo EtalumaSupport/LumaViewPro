@@ -224,6 +224,73 @@ def test_an_inf_without_its_placeholder_refuses_the_stamp(tmp_path):
         )
 
 
+def _repo_inf_copy(tmp_path) -> pathlib.Path:
+    inf = tmp_path / 'checkout' / 'Lumascope_Classic.inf'
+    inf.parent.mkdir()
+    inf.write_bytes(SHIPPED_INF.read_bytes())
+    return inf
+
+
+def test_signing_writes_the_signing_days_driver_ver_into_the_repos_inf(tmp_path):
+    # The catalog is signed over the INF's bytes as committed, so the
+    # writer changes the DriverVer value and nothing else.
+    inf = _repo_inf_copy(tmp_path)
+    before = inf.read_bytes()
+
+    written = fx2_driver_package.write_driver_ver(str(inf), '4.0.0.44', datetime.date(2026, 11, 9))
+
+    assert written == '11/09/2026,4.0.0.44'
+    assert _read_inf(inf)['Version']['DriverVer'].strip() == written
+    assert inf.read_bytes() == before.replace(
+        fx2_driver_package.PLACEHOLDER.encode('ascii'), written.encode('ascii')
+    )
+
+
+def test_signing_again_writes_over_the_last_signings_driver_ver(tmp_path):
+    inf = _repo_inf_copy(tmp_path)
+    fx2_driver_package.write_driver_ver(str(inf), '4.0.0.44', datetime.date(2026, 11, 9))
+
+    written = fx2_driver_package.write_driver_ver(str(inf), '4.0.0.45', datetime.date(2026, 12, 1))
+
+    assert _read_inf(inf)['Version']['DriverVer'].strip() == written == '12/01/2026,4.0.0.45'
+
+
+def test_signing_refuses_a_driver_ver_the_inf_already_has(tmp_path):
+    # The driver step finds our current package by its DriverVer, so two
+    # signed packages with one DriverVer would let it keep a stale one and
+    # delete the shipped one as older.
+    inf = _repo_inf_copy(tmp_path)
+    fx2_driver_package.write_driver_ver(str(inf), '4.0.0.44', datetime.date(2026, 11, 9))
+    signed = inf.read_bytes()
+
+    with pytest.raises(SystemExit, match=r'already 11/09/2026,4\.0\.0\.44'):
+        fx2_driver_package.write_driver_ver(str(inf), '4.0.0.44', datetime.date(2026, 11, 9))
+    assert inf.read_bytes() == signed
+
+
+def test_sign_classic_driver_signs_the_named_checkouts_package_and_builds_nothing():
+    # pin-justified: build.ps1 runs on the Windows build box, not here. The
+    # mode signs the package in a checkout for commit (a fresh clone has no
+    # .git to commit from), through the build's one certificate lookup and
+    # one signer, and the four-part version the installer uses.
+    build = (REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1').read_text(encoding='utf-8')
+
+    assert '[string]$SignClassicDriver = ""' in build
+    mode = build[build.index('if ($SignClassicDriver) {\n') :]
+    mode = mode[: mode.index('\n}\n')]
+    assert build.index('function Invoke-Sign(') < build.index('if ($SignClassicDriver) {\n')
+    assert build.index('if ($SignClassicDriver) {\n') < build.index(
+        '# Clean previous temp, clone fresh'
+    )
+    assert 'config\\fx2_driver_package.py' in mode and '"sign"' in mode
+    assert 'Get-InstallerVersion' in mode
+    assert '& $inf2cat "/driver:$fx2_package_dir" "/os:10_X64"' in mode
+    assert 'Invoke-Sign (Join-Path $fx2_package_dir "Lumascope_Classic.cat")' in mode
+    assert mode.rstrip().endswith('Exit 0')
+    assert build.count('$wix_ver = Get-InstallerVersion $version') == 1
+    assert build.count("-match '^(\\d+\\.\\d+\\.\\d+)-beta(\\d+)$'") == 1
+
+
 def test_a_signed_build_alone_carries_the_classic_driver_and_the_installer_only_uninstalls_it():
     # pin-justified: build.ps1 and the WiX sources run on the Windows build
     # box, not here. Windows accepts a driver package only with a signed
@@ -234,7 +301,7 @@ def test_a_signed_build_alone_carries_the_classic_driver_and_the_installer_only_
     package = (BUILD_EXE / 'wix' / 'Package.wxs').read_text(encoding='utf-8-sig')
 
     signed = build.index('if ($signing_thumbprint) {\n    $fx2_dir_out')
-    stamp = build.index('fx2_driver_package.py')
+    stamp = build.index('fx2_driver_package.py', signed)
     assert signed < stamp < build.index('"Fx2CatPath=$fx2_cat"')
     assert 'build_exe\\fx2_driver\\Lumascope_Classic.inf' in build[stamp : stamp + 300]
     assert build.index('Invoke-Sign $fx2_cat') < build.index('"Fx2InfPath=$fx2_inf"')

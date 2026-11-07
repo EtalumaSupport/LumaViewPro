@@ -243,6 +243,22 @@ Classic driver's catalog, the MSI, and the bundle's engine and the bundle,
 each with a timestamp, and stops if any file fails to sign. Its receipt says
 `Signed: yes (<thumbprint>)`, or `Signed: NO`.
 
+The Lumascope Classic driver package is signed once and committed, not at
+each build: run, from the build folder, with the certificate configured,
+
+```powershell
+.\build.ps1 -SignClassicDriver C:\src\LumaViewPro
+```
+
+naming a local checkout of the branch (a build's fresh clone has no `.git`
+to commit from). It writes the INF's `DriverVer` (today's date and the
+checkout's installer version), makes the catalog with `Inf2Cat` and signs it
+with a timestamp, and builds nothing; then commit
+`scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf` and
+`Lumascope_Classic.cat` from that checkout. Run it again only when the INF
+changes. It refuses a `DriverVer` the INF already has (the same version on
+the same day): the driver step finds our current package by it.
+
 #### FX2 WinUSB Driver (Lumascope Classic: LS460 / LS560 / LS620 / LS720)
 
 Nothing to drop in, and in a signed build only. The driver package is

@@ -11,13 +11,17 @@
 # USAGE:
 #   .\build.ps1                          # interactive branch selection
 #   .\build.ps1 -Branch 4.0.0-beta      # specific branch
+#   .\build.ps1 -SignClassicDriver C:\src\LumaViewPro
+#                                        # sign the Classic driver package in
+#                                        # that checkout, for commit; no build
 #
 # Output: <build_dir>\exe_artifacts\LumaViewPro-X.X.X\
 
 param(
     [string]$Branch = "",
     [ValidateSet("Dev", "Release")]
-    [string]$BuildType = ""
+    [string]$BuildType = "",
+    [string]$SignClassicDriver = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -75,7 +79,9 @@ $ErrorActionPreference = "Stop"
 # MSI, which takes the Lumascope Classic's USB identities at install, and
 # names LumaViewPro's install folder once for the MSI and that step. A v8
 # build of this branch signs and carries the package but chains no step, so
-# a Classic PC is left on LumaView's driver until Repair.
+# a Classic PC is left on LumaView's driver until Repair. -SignClassicDriver
+# <checkout> signs the Classic driver package in a local checkout, for
+# commit, and builds nothing.
 $script_version = 9
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
@@ -118,6 +124,31 @@ function Get-BuildPython {
     return $null
 }
 
+# The installer's four-part Major.Minor.Patch.Revision version, from
+# version.txt's first line. WiX Bundle ProductVersion + MSI ProductVersion are
+# what Windows Installer compares to decide upgrade-vs-no-op. Without a unique
+# 4th component every beta gets version "4.0.0" and beta3 -> beta6 is
+# invisible to the upgrade engine (related-bundle Detect doesn't fire).
+# Encoding rules:
+#
+#   X.Y.Z-betaN     -> X.Y.Z.N    (beta number in revision slot)
+#   X.Y.Z           -> X.Y.Z.99   (release > any beta in same series)
+#   X.Y.Z-<other>   -> X.Y.Z.0    (dev/rc/etc -- lowest, never shipped)
+#
+# When the next major series (4.1.0) starts shipping, X.Y.Z.99 of the older
+# series stays below 4.1.0.* automatically, so no transition logic needed.
+function Get-InstallerVersion([string]$version) {
+    if ($version -match '^(\d+\.\d+\.\d+)-beta(\d+)$') {
+        return "$($matches[1]).$($matches[2])"
+    } elseif ($version -match '^(\d+\.\d+\.\d+)$') {
+        return "$($matches[1]).99"
+    } elseif ($version -match '^(\d+\.\d+\.\d+)-') {
+        return "$($matches[1]).0"
+    }
+    Write-Host "ERROR: Can't derive installer version from version.txt: $version"
+    Exit 1
+}
+
 # ---------------------------------------------------------------------------
 # Build directory selection
 # ---------------------------------------------------------------------------
@@ -141,7 +172,7 @@ if ($change -eq "y" -or $change -eq "Y") {
 Set-Content $config_file $build_dir
 
 $build_type_prompt = $BuildType
-if (-not $build_type_prompt) {
+if (-not $build_type_prompt -and -not $SignClassicDriver) {
     Write-Host "`nPackage type:"
     Write-Host "  [1] Dev package (reuse cached build environment when possible)"
     Write-Host "  [2] Release package (recreate build environment from scratch)"
@@ -208,7 +239,7 @@ Write-Host "================================================================"
 # ---------------------------------------------------------------------------
 # Select branch
 # ---------------------------------------------------------------------------
-if (-not $Branch) {
+if (-not $Branch -and -not $SignClassicDriver) {
     # Built from the live remote, never hardcoded. The previous hardcoded
     # four offered 4.0.0-wave7-decomp and 4.1.0-dev, neither of which
     # exists on origin -- two of four entries failed at the clone.
@@ -493,6 +524,34 @@ function Invoke-Sign([string]$path) {
 }
 
 # ---------------------------------------------------------------------------
+# -SignClassicDriver: the Lumascope Classic driver package signed for commit
+# ---------------------------------------------------------------------------
+# Run when the INF changes. In the named checkout (a fresh clone has no .git
+# to commit from), the INF's DriverVer is written with today's date and the
+# checkout's installer version, refused when unchanged, then its catalog is
+# made and signed with a timestamp, which keeps it valid after the
+# certificate's year ends. The two files are committed from that checkout.
+if ($SignClassicDriver) {
+    if (-not $signing_thumbprint) { Write-Host "ERROR: -SignClassicDriver needs a signing certificate (dependencies\signing\thumbprint.txt)."; Exit 1 }
+    if (-not (Test-Path (Join-Path $SignClassicDriver ".git"))) { Write-Host "ERROR: $SignClassicDriver is not a LumaViewPro checkout."; Exit 1 }
+    $checkout = (Resolve-Path $SignClassicDriver).Path
+    $sign_python = Get-BuildPython
+    if (-not $sign_python) { Write-Host "ERROR: Python 3.12 or newer not found."; Exit 1 }
+    $sign_version = (Get-Content (Join-Path $checkout "version.txt") -TotalCount 1).Trim()
+    $sign_wix_ver = Get-InstallerVersion $sign_version
+    $fx2_package_dir = Join-Path $checkout "scripts\appBuild\build_exe\fx2_driver"
+    & $sign_python.Command @($sign_python.Args + @(
+        (Join-Path $checkout "scripts\appBuild\config\fx2_driver_package.py"), "sign",
+        (Join-Path $fx2_package_dir "Lumascope_Classic.inf"), $sign_wix_ver))
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: the Classic driver's DriverVer was not written"; Exit 1 }
+    & $inf2cat "/driver:$fx2_package_dir" "/os:10_X64"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Inf2Cat could not make the Classic driver's catalog (exit $LASTEXITCODE)"; Exit 1 }
+    Invoke-Sign (Join-Path $fx2_package_dir "Lumascope_Classic.cat")
+    Write-Host "Signed: commit Lumascope_Classic.inf and Lumascope_Classic.cat in $fx2_package_dir"
+    Exit 0
+}
+
+# ---------------------------------------------------------------------------
 # Clean previous temp, clone fresh
 # ---------------------------------------------------------------------------
 if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
@@ -638,28 +697,7 @@ $product_installed = "LumaViewPro"
 $output_dir = Join-Path $artifacts $product
 New-Item $output_dir -ItemType Directory -Force | Out-Null
 
-# Build a 4-part Major.Minor.Patch.Revision installer version. WiX Bundle
-# ProductVersion + MSI ProductVersion are what Windows Installer compares to
-# decide upgrade-vs-no-op. Without a unique 4th component every beta gets
-# version "4.0.0" and beta3 -> beta6 is invisible to the upgrade engine
-# (related-bundle Detect doesn't fire). Encoding rules:
-#
-#   X.Y.Z-betaN     -> X.Y.Z.N    (beta number in revision slot)
-#   X.Y.Z           -> X.Y.Z.99   (release > any beta in same series)
-#   X.Y.Z-<other>   -> X.Y.Z.0    (dev/rc/etc — lowest, never shipped)
-#
-# When the next major series (4.1.0) starts shipping, X.Y.Z.99 of the older
-# series stays below 4.1.0.* automatically, so no transition logic needed.
-if ($version -match '^(\d+\.\d+\.\d+)-beta(\d+)$') {
-    $wix_ver = "$($matches[1]).$($matches[2])"
-} elseif ($version -match '^(\d+\.\d+\.\d+)$') {
-    $wix_ver = "$($matches[1]).99"
-} elseif ($version -match '^(\d+\.\d+\.\d+)-') {
-    $wix_ver = "$($matches[1]).0"
-} else {
-    Write-Host "ERROR: Can't derive installer version from version.txt: $version"
-    Exit 1
-}
+$wix_ver = Get-InstallerVersion $version
 Write-Host "Installer version (4-part): $wix_ver"
 
 Write-Host "`n======================================="
