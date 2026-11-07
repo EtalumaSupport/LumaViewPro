@@ -178,6 +178,11 @@ class ProtocolRunLoop:
         run_required_mb = None
         num_steps = 0
 
+        # When the next scan is due (monotonic seconds), decided once the
+        # loop is back at its gate after a scan and held until that scan
+        # starts; None between.
+        due = None
+
         # The camera becomes the run's only once the lane has finished what
         # it already held. A Stop during that wait returns with no ending
         # and falls through to the while, which ends the run stopped with
@@ -191,7 +196,7 @@ class ProtocolRunLoop:
             try:
                 # Periodic hardware connection check (every 30 seconds)
                 now = time.monotonic()
-                if now - last_connection_check > HW_CHECK_INTERVAL_S:
+                if now - last_connection_check >= HW_CHECK_INTERVAL_S:
                     last_connection_check = now
                     # The probe's handler computes a fact and nothing else: an
                     # abort raised or swallowed in here would leave the run
@@ -210,19 +215,29 @@ class ProtocolRunLoop:
                 if remaining_scans <= 0:
                     return RUN_COMPLETED
 
-                # Check if enough time has elapsed for the next scan
-                # Skip this check for the first scan (scan_count == 0)
+                # Wait for the next scan to be due; the first scan
+                # (scan_count == 0) starts at once.
                 if p._scan_count > 0:
-                    # Monotonic pacing (see _start_t init): elapsed and period
-                    # are both in seconds, immune to wall-clock jumps.
-                    current_time = time.monotonic()
-                    elapsed_time = current_time - p._start_t
-
-                    if elapsed_time < p._protocol.period_s():
-                        time.sleep(0.1)
+                    # Monotonic pacing (see _start_t init): the anchor and the
+                    # period are both in seconds, immune to wall-clock jumps.
+                    # A scan that fit its period makes the next one due a
+                    # period after it started; one that overran makes the
+                    # next due at once, its period's spacing resuming from
+                    # there. Decided when the loop first reaches here after a
+                    # scan, before any wait, so a wait that wakes late never
+                    # moves the schedule.
+                    if due is None:
+                        due = max(p._start_t + p._protocol.period_s(), time.monotonic())
+                    wait_s = due - time.monotonic()
+                    if wait_s > 0:
+                        # On the Stop event, so a Stop is seen at once; cut at
+                        # the next hardware check, which the loop's top makes.
+                        until_check = last_connection_check + HW_CHECK_INTERVAL_S - time.monotonic()
+                        p._aborted.wait(max(0.0, min(wait_s, until_check)))
                         continue
 
-                    p._start_t = current_time
+                    p._start_t = due
+                    due = None
 
                 # Time for next scan
                 deliver(
@@ -307,13 +322,13 @@ class ProtocolRunLoop:
 
                 # The pacing anchor has two lifecycle events: it is
                 # ESTABLISHED at the run's first acquisition (here, once the
-                # opening scan has captured), then MAINTAINED at gate-open for
-                # every later scan (above). Before this point _start_t holds
-                # the run()-entry fallback, which includes run setup + initial
-                # motion + step-0 AF -- anchoring the period there shortens
+                # opening scan has captured), then set to each later scan's
+                # due time when that scan starts (above). Before this point
+                # _start_t holds the run()-entry fallback, which includes run
+                # setup + initial motion + step-0 AF -- anchoring the period there shortens
                 # the first interval by that lead-in (toward zero at short
                 # periods). Deliberately NOT re-established from acquisition
-                # on later scans: their gate-open anchor keeps start-to-start
+                # on later scans: their due-time anchor keeps start-to-start
                 # cadence fixed instead of drifting by the per-scan lead-in.
                 # The fallback remains the anchor only when the opening scan
                 # completed no capture at all.

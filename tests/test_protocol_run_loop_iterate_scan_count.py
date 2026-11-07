@@ -129,21 +129,17 @@ def test_scan_pacing_waits_on_monotonic_period():
 
     loop = ProtocolRunLoop(p)
 
-    # The pacing branch sleeps then continues while it waits; abort on the first
-    # sleep so the loop exits instead of spinning on the unmet period.
-    def _abort_on_sleep(_seconds):
-        p._aborted.set()
+    # The pacing branch waits on the Stop event for the unmet period; a Stop
+    # at the first wait ends the loop instead of waiting the period out.
+    class _StopAtTheWait(threading.Event):
+        def wait(self, timeout=None):
+            self.set()
+            return True
+
+    p._aborted = _StopAtTheWait()
 
     deferred = []
-    with (
-        mock.patch('_lumascope.modules.run_events.schedule_ui', lambda cb: deferred.append(cb)),
-        # The loop's own name for time, not the time module, which every
-        # thread in the process shares.
-        mock.patch(
-            '_lumascope.modules.protocol_run_loop.time',
-            SimpleNamespace(monotonic=time.monotonic, sleep=_abort_on_sleep),
-        ),
-    ):
+    with mock.patch('_lumascope.modules.run_events.schedule_ui', lambda cb: deferred.append(cb)):
         loop._run_loop_inner(PendingRunOutcome())
 
     for cb in deferred:
