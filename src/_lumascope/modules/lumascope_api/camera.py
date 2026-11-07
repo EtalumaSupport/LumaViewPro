@@ -2192,8 +2192,20 @@ class CameraAPI:
     def _frame_and_save_impl(self, width: int, height: int) -> FrameSize | None:
         """On the camera lane: frame at ``width`` x ``height`` at the binning held, and save it."""
         factor = self._held_or_read('binning')
-        native = {'width': width * factor, 'height': height * factor}
-        target = binning.native_to_displayed(native, factor, self.get_pixel_alignment())
+        asked = {'width': width * factor, 'height': height * factor}
+        # The frame is worked out, and refused out of range, from the region
+        # as asked; the region saved is capped at what the scope delivers, so
+        # a binning change worked out from it never asks for a frame the
+        # sensor does not have. With no maximum known nothing is capped, as
+        # nothing is refused (_refuse_frame_out_of_range).
+        target = binning.native_to_displayed(asked, factor, self.get_pixel_alignment())
+        maximum = self._max_frame_unbinned()
+        if maximum is None:
+            native = asked
+        else:
+            native = binning.displayed_to_native(
+                {'width': width, 'height': height}, factor, maximum
+            )
         return self._apply_frame_impl(native, target)
 
     @api(reads=True)

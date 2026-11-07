@@ -26,6 +26,7 @@ from _lumascope.modules.exceptions import (
     Refusal,
 )
 from _lumascope.modules.image_mode import ImageMode
+from _lumascope.modules.scope_capabilities import FrameSize
 
 
 @pytest.fixture
@@ -106,6 +107,33 @@ class TestTheFrame:
         frame = _stored_frame(session)
         assert (frame['native_width'], frame['native_height']) == (960, 800)
         assert {'width': frame['width'], 'height': frame['height']} == delivered.to_dict()
+
+    def test_the_region_saved_is_never_larger_than_the_scope_delivers(self, session):
+        # One pixel past the maximum is floored to it by the camera's
+        # alignment, so the request is taken, not refused; the region it
+        # implies is not one the sensor has.
+        maximum = session.scope.capabilities.camera_limits.frame_max
+
+        session.scope.camera.set_frame_size(maximum.width + 1, maximum.height + 1)
+
+        frame = _stored_frame(session)
+        assert (frame['native_width'], frame['native_height']) == (maximum.width, maximum.height)
+
+    def test_a_frame_at_the_top_of_the_range_comes_back_whole_at_binning_1(self, session):
+        maximum = session.scope.capabilities.camera_limits.frame_max
+        session.scope.camera.set_binning(2)
+        session.scope.camera.set_frame_size(maximum.width // 2 + 1, maximum.height // 2 + 1)
+
+        assert session.scope.camera.set_binning(1) == FrameSize(maximum.width, maximum.height)
+
+    def test_an_odd_request_keeps_the_region_it_implies(self, session):
+        # The region is the request's intent, not the delivered frame times
+        # the binning, so a binning change gives back what was asked for.
+        session.scope.camera.set_binning(2)
+        assert session.scope.camera.set_frame_size(1001, 801) == FrameSize(1000, 800)
+
+        frame = _stored_frame(session)
+        assert (frame['native_width'], frame['native_height']) == (2002, 1602)
 
     def test_a_refused_frame_does_not_block_a_retry_of_the_same_size(self, session, monkeypatch):
         # The camera still holds its prior size after a refusal, so the retry
