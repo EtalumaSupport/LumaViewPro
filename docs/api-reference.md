@@ -535,7 +535,7 @@ The remedy's own answer: `recover_file_writer` answers how many of the run's ima
 - `HardwareCommandRefusedError`: `'exclusive_activity_running'`, the file writer's recovery while a run, a diagnostic or a home holds the scope: the writer is recovered only while the scope is held by nothing, so no live run's captures are given up on.
 - `FileWriterNotStuckError`: the file writer's recovery when no write has stopped making progress; the writer will finish on its own, and recovering would lose images for nothing.
 - `CameraDriverRepairRefusedError`: the repair's `'repair_needs_windows'`, `'repair_needs_installed_build'`, `'repair_needs_driver_package'` (built without the Classic driver), `'no_classic_bindings'`, `'driver_already_usable'` (a camera is up, or every present device is on a driver LumaViewPro can use), `'repair_declined'` when the administrator's approval was not given, or `'driver_not_accepted'` when Windows did not take the package (declined at its question, or refused).
-- `CameraDriverRepairFailedError`: The repair's step could not start, did not finish, ended unsuccessfully, or left a present device on a driver LumaViewPro cannot use; the words name its log.
+- `CameraDriverRepairFailedError`: The repair's step could not start, could not write its log, did not finish, ended unsuccessfully, or left a present device on a driver LumaViewPro cannot use; the words name its log folder.
 - `CameraUsbLookupFailedError`: The bindings could not be read.
 
 **Refusals by REST status**

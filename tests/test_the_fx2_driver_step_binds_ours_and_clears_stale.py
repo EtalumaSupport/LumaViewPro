@@ -350,3 +350,19 @@ def test_an_unexpected_error_is_logged_with_its_traceback_and_exits_1(tmp_path, 
     assert code == 1
     assert 'uninstall stopped on an unexpected error' in text
     assert 'PermissionError: INF folder unreadable' in text
+
+
+def test_a_log_the_step_cannot_write_exits_with_its_own_code(tmp_path, monkeypatch):
+    # Raised out of the windowed executable, the error would be Windows'
+    # crash dialog on the person's desktop in the middle of an install.
+    package_dir = _package_dir(tmp_path)
+    install_dir = package_dir.parent.parent
+    (install_dir / 'logs').write_text('a file where the log folder goes', encoding='ascii')
+    _run_frozen_from(install_dir, monkeypatch)
+    machine = _machine(tmp_path)
+    monkeypatch.setattr(fx2_driver_step, 'WindowsMachine', lambda: machine)
+
+    code = fx2_driver_step.main(['install'])
+
+    assert code == fx2_driver_step.LOG_UNWRITABLE_EXIT
+    assert machine.commands == []

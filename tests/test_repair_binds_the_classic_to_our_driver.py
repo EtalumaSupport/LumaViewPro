@@ -157,7 +157,11 @@ def test_a_camera_that_is_up_is_never_rebound(fx2_session, on_installed_windows,
 
 @pytest.mark.parametrize(
     'exit_code, binds, said',
-    [(1, False, 'exit code 1'), (0, False, 'still on a driver')],
+    [
+        (1, False, 'exit code 1'),
+        (0, False, 'still on a driver'),
+        (fx2_driver_step.LOG_UNWRITABLE_EXIT, False, 'could not write a log'),
+    ],
 )
 def test_a_step_that_did_not_bind_is_a_fault_naming_its_log(
     fx2_session, on_installed_windows, camera_never_came_up, monkeypatch, exit_code, binds, said

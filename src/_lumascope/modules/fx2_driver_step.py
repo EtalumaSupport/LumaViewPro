@@ -73,6 +73,10 @@ REPAIR_WAIT_S = 300.0
 # The step's exit when Windows did not accept our package, so Repair tells
 # it apart from a step that failed part way.
 NOT_ACCEPTED_EXIT = 3
+# The step's exit when it cannot write its log, before it changes anything:
+# the log is its only record, and the error raised out of the windowed
+# executable would be Windows' crash dialog on the person's desktop.
+LOG_UNWRITABLE_EXIT = 4
 
 
 class Installed(enum.Enum):
@@ -391,11 +395,14 @@ def main(argv: list[str]) -> int:
     install_dir = launch_root()
     version, _ = read_version()
     logs = install_dir / 'logs'
-    logs.mkdir(exist_ok=True)
     stamp = wall_time.now().strftime('%Y%m%d_%H%M%S')
-    handler = logging.FileHandler(
-        logs / f'driver_{argv[0]}_{version}_{stamp}.log', encoding='utf-8'
-    )
+    try:
+        logs.mkdir(exist_ok=True)
+        handler = logging.FileHandler(
+            logs / f'driver_{argv[0]}_{version}_{stamp}.log', encoding='utf-8'
+        )
+    except OSError:
+        return LOG_UNWRITABLE_EXIT
     handler.setFormatter(make_formatter('%(levelname)s %(message)s'))
     log.addHandler(handler)
     log.setLevel(logging.INFO)

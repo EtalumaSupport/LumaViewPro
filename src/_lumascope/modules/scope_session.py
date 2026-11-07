@@ -2114,6 +2114,11 @@ class ScopeSession:
         if exit_code == fx2_driver_step.NOT_ACCEPTED_EXIT:
             raise CameraDriverRepairRefusedError('driver_not_accepted')
         logs = step.parent / 'logs'
+        if exit_code == fx2_driver_step.LOG_UNWRITABLE_EXIT:
+            raise CameraDriverRepairFailedError(
+                'the driver step could not write a log in its log folder, so it changed nothing',
+                logs,
+            )
         if exit_code != 0:
             raise CameraDriverRepairFailedError(
                 f'the driver step ended with exit code {exit_code}', logs
@@ -2174,8 +2179,9 @@ class ScopeSession:
                 ``'driver_not_accepted'`` when Windows did not take the
                 package (declined at its question, or refused).
             CameraDriverRepairFailedError: The repair's step could not start,
-                did not finish, ended unsuccessfully, or left a present device
-                on a driver LumaViewPro cannot use; the words name its log.
+                could not write its log, did not finish, ended unsuccessfully,
+                or left a present device on a driver LumaViewPro cannot use;
+                the words name its log folder.
             CameraUsbLookupFailedError: The bindings could not be read.
         """
         remedies: dict[RemedyName, Callable[[], int | tuple[UsbIdentityBindings, ...]]] = {
