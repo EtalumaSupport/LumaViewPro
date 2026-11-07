@@ -1939,16 +1939,22 @@ class Protocol:
         # the same way -- so the one protocol that most needed refusing
         # validated clean.
         valid_objectives = set(objectives)
+        valid_colors = self.valid_colors()
 
-        for idx, step in steps.iterrows():
+        # Each column read once and each step a dict of them: a Series per
+        # step (iterrows) cost most of the judge on a built protocol of tens
+        # of thousands of steps. A step's index is its position (_set_steps).
+        columns = {column: steps[column].tolist() for column in steps.columns}
+        for idx in range(len(steps)):
+            step = {column: values[idx] for column, values in columns.items()}
             label = f'Step {idx + 1} ({step.get("Name", "?")})'
 
             # Color
             color = step.get('channel', '')
-            if color not in self.valid_colors():
+            if color not in valid_colors:
                 errors.append(
                     f"{label}: Color '{color}' is not valid. "
-                    f'Must be one of: {", ".join(sorted(self.valid_colors()))}'
+                    f'Must be one of: {", ".join(sorted(valid_colors))}'
                 )
 
             # Objective
