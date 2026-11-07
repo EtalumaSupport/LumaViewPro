@@ -6,6 +6,17 @@ events and listeners, a still as an image, and operations.
 
 ## Bringing a session up in Python
 
+**Where it runs.** The API is the `lumascope` package in LumaViewPro's
+source; the installed app keeps it inside its program file, where no other
+Python reaches it. Get the source and run its install script, as LumaViewPro's
+[README](https://github.com/EtalumaSupport/LumaViewPro#getting-started) says
+(Python 3.12 or 3.13): the script makes `lumascope` importable by the Python
+it installed into, and that Python runs your program. A Python it did not
+install into fails at the import, `ModuleNotFoundError: No module named
+'lumascope'`. The source folder, the one holding `lumaviewpro.py` and `data/`,
+is your program's installation (`root` below) and its data root: the logs, and
+the shipped live folder `./capture`, are under it.
+
 **Settings.** A LumaViewPro installation keeps the user's configuration in
 `data/current.json`, the live file, and ships `data/settings.json`, the template
 a new key's value comes from. `ScopeSession.load_user_settings` reads the user's
@@ -13,6 +24,8 @@ configuration as LumaViewPro does: the live file, checked against the template,
 repaired, and completed with keys newer releases added. Where LumaViewPro would
 fall back to the template and ask, it refuses: a `current.json` it cannot use is
 `SettingsFileError`, and a folder that is no installation `'not_an_installation'`.
+A source copy that LumaViewPro has never run has no `current.json`: the
+template is read instead, and the first saved write creates the file.
 Called inside a running LumaViewPro, by a plugin, it answers the settings
 LumaViewPro already prepared. Settings are an argument of `create`, never read
 behind your back.
@@ -20,7 +33,7 @@ behind your back.
 ```python
 from lumascope import ScopeSession
 
-root = '.'                                   # the LumaViewPro source folder, which holds data/
+root = '.'                                   # the LumaViewPro source folder, which holds data/; here, the working folder
 settings = ScopeSession.load_user_settings(root)
 session = ScopeSession.create(
     settings,
@@ -56,7 +69,8 @@ saved, which is what a test or a one-off script usually wants.
 **Logging.** Importing the API configures no logging: your `basicConfig()`,
 the root logger and your own records stay yours. The session's first call
 (`load_user_settings` or `create`) starts LumaViewPro's log folder,
-`logs/LVP_Log` under the data root, so a script leaves the support bundle
+`logs/LVP_Log` under the data root (the source folder, [Where it
+runs](#bringing-a-session-up-in-python)), so a script leaves the support bundle
 without a line of setup. The files hang off LumaViewPro's own loggers (`LVP`
 and `lvp_logger`), and their main-log records also reach your logging as any
 library's do. Their level is the setting `logging.default.level` (shipped
@@ -230,7 +244,7 @@ sums frames. The record's `illumination_ma` is keyed by LED board address;
 ```python
 scope.motion.move_to_well('B2')             # over the simulator's specimen
 session.show_channel('BF')
-scope.illumination.led_on('BF', 5)
+scope.illumination.led_on('BF', 5)         # at 5 mA; session.light_shown_channel(True) lights it at its stored current
 still = session.capture_still('BF', all_ones_check=True)
 record = still.record
 print(still.image.shape, still.image.dtype)
