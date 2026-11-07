@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The Lumascope Classic's driver step on Windows: our WinUSB package bound,
-stale ones cleared.
+"""The Lumascope Classic's driver step on Windows: our WinUSB package takes
+both of the scope's USB identities from every other package.
 
 Run elevated: ``install`` by the app's Repair, on the person's desktop, where
 Windows can ask whether to install software from Etaluma; ``uninstall`` by
@@ -13,18 +13,19 @@ Install, in order:
 2. Add our package to the driver store; Windows asks the person first,
    unless they chose to always trust Etaluma. When it does not enter the
    store -- the person declined, or Windows refused the package -- the step
-   stops here and removes nothing, so a working Zadig or LumaView Classic
-   binding is never stripped from a PC our package cannot replace it on.
-3. For the running firmware's identity (ours alone), export and then remove
-   every other vendor's package that names it, so uninstall can restore it.
-   The bootloader's identity is every EEPROM-less Cypress FX2's, so nothing
-   is removed for it: our newer package outranks an older one there.
+   stops here and removes nothing, so a scope is never left with no driver
+   on a PC our package cannot go onto.
+3. Remove every other package that names either identity, whoever's
+   (LumaView's libusbK, a Zadig binding, another vendor's), whole: a vendor
+   package naming the bootloader beside its own device's ID loses that too,
+   and the log names every ID each removed package named. Nothing is kept
+   to restore: LumaView is not kept working once LumaViewPro takes over.
 4. Bind the present devices to our package, remove our older packages,
    remove the past devices of both identities so each is matched afresh on
    its next plug, and record the bindings again.
 
-Uninstall removes our packages, restores what install exported, and logs
-what it did and what it left.
+Uninstall removes our packages and restores nothing, so the scope has no
+driver until LumaViewPro is installed again; it logs what it did.
 
 The app's Repair runs install as an administrator from the installed build
 (``run_as_administrator``); ``repair_refusal`` says where it cannot.
@@ -36,7 +37,6 @@ import enum
 import logging
 import os
 import pathlib
-import shutil
 import subprocess
 import sys
 from typing import Protocol
@@ -62,7 +62,6 @@ IDENTITIES = (FX2_BOOTLOADER, FX2_FIRMWARE)
 PACKAGE_INF = 'Lumascope_Classic.inf'
 # Where the installer puts the package, under the install folder.
 PACKAGE_DIR = pathlib.Path('drivers', 'fx2')
-REMOVED_FOLDER = 'removed'
 # The installed name of this step's executable, beside the app's; the build
 # names it in scripts/appBuild/config/fx2_bundle.py, and a test holds the two
 # equal.
@@ -140,27 +139,24 @@ def install(machine: Machine, package_dir: pathlib.Path) -> Installed:
         )
         return Installed.NOT_ACCEPTED
     log.info(f'{inf.name} is in the driver store as {ours.inf} ({ours.driver_ver})')
-    exported = _export_and_remove_others(machine, package_dir / REMOVED_FOLDER)
+    others_removed = _remove_others(machine)
     _pnputil(machine, '/add-driver', str(inf), '/install')
     older_removed = _remove_older_ours(machine, ours)
     past_removed = _remove_past_devices(machine)
     bound = _present_devices_on(machine, ours)
     _record(machine, 'after install')
-    complete = all((exported, older_removed, past_removed, bound))
+    complete = all((others_removed, older_removed, past_removed, bound))
     return Installed.BOUND if complete else Installed.INCOMPLETE
 
 
-def uninstall(machine: Machine, package_dir: pathlib.Path) -> bool:
-    """Remove our packages and restore what install removed. True when every step did."""
+def uninstall(machine: Machine) -> bool:
+    """Remove our packages. True when every removal did."""
     _record(machine, 'before uninstall')
     complete = True
     for package in _our_packages(machine):
         code, _ = _pnputil(machine, '/delete-driver', package.inf, '/uninstall')
         complete = complete and code == 0
-    complete = _restore_removed(machine, package_dir / REMOVED_FOLDER) and complete
     _record(machine, 'after uninstall')
-    if (package_dir / REMOVED_FOLDER).exists():
-        log.warning(f'left in {package_dir}: {REMOVED_FOLDER}')
     return complete
 
 
@@ -207,18 +203,19 @@ def _our_current_package(machine: Machine, inf: pathlib.Path) -> StorePackage | 
     return None
 
 
-def _export_and_remove_others(machine: Machine, removed_dir: pathlib.Path) -> bool:
+def _remove_others(machine: Machine) -> bool:
+    others = {
+        package.inf: package
+        for identity in IDENTITIES
+        for package in machine.store_packages(identity)
+        if not package.ours
+    }
     complete = True
-    for package in machine.store_packages(FX2_FIRMWARE):
-        if package.ours:
-            continue
-        target = removed_dir / package.inf
-        target.mkdir(parents=True, exist_ok=True)
-        code, _ = _pnputil(machine, '/export-driver', package.inf, str(target))
-        if code != 0:
-            log.error(f'{package.inf} could not be exported, so it is left in the store')
-            complete = False
-            continue
+    for package in others.values():
+        log.info(
+            f'removing {package.inf}, {package.provider} {package.driver_ver}, '
+            f'which names {", ".join(package.hardware_ids)}'
+        )
         code, _ = _pnputil(machine, '/delete-driver', package.inf, '/uninstall')
         complete = complete and code == 0
     return complete
@@ -267,26 +264,6 @@ def _present_devices_on(machine: Machine, ours: StorePackage) -> bool:
             if binding.present and binding.inf != ours.inf:
                 log.error(f'not bound to {ours.inf}: {binding.describe()}')
                 complete = False
-    return complete
-
-
-def _restore_removed(machine: Machine, removed_dir: pathlib.Path) -> bool:
-    if not removed_dir.exists():
-        return True
-    complete = True
-    for exported in sorted(removed_dir.iterdir()):
-        infs = sorted(exported.glob('*.inf'))
-        restored = bool(infs)
-        for inf in infs:
-            code, _ = _pnputil(machine, '/add-driver', str(inf), '/install')
-            restored = restored and code in (0, 3010)
-        if restored:
-            shutil.rmtree(exported)
-        else:
-            log.error(f'{exported.name} was not restored; its export is left in {exported}')
-            complete = False
-    if not any(removed_dir.iterdir()):
-        removed_dir.rmdir()
     return complete
 
 
@@ -434,7 +411,7 @@ def main(argv: list[str]) -> int:
                 installed = install(WindowsMachine(), package_dir)
                 complete = installed is Installed.BOUND
             else:
-                complete = uninstall(WindowsMachine(), package_dir)
+                complete = uninstall(WindowsMachine())
         except Exception:
             # The top of the step: this executable has no console, and its exit
             # code says only that it failed, so the log is the only place the

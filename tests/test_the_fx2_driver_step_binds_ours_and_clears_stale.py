@@ -1,14 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The installer's FX2 driver step binds our package and clears stale ones,
-and never strips a working binding it cannot replace.
+"""The FX2 driver step takes both of the Classic's USB identities for our
+package, removing every other package that names either, and restores
+nothing at uninstall; a package of ours that cannot enter the store removes
+nothing.
 
 ``src/_lumascope/modules/fx2_driver_step.py`` is what the app's Repair runs elevated to
 install, and the MSI to uninstall. The machine it acts on is stood in by ``_Machine``: a driver store
 that is a folder of INF files read through the real ``store_packages``, and
 ``pnputil`` acting on it as Windows does for the commands the step runs
-(add, add and install, delete, export, remove a device). ``/install`` binds
-each present device to the newest package that names it, the tie-break
-Windows applies between packages of equal signature.
+(add, add and install, delete, remove a device; any other command fails the
+test). ``/install`` binds each present device to the newest package that
+names it, the tie-break Windows applies between packages of equal signature.
 """
 
 from __future__ import annotations
@@ -18,7 +20,6 @@ import datetime
 import importlib.util
 import pathlib
 import re
-import shutil
 import sys
 
 from _lumascope.drivers.usb_driver_binding import (
@@ -44,16 +45,23 @@ def _inf(provider: str, catalog: str, date: str, *ids: str) -> str:
     )
 
 
-ZADIG_FIRMWARE = _inf('libwdi', 'LumaScope.cat', '03/04/2025', FX2_FIRMWARE)
-OTHER_VENDOR_BOOTLOADER = _inf('Acme', 'acme.cat', '05/06/2025', FX2_BOOTLOADER)
+# LumaView's unsigned libusbK package, on every field PC, names both identities.
+LUMAVIEW_LIBUSBK = _inf('libusbK', 'LumaView.cat', '03/04/2019', FX2_BOOTLOADER, FX2_FIRMWARE)
+ACME_DEVICE = 'USB\\VID_1234&PID_0001'
+# Another vendor's package naming the FX2 bootloader beside its own device.
+OTHER_VENDOR_BOOTLOADER = _inf('Acme', 'acme.cat', '05/06/2025', FX2_BOOTLOADER, ACME_DEVICE)
 
 
 class _Machine:
     """A stand-in by design: the Windows driver store, which no test host has."""
 
-    def __init__(self, store: pathlib.Path, *, accepts_ours: bool = True):
+    def __init__(
+        self, store: pathlib.Path, *, accepts_ours: bool = True, refuses_delete: str | None = None
+    ):
         self.store = store
         self.accepts_ours = accepts_ours
+        # A published name whose delete pnputil refuses (a package in use).
+        self.refuses_delete = refuses_delete
         self.devices: list[DeviceBinding] = []
         self.commands: list[tuple[str, ...]] = []
 
@@ -100,6 +108,11 @@ class _Machine:
                 self._bind_present_to_best()
             return 0, ''
         if command == '/delete-driver':
+            if rest[0] == self.refuses_delete:
+                return (
+                    1,
+                    'Failed to delete driver package: One or more devices are presently installed',
+                )
             (self.store / rest[0]).unlink()
             self.devices = [
                 dataclasses.replace(d, inf=None, service=None, provider=None)
@@ -107,9 +120,6 @@ class _Machine:
                 else d
                 for d in self.devices
             ]
-            return 0, ''
-        if command == '/export-driver':
-            shutil.copy(self.store / rest[0], pathlib.Path(rest[1]) / rest[0])
             return 0, ''
         if command == '/remove-device':
             self.devices = [d for d in self.devices if d.instance_id != rest[0]]
@@ -169,39 +179,57 @@ def _bound(machine, hardware_id):
     return [(d.present, d.provider) for d in machine.device_bindings(hardware_id)]
 
 
-def test_a_zadig_bound_scope_ends_on_our_package_with_zadigs_kept_for_uninstall(tmp_path):
+def test_a_lumaview_bound_scope_ends_on_our_package_alone(tmp_path):
     machine = _machine(tmp_path)
-    zadig = machine.publish(ZADIG_FIRMWARE)
-    machine.plug(FX2_FIRMWARE, inf=zadig)
-    package_dir = _package_dir(tmp_path)
+    lumaview = machine.publish(LUMAVIEW_LIBUSBK)
+    machine.plug(FX2_BOOTLOADER, inf=lumaview)
+    machine.plug(FX2_FIRMWARE, inf=lumaview)
 
-    installed = fx2_driver_step.install(machine, package_dir)
+    installed = fx2_driver_step.install(machine, _package_dir(tmp_path))
 
     assert installed is fx2_driver_step.Installed.BOUND
-    assert _bound(machine, FX2_FIRMWARE) == [(True, 'Etaluma')]
-    assert [p.provider for p in machine.store_packages(FX2_FIRMWARE)] == ['Etaluma']
-    assert (package_dir / 'removed' / zadig / zadig).exists()
+    for identity in (FX2_BOOTLOADER, FX2_FIRMWARE):
+        assert _bound(machine, identity) == [(True, 'Etaluma')]
+        assert [p.provider for p in machine.store_packages(identity)] == ['Etaluma']
 
 
 def test_a_package_that_cannot_enter_the_store_removes_nothing(tmp_path):
     machine = _machine(tmp_path, accepts_ours=False)
-    zadig = machine.publish(ZADIG_FIRMWARE)
-    machine.plug(FX2_FIRMWARE, inf=zadig)
+    lumaview = machine.publish(LUMAVIEW_LIBUSBK)
+    machine.plug(FX2_FIRMWARE, inf=lumaview)
 
     installed = fx2_driver_step.install(machine, _package_dir(tmp_path))
 
     assert installed is fx2_driver_step.Installed.NOT_ACCEPTED
-    assert _bound(machine, FX2_FIRMWARE) == [(True, 'libwdi')]
-    assert [p.inf for p in machine.store_packages(FX2_FIRMWARE)] == [zadig]
+    assert _bound(machine, FX2_FIRMWARE) == [(True, 'libusbK')]
+    assert [p.inf for p in machine.store_packages(FX2_FIRMWARE)] == [lumaview]
 
 
-def test_another_vendors_bootloader_package_is_left_in_the_store(tmp_path):
+def test_another_vendors_bootloader_package_goes_whole_and_the_log_names_its_ids(tmp_path, caplog):
     machine = _machine(tmp_path)
     acme = machine.publish(OTHER_VENDOR_BOOTLOADER)
 
-    fx2_driver_step.install(machine, _package_dir(tmp_path))
+    with caplog.at_level('INFO', logger='LVP.fx2_driver_step'):
+        installed = fx2_driver_step.install(machine, _package_dir(tmp_path))
 
-    assert acme in [p.inf for p in machine.store_packages(FX2_BOOTLOADER)]
+    assert installed is fx2_driver_step.Installed.BOUND
+    assert not (machine.store / acme).exists()
+    # The step's log is the only record of what it removed; the vendor's own
+    # device lost its package too, and the log says so.
+    (removal,) = [r.getMessage() for r in caplog.records if r.getMessage().startswith('removing')]
+    assert acme in removal and FX2_BOOTLOADER in removal and ACME_DEVICE in removal
+
+
+def test_a_newer_package_on_the_bootloader_is_removed_and_ours_bound(tmp_path):
+    machine = _machine(tmp_path)
+    # Dated after the build, so it would outrank ours if it were left.
+    newer = machine.publish(_inf('libwdi', 'z.cat', '12/31/2026', FX2_BOOTLOADER))
+    machine.plug(FX2_BOOTLOADER, inf=newer)
+
+    installed = fx2_driver_step.install(machine, _package_dir(tmp_path))
+
+    assert installed is fx2_driver_step.Installed.BOUND
+    assert _bound(machine, FX2_BOOTLOADER) == [(True, 'Etaluma')]
 
 
 def test_past_devices_and_our_older_package_are_removed(tmp_path):
@@ -219,31 +247,30 @@ def test_past_devices_and_our_older_package_are_removed(tmp_path):
     assert [p.driver_ver for p in machine.store_packages(FX2_FIRMWARE)] == ['10/17/2026,4.0.0.38']
 
 
-def test_a_present_device_left_on_another_package_makes_the_install_incomplete(tmp_path):
+def test_a_package_windows_will_not_delete_makes_the_install_incomplete(tmp_path):
     machine = _machine(tmp_path)
-    # A package dated after the build outranks ours on the bootloader, where
-    # the step removes nothing.
-    newer = machine.publish(_inf('libwdi', 'z.cat', '12/31/2026', FX2_BOOTLOADER))
-    machine.plug(FX2_BOOTLOADER, inf=newer)
+    lumaview = machine.publish(LUMAVIEW_LIBUSBK)
+    machine.refuses_delete = lumaview
+    machine.plug(FX2_BOOTLOADER, inf=lumaview)
 
     installed = fx2_driver_step.install(machine, _package_dir(tmp_path))
 
     assert installed is fx2_driver_step.Installed.INCOMPLETE
-    assert _bound(machine, FX2_BOOTLOADER) == [(True, 'libwdi')]
+    assert lumaview in [p.inf for p in machine.store_packages(FX2_BOOTLOADER)]
 
 
-def test_uninstall_removes_ours_and_restores_what_install_removed(tmp_path):
+def test_uninstall_removes_ours_and_restores_nothing(tmp_path):
     machine = _machine(tmp_path)
-    machine.plug(FX2_FIRMWARE, inf=machine.publish(ZADIG_FIRMWARE))
+    machine.plug(FX2_FIRMWARE, inf=machine.publish(LUMAVIEW_LIBUSBK))
     package_dir = _package_dir(tmp_path)
     fx2_driver_step.install(machine, package_dir)
 
-    complete = fx2_driver_step.uninstall(machine, package_dir)
+    complete = fx2_driver_step.uninstall(machine)
 
     assert complete is True
-    assert [p.provider for p in machine.store_packages(FX2_FIRMWARE)] == ['libwdi']
-    assert _bound(machine, FX2_FIRMWARE) == [(True, 'libwdi')]
-    assert not (package_dir / 'removed').exists()
+    assert machine.store_packages(FX2_FIRMWARE) == []
+    assert machine.store_packages(FX2_BOOTLOADER) == []
+    assert _bound(machine, FX2_FIRMWARE) == [(True, None)]
 
 
 def test_install_and_uninstall_never_touch_the_trust_store(tmp_path):
@@ -257,7 +284,7 @@ def test_install_and_uninstall_never_touch_the_trust_store(tmp_path):
     (package_dir / 'Etaluma_TrustedPublisher.cer').write_bytes(b'DER bytes')
 
     fx2_driver_step.install(machine, package_dir)
-    fx2_driver_step.uninstall(machine, package_dir)
+    fx2_driver_step.uninstall(machine)
 
     assert [args[0] for args in machine.commands] == ['pnputil'] * len(machine.commands)
 
@@ -293,10 +320,9 @@ def test_a_package_windows_did_not_accept_exits_with_its_own_code(tmp_path, monk
 
 def test_the_step_logs_to_its_install_folder_and_exits_1_when_incomplete(tmp_path, monkeypatch):
     machine = _machine(tmp_path)
-    # A package dated after the build outranks ours on the bootloader.
-    machine.plug(
-        FX2_BOOTLOADER, inf=machine.publish(_inf('libwdi', 'z.cat', '12/31/2026', FX2_BOOTLOADER))
-    )
+    lumaview = machine.publish(LUMAVIEW_LIBUSBK)
+    machine.refuses_delete = lumaview
+    machine.plug(FX2_BOOTLOADER, inf=lumaview)
 
     code, text = _run_main(tmp_path, monkeypatch, machine)
 

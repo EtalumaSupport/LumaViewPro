@@ -9,7 +9,7 @@ without elevation:
   present or seen before, and the driver bound to it, through SetupAPI;
 - ``store_packages`` here reads the store's published copies of every
   third-party INF (``%WINDIR%\\INF\\oem*.inf``) for the packages that name the
-  identity, which is what the installer exports and removes, and needs no
+  identity, which is what the driver step removes, and needs no
   Windows call, so it runs on any host.
 """
 
@@ -80,13 +80,16 @@ class StorePackage:
 
     ``inf`` is the store's published name (``oem12.inf``), the name
     ``pnputil`` takes; ``driver_ver`` is the INF's ``DriverVer``, date then
-    version, which ranks it against other packages of equal signature.
+    version, which ranks it against other packages of equal signature;
+    ``hardware_ids`` is every ID its models name, upper case, each once:
+    removing the package takes it from each of them.
     """
 
     inf: str
     provider: str
     catalog: str
     driver_ver: str
+    hardware_ids: tuple[str, ...]
 
     @property
     def ours(self) -> bool:
@@ -142,9 +145,9 @@ def store_packages(hardware_id: str, inf_folder: str) -> list[StorePackage]:
     for name in sorted(os.listdir(inf_folder)):
         if not re.fullmatch(r'oem\d+\.inf', name, re.IGNORECASE):
             continue
-        sections = _inf_sections(_read_inf_text(os.path.join(inf_folder, name)))
-        if _names_hardware_id(sections, wanted):
-            packages.append(_package(name, sections))
+        package = _package(name, _inf_sections(_read_inf_text(os.path.join(inf_folder, name))))
+        if wanted in package.hardware_ids:
+            packages.append(package)
     return packages
 
 
@@ -162,6 +165,7 @@ def _package(name: str, sections: dict[str, list[tuple[str, str]]]) -> StorePack
         provider=_resolve(version.get('provider', ''), strings),
         catalog=catalog.strip('"'),
         driver_ver=version.get('driverver', ''),
+        hardware_ids=_hardware_ids(sections),
     )
 
 
@@ -204,20 +208,19 @@ def _first_values(lines: list[tuple[str, str]]) -> dict[str, str]:
     return values
 
 
-def _names_hardware_id(sections: dict[str, list[tuple[str, str]]], wanted: str) -> bool:
-    """Whether a models section of the INF lists ``wanted`` among its IDs."""
+def _hardware_ids(sections: dict[str, list[tuple[str, str]]]) -> tuple[str, ...]:
+    """Every ID the INF's models sections list, upper case, each once."""
     model_sections = set()
     for _, value in sections.get('manufacturer', []):
         parts = [part.strip() for part in value.split(',')]
         base = parts[0].lower()
         model_sections.add(base)
         model_sections.update(f'{base}.{decoration.lower()}' for decoration in parts[1:])
-    for section in model_sections:
+    ids: dict[str, None] = {}
+    for section in sorted(model_sections):
         for _, value in sections.get(section, []):
-            ids = [part.strip().upper() for part in value.split(',')[1:]]
-            if wanted in ids:
-                return True
-    return False
+            ids.update(dict.fromkeys(part.strip().upper() for part in value.split(',')[1:]))
+    return tuple(ids)
 
 
 def _resolve(value: str, strings: dict[str, str]) -> str:
