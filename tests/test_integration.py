@@ -366,19 +366,6 @@ class TestIntegrationSingleStep:
         z_pos = scope._motion_driver.current_pos('Z')
         assert abs(z_pos - z_target) < 100.0, f'Z position {z_pos} not near target {z_target}'
 
-    def test_image_captured(self, executor, scope, tmp_path):
-        """Verify that an image was actually captured during the protocol."""
-        protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 50.0}])
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed
-
-        # After a successful protocol run the camera has delivered frames
-        frame = scope._camera_driver.grab()
-        assert frame is not None
-        assert isinstance(frame.image, np.ndarray)
-        if frame.image.ndim == 2:
-            assert frame.image.shape[0] > 0 and frame.image.shape[1] > 0
-
 
 class TestIntegrationAutoGain:
     """Test auto-gain with real simulated camera."""

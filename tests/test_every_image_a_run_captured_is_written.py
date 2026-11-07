@@ -101,6 +101,9 @@ class TestAShortRunWhileTheFileWorkerWaits:
                 return real_get(*args, **kwargs)
 
             lane_queue.get = _parked_get
+            # An idle worker waits on the lane's wake, not in a get: woken
+            # once, it goes round its loop and parks in the get above.
+            session.file_io_executor._wake.set()
             try:
                 assert parked.wait(WAIT_S), 'the file worker never came back to its wait'
                 outcome = runner.start_single_scan(

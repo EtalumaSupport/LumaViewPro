@@ -79,6 +79,9 @@ class _LateWorker:
         self._parked = threading.Event()
         self._go = threading.Event()
         self._queue.get = self._late_get
+        # An idle worker waits on the lane's wake, not in a get: woken once,
+        # it goes round its loop and parks in the get above.
+        session.camera_executor._wake.set()
         assert self._parked.wait(5.0), 'the camera worker never came back for work'
 
     def _late_get(self, *args, **kwargs):

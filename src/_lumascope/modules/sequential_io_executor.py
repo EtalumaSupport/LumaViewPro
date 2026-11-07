@@ -524,6 +524,32 @@ SequentialIOExecutor
 """
 
 
+class _WakesOnPut:
+    """A lane queue that sets its lane's wake on every put.
+
+    The worker waits on the wake, never inside a get, so that a switch of
+    the lane's state wakes it as work does. The wake is set by the queue
+    itself so no put can be made that leaves its task waiting for the next
+    switch.
+    """
+
+    def __init__(self, wake: threading.Event):
+        super().__init__()
+        self._wake = wake
+
+    def _put(self, item):
+        super()._put(item)
+        self._wake.set()
+
+
+class _WakingQueue(_WakesOnPut, queue.Queue):
+    pass
+
+
+class _WakingPriorityQueue(_WakesOnPut, queue.PriorityQueue):
+    pass
+
+
 class _PriorityFifoQueue:
     """PriorityQueue wrapper hiding the tuple wrap/unwrap from callers.
     put(task) / get() -> task have the same shape as queue.Queue; the
@@ -532,8 +558,8 @@ class _PriorityFifoQueue:
     counter is reached only on an impossible (priority, counter) tie.
     """
 
-    def __init__(self):
-        self._q = queue.PriorityQueue()
+    def __init__(self, wake: threading.Event):
+        self._q = _WakingPriorityQueue(wake)
         # itertools.count() is thread-safe in CPython; per-instance
         # so two priority_aware executors don't share counter state.
         self._counter = itertools.count()
@@ -582,11 +608,15 @@ class SequentialIOExecutor:
         # wrapper; protocol_queue stays FIFO so step ordering inside
         # a protocol is preserved.
         self.priority_aware = priority_aware
+        # What the worker waits on between tasks: set by every put on either
+        # queue and by every switch of the lane's state the worker's next
+        # decision reads -- a run starting, ending or finishing, the close.
+        self._wake = threading.Event()
         if priority_aware:
-            self.queue = _PriorityFifoQueue()
+            self.queue = _PriorityFifoQueue(self._wake)
         else:
-            self.queue = queue.Queue()
-        self.protocol_queue = queue.Queue()
+            self.queue = _WakingQueue(self._wake)
+        self.protocol_queue = _WakingQueue(self._wake)
         # The lane's state -- closing, in a run, a run finishing -- switches
         # under this lock, and every decision that reads that state and then
         # puts a task on a queue, or empties one, is made under it, so no
@@ -1432,6 +1462,7 @@ class SequentialIOExecutor:
             # the run's queue itself, and one already waiting on the default
             # queue, which protocol mode does not serve, is carried there.
             self._carry_overrides_to_protocol_queue()
+            self._wake.set()
         if stale_finish:
             logger.info(f'{self.name} Cleared stale protocol_finish flag')
         logger.info(f'{self.name} Protocol Started')
@@ -1471,6 +1502,7 @@ class SequentialIOExecutor:
     def protocol_end(self) -> None:
         with self._state_lock:
             was_running = self._end_protocol_mode_locked()
+            self._wake.set()
         self._log_protocol_ended(was_running)
 
     def _end_protocol_mode_locked(self) -> bool:
@@ -1511,18 +1543,19 @@ class SequentialIOExecutor:
             time.sleep(0.001)
         return False
 
-    def protocol_finish_then_end(self):
+    def protocol_finish_then_end(self) -> None:
         self.protocol_finish.set()
+        self._wake.set()
         logger.info(f'{self.name} set to complete protocol then end')
 
-    def end_protocol_mode(self):
+    def end_protocol_mode(self) -> None:
         """Idempotent safety net for teardown paths that left this executor
         in protocol-mode.
 
         While ``protocol_running`` is set the worker pulls only from
         ``protocol_queue``; if a protocol aborts or tears down without the
-        normal completion path ending this executor, the worker blocks
-        forever on ``protocol_queue.get`` and the normal queue (composite,
+        normal completion path ending this executor, the worker waits
+        forever for run work and the normal queue (composite,
         video, z-projection, manual file ops) is never served. Setting
         ``protocol_finish`` lets the worker drain any remaining protocol
         items (so pending file writes still flush) and then exit protocol
@@ -1548,13 +1581,18 @@ class SequentialIOExecutor:
             if self._worker_generation != my_generation:
                 return
             try:
+                # Cleared before anything the pass decides on is read: a put
+                # or a switch from here on sets it again, so the wait below
+                # returns at once and the next pass sees what changed.
+                self._wake.clear()
                 task = None
                 if self._claim is not None and not self.queue.empty():
                     self._refuse_queued()
                 try:
                     # The mode is read, and an ended run's queue taken, under
-                    # the state lock; the get waits after its release, so a
-                    # switch landing during the wait is the next pass's to see.
+                    # the state lock; the take from the queue comes after its
+                    # release, so a switch landing between is the next pass's
+                    # to see.
                     ended = None
                     with self._state_lock:
                         in_protocol = (
@@ -1567,10 +1605,10 @@ class SequentialIOExecutor:
                         self._answer_protocol_pending(*ended)
                         continue
                     if from_run:
-                        task = self.protocol_queue.get(block=True, timeout=0.2)
+                        task = self.protocol_queue.get(block=False)
                         task.protocol = True
                     else:
-                        task = self.queue.get(block=True, timeout=0.2)
+                        task = self.queue.get(block=False)
                         task.protocol = False
                         # A droppable_live task has left the queue -- free its
                         # in-flight slot so the producer can enqueue the next.
@@ -1604,6 +1642,8 @@ class SequentialIOExecutor:
                             ended_mode = self._end_protocol_mode_locked()
                             self.protocol_finish.clear()
                     self._log_protocol_ended(ended_mode)
+                    if not ended_mode:
+                        self._wake.wait()
                     continue
 
                 ended = None
@@ -1904,15 +1944,16 @@ class SequentialIOExecutor:
             was_running = self._end_protocol_mode_locked()
             queued = self._take_queued()
             pending = self._take_protocol_pending()
+            self._wake.set()
         self._log_protocol_ended(was_running)
         for task in queued:
             task.protocol = False
             self._answer_unrun(task, self._closed_answer(_member_of(task)), asked=False)
         self._answer_protocol_pending(*pending)
         if self.worker_alive and wait:
-            # Worker polls pending_shutdown on every queue.get timeout
-            # (0.2s); bound the join so a hung task does not block
-            # process exit indefinitely.
+            # The close woke the worker, which returns from its wait; bound
+            # the join so a hung task does not block process exit
+            # indefinitely.
             self._worker_thread.join(timeout=5.0)
 
         # The queued tasks were answered above; a waiter still registered is
