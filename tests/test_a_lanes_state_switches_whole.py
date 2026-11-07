@@ -305,7 +305,6 @@ def test_a_step_put_as_a_run_finishes_is_run_before_the_mode_ends():
     """
     lane = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
     lane.start()
-    lane.protocol_start()
     pq = lane.protocol_queue
     real_get = pq.get
     in_get = threading.Event()
@@ -318,7 +317,10 @@ def test_a_step_put_as_a_run_finishes_is_run_before_the_mode_ends():
             raise queue.Empty
         return real_get(block, timeout)
 
+    # In place before the run starts: the start wakes the worker once, and
+    # it looks at the run's queue on that wake and then waits for the next.
     pq.get = get_comes_back_empty
+    lane.protocol_start()
     try:
         assert in_get.wait(_WAIT_S), "the worker never waited on the run's queue"
         lane.end_protocol_mode()
