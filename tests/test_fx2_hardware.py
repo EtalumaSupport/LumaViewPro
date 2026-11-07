@@ -62,11 +62,11 @@ class TestFX2(unittest.TestCase):
         self.assertTrue(self.camera.is_connected())
 
     def test_set_frame_size_returns_delivered_geometry(self):
-        # 638/482 are deliberately off the 4-px step grid: the driver rounds
-        # down and must return what it actually applied, matching what
-        # get_frame_size() then reports -- the no-read-back caching contract.
+        # 638/482 are deliberately off the 4-px step grid: the sensor acquires
+        # the next window up (640x484) and every frame is cropped back, so the
+        # request is delivered exactly, and get_frame_size() reports the same.
         delivered = self.camera.set_frame_size(638, 482)
-        self.assertEqual(delivered, {'width': 636, 'height': 480})
+        self.assertEqual(delivered, {'width': 638, 'height': 482})
         self.assertEqual(self.camera.get_frame_size(), delivered)
 
     def test_grab_frame_matches_window(self):
