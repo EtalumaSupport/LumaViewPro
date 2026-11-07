@@ -150,6 +150,23 @@ another:
 A run's video steps record as a manual recording does
 ([Saved files](captures-and-files.md#saved-files)), and its hyperstacks are built once the run ends.
 
+**A scan's folder** holds, for each step and channel, its image
+`<step name>_<scan>.<ext>` (`custom0000_BF_0000.tiff`: step `custom0000_BF`,
+scan 0); the protocol it ran, `<sequence_name>.tsv` (named by the start's
+`sequence_name`; given none, a single scan's is scan.tsv and a protocol's
+protocol.tsv); and
+`protocol_record.tsv`, one row per capture after a short header naming that
+protocol file. Its columns: `Filename`, `Step Name`, `Step Index` (the step's
+row, from 0), `Scan Count` (the scan, from 0), `Timestamp` (with its UTC
+offset), `Frame Count` (1 for a still, the frames written for a video step,
+0 for a capture that left no file) and `Duration (s)` (a video step's). A
+capture taken with saving off is named `unsaved`.
+
+**Where a run stands** is its operation's `progress`, a
+[`RunProgress`](../api-reference.md#RunProgress) -- `is_live`, `step_index`,
+`scans_remaining`, `run_dir` and the rest; over REST it is the run's job's
+`progress`, as a poll of the job reads it.
+
 **Post-processing** builds derived files from a run's folder:
 `session.post_processing.build(folder, zproject=..., stitch=..., composite=...,
 video=...)` builds the projections first, then the stitches, the composites
