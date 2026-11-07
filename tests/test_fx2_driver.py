@@ -1175,3 +1175,57 @@ class TestFx2DriverLibusbBackendProbe:
         assert self._registered(monkeypatch, gate) == ['fx2'], (
             'FX2 drivers must register when prerequisites are met'
         )
+
+
+class TestANewCaptureKeepsTheLastFrame:
+    """A new capture waits for the next stored frame without emptying the
+    store: a reader -- the preview, a give-up line -- still has the last frame."""
+
+    def test_a_reader_sees_the_last_frame_while_a_new_capture_waits(self):
+        from tests.camera_fakes import bare_fx2_camera
+
+        cam = bare_fx2_camera()
+        stored = threading.Event()
+        cam.register_frame_callback(lambda frame: stored.set())
+        cam.open_and_start()
+        assert stored.wait(5.0), 'the simulated FX2 stored no frame'
+
+        result = []
+        waiter = threading.Thread(target=lambda: result.append(cam.grab_new_capture(5.0)))
+        waiter.start()
+        empty_reads = 0
+        while waiter.is_alive():
+            if cam.grab() is None:
+                empty_reads += 1
+        waiter.join()
+
+        assert result[0] is not None, 'no frame was stored after the call'
+        assert empty_reads == 0, f'a reader found the store empty {empty_reads} times'
+
+    @pytest.mark.slow
+    def test_a_give_up_after_frames_arrived_names_the_last_one(self, caplog):
+        from _lumascope.modules.exceptions import CaptureFailedError
+        from _lumascope.modules.lumascope_api import imaging
+        from _lumascope.modules.scope_session import ScopeSession
+        from tests.settings_fixtures import complete_settings
+
+        session = ScopeSession.create(
+            complete_settings(microscope='LS620'), simulate=True, warn_pre_release=False
+        )
+        try:
+            scope = session.scope
+            scope.imaging.capture_still(timeout_s=1.0)  # a frame stored before the silence
+            scope.simulation.silence('led')
+            caplog.clear()
+            with pytest.raises(CaptureFailedError):
+                scope.imaging.capture_still(timeout_s=1.0)
+        finally:
+            session.shutdown()
+
+        lines = [
+            r.getMessage()
+            for r in records_of(caplog, imaging)
+            if r.levelno >= logging.WARNING and 'waited ' in r.getMessage()
+        ]
+        assert len(lines) == 1, f'one give-up line; got {lines}'
+        assert 'last stored seq=' in lines[0], f'the line lost the last frame: {lines[0]}'

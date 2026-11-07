@@ -557,8 +557,6 @@ def _ids_handler(data_stream):
     handler._slot = idscamera._LatestBufferSlot(handler._requeue)
     handler._poll_thread = None
     handler._worker_thread = None
-    handler._frame_generation = 0
-    handler._frame_gen_cond = threading.Condition()
     handler._stall_started = None
     handler._last_presence_probe = 0.0
     handler._absence_confirmations = 0
@@ -1933,40 +1931,67 @@ class TestPipelineLifecycle:
         assert h._poll_thread is None and h._worker_thread is None
 
 
-class TestFrameGenerationGate:
-    """grab_new_capture returns a NEW frame via the handler's frame-generation
-    gate -- not by driving the data stream itself (the QueueBuffer-race fix)."""
+class TestANewCaptureWaitsForAStoredFrame:
+    """grab_new_capture returns a frame the worker stored after the call.
 
-    def test_worker_store_advances_generation(self):
-        b0 = _FakeBuffer('b0')
-        ds = _FakeDataStream([b0])
-        h = _ids_handler(ds)
+    A frame the worker unpacks but does not store -- one made under another
+    window -- is not a new frame: a capture woken by it would hand back the
+    frame stored before it asked.
+    """
+
+    def _streaming(self):
+        from _lumascope.drivers.camera import FrameWindow
+
+        h = _ids_handler(_FakeDataStream([]))
         h._unpack = lambda buf: (buf.tag, 12)
-        h._store_frame = lambda *a, **k: None
-        gen0 = h.frame_generation()
+        h.frame_window = FrameWindow(acquired_width=8, acquired_height=8, crop=None)
+        cam = bare_ids_camera()
+        cam.cam_image_handler = h
+        stored = threading.Event()
+        h.register_frame_callback(lambda frame: stored.set())
         h.start()
-        TestPipelineLifecycle._wait_until(lambda: h.frame_generation() > gen0)
-        h.stop()
-        assert h.frame_generation() > gen0  # storing a frame advanced the counter
+        h._slot.put(_FakeBuffer(np.zeros((8, 8), np.uint16)), h.hand_over())
+        assert stored.wait(2.0), 'the worker stored no first frame'
+        return cam, h
 
-    def test_wait_for_new_frame_times_out_when_no_advance(self):
-        ds = _FakeDataStream([])
-        h = _ids_handler(ds)
-        # No worker -> generation never advances -> the bounded wait returns False.
-        assert h.wait_for_new_frame(h.frame_generation(), 0.05) is False
+    @staticmethod
+    def _new_capture_while_feeding(cam, h, shape):
+        # Frames keep arriving through the whole wait, as a stream's do; the
+        # 10 ms paces the feed and decides nothing.
+        result = []
+        waiter = threading.Thread(target=lambda: result.append(cam.grab_new_capture(0.5)))
+        waiter.start()
+        while waiter.is_alive():
+            h._slot.put(_FakeBuffer(np.zeros(shape, np.uint16)), h.hand_over())
+            time.sleep(0.01)
+        waiter.join()
+        return result[0]
 
-    def test_wait_for_new_frame_returns_true_after_bump(self):
-        ds = _FakeDataStream([])
-        h = _ids_handler(ds)
-        since = h.frame_generation()
+    def test_a_frame_of_another_window_does_not_end_the_wait(self):
+        cam, h = self._streaming()
+        before = cam.grab()
+        try:
+            got = self._new_capture_while_feeding(cam, h, (4, 4))
+        finally:
+            h.stop()
+        assert got is None, (
+            f'returned seq={got.seq}, the frame stored before the call (seq={before.seq})'
+        )
 
-        def _bump():
-            with h._frame_gen_cond:
-                h._frame_generation += 1
-                h._frame_gen_cond.notify_all()
+    def test_a_frame_stored_after_the_call_ends_it(self):
+        cam, h = self._streaming()
+        before = cam.grab()
+        try:
+            got = self._new_capture_while_feeding(cam, h, (8, 8))
+        finally:
+            h.stop()
+        assert got is not None
+        assert got.seq > before.seq
 
-        threading.Timer(0.02, _bump).start()
-        assert h.wait_for_new_frame(since, 1.0) is True
+
+class TestANewCaptureLeavesTheStreamToTheWorker:
+    """grab_new_capture waits on the store, never on the data stream itself
+    (the QueueBuffer-race fix)."""
 
     def test_grab_new_capture_does_not_drive_data_stream(self):
         # Structural guard: the fix is only safe if grab_new_capture never calls
@@ -1986,7 +2011,7 @@ class TestFrameGenerationGate:
         ]
         assert bad == [], (
             'grab_new_capture must not drive the data stream directly; route '
-            f'through the handler frame-gate instead. Found: {bad}'
+            f'through the handler store instead. Found: {bad}'
         )
 
 

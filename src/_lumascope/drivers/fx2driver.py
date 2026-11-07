@@ -96,7 +96,6 @@ from _lumascope.lib.log_helpers import VERBOSE
 
 from _lumascope.drivers.camera import (
     Camera,
-    Frame,
     FrameGrid,
     HandOver,
     ImageHandlerBase,
@@ -2781,19 +2780,6 @@ class FX2Camera(Camera):
                 ended.reason,
             )
         self._schedule_async_teardown()
-
-    # -- Grab API (mostly inherits from Camera; override for clarity) ------
-
-    def grab_new_capture(self, timeout_s: float = 5.0) -> Frame | None:
-        """Block until a NEW frame arrives. Used by autofocus / protocols."""
-        self.cam_image_handler.reset()
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
-            frame = self.cam_image_handler.get_last_image()
-            if frame is not None:
-                return frame
-            time.sleep(0.01)
-        return None
 
     # -- Frame size --------------------------------------------------------
 

@@ -12,7 +12,6 @@ import dataclasses
 from dataclasses import dataclass
 import threading
 import random
-import time
 from collections.abc import Callable
 from typing import ClassVar
 
@@ -23,7 +22,6 @@ from _lumascope.lib.log_helpers import logger
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import (
     Camera,
-    Frame,
     FrameGrid,
     HandOver,
     ImageHandlerBase,
@@ -241,52 +239,6 @@ class _SensorInput:
         """Set the input on ``obj``, changed at ``changed_ns`` (None for now)."""
         obj.__dict__[self._slot] = value
         obj._input_changed(self.name, value, changed_ns)
-
-
-class _SimImageHandler(ImageHandlerBase):
-    """The real drivers' frame buffer, with a wait for the next stored frame.
-
-    The simulator's delivery thread stores into it exactly as a real
-    driver's SDK thread does, so the frame count, the buffered frame and the
-    per-frame callbacks all come from the one implementation every driver
-    shares. The wait is what ``grab_new_capture`` needs: a frame stored after
-    the call, without polling.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self._stored = threading.Condition()
-
-    def _store_frame(
-        self, image, chunks=None, *, handed_over, significant_bits, wire_bytes
-    ) -> Frame | None:
-        frame = super()._store_frame(
-            image,
-            chunks,
-            handed_over=handed_over,
-            significant_bits=significant_bits,
-            wire_bytes=wire_bytes,
-        )
-        with self._stored:
-            self._stored.notify_all()
-        return frame
-
-    def wait_for_frame_after(self, since: int, timeout_s: float) -> bool:
-        """True once more than ``since`` frames are stored; False on timeout.
-
-        ``since`` is a stored count (``delivered_counts[0]``), never the
-        hand-over ordinal: a frame handed over before the call but still on
-        its way to the store would satisfy an ordinal, and the capture would
-        take the frame stored before it asked.
-        """
-        deadline = time.monotonic() + timeout_s
-        with self._stored:
-            while self.delivered_counts[0] <= since:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return False
-                self._stored.wait(remaining)
-            return True
 
 
 def _gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
@@ -633,7 +585,7 @@ class SimulatedCamera(Camera):
             # its frame count starts over, and the durable callback registry
             # is pushed onto it so a listener registered before a reconnect
             # keeps receiving frames.
-            self.cam_image_handler = _SimImageHandler()
+            self.cam_image_handler = ImageHandlerBase()
             self._reapply_frame_callbacks()
             # connect() returns CONFIGURED but NOT grabbing; the single
             # start fires later via open_and_start() (the start gate).
@@ -1106,7 +1058,7 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     def _deliver(
         self,
-        handler: _SimImageHandler,
+        handler: ImageHandlerBase,
         handed_over: HandOver,
         image: np.ndarray,
         bits: int,
@@ -1760,27 +1712,9 @@ class SimulatedCamera(Camera):
             img = img.astype(dtype)
         return img
 
-    def grab_new_capture(self, timeout_s: float) -> Frame | None:
-        """Wait for a frame stored after this call, then return it.
-
-        The delivery thread is the only producer, as a real camera's SDK
-        thread is, so a still capture waits for the stream rather than making
-        a frame of its own: the frame it gets is one the stream delivered,
-        counted once, under the settings in effect when it was made.
-
-        Args:
-            timeout_s: Wall-clock seconds to wait for the next frame.
-
-        Returns:
-            The stored ``Frame``, or None when the camera is not grabbing or
-            no frame arrived within ``timeout_s``.
-        """
-        handler = self.cam_image_handler
-        if not self._grabbing or handler is None:
-            return None
-        if not handler.wait_for_frame_after(handler.delivered_counts[0], timeout_s):
-            return None
-        return self.grab()
+    # grab_new_capture() inherited from Camera: the delivery thread is the
+    # only producer, as a real camera's SDK thread is, so a still capture
+    # waits for the stream rather than making a frame of its own.
 
     # ------------------------------------------------------------------
     # Gain

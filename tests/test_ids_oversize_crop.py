@@ -22,7 +22,7 @@ import numpy as np
 
 from _lumascope.drivers.camera import FrameWindow, ImageHandlerBase
 from _lumascope.drivers.camera_profiles import CameraProfile
-from tests.camera_fakes import bare_ids_camera, delivered_frame
+from tests.camera_fakes import bare_ids_camera
 
 # Bench-confirmed IMX676 AOI maxima (binned-space probe, 2026-06-25): 3504x3544.
 SENSOR_W, SENSOR_H = 3504, 3544
@@ -351,41 +351,6 @@ def test_an_unpacked_frame_is_cropped_to_the_window_where_it_is_stored(monkeypat
     )
     # Exactly the centered 1900-wide window of the 1920 frame.
     assert np.array_equal(store.get_last_image().image, full[0:1900, 10:1910])
-
-
-def test_grab_new_capture_returns_worker_stored_frame():
-    """The still-capture path (snaps / protocol scans / autofocus) no longer drives
-    the data stream: it waits for the worker to store a genuinely-new frame (where
-    the crop / unpack / depth-stamp happen -- covered by the _unpack tests) and
-    returns it via grab(). It must never run its own WaitForFinishedBuffer /
-    QueueBuffer, which would race the live poll/worker on the same stream."""
-    cam = bare_ids_camera()
-    handler = MagicMock()
-    handler.frame_generation.return_value = 7
-    handler.wait_for_new_frame.return_value = True
-    stored = delivered_frame(np.zeros((1900, 1900), dtype=np.uint16), significant_bits=12, seq=3)
-    handler.get_last_image.return_value = stored
-    cam.cam_image_handler = handler
-
-    assert cam.grab_new_capture(1.0) is stored
-    handler.wait_for_new_frame.assert_called_once_with(7, 1.0)  # gated on a NEW frame
-    # Never drove the data stream directly (the worker owns it).
-    cam.data_stream.WaitForFinishedBuffer.assert_not_called()
-    cam.data_stream.QueueBuffer.assert_not_called()
-
-
-def test_grab_new_capture_times_out_without_touching_stream():
-    """When no new frame is stored within the timeout, grab_new_capture returns
-    None and still never drives the data stream."""
-    cam = bare_ids_camera()
-    handler = MagicMock()
-    handler.frame_generation.return_value = 3
-    handler.wait_for_new_frame.return_value = False  # no new frame in time
-    cam.cam_image_handler = handler
-
-    assert cam.grab_new_capture(0.01) is None
-    cam.data_stream.WaitForFinishedBuffer.assert_not_called()
-    cam.data_stream.QueueBuffer.assert_not_called()
 
 
 def test_unpack_passes_the_whole_frame_through(monkeypatch):

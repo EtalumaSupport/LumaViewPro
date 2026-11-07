@@ -139,9 +139,8 @@ class _FeedMark:
     stop apart: frames handed over stop when the feed stops, frames stored
     stop when the store stage wedges while the feed runs, and both rising
     with no frame taken is a wait that missed frames the store had. The last
-    stored frame is read at the give-up; a driver whose fresh-frame grab
-    empties the store as it starts (the FX2's) holds none after a wait in
-    which nothing arrived.
+    stored frame is read at the give-up; a fresh-frame wait leaves the store
+    as it was, so it is the last frame that arrived.
     """
 
     at_ns: int

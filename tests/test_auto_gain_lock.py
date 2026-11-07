@@ -30,7 +30,8 @@ import _lumascope.modules.config_helpers as config_helpers
 from _lumascope.lib.log_helpers import VERBOSE
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.exceptions import CaptureFailedError, ExposureAtMinimumNotice
-from _lumascope.drivers.simulated_camera import SimulatedCamera, _SimImageHandler
+from _lumascope.drivers.camera import ImageHandlerBase
+from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.lumascope_api.camera import AutoGainConvergence, CameraAPI
 from _lumascope.modules.lumascope_api.frame_record import SettingSource
@@ -62,7 +63,7 @@ AG_SETTINGS_TRANSMITTED = {
 }
 
 
-class _ChunkHandler(_SimImageHandler):
+class _ChunkHandler(ImageHandlerBase):
     """The simulator's own frame handler, stamping each stored frame with the
     exposure (us) and gain (dB) the camera holds when it is stored, as a
     Basler's chunks do, beside the simulator's own frame counter and

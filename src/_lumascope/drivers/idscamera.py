@@ -22,7 +22,6 @@ from _lumascope.lib.log_helpers import VERBOSE
 
 from _lumascope.drivers.camera import (
     Camera,
-    Frame,
     FrameGrid,
     HandOver,
     ImageHandlerBase,
@@ -3109,30 +3108,7 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] get_binning_size failed: {e}')
             return -1
 
-    # grab() inherited from Camera base class
-
-    def grab_new_capture(self, timeout_s: float) -> Frame | None:
-        """Return a frame captured AFTER this call, via the shared latest-frame
-        path -- never by driving the data stream directly.
-
-        The handler's poll thread is the single WaitForFinishedBuffer consumer and
-        _requeue the single QueueBuffer; a still capture that ran its own
-        WaitForFinishedBuffer + QueueBuffer (the prior implementation) raced the
-        live poll/worker on the same stream -- stealing finished buffers and
-        re-queueing outside _requeue_lock, which the SDK does not promise is
-        concurrency-safe. Instead, snapshot the worker's frame-generation, wait for
-        it to advance (a genuinely new frame, unpacked + cropped + depth-stamped by
-        the worker), then read that frame's record through grab(). This mirrors
-        the Pylon driver, which also consumes the handler's frame rather than
-        the stream.
-        """
-        handler = self.cam_image_handler
-        if not handler:
-            return None
-        since = handler.frame_generation()
-        if not handler.wait_for_new_frame(since, timeout_s):
-            return None
-        return self.grab()
+    # grab() and grab_new_capture() inherited from Camera base class
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> NoReturn:
         raise no_hardware_auto_mode('IDS', 'update_auto_gain_target_brightness', 'auto-gain')
@@ -3543,13 +3519,11 @@ class ImageHandler(ImageHandlerBase):
         self._slot = _LatestBufferSlot(self._requeue)
         self._poll_thread = None
         self._worker_thread = None
-        # Frame-generation gate: the worker bumps this each time it stores a
-        # frame; a still capture (grab_new_capture) snapshots it and waits for it
-        # to advance, so it returns a genuinely-new frame WITHOUT driving the data
-        # stream itself -- the poll thread stays the single WaitForFinishedBuffer
-        # consumer and _requeue the single QueueBuffer.
-        self._frame_generation = 0
-        self._frame_gen_cond = threading.Condition()
+        # A still capture (grab_new_capture) waits on the store, never on the
+        # data stream: a capture that ran its own WaitForFinishedBuffer +
+        # QueueBuffer raced this poll/worker pair on the same stream, stealing
+        # finished buffers and re-queueing outside _requeue_lock, and the SDK
+        # does not promise QueueBuffer is concurrency-safe.
         # Sustained-stall tracking for the active device-presence probe. Touched
         # only by the poll thread: _stall_started is the monotonic time of the
         # first timeout in the current no-frame run (None once a frame arrives);
@@ -3971,29 +3945,6 @@ class ImageHandler(ImageHandlerBase):
         )
         _cam_log.warning(f'[CAM Class ] IDS buffer.IsIncomplete()=True {fill}')
 
-    def frame_generation(self) -> int:
-        """Current frame-store counter. Snapshot it before a still capture, then
-        wait_for_new_frame() past it to get a frame stored after that point."""
-        with self._frame_gen_cond:
-            return self._frame_generation
-
-    def wait_for_new_frame(self, since: int, timeout_s: float) -> bool:
-        """Block until the worker stores a frame newer than ``since`` (or timeout).
-
-        Returns True if a newer frame is available, False on timeout. This is the
-        still-capture path's hook into the live worker: it never touches the data
-        stream, so a still capture cannot race the poll/worker on WaitForFinished-
-        Buffer or QueueBuffer.
-        """
-        deadline = time.monotonic() + timeout_s
-        with self._frame_gen_cond:
-            while self._frame_generation <= since:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return False
-                self._frame_gen_cond.wait(remaining)
-            return True
-
     def _worker_loop(self):
         """Stage B: unpack the freshest buffer, store it, and re-queue it."""
         while True:
@@ -4015,9 +3966,6 @@ class ImageHandler(ImageHandlerBase):
                     significant_bits=significant_bits,
                     wire_bytes=buffer.DeliveredDataSize(),
                 )
-                with self._frame_gen_cond:
-                    self._frame_generation += 1
-                    self._frame_gen_cond.notify_all()
             except Exception as e:
                 # One bad frame must not kill the worker; the next stores
                 # normally. Log so the cause stays visible without throttling.

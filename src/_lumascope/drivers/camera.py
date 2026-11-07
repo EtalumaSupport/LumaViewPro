@@ -148,6 +148,9 @@ class ImageHandlerBase:
 
     def __init__(self):
         self._frame_lock = threading.Lock()
+        # Signalled under the frame lock each time a frame is stored, so a
+        # wait for the next stored frame sleeps until the store, not a poll.
+        self._stored = threading.Condition(self._frame_lock)
         # The last stored frame, whole: its pixels, depth, chunks and number
         # travel together, so no reader can pair one frame's pixels with
         # another's facts. None until a frame is stored, and after a failed
@@ -252,14 +255,32 @@ class ImageHandlerBase:
         On a stalled stream this keeps returning the last stored frame, so a
         live preview can freeze without an error surfacing here. Capture and
         autofocus paths must not rely on this method for freshness: they go
-        through grab_new_capture(), which resets the handler and waits for a
-        genuinely new frame, and a summed capture additionally requires each
+        through grab_new_capture(), which waits for a frame stored after the
+        call (``wait_for_frame_after``), and a summed capture additionally requires each
         frame's arrival ordinal to exceed the one before it.
         """
         if self._detached():
             return None
         with self._frame_lock:
             return self._last_frame
+
+    def wait_for_frame_after(self, since: int, timeout_s: float) -> bool:
+        """True once more than ``since`` frames are stored; False on timeout.
+
+        ``since`` is a stored count (``delivered_counts[0]``), never the
+        hand-over ordinal: a frame handed over before the call but still on
+        its way to the store would satisfy an ordinal, and the capture would
+        take the frame stored before it asked. A frame handed over and not
+        stored (made under another window) does not end the wait.
+        """
+        deadline = time.monotonic() + timeout_s
+        with self._stored:
+            while self._frames_stored <= since:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._stored.wait(remaining)
+            return True
 
     def reset(self) -> None:
         """Clear frame buffer and failure counter.
@@ -383,6 +404,7 @@ class ImageHandlerBase:
             )
             self._last_frame = frame
             cbs = list(self._frame_callbacks)
+            self._stored.notify_all()
         self._failed_grabs = 0
         # Snapshot under lock + invoke outside: a callback that takes >0
         # microseconds never extends the SDK thread's lock hold past the
@@ -1565,7 +1587,6 @@ class Camera(ABC):
             for cb in self._registered_frame_callbacks:
                 handler.register_frame_callback(cb)
 
-    @abstractmethod
     def grab_new_capture(self, timeout_s: float) -> Frame | None:
         """Grab a fresh capture-quality frame, waiting if necessary.
 
@@ -1576,6 +1597,10 @@ class Camera(ABC):
         that must reflect a change is taken after frame validity has
         drained them (``ImagingAPI.capture_still``).
 
+        It waits on the handler's store and never drives the camera's stream:
+        the driver's own thread stays the stream's one consumer, and the store
+        keeps its last frame through the wait for every other reader.
+
         Args:
             timeout_s: Maximum wait in seconds.
 
@@ -1583,7 +1608,12 @@ class Camera(ABC):
             The stored ``Frame`` that arrived after the call, or None when
             none arrived within ``timeout_s`` or the camera is gone.
         """
-        pass
+        handler = self.cam_image_handler
+        if handler is None:
+            return None
+        if not handler.wait_for_frame_after(handler.delivered_counts[0], timeout_s):
+            return None
+        return self.grab()
 
     @abstractmethod
     def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> bool | None:
