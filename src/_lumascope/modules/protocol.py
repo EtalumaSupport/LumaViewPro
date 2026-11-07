@@ -1754,21 +1754,25 @@ class Protocol:
         if len(steps) == 0:
             return
 
-        # First group by X/Y location; steps with no X/Y are one place, kept.
-        grouped_df = steps.groupby(by=['X', 'Y'], sort=False, dropna=False)
+        # Each X/Y location numbered in the order it first appears; steps with
+        # no X/Y are one place, kept.
+        place = steps.groupby(by=['X', 'Y'], sort=False, dropna=False).ngroup()
 
-        # For each X/Y location, sort by Z-height
-        grouped_list = []
-        for _, group_df in grouped_df:
-            # Stable, so channels at one Z keep the order they were made in.
-            group_df = group_df.sort_values(
-                by=['Objective', 'Z'], ascending=[True, True], kind='stable'
-            )
-            grouped_list.append(group_df)
-
-        # Re-combine into single dataframe
-        df = pd.concat(grouped_list, ignore_index=True).reset_index(drop=True)
-        self._set_steps(df)
+        # One sort over every step, not one per place: a built protocol has
+        # thousands of places, and sorting each and joining them cost over a
+        # second on a 1536-well tile build.
+        # The keys sit in a frame of their own, indexed by position, so the
+        # order takes any index the steps carry and no column of theirs.
+        # Stable, so channels at one Z keep the order they were made in.
+        keys = pd.DataFrame(
+            {
+                'place': place.to_numpy(),
+                'Objective': steps['Objective'].to_numpy(),
+                'Z': steps['Z'].to_numpy(),
+            }
+        )
+        order = keys.sort_values(by=['place', 'Objective', 'Z'], kind='stable').index
+        self._set_steps(steps.iloc[order].reset_index(drop=True))
 
     @staticmethod
     def _create_empty_steps_df() -> pd.DataFrame:
