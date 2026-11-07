@@ -149,14 +149,20 @@ needed, and `counted_by`, each counted frame's number and the
 The API has no reader of a saved file's record: read it with any TIFF reader,
 or keep the `SavedStill` or the run's record the capture answered. In Python:
 
-```python norun
+```python
 import tifffile
 
-with tifffile.TiffFile(path) as tif:
+session.show_channel('BF')
+scope.illumination.led_on('BF', 5)
+path = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0].file
+scope.illumination.leds_off()
+
+with tifffile.TiffFile(path) as tif:    # a plain TIFF's first description is the view
     view = dict(
         line.split(' = ', 1) for line in tif.pages[0].description.splitlines() if ' = ' in line
     )
 print(view['channel'], view['illumination_ma'], view['dark'])
+assert view['channel'] == 'BF' and view['dark'] == 'false'
 ```
 
 **Derived files.** A z-projection, a stitch, a composite or a video states a
