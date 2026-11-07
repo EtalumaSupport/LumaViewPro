@@ -40,10 +40,6 @@ def stage(sim_scope, monkeypatch):
 def _with_the_drawing_cached(stage):
     """The markers already drawn for these steps on the scope's plate."""
     stage._step_locations_fbo = CACHED
-    stage._cached_step_locations_hash = hash(
-        tuple(stage._protocol_step_locations_df.to_records(index=False).tolist())
-    )
-    stage._cached_labware_name = '96 well microplate'
 
 
 def test_steps_on_the_scopes_plate_are_drawn(stage):
@@ -58,3 +54,19 @@ def test_steps_on_another_plate_are_not_drawn_on_this_one(stage):
     _with_the_drawing_cached(stage)
 
     assert stage.create_step_locations_fbo() is None
+
+
+def test_new_steps_are_drawn_anew_and_the_toggle_reuses_the_drawing(stage):
+    # The drawing is reused until the steps it shows change: their one writer,
+    # set_protocol_steps, clears it. Turning the markers off and on changes
+    # nothing the drawing holds.
+    stage.set_protocol_steps(_protocol('96 well microplate'))
+    _with_the_drawing_cached(stage)
+
+    stage.show_protocol_steps(False)
+    stage.show_protocol_steps(True)
+    assert stage.create_step_locations_fbo() is CACHED
+
+    stage.width, stage.height = 200, 100  # the fixture's stage was never laid out
+    stage.set_protocol_steps(_protocol('96 well microplate'))
+    assert stage.create_step_locations_fbo() is not CACHED

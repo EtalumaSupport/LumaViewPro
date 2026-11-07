@@ -15,8 +15,11 @@ from ui.ui_helpers import find_nearest_step, move_to_plate, run_unasked, xy_gest
 logger = logging.getLogger('LVP.ui.stage')
 
 
-def _plate_to_pixel(labware, x_mm: float, y_mm: float, scale_x: float, scale_y: float):
-    """A plate position (mm) as a pixel on the stage map: the plate's Y runs down the plate, the map's up."""
+def _plate_to_pixel(labware, x_mm, y_mm, scale_x: float, scale_y: float):
+    """A plate position (mm) as a pixel on the stage map: the plate's Y runs down the plate, the map's up.
+
+    ``x_mm`` and ``y_mm`` are one position's numbers, or numpy arrays of many.
+    """
     return x_mm * scale_x, (labware.height_mm - y_mm) * scale_y
 
 
@@ -29,7 +32,6 @@ class Stage(Widget):
         # Invalidate FBO caches on size/position change
         self._labware_fbos.clear()
         self._step_locations_fbo = None
-        self._cached_step_locations_hash = None
         self.draw_labware(full_redraw=True)
 
     def remove_parent(self):
@@ -50,8 +52,10 @@ class Stage(Widget):
         # Track labware state for smart redraws
         self._cached_labware_name = None
         self._labware_fbos = {}
+        # The step markers drawn, reused until a change that makes them
+        # stale clears it: new steps (set_protocol_steps) or a new size or
+        # place (full_redraw).
         self._step_locations_fbo = None
-        self._cached_step_locations_hash = None
 
         # Stage Coordinates (defaults; overridden by motorconfig at draw time)
         self.STAGE_W = 120
@@ -138,7 +142,6 @@ class Stage(Widget):
         self._protocol_step_redraw = True
         # Invalidate step locations FBO cache
         self._step_locations_fbo = None
-        self._cached_step_locations_hash = None
 
     def append_ROI(self, x_min, y_min, x_max, y_max):
         self.ROI_min = [x_min, y_min]
@@ -366,15 +369,10 @@ class Stage(Widget):
         if self._protocol_step_labware != labware_name:
             return None
 
-        # Create a hash of the step locations for cache validation
-        step_hash = hash(tuple(self._protocol_step_locations_df.to_records(index=False).tolist()))
-
-        # Return cached FBO if it's still valid
-        if (
-            self._step_locations_fbo is not None
-            and self._cached_step_locations_hash == step_hash
-            and self._cached_labware_name == labware_name
-        ):
+        # Drawn for these steps on this plate: set_protocol_steps, the one
+        # writer of the steps and their plate, clears it, and it is drawn
+        # only on the steps' own plate.
+        if self._step_locations_fbo is not None:
             return self._step_locations_fbo
 
         # Create new FBO for step locations
@@ -409,9 +407,15 @@ class Stage(Widget):
             half_size = 2
             Color(1.0, 1.0, 0.0, 1.0)  # Yellow color for step markers
 
-            for _, step in self._protocol_step_locations_df.iterrows():
-                pixel_x, pixel_y = _plate_to_pixel(labware, step['X'], step['Y'], scale_x, scale_y)
-
+            # Every marker's place at once, from the columns.
+            pixels_x, pixels_y = _plate_to_pixel(
+                labware,
+                self._protocol_step_locations_df['X'].to_numpy(),
+                self._protocol_step_locations_df['Y'].to_numpy(),
+                scale_x,
+                scale_y,
+            )
+            for pixel_x, pixel_y in zip(pixels_x.tolist(), pixels_y.tolist(), strict=True):
                 x_center = x + pixel_x
                 y_center = y + pixel_y
 
@@ -428,7 +432,6 @@ class Stage(Widget):
 
         # Cache the FBO
         self._step_locations_fbo = fbo
-        self._cached_step_locations_hash = step_hash
 
         return fbo
 
