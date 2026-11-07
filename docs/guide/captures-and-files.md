@@ -41,9 +41,18 @@ taken again once and then returned, its `saturated_fraction` measured. Read the
 record to tell; never re-measure the pixels.
 
 **A saved still.** `session.manual_capture.capture(...)` takes the still
-LumaViewPro's Capture button takes, and saves it: the folder, the name, the
-summing and the format come from the settings. It returns an `Operation` of a
-`SavedStill` per file written, each its `file` and the record of it.
+LumaViewPro's Capture button takes, and saves it: the summing and the format
+come from the settings. It returns an `Operation` of a `SavedStill` per file
+written, each its `file` and the record of it, `frame` (a `FrameRecord`, the
+record `capture_still` answers as `record`). The file is
+`<live folder>/Manual/live_<well>_<channel>_<number>.<ext>`, the well left out
+where the position has none and the number counting up from `000001`; with
+`separate_folder_per_channel` set it is in a folder per channel under
+`Manual/`. The live folder is `live_folder` in the settings, set by
+`session.set_live_folder(folder)`, which creates it. `false_color_on` is the
+false-colour toggle of LumaViewPro's channel controls: on, the file carries
+the channel's colour for display ([Saved files](#saved-files)); off, it is
+grey. It changes how the file is shown, never what it records.
 
 ```python
 scope.motion.move_to_well('B2')             # over the simulator's specimen
@@ -80,11 +89,13 @@ never by your program from the array ([Saved files](#saved-files)).
 
 **What a still holds.** A still is saved under the live folder in the format
 the settings name (`OutputFormat`: TIFF, OME-TIFF or JPG; a run may instead
-build an OME-TIFF hyperstack per well). A TIFF or OME-TIFF keeps mono pixels,
-the channel's colour carried beside them for display (a palette, a lookup
-table, OME `Channel.Color`), in every mode but `FALSE_COLOR_RGB` with false
-colour on. A JPG is the image as it is shown: 8-bit, its channel's colour baked
-into its pixels, and no record in the file; a manual still's record is the
+build an OME-TIFF hyperstack per well). A TIFF or OME-TIFF keeps mono pixels.
+With false colour off they are grey and carry no colour. With it on, the
+channel's colour (grey for BF, PC and DF, so they stay grey) is carried beside them for display -- an 8-bit file as a
+palette, a full-depth one as an ImageJ lookup table or OME `Channel.Color` --
+except in `FALSE_COLOR_RGB`, which bakes it into three-channel pixels. A JPG
+is the image as it is shown: 8-bit, grey or its channel's colour baked into
+its pixels, and no record in the file; a manual still's record is the
 `SavedStill` its capture answered.
 
 **The image mode decides the depth and the encoding.** `ImageMode.EIGHT_BIT`
@@ -94,10 +105,14 @@ has -- 12 bits where it delivers 12 -- and save it right-aligned (`SCIENTIFIC`:
 a 12-bit frame is 0 to 4095 in a 16-bit container), shifted to fill the
 container (`SCALED`), or, with false colour on, as three-channel RGB in the
 channel's colour (`FALSE_COLOR_RGB`). The file states the depth its values
-reach as `SignificantBits` -- 12 for a 12-bit `SCIENTIFIC` frame, 16 for a
-`SCALED` one -- so divide by `(1 << SignificantBits) - 1` to scale it. A
-full-depth sum states the bits it can reach -- 14 for four 12-bit frames -- and
-every sum states `FramesSummed`, how many it holds.
+reach, its record's `significant_bits` -- 12 for a 12-bit `SCIENTIFIC` frame,
+16 for a `SCALED` one -- so divide by `(1 << significant_bits) - 1` to scale
+it. Every TIFF also carries it in private tag 65123, and an OME-TIFF in its
+schema's `SignificantBits`, so a reader that knows neither LVP's record nor
+OME still finds it. A full-depth sum states the bits it can reach -- 14 for
+four 12-bit frames -- with private tag 65124 giving the depth one frame's
+white is at (12), and every sum states `frames_summed` (`FramesSummed`), how
+many it holds.
 
 **The record in the file.** Each TIFF and OME-TIFF carries what the instrument
 was when the frame was taken: the instrument (model, serial, camera), the
@@ -114,7 +129,16 @@ plain `key = value` pairs under the record's own names (`plate.well_label = D6`,
 metadata (in Fiji, the Bio-Formats importer's *Display metadata*).
 Every key, its unit and what a sum does to it is the reference's [saved-file
 facts](../api-reference.md#saved-file-facts). A fact the frame did not know is
-absent, never a stand-in.
+absent, never a stand-in. A few values name a type of the reference:
+`illumination_timing` is a [`LightTiming`](../api-reference.md#LightTiming),
+when the currents were read; each `frame_validity` judgment is a
+[`Change`](../api-reference.md#Change) -- `skip` the frames it needed, and
+`counted_by` each counted frame's number and who counted it, a
+[`Counter`](../api-reference.md#Counter).
+
+The API has no reader of a saved file's record: read it with any TIFF reader
+(in Python, `tifffile`), or keep the `SavedStill` or the run's record the
+capture answered.
 
 **Derived files.** A z-projection, a stitch, a composite or a video states a
 fact only when every input states the same: a composite of several channels
