@@ -116,12 +116,12 @@
 	    setup bundle's driver step binds it at install (Bundle.wxs,
 	    Fx2DriverStep), and LumaViewPro's Repair runs the installed step
 	    (lvp_fx2_driver_step.exe, src/_lumascope/modules/fx2_driver_step.py)
-	    on the person's desktop where that did not complete. Uninstall runs the step deferred and as SYSTEM, which removing a
-	    package needs and no prompt does: it removes our package and restores
-	    nothing, so the scope has no driver until LumaViewPro is installed
-	    again, logging to logs\driver_uninstall_<version>_<time>.log under the
-	    install folder. Return="ignore": an installer action cannot
-	    tell the person anything.
+	    on the person's desktop where that did not complete. Uninstall runs
+	    the step deferred and as SYSTEM, which removing a package needs and no
+	    prompt does: it removes our package and restores nothing, so the scope
+	    has no driver until LumaViewPro is installed again, logging to
+	    logs\driver_uninstall_<version>_<time>.log under the install folder.
+	    Return="ignore": an installer action cannot tell the person anything.
 
 	    The uninstall step is skipped when a newer version is removing this one
 	    (UPGRADINGPRODUCTCODE): an upgrade leaves our driver installed and

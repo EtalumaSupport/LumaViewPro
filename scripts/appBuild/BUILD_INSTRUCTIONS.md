@@ -275,19 +275,29 @@ lets ours outrank an older Zadig binding. An unsigned build leaves them out
 and its receipt says `ClassicDriver=NOT BUNDLED (no signing certificate)`:
 Windows accepts a driver package only with a signed catalog.
 
-The installer does not bind the driver. The first time LumaViewPro meets a
-Classic on no driver, or on one it cannot use (LumaView Classic's libusbK),
-it offers to install it; that runs the driver step, `lvp_fx2_driver_step.exe
-install`, as an administrator on the person's desktop, where Windows asks
-whether to install software from Etaluma. The step adds our package to the
-driver store, and only once it is there exports and removes every other
-vendor's package for the running firmware (`0xEA17`), binds the present
-devices to ours, removes our older packages and the past devices of both
-identities, and logs every step to
-`<InstallFolder>\logs\driver_install_<version>_<time>.log`. A working Zadig
-WinUSB binding is left as it is. Uninstall runs `lvp_fx2_driver_step.exe
-uninstall`, which removes our package and restores what install exported; an
-upgrade leaves the driver installed.
+The setup bundle binds the driver at install. After the MSI it runs
+`lvp_fx2_driver_step_setup.exe install-if-classic`, a one-file build of the
+driver step with the INF and catalog beside it, as an administrator on the
+person's desktop, where Windows asks whether to install software from
+Etaluma. On a PC that has had a Classic (a device of `0xEA17` seen, or a
+package naming it in the driver store, LumaView's on every field PC) the
+step adds our package to the driver store, and only once it is there
+removes every other package that names either identity, whoever's
+(LumaView's libusbK, a Zadig binding, another vendor's), whole; binds the
+present devices to ours; removes our older packages and the past devices of
+both identities; and logs every step to
+`<InstallFolder>\logs\driver_install-if-classic_<version>_<time>.log`. On a
+PC that never had one it changes nothing and Windows asks nothing. LumaView
+is not kept working after the switch.
+
+LumaViewPro accepts a Classic on our package alone. When it meets one on no
+driver or on any other package (the prompt was declined, the MSI was run
+without the bundle, the scope was first plugged in after the install, or a
+package installed since took it back) it offers to install the driver; that
+runs the installed `lvp_fx2_driver_step.exe install`, the same step, with no
+first question. Uninstall runs `lvp_fx2_driver_step.exe uninstall`, which
+removes our package and restores nothing, so the scope has no driver until
+LumaViewPro is installed again; an upgrade leaves the driver installed.
 
 The rest of what the FX2 needs is not a dependency to drop in either: the release
 spec ships the firmware hex from the clone's `firmware\` folder and the

@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Repair binds a Lumascope Classic to LumaViewPro's driver, through the remedy door.
 
-A Classic Windows has on a driver LumaViewPro cannot use is reported at
+A Classic Windows has on no driver, or on one not LumaViewPro's, is reported at
 bring-up with ``repair_camera_driver`` as its remedy, on an installed Windows
 build. The remedy, taken through ``ScopeSession.apply_remedy``, runs the
 installed driver step as an administrator, refuses where it cannot run or is
@@ -140,9 +140,9 @@ def test_a_binding_already_ours_is_not_repaired(
 
 
 def test_a_camera_that_is_up_is_never_rebound(fx2_session, on_installed_windows, monkeypatch):
-    # The running firmware is up on WinUSB; an unbound bootloader identity
-    # beside it is another vendor's board, and the step would reinstall the
-    # running camera's device.
+    # The camera is up, and a package has taken its identity since: the step
+    # would reinstall the running camera's device, so Repair waits for a
+    # start with no camera up.
     fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK')
     run, runs = _approved_step(fx2_session)
     # a stand-in by design: Windows' administrator prompt, absent off Windows.

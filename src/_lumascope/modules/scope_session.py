@@ -2085,7 +2085,7 @@ class ScopeSession:
         someone at the scope answers whoever asked. The step logs every action
         to the install folder's ``logs``. A camera that is up is never
         touched: Repair runs only while no camera is connected and a present
-        device is on a driver LumaViewPro cannot use, and the camera connects
+        device is not on LumaViewPro's driver, and the camera connects
         on its new driver at the next start, which the notice it reports says.
         Its answer and its refusals are stated on ``apply_remedy``.
         """
@@ -2096,10 +2096,10 @@ class ScopeSession:
         reason = fx2_driver_step.repair_refusal()
         if reason is not None:
             raise CameraDriverRepairRefusedError(reason)
-        # A camera that is up is on a driver that works, and the step
-        # reinstalls every present device, so it would be pulled from under
-        # whatever is using it; an unbound bootloader identity beside it is
-        # another vendor's board, not ours to take.
+        # The step reinstalls every present device, so a camera that is up
+        # would be pulled from under whatever is using it; a binding taken
+        # from it since is taken back at the next start, when the connect
+        # refuses it and offers Repair.
         bindings = self.scope.diagnostics.get_camera_usb_bindings()
         if bindings is None:
             raise CameraDriverRepairRefusedError('no_classic_bindings')
