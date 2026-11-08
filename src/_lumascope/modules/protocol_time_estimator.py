@@ -32,7 +32,6 @@ SERIAL_CMD_OVERHEAD_S = 0.003  # ~3ms per serial round-trip
 # ---------------------------------------------------------------------------
 # LED / camera constants
 # ---------------------------------------------------------------------------
-LED_SETTLE_S = 0.005  # 5ms LED settle after led_on
 LED_SERIAL_S = 0.003  # ~3ms serial round-trip for LED command
 FRAME_DRAIN_COUNT = 2  # stale frames drained after parameter change
 MIN_FRAME_TIME_S = 0.05  # minimum frame time (50ms)
@@ -203,8 +202,8 @@ class ProtocolTimeEstimator:
         # Movement
         move_time = self._estimate_movement(step, prev_step)
 
-        # LED switching + settle
-        led_time = LED_SETTLE_S + LED_SERIAL_S
+        # LED switching; its settle is in the capture's frame drain
+        led_time = LED_SERIAL_S
 
         # Autofocus
         af_time = 0.0

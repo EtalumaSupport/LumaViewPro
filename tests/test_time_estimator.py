@@ -16,7 +16,6 @@ from _lumascope.modules.protocol_time_estimator import (
     StepTimeEstimate,
     XY_SPEED_UM_PER_S,
     Z_SPEED_UM_PER_S,
-    LED_SETTLE_S,
     LED_SERIAL_S,
     STEP_OVERHEAD_S,
     AUTOGAIN_MAX_DURATION_S,
@@ -214,7 +213,7 @@ class TestStepEstimation:
         step = _valid_step(Exposure=50)
         est = estimator._estimate_step(0, pd.Series(step), None, OBJ_10X, sweeps=step['Auto_Focus'])
         assert est.move_time_s == 0.0  # first step
-        assert est.led_time_s == LED_SETTLE_S + LED_SERIAL_S
+        assert est.led_time_s == LED_SERIAL_S
         assert est.autofocus_time_s == 0.0
         assert est.autogain_time_s == 0.0
         assert est.capture_time_s > 0

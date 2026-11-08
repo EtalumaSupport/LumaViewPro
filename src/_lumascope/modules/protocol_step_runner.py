@@ -726,8 +726,8 @@ class ProtocolStepRunner:
         The LED must be lit before the camera grabs the step's frame (a dark
         grab is mis-exposed) and before continuous auto-gain arms against the
         scene. STEP_LIGHT is a confirm-on transition, so apply blocks until the
-        board reports the channel on; the short settle after covers the board's
-        on-to-stable lag before the grab. A same-color step that kept its channel
+        board reports the channel on; the LED's on-to-stable lag is frame
+        validity's, whose rule the grab waits out. A same-color step that kept its channel
         lit is left untouched (the diff self-skips), so consecutive z-slices do
         not blink off->on. With no LED controller connected the light is
         refused (``not_connected``) and the refusal ends the run as a
@@ -759,4 +759,3 @@ class ProtocolStepRunner:
         )
         if p._on_step_lit is not None:
             p._on_step_lit(step['channel'])
-        time.sleep(0.005)
