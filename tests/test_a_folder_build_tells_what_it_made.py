@@ -25,7 +25,7 @@ from _lumascope.modules.cell_count_method import CellCountMethod
 from _lumascope.modules import post_derivation
 from _lumascope.modules import image_utils
 from _lumascope.modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
-from _lumascope.modules import post_processing
+from _lumascope.modules import path_utils, post_processing
 from _lumascope.modules.post_processing import PostProcessing
 from _lumascope.modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
 from _lumascope.modules.channel_record import release_color
@@ -129,10 +129,11 @@ def test_a_count_writes_the_method_it_counted_by_beside_its_results(counter, tmp
     ]
 
 
-# Each of the two writes fails before either file is replaced, by its own
+# Each of the two writes fails before either file takes its name, by its own
 # branch, and each must name its own file.
 @pytest.mark.parametrize(
-    ('temp_suffix', 'named'), [('.tmp.csv', 'results.csv'), ('.tmp.json', 'results_method.json')]
+    ('temp_suffix', 'named'),
+    [('.tmp.csv', 'results_001.csv'), ('.tmp.json', 'results_001_method.json')],
 )
 def test_a_file_that_cannot_be_written_keeps_the_previous_results_and_method(
     counter, tmp_path, monkeypatch, temp_suffix, named
@@ -164,18 +165,18 @@ def test_a_file_that_cannot_be_written_keeps_the_previous_results_and_method(
     ]
 
 
-def test_a_method_that_cannot_take_its_place_leaves_no_method_beside_the_new_results(
+def test_a_method_that_cannot_take_its_name_leaves_the_new_results_without_one(
     counter, tmp_path, monkeypatch
 ):
     _old_results(tmp_path)
-    _old_method(tmp_path)
+    old_method = _old_method(tmp_path)
     _write_tiff(tmp_path / 'a.tif')
     real_replace = os.replace
 
     # a stand-in by design: a rename that fails after the one before it
     # succeeded, which no folder in a test produces.
     def refuse_the_method(src, dst):
-        if str(dst).endswith('results_method.json'):
+        if str(dst).endswith('results_001_method.json'):
             raise OSError(errno.EACCES, os.strerror(errno.EACCES), dst)
         real_replace(src, dst)
 
@@ -184,39 +185,68 @@ def test_a_method_that_cannot_take_its_place_leaves_no_method_beside_the_new_res
         counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY, tiling_grids=shipped_grids())
 
     assert raised.value.reason == 'post_processing_incomplete'
-    assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
-    assert 'a.tif' in (tmp_path / 'results.csv').read_text()
-    assert sorted(p.name for p in tmp_path.iterdir()) == ['a.tif', 'results.csv']
+    assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results_001.csv'),)
+    assert 'a.tif' in (tmp_path / 'results_001.csv').read_text()
+    # The earlier pair is the earlier count's, untouched.
+    assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
+    assert (tmp_path / 'results_method.json').read_bytes() == old_method
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        'a.tif',
+        'results.csv',
+        'results_001.csv',
+        'results_method.json',
+    ]
 
 
-def test_an_earlier_method_that_cannot_be_removed_is_named_as_not_the_results_method(
-    counter, tmp_path, monkeypatch
-):
-    _old_results(tmp_path)
-    _old_method(tmp_path)
+def test_a_second_count_keeps_the_first_and_writes_the_next_numbered_pair(counter, tmp_path):
     _write_tiff(tmp_path / 'a.tif')
-    real_replace = os.replace
-    real_remove = os.remove
+    first = counter.apply_cell_count_to_folder(
+        str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
+    )
+    first_pair = {
+        name: (tmp_path / name).read_bytes() for name in ('results.csv', 'results_method.json')
+    }
 
-    # a stand-in by design: a folder that takes a new file but will not
-    # give up an old one, which no folder in a test produces.
-    def refuse_the_method(src, dst):
-        if str(dst).endswith('results_method.json'):
-            raise OSError(errno.EACCES, os.strerror(errno.EACCES), dst)
-        real_replace(src, dst)
+    second = counter.apply_cell_count_to_folder(
+        str(tmp_path), COUNTED_BY, tiling_grids=shipped_grids()
+    )
 
-    def keep_the_earlier_method(file):
-        if str(file).endswith(os.sep + 'results_method.json'):
-            raise OSError(errno.EACCES, os.strerror(errno.EACCES), file)
-        real_remove(file)
+    assert first['results_path'] == os.path.join(str(tmp_path), 'results.csv')
+    assert second['results_path'] == os.path.join(str(tmp_path), 'results_001.csv')
+    assert second['method_path'] == os.path.join(str(tmp_path), 'results_001_method.json')
+    assert second['results_path'] in second['message']
+    assert second['method_path'] in second['message']
+    assert post_processing.load_cell_count_method(second['method_path']) == COUNTED_BY
+    assert {name: (tmp_path / name).read_bytes() for name in first_pair} == first_pair
 
-    monkeypatch.setattr(os, 'replace', refuse_the_method)
-    monkeypatch.setattr(os, 'remove', keep_the_earlier_method)
-    with pytest.raises(PostProcessingFailedError) as raised:
-        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY, tiling_grids=shipped_grids())
 
-    assert 'is not the method of these results' in str(raised.value)
-    assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
+def test_a_number_either_file_of_the_pair_holds_is_skipped(counter, tmp_path):
+    """An orphan method takes its number with it: the next pair never sits
+    beside a method it was not counted by."""
+    _write_tiff(tmp_path / 'a.tif')
+    _old_results(tmp_path)
+    (tmp_path / 'results_001_method.json').write_text('{}', encoding='utf-8')
+
+    result = counter.apply_cell_count_to_folder(
+        str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
+    )
+
+    assert result['results_path'] == os.path.join(str(tmp_path), 'results_002.csv')
+    assert result['method_path'] == os.path.join(str(tmp_path), 'results_002_method.json')
+
+
+def test_a_folder_whose_every_results_name_is_taken_is_refused(counter, tmp_path):
+    _write_tiff(tmp_path / 'a.tif')
+    _old_results(tmp_path)
+    for i in range(1, path_utils.MAX_COLLISION_SUFFIX + 1):
+        (tmp_path / f'results_{i:03d}.csv').write_text(OLD_RESULTS)
+
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        counter.apply_cell_count_to_folder(
+            str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
+        )
+
+    assert refused.value.reason == 'names_exhausted'
 
 
 def test_an_empty_folder_is_refused_and_keeps_the_previous_results(counter, tmp_path):

@@ -252,10 +252,7 @@ def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
             or if every candidate name is taken.
     """
     desired = pathlib.Path(desired)
-    candidates = [desired] + [
-        desired.with_name(f'{desired.name}_{i:03d}') for i in range(1, MAX_COLLISION_SUFFIX + 1)
-    ]
-    for candidate in candidates:
+    for candidate in (desired.with_name(name) for name in _numbered(desired.name)):
         try:
             candidate.mkdir(exist_ok=False)
         except FileExistsError:
@@ -293,16 +290,40 @@ def move_aside(path: pathlib.Path, suffix: str) -> pathlib.Path:
         OSError: the rename failed, or the name and its first
             MAX_COLLISION_SUFFIX numbered variants all exist.
     """
-    candidates = [path.with_name(path.name + suffix)] + [
-        path.with_name(f'{path.name}{suffix}_{i:03d}') for i in range(1, MAX_COLLISION_SUFFIX + 1)
-    ]
-    for candidate in candidates:
+    for candidate in (path.with_name(name) for name in _numbered(path.name + suffix)):
         if not candidate.exists():
             os.replace(path, candidate)
             return candidate
     raise FileExistsError(
         f'{path.name}{suffix} and its first {MAX_COLLISION_SUFFIX} numbered variants all exist'
     )
+
+
+def free_stem(folder: pathlib.Path, stem: str, endings: tuple[str, ...]) -> str:
+    """The first of *stem*, ``<stem>_001`` ... ``<stem>_999`` with no file
+    in *folder* named it plus any of *endings*.
+
+    For outputs written as a set: ``free_stem(folder, 'results', ('.csv',
+    '_method.json'))`` answers ``results_001`` once either of the first pair
+    is there, so the set's files keep one number, and a number one of them
+    already holds is skipped. It checks and does not reserve: a caller that
+    can race another for the name must reserve it itself.
+
+    Raises:
+        FileExistsError: *stem* and its first MAX_COLLISION_SUFFIX numbered
+            variants are all taken.
+    """
+    for candidate in _numbered(stem):
+        if not any((folder / f'{candidate}{ending}').exists() for ending in endings):
+            return candidate
+    raise FileExistsError(
+        f'{stem} and its first {MAX_COLLISION_SUFFIX} numbered variants are all taken in {folder}'
+    )
+
+
+def _numbered(name: str) -> list[str]:
+    """*name*, then ``<name>_001`` to ``<name>_999``: the names a collision moves to, in order."""
+    return [name] + [f'{name}_{i:03d}' for i in range(1, MAX_COLLISION_SUFFIX + 1)]
 
 
 def capture_location_problem(parent_dir: pathlib.Path) -> str | None:

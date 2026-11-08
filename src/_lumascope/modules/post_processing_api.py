@@ -1362,9 +1362,10 @@ class PostProcessingAPI:
         name.
 
         Args:
-            folder: The folder of images to count; a ``results.csv`` and
-                ``results_method.json`` already there are replaced only once
-                both new ones are written whole.
+            folder: The folder of images to count. An earlier count's
+                results and method there are kept: this count's pair takes
+                the next free number, ``results_001.csv`` with
+                ``results_001_method.json``, and the answer names it.
             method: The cell-count method to count by.
             channel: The one channel to count, by its key; None counts
                 every channel. An image is of the channel its file states,
@@ -1387,8 +1388,9 @@ class PostProcessingAPI:
                 *method* sent as its fields holds what ``CellCountMethod``
                 refuses; ``'protocol_data_unreadable'``, the run's record,
                 its protocol or its post-processing record cannot be read,
-                or the protocol is gone; or the folder has nothing to count
-                (reason ``no_data``).
+                or the protocol is gone; ``'names_exhausted'``, every
+                numbered name for the results is taken; or the folder has
+                nothing to count (reason ``no_data``).
             PostProcessingFailedError: the results or the method could not
                 be written, or some images could not be counted; the results
                 hold every image that was, and the error names the rest.

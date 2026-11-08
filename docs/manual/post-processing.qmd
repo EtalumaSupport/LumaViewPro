@@ -294,10 +294,11 @@ the order the images were taken, and by name where that cannot be told:
 
 Beside it, the count writes `results_method.json`: the method it counted
 by, so you can always tell how a count was made. [Load Method]{.guilabel}
-opens it like any saved method. An earlier `results.csv` and
-`results_method.json` in the folder are replaced once both new ones are
-complete. If either cannot be written, the count says so, and no method
-is left beside results it did not make.
+opens it like any saved method. A count never replaces an earlier one:
+counting a folder again writes `results_001.csv` and
+`results_001_method.json`, then `results_002.csv` and so on, and says
+which files it wrote. If either file cannot be written, the count says
+so, and no method is left beside results it did not make.
 
 ### Plot {#sec-pp-plot}
 

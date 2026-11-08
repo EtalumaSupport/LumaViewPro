@@ -4375,7 +4375,7 @@ name.
 
 **Args**
 
-- `folder`: The folder of images to count; a `results.csv` and `results_method.json` already there are replaced only once both new ones are written whole.
+- `folder`: The folder of images to count. An earlier count's results and method there are kept: this count's pair takes the next free number, `results_001.csv` with `results_001_method.json`, and the answer names it.
 - `method`: The cell-count method to count by.
 - `channel`: The one channel to count, by its key; None counts every channel. An image is of the channel its file states, else its run record's, an old run's name (`Blue`) read as the channel it names today; one of another channel, or of none, is left out.
 - `on_progress`: Called with a percentage and what the count is doing, from the thread it runs on; None for no progress.
@@ -4388,11 +4388,12 @@ The results table, the method file, how many images were counted, each image lef
 
 - `ArgumentRefusedError`: `'channel_unknown'`, *channel* is not one of this release's channels, before the count is queued.
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *folder*; `'not_a_folder'`, a file is.
-- `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; `'protocol_data_unreadable'`, the run's record, its protocol or its post-processing record cannot be read, or the protocol is gone; or the folder has nothing to count (reason `no_data`).
+- `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; `'protocol_data_unreadable'`, the run's record, its protocol or its post-processing record cannot be read, or the protocol is gone; `'names_exhausted'`, every numbered name for the results is taken; or the folder has nothing to count (reason `no_data`).
 - `PostProcessingFailedError`: the results or the method could not be written, or some images could not be counted; the results hold every image that was, and the error names the rest.
 
 **Refusals by REST status**
 
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `method_invalid`, `protocol_data_unreadable`, `no_data`
 - 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
@@ -16625,7 +16626,7 @@ same request may succeed once it ends.
 **Attributes**
 
 - `operation`: The operation's name as a person reads it ("Stitch").
-- `reason`: Machine-readable refusal code. `'axis_not_plottable'` -- a graph's X or Y names a column of the results file that axis cannot take. `'collision'` -- every image group would write an output under a name another group's output shares, so nothing could be built. `'excluded_inputs'` -- the folder holds only derived outputs, which the build does not take as input. `'fit_impossible'` -- the graphed values cannot give the trendline asked for. `'graph_incomplete'` -- a graph was asked for without a results file, an X axis and a Y axis. `'invalid_path'` -- no folder was given to process. `'invalid_setting'` -- a setting of the build is not one it can use, such as no build chosen, an image shape or scale that is not one, or a playback rate below 1 frame per second. `'method_invalid'` -- the cell-count method holds something the count cannot use. `'method_unreadable'` -- the cell-count method file cannot be read, is not JSON, or has no metadata naming its type and version. `'no_data'` -- the folder holds images, but not the data this operation needs: no Z-stack for a z-projection, no recording frames for a video, nothing a count could count, or a recording where stills are needed. `'no_images'` -- the folder holds no image files. `'no_scale'` -- the image states no scale, so it is counted in pixels, and the method filters a size in microns. `'output_outside_folder'` -- the folder's protocol names a step whose output would be written outside the folder. `'protocol_data_unreadable'` -- the folder's protocol data could not be loaded. `'results_unreadable'` -- the cell-count results file cannot be read as one LumaViewPro writes. `'unsupported_source_format'` -- the source images are not TIFF or OME-TIFF, which the build re-reads. `'scope_held'` -- something holds the scope, and a build now would share the computer with its work. `'files_writing'`, as `ProtocolRunRefusedError` explains it, and `'unreadable'`, as `InputFramesUnusableError` explains it, are the same facts.
+- `reason`: Machine-readable refusal code. `'axis_not_plottable'` -- a graph's X or Y names a column of the results file that axis cannot take. `'collision'` -- every image group would write an output under a name another group's output shares, so nothing could be built. `'excluded_inputs'` -- the folder holds only derived outputs, which the build does not take as input. `'fit_impossible'` -- the graphed values cannot give the trendline asked for. `'graph_incomplete'` -- a graph was asked for without a results file, an X axis and a Y axis. `'invalid_path'` -- no folder was given to process. `'invalid_setting'` -- a setting of the build is not one it can use, such as no build chosen, an image shape or scale that is not one, or a playback rate below 1 frame per second. `'method_invalid'` -- the cell-count method holds something the count cannot use. `'method_unreadable'` -- the cell-count method file cannot be read, is not JSON, or has no metadata naming its type and version. `'no_data'` -- the folder holds images, but not the data this operation needs: no Z-stack for a z-projection, no recording frames for a video, nothing a count could count, or a recording where stills are needed. `'no_images'` -- the folder holds no image files. `'no_scale'` -- the image states no scale, so it is counted in pixels, and the method filters a size in microns. `'output_outside_folder'` -- the folder's protocol names a step whose output would be written outside the folder. `'protocol_data_unreadable'` -- the folder's protocol data could not be loaded. `'results_unreadable'` -- the cell-count results file cannot be read as one LumaViewPro writes. `'unsupported_source_format'` -- the source images are not TIFF or OME-TIFF, which the build re-reads. `'scope_held'` -- something holds the scope, and a build now would share the computer with its work. `'files_writing'`, as `ProtocolRunRefusedError` explains it, `'unreadable'`, as `InputFramesUnusableError` explains it, and `'names_exhausted'`, as `CaptureLocationError` explains it (a cell count's results and every numbered name after them), are the same facts.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -16639,6 +16640,7 @@ same request may succeed once it ends.
 | `invalid_setting` | request | 422 |
 | `method_invalid` | request | 422 |
 | `method_unreadable` | request | 422 |
+| `names_exhausted` | state | 409 |
 | `no_data` | request | 422 |
 | `no_images` | request | 422 |
 | `no_scale` | request | 422 |

@@ -2543,8 +2543,11 @@ class PostProcessingRefusedError(Refusal, CaptureError):
             TIFF or OME-TIFF, which the build re-reads. ``'scope_held'`` --
             something holds the scope, and a build now would share the
             computer with its work. ``'files_writing'``, as
-            ``ProtocolRunRefusedError`` explains it, and ``'unreadable'``, as
-            ``InputFramesUnusableError`` explains it, are the same facts.
+            ``ProtocolRunRefusedError`` explains it, ``'unreadable'``, as
+            ``InputFramesUnusableError`` explains it, and
+            ``'names_exhausted'``, as ``CaptureLocationError`` explains it
+            (a cell count's results and every numbered name after them),
+            are the same facts.
     """
 
     causes: ClassVar[dict[str, RefusalCause]] = {
@@ -2567,10 +2570,12 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         'unsupported_source_format': RefusalCause.REQUEST,
         'scope_held': RefusalCause.STATE,
         'files_writing': RefusalCause.STATE,
+        'names_exhausted': RefusalCause.STATE,
     }
     same_fact_as = (
         InputFramesUnusableError,
         ProtocolRunRefusedError,
+        RecordingRefusedError,
     )
 
     # Refused for lack of Z-stack data, a z-projection names the thing the

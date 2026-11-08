@@ -448,12 +448,12 @@ class PostProcessing:
         a time come first, by name, then the rest, by name.
 
         The method file is the one ``save_cell_count_method`` writes, so
-        ``load_cell_count_method`` reads it back. The two replace earlier
-        ones only once both new ones are complete on disk: a folder with
-        nothing to count, or a write that fails, leaves the previous results
-        and method as they were. If the method alone cannot take its place
-        after the results have, the earlier method is removed, so no method
-        in the folder stands beside results it did not make.
+        ``load_cell_count_method`` reads it back. A count never replaces an
+        earlier one: the pair is written under the first stem free for both
+        (``path_utils.free_stem``), ``results.csv`` and
+        ``results_method.json``, else ``results_001.csv`` and
+        ``results_001_method.json``, and so on, each written whole before it
+        takes its name.
 
         Each image is measured at ``cell_count_scale``'s answer for it: the
         method's override, else the scale the image states, else pixels. The
@@ -475,7 +475,8 @@ class PostProcessing:
                 run's record, its protocol or its post-processing record
                 cannot be read, or the protocol is gone; ``no_data``, no
                 image in the folder could be analysed -- none there, none to
-                count, or none readable.
+                count, or none readable; ``names_exhausted``, every numbered
+                name for the results is taken.
             PostProcessingFailedError: The results or the method could not
                 be written (with the results alone among its produced paths
                 when only the method could not take its place), or some
@@ -492,6 +493,18 @@ class PostProcessing:
                 operation=CELL_COUNT_OPERATION,
                 reason='protocol_data_unreadable',
                 message=str(e),
+            ) from e
+        try:
+            # Checked, not reserved: every count runs on the one
+            # post-processing lane, so no two in this process choose at once.
+            stem = path_utils.free_stem(
+                pathlib.Path(path), _RESULTS_STEM, (_RESULTS_ENDING, _METHOD_ENDING)
+            )
+        except FileExistsError as e:
+            raise PostProcessingRefusedError(
+                operation=CELL_COUNT_OPERATION,
+                reason='names_exhausted',
+                message=f'{e}. Move or remove earlier results, then count again.',
             ) from e
         recorded, left_out = _images_to_count(pathlib.Path(path), listed, run, post_rows)
         filenames = list(recorded)
@@ -565,8 +578,8 @@ class PostProcessing:
             )
         results = _in_taken_order(results, taken_at)
 
-        results_file_path = os.path.join(path, 'results.csv')
-        method_file_path = os.path.join(path, 'results_method.json')
+        results_file_path = os.path.join(path, f'{stem}{_RESULTS_ENDING}')
+        method_file_path = os.path.join(path, f'{stem}{_METHOD_ENDING}')
         results_temp = os.path.join(path, f'.results.{uuid.uuid4().hex}.tmp.csv')
         method_temp = os.path.join(path, f'.results_method.{uuid.uuid4().hex}.tmp.json')
 
@@ -575,8 +588,8 @@ class PostProcessing:
                 with contextlib.suppress(OSError):
                     os.remove(temp)
 
-        # Both are written whole before either replaces an earlier one, so a
-        # failed write leaves the earlier results and method as a pair.
+        # Both are written whole before either takes its name, so a failed
+        # write leaves no results without their method.
         try:
             with open(results_temp, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
@@ -598,8 +611,7 @@ class PostProcessing:
                 missing=f'The method could not be written to {method_file_path} ({e.strerror}).',
             ) from e
 
-        # The results go first: a results.csv held open (a spreadsheet on
-        # Windows) blocks its replace, and failing there replaces nothing.
+        # The results go first: failing there names nothing new.
         try:
             os.replace(results_temp, results_file_path)
         except OSError as e:
@@ -612,22 +624,11 @@ class PostProcessing:
             os.replace(method_temp, method_file_path)
         except OSError as e:
             discard_temps()
-            # The earlier method describes the earlier results, not these.
-            stale = ''
-            try:
-                os.remove(method_file_path)
-            except FileNotFoundError:
-                pass
-            except OSError as removal:
-                stale = (
-                    f' The earlier {method_file_path} could not be removed'
-                    f' ({removal.strerror}) and is not the method of these results.'
-                )
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
                 missing=(
                     f'The method these results were counted by could not be written to'
-                    f' {method_file_path} ({e.strerror}).{stale}'
+                    f' {method_file_path} ({e.strerror}).'
                 ),
                 produced_paths=(results_file_path,),
                 output_root=str(path),
@@ -656,6 +657,11 @@ class PostProcessing:
             ),
         }
 
+
+# A count's results and its method share one stem, numbered together.
+_RESULTS_STEM = 'results'
+_RESULTS_ENDING = '.csv'
+_METHOD_ENDING = '_method.json'
 
 # What the outcome calls each reason an image was left out.
 _LEFT_OUT_WORDS = {
