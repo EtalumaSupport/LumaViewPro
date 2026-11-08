@@ -671,6 +671,9 @@
 				        value: 0.
 						step: 0.1
 				        cursor_size: '30dp','40dp'
+				        # The track spans all of Z, so a click on it would drive the
+				        # objective anywhere toward the sample; only the handle moves Z.
+				        sensitivity: 'handle'
 				        cursor_image: build_file('data/icons/objective.png')
 				        cursor_disabled_image: build_file('data/icons/objective.png')
 				        value_track: True

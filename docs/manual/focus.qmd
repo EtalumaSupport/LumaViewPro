@@ -60,7 +60,7 @@ down, away from it:
   arrows a fine step. The step is the objective's; for a 20x objective, a
   coarse step is 29 µm and a fine step 2.9 µm.
 - The slider: drag the objective icon, and the focus moves when you release
-  it; or click the slider's track, and the focus moves to that height.
+  it. A click on the slider's track does not move the focus.
 - [Z-Position (um)]{.guilabel}: shows the focus position, in micrometers,
   or `--` while it is not known. Type a position and press Enter to move
   there.
