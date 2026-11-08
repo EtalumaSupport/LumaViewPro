@@ -104,6 +104,47 @@ class TestSourcePreservation:
         assert (mono == mono_copy).all()
 
 
+def test_each_plane_is_the_mono_times_its_weight_rounded_for_every_layout():
+    """Every dtype, size, memory layout and colour gives each plane the mono
+    times its weight, rounded: odd and one-pixel sizes, strided, reversed and
+    Fortran-ordered views, whole and fractional weights."""
+    rng = np.random.default_rng(7)
+    monos = [
+        rng.integers(0, 256, (31, 37)).astype(np.uint8),
+        rng.integers(0, 4096, (31, 37)).astype(np.uint16),
+        rng.integers(0, 65536, (31, 37)).astype(np.uint16),
+    ]
+    views = {
+        'contiguous': lambda m: m,
+        'one pixel': lambda m: m[:1, :1],
+        'strided': lambda m: m[::2, ::3],
+        'reversed': lambda m: m[::-1],
+        'fortran': np.asfortranarray,
+    }
+    colours = [
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (0.0, 0.0, 1.0),
+        (1.0, 1.0, 0.0),
+        GREY,
+        (0.0, 0.0, 0.0),
+        parse_display_color('#ff8000'),
+    ]
+    wrong = []
+    for mono in monos:
+        for view_name, view in views.items():
+            source = view(mono)
+            for colour in colours:
+                rgb = mono_to_rgb_falsecolor(source, colour)
+                expected = np.stack(
+                    [np.rint(source.astype(np.float64) * w).astype(source.dtype) for w in colour],
+                    axis=-1,
+                )
+                if rgb.dtype != source.dtype or not np.array_equal(rgb, expected):
+                    wrong.append(f'{source.dtype} {view_name} {colour}')
+    assert wrong == []
+
+
 class TestAColourIsAValue:
     """A colour is the weights each writer multiplies by, so a channel need
     not be red, green or blue: a magenta or an orange channel is coloured,

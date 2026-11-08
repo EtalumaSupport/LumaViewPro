@@ -49,6 +49,18 @@ def test_mono_to_rgb_falsecolor_falls_back_on_dtype_mismatch():
     assert result.dtype == np.uint8
 
 
+def test_mono_to_rgb_falsecolor_falls_back_on_an_output_that_is_not_contiguous():
+    """The planes are merged into one contiguous block, which a view into a
+    wider array is not; such an output is left untouched."""
+    src = np.arange(48, dtype=np.uint8).reshape(6, 8)
+    wider = np.full((6, 8, 4), 9, dtype=np.uint8)
+    out = wider[:, :, :3]
+    result = image_utils.mono_to_rgb_falsecolor(src, release_color(LED1), output=out)
+    assert result is not out
+    assert (wider == 9).all()
+    assert np.array_equal(result, image_utils.mono_to_rgb_falsecolor(src, release_color(LED1)))
+
+
 def test_record_write_edge_does_not_left_justify():
     # A uint16 capture travels to the write edge VERBATIM (right-aligned).
     # The record path must NOT left-justify it -- a prior convert_to_16bit
