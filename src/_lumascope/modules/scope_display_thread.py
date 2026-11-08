@@ -7,8 +7,8 @@ live-display refresh loop.
 Replaces a queue-of-1 SequentialIOExecutor, which retained orphaned
 submits. The thread owns the FPS-paced loop; calls the widget's
 _render_one_frame(...) per iteration; renders a held frame handed to it
-before each; and sleeps on one wake event that stop and a held frame
-both set, so neither waits out a pause, a hold or the pacing.
+before each; and sleeps on one wake event that stop, a held frame and
+resume set, so none waits out a pause, a hold or the pacing.
 
 Public API:
   start(renderer, fps)  -- spawn thread, begin rendering through renderer
@@ -87,8 +87,8 @@ class ScopeDisplayThread:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._paused = threading.Event()
-        # Set by stop() and by render_held(), so every wait of the loop
-        # ends at once for either.
+        # Set by stop(), render_held() and resume(), so every wait of the
+        # loop ends at once for any of them.
         self._wake = threading.Event()
 
         # All UI-published volatile state lives under this lock.
@@ -168,7 +168,9 @@ class ScopeDisplayThread:
 
     def resume(self) -> None:
         """Resume rendering iterations after pause()."""
+        # Cleared before the wake, so the woken loop reads it unpaused.
         self._paused.clear()
+        self._wake.set()
 
     # ---- runtime config ----
 
@@ -249,8 +251,8 @@ class ScopeDisplayThread:
 
     # ---- loop ----
 
-    def _wait(self, timeout: float) -> bool:
-        """Wait up to ``timeout`` s, ended early by stop or a held render; True once stopped."""
+    def _wait(self, timeout: float | None) -> bool:
+        """Wait up to ``timeout`` s (None: until woken), ended early by a wake; True once stopped."""
         self._wake.wait(timeout=timeout)
         self._wake.clear()
         return self._stop_event.is_set()
@@ -270,12 +272,12 @@ class ScopeDisplayThread:
         while not self._stop_event.is_set():
             self._run_held_render()
 
-            # Pause-wait: short tick so resume is responsive without
-            # busy-looping. _wait returns True if stop was signalled;
-            # break out of pause + loop on that.
+            # Pause-wait: sleep until resume, a held frame or stop wakes
+            # the loop. _wait returns True if stop was signalled; break
+            # out of pause + loop on that.
             if self._paused.is_set():
                 pause_wait_start = time.monotonic()
-                if self._wait(0.05):
+                if self._wait(None):
                     return
                 self._intentional_wait_s += time.monotonic() - pause_wait_start
                 continue

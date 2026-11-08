@@ -520,3 +520,50 @@ def test_a_failed_held_render_is_reported_once_unasked(monkeypatch):
     finally:
         t.stop()
     assert reported == [(failure, {'solicited': False, 'category': 'frame_captured'})]
+
+
+class _RecordedWake(threading.Event):
+    """The loop's wake event, recording the timeout of each wait asked while frozen."""
+
+    def __init__(self, thread):
+        super().__init__()
+        self._thread = thread
+        self.frozen_timeouts = []
+        self.frozen_wait = threading.Event()
+
+    def wait(self, timeout=None):
+        if self._thread.is_paused:
+            self.frozen_timeouts.append(timeout)
+            self.frozen_wait.set()
+        return super().wait(timeout)
+
+
+def test_a_frozen_loop_sleeps_until_resume_wakes_it():
+    """A frozen picture's loop wakes for nothing but a resume, a held frame
+    or a stop, and an un-freeze renders at once rather than at a tick."""
+    # Uncapped and every frame fresh, the loop has no pacing wait, so its
+    # first wait once frozen is the freeze's own.
+    t, widget = _make_thread(status_sequence=[STATUS_OK])
+    # a stand-in by design: the speed-up is the absence of a timed wake, which
+    # no public member shows; the stand-in is the loop's own Event, recording.
+    wake = _RecordedWake(t)
+    t._wake = wake
+    t.start(widget, fps=0)
+    try:
+        t.pause()
+        assert wake.frozen_wait.wait(_HELD_WAIT_S), 'the frozen loop never waited'
+        assert wake.frozen_timeouts[0] is None, (
+            f'the frozen loop wakes itself on a tick: {wake.frozen_timeouts}'
+        )
+        rendered = threading.Event()
+        render = widget._render_one_frame
+
+        def _render_and_tell(**kwargs):
+            rendered.set()
+            return render(**kwargs)
+
+        widget._render_one_frame = _render_and_tell
+        t.resume()
+        assert rendered.wait(_HELD_WAIT_S), 'resume() did not wake the frozen loop'
+    finally:
+        t.stop()
