@@ -60,6 +60,7 @@ os.environ['PYTHONPATH'] = os.pathsep.join(
 # Typed pypylon stand-in (real handler bases + exception types). Needs the
 # repo-root path insert above.
 from tests import pypylon_stub as _pypylon_stub
+from tests import host_power_stub as _host_power_stub
 from tests import usb_stub as _usb_stub
 from tests.bench_results import bench_results_dir
 from tests.scope_fakes import build_scope
@@ -175,6 +176,9 @@ def install_mock_deps():
         sys.modules.setdefault(name, mock_mod)
 
     _install_kivy_uix_stubs()
+    # The host's sleep request: a test never holds the computer awake, and
+    # every host answers alike.
+    _host_power_stub.install()
 
     # The simulator suite runs the real logger with its files declined, so no
     # session opens the log folder, and what production saves beside the logs

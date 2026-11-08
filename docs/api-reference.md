@@ -15916,6 +15916,29 @@ nothing; whoever catches it logs it once.
 |---|---|---|
 | `installation_file_unusable` | -- | 500 |
 
+<a id="KeepAwakeNotHeldNotice"></a>
+### `lumascope.KeepAwakeNotHeldNotice`
+
+A notice; bases `Notice`, `Exception`.
+
+This computer may go to sleep while the scope is in use.
+
+The scope is in use -- a run, a recording, a home, a diagnostic, or a
+client holding the control session -- and the operating system's request
+to stay awake could not be taken, or a hold it granted ended. The work
+goes on: a computer that might sleep is told, never turned into a run
+that cannot start. Told once per session and reason.
+
+**Attributes**
+
+- `reason`: `'keep_awake_unsupported'` -- this host has no way to take the request (a platform LVP has no backend for, a Linux without `systemd-inhibit`); `'keep_awake_refused'` -- the operating system declined it, or a hold it had granted ended by itself.
+- `detail`: The operating system's own words.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `keep_awake_refused` | -- | 409 |
+| `keep_awake_unsupported` | -- | 409 |
+
 <a id="LaneCallStillRunningError"></a>
 ### `lumascope.LaneCallStillRunningError`
 

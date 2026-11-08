@@ -751,6 +751,38 @@ class SettingsNotSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
         self.file = file
 
 
+class KeepAwakeNotHeldNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """This computer may go to sleep while the scope is in use.
+
+    The scope is in use -- a run, a recording, a home, a diagnostic, or a
+    client holding the control session -- and the operating system's request
+    to stay awake could not be taken, or a hold it granted ended. The work
+    goes on: a computer that might sleep is told, never turned into a run
+    that cannot start. Told once per session and reason.
+
+    Attributes:
+        reason: ``'keep_awake_unsupported'`` -- this host has no way to take
+            the request (a platform LVP has no backend for, a Linux without
+            ``systemd-inhibit``); ``'keep_awake_refused'`` -- the operating
+            system declined it, or a hold it had granted ended by itself.
+        detail: The operating system's own words.
+    """
+
+    title = 'Computer may sleep'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'keep_awake_unsupported': None,
+        'keep_awake_refused': None,
+    }
+
+    def __init__(self, reason: str, detail: str):
+        super().__init__(
+            f'LumaViewPro cannot keep this computer awake ({detail}): set its sleep '
+            'time to Never before a long run or recording.'
+        )
+        self.reason = reason
+        self.detail = detail
+
+
 class ProtocolError(_Umbrella, Exception):
     """A protocol's file, steps or run: the subject, never raised itself.
 
