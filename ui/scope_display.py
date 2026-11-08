@@ -759,11 +759,21 @@ class ScopeDisplay(Image):
         # the next frame overwrites it, so a single slot is safe (same
         # pattern as the bullseye buffer). Only this preview thread owns
         # and passes this buffer; the histogram (main thread) passes none.
+        #
+        # Skip a frame already shown: the buffer hands back the same frame
+        # until the next arrives, and its ordinal names it. Never the wall
+        # time, which can repeat between two frames. The read is told the
+        # ordinal, so a frame already shown is never converted or drawn.
         image, frame_seq = ctx.scope.imaging.get_image_from_buffer(
-            force_to_8bit=True, out_8bit=self._display_8bit_buf
+            force_to_8bit=True,
+            out_8bit=self._display_8bit_buf,
+            unless_seq=self._last_frame_seq,
         )
-        if image is None or image.size == 0:
+        if image is None:
+            return STATUS_EMPTY if frame_seq is None else STATUS_DUPLICATE
+        if image.size == 0:
             return STATUS_EMPTY
+        self._last_frame_seq = frame_seq
 
         # Record the full-resolution frame size for coordinate math before any
         # preview downscale. Both the bullseye and the mono preview derive from
@@ -780,13 +790,6 @@ class ScopeDisplay(Image):
             and (self._display_8bit_buf is None or self._display_8bit_buf.shape != image.shape)
         ):
             self._display_8bit_buf = np.empty(image.shape, dtype=np.uint8)
-
-        # Skip a frame already shown: the buffer hands back the same frame
-        # until the next arrives, and its ordinal names it. Never the wall
-        # time, which can repeat between two frames.
-        if frame_seq == self._last_frame_seq:
-            return STATUS_DUPLICATE
-        self._last_frame_seq = frame_seq
         t_grab_end = time.monotonic()
 
         t_eng_stats = 0

@@ -2220,7 +2220,10 @@ class ImagingAPI:
 
     @api(in_process=True)
     def get_image_from_buffer(
-        self, force_to_8bit: bool = True, out_8bit: np.ndarray | None = None
+        self,
+        force_to_8bit: bool = True,
+        out_8bit: np.ndarray | None = None,
+        unless_seq: int | None = None,
     ) -> tuple:
         """Grab the latest buffered frame from the camera without forcing a new capture.
 
@@ -2244,11 +2247,16 @@ class ImagingAPI:
                 allocation. The returned array is the buffer itself when used,
                 so the caller must copy (e.g. tobytes()) before the next call
                 overwrites it.
+            unless_seq: The ordinal of the frame the caller already has. When
+                the buffer still holds that frame, nothing is drawn or
+                converted: a poll faster than the camera delivers costs no
+                conversion.
 
         Returns:
             tuple: (image, seq) where image is numpy.ndarray and seq is the
                    frame's hand-over ordinal (``Frame.seq``), the same for every
-                   read of one frame, or (None, None) if unavailable.
+                   read of one frame; (None, seq) when the buffered frame is
+                   ``unless_seq``'s; or (None, None) if unavailable.
                    Per the Sentinel-return contract: `if image is None: ...`.
 
         Raises:
@@ -2269,6 +2277,8 @@ class ImagingAPI:
         # state. The ordinal also keeps a frame this path grabbed before a
         # write from retiring any of that write's wait.
         self.frame_validity.count_frame(frame.seq, by=Counter.PREVIEW)
+        if frame.seq == unless_seq:
+            return None, frame.seq
         tmp = frame.image
 
         objective = self._scope.runtime_state.get_current_objective()

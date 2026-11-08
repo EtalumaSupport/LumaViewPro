@@ -6826,6 +6826,7 @@ def get_image_from_buffer(
     self,
     force_to_8bit: bool = True,
     out_8bit: np.ndarray | None = None,
+    unless_seq: int | None = None,
 ) -> tuple
 ```
 
@@ -6847,10 +6848,11 @@ Copy budget (per frame):
 
 - `force_to_8bit`: Convert 12-bit images to 8-bit output.
 - `out_8bit`: Optional caller-owned (H, W) uint8 buffer reused as the 12->8 LUT destination, avoiding a fresh per-frame allocation on the 30 fps preview path. Each caller must supply its OWN buffer (the preview thread and the histogram run on different threads); a None / mismatched buffer falls back to a fresh allocation. The returned array is the buffer itself when used, so the caller must copy (e.g. tobytes()) before the next call overwrites it.
+- `unless_seq`: The ordinal of the frame the caller already has. When the buffer still holds that frame, nothing is drawn or converted: a poll faster than the camera delivers costs no conversion.
 
 **Returns**
 
-tuple: (image, seq) where image is numpy.ndarray and seq is the frame's hand-over ordinal (`Frame.seq`), the same for every read of one frame, or (None, None) if unavailable. Per the Sentinel-return contract: `if image is None: ...`.
+tuple: (image, seq) where image is numpy.ndarray and seq is the frame's hand-over ordinal (`Frame.seq`), the same for every read of one frame; (None, seq) when the buffered frame is `unless_seq`'s; or (None, None) if unavailable. Per the Sentinel-return contract: `if image is None: ...`.
 
 **Raises**
 
