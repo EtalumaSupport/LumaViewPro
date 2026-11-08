@@ -29,14 +29,16 @@ without anyone having to notice it first.
 
 Running the fences
 ------------------
-Each ``## `` chapter's ``python`` fences run in order in one namespace, on a
-simulated session brought up and homed as a host leaves it, bound as
-``session`` and ``scope`` (``_ChapterSessions``). The info string says what
-a fence needs beyond that: ``tier=`` and ``model=`` name the board it runs
-on, ``raises=<Class>:<reason>`` the refusal it teaches and the reason it
-carries, raised by its last statement (``raises=<Class>`` alone for an error
-that carries no reason), and ``norun`` a fence no simulator can run (serving
-forever, say), which is still resolved and bound.
+Each ``## `` chapter's ``python`` fences run in order in one namespace, as a
+reader's program runs on a new install: the guide's bring-up fence, the one
+whose info string says ``bringup``, runs first as the chapter's preamble, and
+the ``session`` and ``scope`` it leaves are the chapter's
+(``_ChapterSessions``). The info string says what a fence needs beyond that:
+``tier=`` and ``model=`` name the board it runs on, ``raises=<Class>:<reason>``
+the refusal it teaches and the reason it carries, raised by its last statement
+(``raises=<Class>`` alone for an error that carries no reason), and ``norun``
+a fence no simulator can run (serving forever, say), which is still resolved
+and bound.
 
 The ``bash`` fences are the REST walkthrough (polarity 4): each ``curl`` line
 is sent, in order, to ``TestClient(build_app(session))`` on such a session,
@@ -826,47 +828,95 @@ def guide_chapters(text):
     yield heading, fences
 
 
+@dataclasses.dataclass(frozen=True)
+class Bringup:
+    """The guide's bring-up fence: the file and line it starts at, and its source."""
+
+    label: str
+    start: int
+    source: str
+
+
+def guide_bringup(guide):
+    """``(bringup, failures)``: the one fence of ``guide`` that says ``bringup``.
+
+    ``guide`` is ``(label, text)`` per file. ``failures`` is a line per way
+    the marked fences are not one runnable ``python`` fence, and ``bringup``
+    is None when there is one.
+    """
+    marked = [
+        (label, start, language, options, source)
+        for label, text in guide
+        for _, fences in guide_chapters(text)
+        for start, language, options, source in fences
+        if options.get('bringup')
+    ]
+    if len(marked) != 1:
+        where = ', '.join(f'{label}:{start}' for label, start, *_ in marked) or 'none'
+        return None, [
+            f'  {len(marked)} fences say bringup ({where}): the guide has exactly one, '
+            'the bring-up every chapter starts from'
+        ]
+    label, start, language, options, source = marked[0]
+    failures = []
+    if language != 'python':
+        failures.append(
+            f'  {label}:{start}  the bring-up fence is {language or "untyped"}, not python'
+        )
+    if options.get('norun'):
+        failures.append(f'  {label}:{start}  the bring-up fence says norun: every chapter runs it')
+    return (None if failures else Bringup(label, start, source)), failures
+
+
 class _ChapterSessions:
     """The simulated sessions one chapter's fences run against, shut down together.
 
-    A chapter starts on the default tier and model, brought up and homed as a
-    host leaves it; a fence naming another tier or model swaps the session
-    for one on that board, and later fences keep it. A session a fence makes
-    for itself is shut down with the chapter's.
+    A chapter starts as a reader's program does: the guide's bring-up runs
+    in the chapter's namespace on a new install of the default tier and
+    model, and leaves the chapter its ``session`` and ``scope``. A fence
+    naming another tier or model runs the bring-up again on that board, and
+    later fences keep it. A session a fence makes for itself is shut down
+    with the chapter's.
     """
 
-    def __init__(self, namespace):
+    def __init__(self, namespace, bringup):
         self._namespace = namespace
+        self._bringup = bringup
         self._key = None
         self._made = []
 
     def use(self, options):
-        """Bring up the session a fence's ``options`` ask for, unless it is up."""
+        """Bring up the session a fence's ``options`` ask for, unless it is up.
+
+        A failure line when the bring-up does not run, else None.
+        """
         from _lumascope.modules import settings_init
         from _lumascope.modules.scope_session import ScopeSession
 
         if self._key is not None and 'tier' not in options and 'model' not in options:
-            return
+            return None
         tier, model = options.get('tier', _DEFAULT_TIER), options.get('model')
         if (tier, model) == self._key:
-            return
-        overrides = {'simulator_tier': tier}
+            return None
+        overrides = {'simulator_tier': tier, 'objective_confirmed': None}
         if model is not None:
             overrides['microscope'] = model
-        settings = complete_settings(**overrides)
-        # A fence teaching load_user_settings reads what this process
-        # prepared, as the GUI's own scripts do: the chapter's settings,
+        # The bring-up's load_user_settings answers what this process
+        # prepared, as a plugin's does: the chapter's board as a new install,
         # never this machine's current.json.
-        settings_init.settings = settings
-        session = ScopeSession.create(settings.copy(), simulate=True, warn_pre_release=False)
-        # The swap below rebinds the namespace's names; a session a fence
-        # made under them is kept here, or nothing would shut it down.
+        settings_init.settings = complete_settings(**overrides)
+        # The bring-up rebinds the namespace's names; a session made under
+        # them is kept here, or nothing would shut it down.
         self._made.extend(v for v in self._namespace.values() if isinstance(v, ScopeSession))
-        self._made.append(session)
-        session.run_application_session()
-        self._namespace.update(session=session, scope=session.scope)
-        self.session = session
         self._key = (tier, model)
+        bringup = self._bringup
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', FutureWarning)
+            failure = _run_fence(bringup.label, bringup.start, {}, bringup.source, self._namespace)
+        # Kept as soon as the bring-up leaves it: a fence that binds
+        # ``session`` to a session of its own would otherwise leave it open.
+        self._made.extend(v for v in self._namespace.values() if isinstance(v, ScopeSession))
+        return failure
 
     def close(self):
         from _lumascope.modules.scope_session import ScopeSession
@@ -924,46 +974,78 @@ def _run_fence(label, start, options, source, namespace):
     return None
 
 
-def guide_fence_failures(text, label):
-    """A line per ``python`` fence of ``text`` that does not run as its info string states.
+def _chapter_failure(label, runnable, bringup):
+    """The failure line of one chapter's ``runnable`` fences after the bring-up, or None.
 
-    Each chapter's fences run in order in one namespace holding the chapter's
-    ``session`` and ``scope`` (``_ChapterSessions``); a fence flagged
-    ``norun`` is skipped here and still resolved and bound by the checks
-    above. A fence that raises ends the chapter: what follows it assumed it
-    ran.
+    The chapter runs from an installation of its own, as a reader runs from
+    theirs: a fence's ``'.'`` is that folder, so the bring-up's
+    ``settings_file`` and a fence's ``user_settings_file(root)`` save there,
+    never into this checkout's ``data/current.json`` nor into another
+    chapter's installation.
+    """
+    namespace = {'__name__': '__guide__'}
+    sessions = _ChapterSessions(namespace, bringup)
+    with contextlib.chdir(installation_of_its_own()):
+        try:
+            failure = sessions.use(runnable[0][2] if runnable else {})
+            for start, _, options, source in runnable:
+                failure = failure or sessions.use(options)
+                if failure:
+                    return failure
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore', FutureWarning)
+                    failure = _run_fence(label, start, options, source, namespace)
+                if failure:
+                    return failure
+            return failure
+        finally:
+            sessions.close()
 
-    The fences run from an installation of their own, as a reader runs them
-    from theirs: a fence's ``'.'`` is that folder, so one that names
-    ``user_settings_file(root)`` saves there, never into this checkout's
-    ``data/current.json``.
+
+def guide_fence_failures(guide, bringup):
+    """A line per ``python`` fence of ``guide`` that does not run as its info string states.
+
+    ``guide`` is ``(label, text)`` per file and ``bringup`` its bring-up
+    fence (``guide_bringup``), which runs on its own first: every chapter
+    starts from it, so when it fails that is the one line, and no chapter
+    runs. Each chapter's fences then run in order in one namespace after the
+    bring-up (``_ChapterSessions``); a fence flagged ``norun`` is skipped
+    here and still resolved and bound by the checks above. A fence that
+    raises ends the chapter: what follows it assumed it ran.
     """
     from _lumascope.modules import settings_init
 
-    failures = []
     prepared = settings_init.settings
     try:
-        with contextlib.chdir(installation_of_its_own()):
+        alone = _chapter_failure(bringup.label, [], bringup)
+        if alone:
+            return [f'{alone}  (the bring-up, run on its own: no chapter ran)']
+        failures = []
+        for label, text in guide:
             for heading, fences in guide_chapters(text):
                 runnable = [f for f in fences if f[1] == 'python' and not f[2].get('norun')]
-                if not runnable:
-                    continue
-                namespace = {'__name__': '__guide__'}
-                sessions = _ChapterSessions(namespace)
-                try:
-                    for start, _, options, source in runnable:
-                        sessions.use(options)
-                        with warnings.catch_warnings():
-                            warnings.simplefilter('ignore', FutureWarning)
-                            failure = _run_fence(label, start, options, source, namespace)
-                        if failure:
-                            failures.append(f'{failure}  (chapter "{heading}")')
-                            break
-                finally:
-                    sessions.close()
+                failure = runnable and _chapter_failure(label, runnable, bringup)
+                if failure:
+                    failures.append(f'{failure}  (chapter "{heading}")')
+        return failures
     finally:
         settings_init.settings = prepared
-    return failures
+
+
+# A bring-up as the guide's teaches it, for the planted guides: a new install
+# answers which objective is mounted.
+_PLANTED_BRINGUP = Bringup(
+    'bringup',
+    1,
+    'from lumascope import ScopeSession\n'
+    "settings = ScopeSession.load_user_settings('.')\n"
+    "session = ScopeSession.create(settings, source_path='.', simulate=True)\n"
+    'session.run_application_session()\n'
+    'scope = session.scope\n'
+    'question = session.objective_question()\n'
+    'if question is not None:\n'
+    '    session.confirm_objective(question.proposed, slot=question.turret_slot)\n',
+)
 
 
 class TestLumascopeSkillsFencesRun:
@@ -971,12 +1053,14 @@ class TestLumascopeSkillsFencesRun:
 
     @pytest.mark.slow
     def test_every_python_fence_runs(self, guide):
-        failures = [f for path, text in guide for f in guide_fence_failures(text, path)]
+        bringup, failures = guide_bringup(guide)
+        failures = failures or guide_fence_failures(guide, bringup)
         assert not failures, (
             'The guide has python fences that do not run on the simulator as '
             'written. A fence that teaches a refusal states it (```python '
             'raises=<Class>:<reason>) and ends in it; one that needs a board says tier= or '
-            'model=; one no simulator can run is ```python norun.\n' + '\n'.join(failures)
+            'model=; one no simulator can run is ```python norun; the one every chapter '
+            'starts from is ```python bringup.\n' + '\n'.join(failures)
         )
 
     def test_a_fence_that_does_not_do_what_it_states_is_reported(self):
@@ -1019,7 +1103,7 @@ class TestLumascopeSkillsFencesRun:
             'raise RuntimeError\n'
             '```\n'
         )
-        reported = '\n'.join(guide_fence_failures(planted, 'planted'))
+        reported = '\n'.join(guide_fence_failures([('planted', planted)], _PLANTED_BRINGUP))
         for expected in (
             'planted:3  raised AssertionError',
             'planted:8  raised PositionOutOfRangeError at line 8, before its last statement',
@@ -1033,6 +1117,49 @@ class TestLumascopeSkillsFencesRun:
             assert expected in reported, reported
         assert 'planted:32' not in reported, reported
         assert 'planted:36' not in reported, reported
+
+    def test_a_bringup_that_does_not_answer_a_new_install_is_reported_at_the_saved_still(self):
+        unanswering = Bringup('bringup', 1, _PLANTED_BRINGUP.source.split('question = ')[0])
+        planted = (
+            '## Saved\n'
+            '```python\n'
+            'session.show_channel("BF")\n'
+            'session.manual_capture.capture(false_color_on=False).result(timeout=30)\n'
+            '```\n'
+        )
+        reported = guide_fence_failures([('planted', planted)], unanswering)
+        assert len(reported) == 1, reported
+        assert reported[0].startswith('  planted:3  raised ObjectiveUnknownError'), reported
+        assert guide_fence_failures([('planted', planted)], _PLANTED_BRINGUP) == []
+
+    def test_a_failing_bringup_is_reported_once_and_no_chapter_runs(self):
+        failing = Bringup('bringup', 4, "raise RuntimeError('the bring-up broke')\n")
+        planted = '## One\n```python\nx = 1\n```\n## Two\n```python\nraise ValueError\n```\n'
+        assert guide_fence_failures([('planted', planted)], failing) == [
+            '  bringup:4  raised RuntimeError: the bring-up broke  '
+            '(the bring-up, run on its own: no chapter ran)'
+        ]
+
+    def test_the_guide_has_one_bringup_and_it_is_a_runnable_python_fence(self):
+        one = '```python bringup\nx = 1\n```\n'
+        cases = {
+            'none': [('a', '```python\nx = 1\n```\n')],
+            'two': [('a', one), ('b', one)],
+            'bash': [('a', '```bash bringup\ncurl -s $API/status\n```\n')],
+            'norun': [('a', '```python bringup norun\nx = 1\n```\n')],
+        }
+        reported = {name: guide_bringup(guide) for name, guide in cases.items()}
+        assert reported['none'][1] == [
+            '  0 fences say bringup (none): the guide has exactly one, '
+            'the bring-up every chapter starts from'
+        ]
+        assert reported['two'][1][0].startswith('  2 fences say bringup (a:2, b:2)')
+        assert reported['bash'][1] == ['  a:2  the bring-up fence is bash, not python']
+        assert reported['norun'][1] == [
+            '  a:2  the bring-up fence says norun: every chapter runs it'
+        ]
+        assert all(bringup is None for bringup, _ in reported.values())
+        assert guide_bringup([('a', one)]) == (Bringup('a', 2, 'x = 1'), [])
 
 
 # A walkthrough line's trailing comment: the status it answers, then for a
@@ -1188,19 +1315,28 @@ def curl_failures(lines, label, client, run):
 
 
 def _walk(text, label):
+    """``text``'s walkthrough, sent to a server on a new install, as
+    ``python -m lumascope.rest --simulate`` serves one: the scope brought up
+    and its startup motion run, and nothing answered for the walkthrough, so
+    a question a new install asks is the walkthrough's own to answer."""
     from fastapi.testclient import TestClient
 
     from _lumascope.modules import settings_init
+    from _lumascope.modules.scope_session import ScopeSession
     from _lumascope.rest.app import build_app
 
     prepared = settings_init.settings
-    sessions = _ChapterSessions({})
+    settings = complete_settings(simulator_tier=_DEFAULT_TIER, objective_confirmed=None)
+    settings_init.settings = settings
     try:
-        sessions.use({})
-        with TestClient(build_app(sessions.session)) as client:
-            return walkthrough_failures(text, label, client)
+        session = ScopeSession.create(settings.copy(), simulate=True, warn_pre_release=False)
+        try:
+            session.run_application_session()
+            with TestClient(build_app(session)) as client:
+                return walkthrough_failures(text, label, client)
+        finally:
+            session.shutdown()
     finally:
-        sessions.close()
         settings_init.settings = prepared
 
 

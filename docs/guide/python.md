@@ -30,7 +30,7 @@ Called inside a running LumaViewPro, by a plugin, it answers the settings
 LumaViewPro already prepared. Settings are an argument of `create`, never read
 behind your back.
 
-```python
+```python bringup
 from lumascope import ScopeSession
 
 root = '.'                                   # the LumaViewPro source folder, which holds data/; here, the working folder
