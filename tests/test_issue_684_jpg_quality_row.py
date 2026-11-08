@@ -66,3 +66,15 @@ def test_handler_no_longer_toggles_disabled_imperatively():
     assert '.disabled' not in handler
     # The handler still records the chosen format.
     assert "update_settings('image_output_format.live', fmt)" in handler
+
+
+def test_the_quality_slider_spans_the_values_the_store_accepts():
+    """Every position of the slider is a quality the store accepts, and every
+    quality it accepts has a position: the range is JPG_QUALITY_RANGE, in
+    whole-number steps, so the left end is never a refused value."""
+    block = _jpg_row_block()
+    slider = block[block.index('id: jpg_quality_slider') :]
+    assert '#:import JPG_QUALITY_RANGE _lumascope.modules.settings_paths.JPG_QUALITY_RANGE' in _KV
+    assert 'min: JPG_QUALITY_RANGE[0]' in slider
+    assert 'max: JPG_QUALITY_RANGE[1]' in slider
+    assert 'step: 1\n' in slider
