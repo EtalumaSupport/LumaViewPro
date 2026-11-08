@@ -71,8 +71,9 @@ runs to 50 ms on [Brightfield]{.channel}, to 200 ms on
 [Phase Contrast]{.channel} and [Darkfield]{.channel}, and to 1000 ms, or
 the camera's maximum if lower, on the fluorescence channels; on the
 [Lumi]{.channel} channel it runs to the camera's maximum. On the
-fluorescence and [Lumi]{.channel} channels the exposure is set in whole
-milliseconds, from 1 ms. A longer exposure may be typed in the box; a gain
+fluorescence and [Lumi]{.channel} channels the slider moves in whole
+milliseconds, from 1 ms; a finer exposure, such as 0.5 or 12.7 ms, may be
+typed in the box. A longer exposure may be typed in the box too; a gain
 or exposure beyond the camera's limit is applied at that limit.
 
 Defaults: [Brightfield]{.channel} 1 dB and 2 ms; [Phase Contrast]{.channel}

@@ -33,8 +33,9 @@ a whole folder that LumaViewPro saved:
 - for [Create Video]{.guilabel} only, a recording saved as frames
   (@sec-video-format).
 
-Each of these folders holds `protocol_record.tsv`, the record of every image
-taken and where. A tool reads the record, not the file names: it finds each
+A run's, a Z-stack's and a composite's folder holds `protocol_record.tsv`,
+the record of every image taken and where; a recording saved as frames
+holds none, and [Create Video]{.guilabel} reads its frames instead. A tool reads the record, not the file names: it finds each
 image's channel, position, tile, Z-slice and time there. A folder without a
 record is refused ("Protocol and/or Protocol Record not found in folder").
 The images must be TIFF or OME-TIFF; a run saved as JPG or PNG is refused
@@ -46,7 +47,10 @@ in them.
 
 While a tool runs, a window shows its progress. When it ends, the window
 says what was made, and names any images it left out. A run cannot be
-started while a tool is running.
+started while a tool is running, and a tool cannot be started while a run,
+a recording or a home is using the microscope, or while a finished run's
+files are still being written: its button is greyed, or it is refused with
+the reason. Try again when that work ends.
 
 ### What each tool writes {#sec-pp-outputs}
 

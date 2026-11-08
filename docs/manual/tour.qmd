@@ -109,6 +109,14 @@ Scroll the mouse wheel over the live image to zoom in and out, and drag the
 image to move around it when zoomed. Fit and 1:1 on the toolbar set the zoom
 back. With Ctrl held, the mouse wheel moves the focus instead.
 
+When another program takes control of the Lumascope through LumaViewPro's
+API (@sec-integrators), a banner across the top of the live image reads
+"Under remote control:" with the name the program gave, and the window's
+controls are greyed while it holds control.
+[Take back control]{.guilabel} in the banner ends the program's control at
+once and stops any run or recording it started; the controls return when
+that work has stopped.
+
 ## The status line {#sec-status-line}
 
 The line along the bottom of the window shows two frame rates: Capture, the

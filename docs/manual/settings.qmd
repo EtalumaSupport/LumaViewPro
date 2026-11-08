@@ -26,19 +26,20 @@ start)". The model is chosen in
 [Frame Size]{.guilabel} sets the region of the camera sensor used, in
 pixels, width by height. Enter a value in either box and press Enter. The
 boxes show the frame size after binning (@sec-binning); at 2x2 each value is
-half the number of sensor pixels. The largest frame is the full sensor,
-3840 x 2160 pixels at 1x1. Default: 1900 x 1900.
+half the number of sensor pixels. The largest frame depends on the model
+and its camera (@tbl-max-frame); a larger frame is refused. Default:
+1900 x 1900.
 
-A frame larger than the maximum recommended size for the model extends
-beyond the objective's field of view (@tbl-max-frame).
+On the LS820 and LS850 a frame larger than 2100 x 2100 extends beyond the
+objective's field of view.
 
-| Model | Maximum recommended frame size (pixels) |
+| Model | Largest frame at 1x1 (pixels) |
 |:---|:---|
-| LS820, LS850 | 2100 x 2100 |
-| LS620, LS720 | 1900 x 1900 |
-| LS460, LS560 | 1700 x 1700 |
+| LS820, LS850, Lumi | the camera's full sensor, for example 3840 x 2160 |
+| LS620, LS720 | 1900 x 1900, the full sensor |
+| LS460, LS560 | 1700 x 1700, the largest the lens images |
 
-: Maximum recommended frame size by model {#tbl-max-frame tbl-colwidths="[40,60]"}
+: Largest frame size by model {#tbl-max-frame tbl-colwidths="[30,70]"}
 
 The frame size cannot be changed while a protocol, a Z-stack, a composite or
 an autofocus runs.

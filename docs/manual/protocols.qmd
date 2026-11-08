@@ -135,8 +135,14 @@ To change a step, select it, then:
 its settings, the current position and focus, the current objective, and
 the name in [Step Name]{.guilabel}. It is refused if the channel shown is
 not set to [Image]{.guilabel} or [Video]{.guilabel}, or while the stage or
-the focus is moving. A slice of a Z-stack keeps its channel: Change on a
-slice with another channel shown is refused.
+the focus is moving, and it is refused when another step added with this
+one already takes the channel shown ("Step Not Saved"): steps added
+together are one composite, with one image per channel.
+
+On a slice of a Z-stack, Change moves the whole stack: every slice of
+every channel there takes the new position and objective, and every slice
+of the step's channel takes the channel's settings. A slice keeps its
+channel: Change on a slice with another channel shown is refused.
 
 To change only a step's focus, select it, focus, and click
 [Save Focus]{.guilabel} in its channel's drawer (@sec-channel-focus).
@@ -219,7 +225,9 @@ during which the protocol was changed ("Focus Not Saved"). A finished scan
 cannot be undone: save the protocol first to keep the old focus.
 
 A Z-stack is focused once, at its first slice, and the whole stack is
-moved to center on the focus found, its slices keeping their spacing.
+moved so that the slice it was placed against, its top, center or bottom
+slice as set in [Objective Control]{.guilabel} when the stack was made
+(@sec-zstack), is at the focus found; the slices keep their spacing.
 
 ## Saving and loading {#sec-protocol-save}
 

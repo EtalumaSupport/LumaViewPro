@@ -46,8 +46,9 @@ The image is saved in the `Manual` folder of the destination folder, named
 for the channel shown, with a number that counts up with each capture, for
 example `live_BF_000001.tiff`. On a Lumascope with a motorized XY stage, the
 name also gives the well the image was taken in, as in
-`live_D6_BF_000001.tiff`. The file records the channel, the LED current,
-the gain, the exposure, the objective and the stage position.
+`live_D6_BF_000001.tiff`. A TIFF or OME-TIFF file records the channel, the
+LED current, the gain, the exposure, the objective and the stage position;
+a JPG records none of them (@sec-live-format).
 
 Capture saves whatever the camera delivers. An image taken with the LED
 switched off is saved, dark; check [Enable LED]{.guilabel} first. The
