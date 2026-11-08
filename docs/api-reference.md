@@ -10850,8 +10850,6 @@ One objective of the installation's catalogue, read once at bring-up.
 - <a id="Objective.numerical_aperture"></a>`numerical_aperture`: `float` -- The objective's numerical aperture, written into a saved file's metadata.
 - <a id="Objective.short_name"></a>`short_name`: `str` -- The token step and file names carry, derived from the id alone (`objective_short_name`).
 - <a id="Objective.working_distance_mm"></a>`working_distance_mm`: `float` -- The objective's working distance, in mm, written into a saved file's metadata.
-- <a id="Objective.z_settle_timeout_ms"></a>`z_settle_timeout_ms`: `float` -- A Z settle timeout, in ms, stored for each objective; LumaViewPro does not yet use it.
-- <a id="Objective.z_settle_tolerance_um"></a>`z_settle_tolerance_um`: `float` -- A Z settle tolerance, in um, stored for each objective; LumaViewPro does not yet use it.
 
 <a id="ObjectiveQuestion"></a>
 ## `lumascope.ObjectiveQuestion`
@@ -18166,7 +18164,7 @@ Every fact a saved file's record can state, by its key, in the order the writer 
 
 | Key | Kind | Plane key | Unit | Dropped by a sum | Fields |
 |---|---|---|---|---|---|
-| `objective` | shared | `Objective` | -- | no | `id`, `description`, `manufacturer`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `z_settle_tolerance_um`, `z_settle_timeout_ms`, `focus_peak_fwhm_dense_um` |
+| `objective` | shared | `Objective` | -- | no | `id`, `description`, `manufacturer`, `short_name`, `magnification`, `focal_length_mm`, `numerical_aperture`, `depth_of_field_um`, `working_distance_mm`, `autofocus_step_min_um`, `autofocus_step_max_um`, `autofocus_half_range_um`, `jog_z_fine_um`, `jog_z_coarse_um`, `jog_xy_fine_um`, `jog_xy_coarse_um`, `focus_peak_fwhm_dense_um` |
 | `plate_pos_mm` | shared | -- | -- | no | `x`, `y` |
 | `z_pos_um` | shared | `PositionZ` | um | no | -- |
 | `illumination_ma` | channel | `Illumination` | mA | no | -- |

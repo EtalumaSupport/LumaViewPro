@@ -13,9 +13,7 @@
       "z_fine": 100,
       "z_coarse": 1000,
       "xy_fine": 300,
-      "xy_coarse": 3000,
-      "z_settle_tolerance_um": 50.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 3000
     },
     "2x Oly": {
       "description": "2x Plan Apochromat Olympus",
@@ -31,9 +29,7 @@
       "z_fine": 35,
       "z_coarse": 350,
       "xy_fine": 200,
-      "xy_coarse": 2000,
-      "z_settle_tolerance_um": 20.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 2000
     },
     "2.5x Meiji": {
       "description": "2.5x Plan Semi Apochromat Meiji",
@@ -49,9 +45,7 @@
       "z_fine": 35,
       "z_coarse": 350,
       "xy_fine": 200,
-      "xy_coarse": 2000,
-      "z_settle_tolerance_um": 20.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 2000
     },
     "4x Meiji": {
       "description": "4x TC Plan Achromat, 1mm glass, Meiji",
@@ -67,9 +61,7 @@
       "z_fine": 27.75,
       "z_coarse": 277.5,
       "xy_fine": 100.0,
-      "xy_coarse": 1000.0,
-      "z_settle_tolerance_um": 10.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 1000.0
     },
     "10x Meiji": {
       "description": "10x TC Plan Achromat, 1mm glass, Meiji",
@@ -85,9 +77,7 @@
       "z_fine": 4.25,
       "z_coarse": 42.5,
       "xy_fine": 40.0,
-      "xy_coarse": 400.0,
-      "z_settle_tolerance_um": 5.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 400.0
     },
     "20x Meiji": {
       "description": "20x TC Plan Achromat, 1mm glass, Meiji",
@@ -103,9 +93,7 @@
       "z_fine": 2.9,
       "z_coarse": 29.0,
       "xy_fine": 20.0,
-      "xy_coarse": 200.0,
-      "z_settle_tolerance_um": 2.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 200.0
     },
     "40x Meiji": {
       "description": "40x TC Plan Achromat, 1mm glass, Meiji",
@@ -121,9 +109,7 @@
       "z_fine": 0.5,
       "z_coarse": 5.0,
       "xy_fine": 10.0,
-      "xy_coarse": 100.0,
-      "z_settle_tolerance_um": 1.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 100.0
     },
     "4x Oly": {
       "description": "4x U Plan Fl Olympus",
@@ -139,9 +125,7 @@
       "z_fine": 27.75,
       "z_coarse": 277.5,
       "xy_fine": 100.0,
-      "xy_coarse": 1000.0,
-      "z_settle_tolerance_um": 10.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 1000.0
     },
     "10x Oly": {
       "description": "10x U Plan Fl Olympus",
@@ -157,9 +141,7 @@
       "z_fine": 4.25,
       "z_coarse": 42.5,
       "xy_fine": 40.0,
-      "xy_coarse": 400.0,
-      "z_settle_tolerance_um": 5.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 400.0
     },
     "10x Phase": {
       "description": "10x Achromat IPC Phase, 1mm glass, Olympus",
@@ -175,9 +157,7 @@
       "z_fine": 4.25,
       "z_coarse": 42.5,
       "xy_fine": 40.0,
-      "xy_coarse": 400.0,
-      "z_settle_tolerance_um": 5.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 400.0
     },
     "20x Oly": {
       "description": "20x LWD U Plan Fl, 0.17mm glass, Olympus",
@@ -193,9 +173,7 @@
       "z_fine": 2.9,
       "z_coarse": 29.0,
       "xy_fine": 20.0,
-      "xy_coarse": 200.0,
-      "z_settle_tolerance_um": 2.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 200.0
     },
     "20x w/collar": {
       "description": "20x LWD U Plan Fl with collar, Olympus",
@@ -211,9 +189,7 @@
       "z_fine": 2.9,
       "z_coarse": 29.0,
       "xy_fine": 20.0,
-      "xy_coarse": 200.0,
-      "z_settle_tolerance_um": 2.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 200.0
     },
     "20x Phase": {
       "description": "20x LWD Achromat IPC Phase, 1mm glass, Olympus",
@@ -229,9 +205,7 @@
       "z_fine": 2.9,
       "z_coarse": 29.0,
       "xy_fine": 20.0,
-      "xy_coarse": 200.0,
-      "z_settle_tolerance_um": 2.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 200.0
     },
     "40x w/collar": {
       "description": "40x LWD U Plan Fl Olympus",
@@ -247,9 +221,7 @@
       "z_fine": 0.5,
       "z_coarse": 5.0,
       "xy_fine": 10.0,
-      "xy_coarse": 100.0,
-      "z_settle_tolerance_um": 1.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 100.0
     },
     "40x Phase": {
       "description": "40x LWD Achromat Phase, 1mm glass, Olympus",
@@ -265,9 +237,7 @@
       "z_fine": 0.5,
       "z_coarse": 5.0,
       "xy_fine": 10.0,
-      "xy_coarse": 100.0,
-      "z_settle_tolerance_um": 1.0,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 100.0
     },
     "60x w/collar": {
       "description": "60x U Plan UPLFLN60x Olympus",
@@ -283,9 +253,7 @@
       "z_fine": 0.2,
       "z_coarse": 2.0,
       "xy_fine": 5.0,
-      "xy_coarse": 50.0,
-      "z_settle_tolerance_um": 0.5,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 50.0
     },
     "60x Meiji": {
       "description": "60x Plan Achromat Meiji",
@@ -301,9 +269,7 @@
       "z_fine": 0.2,
       "z_coarse": 2.0,
       "xy_fine": 5.0,
-      "xy_coarse": 50.0,
-      "z_settle_tolerance_um": 0.5,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 50.0
     },
     "100x U Plan Oly": {
       "description": "100x U Plan (oil) Olympus",
@@ -319,9 +285,7 @@
       "z_fine": 0.11,
       "z_coarse": 1.1,
       "xy_fine": 4.0,
-      "xy_coarse": 40.0,
-      "z_settle_tolerance_um": 0.2,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 40.0
     },
     "100x M Plan Oly": {
       "description": "100x M Plan Fl (dry) Olympus",
@@ -337,9 +301,7 @@
       "z_fine": 0.11,
       "z_coarse": 1.1,
       "xy_fine": 4.0,
-      "xy_coarse": 40.0,
-      "z_settle_tolerance_um": 0.2,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 40.0
     },
     "100x Meiji": {
       "description": "100x Plan Apochromat(oil) MA983 Meiji",
@@ -355,8 +317,6 @@
       "z_fine": 0.11,
       "z_coarse": 1.1,
       "xy_fine": 4.0,
-      "xy_coarse": 40.0,
-      "z_settle_tolerance_um": 0.2,
-      "z_settle_timeout_ms": 2000
+      "xy_coarse": 40.0
     }
 }

@@ -47,8 +47,6 @@ OBJECTIVE_CONFIRMED_ON_A_TURRET = 'turret'
     'jog_z_coarse_um',
     'jog_xy_fine_um',
     'jog_xy_coarse_um',
-    'z_settle_tolerance_um',
-    'z_settle_timeout_ms',
     'focus_peak_fwhm_dense_um',
 )
 @dataclass(frozen=True)
@@ -82,10 +80,6 @@ class Objective:
         jog_z_coarse_um: The distance, in um, a coarse Z jog moves.
         jog_xy_fine_um: The distance, in um, a fine X or Y jog moves.
         jog_xy_coarse_um: The distance, in um, a coarse X or Y jog moves.
-        z_settle_tolerance_um: A Z settle tolerance, in um, stored for each
-            objective; LumaViewPro does not yet use it.
-        z_settle_timeout_ms: A Z settle timeout, in ms, stored for each
-            objective; LumaViewPro does not yet use it.
         focus_peak_fwhm_dense_um: The objective's measured focus-peak width
             (full width at half maximum), in um; None until it has been
             measured.
@@ -107,8 +101,6 @@ class Objective:
     jog_z_coarse_um: float
     jog_xy_fine_um: float
     jog_xy_coarse_um: float
-    z_settle_tolerance_um: float
-    z_settle_timeout_ms: float
     focus_peak_fwhm_dense_um: float | None = None
 
 
@@ -129,11 +121,12 @@ _FILE_KEYS = {
     'jog_z_coarse_um': 'z_coarse',
     'jog_xy_fine_um': 'xy_fine',
     'jog_xy_coarse_um': 'xy_coarse',
-    'z_settle_tolerance_um': 'z_settle_tolerance_um',
-    'z_settle_timeout_ms': 'z_settle_timeout_ms',
     'focus_peak_fwhm_dense_um': 'focus_peak_fwhm_dense_um',
 }
 _OPTIONAL_FILE_KEYS = frozenset({'focus_peak_fwhm_dense_um'})
+# Keys an older catalogue carries that nothing reads: skipped, not refused,
+# so a data folder copied from an earlier build still loads.
+_RETIRED_FILE_KEYS = frozenset({'z_settle_tolerance_um', 'z_settle_timeout_ms'})
 
 
 def under_field_names(stated: Mapping) -> dict:
@@ -159,7 +152,7 @@ def _read_objective(objective_id: object, entry: object, filepath: pathlib.Path)
         raise InstallationFileError(
             filepath, f'has an entry {objective_id!r} that is not an objective'
         )
-    undeclared = sorted(set(entry) - set(_FILE_KEYS.values()))
+    undeclared = sorted(set(entry) - set(_FILE_KEYS.values()) - _RETIRED_FILE_KEYS)
     if undeclared:
         raise InstallationFileError(
             filepath, f'gives objective {objective_id!r} the undeclared key {undeclared[0]!r}'
