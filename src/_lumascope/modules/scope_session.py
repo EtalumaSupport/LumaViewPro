@@ -694,6 +694,10 @@ class ScopeSession:
         # a build never queues in front of a run's writes on the file lane.
         from _lumascope.modules.post_processing_api import PostProcessingAPI
 
+        # The folder of the last file saved, whoever asked for it: written by
+        # the four producers that save (each told it through on_saved when its
+        # file has landed), read by last_save_folder. None before any save.
+        self._last_save_folder: pathlib.Path | None = None
         self.post_processing = PostProcessingAPI(
             lane=executor_bundle.post_processing_executor,
             tiling_grids=scope.protocols.tiling_grids(),
@@ -703,6 +707,7 @@ class ScopeSession:
             # Read as each build starts; the claim is made further down.
             scope_holder=lambda: self.activity_claim.holder,
             files_draining=lambda: self._draining_batch() is not None,
+            on_saved=self._saved,
         )
         # Run-state listeners: zero-argument callables notified on every
         # run-state transition edge (claim grant/release, a run's return
@@ -779,6 +784,7 @@ class ScopeSession:
             activity_claim=self.activity_claim,
             scheduler=self._scheduler,
             post_processing=self.post_processing,
+            on_saved=self._saved,
         )
         # Manual stills: one at a time, on the camera lane, which already
         # refuses them while a run holds the camera. No activity claim -- a
@@ -790,6 +796,7 @@ class ScopeSession:
             channel_camera_request=self._channel_camera_request,
             engineering_mode=lambda: self.engineering_mode,
             channel_colors=self.channel_colors,
+            on_saved=self._saved,
         )
 
         # The run engine and its autofocus pair are SESSION-composed:
@@ -818,6 +825,7 @@ class ScopeSession:
             on_protocol_files_written=self._run_protocol_complete_processors,
             on_step_lit=self._step_lit_by_run,
             on_run_ending=self._show_the_channel_shown_before_the_run,
+            on_saved=self._saved,
         )
         self._protocol_runner = None
 
@@ -4096,6 +4104,26 @@ class ScopeSession:
         """
         channel = self._shown_channel
         return ShownChannel(channel, self._channel_lit(channel))
+
+    @api
+    @property
+    def last_save_folder(self) -> pathlib.Path | None:
+        """The folder of the last file saved, whoever asked for the save.
+
+        A save is a still, a recording, a run's images or a post-processing
+        build's output, including what a build that failed part way did
+        write. The folder moves when the file lands, never when the work
+        starts, so work that wrote nothing leaves it where it was; the last
+        save to land wins. None before anything is saved.
+
+        Raises:
+            Nothing.
+        """
+        return self._last_save_folder
+
+    def _saved(self, folder: pathlib.Path) -> None:
+        """Record *folder* as where the last save landed: the producers' one writer of it."""
+        self._last_save_folder = pathlib.Path(folder)
 
     @api(admitted_by=(Admission.LANE_CALL,))
     def show_channel(self, channel: str) -> ShownChannel:

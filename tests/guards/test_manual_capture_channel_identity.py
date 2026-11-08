@@ -69,6 +69,7 @@ def _run_manual_capture(tmp_path, scope, *, shown_channel, false_color_on, separ
     for name in release_catalogue():
         settings[name].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 0})
     capture = ManualCaptureController(
+        on_saved=lambda folder: None,
         scope=scope,
         settings_snapshot=lambda: settings,
         shown_channel=lambda: shown_channel,

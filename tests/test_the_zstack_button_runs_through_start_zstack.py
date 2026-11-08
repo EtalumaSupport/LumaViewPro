@@ -83,8 +83,6 @@ def clicked(gui_ctx, monkeypatch, held, centre_posts):
     gui_ctx.motion_settings = SimpleNamespace(ids={'protocol_settings_id': switch})
     monkeypatch.setattr('ui.ui_helpers._schedule_ui', lambda fn: fn(0))
     monkeypatch.setattr(zs.gui_logger, 'button', lambda *a, **kw: None)
-    linked = []
-    monkeypatch.setattr(zs, 'set_last_save_folder', lambda **kw: linked.append(kw['dir']))
     asked = []
     started = []
     real_start = ProtocolRunner.start_zstack
@@ -101,7 +99,6 @@ def clicked(gui_ctx, monkeypatch, held, centre_posts):
         pool=pool,
         asked=asked,
         started=started,
-        linked=linked,
         posts=centre_posts,
         starter=_Starter(),
         saving_box=switch.box,
@@ -162,11 +159,9 @@ def test_the_stop_names_the_handle_the_member_returned(stacked):
     run = _click_held(stacked)
 
     assert stacked.started == [run]
-    assert stacked.linked == [run.progress().run_dir]
-    assert stacked.linked[0] is not None
 
 
-def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
+def test_a_refusal_is_shown_once_and_draws_idle(clicked):
     """Homed, on the template, whose stored stack has no range: the member refuses."""
     home_sim_scope(clicked.session.scope)
 
@@ -177,7 +172,6 @@ def test_a_refusal_is_shown_once_draws_idle_and_links_no_folder(clicked):
     assert clicked.starter.button.state == 'normal'
     assert clicked.starter.button.text == 'Acquire'
     assert clicked.starter.zstack_pending is False, 'the button must come back for the next press'
-    assert clicked.linked == []
 
 
 def test_progress_reads_the_runs_own_step_and_count(stacked):

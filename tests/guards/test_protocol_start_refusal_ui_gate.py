@@ -107,11 +107,9 @@ def _calls_named(node: ast.AST, func_name: str) -> list[ast.Call]:
     ]
 
 
-def test_the_panels_start_runs_through_the_api_then_names_the_folder():
+def test_the_panels_start_runs_through_the_api():
     """The call the panel hands the pool is the runner member a script
-    calls, then the save folder -- so a refusal (raised by the member)
-    never points the save folder at the previous run, and the panel holds
-    no second prepare-and-start of its own."""
+    calls, and the panel holds no second prepare-and-start of its own."""
     path = REPO_ROOT / 'ui' / 'protocol_settings.py'
     method = _method_node(path, 'ProtocolSettings', '_sequenced_capture_start')
     assert _calls_named(method, 'start_run'), (
@@ -122,11 +120,6 @@ def test_the_panels_start_runs_through_the_api_then_names_the_folder():
             f"_sequenced_capture_start must not call the engine's {name}() itself: "
             'ProtocolRunner.start_protocol / start_single_scan are the one way to start a run'
         )
-
-    src = ast.unparse(method)
-    assert src.index('start_run(') < src.index('set_last_save_folder'), (
-        'start, then set_last_save_folder: the folder must name only a run that started'
-    )
 
     for starter, member in (
         ('_scan_start', 'start_single_scan'),

@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     run_reported,
-    set_last_save_folder,
     show_captured_frame,
     show_video_progress,
     submit_reported,
@@ -192,10 +191,6 @@ class ZStack(FloatLayout):
                 enable_image_saving=enable_image_saving,
             )
             self._zstack_run = started
-            # A refusal raises out of start_zstack before this line, so the
-            # save folder can only ever point at THIS run's directory,
-            # never a previous run's stale data.
-            set_last_save_folder(dir=started.progress().run_dir)
 
         submit_reported(_start, self._zstack_request_done, 'ZSTACK')
 

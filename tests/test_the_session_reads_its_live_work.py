@@ -231,6 +231,7 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
                 'stitch',
                 folder_a,
                 operation=PostProcessingOperation.STITCH,
+                saved_in=lambda result: None,
                 on_progress=lambda p, d: seen_by_caller.append(p),
             ),
         )

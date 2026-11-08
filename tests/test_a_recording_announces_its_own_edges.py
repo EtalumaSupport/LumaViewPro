@@ -108,6 +108,7 @@ class TestTheController:
         scope = _FakeScope()
         clock = FakeClock()
         controller = ManualRecordingController(
+            on_saved=lambda folder: None,
             scope=scope,
             settings_snapshot=lambda: make_settings(tmp_path),
             shown_channel=lambda: 'BF',

@@ -255,6 +255,7 @@ class TestHeadlessProtocolExecution:
 
                 swap_lanes(scope, io=execs['io'], camera=execs['camera'])
                 executor = SequencedCaptureRunner(
+                    on_saved=lambda folder: None,
                     scope=scope,
                     protocol_thread=execs['protocol'],
                     file_io_executor=execs['file_io'],

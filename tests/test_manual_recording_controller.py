@@ -290,6 +290,7 @@ def make_controller(
     claim=None,
     post_processing=None,
     settings=None,
+    on_saved=lambda folder: None,
     **settings_kwargs,
 ):
     # A test outside this module hands its own lane: this module's is set
@@ -298,6 +299,7 @@ def make_controller(
     clock = clock or FakeClock()
     store = settings if settings is not None else make_settings(tmp_path, **settings_kwargs)
     controller = ManualRecordingController(
+        on_saved=on_saved,
         scope=scope,
         # A private copy per call, as the session's get_settings_snapshot
         # answers, so a test writing ``store`` writes the live settings.
@@ -1847,3 +1849,30 @@ class TestASlowSaveIsToldOnceItFinishes:
         titles = [n.title for n in centre_posts]
         assert SAVED_SLOWLY not in titles
         assert any(n.severity == Severity.ERROR for n in centre_posts), "the writer's death is told"
+
+
+class TestTheSessionIsToldWhereItSaved:
+    """The recording tells ``on_saved`` its folder when its saving ends, once
+    a frame was written, so the session's last save folder never names a
+    recording that saved nothing, nor one still running."""
+
+    def test_a_recording_that_wrote_frames_tells_its_folder_when_its_saving_ends(self, tmp_path):
+        told = []
+        controller, scope, clock = make_controller(tmp_path, on_saved=told.append)
+        controller.start()
+        feed_frames(scope, clock, 5, fps=10.0)
+        assert told == [], 'told while still recording'
+
+        controller.stop()
+        finish(controller)
+
+        assert told == [controller.save_folder]
+
+    def test_a_recording_of_no_frames_tells_nothing(self, tmp_path):
+        told = []
+        controller, _scope, _clock = make_controller(tmp_path, on_saved=told.append)
+        controller.start()
+        controller.stop()
+        finish(controller)
+
+        assert told == []

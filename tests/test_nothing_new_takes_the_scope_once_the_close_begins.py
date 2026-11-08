@@ -115,7 +115,11 @@ def test_a_post_processing_build_is_not_refused(sim_session, tmp_path):
 
     assert (
         sim_session.post_processing._run(
-            build, 'stitch', tmp_path, operation=PostProcessingOperation.STITCH
+            build,
+            'stitch',
+            tmp_path,
+            operation=PostProcessingOperation.STITCH,
+            saved_in=lambda result: None,
         )
         is built
     )

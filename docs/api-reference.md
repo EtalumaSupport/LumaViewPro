@@ -1622,6 +1622,27 @@ client deleted answers 404 on its id.
 
 Nothing.
 
+<a id="ScopeSession.last_save_folder"></a>
+### `ScopeSession.last_save_folder`
+
+```python
+last_save_folder: Path | None  # property
+```
+
+Route: `GET /api/v1/last_save_folder`.
+
+The folder of the last file saved, whoever asked for the save.
+
+A save is a still, a recording, a run's images or a post-processing
+build's output, including what a build that failed part way did
+write. The folder moves when the file lands, never when the work
+starts, so work that wrote nothing leaves it where it was; the last
+save to land wins. None before anything is saved.
+
+**Raises**
+
+Nothing.
+
 <a id="ScopeSession.light_shown_channel"></a>
 ### `ScopeSession.light_shown_channel`
 
@@ -3932,6 +3953,7 @@ One still at a time, captured on the camera lane and saved.
 - `channel_camera_request`: Reads a channel's stored camera settings from the session's store, on the camera lane, for the camera to hold.
 - `engineering_mode`: Reads the session's engineering mode, once per capture, when the capture is asked for: a plugin may turn it on after the controller is built.
 - `channel_colors`: Reads every channel's colour, from the Session's one read of it, once per capture, when the capture is asked for.
+- `on_saved`: Told the folder of each still once its files are on disk, on the camera lane, before the caller is answered.
 
 <a id="ManualCaptureController.capture"></a>
 ### `ManualCaptureController.capture`
@@ -4007,6 +4029,7 @@ One manual-recording flow: snapshot, record, drain, finish.
 - `activity_claim`: The session's compare-and-claim handle; passed through to the engine so a recording and a protocol run are mutually exclusive.
 - `scheduler`: The session's scheduler; the controller arms its own periodic health check on it at `start` and disarms at finish. Required: a controller that can start a recording but has no armed health bound is the trap this parameter exists to make unconstructible.
 - `post_processing`: The session's builds; a recording's stack is built through it.
+- `on_saved`: Told the recording's folder when its saving has ended with a frame written, before the recording's operation settles.
 - `clock`: Wall-time source (seconds) for what is measured against frame timestamps: the engine's cadence, and its start on a camera without a clock mapping. Tests drive it.
 - `steady_clock`: The host's steady clock (nanoseconds) the engine reads its start on through the recording's clock mapping. Tests drive it.
 - `elapsed_clock`: Elapsed-time source (seconds) for the recording's bounds: its elapsed time, the duration backstop, the stall watch and the disk probe's interval. Monotonic, because wall time steps (an NTP correction, a host resume) and a step would end a good recording early or let one run past its backstop. Tests drive it.
@@ -17818,6 +17841,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/labware_id` | [`ScopeSession.labware_id`](#ScopeSession.labware_id) |
 | `PUT` | `/api/v1/labware_id` | [`ScopeSession.select_labware`](#ScopeSession.select_labware) |
 | `POST` | `/api/v1/last_run` | [`ScopeSession.last_run`](#ScopeSession.last_run) |
+| `GET` | `/api/v1/last_save_folder` | [`ScopeSession.last_save_folder`](#ScopeSession.last_save_folder) |
 | `POST` | `/api/v1/light_shown_channel` | [`ScopeSession.light_shown_channel`](#ScopeSession.light_shown_channel) |
 | `GET` | `/api/v1/live_folder_listing` | [`ScopeSession.live_folder_listing`](#ScopeSession.live_folder_listing) |
 | `POST` | `/api/v1/load_protocol` | [`ScopeSession.load_protocol`](#ScopeSession.load_protocol) |

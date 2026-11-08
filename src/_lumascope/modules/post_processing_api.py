@@ -32,7 +32,7 @@ import threading
 import time
 import weakref
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from matplotlib.figure import Figure
@@ -426,6 +426,28 @@ def _answering[R](record: Callable[[dict], R], build: Callable[..., dict]) -> Ca
     return answer
 
 
+def _folder_of(paths) -> pathlib.Path | None:
+    """The folder the last of *paths* landed in; None when nothing was written."""
+    return pathlib.Path(paths[-1]).parent if paths else None
+
+
+def _built_folder(result: BuildResult) -> pathlib.Path | None:
+    """Where a stitch, z-projection, composite or video build wrote: the subfolder of its output root.
+
+    A re-run whose outputs are all there already writes none, and says so.
+    """
+    return _folder_of(result.artifact_paths)
+
+
+def _chained_folder(result: BuildsResult) -> None:
+    """``build``'s answer names no folder of its own: ``_chain`` tells each build's as it lands.
+
+    Told there, not from the answer, because a later build's failure answers
+    nothing of the builds before it, which did write.
+    """
+    return None
+
+
 def _a_waiter() -> concurrent.futures.Future:
     """A future for a build put on the lane, marked running so only the lane settles it."""
     waiter = concurrent.futures.Future()
@@ -529,6 +551,7 @@ class PostProcessingAPI:
         channel_colors: Callable[[], ChannelColors],
         scope_holder: Callable[[], ActivityHolder | None],
         files_draining: Callable[[], bool],
+        on_saved: Callable[[pathlib.Path], None],
     ):
         """
         Args:
@@ -546,7 +569,12 @@ class PostProcessingAPI:
                 diagnostic, a home -- or None; asked as each build starts.
             files_draining: Whether a finished run's files are still being
                 written; asked as each build starts.
+            on_saved: Told the folder a build's files landed in, on the
+                lane, before the build answers: of a complete build, of a
+                build that failed part way, and of each build ``build``
+                chains as it lands.
         """
+        self._on_saved = on_saved
         self.lane = lane
         self._tiling_grids = tiling_grids
         self._has_turret = has_turret
@@ -652,6 +680,7 @@ class PostProcessingAPI:
             'stitch',
             pathlib.Path(folder),
             operation=PostProcessingOperation.STITCH,
+            saved_in=_built_folder,
             on_progress=on_progress,
         )
 
@@ -683,6 +712,7 @@ class PostProcessingAPI:
             'zproject',
             pathlib.Path(folder),
             operation=PostProcessingOperation.Z_PROJECTION,
+            saved_in=_built_folder,
             on_progress=on_progress,
         )
 
@@ -715,6 +745,7 @@ class PostProcessingAPI:
             'composite',
             pathlib.Path(folder),
             operation=PostProcessingOperation.COMPOSITE,
+            saved_in=_built_folder,
             on_progress=on_progress,
         )
 
@@ -754,6 +785,7 @@ class PostProcessingAPI:
             'video',
             pathlib.Path(folder),
             operation=PostProcessingOperation.VIDEO,
+            saved_in=_built_folder,
             on_progress=on_progress,
         )
 
@@ -841,6 +873,7 @@ class PostProcessingAPI:
             'build',
             pathlib.Path(folder),
             operation=PostProcessingOperation.POST_PROCESSING,
+            saved_in=_chained_folder,
             on_progress=on_progress,
         )
 
@@ -873,7 +906,11 @@ class PostProcessingAPI:
                     raise
                 skipped.append(SkippedBuild(operation=operation, message=str(refused)))
                 continue
-            built.append(BuildStep(operation=operation, result=_build_result(answer)))
+            step = BuildStep(operation=operation, result=_build_result(answer))
+            built.append(step)
+            landed = _built_folder(step.result)
+            if landed is not None:
+                self._on_saved(landed)
             if index + 1 < len(chosen):
                 # Only a build another follows hands on what it carries: a
                 # video is last, and one of a manual recording reads no
@@ -1102,6 +1139,7 @@ class PostProcessingAPI:
             'enhance',
             pathlib.Path(target),
             operation=PostProcessingOperation.QUICK_ENHANCE,
+            saved_in=lambda result: result.output_folder,
             reads=_existing_file_or_folder,
             on_progress=on_progress,
             on_derived_image=on_derived_image,
@@ -1317,6 +1355,7 @@ class PostProcessingAPI:
             folder,
             method,
             operation=PostProcessingOperation.CELL_COUNT,
+            saved_in=lambda result: result.results_path.parent,
             on_progress=on_progress,
         )
 
@@ -1453,6 +1492,7 @@ class PostProcessingAPI:
             results,
             path,
             operation=PostProcessingOperation.GRAPHING,
+            saved_in=lambda result: result.path.parent,
             x=x,
             y=y,
             trendline=trendline,
@@ -1497,6 +1537,7 @@ class PostProcessingAPI:
         folder,
         *args,
         operation: PostProcessingOperation,
+        saved_in: Callable[[Any], pathlib.Path | None],
         reads=path_utils.existing_folder,
         **kwargs,
     ):
@@ -1517,9 +1558,29 @@ class PostProcessingAPI:
         still being written, since it would share the cores, the
         interpreter lock and the disk with that work. A build already
         running when a run starts runs on.
+        *saved_in* reads the folder the answer's files landed in, None when
+        it wrote none; that folder, or the folder of the last file a build
+        that failed part way did write, is told to ``on_saved`` on the lane
+        before the build answers, so a caller that reads the session's last
+        save after its answer reads its own.
         """
+
+        @functools.wraps(action)
+        def saving(path, *a, **kw):
+            try:
+                result = action(path, *a, **kw)
+            except PostProcessingFailedError as short:
+                landed = _folder_of(short.produced_paths)
+                if landed is not None:
+                    self._on_saved(landed)
+                raise
+            landed = saved_in(result)
+            if landed is not None:
+                self._on_saved(landed)
+            return result
+
         return self._on_lane(
-            action,
+            saving,
             member,
             folder,
             *args,

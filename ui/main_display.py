@@ -13,7 +13,7 @@ from kivy.properties import BooleanProperty, NumericProperty
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules import gui_logger
 from _lumascope.modules.ui_queue import schedule_ui
-from ui.ui_helpers import run_reported, set_last_save_folder, submit_reported
+from ui.ui_helpers import run_reported, submit_reported
 from ui.composite_capture import CompositeCapture
 
 logger = logging.getLogger('LVP.ui.main_display')
@@ -119,10 +119,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             return
         button.state = 'down'
         if self._recording_poll is None:
-            # Set immediately so "Open Last Save Folder" works during the
-            # recording, not only after cleanup lands.
-            if controller.save_folder is not None:
-                set_last_save_folder(controller.save_folder)
             self._recording_poll = Clock.schedule_interval(self._poll_recording_state, 0.1)
 
     def _poll_recording_state(self, dt=None):
@@ -166,9 +162,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if self._recording_poll is not None:
             Clock.unschedule(self._recording_poll)
             self._recording_poll = None
-        controller = _app_ctx.ctx.session.manual_recording
-        if controller.save_folder is not None:
-            set_last_save_folder(controller.save_folder)
         set_title_event_text(None)
         self.draw_record_button()
         logger.info('[LVP Main  ] Manual recording UI cleanup complete')

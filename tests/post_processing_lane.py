@@ -25,6 +25,7 @@ def a_post_processing_api() -> Iterator[PostProcessingAPI]:
     lane.start()
     try:
         yield PostProcessingAPI(
+            on_saved=lambda folder: None,
             lane=lane,
             tiling_grids=shipped_grids(),
             has_turret=lambda: False,

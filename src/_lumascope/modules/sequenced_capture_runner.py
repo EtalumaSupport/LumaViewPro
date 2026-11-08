@@ -365,6 +365,7 @@ class SequencedCaptureRunner:
         activity_claim: ActivityClaim,
         channel_colors: typing.Callable[[], ChannelColors],
         post_processing: typing.Any,
+        on_saved: typing.Callable[[pathlib.Path], None],
         autofocus_runner: AutofocusRunner | None = None,
         on_run_idle: typing.Callable[[], None] | None = None,
         on_protocol_files_written: typing.Callable[[pathlib.Path, RunWriteBatch, Caller, str], None]
@@ -401,6 +402,9 @@ class SequencedCaptureRunner:
         # protocol thread under the run's taking: the session shows the channel
         # it showed before the run, at its stored settings.
         self._on_run_ending = on_run_ending
+        # Told the run's folder once its last image has landed, when it wrote
+        # any, before the caller hears its files are written.
+        self._on_saved = on_saved
         # Stateless, so the run keeps its own. The labware catalogue is the
         # scope's, read where a run needs a plate.
         # The offset a run converts plate positions with; prepare() snapshots
@@ -2696,6 +2700,7 @@ class SequencedCaptureRunner:
         events = self._events
         run_dir = self._run_dir
         on_run_state = self._on_run_idle
+        on_saved = self._on_saved
         # A composite's merge waits on these same files and says when they
         # are not all there, in the one report its run makes.
         merge_reports_files = (
@@ -2743,6 +2748,8 @@ class SequencedCaptureRunner:
             # drain as live for good. No caller waits here, so a raise is
             # reported where it stops.
             actions = []
+            if run_dir is not None and write_batch.written:
+                actions.append(lambda: on_saved(run_dir))
             if write_batch.not_written and not merge_reports_files:
                 # The person's one report of a lost image, made when the count
                 # is final; logged only when the ending's popup told them.

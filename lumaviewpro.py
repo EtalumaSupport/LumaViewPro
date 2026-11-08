@@ -1042,10 +1042,9 @@ class LumaViewProApp(TooltipMixin, App):
         # composite_gen_controls register themselves on ctx in their __init__.
         global ctx
 
-        # AppContext binds these two as kwargs below; declared as locals here
-        # so the kwargs don't NameError at runtime.
+        # AppContext binds this as a kwarg below; declared as a local here
+        # so the kwarg does not NameError at runtime.
         live_histo_setting = False
-        last_save_folder = None
         stage = Stage()
 
         self.lock = session.controls_lock
@@ -1076,7 +1075,6 @@ class LumaViewProApp(TooltipMixin, App):
             graphing_controls=graphing_controls,
             show_tooltips=show_tooltips,
             live_histo_setting=live_histo_setting,
-            last_save_folder=last_save_folder,
             live_view_fps=live_view_fps,
         )
         app_context.ctx = ctx  # Publish to module-level singleton for extracted modules

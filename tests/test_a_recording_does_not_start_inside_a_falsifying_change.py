@@ -327,6 +327,7 @@ class TestTheManualRecordingReadsItsClaimsUnderTheClaim:
         scope.runtime_state.resolve_current_objective = _objective_read
         clock = FakeClock()
         controller = ManualRecordingController(
+            on_saved=lambda folder: None,
             scope=scope,
             settings_snapshot=lambda: make_settings(tmp_path),
             shown_channel=lambda: 'BF',

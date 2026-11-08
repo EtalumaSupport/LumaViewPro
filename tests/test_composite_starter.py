@@ -123,7 +123,6 @@ def rival(app_ctx):
 def _quiet_ui(monkeypatch):
     """Neutralise the cosmetics so a test reads the toggle, not the theme."""
     monkeypatch.setattr(cc, 'set_title_event_text', MagicMock())
-    monkeypatch.setattr(cc, 'set_last_save_folder', MagicMock())
 
 
 def _click(starter):

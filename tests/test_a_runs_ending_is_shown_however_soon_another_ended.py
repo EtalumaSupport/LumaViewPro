@@ -198,6 +198,7 @@ def test_two_recordings_stopped_by_a_full_disk_both_say_so(
     bind_settings_like_a_session(sim_scope, objective_id='4x Oly')
     scheduler = ThreadingTimerScheduler(name_prefix='TestRunEndingShown')
     controller = ManualRecordingController(
+        on_saved=lambda folder: None,
         scope=sim_scope,
         settings_snapshot=lambda: complete_settings(
             live_folder=str(tmp_path),

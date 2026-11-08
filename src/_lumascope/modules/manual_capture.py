@@ -121,6 +121,8 @@ class ManualCaptureController:
             after the controller is built.
         channel_colors: Reads every channel's colour, from the Session's one
             read of it, once per capture, when the capture is asked for.
+        on_saved: Told the folder of each still once its files are on disk,
+            on the camera lane, before the caller is answered.
     """
 
     def __init__(
@@ -132,7 +134,9 @@ class ManualCaptureController:
         channel_camera_request: Callable[[str], ChannelCameraRequest],
         engineering_mode: Callable[[], bool],
         channel_colors: Callable[[], ChannelColors],
+        on_saved: Callable[[pathlib.Path], None],
     ):
+        self._on_saved = on_saved
         self._scope = scope
         self._settings_snapshot = settings_snapshot
         self._shown_channel = shown_channel
@@ -279,7 +283,9 @@ class ManualCaptureController:
         """
         request.body_started.set()
         try:
-            return self._capture_and_save(request)
+            saved = self._capture_and_save(request)
+            self._on_saved(saved[0].file.parent)
+            return saved
         finally:
             self._in_flight.release()
 

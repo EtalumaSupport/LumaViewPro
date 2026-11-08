@@ -45,6 +45,7 @@ def test_manual_recording_ends_within_the_stall_bound(
     )
     scheduler = ThreadingTimerScheduler(name_prefix='TestFeedLoss')
     controller = ManualRecordingController(
+        on_saved=lambda folder: None,
         scope=sim_scope,
         settings_snapshot=lambda: settings,
         shown_channel=lambda: 'BF',

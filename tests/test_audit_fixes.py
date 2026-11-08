@@ -1881,7 +1881,9 @@ def _make_capture_runner(**overrides):
         io=kwargs.pop('io_executor', None),
         camera=kwargs.pop('camera_executor', None),
     )
-    return SequencedCaptureRunner(**kwargs, channel_colors=release_colors)
+    return SequencedCaptureRunner(
+        **kwargs, on_saved=lambda folder: None, channel_colors=release_colors
+    )
 
 
 def _protocol_step(**overrides):
@@ -6710,6 +6712,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
         from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
         exc = SequencedCaptureRunner(
+            on_saved=lambda folder: None,
             scope=MagicMock(),
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),

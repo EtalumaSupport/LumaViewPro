@@ -193,7 +193,11 @@ def test_a_running_and_a_queued_build_both_finish(sim_session, tmp_path):
         folder = tmp_path / name
         folder.mkdir()
         results[name] = post._run(
-            slow, 'stitch', folder, operation=PostProcessingOperation.STITCH
+            slow,
+            'stitch',
+            folder,
+            operation=PostProcessingOperation.STITCH,
+            saved_in=lambda result: None,
         ).message
 
     threads = [threading.Thread(target=build, args=(name,)) for name in ('a', 'b')]

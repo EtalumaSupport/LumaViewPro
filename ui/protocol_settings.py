@@ -30,7 +30,6 @@ from ui.ui_helpers import (
     restore_display_after_run,
     run_reported,
     run_unasked,
-    set_last_save_folder,
     show_captured_frame,
     show_video_progress,
     submit_reported,
@@ -1325,9 +1324,5 @@ class ProtocolSettings(FloatLayout):
                 events=events,
             )
             self._runs_started_here[button] = started
-            # A start() that failed during setup unwound as a failed run: its
-            # run_dir is None (set_last_save_folder no-ops on None), so the
-            # saved folder never names a run that did not happen.
-            set_last_save_folder(dir=started.progress().run_dir)
 
         return _start

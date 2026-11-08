@@ -97,6 +97,7 @@ def _run_capture(ctx, sum_count=1):
     )
     settings[LAYER].update({'exposure_ms': 100, 'sum': sum_count, 'illumination_ma': 0})
     capture = ManualCaptureController(
+        on_saved=lambda folder: None,
         scope=ctx.scope,
         settings_snapshot=lambda: settings,
         shown_channel=lambda: LAYER,

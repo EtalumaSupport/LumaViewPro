@@ -9,7 +9,7 @@ a user never reads 'exclusive_activity_running'.
 
 import concurrent.futures
 import types
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -120,12 +120,10 @@ def test_the_button_hands_the_member_what_the_user_sees(button_ctx):
     }
 
 
-def test_a_saved_still_remembers_its_folder(button_ctx, centre_posts, tmp_path):
+def test_a_saved_still_shows_nothing(button_ctx, centre_posts, tmp_path):
     done = concurrent.futures.Future()
-    # a stand-in by design: the button reads only the record's file.
+    # a stand-in by design: the button reads only whether the still settled.
     done.set_result([types.SimpleNamespace(file=tmp_path / 'Manual' / 'live_A1_BF_000001.tiff')])
-    with patch('ui.composite_capture.set_last_save_folder') as remembered:
-        _press(button_ctx, settles=done)
+    _press(button_ctx, settles=done)
 
-    remembered.assert_called_once_with(dir=tmp_path / 'Manual')
     assert centre_posts == []

@@ -175,6 +175,8 @@ class ManualRecordingController:
             exists to make unconstructible.
         post_processing: The session's builds; a recording's stack is
             built through it.
+        on_saved: Told the recording's folder when its saving has ended
+            with a frame written, before the recording's operation settles.
         clock: Wall-time source (seconds) for what is measured against
             frame timestamps: the engine's cadence, and its start on a
             camera without a clock mapping. Tests drive it.
@@ -198,11 +200,13 @@ class ManualRecordingController:
         activity_claim: Any,
         scheduler: Scheduler,
         post_processing: 'PostProcessingAPI',
+        on_saved: Callable[[Path], None],
         clock: Callable[[], float] = time.time,
         steady_clock: Callable[[], int] = host_clock.steady_ns,
         elapsed_clock: Callable[[], float] = time.monotonic,
     ):
         self._post_processing = post_processing
+        self._on_saved = on_saved
         self._scope = scope
         self._settings_snapshot = settings_snapshot
         self._shown_channel = shown_channel
@@ -1091,6 +1095,8 @@ class ManualRecordingController:
                     )
                 elif self._writer is not None:
                     logger.info(f'[ManualRecord] Video written to {self._writer.output_path}')
+                if result.frames_written:
+                    self._on_saved(self._plan.save_folder)
 
                 dropped = result.write_failures + writer_dropped
                 # Frames came and none had the camera's timestamp: the

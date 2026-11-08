@@ -432,6 +432,7 @@ class TestRunCleanup:
             _protocol=None,
             _run_dir=None,
             _on_run_idle=None,
+            _on_saved=lambda folder: None,
             _run_mode=None,
             LOGGER_NAME='TEST',
         )

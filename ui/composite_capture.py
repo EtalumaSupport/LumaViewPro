@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     run_reported,
-    set_last_save_folder,
     set_title_event_text,
     show_captured_frame,
     submit_reported,
@@ -116,9 +115,6 @@ class CompositeCapture(FloatLayout):
                 events=events,
             )
             self._composite_run = started
-            # Only reachable once the run is committed, so the saved
-            # folder can only ever name THIS run's directory.
-            set_last_save_folder(dir=started.progress().run_dir)
 
         submit_reported(_start, self._composite_request_done, 'COMPOSITE_CAPTURE')
 
@@ -149,9 +145,5 @@ class CompositeCapture(FloatLayout):
 
 
 def _still_settled(done) -> None:
-    """Read the settled still on the Kivy thread: its folder, or its failure to the reporter."""
-    run_reported(
-        lambda: set_last_save_folder(dir=done.result()[0].file.parent),
-        None,
-        'LIVE_CAPTURE',
-    )
+    """Read the settled still on the Kivy thread: its failure goes to the reporter."""
+    run_reported(done.result, None, 'LIVE_CAPTURE')

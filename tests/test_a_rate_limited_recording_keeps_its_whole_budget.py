@@ -62,6 +62,7 @@ def test_a_manual_recordings_last_frame_held_on_its_way_is_kept(
     sim_scope.simulation.delay_delivery(BACKLOG_FRAMES)
     scheduler = ThreadingTimerScheduler(name_prefix='TestWholeBudget')
     controller = ManualRecordingController(
+        on_saved=lambda folder: None,
         scope=sim_scope,
         settings_snapshot=lambda: complete_settings(
             live_folder=str(tmp_path),

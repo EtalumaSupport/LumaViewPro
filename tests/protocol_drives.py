@@ -193,7 +193,9 @@ def bare_capture_runner(**overrides):
         io=kwargs.pop('io_executor', None),
         camera=kwargs.pop('camera_executor', None),
     )
-    runner = SequencedCaptureRunner(**kwargs, channel_colors=release_colors)
+    runner = SequencedCaptureRunner(
+        **kwargs, on_saved=lambda folder: None, channel_colors=release_colors
+    )
     # A run takes the camera only once the camera lane is idle; a bare mock
     # answers "busy" and "stalled" with truthy mocks, so the default lane
     # states the idle answer. A test about the lane passes its own executor.

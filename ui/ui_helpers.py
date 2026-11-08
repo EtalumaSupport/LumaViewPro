@@ -414,14 +414,6 @@ def restore_display_after_run(*_ended) -> None:
     ).update_shader(dt=0)
 
 
-def set_last_save_folder(dir):
-    if dir is None:
-        return
-
-    ctx = _app_ctx.ctx
-    ctx.last_save_folder = dir
-
-
 # ============================================================================
 # Protocol nav helpers
 # ============================================================================

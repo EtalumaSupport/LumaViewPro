@@ -898,10 +898,11 @@ def open_last_save_folder():
         return
 
     command = OS_FOLDER_MAP[sys.platform]
-    if ctx.last_save_folder is None:
+    folder = ctx.session.last_save_folder
+    if folder is None:
         subprocess.Popen([command, str(pathlib.Path(ctx.settings['live_folder']).resolve())])
     else:
-        subprocess.Popen([command, str(ctx.last_save_folder)])
+        subprocess.Popen([command, str(folder)])
 
 
 # ============================================================================

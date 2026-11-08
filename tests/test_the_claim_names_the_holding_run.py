@@ -165,6 +165,7 @@ class TestTheRunnerReadsTheClaim:
 
         with pytest.raises(TypeError, match='activity_claim'):
             SequencedCaptureRunner(
+                on_saved=lambda folder: None,
                 scope=spec_scope(),
                 protocol_thread=MagicMock(),
                 file_io_executor=MagicMock(),

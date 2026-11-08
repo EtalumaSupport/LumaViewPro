@@ -125,6 +125,7 @@ def test_processor_returns_processor_result_on_missing_folder(
     lane = SequentialIOExecutor(closed_answer=session_lane_closed, name='POSTPROC_TEST')
     lane.start()
     harness_ctx.post_processing = PostProcessingAPI(
+        on_saved=lambda folder: None,
         lane=lane,
         tiling_grids=shipped_grids(),
         has_turret=lambda: False,

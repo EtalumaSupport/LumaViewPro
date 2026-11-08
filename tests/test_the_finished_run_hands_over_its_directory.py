@@ -71,6 +71,7 @@ def _end_the_run(kwargs, events, run_dir):
         _protocol=None,
         _run_dir=run_dir,
         _on_run_idle=None,
+        _on_saved=lambda folder: None,
         _run_mode=None,
         LOGGER_NAME='TEST',
     )
