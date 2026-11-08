@@ -136,7 +136,7 @@ A Z-stack is a series of images of the shown channel at evenly spaced focus
 positions. Set it up under [Acquire Z Stack]{.guilabel}:
 
 - [Step size (um)]{.guilabel}: the distance between slices, in micrometers.
-- [Range]{.guilabel}: the depth of the stack, in micrometers.
+- [Range (um)]{.guilabel}: the depth of the stack, in micrometers.
 - [# of Steps]{.guilabel}: the number of slices, worked out from the two:
   the range divided by the step size, rounded down, plus one, so that
   there is a slice at each end. A step size of 2 µm and a range of 10 µm
