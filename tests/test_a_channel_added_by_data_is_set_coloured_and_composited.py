@@ -30,6 +30,7 @@ from tests.installation_fixtures import (
     write_release_with_added_channels,
 )
 from tests.test_composite_run_e2e import open_composite_session, single_run_dir
+from tests.settings_fixtures import installed_confirmation
 from tests.stock_channels import LED0, LED1, LED2
 
 logger = logging.getLogger('test_a_channel_added_by_data_is_set_coloured_and_composited')
@@ -63,6 +64,8 @@ def _prepared(installation: pathlib.Path, model: str) -> dict:
     settings['simulator_tier'] = 'fast'
     settings['live_folder'] = str(installation / 'live')
     settings['stage_offset'] = {'x': 0.0, 'y': 0.0}
+    # An installed scope, its objective confirmed: the composite is the subject.
+    settings['objective_confirmed'] = installed_confirmation(settings)
     return settings
 
 

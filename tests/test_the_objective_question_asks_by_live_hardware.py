@@ -232,13 +232,16 @@ class TestAChangeOfTopologyAsksAgain:
         finally:
             session.shutdown()
 
-    @pytest.mark.parametrize('model, recorded', [('LS850', 'turretless'), ('LS850T', 'turret')])
+    @pytest.mark.parametrize('model, recorded', [('LS850', '20x Oly'), ('LS850T', 'turret')])
     # parametrize-justified: each topology is its own bring-up
     def test_a_confirmation_from_before_the_record_takes_the_bring_ups_topology(
         self, tmp_path, model, recorded
     ):
-        """A stored ``true`` predates the record; the upgrade asks nothing."""
-        session = _brought_up(tmp_path, model, objective_confirmed=True)
+        """A stored ``true`` predates the record; the upgrade asks nothing.
+
+        Without a turret it is dated as the objective stored beside it.
+        """
+        session = _brought_up(tmp_path, model, objective_confirmed=True, objective_id='20x Oly')
         try:
             assert session.settings['objective_confirmed'] == recorded
             assert session.objective_question() is None

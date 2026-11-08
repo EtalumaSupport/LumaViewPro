@@ -21,6 +21,14 @@ logger = logging.getLogger('LVP.modules.objectives_loader')
 # proposal only -- the person answering confirms or changes it.
 DEFAULT_PROPOSED_OBJECTIVE_ID = '20x w/collar'
 
+# The ``objective_confirmed`` a person's answer stores on a turret scope:
+# each slot's assignment names its own glass, so the confirmation says only
+# that it was given for a turret's light path. On a scope with no turret the
+# confirmation is the objective id the person confirmed, and the objective
+# is known while that equals the stored ``objective_id``. No catalogue key
+# may be this word (``ObjectiveLoader`` refuses one), so the two never meet.
+OBJECTIVE_CONFIRMED_ON_A_TURRET = 'turret'
+
 
 @api_fields(
     'id',
@@ -202,6 +210,15 @@ class ObjectiveLoader:
             objective_id: _read_objective(objective_id, entry, filepath)
             for objective_id, entry in entries.items()
         }
+        # On a scope with no turret the confirmation is the objective id a
+        # person confirmed; on a turret scope it is this word, so an
+        # objective keyed with it would read as confirmed on either.
+        if OBJECTIVE_CONFIRMED_ON_A_TURRET in objectives:
+            raise InstallationFileError(
+                filepath,
+                f'keys an objective {OBJECTIVE_CONFIRMED_ON_A_TURRET!r}, the word a turret '
+                "scope's objective confirmation is stored as",
+            )
         if DEFAULT_PROPOSED_OBJECTIVE_ID not in objectives:
             raise InstallationFileError(
                 filepath,

@@ -7,6 +7,10 @@
 
 API=http://127.0.0.1:8000/api/v1
 
+# A new install has not been told which objective is mounted, and a still is
+# refused until it has (GET $API/objective_question asks); say which it is.
+curl -s -w '\n' --json '{"objective_id": "20x w/collar"}' $API/confirm_objective   # 200
+
 curl -s -w '\n' -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200
 curl -s -w '\n' --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0
 

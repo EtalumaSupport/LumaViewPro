@@ -701,7 +701,7 @@ stamps its scale, so it is never composed without one.
 
 **Raises**
 
-- `ObjectiveUnknownError`: The active objective is unknown: `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'` on a turret scope; `'none_selected'` with no turret.
+- `ObjectiveUnknownError`: The active objective is unknown: `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'` on a turret scope; `'none_selected'` with no turret, no person has confirmed the objective.
 
 **Refusals**
 
@@ -979,7 +979,8 @@ Answer the objective question: this objective is in the light path.
 
 On a turret scope, assigns the objective to `slot`: the answer
 records the glass in a slot and never turns the turret. With no
-turret, selects it (`select_objective`). Records that a person has
+turret, selects it (`select_objective`), which records the
+confirmation as the objective id. Records that a person has
 confirmed the objective for this light path, turret or turretless,
 so a scope brought up with the other asks again. Returns whether the
 active objective changed.
@@ -2008,7 +2009,7 @@ steps; a labware with no wells still gives an empty protocol, which
 **Raises**
 
 - `ProtocolRunRefusedError`: `'no_acquiring_channel'`, no channel acquires; `'tiling_unknown'`, a grid this installation does not offer; `'overlap_out_of_range'`, the stored tile overlap outside 0 to 50; `'tiles_outside_travel'`, a tile past the X or Y travel; `'zstack_not_configured'`, a z-stack with no extent; `'positions_unreachable'`, a grid on a scope with no X/Y motor or a z-stack on one with no Z motor; `'zslices_outside_travel'`, a slice past the Z travel.
-- `ObjectiveUnknownError`: the objective in the light path is unknown, so the config cannot be assembled: `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'` on a turret scope; `'none_selected'` with no turret.
+- `ObjectiveUnknownError`: the objective in the light path is unknown, so the config cannot be assembled: `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'` on a turret scope; `'none_selected'` with no turret, no person has confirmed the objective.
 - `ProtocolScheduleRefusedError`: `period_s` or `duration_s` is one no protocol can run.
 - `AxisStateUnknownError`: an acquiring channel has no saved focus, so its steps would save the current Z, and Z does not know its position. Reported once.
 - `AxisMovingError`: `'axis_moving'`, Z is moving, so the current Z is a place it is passing through. Nothing is built.
@@ -2031,7 +2032,7 @@ The active objective's catalogue key, or None while it is not known.
 
 On a turret scope it is the assignment of the slot in the light path,
 None while that slot is unknown or unassigned; on a turretless scope,
-the one `select_objective` selected
+the one `select_objective` selected, once a person has confirmed it
 (`scope.runtime_state.resolve_current_objective` says why it is
 unknown).
 
@@ -2057,9 +2058,12 @@ what is in the light path: no person has confirmed the objective
 for this scope's light path (never on this install -- the settings
 template ships a default that would otherwise set image scale
 silently forever -- or only on a scope that differed in having a
-turret), or, on a turret scope (`capabilities.has_turret`, the
-declared model's answer when the board did not come up, so a stale
-objective does not pass unasked then), the slot in the light path
+turret, or, with no turret, for another objective than the stored
+one, which a replaced stored id leaves:
+`runtime_state.objective_confirmed`), or, on a turret scope
+(`capabilities.has_turret`, the declared model's answer when the
+board did not come up, so a stale objective does not pass unasked
+then), the slot in the light path
 has no assignment. The slot is the live one
 (`motion.turret_status`), so an answer names the glass that is
 actually in the light path.
@@ -7875,7 +7879,7 @@ The move's `Operation`, as `start_move_z_by`'s.
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is not 'X', 'Y' or 'Z'; `'not_a_number'`, `steps` is not a finite number. Nothing was driven.
 - `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'position_unread'`, the board did not report a target to add to; `'monitor_ended'`, as `start_move_z_by`; `'lid_open_before_motion'`, as `start_move_xy_by`. Nothing was driven.
 - `AxisStateUnknownError`: An axis of the scope does not know its position, whichever axis is jogged. Nothing was driven.
-- `ObjectiveUnknownError`: The scope may move but its active objective is unknown, so no step can be sized: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`. Nothing was driven.
+- `ObjectiveUnknownError`: The scope may move but its active objective is unknown, so no step can be sized: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'`, or `'none_selected'` (no turret, no objective confirmed). Nothing was driven.
 - `PositionOutOfRangeError`: `'position_out_of_range'`, the jog is beyond the safety limit or its target is outside the axis's travel. Nothing was driven.
 - `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected.
 
@@ -8491,7 +8495,8 @@ The active objective's id and record, or why it is unknown.
 
 On a turreted scope (`capabilities.has_turret`), the objective
 assigned to the slot in the light path (`motion.turret_status`),
-read fresh every time; with no turret, the selected one.
+read fresh every time; with no turret, the selected one, once a
+person has confirmed it (`objective_confirmed`).
 
 **Returns**
 
@@ -8499,7 +8504,7 @@ tuple[str, Objective]: The objective id and its catalogue record.
 
 **Raises**
 
-- `ObjectiveUnknownError`: On a turreted scope, the slot is unknown (`'slot_unknown'`), it has no assignment (`'slot_unassigned'`), or its assignment is not in the catalogue (`'not_in_catalogue'`); with no turret, nothing was selected (`'none_selected'`).
+- `ObjectiveUnknownError`: On a turreted scope, the slot is unknown (`'slot_unknown'`), it has no assignment (`'slot_unassigned'`), or its assignment is not in the catalogue (`'not_in_catalogue'`); with no turret, no person has confirmed the selected objective (`'none_selected'`).
 
 **Refusals by REST status**
 
@@ -16301,12 +16306,13 @@ the objective catalogue. Raised instead of answering with a stored
 objective, because an objective that is not in the light path puts a
 wrong scale into every image it names.
 
-On a scope with no turret it is unknown only before any objective was
-selected.
+On a scope with no turret it is unknown until a person has confirmed
+the selected objective: the shipped template's, or one put in place of
+a stored one the catalogue does not hold, is not known to be mounted.
 
 **Attributes**
 
-- `reason`: `'slot_unknown'` -- the turret is in no known slot: it has not been homed or moved since its slot was last lost, or a turret command is still under way. The sentence names the two remedies that work in both: wait for the turret, or home the scope. A turret home or move is not one of them, since the motion gate refuses both while any axis has no known position. `'slot_unassigned'` -- the slot in the light path has no objective assigned. `'not_in_catalogue'` -- the slot in the light path is assigned an objective that is not in the objective catalogue. `'none_selected'` -- no objective has been selected, as on a scope with no turret before its first selection.
+- `reason`: `'slot_unknown'` -- the turret is in no known slot: it has not been homed or moved since its slot was last lost, or a turret command is still under way. The sentence names the two remedies that work in both: wait for the turret, or home the scope. A turret home or move is not one of them, since the motion gate refuses both while any axis has no known position. `'slot_unassigned'` -- the slot in the light path has no objective assigned. `'not_in_catalogue'` -- the slot in the light path is assigned an objective that is not in the objective catalogue. `'none_selected'` -- no objective has been confirmed, as on a scope with no turret before a person says which objective is installed.
 - `slot`: The slot in the light path, or None when that is what is unknown.
 
 | Reason | Cause | REST status |

@@ -28,6 +28,7 @@ import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.coord_transformations as coord_transformations
 from _lumascope.modules.exceptions import ObjectiveUnknownError
 from _lumascope.modules.api_surface import api
+from _lumascope.modules.objectives_loader import OBJECTIVE_CONFIRMED_ON_A_TURRET
 from _lumascope.modules.scope_capabilities import FieldOfView
 
 if TYPE_CHECKING:
@@ -76,7 +77,8 @@ class RuntimeState:
 
         On a turreted scope (``capabilities.has_turret``), the objective
         assigned to the slot in the light path (``motion.turret_status``),
-        read fresh every time; with no turret, the selected one.
+        read fresh every time; with no turret, the selected one, once a
+        person has confirmed it (``objective_confirmed``).
 
         Returns:
             tuple[str, Objective]: The objective id and its catalogue record.
@@ -85,8 +87,8 @@ class RuntimeState:
             ObjectiveUnknownError: On a turreted scope, the slot is unknown
                 (``'slot_unknown'``), it has no assignment
                 (``'slot_unassigned'``), or its assignment is not in the
-                catalogue (``'not_in_catalogue'``); with no turret, nothing was
-                selected (``'none_selected'``).
+                catalogue (``'not_in_catalogue'``); with no turret, no person
+                has confirmed the selected objective (``'none_selected'``).
         """
         objective_id, objective, unknown = self._derive_current_objective()
         if unknown is not None:
@@ -132,12 +134,14 @@ class RuntimeState:
 
     def _derive(self) -> tuple[str | None, Objective | None, ObjectiveUnknownError | None]:
         if not self._scope.capabilities.has_turret:
-            # The selected objective, from the settings; bring-up refused a
-            # stored id the catalogue does not hold, and the one writer
-            # (ScopeSession.select_objective) refuses one too.
-            objective_id = self._scope.read_setting('objective_id')
-            if objective_id is None:
+            # The selected objective, from the settings, once a person has
+            # confirmed it: the template's id, or one put in place of a
+            # stored id the catalogue does not hold, is no person's word for
+            # what is mounted. Bring-up replaced such an id, and the one
+            # writer (ScopeSession.select_objective) refuses one too.
+            if not self.objective_confirmed():
                 return None, None, ObjectiveUnknownError('none_selected')
+            objective_id = self._scope.read_setting('objective_id')
             objective = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
             return objective_id, objective, None
         slot = self._scope.motion.turret_status().slot
@@ -149,6 +153,26 @@ class RuntimeState:
         if objective_id not in self._scope.objectives:
             return None, None, ObjectiveUnknownError('not_in_catalogue', slot)
         return objective_id, self._scope.objectives[objective_id], None
+
+    def objective_confirmed(self) -> bool:
+        """Whether a person has confirmed the objective for this light path.
+
+        With a turret, a confirmation given on a turret scope: each slot's
+        assignment names its own glass. With none, a confirmation naming
+        the stored ``objective_id``, so a stored id nobody picked (the
+        template's, or one put in place of a stored id the catalogue does
+        not hold) is not confirmed. The two settings are read one after the
+        other, so a read racing ``ScopeSession.select_objective`` can answer
+        False for that instant, never True for an id nobody confirmed.
+        """
+        confirmed = self._scope.read_setting('objective_confirmed')
+        if self._scope.capabilities.has_turret:
+            return confirmed == OBJECTIVE_CONFIRMED_ON_A_TURRET
+        return (
+            isinstance(confirmed, str)
+            and confirmed != OBJECTIVE_CONFIRMED_ON_A_TURRET
+            and confirmed == self._scope.read_setting('objective_id')
+        )
 
     def get_current_objective_id(self) -> str | None:
         """Get the ID of the currently active objective.

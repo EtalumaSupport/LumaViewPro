@@ -504,6 +504,14 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         settings_dict['objective_confirmed'] = None
         changed = True
 
+    # A turretless confirmation stored before it named the objective it
+    # vouched for: that is the objective stored beside it. Converted here,
+    # before a refused stored id is replaced, so a replacement leaves the
+    # confirmation naming the id a person picked and the objective unknown.
+    if settings_dict.get('objective_confirmed') == 'turretless':
+        settings_dict['objective_confirmed'] = settings_dict.get('objective_id')
+        changed = True
+
     # The camera driver once chosen in the settings, which nothing read:
     # bring-up asks the camera registry, and a host that wants one driver
     # names it to Lumascope itself.

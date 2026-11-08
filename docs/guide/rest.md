@@ -305,9 +305,12 @@ curl -s --json '{}' $API/scope/illumination/leds_off        # 200
 Build a one-step protocol and run it. A run is answered `202` at once with its
 job; poll the job at once with `Prefer: respond-async`, or read it with
 `Prefer: wait` until it has ended, then its `files` job until the run's images
-are on disk.
+are on disk. A new install has not been told which objective is mounted, and a
+protocol is refused until it has (`GET $API/objective_question` asks), so the
+first line says which it is.
 
 ```bash
+curl -s --json '{"objective_id": "20x w/collar"}' $API/confirm_objective   # 200
 curl -s -X PUT --json '{"channel": "BF", "mode": "image"}' $API/channel_acquire   # 200: "image"
 PROTOCOL=$(curl -s --json '{}' $API/create_empty_protocol | jq -r .handle)        # 200
 curl -s -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200

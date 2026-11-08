@@ -443,7 +443,7 @@ class TestProvisionalSettings:
         session.shutdown()
 
         with open(data / 'current.json', encoding='utf-8') as f:
-            assert json.load(f)['objective_confirmed'] == 'turretless'
+            assert json.load(f)['objective_confirmed'] == session.settings['objective_id']
 
 
 # ---------------------------------------------------------------------------

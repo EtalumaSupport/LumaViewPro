@@ -1535,8 +1535,9 @@ class ObjectiveUnknownError(Refusal, ConfigError):
     objective, because an objective that is not in the light path puts a
     wrong scale into every image it names.
 
-    On a scope with no turret it is unknown only before any objective was
-    selected.
+    On a scope with no turret it is unknown until a person has confirmed
+    the selected objective: the shipped template's, or one put in place of
+    a stored one the catalogue does not hold, is not known to be mounted.
 
     Attributes:
         reason: ``'slot_unknown'`` -- the turret is in no known slot: it has
@@ -1548,8 +1549,9 @@ class ObjectiveUnknownError(Refusal, ConfigError):
             ``'slot_unassigned'`` -- the slot in the light path has no
             objective assigned. ``'not_in_catalogue'`` -- the slot in the
             light path is assigned an objective that is not in the objective
-            catalogue. ``'none_selected'`` -- no objective has been selected,
-            as on a scope with no turret before its first selection.
+            catalogue. ``'none_selected'`` -- no objective has been
+            confirmed, as on a scope with no turret before a person says
+            which objective is installed.
         slot: The slot in the light path, or None when that is what is
             unknown.
     """
@@ -1567,7 +1569,7 @@ class ObjectiveUnknownError(Refusal, ConfigError):
             'turret slot {slot} is assigned an objective that is not in the catalogue'
             ' -- assign the objective installed there'
         ),
-        'none_selected': 'no objective has been selected',
+        'none_selected': 'no objective has been confirmed -- confirm the installed objective',
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_SENTENCES, RefusalCause.STATE)
 

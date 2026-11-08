@@ -91,6 +91,7 @@ from _lumascope.modules.ui_queue import UiDispatcher
 from _lumascope.modules.live_work import LiveWork, WorkItem, WorkKind
 from _lumascope.modules.lumascope_api import AxisPosition, TurretStatus
 from _lumascope.modules.lumascope_api._constants import refuse_unless_turret_slot
+from _lumascope.modules.objectives_loader import OBJECTIVE_CONFIRMED_ON_A_TURRET
 from _lumascope.modules.lumascope_api.bring_up import CONFIGURING, PartStatus, report_step
 from _lumascope.modules.lumascope_api.illumination import (
     LedState,
@@ -2345,7 +2346,7 @@ class ScopeSession:
             ObjectiveUnknownError: the objective in the light path is unknown:
                 ``'slot_unknown'``, ``'slot_unassigned'`` or
                 ``'not_in_catalogue'`` on a turret scope; ``'none_selected'``
-                with no turret.
+                with no turret, no person has confirmed the objective.
             ProtocolScheduleRefusedError: the stored period or duration is one
                 no protocol can run.
             AxisStateUnknownError: a scope with no Z motor, and an axis it has
@@ -2965,7 +2966,7 @@ class ScopeSession:
                 unknown, so the config cannot be assembled:
                 ``'slot_unknown'``, ``'slot_unassigned'`` or
                 ``'not_in_catalogue'`` on a turret scope; ``'none_selected'``
-                with no turret.
+                with no turret, no person has confirmed the objective.
             ProtocolScheduleRefusedError: ``period_s`` or ``duration_s`` is
                 one no protocol can run.
             AxisStateUnknownError: an acquiring channel has no saved focus, so
@@ -5122,6 +5123,9 @@ class ScopeSession:
         scope_config = scope_models.get(self.settings.get('microscope'))
         # Before anything is commanded: every well position is computed on it.
         replaced.extend(self._replace_an_unresolvable_stored_plate())
+        # Dated before the stored id can be replaced, so the confirmation
+        # names the id a person picked and a replacement leaves it unmatched.
+        self._date_an_undated_objective_confirmation()
         replaced.extend(self._replace_an_unknown_stored_objective())
         config = ScopeInitConfig.from_settings(
             self.settings,
@@ -5129,7 +5133,6 @@ class ScopeSession:
             channel_identity=self.scope.channel_identity,
         )
         self.scope.initialize(config)
-        self._date_an_undated_objective_confirmation()
         # The camera streams from here on, in every host that configures a
         # scope, so the imaging API starts watching the stream here: a stall
         # nobody is reading is reported to every client, not only to a GUI.
@@ -5138,12 +5141,13 @@ class ScopeSession:
         # once the run has ended, so a stuck one is reported to every client.
         self.sequenced_capture_runner.start_file_writer_check(self._scheduler)
         # Read once so a session that changes nothing still records the
-        # scale it starts with (the read records the optics). On a turreted
-        # scope the slot is not known until the turret is homed, so the
-        # record says that instead.
+        # scale it starts with (the read records the optics). An objective
+        # not yet known (a turret not yet in a known slot, an objective
+        # nobody has confirmed) is recorded as unknown instead; a capture's
+        # refusal says which.
         if self.scope.runtime_state.get_current_objective() is None:
             logger.info(
-                '[Session  ] objective at bring-up: unknown until the turret is in a known slot'
+                '[Session  ] objective at bring-up: unknown; captures wait until it is known'
             )
         self._tell_capped_channels()
         self._apply_bring_up_channel()
@@ -5538,7 +5542,7 @@ class ScopeSession:
             ObjectiveUnknownError: The active objective is unknown:
                 ``'slot_unknown'``, ``'slot_unassigned'`` or
                 ``'not_in_catalogue'`` on a turret scope; ``'none_selected'``
-                with no turret.
+                with no turret, no person has confirmed the objective.
         """
         objective_id, _ = self.scope.runtime_state.resolve_current_objective()
         snapshot = self.get_settings_snapshot()
@@ -5562,9 +5566,12 @@ class ScopeSession:
         for this scope's light path (never on this install -- the settings
         template ships a default that would otherwise set image scale
         silently forever -- or only on a scope that differed in having a
-        turret), or, on a turret scope (``capabilities.has_turret``, the
-        declared model's answer when the board did not come up, so a stale
-        objective does not pass unasked then), the slot in the light path
+        turret, or, with no turret, for another objective than the stored
+        one, which a replaced stored id leaves:
+        ``runtime_state.objective_confirmed``), or, on a turret scope
+        (``capabilities.has_turret``, the declared model's answer when the
+        board did not come up, so a stale objective does not pass unasked
+        then), the slot in the light path
         has no assignment. The slot is the live one
         (``motion.turret_status``), so an answer names the glass that is
         actually in the light path.
@@ -5589,8 +5596,7 @@ class ScopeSession:
                 homed or moved.
         """
         has_turret = self.scope.capabilities.has_turret
-        confirmed = self.settings['objective_confirmed']
-        first_run = confirmed != self._objective_topology()
+        unconfirmed = not self.scope.runtime_state.objective_confirmed()
         slots = self.settings['turret_objectives']
         slot = self.scope.motion.turret_status().slot if has_turret else None
         # A known slot with no assignment owes the question. An unknown slot
@@ -5598,7 +5604,7 @@ class ScopeSession:
         # then would put the question up while the turret is still turning.
         # The objective is unknown meanwhile, and captures refuse with why.
         slot_unassigned = has_turret and slot is not None and slots.get(slot) is None
-        if not (first_run or slot_unassigned):
+        if not (unconfirmed or slot_unassigned):
             return None
         if self.scope.no_hardware:
             logger.info('[Session  ] objective question withheld -- no hardware this session')
@@ -5666,9 +5672,10 @@ class ScopeSession:
         choices = tuple(self.scope.objective_helper.get_objectives_list())
         # The slot's own assignment names glass someone confirmed. On a
         # turretless scope the stored objective_id does once a confirmation
-        # exists: owed then, the confirmation was a turret's, and the stored id
-        # is the pick the scope last had before it. Never confirmed, it is the
-        # shipped template's value. Everything else gets the catalogue's default.
+        # exists: owed then, the confirmation was a turret's, or names an id
+        # that bring-up or the load replaced, and the stored id is the pick
+        # the scope last had. Never confirmed, it is the shipped template's
+        # value. Everything else gets the catalogue's default.
         if slot is not None:
             proposed = slots.get(slot)
         else:
@@ -5686,7 +5693,8 @@ class ScopeSession:
 
         On a turret scope, assigns the objective to ``slot``: the answer
         records the glass in a slot and never turns the turret. With no
-        turret, selects it (``select_objective``). Records that a person has
+        turret, selects it (``select_objective``), which records the
+        confirmation as the objective id. Records that a person has
         confirmed the objective for this light path, turret or turretless,
         so a scope brought up with the other asks again. Returns whether the
         active objective changed.
@@ -5715,12 +5723,14 @@ class ScopeSession:
             before = self.scope.runtime_state.get_current_objective_id()
             self.assign_turret_objective(slot, objective_id)
             changed = self.scope.runtime_state.get_current_objective_id() != before
+            with self.settings_lock:
+                self._store_setting('objective_confirmed', OBJECTIVE_CONFIRMED_ON_A_TURRET)
         else:
             if slot is not None:
                 self._refuse_without_a_turret('confirm_objective')
+            # Without a turret, selecting is saying what is mounted, and
+            # records the confirmation itself.
             changed = self.select_objective(objective_id)
-        with self.settings_lock:
-            self._store_setting('objective_confirmed', self._objective_topology())
         logger.info(
             f'[Session  ] objective confirmed: {objective_id!r}'
             + (f' at turret slot {slot}' if slot is not None else '')
@@ -5734,7 +5744,7 @@ class ScopeSession:
 
         On a turret scope it is the assignment of the slot in the light path,
         None while that slot is unknown or unassigned; on a turretless scope,
-        the one ``select_objective`` selected
+        the one ``select_objective`` selected, once a person has confirmed it
         (``scope.runtime_state.resolve_current_objective`` says why it is
         unknown).
 
@@ -5793,8 +5803,12 @@ class ScopeSession:
         if self.scope.capabilities.has_turret:
             self.scope.motion.move_turret(self._the_slot_holding(objective_id), restore_z=True)
         else:
+            # Without a turret, the pick is a person saying what is mounted:
+            # the confirmation names the id it vouches for, under the one
+            # lock, so no read sees the id without it.
             with self.settings_lock:
                 self._store_setting('objective_id', objective_id)
+                self._store_setting('objective_confirmed', objective_id)
         return True
 
     def _the_slot_holding(self, objective_id: str) -> int:
@@ -5816,21 +5830,21 @@ class ScopeSession:
             )
         return holding[0]
 
-    def _objective_topology(self) -> str:
-        # Which light path a confirmation given now is for.
-        turret, turretless = settings_paths.OBJECTIVE_TOPOLOGIES
-        return turret if self.scope.capabilities.has_turret else turretless
-
     def _date_an_undated_objective_confirmation(self) -> None:
         # A confirmation stored before it recorded its light path is taken as
         # this scope's: the upgrade asks nothing, and a later change between
-        # turret and turretless asks. Only bring-up knows which this scope is.
+        # turret and turretless asks. Only bring-up knows which this scope is
+        # (``has_turret`` is fixed when the scope is built). Without a turret
+        # it vouches for the objective stored beside it.
         if self.settings['objective_confirmed'] is not True:
             return
-        topology = self._objective_topology()
+        if self.scope.capabilities.has_turret:
+            dated = OBJECTIVE_CONFIRMED_ON_A_TURRET
+        else:
+            dated = self.settings['objective_id']
         with self.settings_lock:
-            self._store_setting('objective_confirmed', topology)
-        logger.info(f'[Session  ] objective confirmation recorded as given on a {topology} scope')
+            self._store_setting('objective_confirmed', dated)
+        logger.info(f'[Session  ] objective confirmation recorded as {dated!r}')
 
     def _refuse_without_a_turret(self, member: str) -> None:
         # The scope fact is said first, before the slot or the catalogue is

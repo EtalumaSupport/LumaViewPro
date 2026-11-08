@@ -384,7 +384,8 @@ class TestT9ConfirmObjective:
         before = dict(session.settings['turret_objectives'])
         session.confirm_objective('4x Oly')
         assert dict(session.settings['turret_objectives']) == before
-        assert session.settings['objective_confirmed'] == 'turretless'
+        # Without a turret the confirmation names the objective confirmed.
+        assert session.settings['objective_confirmed'] == '4x Oly'
 
     def test_after_a_confirm_the_question_is_answered(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
@@ -446,15 +447,10 @@ class TestT10SelectObjective:
         ) == before
 
     def test_the_held_id_is_always_a_key(self, sessions):
-        # This used to construct a session holding the prefix id '4' and
-        # assert that re-selecting it was refused rather than read as "no
-        # change". That state is no longer constructible: bring-up replaces a
-        # stored id that is not an exact key with the shipped objective, so
+        # A stored id that is not an exact key is replaced at bring-up and
+        # then answers unknown, nobody having confirmed the replacement
+        # (tests/test_an_unconfirmed_turretless_objective_is_unknown.py), so
         # the "no change" branch can only ever compare a key against a key.
-        plain = sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='4'))
-        assert plain.scope.runtime_state.get_current_objective_id() in (
-            plain.scope.objective_helper.get_objectives_list()
-        )
         session = _at_slot(sessions(**_turret_settings()), 1)
         held = session.scope.runtime_state.get_current_objective_id()
         assert held in session.scope.objective_helper.get_objectives_list()
@@ -537,7 +533,10 @@ class TestT10TurretPosition:
 class TestT14OpticsRecord:
     def test_the_bring_up_record_carries_a_real_scale(self, caplog):
         session = ScopeSession.create(
-            complete_settings(**_turret_settings(microscope=NON_TURRET_MODEL)), simulate=True
+            complete_settings(
+                **_turret_settings(microscope=NON_TURRET_MODEL, objective_confirmed='20x Oly')
+            ),
+            simulate=True,
         )
         try:
             optics = [line for line in _lines(caplog) if line.startswith('[Optics')]

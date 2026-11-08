@@ -3398,8 +3398,8 @@ class MotionAPI:
             ObjectiveUnknownError: The scope may move but its active
                 objective is unknown, so no step can be sized:
                 ``'slot_unknown'``, ``'slot_unassigned'``,
-                ``'not_in_catalogue'`` or ``'none_selected'``. Nothing was
-                driven.
+                ``'not_in_catalogue'``, or ``'none_selected'`` (no turret, no
+                objective confirmed). Nothing was driven.
             PositionOutOfRangeError: ``'position_out_of_range'``, the jog
                 is beyond the safety limit or its target is outside the
                 axis's travel. Nothing was driven.

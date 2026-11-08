@@ -64,13 +64,17 @@ def _fresh_live_folder() -> str:
     return tempfile.mkdtemp(prefix='live_', dir=root)
 
 
-def _installed_confirmation(model: str) -> str:
-    # What an installed scope of ``model`` holds once a person has answered
-    # the objective question for its light path.
+def installed_confirmation(settings: dict) -> str | None:
+    # What an installed scope holds once a person has answered the objective
+    # question for its light path: on a turret model, that it was a turret's;
+    # without one, the objective the person confirmed, the stored one.
     from _lumascope.modules.channel_record import load_scope_models
+    from _lumascope.modules.objectives_loader import OBJECTIVE_CONFIRMED_ON_A_TURRET
 
-    entry = load_scope_models(str(_REPO_ROOT / 'data' / 'scopes.json')).get(model)
-    return 'turret' if entry is not None and entry.has_turret else 'turretless'
+    entry = load_scope_models(str(_REPO_ROOT / 'data' / 'scopes.json')).get(settings['microscope'])
+    if entry is not None and entry.has_turret:
+        return OBJECTIVE_CONFIRMED_ON_A_TURRET
+    return settings['objective_id']
 
 
 def complete_settings(**overrides) -> dict:
@@ -99,7 +103,7 @@ def complete_settings(**overrides) -> dict:
     settings_init._normalize_turret_slot_keys(template)
     settings_init._deep_merge_defaults(merged, template)
     if 'objective_confirmed' not in overrides:
-        merged['objective_confirmed'] = _installed_confirmation(merged['microscope'])
+        merged['objective_confirmed'] = installed_confirmation(merged)
     return merged
 
 

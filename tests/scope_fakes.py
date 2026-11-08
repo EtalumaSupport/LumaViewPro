@@ -577,7 +577,17 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
 
     if scope in _BOUND_SETTINGS:
         settings = _BOUND_SETTINGS[scope]
-        settings.update(complete_settings(**{**settings, **copy.deepcopy(overrides)}))
+        laid = {**settings, **copy.deepcopy(overrides)}
+        # A confirmation that named the objective bound before names the one
+        # laid over it, as a pick does on a scope with no turret
+        # (``ScopeSession.select_objective``), unless the test names its own.
+        if (
+            'objective_id' in overrides
+            and 'objective_confirmed' not in overrides
+            and settings['objective_confirmed'] == settings['objective_id']
+        ):
+            laid['objective_confirmed'] = overrides['objective_id']
+        settings.update(complete_settings(**laid))
         return settings
     # A `Lumascope.__new__` stub skipped the constructor that starts it unbound.
     vars(scope).setdefault('_settings_reader', None)
