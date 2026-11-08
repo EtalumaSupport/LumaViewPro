@@ -28,10 +28,7 @@ LumaViewPro asks which objective is installed when it first starts with a
 microscope, and, on a Lumascope with a turret, whenever the turret position in
 the light path has no objective assigned (@fig-objective-question). It asks
 again after the model is changed between one with a turret and one
-without, and, on a Lumascope without a turret, when it starts and the
-objective it was given is no longer in its list of objectives; a notice,
-"Saved settings replaced", comes first. Select the
-objective in the list, where the objectives are grouped
+without. Select the objective in the list, where the objectives are grouped
 under their maker's name, and click [Confirm]{.guilabel}.
 
 ::: {#fig-objective-question layout-ncol=2}
