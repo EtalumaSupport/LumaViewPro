@@ -3909,7 +3909,10 @@ class CameraAPI:
         The one writer of the camera's held channel. Nothing is written when
         the camera already holds ``channel`` at this request: every camera
         write invalidates the frames, so a needless one costs the next
-        capture a drain.
+        capture a drain. For the same reason, when it holds ``channel`` with
+        auto-gain off and the request keeps it off, only a gain or an
+        exposure the request changes is written; any other change puts the
+        whole channel on the camera.
 
         Returns:
             The gain and exposure in effect, as
@@ -3924,15 +3927,42 @@ class CameraAPI:
         held = self._holding(channel, request)
         if held is not None:
             return held.taken
+        with self._state_lock:
+            standing = self._held_channel
         self._forget_held_channel()
+        # Held manual and asked manual, the camera's loop is off and each
+        # setting the request leaves as it was is on the camera. An auto-gain
+        # loop on either side owns the gain and the exposure, and turning it
+        # off or on is the whole apply's.
+        manual = (
+            standing is not None
+            and standing.channel == channel
+            and standing.request is not None
+            and not standing.request.auto_gain
+            and not request.auto_gain
+        )
         try:
-            taken = self._apply_settings_impl(
-                request.gain_db,
-                request.exposure_ms,
-                channel=channel,
-                auto_gain=request.auto_gain,
-                auto_gain_settings=request.auto_gain_settings,
-            )
+            if manual:
+                taken = self._apply_settings_impl(
+                    None if request.gain_db == standing.request.gain_db else request.gain_db,
+                    None
+                    if request.exposure_ms == standing.request.exposure_ms
+                    else request.exposure_ms,
+                    channel=channel,
+                )
+                if taken is not None:
+                    taken = {
+                        key: standing.taken[key] if value is None else value
+                        for key, value in taken.items()
+                    }
+            else:
+                taken = self._apply_settings_impl(
+                    request.gain_db,
+                    request.exposure_ms,
+                    channel=channel,
+                    auto_gain=request.auto_gain,
+                    auto_gain_settings=request.auto_gain_settings,
+                )
         except CameraSettingRejected:
             now = {'gain_db': self.gain_db, 'exposure_ms': self.exposure_ms}
             with self._state_lock:
@@ -4042,8 +4072,8 @@ class CameraAPI:
 
     def _apply_settings_impl(
         self,
-        gain_db: float,
-        exposure_ms: float,
+        gain_db: float | None,
+        exposure_ms: float | None,
         *,
         channel: str,
         auto_gain: bool | None = None,
@@ -4066,8 +4096,10 @@ class CameraAPI:
         values; the refusal is raised once all of them have run.
 
         Args:
-            gain_db: Camera gain in dB.
-            exposure_ms: Exposure time in milliseconds.
+            gain_db: Camera gain in dB; None leaves the gain as it is and
+                writes none.
+            exposure_ms: Exposure time in milliseconds; None leaves the
+                exposure as it is and writes none.
             channel: The channel these settings belong to. Required, and
                 keyword-only: two channels sharing a gain and an exposure
                 otherwise write identical log lines, and one apply becomes
@@ -4081,8 +4113,8 @@ class CameraAPI:
 
         Returns:
             dict | None: ``{'gain_db': ..., 'exposure_ms': ...}``, each the
-                value now in effect (see ``_set_gain_db_impl``). ``None``
-                when no camera is active.
+                value now in effect (see ``_set_gain_db_impl``), or None for
+                one not written. ``None`` when no camera is active.
 
         Raises:
             CameraSettingRejected: The camera did not take the gain, the
@@ -4100,8 +4132,8 @@ class CameraAPI:
         # at, and no driver is asked for a value it would refuse (pylon) or
         # silently self-clamp while reporting success (IDS, FX2) -- that
         # divergence is why the cap cannot be left to the driver.
-        gain = self.applied_gain_db_for(gain_db)
-        exposure = self.applied_exposure_ms_for(exposure_ms)
+        gain = None if gain_db is None else self.applied_gain_db_for(gain_db)
+        exposure = None if exposure_ms is None else self.applied_exposure_ms_for(exposure_ms)
         auto = None if auto_gain is None else self.applied_auto_gain_for(auto_gain)
 
         def _write_mode():
@@ -4126,23 +4158,35 @@ class CameraAPI:
 
         if auto is not None and not auto.applied:
             _attempt(_write_mode)
-        gain_result = _attempt(lambda: self._set_gain_db_impl(gain.applied_db))
-        exposure_result = _attempt(lambda: self._set_exposure_ms_impl(exposure.applied_ms))
+        gain_result = (
+            None if gain is None else _attempt(lambda: self._set_gain_db_impl(gain.applied_db))
+        )
+        exposure_result = (
+            None
+            if exposure is None
+            else _attempt(lambda: self._set_exposure_ms_impl(exposure.applied_ms))
+        )
         if auto is not None and auto.applied:
             _attempt(_write_mode)
-        # Both numbers when the camera held one down, so a bundle shows the
-        # intent that was stored next to the value the sensor took; one
-        # number would read as the user having chosen the lower one.
-        capped_note = ''
-        if gain.capped or exposure.capped:
-            capped_note = f' capped(stored gain={gain.stored_db}dB exp={exposure.stored_ms}ms)'
+        # Every number written when the camera held one down, so a bundle
+        # shows the intent that was stored next to the value the sensor took;
+        # the capped one alone would read as the user having chosen it.
+        stored = []
+        if (gain is not None and gain.capped) or (exposure is not None and exposure.capped):
+            if gain is not None:
+                stored.append(f'gain={gain.stored_db}dB')
+            if exposure is not None:
+                stored.append(f'exp={exposure.stored_ms}ms')
+        capped_note = f' capped(stored {" ".join(stored)})' if stored else ''
         if auto is not None and auto.capped:
             capped_note += ' capped(stored auto_gain=True: no hardware auto-gain)'
         mode = 'unchanged' if auto is None else auto.applied
+        gain_said = 'unchanged' if gain is None else f'{gain.applied_db}dB'
+        exposure_said = 'unchanged' if exposure is None else f'{exposure.applied_ms}ms'
         _api_log.log(
             VERBOSE,
-            f'camera.apply channel={channel} gain={gain.applied_db}dB '
-            f'exp={exposure.applied_ms}ms auto_gain={mode}{capped_note}',
+            f'camera.apply channel={channel} gain={gain_said} '
+            f'exp={exposure_said} auto_gain={mode}{capped_note}',
         )
         if len(refused) == 1:
             raise refused[0]

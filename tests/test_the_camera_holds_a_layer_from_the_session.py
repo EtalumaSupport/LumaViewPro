@@ -331,6 +331,32 @@ class TestAWriteToTheShownLayer:
 
         assert _camera(session) == (12.0, _BF['gain_db'])
 
+    @pytest.mark.parametrize(
+        ('path', 'value', 'source', 'target', 'camera'),
+        [
+            ('BF.gain_db', 5.0, 'gain', 5.0, (_BF['exposure_ms'], 5.0)),
+            # The exposure's chunk target is in microseconds.
+            ('BF.exposure_ms', 12.0, 'exposure', 12000.0, (12.0, _BF['gain_db'])),
+        ],
+    )
+    def test_a_manual_layers_one_setting_changed_is_the_one_change_a_capture_waits_out(
+        self, session, path, value, source, target, camera
+    ):
+        """A slider tick on the shown manual layer writes the one setting it
+        changed: a capture after it waits out that setting's change alone, as
+        after a raw write of it, never the layer's whole apply."""
+        validity = session.scope.imaging.frame_validity
+        before = validity.invalidation_counts
+
+        session.update_settings(path, value)
+
+        after = validity.invalidation_counts
+        changed = {s: n - before.get(s, 0) for s, n in after.items() if n != before.get(s, 0)}
+        assert changed == {source: 1}
+        assert _camera(session) == camera
+        assert validity.target(source) == pytest.approx(target)
+        assert session.scope.camera.get_held_channel() == 'BF'
+
     def test_a_hidden_layers_exposure_is_stored_only(self, session):
         session.update_settings(f'{LED0}.exposure_ms', 33.0)
 
