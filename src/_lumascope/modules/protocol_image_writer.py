@@ -584,6 +584,13 @@ def _recorded_name(step, file_name, separate_folder_per_channel: bool):
     return file_name
 
 
+def _recorded_step_name(step) -> str:
+    """The step a run-record row names: the protocol step's own Name, the
+    one a reader matches the row to its step by. Never the file's name,
+    which the Filename column carries."""
+    return str(step['Name'])
+
+
 def _capture_evidence(still: CapturedStill, capture_info: dict) -> str:
     """One-line provenance for a captured frame: its brightness and saturation,
     the frame's exposure / gain and capture-hold timing.
@@ -888,7 +895,7 @@ class ProtocolImageWriter:
                 capture_result_file_name=_recorded_name(
                     step, capture_result_file_name, separate_folder_per_channel
                 ),
-                step_name=name if name else 'unknown',
+                step_name=_recorded_step_name(step),
                 step_index=step_index,
                 scan_count=scan_count,
                 timestamp=timestamp,
@@ -906,7 +913,7 @@ class ProtocolImageWriter:
         finished would report its files written.
         """
         self._write_batch.count_off_lane(f'The video {name}', lost='video_unfinished')
-        self._record_dropped_capture(reason=reason, name=name, **row)
+        self._record_dropped_capture(reason=reason, **row)
 
     def _record_dropped_capture(
         self,
@@ -915,7 +922,6 @@ class ProtocolImageWriter:
         step_index,
         scan_count,
         capture_time,
-        name,
         reason,
     ):
         """Log a capture that produced no file in the execution record.
@@ -929,7 +935,7 @@ class ProtocolImageWriter:
         try:
             self._execution_record.add_step(
                 capture_result_file_name=reason,
-                step_name=name if name else 'unknown',
+                step_name=_recorded_step_name(step),
                 step_index=step_index,
                 scan_count=scan_count,
                 timestamp=capture_time,
@@ -1208,7 +1214,6 @@ class ProtocolImageWriter:
             step_index=step_index,
             scan_count=scan_count,
             capture_time=capture_time,
-            name=name,
             reason='writer_stalled',
         )
         return False
@@ -1783,7 +1788,7 @@ class ProtocolImageWriter:
                 if self._execution_record is not None:
                     self._execution_record.add_step(
                         capture_result_file_name='capture_failed',
-                        step_name=name if name else 'unknown',
+                        step_name=_recorded_step_name(step),
                         step_index=step_index,
                         scan_count=scan_count,
                         timestamp=capture_time,
@@ -1843,7 +1848,6 @@ class ProtocolImageWriter:
                     step_index=step_index,
                     scan_count=scan_count,
                     capture_time=capture_time,
-                    name=name,
                     reason='save_failed',
                 )
                 raise
@@ -1859,7 +1863,7 @@ class ProtocolImageWriter:
             try:
                 self._execution_record.add_step(
                     capture_result_file_name=capture_result_filepath_name,
-                    step_name=name,
+                    step_name=_recorded_step_name(step),
                     step_index=step_index,
                     scan_count=scan_count,
                     timestamp=capture_time,

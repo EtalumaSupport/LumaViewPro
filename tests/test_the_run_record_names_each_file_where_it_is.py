@@ -11,6 +11,7 @@ Driven end to end on the simulated scope.
 import csv
 import pathlib
 
+from tests.test_a_failed_save_is_counted_not_written import _fail_saves
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
@@ -48,3 +49,40 @@ def test_with_a_folder_per_channel_every_file_row_names_where_its_file_is(tmp_pa
 
     assert len(names) == 2, names
     assert [name for name in names if not (run_dir / name).exists()] == []
+
+
+def test_every_row_names_its_step_by_the_steps_name(tmp_path, monkeypatch):
+    """The Step Name column holds the protocol step's Name, never the file's.
+
+    A reader matches the record's rows to the protocol's steps by Step Name;
+    a still saved, a video, and a still whose save failed each name their
+    step the same way, by the Name the protocol gives it.
+    """
+    # a stand-in by design: the simulated scope has no failing save drive
+    _fail_saves(monkeypatch, failing=lambda kwargs: 'S2' in kwargs['append'])
+    settings = headless_settings(tmp_path)
+    with open_composite_session(settings) as (_session, runner):
+        pending = runner.start_single_scan(
+            protocol=_protocol(
+                [
+                    _step('S1', 0, x=20.0, gain=1.0),
+                    _video('V1', 1),
+                    _step('S2', 2, x=30.0, gain=1.0),
+                ]
+            ),
+            parent_dir=str(tmp_path / 'runs'),
+        )
+        pending.result(timeout=WAIT_S)
+        pending.files.exception(timeout=WAIT_S)
+
+    (record,) = (tmp_path / 'runs').rglob('protocol_record.tsv')
+    with open(record, encoding='utf-8', newline='') as fp:
+        rows = list(csv.reader(fp, delimiter='\t'))[4:]
+    by_index = {int(row[2]): (row[1], row[0]) for row in rows}
+
+    assert by_index[2][1] == 'save_failed', rows
+    assert {index: step for index, (step, _file) in by_index.items()} == {
+        0: 'S1',
+        1: 'V1',
+        2: 'S2',
+    }, rows
