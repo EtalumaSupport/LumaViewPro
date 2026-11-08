@@ -29,13 +29,12 @@ REPO = CAPABILITY.parents[1]
 def _run(args, scratch, code=None):
     # From a folder of links into the checkout, so the run's console file
     # lands in that folder's log folder, never the checkout's; `-P`, because
-    # Python would otherwise put the script's resolved folder first.
+    # Python would otherwise put the script's resolved folder first. Only the
+    # probe's own folder is on the path, as by hand: the harness puts the rest.
     folder = linked_checkout(scratch)
     capability = folder / 'tests' / 'capability'
     env = dict(os.environ)
-    env['PYTHONPATH'] = os.pathsep.join(
-        [str(capability), str(folder / 'src'), str(folder), env.get('PYTHONPATH', '')]
-    )
+    env['PYTHONPATH'] = str(capability)
     env['LVP_CAPABILITY_SCRATCH'] = str(scratch)
     command = [sys.executable, '-P', *(['-c', code] if code else []), *args]
     return subprocess.run(

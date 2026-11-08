@@ -77,13 +77,12 @@ def run_probe(path, scratch):
     folder = linked_checkout(scratch)
     capability = folder / 'tests' / 'capability'
     env = dict(os.environ)
-    # The probes import `harness` by name, the way they did as standalone
-    # scripts; this directory is what makes that resolve. `-P` keeps Python
-    # from putting the script's own folder first: it resolves the links, and
-    # the harness would then find the checkout's log folder.
-    env['PYTHONPATH'] = os.pathsep.join(
-        [str(capability), str(folder / 'src'), str(folder), env.get('PYTHONPATH', '')]
-    )
+    # Only the probe's own folder, which is what a run by hand puts on the
+    # path, so the harness alone puts LumaViewPro there, as it must by hand;
+    # the suite's exported src/ is not passed on. `-P` keeps Python from
+    # putting the script's own folder first: it resolves the links, and the
+    # harness would then find the checkout's log folder.
+    env['PYTHONPATH'] = str(capability)
     env['LVP_CAPABILITY_SCRATCH'] = str(scratch)
     proc = subprocess.run(
         [sys.executable, '-P', str(capability / path.name)],

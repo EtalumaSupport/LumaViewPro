@@ -56,8 +56,12 @@ import traceback
 # probe run from a scratch folder of links into a clone imports, reads and
 # logs in that folder, not the clone's.
 REPO = pathlib.Path(os.path.abspath(__file__)).parents[2]
-if str(REPO) not in sys.path:
-    sys.path.insert(0, str(REPO))
+# The repo root for `tests`, and src/ for LumaViewPro itself, as
+# lumaviewpro.py puts it; ahead of anything else on the path, so a probe runs
+# this checkout's LumaViewPro and never another one's.
+for _entry in (REPO, REPO / 'src'):
+    if str(_entry) not in sys.path:
+        sys.path.insert(0, str(_entry))
 # Probes resolve their relative paths (data/, output folders) against the repo root.
 os.chdir(REPO)
 
