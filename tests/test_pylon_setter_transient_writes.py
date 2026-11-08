@@ -88,16 +88,9 @@ _CASES = [
         lambda c: c.set_max_acquisition_frame_rate(True, 5.0),
         'none',
     ),
-    (
-        'set_device_link_throughput_limit',
-        lambda c: c.set_device_link_throughput_limit('Off'),
-        'raises',
-    ),
-    ('_set_stream_grabber_int_node', lambda c: c.set_max_transfer_size(262144), 'raises'),
-    ('set_acquisition_stop_mode', lambda c: c.set_acquisition_stop_mode('Complete'), 'raises'),
-    ('set_bandwidth_reserve_mode', lambda c: c.set_bandwidth_reserve_mode('Performance'), 'raises'),
-    ('set_gev_packet_size', lambda c: c.set_gev_packet_size(1500), 'raises'),
-    ('set_gev_inter_packet_delay', lambda c: c.set_gev_inter_packet_delay(100), 'raises'),
+    # The bench knobs' one writer; each knob's answer is
+    # test_a_pylon_node_the_camera_lacks.
+    ('_write_bench_knob', lambda c: c.set_gev_packet_size(1500), 'raises'),
     ('set_pixel_format', lambda c: c.set_pixel_format('Mono12'), 'raises'),
     ('_set_hardware_binning', lambda c: c.set_binning_size(2), 'raises'),
     ('set_conversion_gain_mode', lambda c: c.set_conversion_gain_mode('High'), 'raises'),

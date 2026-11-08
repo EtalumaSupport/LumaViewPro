@@ -322,8 +322,12 @@ class PylonCamera(Camera):
 
             # Gain ranges
             try:
-                gain_node = nm.GetNode('Gain')
-                if gain_node is not None:
+                gain_node = self._find_node(nm, 'Gain')
+                if gain_node is None:
+                    logger.info(
+                        '[CAM Class ] Gain not offered by this camera; gain range left unset'
+                    )
+                else:
                     low, high = _accepted_range(gain_node, 'Gain')
                     self.profile.gain.total_min_db = low
                     self.profile.gain.total_max_db = high
@@ -336,8 +340,13 @@ class PylonCamera(Camera):
 
             # Exposure range
             try:
-                exp_node = nm.GetNode('ExposureTime')
-                if exp_node is not None:
+                exp_node = self._find_node(nm, 'ExposureTime')
+                if exp_node is None:
+                    logger.info(
+                        '[CAM Class ] ExposureTime not offered by this camera; '
+                        'exposure range left unset'
+                    )
+                else:
                     low, high = _accepted_range(exp_node, 'ExposureTime')
                     self.profile.exposure_min_us = low
                     self.profile.exposure_max_us = high
@@ -371,14 +380,19 @@ class PylonCamera(Camera):
             # advertise the node leaves pixel_size_um unset; the scale then
             # degrades honestly rather than inheriting a guessed default.
             try:
-                px_node = nm.GetNode('SensorPixelWidth')
-                if px_node is not None:
+                px_node = self._find_node(nm, 'SensorPixelWidth')
+                if px_node is None:
+                    logger.info(
+                        '[CAM Class ] SensorPixelWidth not offered by this camera; '
+                        'pixel pitch left unset'
+                    )
+                else:
                     sensor_px_um = px_node.GetValue()
                     logger.info(f'[CAM Class ] SensorPixelWidth: {sensor_px_um:.4f} um')
                     if sensor_px_um and sensor_px_um > 0 and not self.profile.pixel_size_um:
                         self.profile.pixel_size_um = float(sensor_px_um)
             except Exception as e:
-                logger.debug(f'[CAM Class ] Could not query SensorPixelWidth: {e}')
+                _cam_log.warning(f'[CAM Class ] Could not query SensorPixelWidth: {e}')
 
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
@@ -663,11 +677,11 @@ class PylonCamera(Camera):
             underrun_name = ''
             try:
                 cam = self.active
-                sg = cam.StreamGrabber if cam is not None else None
+                sg = cam.GetStreamGrabberNodeMap() if cam is not None else None
                 if sg is not None:
                     for name in self._STATS_NODE_NAMES:
                         try:
-                            node = getattr(sg, name, None)
+                            node = self._find_node(sg, name)
                             stats[name] = node.GetValue() if node is not None else None
                         except Exception:
                             stats[name] = None
@@ -675,7 +689,7 @@ class PylonCamera(Camera):
                     # absent on this SDK / transport, leave value None
                     # and emit the absence in the CSV row.
                     try:
-                        node = getattr(sg, self._UNDERRUN_NODE_NAME, None)
+                        node = self._find_node(sg, self._UNDERRUN_NODE_NAME)
                         if node is not None:
                             underrun_value = node.GetValue()
                             underrun_name = self._UNDERRUN_NODE_NAME
@@ -970,18 +984,20 @@ class PylonCamera(Camera):
         while time.monotonic() < deadline:
             try:
                 nm = self.active.GetNodeMap()
-                acq_node = nm.GetNode('AcquisitionActive')
+                acq_node = self._find_node(nm, 'AcquisitionActive')
                 if acq_node is None:
                     # Older firmware or non-Basler -- can't poll, bail
                     # quickly without warning (this is expected).
                     return False
                 acq_active = bool(acq_node.GetValue())
-                exp_node = nm.GetNode('ExposureActive')
+                # A camera without ExposureActive is polled on
+                # AcquisitionActive alone.
+                exp_node = self._find_node(nm, 'ExposureActive')
                 exp_active = bool(exp_node.GetValue()) if exp_node is not None else False
                 if not acq_active and not exp_active:
                     return True
             except Exception as e:
-                logger.debug(
+                _cam_log.warning(
                     f'[CAM Class ] _wait_for_acquisition_idle: node poll '
                     f'failed: {e}; bailing on idle wait'
                 )
@@ -1018,7 +1034,7 @@ class PylonCamera(Camera):
             return
         try:
             sg = self.active.GetStreamGrabberNodeMap()
-            node = sg.GetNode('Status')
+            node = self._find_node(sg, 'Status')
             if node is None:
                 _cam_log.info(f'pylon StreamGrabber.Status [{label}]: <node missing>')
                 return
@@ -1274,7 +1290,9 @@ class PylonCamera(Camera):
             # this before grab. USB3-only -- the node is absent on GigE.
             try:
                 _sg_map = camera.GetStreamGrabberNodeMap()
-                _mts_node = _sg_map.GetNode('MaxTransferSize') if _sg_map is not None else None
+                _mts_node = (
+                    self._find_node(_sg_map, 'MaxTransferSize') if _sg_map is not None else None
+                )
                 if _mts_node is None:
                     _log_cam(
                         'debug',
@@ -1336,35 +1354,33 @@ class PylonCamera(Camera):
                     except Exception as e:
                         _log_cam('info', f'[CAM Class ] TLType/DeviceClass unavailable: {e}')
 
-                    device_serial = nm.GetNode('DeviceSerialNumber').ToString()
-                    _log_cam('info', f'[CAM Class ] Camera Serial Number: {device_serial}')
+                    _log_cam('info', f'[CAM Class ] Camera Serial Number: {self._device_serial}')
 
-                    self._device_firmware = nm.GetNode('DeviceFirmwareVersion').ToString()
-                    _log_cam(
-                        'info', f'[CAM Class ] Camera Firmware Version: {self._device_firmware}'
-                    )
+                    firmware_node = self._find_node(nm, 'DeviceFirmwareVersion')
+                    if firmware_node is None:
+                        _log_cam(
+                            'info', '[CAM Class ] DeviceFirmwareVersion not offered by this camera'
+                        )
+                    else:
+                        self._device_firmware = firmware_node.ToString()
+                        _log_cam(
+                            'info', f'[CAM Class ] Camera Firmware Version: {self._device_firmware}'
+                        )
 
                     # Current pixel format + resolution + binning drive
                     # the DMA buffer footprint -- critical context for
                     # memory / throughput analysis.
                     try:
-                        pix = (
-                            nm.GetNode('PixelFormat').ToString()
-                            if nm.GetNode('PixelFormat') is not None
-                            else '?'
-                        )
-                        w = camera.Width.GetValue() if hasattr(camera, 'Width') else '?'
-                        h = camera.Height.GetValue() if hasattr(camera, 'Height') else '?'
-                        bh = (
-                            camera.BinningHorizontal.GetValue()
-                            if hasattr(camera, 'BinningHorizontal')
-                            else 1
-                        )
-                        bv = (
-                            camera.BinningVertical.GetValue()
-                            if hasattr(camera, 'BinningVertical')
-                            else 1
-                        )
+
+                        def _node_text(name, absent):
+                            node = self._find_node(nm, name)
+                            return absent if node is None else node.ToString()
+
+                        pix = _node_text('PixelFormat', '?')
+                        w = _node_text('Width', '?')
+                        h = _node_text('Height', '?')
+                        bh = _node_text('BinningHorizontal', 1)
+                        bv = _node_text('BinningVertical', 1)
                         _log_cam(
                             'info',
                             f'[CAM Class ] Pixel format: {pix}, '
@@ -1460,8 +1476,8 @@ class PylonCamera(Camera):
             if not self._has_temperature_nodes(nodemap):
                 return {}
 
-            selector = nodemap.GetNode('DeviceTemperatureSelector')
-            temp = nodemap.GetNode('DeviceTemperature')
+            selector = self._find_node(nodemap, 'DeviceTemperatureSelector')
+            temp = self._find_node(nodemap, 'DeviceTemperature')
 
             temps: dict[str, float] = {}
 
@@ -1806,7 +1822,7 @@ class PylonCamera(Camera):
         for node_name in ('GevTimestampTickFrequency', 'TimestampTickFrequency'):
             try:
                 nm = camera.GetNodeMap()
-                node = nm.GetNode(node_name)
+                node = self._find_node(nm, node_name)
                 if node is not None and genicam.IsReadable(node):
                     self.timestamp_tick_frequency_hz = int(node.GetValue())
                     logger.info(
@@ -1815,7 +1831,9 @@ class PylonCamera(Camera):
                     )
                     return
             except Exception as e:
-                logger.debug(f'[CAM Class ] {node_name} read skipped: {e}')
+                # What a failed tick read publishes is decided with every
+                # other range field's failed read; until then it is told.
+                _cam_log.warning(f'[CAM Class ] {node_name} read failed: {e}')
         # No GigE node -- assume Basler USB3 fixed rate per data-chunks doc.
         # Probe the device-info transport key to confirm we're actually on
         # USB3 before applying the default; if introspection fails, leave
@@ -1848,7 +1866,7 @@ class PylonCamera(Camera):
         """
         try:
             nm = camera.GetNodeMap()
-            selector_node = nm.GetNode('ChunkSelector')
+            selector_node = PylonCamera._find_node(nm, 'ChunkSelector')
             if selector_node is None:
                 _cam_log.warning(
                     '[CAM Class ] ChunkSelector node missing; '
@@ -1957,13 +1975,14 @@ class PylonCamera(Camera):
 
         Returns:
             bool: True on success. False if the camera is inactive
-                (caller-correctable guard) or the requested mode is
-                rejected by the SDK.
+                (caller-correctable guard), the mode is not 'On' or
+                'Off', or the camera does not offer the nodes.
 
         Raises:
-            HardwareError: Underlying SDK call failed
-                (RuntimeException). The camera is not marked removed: one
-                failed write is not evidence it is gone.
+            CameraNoAnswerError: The camera did not answer in time.
+            CameraWriteFailedError: The camera or SDK refused or failed
+                the write. The camera is not marked removed: one failed
+                write is not evidence it is gone.
         """
         if not self.active:
             return False
@@ -1973,30 +1992,12 @@ class PylonCamera(Camera):
                 f"must be 'On' or 'Off'; got {mode!r}"
             )
             return False
-        try:
-            _cam_log.info(
-                f'pylon DeviceLinkThroughputLimitMode.SetValue({mode!r}) value_bps={value_bps}'
-            )
-            self.active.DeviceLinkThroughputLimitMode.SetValue(mode)
-            if mode == 'On' and value_bps is not None:
-                value_bps = self._clamp_dltl_value_bps(int(value_bps))
-                self.active.DeviceLinkThroughputLimit.SetValue(value_bps)
-            return True
-        except genicam.RuntimeException as e:
-            _cam_log.error(
-                f'pylon set_device_link_throughput_limit({mode}, {value_bps}) FAILED: {e}'
-            )
-            _cam_log.error(
-                f'[CAM Class ] Camera communication error in set_device_link_throughput_limit: {e}'
-            )
-            raise CameraWriteFailedError(
-                f'set_device_link_throughput_limit({mode}, {value_bps}) failed: {e}'
-            ) from e
-        except Exception as e:
-            _cam_log.exception(
-                f'[CAM Class ] Unexpected error in set_device_link_throughput_limit: {e}'
-            )
-            return False
+        values: dict[str, object] = {'DeviceLinkThroughputLimitMode': mode}
+        if mode == 'On' and value_bps is not None:
+            values['DeviceLinkThroughputLimit'] = self._clamp_dltl_value_bps(int(value_bps))
+        return self._write_bench_knob(
+            f'set_device_link_throughput_limit({mode}, {value_bps})', 'device', values
+        )
 
     def _clamp_dltl_value_bps(self, value_bps: int) -> int:
         """Clamp a DLTL value to the camera's supported range.
@@ -2119,37 +2120,54 @@ class PylonCamera(Camera):
     ) -> bool:
         """Shared helper for StreamGrabber integer-node setters.
 
-        Used by ``set_max_transfer_size`` and ``set_num_max_queued_urbs``.
-        Both write a single integer node on the StreamGrabber NodeMap
-        with identical error / log shape; this helper is the canonical
-        path so the two public setters stay one-liners.
+        Used by ``set_max_transfer_size`` and ``set_num_max_queued_urbs``
+        (USB3-only knobs), answered as ``_write_bench_knob`` answers.
         """
         if not self.active:
             return False
+        return self._write_bench_knob(f'{method_label}({value})', 'stream', {node_name: value})
+
+    def _write_bench_knob(self, label: str, node_map: str, values: dict[str, object]) -> bool:
+        """Write a bench knob's nodes, in order, on one of the camera's nodemaps.
+
+        A knob is offered by some bodies and transports and not others, so
+        the bench sweep calls every setter on every camera: a camera that
+        does not offer one of the nodes answers False, with one INFO line
+        and nothing written.
+
+        Args:
+            label: The setter's call, named in the log and the error.
+            node_map: A ``_NODE_MAPS`` key.
+            values: Each node's name and the value written to it.
+
+        Returns:
+            bool: True once every node is written; False when the camera
+                does not offer one of them.
+
+        Raises:
+            CameraNoAnswerError: The camera did not answer in time.
+            CameraWriteFailedError: The camera or SDK refused or failed
+                the write (a node not writable now, a value out of its
+                range, a transport failure).
+        """
         try:
-            sg = self.active.GetStreamGrabberNodeMap()
-            node = sg.GetNode(node_name)
-            if node is None:
-                _cam_log.error(
-                    f'[CAM Class ] {method_label}: StreamGrabber node '
-                    f'{node_name!r} not present (likely GigE camera; '
-                    f'this knob is USB3-only)'
+            nodemap = getattr(self.active, self._NODE_MAPS[node_map])()
+            nodes = {name: self._find_node(nodemap, name) for name in values}
+            absent = [name for name, node in nodes.items() if node is None]
+            if absent:
+                _cam_log.info(
+                    f'[CAM Class ] {label}: {", ".join(absent)} not offered by this camera'
                 )
-                raise PartAbsentError(
-                    f'{method_label}: StreamGrabber node {node_name!r} not present on this camera'
-                )
-            _cam_log.info(f'pylon StreamGrabber.{node_name}.SetValue({value})')
-            node.SetValue(value)
+                return False
+            for name, value in values.items():
+                _cam_log.info(f'pylon {name}.SetValue({value!r})')
+                nodes[name].SetValue(value)
             return True
-        except HardwareError:
-            raise
-        except genicam.RuntimeException as e:
-            _cam_log.error(f'pylon {method_label}({value}) FAILED: {e}')
-            _cam_log.error(f'[CAM Class ] Camera communication error in {method_label}: {e}')
-            raise CameraWriteFailedError(f'{method_label}({value}) failed: {e}') from e
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error in {method_label}: {e}')
-            return False
+        except genicam.TimeoutException as e:
+            raise _no_answer(label, e) from e
+        except genicam.GenericException as e:
+            _cam_log.error(f'[CAM Class ] {label} failed: {e}')
+            raise CameraWriteFailedError(f'{label} failed: {e}') from e
 
     _ACQ_STOP_MODES = ('Complete', 'CancelExposure', 'AbortExposure')
 
@@ -2163,7 +2181,8 @@ class PylonCamera(Camera):
 
         Supported on ace 2 / dart M/R / boost R. Default unchanged; setter
         exists for bench characterization. Returns False if camera inactive,
-        mode invalid, or node absent. Raises HardwareError on SDK failure.
+        mode invalid, or node absent; a failed write raises as
+        ``_write_bench_knob`` does.
         """
         if not self.active:
             return False
@@ -2173,27 +2192,9 @@ class PylonCamera(Camera):
                 f'of {self._ACQ_STOP_MODES}; got {mode!r}'
             )
             return False
-        try:
-            _cam_log.info(f'pylon BslAcquisitionStopMode.SetValue({mode!r})')
-            node = self.active.GetNodeMap().GetNode('BslAcquisitionStopMode')
-            if node is None:
-                _cam_log.warning(
-                    f'[CAM Class ] BslAcquisitionStopMode node not exposed; '
-                    f'set_acquisition_stop_mode({mode!r}) is a no-op on '
-                    f'this camera'
-                )
-                return False
-            node.SetValue(mode)
-            return True
-        except genicam.RuntimeException as e:
-            _cam_log.error(f'pylon set_acquisition_stop_mode({mode!r}) FAILED: {e}')
-            _cam_log.error(
-                f'[CAM Class ] Camera communication error in set_acquisition_stop_mode: {e}'
-            )
-            raise CameraWriteFailedError(f'set_acquisition_stop_mode({mode!r}) failed: {e}') from e
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error in set_acquisition_stop_mode: {e}')
-            return False
+        return self._write_bench_knob(
+            f'set_acquisition_stop_mode({mode!r})', 'device', {'BslAcquisitionStopMode': mode}
+        )
 
     _BANDWIDTH_RESERVE_MODES = ('Default', 'Performance')
 
@@ -2205,8 +2206,9 @@ class PylonCamera(Camera):
           - ``'Performance'``: all bandwidth to transmit; minimal retransmit.
 
         Load-bearing for fps on GigE; dmA3536-9gm goes 9.3 -> 9.5 fps with
-        ``Performance``. USB3 cameras silently return False so the bench
-        sweep can call unconditionally. Raises HardwareError on SDK failure.
+        ``Performance``. USB3 cameras return False with one INFO line so the
+        bench sweep can call unconditionally; a failed write raises as
+        ``_write_bench_knob`` does.
         """
         if not self.active:
             return False
@@ -2216,31 +2218,18 @@ class PylonCamera(Camera):
                 f'of {self._BANDWIDTH_RESERVE_MODES}; got {mode!r}'
             )
             return False
-        try:
-            node = self.active.GetNodeMap().GetNode('BandwidthReserveMode')
-            if node is None:
-                return False
-            _cam_log.info(f'pylon BandwidthReserveMode.SetValue({mode!r})')
-            node.SetValue(mode)
-            return True
-        except genicam.RuntimeException as e:
-            _cam_log.error(f'pylon set_bandwidth_reserve_mode({mode!r}) FAILED: {e}')
-            _cam_log.error(
-                f'[CAM Class ] Camera communication error in set_bandwidth_reserve_mode: {e}'
-            )
-            raise CameraWriteFailedError(f'set_bandwidth_reserve_mode({mode!r}) failed: {e}') from e
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error in set_bandwidth_reserve_mode: {e}')
-            return False
+        return self._write_bench_knob(
+            f'set_bandwidth_reserve_mode({mode!r})', 'device', {'BandwidthReserveMode': mode}
+        )
 
     def set_gev_packet_size(self, size_bytes: int) -> bool:
         """Set GevSCPSPacketSize (GigE only).
 
         Per Basler `network-related-parameters.md`: 1500 = standard MTU,
         9000 = jumbo. Larger packets cut host CPU + packet rate but require
-        OS-level jumbo-frame config. USB3 cameras silently return False so
-        the bench sweep can call unconditionally. Raises HardwareError on
-        SDK failure.
+        OS-level jumbo-frame config. USB3 cameras return False with one INFO
+        line so the bench sweep can call unconditionally; a failed write
+        raises as ``_write_bench_knob`` does.
         """
         if not self.active:
             return False
@@ -2250,28 +2239,17 @@ class PylonCamera(Camera):
                 f'positive int; got {size_bytes!r}'
             )
             return False
-        try:
-            node = self.active.GetNodeMap().GetNode('GevSCPSPacketSize')
-            if node is None:
-                return False
-            _cam_log.info(f'pylon GevSCPSPacketSize.SetValue({size_bytes})')
-            node.SetValue(int(size_bytes))
-            return True
-        except genicam.RuntimeException as e:
-            _cam_log.error(f'pylon set_gev_packet_size({size_bytes}) FAILED: {e}')
-            _cam_log.error(f'[CAM Class ] Camera communication error in set_gev_packet_size: {e}')
-            raise CameraWriteFailedError(f'set_gev_packet_size({size_bytes}) failed: {e}') from e
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error in set_gev_packet_size: {e}')
-            return False
+        return self._write_bench_knob(
+            f'set_gev_packet_size({size_bytes})', 'device', {'GevSCPSPacketSize': size_bytes}
+        )
 
     def set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
         """Set GevSCPD inter-packet delay in clock ticks (GigE only).
 
         Per Basler `network-related-parameters.md`: throttles per-camera
-        throughput so multiple cameras can share a GigE link. 0 = no delay.
-        USB3 cameras silently return False so the bench sweep can call
-        unconditionally. Raises HardwareError on SDK failure.
+        USB3 cameras return False with one INFO line so the bench sweep can
+        call unconditionally; a failed write raises as
+        ``_write_bench_knob`` does.
         """
         if not self.active:
             return False
@@ -2281,24 +2259,9 @@ class PylonCamera(Camera):
                 f'must be a non-negative int; got {delay_ticks!r}'
             )
             return False
-        try:
-            node = self.active.GetNodeMap().GetNode('GevSCPD')
-            if node is None:
-                return False
-            _cam_log.info(f'pylon GevSCPD.SetValue({delay_ticks})')
-            node.SetValue(int(delay_ticks))
-            return True
-        except genicam.RuntimeException as e:
-            _cam_log.error(f'pylon set_gev_inter_packet_delay({delay_ticks}) FAILED: {e}')
-            _cam_log.error(
-                f'[CAM Class ] Camera communication error in set_gev_inter_packet_delay: {e}'
-            )
-            raise CameraWriteFailedError(
-                f'set_gev_inter_packet_delay({delay_ticks}) failed: {e}'
-            ) from e
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error in set_gev_inter_packet_delay: {e}')
-            return False
+        return self._write_bench_knob(
+            f'set_gev_inter_packet_delay({delay_ticks})', 'device', {'GevSCPD': delay_ticks}
+        )
 
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
@@ -3980,7 +3943,7 @@ class PylonCamera(Camera):
             ('DeviceSerialNumber', 'serial'),
         ):
             try:
-                node = camera.GetNodeMap().GetNode(genicam_attr)
+                node = self._find_node(camera.GetNodeMap(), genicam_attr)
                 if node is not None:
                     result[key] = node.GetValue()
             except Exception as e:
@@ -3999,7 +3962,7 @@ class PylonCamera(Camera):
         try:
             try:
                 nm = camera.GetNodeMap()
-                selector_node = nm.GetNode('ChunkSelector')
+                selector_node = self._find_node(nm, 'ChunkSelector')
                 if selector_node is None:
                     result['errors'].append('ChunkSelector node missing')
                     return result
@@ -4429,11 +4392,13 @@ class PylonCamera(Camera):
         # on a malformed firmware response)
         if drain_camera_side_errors:
             try:
-                err_present = nm.GetNode('BslErrorPresent')
-                code_node = nm.GetNode('BslErrorReportValue')
-                next_cmd = nm.GetNode('BslErrorReportNext')
+                err_present = self._find_node(nm, 'BslErrorPresent')
+                code_node = self._find_node(nm, 'BslErrorReportValue')
+                next_cmd = self._find_node(nm, 'BslErrorReportNext')
                 if err_present is not None and code_node is not None and next_cmd is not None:
-                    errs = []
+                    # The codes drained before a failed read are kept,
+                    # and the failure is recorded beside them.
+                    errs = result['camera_side_errors'] = []
                     # 64-iteration cap: bound the drain so a wedged
                     # firmware that reports BslErrorPresent=True
                     # forever can't infinite-loop the snapshot. 64 is
@@ -4443,24 +4408,13 @@ class PylonCamera(Camera):
                     # 64 errors, the camera is in a catastrophic state
                     # AND the snapshot logs the truncation.
                     for _ in range(64):
-                        try:
-                            present = err_present.GetValue()
-                        except Exception:
+                        if not err_present.GetValue():
                             break
-                        if not present:
-                            break
-                        try:
-                            code = code_node.GetValue()
-                        except Exception:
-                            break
+                        code = code_node.GetValue()
                         if code == 0:
                             break
                         errs.append(int(code))
-                        try:
-                            next_cmd.Execute()
-                        except Exception:
-                            break
-                    result['camera_side_errors'] = errs
+                        next_cmd.Execute()
             except Exception as e:
                 result['errors'].append(f'BslErrorPresent drain raised: {type(e).__name__}: {e}')
 

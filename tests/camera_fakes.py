@@ -162,12 +162,26 @@ def diag_snapshot_pylon_camera(camera_values=None, grabber_values=None):
     return cam, nodemap, grabber_nodemap
 
 
+def nodemaps_answer_attributes(cam):
+    """Make the fake camera's device and stream-grabber nodemaps hand back
+    the nodes its attributes hold, as pypylon's do: ``camera.<Name>`` and
+    ``camera.GetNodeMap().GetNode('<Name>')`` are one node, as are
+    ``camera.StreamGrabber.<Name>`` and the stream grabber map's. A test
+    then sets a node's answer on the attribute and the driver finds it by
+    either path."""
+    cam.active.GetNodeMap.return_value.GetNode.side_effect = lambda name: getattr(cam.active, name)
+    cam.active.GetStreamGrabberNodeMap.return_value.GetNode.side_effect = lambda name: getattr(
+        cam.active.StreamGrabber, name
+    )
+    return cam
+
+
 def stats_poll_pylon_camera():
     """bare_pylon_camera prepared so one REAL _stats_poller_loop cycle
     runs deterministically: the one-shot validation walk is skipped and
     the live fps / temperature reads return plain values (tests override
     per-node mocks as needed)."""
-    cam = bare_pylon_camera()
+    cam = nodemaps_answer_attributes(bare_pylon_camera())
     cam._pylon_self_validation_done = True
     cam.active.BslResultingAcquisitionFrameRate.GetValue.return_value = 30.0
     cam.active.TemperatureState.GetValue.return_value = 'Ok'

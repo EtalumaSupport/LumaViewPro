@@ -1,16 +1,23 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for the pure-Python helpers in tools/pylon_probe_sweep.py.
 
-Hardware-touching paths (transport detection, cell apply, the actual
-probe) require a connected Pylon camera; those are exercised by the
+The actual probe requires a connected Pylon camera and is exercised by the
 sweep tool itself on the bench. These tests cover the CLI argument
 resolution + cell-product construction so a future refactor can't
-silently drop a sweep dimension.
+silently drop a sweep dimension, the transport detection's answers, and
+a cell's record of a knob the camera refuses.
 """
 
 import argparse
+from contextlib import nullcontext
+from types import SimpleNamespace
 
+import pytest
+
+from _lumascope.drivers.camera import CameraNodeHasNoValue, CameraNodeValue
+from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
 from tools.pylon_probe_sweep import (
+    _apply_cell,
     _build_gige_cells,
     _build_usb3_cells,
     _detect_transport,
@@ -20,20 +27,24 @@ from tools.pylon_probe_sweep import (
 
 
 class _FakeCamera:
-    """Minimal stub for _detect_transport's model-name fallback path.
+    """A connected camera whose transport node answers ``transport_node``.
 
-    `active` is truthy (a sentinel object) so the early-return on no-active
-    doesn't fire; calling .GetTLNodeMap() raises, dropping the function
-    into the model-name fallback that the regression test exercises.
+    a stand-in by design: the subject is the tool's reading of the driver's
+    ``read_node`` answer, and no simulated camera is a Pylon camera. By
+    default the camera does not offer DeviceTransportLayerType (``None``),
+    the model-name fallback's case; an exception is raised by the read.
     """
 
-    class _ActiveStub:
-        def GetTLNodeMap(self):
-            raise RuntimeError('test stub: no TL node map')
-
-    def __init__(self, model_name: str):
-        self.active = self._ActiveStub()
+    def __init__(self, model_name: str, transport_node=None):
+        self.active = object()
         self.model_name = model_name
+        self._transport_node = transport_node
+
+    def read_node(self, name, node_map):
+        assert (name, node_map) == ('DeviceTransportLayerType', 'transport')
+        if isinstance(self._transport_node, BaseException):
+            raise self._transport_node
+        return self._transport_node
 
 
 def _make_args(**overrides):
@@ -216,3 +227,70 @@ class TestDetectTransportModelFallback:
 
     def test_empty_model_returns_unknown(self):
         assert _detect_transport(_FakeCamera('')) == 'unknown'
+
+
+def test_the_transport_node_is_read_before_the_model_name():
+    camera = _FakeCamera('daA3840-45um', CameraNodeValue('GigEVision', ''))
+    assert _detect_transport(camera) == 'gige'
+
+
+def test_a_transport_the_camera_cannot_state_ends_the_sweep():
+    """A failed read, or a transport node that holds no name, raises: the
+    sweep cannot pick its cells for a transport it does not know, and the
+    model name is the answer only for a camera that lacks the node."""
+    failed = _FakeCamera('daA3840-45um', CameraReadFailedError('usb gone'))
+    with pytest.raises(CameraReadFailedError, match='usb gone'):
+        _detect_transport(failed)
+
+    no_value = _FakeCamera('daA3840-45um', CameraNodeHasNoValue.NOT_READABLE_NOW)
+    with pytest.raises(CameraReadFailedError, match='holds no transport name'):
+        _detect_transport(no_value)
+
+
+def test_a_knob_the_camera_refuses_is_the_cells_record_and_the_cell_goes_on():
+    """A GEV write the camera refuses is recorded as that knob's FAILED
+    entry, as a refused pixel format is, and the knobs after it are set."""
+    calls = []
+
+    def refused(name):
+        def set_knob(value):
+            calls.append(name)
+            raise CameraWriteFailedError(f'{name} not writable now')
+
+        return set_knob
+
+    def taken(name):
+        def set_knob(value):
+            calls.append(name)
+            return True
+
+        return set_knob
+
+    # a stand-in by design: the subject is the tool's catch around the
+    # API's bench-knob setters, which a Pylon camera answers.
+    scope = SimpleNamespace(
+        camera=SimpleNamespace(update_camera_config=nullcontext),
+        imaging=SimpleNamespace(
+            set_pixel_format=lambda pf: None,
+            _set_bandwidth_reserve_mode=taken('bw_mode'),
+            _set_gev_packet_size=refused('packet_size'),
+            _set_gev_inter_packet_delay=taken('delay_ticks'),
+        ),
+    )
+    cell = {
+        'pixel_format': 'Mono8',
+        'resolution': (0, 0),
+        'bw_mode': 'Performance',
+        'packet_size': 9000,
+        'delay_ticks': 0,
+    }
+
+    log = _apply_cell(scope, 'gige', cell, 0, 0)
+
+    assert calls == ['bw_mode', 'packet_size', 'delay_ticks']
+    assert log == [
+        ('pixel_format', 'Mono8'),
+        ('bw_mode', True),
+        ('packet_size', 'FAILED: packet_size not writable now'),
+        ('delay_ticks', True),
+    ]

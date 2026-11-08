@@ -3381,22 +3381,6 @@ class TestDeviceLinkThroughputLimitSetter:
             'is connected when called by the sweep tool.',
         )
 
-    def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
-        """Per the Raises: docstring section, the Pylon setter raises
-        HardwareError on genicam.RuntimeException so the API layer can
-        notify and the caller can handle it (Rule 29 typed-exception
-        contract; matches set_binning_size / set_pixel_format)."""
-        from pypylon import genicam
-
-        from _lumascope.drivers.exceptions import HardwareError
-
-        cam = _bare_pylon_camera()
-        cam.active.DeviceLinkThroughputLimitMode.SetValue.side_effect = genicam.RuntimeException(
-            'usb gone'
-        )
-        with pytest.raises(HardwareError):
-            cam.set_device_link_throughput_limit('Off')
-
 
 class TestPylonAsciiOnlyInLoggerStrings:
     """CLAUDE.md Rule 24 -- ASCII-only in strings emitted to logger / print /
@@ -4145,83 +4129,6 @@ def _pylon_cam_warnings(caplog):
     from _lumascope.drivers import pyloncamera
 
     return _pylon_lines(caplog, pyloncamera._cam_log.name, 'WARNING')
-
-
-class TestPylonDltlClampAndDocWarnings:
-    """set_device_link_throughput_limit must clamp out-of-range
-    values via DeviceLinkThroughputLimit.GetMin() / GetMax() rather
-    than letting the SDK raise OutOfRangeException, and the docstring
-    must record both Basler doc warnings: rolling-shutter distortion
-    if too low, corrupt/dropped frames if too high.
-
-    Per per-camera spec pages a2a3536-31umbas.html and
-    daa3840-45um.html: both production cameras are rolling-shutter,
-    so both warnings apply on both. Per
-    network-bandwidth-control-(blaze).md the DLTL throttle
-    mechanism (pause-insertion between packets) is identical across
-    transports.
-    """
-
-    def _camera_with_dltl_range(self, lo=1000, hi=5000):
-        cam = _bare_pylon_camera()
-        cam.active.DeviceLinkThroughputLimit.GetMin.return_value = lo
-        cam.active.DeviceLinkThroughputLimit.GetMax.return_value = hi
-        return cam
-
-    def _set_dltl(self, caplog, cam, value_bps):
-        with caplog.at_level('WARNING'):
-            result = cam.set_device_link_throughput_limit('On', value_bps=value_bps)
-        return result, _pylon_cam_warnings(caplog)
-
-    def test_below_minimum_clamps_to_min_and_warns(self, caplog):
-        cam = self._camera_with_dltl_range()
-        result, warnings = self._set_dltl(caplog, cam, 500)
-        assert result is True
-        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(1000)
-        assert any('clamping' in m for m in warnings), (
-            f'A clamped low DLTL value must warn the operator; got {warnings!r}'
-        )
-
-    def test_above_maximum_clamps_to_max_and_warns(self, caplog):
-        cam = self._camera_with_dltl_range()
-        result, warnings = self._set_dltl(caplog, cam, 9000)
-        assert result is True
-        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(5000)
-        assert any('clamping' in m for m in warnings)
-
-    def test_in_range_value_passes_unclamped(self, caplog):
-        cam = self._camera_with_dltl_range()
-        result, warnings = self._set_dltl(caplog, cam, 3000)
-        assert result is True
-        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(3000)
-        assert not warnings
-
-    def test_minmax_query_failure_passes_value_through(self, caplog):
-        """Best-effort contract: if the range query fails, the value is
-        written unchanged (the SDK's own OutOfRangeException then
-        surfaces through the RuntimeException branch)."""
-        cam = _bare_pylon_camera()
-        cam.active.DeviceLinkThroughputLimit.GetMin.side_effect = RuntimeError('no node')
-        result, _warnings = self._set_dltl(caplog, cam, 12345)
-        assert result is True
-        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(12345)
-
-    def test_docstring_records_both_basler_range_warnings(self):
-        # pin-justified: the docstring is the documented operator
-        # contract for picking a DLTL value (per-camera spec pages name
-        # rolling-shutter distortion when too low, corrupt/dropped
-        # frames when too high); the warning text itself is the artifact.
-        from _lumascope.drivers.pyloncamera import PylonCamera
-
-        docstring = (PylonCamera.set_device_link_throughput_limit.__doc__ or '').lower()
-        assert 'rolling shutter' in docstring or 'rolling-shutter' in docstring, (
-            'DLTL setter docstring must record the rolling-shutter '
-            'distortion warning per per-camera spec pages.'
-        )
-        assert 'corrupt' in docstring or 'dropped' in docstring, (
-            'DLTL setter docstring must record the too-high warning '
-            '(corrupt or dropped frames) per per-camera spec pages.'
-        )
 
 
 class TestPylonResyncProminentLog:
@@ -5502,14 +5409,6 @@ class TestAcquisitionStopModeSetter:
             'force a stop/start cycle on every call.'
         )
 
-    def test_pylon_driver_answers_false_for_a_missing_node(self):
-        """A missing node is a documented no-op returning False (a
-        RuntimeException's answer for every writer is
-        test_pylon_setter_transient_writes)."""
-        cam = _bare_pylon_camera()
-        cam.active.GetNodeMap.return_value.GetNode.return_value = None
-        assert cam.set_acquisition_stop_mode('Complete') is False
-
 
 class TestGigeSetters:
     """GigE-specific Pylon node setters: BandwidthReserveMode,
@@ -5907,26 +5806,6 @@ class TestStreamGrabberSetters:
                 f'in update_camera_config (the STALL-1 over-stop pattern).'
             )
 
-    def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
-        """Per Rule 29 typed-exception contract, the StreamGrabber
-        setters raise HardwareError on genicam.RuntimeException AND on
-        missing-node (GigE / non-USB3 cameras) -- silent return-False
-        would mislead bench operators into thinking the knob applied."""
-        from pypylon import genicam
-
-        from _lumascope.drivers.exceptions import HardwareError
-
-        cam = _bare_pylon_camera()
-        node = cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value
-        node.SetValue.side_effect = genicam.RuntimeException('usb gone')
-        with pytest.raises(HardwareError):
-            cam.set_max_transfer_size(262144)
-
-        cam = _bare_pylon_camera()
-        cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value = None
-        with pytest.raises(HardwareError):
-            cam.set_num_max_queued_urbs(64)
-
 
 class TestPylonAcquisitionIdleWait:
     """B20 closure (AUDIT_PYLONCAMERA_2026-05-07.md): poll
@@ -6021,39 +5900,6 @@ class TestPylonAcquisitionIdleWait:
             f'2.0s timeout; should return early, not wait it out'
         )
 
-    def test_idle_wait_returns_false_when_node_absent(self):
-        """Older firmware / non-Basler cameras may not expose
-        AcquisitionActive. Return False so disconnect proceeds without
-        waiting full timeout."""
-        from _lumascope.drivers.pyloncamera import PylonCamera
-
-        class _FakeNodeMap:
-            def GetNode(self, name):
-                return None
-
-        class _FakeCamera:
-            def GetNodeMap(self):
-                return _FakeNodeMap()
-
-        camera = PylonCamera.__new__(PylonCamera)
-        import threading as _threading
-
-        camera._state_lock = _threading.Lock()
-        camera.active = _FakeCamera()
-        import time as _time
-
-        t0 = _time.monotonic()
-        result = camera._wait_for_acquisition_idle(timeout_s=2.0)
-        elapsed = _time.monotonic() - t0
-        assert result is False
-        # Same reasoning as the already-idle case: 1.0s against a 2.0s
-        # timeout proves the absent-node path bails instead of waiting. The
-        # old 0.1s bound measured scheduler latency on a no-op call.
-        assert elapsed < 1.0, (
-            f'idle-wait should bail early when nodes absent, not wait out the '
-            f'2.0s timeout; took {elapsed:.3f}s'
-        )
-
     def test_idle_wait_times_out_when_stuck_active(self):
         """If AcquisitionActive stays True past timeout, return False
         and let caller proceed (warning is logged inside)."""
@@ -6125,27 +5971,6 @@ class TestPylonStreamGrabberStatusLog:
 
         camera._state_lock = _threading.Lock()
         camera.active = None
-        # Should not raise
-        camera._log_stream_grabber_status('test-label')
-
-    def test_log_helper_handles_missing_node_gracefully(self):
-        """Older firmware / non-Basler cameras may not expose Status.
-        Helper should not raise, log via _cam_log if present."""
-        from _lumascope.drivers.pyloncamera import PylonCamera
-
-        class _FakeStreamGrabberNodeMap:
-            def GetNode(self, name):
-                return None
-
-        class _FakeCamera:
-            def GetStreamGrabberNodeMap(self):
-                return _FakeStreamGrabberNodeMap()
-
-        camera = PylonCamera.__new__(PylonCamera)
-        import threading as _threading
-
-        camera._state_lock = _threading.Lock()
-        camera.active = _FakeCamera()
         # Should not raise
         camera._log_stream_grabber_status('test-label')
 

@@ -52,7 +52,12 @@ import numpy as np
 _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT / 'src'))
 
-from _lumascope.drivers.exceptions import CameraUsbOpenFailedError
+from _lumascope.drivers.camera import CameraNodeHasNoValue
+from _lumascope.drivers.exceptions import (
+    CameraReadFailedError,
+    CameraUsbOpenFailedError,
+    CameraWriteFailedError,
+)
 from _lumascope.drivers.pyloncamera import PylonCamera
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.exceptions import CameraSettingRejected
@@ -123,19 +128,23 @@ def _detect_transport(camera) -> str:
 
     Reads DeviceTransportLayerType from the camera's TL nodemap. Falls
     back to model substring detection if the node is not exposed.
+
+    Raises:
+        CameraReadFailedError: The read failed, or the node holds no
+            transport name; a sweep that cannot tell its transport cannot
+            pick its cells.
     """
     if not camera.active:
         return 'unknown'
-    try:
-        tl_type = camera.active.GetTLNodeMap().GetNode('DeviceTransportLayerType')
-        if tl_type is not None:
-            v = tl_type.GetValue()
-            if 'Usb' in v or 'USB' in v or 'usb' in v:
-                return 'usb3'
-            if 'GigE' in v or 'Gige' in v or 'GIGE' in v:
-                return 'gige'
-    except Exception:
-        pass
+    tl_type = camera.read_node('DeviceTransportLayerType', 'transport')
+    if isinstance(tl_type, CameraNodeHasNoValue):
+        raise CameraReadFailedError(f'DeviceTransportLayerType holds no transport name ({tl_type})')
+    if tl_type is not None:
+        v = str(tl_type.value)
+        if 'Usb' in v or 'USB' in v or 'usb' in v:
+            return 'usb3'
+        if 'GigE' in v or 'Gige' in v or 'GIGE' in v:
+            return 'gige'
 
     # Fallback: model-string substring match.
     model = (getattr(camera, 'model_name', None) or '').lower()
@@ -319,18 +328,33 @@ def _apply_cell(scope, transport: str, cell: dict, sensor_w: int, sensor_h: int)
         # These setters are private (underscore-prefixed) on ImagingAPI
         # because they are bench-tooling artifacts, not part of the L2
         # contract. This tool is internal bench tooling; the underscore
-        # access is intentional.
+        # access is intentional. A knob the camera refuses is one cell's
+        # data point, recorded as the pixel format's is.
         if transport == 'usb3':
-            ok = scope.imaging._set_device_link_throughput_limit(
-                mode=cell['dltl_mode'], value_bps=cell['dltl_value']
-            )
-            log.append(('dltl', ok))
+            knobs = [
+                (
+                    'dltl',
+                    lambda: scope.imaging._set_device_link_throughput_limit(
+                        mode=cell['dltl_mode'], value_bps=cell['dltl_value']
+                    ),
+                )
+            ]
         elif transport == 'gige':
-            log.append(('bw_mode', scope.imaging._set_bandwidth_reserve_mode(cell['bw_mode'])))
-            log.append(('packet_size', scope.imaging._set_gev_packet_size(cell['packet_size'])))
-            log.append(
-                ('delay_ticks', scope.imaging._set_gev_inter_packet_delay(cell['delay_ticks']))
-            )
+            knobs = [
+                ('bw_mode', lambda: scope.imaging._set_bandwidth_reserve_mode(cell['bw_mode'])),
+                ('packet_size', lambda: scope.imaging._set_gev_packet_size(cell['packet_size'])),
+                (
+                    'delay_ticks',
+                    lambda: scope.imaging._set_gev_inter_packet_delay(cell['delay_ticks']),
+                ),
+            ]
+        else:
+            knobs = []
+        for name, set_knob in knobs:
+            try:
+                log.append((name, set_knob()))
+            except CameraWriteFailedError as e:
+                log.append((name, f'FAILED: {e}'))
 
     return log
 
