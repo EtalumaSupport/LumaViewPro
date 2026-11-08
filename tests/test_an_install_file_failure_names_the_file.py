@@ -148,3 +148,61 @@ def test_a_plate_entry_the_record_cannot_be_built_from_names_the_plate_and_key(
 
     with pytest.raises(InstallationFileError, match=f"plate '96 well microplate' {words}"):
         WellPlateLoader(source_path=root)
+
+
+def test_a_plate_value_out_of_its_range_names_the_plate_key_and_value(tmp_path):
+    """A plate is located by dividing by its spacing and drawn by dividing by
+    its dimensions, so a zero there loaded and then raised ZeroDivisionError
+    on New Protocol, every capture and the stage view. A negative count or a
+    diameter that is neither -1 (not stated) nor positive locates nothing.
+    Each is refused where the file is read."""
+    refused = {
+        'a zero spacing': (lambda e: e['spacing'].update(x=0), "a 'spacing.x' of 0, not above 0"),
+        'a negative spacing': (
+            lambda e: e['spacing'].update(y=-9),
+            "a 'spacing.y' of -9, not above 0",
+        ),
+        'a zero dimension': (
+            lambda e: e['dimensions'].update(x=0),
+            "a 'dimensions.x' of 0, not above 0",
+        ),
+        'a negative count': (lambda e: e.update(rows=-1), "a 'rows' of -1, not 0 or more"),
+        'a zero diameter': (
+            lambda e: e.update(diameter=0),
+            "a 'diameter' of 0, neither -1 (not stated) nor above 0",
+        ),
+    }
+    wrong = {}
+    for case, (change, words) in refused.items():
+        root = tmp_path / case.replace(' ', '_')
+        root.mkdir()
+        _install(root, 'labware.json', _labware_with(change))
+        try:
+            WellPlateLoader(source_path=root)
+            wrong[case] = 'loaded'
+        except InstallationFileError as e:
+            if f"plate '96 well microplate' {words}" not in str(e):
+                wrong[case] = str(e)
+
+    assert wrong == {}
+
+
+def test_a_plate_keyed_by_a_retired_name_is_refused(tmp_path):
+    """A retired spelling is translated before every lookup: a plate keyed
+    'Center Dish' was listed, but its name reached the Center Plate."""
+    catalogue = _shipped('labware.json')
+    catalogue['Wellplate']['Center Dish'] = dict(catalogue['Wellplate']['96 well microplate'])
+    root = _install(tmp_path, 'labware.json', json.dumps(catalogue))
+
+    with pytest.raises(
+        InstallationFileError, match="plate 'Center Dish', a retired name read as 'Center Plate'"
+    ):
+        WellPlateLoader(source_path=root)
+
+
+def test_every_shipped_plate_loads():
+    """The Blank (0 x 0, spacing and diameter 0.001) and the Center Plate
+    (1 x 1, spacing 70, diameter -1) are the shipped edges of every range."""
+    plates = WellPlateLoader().plates
+
+    assert set(plates) == set(_shipped('labware.json')['Wellplate'])

@@ -61,6 +61,18 @@ def _number(entry: dict, path: tuple[str, ...], name: str, filepath: pathlib.Pat
     return value
 
 
+def _above_zero(entry: dict, path: tuple[str, ...], name: str, filepath: pathlib.Path) -> float:
+    # Wells are located by dividing by the spacing, and the plate is drawn by
+    # dividing by its dimensions, so a zero there loads and then fails as a
+    # ZeroDivisionError on the first protocol or draw, far from the file.
+    value = _number(entry, path, name, filepath)
+    if value <= 0:
+        raise InstallationFileError(
+            filepath, f'gives plate {name!r} a {".".join(path)!r} of {value}, not above 0'
+        )
+    return value
+
+
 def _read_plate(name: str, entry: object, filepath: pathlib.Path) -> labware.Labware:
     """The record for one plate of the catalogue, or a refusal naming the file, the plate and the key."""
     if not isinstance(entry, dict):
@@ -69,20 +81,30 @@ def _read_plate(name: str, entry: object, filepath: pathlib.Path) -> labware.Lab
     for key in ('rows', 'columns'):
         if isinstance(entry.get(key), bool) or not isinstance(entry.get(key), int):
             raise InstallationFileError(filepath, f'gives plate {name!r} no whole-number {key!r}')
+        # 0 is the Blank plate's: no wells at all.
+        if entry[key] < 0:
+            raise InstallationFileError(
+                filepath, f'gives plate {name!r} a {key!r} of {entry[key]}, not 0 or more'
+            )
         counts[key] = entry[key]
     standard = entry.get('standard')
     if not isinstance(standard, str):
         raise InstallationFileError(filepath, f"gives plate {name!r} no 'standard'")
     diameter = _number(entry, ('diameter',), name, filepath)
+    if diameter != -1 and diameter <= 0:
+        raise InstallationFileError(
+            filepath,
+            f"gives plate {name!r} a 'diameter' of {diameter}, neither -1 (not stated) nor above 0",
+        )
     return labware.Labware(
         name=name,
         **counts,
-        spacing_x_mm=_number(entry, ('spacing', 'x'), name, filepath),
-        spacing_y_mm=_number(entry, ('spacing', 'y'), name, filepath),
+        spacing_x_mm=_above_zero(entry, ('spacing', 'x'), name, filepath),
+        spacing_y_mm=_above_zero(entry, ('spacing', 'y'), name, filepath),
         offset_x_mm=_number(entry, ('offset', 'x'), name, filepath),
         offset_y_mm=_number(entry, ('offset', 'y'), name, filepath),
-        width_mm=_number(entry, ('dimensions', 'x'), name, filepath),
-        height_mm=_number(entry, ('dimensions', 'y'), name, filepath),
+        width_mm=_above_zero(entry, ('dimensions', 'x'), name, filepath),
+        height_mm=_above_zero(entry, ('dimensions', 'y'), name, filepath),
         # The file's -1 is its word for a diameter it does not state.
         well_diameter_mm=None if diameter == -1 else diameter,
         standard=standard,
@@ -101,6 +123,16 @@ class WellPlateLoader:
         catalogue = read_installation_file(filepath)
         if not isinstance(catalogue, dict) or not isinstance(catalogue.get('Wellplate'), dict):
             raise InstallationFileError(filepath, "has no 'Wellplate' table of plates")
+        # A retired spelling is translated to its plate before every lookup,
+        # so a plate keyed by one is listed but never found: its name reaches
+        # the other plate.
+        retired_names = sorted(catalogue['Wellplate'].keys() & _LABWARE_ALIASES.keys())
+        if retired_names:
+            retired = retired_names[0]
+            raise InstallationFileError(
+                filepath,
+                f'has a plate {retired!r}, a retired name read as {_LABWARE_ALIASES[retired]!r}',
+            )
         self._plates = types.MappingProxyType(
             {
                 name: _read_plate(name, entry, filepath)
