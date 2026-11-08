@@ -523,8 +523,6 @@ class ProtocolSettings(FloatLayout):
             self.ids['step_name_input'].hint_text = new_hint
 
     def new_protocol(self):
-        ctx = _app_ctx.ctx
-
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
         # The click, before any of the ways this returns without building
@@ -535,6 +533,11 @@ class ProtocolSettings(FloatLayout):
         # each return: one line gives the attribution, and the reason arrives
         # in the notification that follows.
         gui_logger.button('NEW_PROTOCOL')
+        self.ask_before_replacing(self._new_protocol)
+
+    def _new_protocol(self) -> None:
+        """Build a protocol from the panel's choices and the session's settings, and adopt it."""
+        ctx = _app_ctx.ctx
 
         # New Protocol resets each step to its channel's saved focus baseline.
         # A per-(well, channel) Z carry-over from the prior in-memory protocol
@@ -616,6 +619,56 @@ class ProtocolSettings(FloatLayout):
         self.curr_step = 0
         self.go_to_step(step_index=0)
 
+    def shown_protocol(self) -> Protocol:
+        """The protocol the panel shows: the person's, which New, Load and Save act on."""
+        return self._protocol
+
+    def unsaved_changes_text(self) -> str | None:
+        """'<name> has changes that are not saved.' when the panel's protocol has; else None.
+
+        The protocol answers whether it has (``has_unsaved_changes``); the
+        name is its file's, or "The new protocol" for one with no file.
+        """
+        protocol = self._protocol
+        if not protocol.has_unsaved_changes:
+            return None
+        name = 'The new protocol' if protocol.file_path is None else protocol.file_path.name
+        return f'{name} has changes that are not saved.'
+
+    def ask_before_replacing(self, replace: typing.Callable[[], None]) -> None:
+        """Run ``replace``, a New or a Load, once the person agrees to lose any unsaved changes.
+
+        Asked only when the panel's protocol has unsaved changes; Cancel
+        leaves everything as it was.
+        """
+        unsaved = self.unsaved_changes_text()
+        if unsaved is None:
+            replace()
+            return
+        from ui.notification_popup import show_confirmation_popup
+
+        show_confirmation_popup(
+            title='Unsaved Changes',
+            message=f'{unsaved} Discard them?',
+            confirm_text='Discard',
+            cancel_text='Cancel',
+            on_confirm=replace,
+        )
+
+    def commit_typed_edits(self) -> bool:
+        """Commit what the person typed in the protocol's own boxes and left; False when one was refused.
+
+        The period, the duration, the capture root and the step name: a value
+        typed and not yet committed is an edit the person made, so a close
+        asks about it. Only these: a Z, X or Y left in its box would move the
+        stage. Leaving a box commits it inline (``CommitInput``), and the
+        refusal is shown by its commit.
+        """
+        for box in ('capture_period', 'capture_dur', 'capture_root', 'step_name_input'):
+            if self.ids[box].focus:
+                self.ids[box].focus = False
+        return not refused_in_this_input()
+
     def _draw_protocol_steps(self) -> None:
         """Show the panel's protocol: its steps on the stage and in the step editor."""
         _app_ctx.ctx.stage.set_protocol_steps(self._protocol)
@@ -643,7 +696,7 @@ class ProtocolSettings(FloatLayout):
         try:
             protocol = ctx.session.open_remembered_protocol()
             if protocol is not None:
-                self._adopt_protocol(protocol, ctx.settings['protocol']['filepath'], navigate=False)
+                self._adopt_protocol(protocol, navigate=False)
                 return
         except Exception as e:
             # Shown, though nobody asked for this load: the panel shows only
@@ -693,14 +746,14 @@ class ProtocolSettings(FloatLayout):
         adopted = []
 
         def _load_and_adopt():
-            self._adopt_protocol(ctx.session.open_protocol(filepath), filepath, navigate=navigate)
+            self._adopt_protocol(ctx.session.open_protocol(filepath), navigate=navigate)
             adopted.append(True)
 
         run_reported(_load_and_adopt, None, 'LOAD_PROTOCOL')
         return bool(adopted)
 
-    def _adopt_protocol(self, protocol: Protocol, filepath: str, *, navigate: bool) -> None:
-        """Make ``protocol``, loaded from ``filepath``, the panel's and draw it.
+    def _adopt_protocol(self, protocol: Protocol, *, navigate: bool) -> None:
+        """Make ``protocol``, loaded from its file, the panel's and draw it.
 
         Display only: the Session has already put the scope on the
         protocol's plate, its Layer Settings in the channel controls and its
@@ -711,7 +764,7 @@ class ProtocolSettings(FloatLayout):
         self._protocol = protocol
         self._show_schedule()
 
-        self.ids['protocol_filename'].text = os.path.basename(filepath)
+        self.ids['protocol_filename'].text = protocol.file_path.name
 
         num_steps = self._protocol.num_steps()
         if num_steps < 1:
@@ -809,36 +862,43 @@ class ProtocolSettings(FloatLayout):
         return common_utils.build_step_name(common_utils.step_components(step))
 
     # Save Protocol to File
-    def save_protocol(self, filepath='', update_protocol_filepath: bool = True):
-        gui_logger.protocol_action('SAVE', filepath)
+    def save_protocol(self) -> None:
+        """Save: to the file the protocol was loaded from or last saved to; with none, Save As."""
         logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
 
         # The click that left a refused edit: saving would write the schedule
         # the person just tried to change.
         if refused_in_this_input():
+            gui_logger.protocol_action('SAVE', '')
             return
 
+        protocol = self._protocol
+        if protocol.file_path is None:
+            gui_logger.protocol_action('SAVE', '')
+            from ui.file_dialogs import FileSaveBTN
+
+            FileSaveBTN().choose('saveas_protocol')
+            return
+        self.save_protocol_as(protocol, str(protocol.file_path))
+
+    def save_protocol_as(self, protocol: Protocol, filepath: str) -> None:
+        """Save ``protocol`` to ``filepath``: Save, or the Save As dialog's answer.
+
+        ``protocol`` is the one the dialog was opened for, which a New made
+        while it was open has since replaced on the panel; it is saved all
+        the same, and only the panel's own protocol is remembered for the
+        next start and named on the panel.
+        """
+        gui_logger.protocol_action('SAVE', filepath)
+
         def _save():
-            nonlocal filepath
-            settings = _app_ctx.ctx.settings
-
-            if (isinstance(filepath, str)) and len(filepath) == 0:
-                # If there is no current file path, "save" button will act as "save as"
-                if len(settings['protocol']['filepath']) == 0:
-                    from ui.file_dialogs import FileSaveBTN
-
-                    FileSaveBTN_instance = FileSaveBTN()
-                    FileSaveBTN_instance.choose('saveas_protocol')
-                    return
-                filepath = settings['protocol']['filepath']
-
-            filepath = str(_app_ctx.ctx.session.save_protocol(self._protocol, filepath))
+            written = str(_app_ctx.ctx.session.save_protocol(protocol, filepath))
 
             # Reached only once the file is written: a failed save leaves the
             # panel naming the file it had, which is still the one on disk.
-            if update_protocol_filepath:
-                _app_ctx.ctx.set_protocol_filepath(filepath)
-            self.ids['protocol_filename'].text = os.path.basename(filepath)
+            if protocol is self._protocol:
+                _app_ctx.ctx.set_protocol_filepath(written)
+                self.ids['protocol_filename'].text = os.path.basename(written)
 
         run_reported(_save, None, 'SAVE_PROTOCOL')
 
@@ -1313,7 +1373,10 @@ class ProtocolSettings(FloatLayout):
             on_ui_thread=True,
         )
 
-        sequence_name = self.ids['protocol_filename'].text
+        # The panel's protocol's file names the run: ``protocol`` may be a
+        # run's copy, which has no file of its own.
+        shown = self._protocol.file_path
+        sequence_name = '' if shown is None else shown.name
         enable_image_saving = not self.saving_disabled
 
         def _start():

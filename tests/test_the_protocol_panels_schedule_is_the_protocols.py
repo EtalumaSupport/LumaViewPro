@@ -208,7 +208,7 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
     ):
         panel = _Panel(_protocol())
 
-        panel.save_protocol(filepath=str(tmp_path / 'saved.tsv'))
+        panel.save_protocol_as(panel._protocol, str(tmp_path / 'saved.tsv'))
 
         assert (panel._protocol.period_s(), panel._protocol.duration_s()) == SCHEDULE_S
         text = (tmp_path / 'saved.tsv').read_text()
@@ -222,7 +222,15 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
         ctx.session.set_channel_acquire('BF', AcquireMode.IMAGE)
         return ctx
 
-    def test_new_starts_from_the_schedule_on_screen(self, homed, reported):
+    @pytest.fixture
+    def discarding(self, monkeypatch):
+        """The person answers Discard: the protocol on screen was edited, so New asks."""
+        # a stand-in by design: the popup is a window only a person answers.
+        monkeypatch.setattr(
+            'ui.notification_popup.show_confirmation_popup', lambda **kw: kw['on_confirm']()
+        )
+
+    def test_new_starts_from_the_schedule_on_screen(self, homed, reported, discarding):
         on_screen = _protocol()
         on_screen.modify_time_params(
             period=datetime.timedelta(minutes=2), duration=datetime.timedelta(hours=9)
@@ -235,7 +243,7 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
         assert panel._protocol is not on_screen, 'the Session built a new protocol'
         assert (panel._protocol.period_s(), panel._protocol.duration_s()) == (2 * 60, 9 * 3600)
 
-    def test_a_new_protocol_is_shown_with_its_own_schedule(self, homed, reported):
+    def test_a_new_protocol_is_shown_with_its_own_schedule(self, homed, reported, discarding):
         panel = _Panel(_protocol())
         panel.ids['capture_period'].text = '99'
 
@@ -278,12 +286,16 @@ class TestAClickAfterARefusedEdit:
         assert starts == []
 
     def test_save_does_not_save(self, ctx, reported, same_input, monkeypatch, tmp_path):
-        panel = _Panel(_protocol())
+        # A protocol with a file of its own, which Save would write.
+        saved = ctx.session.save_protocol(_protocol(), tmp_path / 'saved.tsv')
+        protocol = ctx.session.load_protocol(saved)
+        saved.unlink()
+        panel = _Panel(protocol)
 
         self._refuse_an_edit(panel)
-        panel.save_protocol(filepath=str(tmp_path / 'saved.tsv'))
+        panel.save_protocol()
 
-        assert not (tmp_path / 'saved.tsv').exists()
+        assert not saved.exists()
 
     def test_a_click_in_a_later_input_acts(self, ctx, reported, monkeypatch):
         panel = _Panel(_protocol())

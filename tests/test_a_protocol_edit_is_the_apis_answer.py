@@ -183,7 +183,7 @@ class TestSave:
         panel = _Panel(ctx.session.create_empty_protocol())
         target = tmp_path / 'other.tsv'
 
-        panel.save_protocol(filepath=str(target))
+        panel.save_protocol_as(panel._protocol, str(target))
 
         assert target.read_text().startswith('LumaViewPro Protocol')
         assert ctx.settings['protocol']['filepath'] == str(target)
@@ -198,7 +198,7 @@ class TestSave:
         locked.mkdir()
         locked.chmod(0o500)
         try:
-            panel.save_protocol(filepath=str(locked / 'other.tsv'))
+            panel.save_protocol_as(panel._protocol, str(locked / 'other.tsv'))
         finally:
             locked.chmod(0o700)
 

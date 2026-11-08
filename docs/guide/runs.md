@@ -26,6 +26,7 @@ print(session.add_step(protocol, channels=('BF',)))     # a step here, on the pr
 print(protocol.step_records()[0])
 
 path = session.save_protocol(protocol, session.live_folder_path('Protocols/guide.tsv'))
+assert not protocol.has_unsaved_changes
 assert session.load_protocol(path).num_steps() == 1
 ```
 
@@ -64,6 +65,13 @@ run works on its own copy. `protocol_size_advisory(protocol)` says, before a
 run, whether it is large enough to warn about, and
 `start_go_to_step(protocol, step_index)` moves the scope to a step: its
 objective, its X, Y and Z.
+
+A protocol says whether it has changed since it was built, loaded or saved
+(`has_unsaved_changes`), and which file it was loaded from or last saved to
+(`file_path`, None for one built). Any edit counts, whichever member made it;
+the channel settings a save writes into its Layer Settings block do not. Each
+read writes the protocol out in memory, so ask it before discarding a
+protocol, not in a loop.
 
 **The schedule** is in seconds in the API: `period_s` between scans and
 `duration_s` in all. The protocol file keeps them in minutes and hours.

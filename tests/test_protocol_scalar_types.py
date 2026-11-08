@@ -136,7 +136,7 @@ class TestProtocolHandsOutPythonScalars:
         """The file path must be clean too -- one of the three crashes came in this way."""
         protocol = _protocol_from_declared_schema([_step_row()])
         filepath = tmp_path / 'p.tsv'
-        assert protocol.to_file(filepath) is None
+        protocol.to_file(filepath)
         reloaded = protocol_from_file(
             file_path=filepath,
         )

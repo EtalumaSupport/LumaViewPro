@@ -64,7 +64,10 @@ class _ProtocolSettingsStarter(ps.ProtocolSettings):
             'acquire_zstack_id': SimpleNamespace(active=False),
         }
         # The protocol on screen, whose schedule New starts from.
-        self._protocol = SimpleNamespace(period_s=lambda: None, duration_s=lambda: None)
+        # Unchanged since it was saved, so New asks nothing first.
+        self._protocol = SimpleNamespace(
+            period_s=lambda: None, duration_s=lambda: None, has_unsaved_changes=False
+        )
 
 
 class TestARefusedProtocolCreation:

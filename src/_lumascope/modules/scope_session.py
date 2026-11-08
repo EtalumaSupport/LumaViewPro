@@ -2430,6 +2430,9 @@ class ScopeSession:
         per-channel settings are the protocol's own and are not applied to
         anything else.
 
+        The protocol comes back with no unsaved changes, its file this one
+        (``Protocol.has_unsaved_changes``, ``Protocol.file_path``).
+
         Args:
             file_path: The protocol file (``.tsv``) to read.
 
@@ -2452,6 +2455,10 @@ class ScopeSession:
         protocol = self.scope.protocols.load_protocol(file_path=file_path)
         self.scope.protocols.set_labware(protocol, protocol.labware_id())
         self.select_labware(protocol.labware_id())
+        # Loaded whole: the file is its own, by its absolute path, since a
+        # relative one is the working folder's, which a later save may not
+        # share.
+        protocol.record_saved(protocol.fingerprint(), pathlib.Path(os.path.abspath(file_path)))
         return protocol
 
     def _channels_on_scope(self) -> set[str]:
@@ -2581,6 +2588,9 @@ class ScopeSession:
         back. What the GUI opens at its next start-up is not changed: a
         script's scratch save is not the person's protocol.
 
+        The protocol then has no unsaved changes, and its file is this one
+        (``Protocol.has_unsaved_changes``, ``Protocol.file_path``).
+
         Args:
             protocol: The protocol whose steps are written.
             file_path: The file written, exactly as given: it ends in
@@ -2614,7 +2624,8 @@ class ScopeSession:
                         stim['enabled'] if isinstance(stim, dict) and 'enabled' in stim else None
                     ),
                 )
-        protocol.to_file(file_path=path, channel_settings=records)
+        fingerprint = protocol.to_file(file_path=path, channel_settings=records)
+        protocol.record_saved(fingerprint, pathlib.Path(os.path.abspath(path)))
         return path
 
     @api(sets='channel_acquire', admitted_by=(Admission.GUARDED_WRITE,))

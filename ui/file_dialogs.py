@@ -481,8 +481,12 @@ class FileChooseBTN(HoverBehavior, Button):
 
         if self.selection:
             if self.context == 'load_protocol':
-                ctx.motion_settings.ids['protocol_settings_id'].load_protocol(
-                    filepath=self.selection[0], navigate=True
+                # Asked once the file is picked, so the question is about the
+                # protocol the file replaces as it now is.
+                panel = ctx.motion_settings.ids['protocol_settings_id']
+                filepath = self.selection[0]
+                panel.ask_before_replacing(
+                    lambda: panel.load_protocol(filepath=filepath, navigate=True)
                 )
 
             elif self.context == 'load_cell_count_input_image':
@@ -606,10 +610,24 @@ class FileSaveBTN(HoverBehavior, Button):
 
         selected_path = _app_ctx.ctx.settings['live_folder']
 
+        def deliver(path):
+            self.handle_selection(selection=[path])
+
+        if self.context == 'saveas_protocol':
+            # The protocol the panel holds as the dialog opens is the one
+            # saved, whatever the panel holds when the person answers: a New
+            # meanwhile replaces the panel's, not what this dialog was for.
+            panel = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
+            protocol = panel.shown_protocol()
+
+            def deliver(path):
+                gui_logger.select('FILE_SAVE', f'context={context} path={path}')
+                panel.save_protocol_as(protocol, path)
+
         _run_native_dialog_async(
             self,
             lambda: _platform_native_save_file(initial_dir=selected_path, filetypes=filetypes),
-            lambda path: self.handle_selection(selection=[path]),
+            deliver,
             on_cancel=lambda: gui_logger.select('FILE_SAVE', f'context={context} cancelled'),
         )
 
@@ -625,13 +643,7 @@ class FileSaveBTN(HoverBehavior, Button):
             gui_logger.select('FILE_SAVE', f'context={self.context} path={self.selection[0]}')
         ctx = _app_ctx.ctx
 
-        if self.context == 'saveas_protocol':
-            if self.selection:
-                ctx.motion_settings.ids['protocol_settings_id'].save_protocol(
-                    filepath=self.selection[0]
-                )
-
-        elif self.context == 'save_graph':
+        if self.context == 'save_graph':
             if self.selection:
                 ctx.graphing_controls.save_graph(filepath=self.selection[0])
 

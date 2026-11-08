@@ -159,7 +159,7 @@ def test_v7_load_recovers_labels_and_saves_at_the_current_version(tmp_path):
     # Save -> the file is stamped Version 8; reload -> byte-identical Names
     # and Labels (the migration is a fixed point).
     dst = tmp_path / 'proto_v8.tsv'
-    assert proto.to_file(file_path=dst) is None
+    proto.to_file(file_path=dst)
     lines = dst.read_text().splitlines()
     assert lines[1] == f'Version\t{Protocol.CURRENT_VERSION}', lines[1]
 
@@ -299,7 +299,7 @@ def test_token_shaped_label_survives_protocol_roundtrip(tmp_path):
         ]
     )
     path = tmp_path / 'p.tsv'
-    assert proto.to_file(file_path=path) is None
+    proto.to_file(file_path=path)
     reloaded = protocol_from_file(
         file_path=path,
     )
@@ -557,7 +557,7 @@ def test_numeric_looking_label_survives_protocol_roundtrip(tmp_path):
     assert proto.step_row(step_index=0)['Label'] == '0600'
 
     dst = tmp_path / 'v8.tsv'
-    assert proto.to_file(file_path=dst) is None
+    proto.to_file(file_path=dst)
     proto2 = protocol_from_file(
         file_path=dst,
     )

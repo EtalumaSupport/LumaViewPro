@@ -32,7 +32,7 @@ def _large_protocol():
 
 def _reload(protocol, tmp_path: pathlib.Path) -> Protocol:
     filepath = tmp_path / 'large_protocol.tsv'
-    assert protocol.to_file(filepath) is None
+    protocol.to_file(filepath)
     return protocol_from_file(
         file_path=filepath,
     )

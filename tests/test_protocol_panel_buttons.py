@@ -11,6 +11,7 @@ writing the finished run's files, idle.
 """
 
 import concurrent.futures
+import pathlib
 import sys
 import types
 from types import SimpleNamespace
@@ -82,6 +83,8 @@ class _Panel(ps.ProtocolSettings):
             'protocol_disable_image_saving_id': SimpleNamespace(active=saving_disabled),
         }
         self._protocol = MagicMock()
+        # The run is named for the file the panel's protocol is saved in.
+        self._protocol.file_path = pathlib.Path('/data/plate')
         self._runs_started_here = {}
         self._drain_tick_trigger = MagicMock()
         self.scan_pending = False

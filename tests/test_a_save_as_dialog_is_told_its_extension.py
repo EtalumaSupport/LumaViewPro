@@ -25,7 +25,15 @@ _CONTEXTS = {
 def _open_each(monkeypatch, tmp_path):
     """Open each context's Save As, running its dialog in place of the worker."""
     monkeypatch.setattr(
-        file_dialogs._app_ctx, 'ctx', SimpleNamespace(settings={'live_folder': str(tmp_path)})
+        file_dialogs._app_ctx,
+        'ctx',
+        SimpleNamespace(
+            settings={'live_folder': str(tmp_path)},
+            # The protocol panel, whose protocol a Save As is opened for.
+            motion_settings=SimpleNamespace(
+                ids={'protocol_settings_id': SimpleNamespace(shown_protocol=lambda: None)}
+            ),
+        ),
     )
     monkeypatch.setattr(
         file_dialogs,

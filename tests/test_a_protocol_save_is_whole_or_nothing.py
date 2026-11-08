@@ -12,9 +12,9 @@ the save was sent.
 
 import pathlib
 
-import pandas as pd
 import pytest
 
+import _lumascope.modules.protocol as protocol_module
 from _lumascope.modules.exceptions import ProtocolNotSavedError
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from tests.protocol_fixtures import protocol_from_file
@@ -24,8 +24,21 @@ def _protocol(label='first'):
     return _build_protocol([_make_step(name='A1_BF', label=label)])
 
 
-def _disk_full(*args, **kwargs):
-    raise OSError(28, 'No space left on device')
+def _filling_the_disk(real_open):
+    """``open`` whose file takes half of what it is written, then reports the disk full."""
+
+    def opened(*args, **kwargs):
+        file = real_open(*args, **kwargs)
+        real_write = file.write
+
+        def write(text):
+            real_write(text[: len(text) // 2])
+            raise OSError(28, 'No space left on device')
+
+        file.write = write
+        return file
+
+    return opened
 
 
 class TestAFailedSave:
@@ -34,8 +47,8 @@ class TestAFailedSave:
         _protocol(label='first').to_file(file_path=target)
         before = target.read_bytes()
 
-        # The header is written, then the step table's write fails.
-        monkeypatch.setattr(pd.DataFrame, 'to_csv', _disk_full)
+        # Half the file is written, then the disk is full.
+        monkeypatch.setattr(protocol_module, 'open', _filling_the_disk(open), raising=False)
         with pytest.raises(ProtocolNotSavedError) as raised:
             _protocol(label='second').to_file(file_path=target)
         monkeypatch.undo()

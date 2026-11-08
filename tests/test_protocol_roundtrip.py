@@ -198,8 +198,7 @@ def _save_and_reload(protocol, tmp_path):
     """Save protocol to file and reload, returning the reloaded protocol."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     filepath = tmp_path / 'test_protocol.tsv'
-    result = protocol.to_file(filepath)
-    assert result is None, f'to_file failed: {result}'
+    protocol.to_file(filepath)
     assert filepath.exists(), 'Protocol file not created'
 
     reloaded = protocol_from_file(

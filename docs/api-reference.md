@@ -1824,6 +1824,9 @@ Its contract is the plate. The protocol's period, duration and
 per-channel settings are the protocol's own and are not applied to
 anything else.
 
+The protocol comes back with no unsaved changes, its file this one
+(`Protocol.has_unsaved_changes`, `Protocol.file_path`).
+
 **Args**
 
 - `file_path`: The protocol file (`.tsv`) to read.
@@ -2696,6 +2699,9 @@ The block holds each channel set to acquire an image or a video, with
 the values its controls hold now; `apply_channel_settings` puts them
 back. What the GUI opens at its next start-up is not changed: a
 script's scratch save is not the person's protocol.
+
+The protocol then has no unsaved changes, and its file is this one
+(`Protocol.has_unsaved_changes`, `Protocol.file_path`).
 
 **Args**
 
@@ -11411,6 +11417,42 @@ How long the protocol runs its scans, in seconds; 0 or None for one scan.
 
 Nothing.
 
+<a id="Protocol.file_path"></a>
+### `Protocol.file_path`
+
+```python
+file_path: Path | None  # property
+```
+
+Route: `GET /api/v1/handles/Protocol/{handle_id}/file_path`.
+
+The file this protocol was last loaded from or saved to; None when it has none.
+
+**Raises**
+
+Nothing.
+
+<a id="Protocol.has_unsaved_changes"></a>
+### `Protocol.has_unsaved_changes`
+
+```python
+has_unsaved_changes: bool  # property
+```
+
+Route: `GET /api/v1/handles/Protocol/{handle_id}/has_unsaved_changes`.
+
+Whether the protocol has changed since it was last built, loaded or saved.
+
+Every edit that changes what a save writes counts, whichever member
+made it; the session's channel controls, which a save writes as the
+Layer Settings block, do not. True for a protocol no build, load or
+save returned, such as a run's copy. Each read writes the protocol
+out in memory, so it is asked at a decision, not polled.
+
+**Raises**
+
+Nothing.
+
 <a id="Protocol.labware_id"></a>
 ### `Protocol.labware_id`
 
@@ -17864,6 +17906,8 @@ reads what the person was shown.
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_root` | [`Protocol.capture_root`](#Protocol.capture_root) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/channel_settings` | [`Protocol.channel_settings`](#Protocol.channel_settings) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/duration_s` | [`Protocol.duration_s`](#Protocol.duration_s) |
+| `GET` | `/api/v1/handles/Protocol/{handle_id}/file_path` | [`Protocol.file_path`](#Protocol.file_path) |
+| `GET` | `/api/v1/handles/Protocol/{handle_id}/has_unsaved_changes` | [`Protocol.has_unsaved_changes`](#Protocol.has_unsaved_changes) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/labware_id` | [`Protocol.labware_id`](#Protocol.labware_id) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/num_scans` | [`Protocol.num_scans`](#Protocol.num_scans) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/num_steps` | [`Protocol.num_steps`](#Protocol.num_steps) |

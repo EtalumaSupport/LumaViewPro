@@ -122,7 +122,15 @@ def test_a_cancel_is_recorded_under_the_button_s_own_name(
 ):
     selects = []
     monkeypatch.setattr(
-        file_dialogs._app_ctx, 'ctx', SimpleNamespace(settings={'live_folder': str(tmp_path)})
+        file_dialogs._app_ctx,
+        'ctx',
+        SimpleNamespace(
+            settings={'live_folder': str(tmp_path)},
+            # The protocol panel, whose protocol a Save As is opened for.
+            motion_settings=SimpleNamespace(
+                ids={'protocol_settings_id': SimpleNamespace(shown_protocol=lambda: None)}
+            ),
+        ),
     )
     monkeypatch.setattr(gui_logger, 'select', lambda name, value: selects.append((name, value)))
     monkeypatch.setattr(

@@ -33,8 +33,11 @@ class _Panel(ps.ProtocolSettings):
             'tiling_size_spinner': SimpleNamespace(text=tiling),
             'acquire_zstack_id': SimpleNamespace(active=use_zstacking),
         }
-        # The protocol on screen, whose schedule New starts from.
-        self._protocol = SimpleNamespace(period_s=lambda: PERIOD_S, duration_s=lambda: DURATION_S)
+        # The protocol on screen, whose schedule New starts from; unchanged
+        # since it was saved, so New asks nothing first.
+        self._protocol = SimpleNamespace(
+            period_s=lambda: PERIOD_S, duration_s=lambda: DURATION_S, has_unsaved_changes=False
+        )
 
     def update_step_ui(self):
         # The redraw runs whatever the outcome; the stand has no stage to draw.

@@ -1428,7 +1428,7 @@ class LumaViewProApp(TooltipMixin, App):
         gui_logger.window_event('focus', f'focused={focused}')
 
     def on_request_close(self, *args) -> bool:
-        """Kivy on_request_close hook: ask, naming what the session is still doing, then close.
+        """Kivy on_request_close hook: ask, naming what the session is still doing and an unsaved protocol, then close.
 
         Always True: the window never closes by itself. The close runs on
         its own thread (``_close_the_session``) and the app stops when it
@@ -1466,20 +1466,36 @@ class LumaViewProApp(TooltipMixin, App):
             logger.info('[LVP Main  ] close already in progress; ignoring the request')
             return True
 
-        if not work:
+        # A period, duration, root or step name typed and not yet committed
+        # is an edit, so it is committed before the protocol is asked; one the
+        # protocol refuses stops the close, its refusal shown, so nothing
+        # closes on a value the person did not get.
+        panel = ctx.motion_settings.ids['protocol_settings_id']
+        if not panel.commit_typed_edits():
+            logger.info('[LVP Main  ] close stopped: a typed protocol edit was refused')
+            return True
+        unsaved = panel.unsaved_changes_text()
+        if unsaved is not None:
+            logger.info(f'[LVP Main  ] close requested with unsaved changes: {unsaved}')
+
+        if not work and unsaved is None:
             Clock.schedule_once(lambda dt: self._close_the_session(session))
             return True
 
+        told = []
+        if work:
+            told.append(
+                'LumaViewPro is still doing:\n'
+                + '\n'.join(f'- {work_item_text(item)}' for item in work)
+                + '\n\nExiting stops a running protocol or recording, keeping what it '
+                'captured, and lets the rest finish before LumaViewPro closes.'
+            )
+        if unsaved is not None:
+            told.append(f'{unsaved} Exiting discards them.')
         Clock.schedule_once(
             lambda dt: show_confirmation_popup(
                 title='Confirm Exit',
-                message=(
-                    'LumaViewPro is still doing:\n'
-                    + '\n'.join(f'- {work_item_text(item)}' for item in work)
-                    + '\n\nExiting stops a running protocol or recording, keeping what it '
-                    'captured, and lets the rest finish before LumaViewPro closes.'
-                    '\n\nAre you sure you want to exit?'
-                ),
+                message='\n\n'.join(told) + '\n\nAre you sure you want to exit?',
                 confirm_text='Confirm Exit',
                 cancel_text='Cancel',
                 on_confirm=lambda: self._close_the_session(session),

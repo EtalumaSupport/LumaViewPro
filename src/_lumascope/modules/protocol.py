@@ -14,6 +14,7 @@ import re
 import contextlib
 import copy
 import enum
+import hashlib
 from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
@@ -1229,6 +1230,14 @@ def _in_unit_keys(named: dict, unit: 'ChannelIdentity', what: str, file_path: ob
     return renamed
 
 
+@dataclasses.dataclass(frozen=True)
+class _SavedAs:
+    """A protocol's record of what it was when last built, loaded or saved, and its file."""
+
+    fingerprint: str
+    file_path: pathlib.Path | None
+
+
 @api_fields('CURRENT_COLUMNS', 'CURRENT_VERSION', 'PROTOCOL_FILE_HEADER')
 class Protocol:
     """A protocol: its steps, its plate and its schedule, and the file it is read from and written to.
@@ -1435,6 +1444,11 @@ class Protocol:
     # index means something only against the revision it was read at, so a
     # caller holding one across a wait compares this before using it.
     _step_list_revision: int = 0
+
+    # What this protocol was when it was last built, loaded or saved, and its
+    # file (``record_saved``). None on a protocol no build, load or save has
+    # returned: a run's copy, the post-processing reader's.
+    _saved_as: _SavedAs | None = None
 
     def __init__(
         self,
@@ -1683,11 +1697,138 @@ class Protocol:
         new._runnable = self._runnable
         return new
 
+    def _header_text(self) -> str:
+        """The file's header rows, as ``to_file`` writes them."""
+        # Manual Z-Stack + single-shot capture pass period=None /
+        # duration=None into the Protocol config (ui/zstack.py:187-188).
+        # The loader accepts 0 as the single-scan marker (Period < 0 and
+        # Duration < 0 are hard-rejected); emit 0 for None so a Manual
+        # Z-Stack TSV round-trips cleanly. Pre-fix, Apply-Z-Projection on
+        # any Manual Z-Stack aborted with "Invalid 'Period' value... must
+        # be >= 0" because the writer emitted -1 (issue #669).
+        # Period (Interval) needs the same sub-minute precision as Duration:
+        # at 2 decimals a 1-second interval (0.016667 min) quantizes to 0.02
+        # min on disk, corrupting the stored value. Match Duration's 6 decimals.
+        period_s, duration_s = self.period_s(), self.duration_s()
+        period_minutes = 0 if period_s is None else round(period_s / 60.0, 6)
+        duration_hours = 0 if duration_s is None else round(duration_s / 3600.0, 6)
+
+        out = io.StringIO()
+        csvwriter = csv.writer(out, delimiter='\t', lineterminator='\n')
+        csvwriter.writerow(['LumaViewPro Protocol'])
+        csvwriter.writerow(['Version', self._config['version']])
+        csvwriter.writerow(['Period', period_minutes])
+        csvwriter.writerow(['Duration', duration_hours])
+        csvwriter.writerow(['Labware', self._config['labware_id']])
+        csvwriter.writerow(
+            [
+                'Capture Root',
+                self.capture_root()
+                if self.capture_root() is not None or self.capture_root() != ''
+                else '',
+            ]
+        )
+        return out.getvalue()
+
+    def _channel_settings_text(self, channel_settings: Mapping[str, ChannelSettings] | None) -> str:
+        """The file's Layer Settings block, as ``to_file`` writes it; empty with no record."""
+        # v6 Layer Settings block -- emitted only when there is a
+        # record to write; every record acquires, so each is a row.
+        # Older readers tolerate the block (the 'find Steps' loop
+        # in from_file already skips unknown rows until it hits
+        # 'Steps'); this lets v6 files round-trip cleanly without
+        # breaking any v5-aware downstream tooling.
+        if not channel_settings:
+            return ''
+        out = io.StringIO()
+        out.write('\nLayer Settings\n')
+        csvwriter = csv.writer(out, delimiter='\t', lineterminator='\n')
+        csvwriter.writerow(self.CHANNEL_SETTINGS_COLUMNS)
+        for name, record in channel_settings.items():
+            csvwriter.writerow([name, *_channel_settings_cells(record)])
+        return out.getvalue()
+
+    def _steps_text(self) -> str:
+        """The file's steps table, as ``to_file`` writes it."""
+        # Serialize dict columns as JSON strings before writing to CSV.
+        # Without this, pandas uses Python repr (single quotes) which
+        # fails json.loads() on reload.
+        steps_df = self._config['steps'].rename(columns={'channel': 'Color'})
+        for col in ('Video Config', 'Stim_Config'):
+            if col in steps_df.columns:
+                steps_df[col] = steps_df[col].apply(
+                    lambda v: json.dumps(v) if isinstance(v, dict) else v
+                )
+        return '\nSteps\n' + steps_df.to_csv(sep='\t', lineterminator='\n', index=False)
+
+    @staticmethod
+    def _fingerprint_of(header: str, steps: str) -> str:
+        # The header and the steps, never the Layer Settings block: the block
+        # is the session's channel controls at the save, which a person
+        # changes without editing the protocol.
+        return hashlib.sha256((header + steps).encode('utf-8')).hexdigest()
+
+    def fingerprint(self) -> str:
+        """The fingerprint of what ``to_file`` would write now, its Layer Settings block apart.
+
+        Not published: what a build, a load and a save record
+        (``record_saved``), and what ``has_unsaved_changes`` compares. Each
+        read writes the protocol out in memory.
+
+        Raises:
+            Nothing.
+        """
+        return self._fingerprint_of(self._header_text(), self._steps_text())
+
+    def record_saved(self, fingerprint: str, file_path: pathlib.Path | None) -> None:
+        """Record what this protocol is as built, loaded or saved, and its file.
+
+        Not published: called where a build, a load or a save returns whole
+        (``ProtocolsAPI.create_protocol``, ``ScopeSession.load_protocol``,
+        ``ScopeSession.save_protocol``), never by a client.
+
+        Args:
+            fingerprint: The fingerprint of the protocol as it then was
+                (``fingerprint``, or what ``to_file`` returned).
+            file_path: The file it was loaded from or saved to; None for one
+                built.
+
+        Raises:
+            Nothing.
+        """
+        self._saved_as = _SavedAs(fingerprint, file_path)
+
+    @api
+    @property
+    def has_unsaved_changes(self) -> bool:
+        """Whether the protocol has changed since it was last built, loaded or saved.
+
+        Every edit that changes what a save writes counts, whichever member
+        made it; the session's channel controls, which a save writes as the
+        Layer Settings block, do not. True for a protocol no build, load or
+        save returned, such as a run's copy. Each read writes the protocol
+        out in memory, so it is asked at a decision, not polled.
+
+        Raises:
+            Nothing.
+        """
+        return self._saved_as is None or self._saved_as.fingerprint != self.fingerprint()
+
+    @api
+    @property
+    def file_path(self) -> pathlib.Path | None:
+        """The file this protocol was last loaded from or saved to; None when it has none.
+
+        Raises:
+            Nothing.
+        """
+        return None if self._saved_as is None else self._saved_as.file_path
+
     def to_file(
         self,
         file_path: FilePath,
         channel_settings: Mapping[str, ChannelSettings] | None = None,
-    ) -> None:
+    ) -> str:
         """Write the protocol to a TSV file, whole or not at all.
 
         Not published: ``ScopeSession.save_protocol`` is the one way a
@@ -1711,6 +1852,12 @@ class Protocol:
 
         A missing folder is made where ``file_path`` sends it.
 
+        Returns:
+            The fingerprint of what was written, its Layer Settings block
+            apart (``fingerprint``). Nothing is recorded: a run's write of
+            its own copy is not a save, so the caller that saves records it
+            (``record_saved``).
+
         Raises:
             LiveFolderPathRefusedError: ``'not_a_file'``, a folder is at
                 ``file_path``; ``'wrong_extension'``, its name does not end
@@ -1723,67 +1870,13 @@ class Protocol:
         tmp_loc = file_path.with_name(file_path.name + '.tmp')
         if channel_settings is None:
             channel_settings = self._config.get('channel_settings')
-        # Manual Z-Stack + single-shot capture pass period=None /
-        # duration=None into the Protocol config (ui/zstack.py:187-188).
-        # The loader accepts 0 as the single-scan marker (Period < 0 and
-        # Duration < 0 are hard-rejected); emit 0 for None so a Manual
-        # Z-Stack TSV round-trips cleanly. Pre-fix, Apply-Z-Projection on
-        # any Manual Z-Stack aborted with "Invalid 'Period' value... must
-        # be >= 0" because the writer emitted -1 (issue #669).
-        # Period (Interval) needs the same sub-minute precision as Duration:
-        # at 2 decimals a 1-second interval (0.016667 min) quantizes to 0.02
-        # min on disk, corrupting the stored value. Match Duration's 6 decimals.
-        period_s, duration_s = self.period_s(), self.duration_s()
-        period_minutes = 0 if period_s is None else round(period_s / 60.0, 6)
-        duration_hours = 0 if duration_s is None else round(duration_s / 3600.0, 6)
+        header, steps = self._header_text(), self._steps_text()
+        block = self._channel_settings_text(channel_settings)
 
         try:
             file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(tmp_loc, 'w', encoding='utf-8') as fp:
-                csvwriter = csv.writer(
-                    fp, delimiter='\t', lineterminator='\n'
-                )  # access the file using the CSV library
-
-                csvwriter.writerow(['LumaViewPro Protocol'])
-                csvwriter.writerow(['Version', self._config['version']])
-                csvwriter.writerow(['Period', period_minutes])
-                csvwriter.writerow(['Duration', duration_hours])
-                csvwriter.writerow(['Labware', self._config['labware_id']])
-                csvwriter.writerow(
-                    [
-                        'Capture Root',
-                        self.capture_root()
-                        if self.capture_root() is not None or self.capture_root() != ''
-                        else '',
-                    ]
-                )
-
-                # v6 Layer Settings block -- emitted only when there is a
-                # record to write; every record acquires, so each is a row.
-                # Older readers tolerate the block (the 'find Steps' loop
-                # in from_file already skips unknown rows until it hits
-                # 'Steps'); this lets v6 files round-trip cleanly without
-                # breaking any v5-aware downstream tooling.
-                if channel_settings:
-                    fp.write('\nLayer Settings\n')
-                    csvwriter.writerow(self.CHANNEL_SETTINGS_COLUMNS)
-                    for name, record in channel_settings.items():
-                        csvwriter.writerow([name, *_channel_settings_cells(record)])
-
-                fp.write('\nSteps\n')
-
-                # Serialize dict columns as JSON strings before writing to CSV.
-                # Without this, pandas uses Python repr (single quotes) which
-                # fails json.loads() on reload.
-                steps_df = self._config['steps'].rename(columns={'channel': 'Color'})
-                for col in ('Video Config', 'Stim_Config'):
-                    if col in steps_df.columns:
-                        steps_df[col] = steps_df[col].apply(
-                            lambda v: json.dumps(v) if isinstance(v, dict) else v
-                        )
-
-                protocol_table_str = steps_df.to_csv(sep='\t', lineterminator='\n', index=False)
-                fp.write(protocol_table_str)
+                fp.write(header + block + steps)
             os.replace(tmp_loc, file_path)
         except Exception as e:
             with contextlib.suppress(OSError):
@@ -1791,6 +1884,7 @@ class Protocol:
             if isinstance(e, OSError):
                 raise ProtocolNotSavedError(file=file_path, cause=e) from e
             raise
+        return self._fingerprint_of(header, steps)
 
     def optimize_step_ordering(self) -> None:
         """Order the steps for travel: by place, then by objective and Z at each place.

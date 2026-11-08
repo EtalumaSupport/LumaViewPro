@@ -74,9 +74,11 @@ class _Protocols(ps.ProtocolSettings):
             'acquire_zstack_id': SimpleNamespace(active=False),
             'step_name_input': SimpleNamespace(text=''),
         }
+        # Unchanged since it was saved, so New asks nothing first.
         self._protocol = SimpleNamespace(
             period_s=lambda: 20 * 60.0,
             duration_s=lambda: 48 * 3600.0,
+            has_unsaved_changes=False,
         )
 
     def update_step_ui(self):

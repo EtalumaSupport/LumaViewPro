@@ -209,7 +209,10 @@ _ROSTER = {
         'FILE_SAVE',
         'FILE_SAVE_OPEN',
     ),
-    'ProtocolSettings.RoundedButton(new_protocol)': ('NEW', 'NEW_PROTOCOL'),
+    # Its NEW record is written once the person agrees to replace an edited
+    # protocol, by the build ask_before_replacing is handed, which the census
+    # does not follow.
+    'ProtocolSettings.RoundedButton(new_protocol)': ('NEW_PROTOCOL',),
     'ProtocolSettings.RoundedButton(save_protocol)': ('SAVE',),
     'ProtocolSettings.acquire_zstack_id': ('ACQUIRE_ZSTACK',),
     'ProtocolSettings.add_step_btn': ('INSERT_STEP',),

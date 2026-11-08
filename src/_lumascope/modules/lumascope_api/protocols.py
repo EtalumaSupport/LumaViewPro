@@ -323,14 +323,18 @@ class ProtocolsAPI:
             if input_config['use_zstacking']:
                 protocol.apply_zstacking(input_config['zstack_params'], self._travel_limits())
             self._stamp_turret_slots(protocol)
-            return protocol
-        return Protocol.create_empty(
-            config=empty_config,
-            tiling_grids=grids,
-            capabilities=self._scope.capabilities,
-            objective_helper=self._scope.objective_helper,
-            wellplate_loader=self._scope.wellplate_loader,
-        )
+        else:
+            protocol = Protocol.create_empty(
+                config=empty_config,
+                tiling_grids=grids,
+                capabilities=self._scope.capabilities,
+                objective_helper=self._scope.objective_helper,
+                wellplate_loader=self._scope.wellplate_loader,
+            )
+        # Built whole: what it is now is what its builder asked for, so it
+        # has no unsaved change until someone edits it.
+        protocol.record_saved(protocol.fingerprint(), None)
+        return protocol
 
     def add_step(
         self,

@@ -69,7 +69,8 @@ class TestNewProtocol:
             # The protocol on screen, whose schedule New starts from.
             _protocol=SimpleNamespace(period_s=lambda: None, duration_s=lambda: None),
         )
-        return ps.ProtocolSettings.new_protocol, stand, refused.value
+        # The build New runs once nothing unsaved stands in the way.
+        return ps.ProtocolSettings._new_protocol, stand, refused.value
 
     def test_an_unknown_objective_is_shown_once_as_a_refusal(
         self, panel, centre_posts, popups, caplog
