@@ -74,8 +74,8 @@ scope.simulation.drop_replies('motor', 1)   # the motor board misses its next re
 print(scope.simulation.injected())
 ```
 
-```python raises=HardwareCommandRefusedError:position_unread
-scope.motion.move_z(4000.0)                 # position_unread: the move was not sent
+```python raises=MoveFaultError:driver_failed
+scope.motion.move_z(4000.0)                 # driver_failed: the board missed the target; home Z
 ```
 
 ```python

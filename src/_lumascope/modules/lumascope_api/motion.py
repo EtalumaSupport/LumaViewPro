@@ -1305,8 +1305,10 @@ class MotionAPI:
             HomingStoppedError: ``'stopped'``, a Stop landed before the
                 board began the home.
             HardwareCommandRefusedError: the Z park was refused before Z
-                moved (``'position_unread'``, ``'monitor_ended'``, or an
-                interlock reason); the turret keeps its state and slot.
+                moved (``'monitor_ended'``, or an interlock reason); the
+                turret keeps its state and slot. The park goes to the
+                bottom, where no backlash leg is taken, so it reads no
+                position to be refused for.
             MoveFaultError: the Z park or the Z restore failed. Before the
                 turret was driven, it keeps its state and slot; after, it is
                 UNKNOWN.
@@ -2476,8 +2478,9 @@ class MotionAPI:
             AxisStateUnknownError: An axis of the scope has no known
                 position (see ``_pre_drive``); nothing was driven.
             HardwareCommandRefusedError: ``'position_unread'``, a Z move
-                with overshoot whose position the board did not report;
-                nothing was driven.
+                whose backlash leg can fire, from a place no arrival
+                tells, whose position the board did not report; nothing
+                was driven.
             MoveFaultError: ``'driver_failed'``, the board did not
                 take the command;
                 ``'board_lost'``, the board is no longer connected.
@@ -2573,7 +2576,8 @@ class MotionAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'position_unread'``, a Z move
-                with overshoot whose position the board did not report;
+                whose backlash leg can fire, from a place no arrival
+                tells, whose position the board did not report;
                 the interlock's reason (``'lid_open_before_motion'``); ``'monitor_ended'``.
                 Nothing of this axis was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take the
@@ -2582,19 +2586,17 @@ class MotionAPI:
             None of these for a move to the target the axis holds, which
             reads and sends nothing.
         """
-        with self._axis_state_lock:
-            held = self._current_move.get(axis)
-            if not (
-                self._axis_state.get(axis) == AxisState.IDLE
-                and held is not None
-                and held.outcome == 'arrived'
-                and held.target == float(position)
-            ):
-                held = None
-        if held is not None:
+        arrived = self._arrived_move(axis)
+        if arrived is not None and arrived.target == float(position):
             _api_log.log(VERBOSE, f'{said}: held already, not driven')
-            return held.operation
-        leg = self._backlash_leg(axis, position, overshoot_enabled, member)
+            return arrived.operation
+        leg = self._backlash_leg(
+            axis,
+            position,
+            overshoot_enabled,
+            member,
+            arrived.target if arrived is not None else None,
+        )
         stop_generation = self._generation_asked()
         try:
             move, written = self._send_drive(
@@ -3212,7 +3214,8 @@ class MotionAPI:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller or no Z;
                 ``'position_unread'``, an approach from below whose start
-                the board did not report; ``'monitor_ended'``, the motion
+                no arrival of Z's last move tells and the board did not
+                report; ``'monitor_ended'``, the motion
                 monitor has ended, so nothing would judge the move. Nothing
                 was driven.
             PositionOutOfRangeError: ``'position_out_of_range'``, the target
@@ -3470,8 +3473,8 @@ class MotionAPI:
                 or the Z restore after it failed; the turret keeps its state
                 and slot when it was never driven, else it is UNKNOWN. A
                 park refused before Z moved is a ``HardwareCommandRefusedError``
-                (``'position_unread'``, ``'monitor_ended'``, or an interlock
-                reason), the turret as it was.
+                (``'monitor_ended'``, or an interlock reason), the turret as
+                it was.
             MoveStoppedError: for ``'T'``, a Stop ended the Z park or the Z
                 restore, the turret as for ``MoveFaultError``.
 
@@ -3870,38 +3873,70 @@ class MotionAPI:
                 ended.publish()
         return True
 
+    def _arrived_move(self, axis: str) -> _Move | None:
+        """``axis``'s current move while the axis is IDLE where it arrived, else None.
+
+        The open-loop board holds the target its arrived move wrote, so
+        until a STOP, a home, a fault or another move ends the arrival, the
+        move's target is where the axis is.
+        """
+        with self._axis_state_lock:
+            move = self._current_move.get(axis)
+            if (
+                self._axis_state.get(axis) == AxisState.IDLE
+                and move is not None
+                and move.outcome == 'arrived'
+                and move.target is not None
+            ):
+                return move
+        return None
+
     def _backlash_leg(
-        self, axis: str, position: float, overshoot_enabled: bool, member: str
+        self,
+        axis: str,
+        position: float,
+        overshoot_enabled: bool,
+        member: str,
+        arrived_at: float | None,
     ) -> float | None:
         """Where a move's backlash leg goes, or None when it has none.
 
         On a board with a backlash, a Z move down to a target clear of the
         bottom first drives to the backlash below it, so the backlash is always taken the same way.
-        Decided from the board's position, before the move disarms the
-        axis: a refusal here leaves the axis as it was. "Down" is compared
-        in microsteps, through the drive's own conversion of the target, so
-        a target that rounds to the microstep Z holds takes no leg: the
-        position read back in um lands a few nm either side of the float
-        asked for.
+        Whether the leg can fire at all is config, so Z's position is read
+        only when it can: from ``arrived_at``, the target of the move Z is
+        IDLE where it arrived (``_arrived_move``), else from the board.
+        Decided before the move disarms the axis: a refusal here leaves the
+        axis as it was. "Down" is compared in microsteps, through the
+        drive's own conversion of the target, so a target that rounds to
+        the microstep Z holds takes no leg: the position read back in um
+        lands a few nm either side of the float asked for.
+
+        A board that stopped answering is not found here when the
+        position comes from the arrival or no leg can fire; the move's
+        target write meets it instead (``MoveFaultError``).
 
         Raises:
-            HardwareCommandRefusedError: ``'position_unread'``, the board
-                did not report Z, so whether to approach from below is not
+            HardwareCommandRefusedError: ``'position_unread'``, the leg
+                can fire, no arrival tells where Z is, and the board did
+                not report Z, so whether to approach from below is not
                 known; nothing was driven.
         """
         if not (overshoot_enabled and axis == 'Z'):
             return None
-        try:
-            current_steps = self._driver.current_pos_steps('Z')
-        except HardwareError as e:
-            raise self._position_unread(member) from e
         backlash = self._driver.backlash_um()
-        # A board with no backlash has no approach leg.
-        if (
-            backlash > 0
-            and current_steps > self._driver.z_um2ustep(position)
-            and position > backlash + 50
-        ):
+        # A board with no backlash, or a target within it of the bottom,
+        # has no approach leg.
+        if backlash <= 0 or position <= backlash + 50:
+            return None
+        if arrived_at is not None:
+            current_steps = self._driver.z_um2ustep(arrived_at)
+        else:
+            try:
+                current_steps = self._driver.current_pos_steps('Z')
+            except HardwareError as e:
+                raise self._position_unread(member) from e
+        if current_steps > self._driver.z_um2ustep(position):
             return position - backlash
         return None
 

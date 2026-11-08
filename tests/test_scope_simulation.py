@@ -77,9 +77,9 @@ def _refused(call, *args, **kwargs) -> ArgumentRefusedError:
 
 
 def test_a_dropped_position_read_refuses_the_z_move_that_needed_it(scope):
-    """The backlash leg reads Z's position first; with no reply the move is
+    """With no arrival behind it (the home took Z), a leg that can fire is
+    decided from Z's position on the board; with no reply the move is
     refused before anything is written."""
-    scope.motion.move_z(3000.0)
     scope.simulation.drop_replies('motor', command='ACTUAL_RZ')
     with pytest.raises(HardwareCommandRefusedError) as refused:
         scope.motion.move_z(1000.0, overshoot_enabled=True)

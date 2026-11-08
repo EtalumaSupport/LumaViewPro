@@ -67,11 +67,12 @@ def test_after_a_reboot_the_api_no_longer_claims_to_know_the_stage(scope):
 
 # The first command on each motion path after a reboot, and how it ends: a
 # position read before anything drives is refused; a drive or a home that
-# meets the loss ends in its fault.
+# meets the loss ends in its fault. The turret's Z park goes to the bottom,
+# where no backlash leg can fire, so it reads nothing and drives.
 _FIRST_AFTER_A_REBOOT = {
     'move_z_by': (lambda m: m.move_z_by(10.0), HardwareCommandRefusedError, 'not_connected'),
     'move_xy': (lambda m: m.move_xy(x_um=5000.0), MoveFaultError, 'board_lost'),
-    'move_turret': (lambda m: m.move_turret(2), HardwareCommandRefusedError, 'not_connected'),
+    'move_turret': (lambda m: m.move_turret(2), MoveFaultError, 'board_lost'),
     'home': (lambda m: m.home(), HomingFaultError, 'board_lost'),
 }
 
@@ -141,8 +142,12 @@ def test_a_board_lost_while_every_axis_is_idle_reads_as_lost(model):
         motion = scope.motion
         motion.home()
         scope.simulation.unplug('motor')
-        with pytest.raises(HardwareCommandRefusedError):
-            motion.move_z(100.0)  # the exchange that finds the board gone
+        # The exchange that finds the board gone: a Z move to the bottom
+        # takes no backlash leg on any model, so it reads nothing and its
+        # target write meets the loss.
+        with pytest.raises(MoveFaultError) as lost:
+            motion.move_z(0.0)
+        assert lost.value.reason == 'board_lost'
         assert scope.motor_connected is False
 
         unknown = AxisPosition(AxisState.UNKNOWN, None)

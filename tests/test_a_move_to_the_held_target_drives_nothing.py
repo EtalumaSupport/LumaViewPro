@@ -11,13 +11,19 @@ STOP that ended a move, a home, a move elsewhere -- leaves the axis driven
 again.
 
 A Z move to a place decides its backlash leg in microsteps: a target a few
-nm off the one Z holds rounds to the same microstep and takes no leg.
+nm off the one Z holds rounds to the same microstep and takes no leg. It
+reads Z's position only when the leg can fire, and from the arrival when Z
+is IDLE where its last move arrived; the board is asked only when Z's place
+is not known that way. Each read is a board exchange before the move drives,
+about 27 ms on hardware, on every Z move of a protocol run.
 
 Observed on the simulated LS850's board (it has a backlash) through the
 commands it is sent and ``FrameValidity.invalidation_counts``.
 """
 
 from __future__ import annotations
+
+import threading
 
 import pytest
 
@@ -45,6 +51,24 @@ def _wire(driver) -> list[str]:
 
     def recorded(command, *args, **kwargs):
         sent.append(command)
+        return real(command, *args, **kwargs)
+
+    driver.exchange_command = recorded
+    return sent
+
+
+def _wire_but_the_monitor(driver) -> list[str]:
+    """Record the commands sent to the simulated board, in order, but the motion monitor's.
+
+    The monitor polls positions on its own thread while an axis moves;
+    only the move's own reads decide its backlash leg.
+    """
+    sent: list[str] = []
+    real = driver.exchange_command
+
+    def recorded(command, *args, **kwargs):
+        if threading.current_thread().name != 'motion-monitor':
+            sent.append(command)
         return real(command, *args, **kwargs)
 
     driver.exchange_command = recorded
@@ -129,3 +153,35 @@ def test_a_z_move_to_the_microstep_z_holds_takes_no_backlash_leg(scope):
     motion.move_z(nearby)
 
     assert _targets(sent, 'Z') == [f'TARGET_WZ{held_steps}']
+
+
+def test_a_z_move_down_from_an_arrival_takes_its_leg_without_reading_z(scope):
+    motion = scope.motion
+    driver = scope._motion_driver
+    backlash = driver.backlash_um()
+    assert backlash > 0, 'the board has no backlash, so no move has a leg'
+    motion.move_z(3 * _Z_UM, overshoot_enabled=True)
+    sent = _wire_but_the_monitor(driver)
+
+    motion.move_z(_Z_UM, overshoot_enabled=True)
+
+    assert 'ACTUAL_RZ' not in sent
+    assert _targets(sent, 'Z') == [
+        f'TARGET_WZ{driver.z_um2ustep(_Z_UM - backlash)}',
+        f'TARGET_WZ{driver.z_um2ustep(_Z_UM)}',
+    ]
+
+
+def test_a_z_move_whose_leg_cannot_fire_reads_no_z_position(scope):
+    """A target within the backlash of the bottom takes no leg wherever Z is,
+    so nothing is read to decide it, even with Z's place not known from an
+    arrival (the home took it)."""
+    motion = scope.motion
+    driver = scope._motion_driver
+    near_the_bottom = driver.backlash_um() + 50
+    sent = _wire_but_the_monitor(driver)
+
+    motion.move_z(near_the_bottom, overshoot_enabled=True)
+
+    assert 'ACTUAL_RZ' not in sent
+    assert _targets(sent, 'Z') == [f'TARGET_WZ{driver.z_um2ustep(near_the_bottom)}']

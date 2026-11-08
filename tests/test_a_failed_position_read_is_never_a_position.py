@@ -40,10 +40,10 @@ def test_a_failed_read_raises(scope, read):
 
 def test_a_z_move_whose_position_cannot_be_read_is_refused_with_nothing_written(scope):
     """Row 7: one failed ACTUAL_R skipped the backlash leg and the move
-    reported arrived, approaching from the wrong side."""
+    reported arrived, approaching from the wrong side. Z holds no arrival
+    after the home, so the leg is decided from the board's position."""
     motion = scope.motion
     driver = scope._motion_driver
-    motion.move_z(3000.0)
     sent = []
     real = driver.exchange_command
 

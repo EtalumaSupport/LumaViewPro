@@ -7321,7 +7321,7 @@ answering; either ends it in `HomingFaultError`.
 - `HomingFaultError`: the home was driven and did not establish a reference: `'error'`, the driver raised; `'board_lost'`, the motor board is no longer connected; `'unread'`, a homed axis's position could not be read; `'lid_open'` or `'stage_unpowered'`, an interlock opened while the home moved. The axes it names are UNKNOWN.
 - `HomingStoppedError`: a Stop ended the home. The axes it names are UNKNOWN; none, when the Stop landed before the home was driven.
 - `AxisStateUnknownError`: for `'T'`, an axis of the scope has no known position; nothing was driven. `'ALL'` recovers it.
-- `MoveFaultError`: for `'T'`, the Z park before the turret's home or the Z restore after it failed; the turret keeps its state and slot when it was never driven, else it is UNKNOWN. A park refused before Z moved is a `HardwareCommandRefusedError` (`'position_unread'`, `'monitor_ended'`, or an interlock reason), the turret as it was.
+- `MoveFaultError`: for `'T'`, the Z park before the turret's home or the Z restore after it failed; the turret keeps its state and slot when it was never driven, else it is UNKNOWN. A park refused before Z moved is a `HardwareCommandRefusedError` (`'monitor_ended'`, or an interlock reason), the turret as it was.
 - `MoveStoppedError`: for `'T'`, a Stop ended the Z park or the Z restore, the turret as for `MoveFaultError`.
 
 While it runs, the home holds the session's activity claim as a run
@@ -7334,7 +7334,7 @@ as that activity's work and takes no claim of its own.
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `lid_open_before_motion`, `home_in_flight`; [`HomingStoppedError`](#HomingStoppedError): `stopped`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
-- 500: [`HomingFaultError`](#HomingFaultError): `error`, `board_lost`, `unread`, `lid_open`, `stage_unpowered`; [`MoveFaultError`](#MoveFaultError): `position_unread`, `monitor_ended`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`HomingFaultError`](#HomingFaultError): `error`, `board_lost`, `unread`, `lid_open`, `stage_unpowered`; [`MoveFaultError`](#MoveFaultError): `monitor_ended`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="MotionAPI.interlocks"></a>
@@ -8074,7 +8074,7 @@ The move's `Operation`. It is done once Z has been set at rest, or given up, and
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'`, the position is not a finite number. Nothing was driven.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no Z; `'position_unread'`, an approach from below whose start the board did not report; `'monitor_ended'`, the motion monitor has ended, so nothing would judge the move. Nothing was driven.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no Z; `'position_unread'`, an approach from below whose start no arrival of Z's last move tells and the board did not report; `'monitor_ended'`, the motion monitor has ended, so nothing would judge the move. Nothing was driven.
 - `PositionOutOfRangeError`: `'position_out_of_range'`, the target is outside Z's configured travel and `ignore_limits` is False. Nothing was driven.
 - `AxisStateUnknownError`: Z does not know its position. Nothing was driven.
 - `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected.
