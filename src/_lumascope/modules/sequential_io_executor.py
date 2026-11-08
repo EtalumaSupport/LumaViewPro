@@ -203,6 +203,12 @@ def ask_now() -> int:
     return next(_ask_order)
 
 
+def current_ask() -> int:
+    """The ask the calling thread's work is made at: the task it runs, else now."""
+    running = getattr(_asking, 'ask', None)
+    return running if running is not None else ask_now()
+
+
 def asked_before(mark: int) -> bool:
     """Whether the task this thread runs was asked before ``mark``.
 
@@ -869,8 +875,7 @@ class SequentialIOExecutor:
         task.set_name(self.executor_name)
         task.fate = None
         task.taking = current_taking()
-        running = getattr(_asking, 'ask', None)
-        task.asked = running if running is not None else ask_now()
+        task.asked = current_ask()
         task.override = override is not None and override is self._override_key
 
     def _refused_at_submit(self, task: IOTask, refusal, return_future: bool, waiter=None):

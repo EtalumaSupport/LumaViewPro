@@ -7,9 +7,16 @@ person pressed STOP or the run's Stop, and putting Z back is a move made
 after they did (Eric, 2026-10-18: leave Z where it stopped). The run's
 cleanup aborts the sweep with ``stay_put`` for those endings; any other
 abort, a fault's included, still restores.
+
+A press of STOP also withholds every Z move the sweep asks after it: the
+sweep runs under its run's ask, so a move it asks before the run's cleanup
+has aborted it is asked before the press too. Before, the sweep's thread
+asked each move as it made it, and one made after the press drove.
 """
 
 from __future__ import annotations
+
+import threading
 
 import pytest
 
@@ -67,7 +74,7 @@ def test_an_autofocus_run_stopped_mid_sweep_leaves_z_where_it_stopped(
     )
 
 
-def test_an_autofocus_run_a_fault_ends_mid_sweep_puts_z_back(session, z_asked):
+def test_an_autofocus_run_a_fault_ends_mid_sweep_puts_z_back(session, z_asked, centre_posts):
     run = start_an_autofocus_held_mid_sweep(session)
     held_at = len(z_asked)
 
@@ -76,3 +83,45 @@ def test_an_autofocus_run_a_fault_ends_mid_sweep_puts_z_back(session, z_asked):
 
     assert (outcome.status, outcome.reason) == ('failed', 'camera_failure')
     assert ('move_z', 5000.0) in z_asked[held_at:], f'Z asked {z_asked}'
+    # Asked is not arrived: a put-back the run's halt withheld is asked too.
+    assert session.scope.motion.get_current_position('Z') == pytest.approx(5000.0, abs=0.5)
+    assert 'Z Position Not Restored' not in [n.title for n in centre_posts]
+
+
+# Far past a slowed host, short enough that a sweep that never asks fails promptly.
+_SWEEP_WAIT_S = 30.0
+
+
+def test_a_sweep_move_asked_after_a_stop_press_drives_nothing(session, monkeypatch):
+    """The sweep's next Z move, asked after the press and before the sweep is aborted, is withheld."""
+    motion = session.scope.motion
+    run = start_an_autofocus_held_mid_sweep(session)
+    real_start_move_z = motion.start_move_z
+    asked = threading.Event()
+    go_on = threading.Event()
+
+    # A seam by design: the sweep's next move waits here, before the real
+    # call, until the press has been made and the sweep aborted, so the move
+    # is asked in the window every time rather than when scheduling allows.
+    def held_until_pressed(position, *args, **kwargs):
+        if not asked.is_set():
+            asked.set()
+            assert go_on.wait(_SWEEP_WAIT_S)
+        return real_start_move_z(position, *args, **kwargs)
+
+    monkeypatch.setattr(motion, 'start_move_z', held_until_pressed)
+    session.scope.simulation.clear()
+    assert asked.wait(_SWEEP_WAIT_S), 'the sweep never asked its next Z move'
+    z_at_press = motion.get_current_position('Z')
+
+    motion.stop_motion()
+    assert session.autofocus_thread.aborted.wait(_SWEEP_WAIT_S), (
+        "the run's end never aborted the sweep"
+    )
+    go_on.set()
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+
+    assert (outcome.status, outcome.reason) == ('aborted', 'stage_stopped')
+    assert motion.get_current_position('Z') == pytest.approx(z_at_press, abs=0.5), (
+        'a sweep move asked after the STOP drove'
+    )

@@ -40,6 +40,7 @@ from typing import Any
 
 from _lumascope.lib.lumascope_error import LumascopeError
 from _lumascope.modules.activity_claim import RunIdentity, acting, current_taking, the_run_named
+from _lumascope.modules.sequential_io_executor import asked_at, current_ask
 
 logger = logging.getLogger('LVP.modules.autofocus_thread')
 
@@ -189,9 +190,13 @@ class AutofocusThread:
             self._aborted.clear()
             self._stay_put.clear()
         # The sweep's moves, LED and camera writes are its caller's -- the run
-        # that dispatched it -- so this thread acts under the caller's taking.
+        # that dispatched it -- so this thread acts under the caller's taking,
+        # and asks them when the caller asked its work: a press of STOP after
+        # that withholds every move the sweep makes, as it does the run's.
         try:
-            self._request_queue.put_nowait((request_kwargs, future, current_taking()))
+            self._request_queue.put_nowait(
+                (request_kwargs, future, current_taking(), current_ask())
+            )
         except queue.Full:
             # Queue full despite the state lock guard above; should not
             # happen but degrade gracefully by failing the new Future.
@@ -264,9 +269,9 @@ class AutofocusThread:
             if req is _SHUTDOWN_SENTINEL:
                 return
 
-            kwargs, future, taking = req
+            kwargs, future, taking, ask = req
             try:
-                with acting(taking):
+                with acting(taking), asked_at(ask):
                     result = self._afe.run(
                         **kwargs, abort_event=self._aborted, stay_put=self._stay_put
                     )
