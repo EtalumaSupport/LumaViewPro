@@ -42,18 +42,21 @@ distance is in millimeters. X runs across the plate, along a row; Y runs
 down it, along a column.
 
 - **The name**, before the colon, is the name shown in the labware list.
-  Each name must be different.
+  Each name must be different, so change the name of an entry you copied.
+  Two old names, `Center Dish` and `384 well Corning Spheroid Microplate`,
+  cannot be used: LumaViewPro reads them as Center Plate and 384 well
+  microplate.
 - **standard**: the standard the plate is made to, for example
   `"ANSI SLAS 2004"`, or `""` for none. It is recorded in each image's file.
-- **diameter**: the diameter of a well. The plate map draws each well this
-  size. `-1` draws each well filling its spacing: as wide as the X spacing
-  and as tall as the Y spacing.
+- **diameter**: the diameter of a well, above 0. The plate map draws each
+  well this size. `-1` draws each well filling its spacing: as wide as the
+  X spacing and as tall as the Y spacing.
 - **columns** and **rows**: how many wells there are across and down,
-  each a whole number.
-- **dimensions**: the plate's outside width (`x`) and height (`y`).
-  LumaViewPro does not use `z`.
+  each a whole number, 0 or more.
+- **dimensions**: the plate's outside width (`x`) and height (`y`), each
+  above 0. LumaViewPro does not use `z`.
 - **spacing**: the distance from one well's center to the next, across
-  (`x`) and down (`y`). The two can differ.
+  (`x`) and down (`y`), each above 0. The two can differ.
 - **offset**: the center of the first well, A1, measured from the plate's
   top-left corner. With the stage at the center of A1, these are the X and
   Y shown in [XY Stage Control]{.guilabel} (@sec-xy-stage).
@@ -66,11 +69,12 @@ overlap.
 LumaViewPro reads `labware.json` when it starts, so restart it after saving
 the file. The new labware is then in the labware list.
 
-If LumaViewPro cannot read the file, because a value is missing or not a
-number, or a comma or brace is out of place, it does not start. The reason
-is the last line of `lumaviewpro_errors.log`, in the `logs\LVP_Log` folder
-beside `data`, for example
+If LumaViewPro cannot use the file, it does not start. This happens when a
+value is missing, is not a number or is outside the range given above,
+when two entries have the same name, or when a comma or brace is out of
+place. The reason is the last line of `lumaviewpro_errors.log`, in the
+`logs\LVP_Log` folder beside `data`, for example
 `Documents\LumaViewPro 4.0.0\logs\LVP_Log\lumaviewpro_errors.log`. It
-names the plate and the value LumaViewPro could not read, or the line and
-column where the file stops making sense. Put your saved copy back as
+names the plate and the value LumaViewPro could not use, the name given
+twice, or the line and column where the file stops making sense. Put your saved copy back as
 `labware.json`, start LumaViewPro, and make the change again.
