@@ -211,6 +211,83 @@ def _wire_timing(sim_tier: str) -> str:
     return 'realistic' if sim_tier == 'realistic' else 'instant'
 
 
+def _refuse_an_unbootable_unit_config(
+    unit_config: object, sim_tier: str, motor_board: MotorBoardFamily | None
+) -> None:
+    """Refuse a unit's motorconfig.json the simulated motor firmware cannot
+    boot, before anything is started.
+
+    Only the firmware runs one: the fast tier's board answers a fixed config,
+    and a model with no EL-0940 motor board has no firmware of Etaluma's to
+    boot it. The keys checked are the ones the simulator itself boots the
+    board by; the rest of the file is the firmware's and bring-up's to read,
+    as on a bench.
+
+    Raises:
+        ArgumentRefusedError: ``'needs_simulated_firmware'``,
+            ``'missing_key'``, ``'wrong_kind'`` or ``'not_offered'``.
+    """
+    from _lumascope.drivers.sim_wire.backend import (
+        AXES,
+        DEFAULT_DIALECT,
+        register_tables,
+        runtime_missing,
+    )
+
+    argument = 'sim_unit_config'
+    if motor_board != MotorBoardFamily.EL_0940:
+        board = (
+            'a simulated scope with no motor board'
+            if motor_board is None
+            else f'the simulated {motor_board}'
+        )
+        raise ArgumentRefusedError(
+            'needs_simulated_firmware', argument=argument, value=unit_config, board=board
+        )
+    if sim_tier == 'fast':
+        # The session runs the fast tier where this machine has no runtime
+        # for the firmware tiers, so the words say so when it has none.
+        board = 'the fast simulated motor board'
+        missing = runtime_missing(DEFAULT_DIALECT)
+        if missing is not None:
+            board += f'; this machine has no MicroPython runtime for the others ({missing})'
+        raise ArgumentRefusedError(
+            'needs_simulated_firmware', argument=argument, value=unit_config, board=board
+        )
+    if not isinstance(unit_config, Mapping):
+        raise ArgumentRefusedError(
+            'wrong_kind', argument=argument, value=unit_config, takes='a motorconfig.json mapping'
+        )
+    for key, kind, takes in (
+        ('Microscope', str, 'the model name the board reports'),
+        ('Axis Present', Mapping, 'a mapping of axis to whether it is present'),
+        ('IniFiles', Mapping, 'a mapping of axis pair to register table file'),
+    ):
+        if key not in unit_config:
+            raise ArgumentRefusedError('missing_key', argument=f'{argument}[{key!r}]', value=None)
+        if not isinstance(unit_config[key], kind):
+            raise ArgumentRefusedError(
+                'wrong_kind', argument=f'{argument}[{key!r}]', value=unit_config[key], takes=takes
+            )
+    present = {axis for axis, flag in unit_config['Axis Present'].items() if flag}
+    if not present or not present <= set(AXES):
+        raise ArgumentRefusedError(
+            'wrong_kind',
+            argument=f'{argument}[{"Axis Present"!r}]',
+            value=unit_config['Axis Present'],
+            takes=f'a mapping marking at least one of {", ".join(AXES)} present, and no other',
+        )
+    tables = register_tables(DEFAULT_DIALECT)
+    for table in unit_config['IniFiles'].values():
+        if table not in tables:
+            raise ArgumentRefusedError(
+                'not_offered',
+                argument=f'{argument}[{"IniFiles"!r}]',
+                value=table,
+                offered=tuple(sorted(tables)),
+            )
+
+
 # PRE-RELEASE warning bundle: this is the runtime FutureWarning
 # piece. The other two are the README banner and the
 # lumascope-skills.md preface. All three retire together in one
@@ -583,11 +660,16 @@ class Lumascope:
         motor_board: MotorBoardFamily | None,
         sim_tier: str,
         motorconfig_defaults: dict,
+        unit_config: Mapping[str, object] | None,
     ) -> tuple[MotorBoardProtocol, object | None]:
         """The simulated scope's motor board, on the tier asked for, and
         the simulated board behind it that presents its faults: the driver
         itself on the fast tier, the board under the production driver
         otherwise, None for the null driver.
+
+        A ``unit_config`` (refused before this on every board but the
+        firmware tiers' EL-0940) is booted in place of the model's own
+        board, so the board's name and axes are the unit's.
 
         ``axes`` and ``motor_board`` are the ones the catalogue gives the
         model: a model that names no motor board has none, so it gets the
@@ -640,13 +722,20 @@ class Lumascope:
             return board, board
         from _lumascope.drivers.sim_wire.backend import MotorBoardSpec, SimWireBackend
 
-        backend = SimWireBackend(MotorBoardSpec(model, axes, timing=_wire_timing(sim_tier)))
+        timing = _wire_timing(sim_tier)
+        spec = (
+            MotorBoardSpec(model, axes, timing=timing)
+            if unit_config is None
+            else MotorBoardSpec.for_unit(unit_config, timing=timing)
+        )
+        backend = SimWireBackend(spec)
         board = motor_registry.create(
             'rp2040', backend=backend, motorconfig_defaults=motorconfig_defaults
         )
         logger.info(
             f'[SCOPE API ] Using the motor FIRMWARE in simulation '
-            f'(model={model}, axes={"".join(sorted(axes))})'
+            f'(model={spec.model}, axes={"".join(sorted(spec.axes))}'
+            f'{", a unit config" if unit_config is not None else ""})'
         )
         return board, backend.motor_board
 
@@ -719,6 +808,7 @@ class Lumascope:
         sim_focal_spread_um: float = 0.0,
         sim_camera_present: bool = True,
         sim_slide: Slide = Slide.CELLS,
+        sim_unit_config: Mapping[str, object] | None = None,
         on_progress: ProgressCallback | None = None,
     ):
         """Initialize Microscope.
@@ -811,6 +901,13 @@ class Lumascope:
                 stage whether or not a camera is there, so with
                 ``sim_camera_present`` False it is accepted and nothing images
                 it. Refused on real hardware.
+            sim_unit_config: A unit's own motorconfig.json, which the
+                simulated motor firmware boots in place of the model's own
+                board, so the scope comes up under the unit's name, on its
+                axes, with its optics and scale; the model still picks the
+                LED board and the camera. Only the simulated motor firmware
+                runs it, so it is refused on real hardware, on the
+                ``'fast'`` tier and on a model with no EL-0940 motor board.
             on_progress: Called before each part is connected, with the
                 share of bring-up's steps already done and the step's words
                 (``bring_up.STEPS``), on this thread; a raise from it is a
@@ -821,7 +918,14 @@ class Lumascope:
                 argument given for a real scope; ``'needs_simulated_camera'``,
                 ``sim_camera_stall`` or a ``sim_focal_spread_um`` given for a
                 scope whose camera is not the simulated camera, or with
-                ``sim_camera_present`` False, a camera that is not there.
+                ``sim_camera_present`` False, a camera that is not there;
+                ``'needs_simulated_firmware'``, ``sim_unit_config`` for a
+                scope whose motor board is not the simulated motor firmware;
+                ``'missing_key'`` or ``'wrong_kind'``, a ``sim_unit_config``
+                without the ``Microscope``, ``Axis Present`` or ``IniFiles``
+                the simulator boots it by, or marking no axis present;
+                ``'not_offered'``, a register table its ``IniFiles`` names
+                that the simulated firmware does not carry.
             ScopeInUseError: ``'scope_in_use'``, a real scope asked for while
                 another LumaViewPro, REST server or script drives the
                 microscope, or while another real scope in this process is
@@ -832,6 +936,7 @@ class Lumascope:
             ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
             ('sim_camera_present', sim_camera_present, not sim_camera_present),
             ('sim_slide', sim_slide, sim_slide != Slide.CELLS),
+            ('sim_unit_config', sim_unit_config, sim_unit_config is not None),
         ):
             if given and not simulate:
                 raise ArgumentRefusedError('needs_simulated_scope', argument=argument, value=value)
@@ -866,6 +971,8 @@ class Lumascope:
                         raise ArgumentRefusedError(
                             'needs_simulated_camera', argument=argument, value=value
                         )
+            if sim_unit_config is not None:
+                _refuse_an_unbootable_unit_config(sim_unit_config, sim_tier, sim_motor_board)
         else:
             # Whether the selected model is a manual scope, so a probe that
             # finds no motor board says so as expected rather than warning
@@ -908,7 +1015,7 @@ class Lumascope:
         if simulate:
             self._motion_driver: MotorBoardProtocol
             self._motion_driver, simulated_motor = self._build_simulated_motor_board(
-                model, sim_axes, sim_motor_board, sim_tier, motorconfig_defaults
+                model, sim_axes, sim_motor_board, sim_tier, motorconfig_defaults, sim_unit_config
             )
             # A simulated manual scope gets the null board, as the bench
             # finds none: not up, and not missing once the model says so.

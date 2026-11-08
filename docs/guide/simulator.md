@@ -104,6 +104,11 @@ what a test sees. The simulated scope is one record,
 scope as another model than the settings declare, `camera_present=False` brings
 it up with no camera, `slide` puts a Ronchi ruling on the stage in place of the
 cells, `camera_stall` stops the camera's frames for a while, and `file_stall`
-holds the save drive. `python -m lumascope.rest` takes only `--simulate`, so
+holds the save drive. `unit_config` takes a unit's own `motorconfig.json`, an
+OEM unit's included, and brings the scope up as that unit: under the name its
+board reports, on the axes the file marks present, with its optics and
+travel. The simulated motor firmware boots the file, so it runs on the
+`firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor
+board, and is refused anywhere else. `python -m lumascope.rest` takes only `--simulate`, so
 a REST client has none of them; over REST the faults are at
 `/api/v1/scope/simulation/<member>`.

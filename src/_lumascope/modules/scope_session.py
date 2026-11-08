@@ -1707,6 +1707,17 @@ class ScopeSession:
                 answer the camera's write does not give. ``'wrong_kind'``, a block of
                 ``settings`` that is not the kind the shipped template holds
                 (``argument`` names it).
+                ``'needs_simulated_firmware'``, the record's ``unit_config``
+                for a scope whose motor board is not the simulated motor
+                firmware: the ``fast`` simulator tier (chosen, or run where
+                this machine has no MicroPython runtime, which the words
+                then say), or a model with no EL-0940 motor board;
+                ``'missing_key'`` or ``'wrong_kind'``, a ``unit_config``
+                without the ``Microscope``, ``Axis Present`` or ``IniFiles``
+                the simulator boots it by, or one marking no axis present;
+                ``'not_offered'``, a register table its ``IniFiles`` names
+                that the simulated firmware does not carry (``argument``
+                names the scope's ``sim_unit_config`` throughout).
             SettingRefusedError: ``'wrong_kind'`` or ``'out_of_range'``, a
                 value in ``settings`` the writer refuses: a dict handed to a
                 session is a write of every key at once, held to the same
@@ -1807,6 +1818,7 @@ class ScopeSession:
                 sim_focal_spread_um=simulated.focal_spread_um,
                 sim_camera_present=simulated.camera_present,
                 sim_slide=simulated.slide,
+                sim_unit_config=simulated.unit_config,
                 on_progress=on_progress,
             )
             # Armed before the bring-up below, which is what they are for.

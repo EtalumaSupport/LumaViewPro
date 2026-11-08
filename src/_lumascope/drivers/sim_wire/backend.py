@@ -15,10 +15,12 @@ finds nothing, as on a manual scope; a scope whose LEDs are not on an LED
 board of their own has no LED board here either.
 """
 
+import copy
 import json
 import pathlib
 import platform
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from serial.serialutil import SerialException
@@ -124,6 +126,21 @@ def runtime_missing(dialect: str) -> str | None:
     return None
 
 
+def _register_table_dir(dialect: str) -> pathlib.Path:
+    """Where a dialect's boards' register tables are: a 3.0 board has the
+    ones LumaViewPro ships; a field board has its own, because the field
+    parser reads the comments in the current ones as registers and fails."""
+    if dialect == 'field':
+        return _PACKAGE / 'firmware' / 'field-ini'
+    return build_root() / 'data' / 'firmware'
+
+
+def register_tables(dialect: str) -> frozenset[str]:
+    """The register tables a dialect's simulated board can boot, by file name:
+    a unit config's ``IniFiles`` must name only these."""
+    return frozenset(path.name for path in _register_table_dir(dialect).glob('*.ini'))
+
+
 def _module_path(timing: str) -> tuple[str, ...]:
     """Where a board's firmware finds the simulated hardware modules, which
     shadow the runtime's own, with the timing's clock shadowing `time` ahead
@@ -147,13 +164,24 @@ class MotorBoardSpec:
     oracle: bool = False
     fclk_hz: float = FCLK_HZ
     start_usteps: tuple[tuple[str, int], ...] = tuple(START_USTEPS.items())
-    # A real unit's own motorconfig.json, as its CONFIG command answers it.
-    # None boots the bring-up template with the model and axes set on it; a
+    # A real unit's own motorconfig.json, as its CONFIG command answers it,
+    # given through `for_unit`, which takes the model and axes from it. None
+    # boots the bring-up template with the model and axes set on it; a
     # unit's config is booted exactly as it is, so a simulated board has that
-    # unit's scale, offsets and turret positions. The register tables it names
-    # still come from the dialect's own set, so a table the set lacks fails
-    # the image build by name.
+    # unit's name, axes, scale, offsets and turret positions. The register
+    # tables it names still come from the dialect's own set
+    # (`register_tables`), so a table the set lacks fails the image build by
+    # name.
     unit_config: dict | None = None
+
+    @classmethod
+    def for_unit(cls, unit_config: Mapping, **spec) -> 'MotorBoardSpec':
+        """The board of the unit whose motorconfig.json is ``unit_config``: its
+        model is the config's ``Microscope`` and its axes the ones the config's
+        ``Axis Present`` marks, so the config is the one statement of both."""
+        config = copy.deepcopy(dict(unit_config))
+        axes = frozenset(axis for axis, present in config['Axis Present'].items() if present)
+        return cls(config['Microscope'], axes, unit_config=config, **spec)
 
     def __post_init__(self):
         if not self.axes:
@@ -186,12 +214,7 @@ class MotorBoardSpec:
 
     def image(self) -> BoardImage:
         config = self.motorconfig()
-        # The register tables each dialect's boards carry: a 3.0 board has the
-        # ones LumaViewPro ships; a field board has its own, because the field
-        # parser reads the comments in the current ones as registers and fails.
-        ini_dir = build_root() / 'data' / 'firmware'
-        if self.dialect == 'field':
-            ini_dir = _PACKAGE / 'firmware' / 'field-ini'
+        ini_dir = _register_table_dir(self.dialect)
         files = {name: (ini_dir / name).read_bytes() for name in config['IniFiles'].values()}
         files['motorconfig.json'] = json.dumps(config).encode()
         files['sim_board.json'] = json.dumps(

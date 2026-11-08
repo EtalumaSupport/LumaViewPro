@@ -35,13 +35,13 @@ marker goes with the fix.
 """
 
 import ast
-import functools
 import subprocess
 
 import pytest
 
 import _lumascope.drivers.sim_wire.backend as sim_backend
 
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.sim_wire_bench import (
@@ -119,21 +119,12 @@ def _replayed(simulator_tier: str) -> dict:
     bench-fitted ramp, ``'firmware'`` at once. The unit is this bench's,
     booted on the field firmware with its own config.
     """
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(
-            sim_backend,
-            'MotorBoardSpec',
-            functools.partial(
-                sim_backend.MotorBoardSpec,
-                dialect='field',
-                unit_config=_UNIT_CONFIG,
-            ),
-        )
-        session = ScopeSession.create(
-            complete_settings(simulator_tier=simulator_tier, microscope=BENCH['unit']['model']),
-            simulate=True,
-            warn_pre_release=False,
-        )
+    session = ScopeSession.create(
+        complete_settings(simulator_tier=simulator_tier, microscope=BENCH['unit']['model']),
+        simulate=True,
+        simulated=SimulatedScope(unit_config=_UNIT_CONFIG),
+        warn_pre_release=False,
+    )
     return replay(session)
 
 
@@ -262,8 +253,9 @@ def test_durations_fall_within_the_bench(replayed_on_the_firmware, group):
     )
 
 
-def test_a_unit_config_is_booted_exactly_as_it_is():
-    spec = sim_backend.MotorBoardSpec('LS850T', frozenset('XYZT'), unit_config=_UNIT_CONFIG)
+def test_a_unit_config_is_booted_exactly_as_it_is_on_its_own_model_and_axes():
+    spec = sim_backend.MotorBoardSpec.for_unit(_UNIT_CONFIG)
+    assert (spec.model, spec.axes) == ('LS850T', frozenset('XYZT'))
     assert spec.motorconfig() == _UNIT_CONFIG
 
 

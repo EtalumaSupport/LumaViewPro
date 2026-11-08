@@ -4256,6 +4256,11 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'needs_simulated_camera'`` -- an argument that exists only
               on the simulated camera, given for a model simulated with
               an FX2.
+            - ``'needs_simulated_firmware'`` -- an argument that exists only
+              on the simulated motor firmware (the ``firmware`` and
+              ``realistic`` simulator tiers, on a model with an EL-0940
+              motor board), given for a simulated scope whose motor board,
+              named in ``board``, does not run it.
             - ``'exposure_not_recorded'`` -- a frame the simulated camera
               holds no exposure record for: one it did not deliver, or one
               older than the records it keeps.
@@ -4301,8 +4306,8 @@ class ArgumentRefusedError(Refusal, ValueError):
             ``'wrong_kind'``, ``'fault_bound'`` and
             ``'argument_not_on_board'``; None otherwise.
         board: The simulated board, in words, for
-            ``'not_injectable_on_board'`` and ``'argument_not_on_board'``;
-            None otherwise.
+            ``'not_injectable_on_board'``, ``'argument_not_on_board'`` and
+            ``'needs_simulated_firmware'``; None otherwise.
         plate: The name of the plate looked on, for ``'well_unknown'``;
             None otherwise.
         member: The member to read instead, for ``'has_member'``; None
@@ -4394,6 +4399,10 @@ class ArgumentRefusedError(Refusal, ValueError):
         'needs_simulated_camera': (
             'Needs the Simulated Camera',
             '{argument} needs the simulated camera; this model is simulated with an FX2.',
+        ),
+        'needs_simulated_firmware': (
+            'Needs the Simulated Motor Firmware',
+            '{argument} runs only on the simulated motor firmware, which {board} does not run.',
         ),
         'exposure_not_recorded': (
             'No Exposure Record',

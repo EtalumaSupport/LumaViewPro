@@ -57,6 +57,7 @@ _JSON_PARSERS = {
     ('src/_lumascope/drivers/motorboard.py', 'MotorBoard.get_config'): (
         "the board's reported config"
     ),
+    ('lumaviewpro.py', '<module>'): "a unit's motorconfig.json, for the simulated scope",
     ('src/_lumascope/drivers/sim_wire/backend.py', 'MotorBoardSpec.motorconfig'): (
         "the simulated board's own config"
     ),

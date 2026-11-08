@@ -720,7 +720,7 @@ def test_a_simulated_row_naming_the_6110_gets_the_driver_on_the_simulated_board(
     from _lumascope.modules.lumascope_api._lumascope import Lumascope
 
     board, simulated = Lumascope._build_simulated_motor_board(
-        'LS720', frozenset('XYZ'), 'TMCM-6110', tier, SHIPPED_MOTOR_DEFAULTS
+        'LS720', frozenset('XYZ'), 'TMCM-6110', tier, SHIPPED_MOTOR_DEFAULTS, None
     )
     assert isinstance(board, Tmcm6110Board)
     assert isinstance(simulated, SimulatedTmcm6110)

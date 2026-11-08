@@ -1021,6 +1021,7 @@ OPEN_STRINGS: dict[str, str] = {
     'ShownChannel.channel field': _CHANNEL,
     'SimulatedModelAnswer.model field': _MODEL,
     'SimulatedScope.model field': _MODEL,
+    'SimulatedScope.unit_config field': _BOARD,
     'SimulationAPI.answer_model parameter model': _MODEL,
     'SimulationAPI.bind_camera_usb_driver parameter hardware_id': _OS,
     'SimulationAPI.bind_camera_usb_driver parameter service': _OS,

@@ -26,7 +26,7 @@ from __future__ import annotations
 import concurrent.futures
 import dataclasses
 import enum
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
 from _lumascope.drivers.sim_wire.port import EmulatedBoard
@@ -160,6 +160,10 @@ class SimulatedCameraWriteRefusal:
     count: int = 1
 
 
+# A value in a unit's motorconfig.json, as its board's CONFIG answers it.
+type BoardConfigValue = str | int | float | bool | list | dict | None
+
+
 @api_fields(
     'model',
     'model_answer',
@@ -170,6 +174,7 @@ class SimulatedCameraWriteRefusal:
     'file_stall',
     'camera_present',
     'slide',
+    'unit_config',
 )
 @dataclasses.dataclass(frozen=True)
 class SimulatedScope:
@@ -185,7 +190,8 @@ class SimulatedScope:
         model: The model the simulated scope is, when it is not the one the
             settings declare: a stored file that disagrees with the scope
             attached, which bring-up settles by the scope's answer. None is
-            the declared model.
+            the declared model. With a ``unit_config`` it picks the LED
+            board and the camera only; the motor board is the unit's.
         model_answer: The model the simulated motor board names as its own
             at bring-up, whatever it was built as (``answer_model``), until
             the scope's faults are cleared; the fast motor board's alone.
@@ -219,6 +225,16 @@ class SimulatedScope:
             the session: the cell specimen, or a Ronchi ruling, the target
             the bench measures a camera's move count on. Either simulated
             camera takes it. The cell specimen is the default.
+        unit_config: A unit's own motorconfig.json, as its board's CONFIG
+            answers it, which the simulated motor firmware boots: the scope
+            comes up as that unit does, under the name its board reports,
+            on the axes the config marks present, with its optics, scale
+            and turret positions, and the channels bring-up resolves for
+            it (an OEM unit's own name has the stock optics module's,
+            unless the config carries a ``Channels`` block). Only the
+            simulated motor firmware runs it: the ``firmware`` and
+            ``realistic`` simulator tiers, on a model with an EL-0940 motor
+            board. None boots the model's own board.
     """
 
     model: str | None = None
@@ -230,6 +246,7 @@ class SimulatedScope:
     file_stall: SimulatedStall | None = None
     camera_present: bool = True
     slide: Slide = Slide.CELLS
+    unit_config: Mapping[str, BoardConfigValue] | None = None
 
 
 # A real scope's member refuses ``needs_simulated_scope`` before any claim is

@@ -136,6 +136,19 @@ if __name__ == '__main__':
             raise ValueError(f'{_camera!r} is not absent')
     except ValueError as _camera_error:
         sys.exit(f'--sim-camera=absent: {_camera_error}')
+    # --sim-unit-config=<file> brings the simulated scope up as the unit whose
+    # motorconfig.json the file is, an OEM unit's included, on the simulated
+    # motor firmware: the unit's name, axes and optics are shown without it.
+    sim_unit_config = None
+    try:
+        _unit_file = take_sim_launch_value(sys.argv, 'sim-unit-config', simulate=simulate_mode)
+        if _unit_file is not None:
+            import json
+
+            with open(_unit_file, encoding='utf-8') as _unit:
+                sim_unit_config = json.load(_unit)
+    except (OSError, ValueError) as _unit_error:
+        sys.exit(f'--sim-unit-config=<file>: {_unit_error}')
     # The flags above are the simulated scope the session is built as; a
     # real scope is given none.
     simulated_scope = None
@@ -148,6 +161,7 @@ if __name__ == '__main__':
             focal_spread_um=sim_focal_spread_um,
             file_stall=sim_file_stall,
             camera_present=_camera is None,
+            unit_config=sim_unit_config,
         )
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
     # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
