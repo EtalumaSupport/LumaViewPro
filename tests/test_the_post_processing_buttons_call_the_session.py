@@ -17,7 +17,13 @@ from unittest.mock import ANY, MagicMock
 import pytest
 
 from _lumascope.modules.cell_count_method import CellCountMethod
-from _lumascope.modules.post_processing_api import BuildResult, CellCountResult, EnhanceResult
+from _lumascope.modules.exceptions import ExcludedInput, LeftOutReason, PostProcessingOperation
+from _lumascope.modules.post_processing_api import (
+    BuildResult,
+    CellCountResult,
+    EnhanceResult,
+    LeftOutImage,
+)
 
 import ui.post_processing as post_processing
 
@@ -157,3 +163,62 @@ def test_enhance_asks_and_shows_the_answer(session):
     )
     assert panel.busy is False
     popup.show_outcome.assert_called_once_with('done')
+
+
+_LEFT_OUT = LeftOutImage(path=pathlib.Path('copy.tif'), reason=LeftOutReason.NOT_IN_RECORD)
+_EXCLUDED = ExcludedInput(kind=PostProcessingOperation.STITCH, count=2)
+
+
+@pytest.mark.parametrize(
+    ('answer', 'held_s'),
+    [
+        (
+            CellCountResult(
+                message='Counted cells in 1 image(s). Left out: copy.tif.',
+                results_path=pathlib.Path('folder/results.csv'),
+                method_path=pathlib.Path('folder/results_method.json'),
+                counted=1,
+                left_out=(_LEFT_OUT,),
+            ),
+            5,
+        ),
+        (
+            CellCountResult(
+                message='Counted cells in 1 image(s).',
+                results_path=pathlib.Path('folder/results.csv'),
+                method_path=pathlib.Path('folder/results_method.json'),
+                counted=1,
+                left_out=(),
+            ),
+            2,
+        ),
+        (
+            BuildResult(
+                message='Built 1, left out 2 mosaics.',
+                new_count=1,
+                output_root=pathlib.Path('folder'),
+                artifact_paths=(),
+                degraded_outputs=(),
+                excluded_inputs=(_EXCLUDED,),
+            ),
+            5,
+        ),
+    ],
+)  # parametrize-justified: a count naming images left out, a plain one, and a build naming inputs left out are the hold's three behaviours
+def test_an_outcome_naming_what_was_left_out_stays_up_long_enough_to_read(
+    session, monkeypatch, answer, held_s
+):
+    """The outcome closes itself; one that names images or inputs left out
+    is held longer, whichever build's answer it is."""
+    held = []
+    # a stand-in by design: Kivy's clock is not run in the test process, and
+    # the delay it is handed is the hold under test.
+    monkeypatch.setattr(
+        post_processing, 'Clock', SimpleNamespace(schedule_once=lambda f, s: held.append(s))
+    )
+    popup = MagicMock()
+
+    post_processing._run_build(lambda progress: answer, popup, 'BUILD')
+
+    popup.show_outcome.assert_called_once_with(answer.message)
+    assert held == [held_s]

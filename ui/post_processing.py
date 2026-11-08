@@ -17,7 +17,12 @@ from kivy.uix.popup import Popup
 from ui.progress_popup import show_popup
 from _lumascope.modules import common_utils, gui_logger
 from _lumascope.modules.cell_count_method import CellCountMethod, FilterBounds
-from _lumascope.modules.post_processing_api import BuildResult, CellCountSizeScale, ZProject
+from _lumascope.modules.post_processing_api import (
+    BuildResult,
+    CellCountResult,
+    CellCountSizeScale,
+    ZProject,
+)
 from _lumascope.modules.stitch_mode import StitchMode
 import _lumascope.modules.post_processing as post_processing
 import _lumascope.modules.image_utils as image_utils
@@ -61,9 +66,10 @@ def _run_build(build, popup, label: str, on_done=None) -> None:
         popup.show_outcome(result.message)
         # A result that names a fallback or files left out stays up long
         # enough to be read; the build says which, the panel only holds it.
-        noted = isinstance(result, BuildResult) and bool(
-            result.degraded_outputs or result.excluded_inputs
-        )
+        noted = (
+            isinstance(result, BuildResult)
+            and bool(result.degraded_outputs or result.excluded_inputs)
+        ) or (isinstance(result, CellCountResult) and bool(result.left_out))
         Clock.schedule_once(lambda dt: popup.dismiss(), 5 if noted else 2)
 
     submit_reported(_build, _show, label, lane=_app_ctx.ctx.session.post_processing.lane)
