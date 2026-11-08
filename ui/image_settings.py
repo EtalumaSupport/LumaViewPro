@@ -132,15 +132,13 @@ class ImageSettings(BoxLayout):
         filterset carrying only some channels (an Ex488-only unit) shows
         exactly what the unit has. A drawer is titled by its channel's label
         (``_drawer_title``) beside a swatch of its colour, and has illumination controls where
-        the unit's row drives an LED. A channel the unit lacks stops being
-        acquired.
+        the unit's row drives an LED.
         """
         records = {record.key_name: record for record in identity.channels}
         colors = _app_ctx.ctx.session.channel_colors()
         for channel, drawer in self._drawers.items():
             record = records.get(channel)
             if record is None:
-                _app_ctx.ctx.session.set_channel_acquire(channel, None)
                 drawer.collapse = True
                 continue
             color = colors[channel]

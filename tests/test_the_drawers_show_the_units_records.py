@@ -6,9 +6,10 @@ is shown in catalogue order, titled by its record's label (a fluorescence
 layer's as its excitation, ``'405 nm Excitation'``) beside a swatch of
 its display colour, its controls drawn in that colour lightened, with
 illumination where its row drives an LED and summing for luminescence; each
-layer it lacks is hidden and stops being acquired. The identities are the
-real ones, resolved from the installation's ``scopes.json`` for three models
-that differ in which layers they carry.
+layer it lacks is hidden, and the panel stores nothing: which layers acquire
+is the session's, which stops a missing layer acquiring at bring-up. The
+identities are the real ones, resolved from the installation's
+``scopes.json`` for three models that differ in which layers they carry.
 """
 
 from __future__ import annotations
@@ -145,7 +146,7 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
         assert control.autogain_support == (record.modality != 'luminescence')
     present = {r.key_name for r in identity.channels}
     absent = [layer for layer in channel_record.release_catalogue() if layer not in present]
-    assert panel.acquire == [(layer, None) for layer in absent]
+    assert panel.acquire == []
     assert all(panel._drawers[layer].collapse for layer in absent)
 
 
