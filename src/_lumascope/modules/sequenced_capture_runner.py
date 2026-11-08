@@ -2798,6 +2798,9 @@ class SequencedCaptureRunner:
         ends the sweep's own Z move, which its unwind then puts back unless
         the ending is a person's stop, which leaves Z where it stopped. The
         stage is waited out later in cleanup, after the sweep has unwound.
+        The halt is the scope's own, not a press: it withholds none of the
+        moves the run asked, so the run's return to its start and the
+        sweep's put-back still drive after it.
         """
         recorded = self._ending.get() or ending
         if (
@@ -2807,7 +2810,7 @@ class SequencedCaptureRunner:
         ):
             return ()
         try:
-            self._scope.motion.stop_motion()
+            self._scope.motion.halt()
         except Exception as ex:
             # A home on a board that cannot stop one runs to its end
             # ('home_in_flight'); a STOP the board did not take leaves the

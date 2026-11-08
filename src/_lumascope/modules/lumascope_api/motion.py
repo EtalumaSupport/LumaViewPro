@@ -1014,9 +1014,26 @@ class MotionAPI:
                 error. The stop generation has moved regardless.
         """
         logger.info(f'[SCOPE API ] stop_motion pressed by {current_caller().words}')
-        self._stop_motion_while(lambda: True, pressed=True)
+        self._stop_motion_while(lambda: True, marks=True, pressed=True)
 
-    def _stop_motion_while(self, live: Callable[[], bool], *, pressed: bool = False) -> None:
+    def halt(self) -> None:
+        """The scope's own stop of every motor move, for a run's end: ``stop_motion`` without its withholding.
+
+        Sends the STOP as ``stop_motion`` does and is refused as it is, but
+        it is no one's press: it withholds no move asked before it and tells
+        no press listener. A run that ended on its own Stop or a fault halts
+        its move here and then puts the stage back, and those moves were
+        asked at the run's start, before the halt.
+
+        Raises:
+            HardwareCommandRefusedError: as ``stop_motion``.
+            MotorStopFailedError: as ``stop_motion``.
+        """
+        self._stop_motion_while(lambda: True, marks=False)
+
+    def _stop_motion_while(
+        self, live: Callable[[], bool], *, marks: bool, pressed: bool = False
+    ) -> None:
         """``stop_motion``, for one operation's work: sent only while ``live()`` answers True.
 
         ``live()`` is asked and the STOP sent in one hold of ``_stop_lock``,
@@ -1027,6 +1044,10 @@ class MotionAPI:
         live is a Stop like any other: a move that supersedes the work
         while the STOP is being sent has its drive withheld, as every move
         started while a Stop lands does.
+
+        ``marks`` says whether the stop withholds every move asked before
+        it: True for a stop someone asked for, False for the scope's own
+        ``halt``. Required, so no caller leaves it unsaid.
         """
         self.refuse_absent('stop_motion')
         if pressed:
@@ -1042,7 +1063,8 @@ class MotionAPI:
             # Before the send and before a refusal: a press the board cannot
             # take while it homes still withholds what was asked before it,
             # so the home runs to its end and nothing after it moves.
-            self._last_press_ask = ask_now()
+            if marks:
+                self._last_press_ask = ask_now()
             if self._unstoppable_homes_driving:
                 raise HardwareCommandRefusedError('home_not_stoppable', 'stop_motion')
             # A person's Stop, which a home it ends ends as: counted before
@@ -3618,7 +3640,7 @@ class MotionAPI:
                 release()
 
         def stop() -> None:
-            self._stop_motion_while(lambda: not ended.is_set())
+            self._stop_motion_while(lambda: not ended.is_set(), marks=True)
 
         return body, release_if_unrun, stop, held if held is not None else current
 
@@ -4017,7 +4039,7 @@ class MotionAPI:
             with self._axis_state_lock:
                 return self._current_move.get(move.axis) is move and move.outcome is None
 
-        self._stop_motion_while(live)
+        self._stop_motion_while(live, marks=True)
 
     def _send_drive(self, axis: str, stop_generation: int, send, member: str) -> tuple[_Move, bool]:
         """Set ``axis`` MOVING and disarmed, then send its drive.
