@@ -157,10 +157,10 @@ def test_autofocus_scan_plan_carries_the_forced_values(run_mode):
     )
 
 
-def test_a_composite_captures_8_bit_in_a_format_its_merge_reads():
+def test_a_composite_captures_as_a_scan_does_in_a_format_its_merge_reads():
     """The composite's image rule is the helper's, like the autofocus
-    overrides: its merge reads its inputs back as 8-bit, from a TIFF or an
-    OME-TIFF, whatever the user's image mode and sequenced format."""
+    overrides: it captures in the user's image mode like a scan, and only
+    its sequenced format departs, to a TIFF or an OME-TIFF its merge reads."""
     settings = complete_settings(
         image_mode=ImageMode.SCIENTIFIC,
         image_output_format={'live': 'TIFF', 'sequenced': OutputFormat.HYPERSTACK},
@@ -171,7 +171,7 @@ def test_a_composite_captures_8_bit_in_a_format_its_merge_reads():
     scan = config_helpers.get_sequenced_run_settings(
         settings, run_mode=SequencedCaptureRunMode.SINGLE_SCAN
     )['image_capture_config']
-    assert composite.image_mode == ImageMode.EIGHT_BIT
+    assert composite.image_mode == ImageMode.SCIENTIFIC
     assert composite.output_format_sequenced == OutputFormat.OME_TIFF
     assert scan.image_mode == ImageMode.SCIENTIFIC
     assert scan.output_format_sequenced == OutputFormat.HYPERSTACK

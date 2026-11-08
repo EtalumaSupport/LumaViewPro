@@ -7,6 +7,7 @@ and scope objects without any Kivy/GUI dependencies. They can be
 used by LumaViewPro, the REST API, or standalone scripts.
 """
 
+import dataclasses
 import pathlib
 import typing
 
@@ -170,8 +171,9 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
     excitation LED across focus moves (photobleaching the sample) and saves
     nothing, so it never keeps the LED between steps and never makes
     per-channel folders, whatever the settings say. A composite's merge
-    reads its inputs back as 8-bit, so its image config is the composite
-    one. Both guarantees live here, once, rather than at each call site.
+    reads only some sequenced formats back, so its image config is the
+    composite one, which departs from a scan's in that format alone. Both
+    guarantees live here, once, rather than at each call site.
     """
     autofocus_scan = run_mode.is_autofocus
     if run_mode == SequencedCaptureRunMode.SINGLE_COMPOSITE:
@@ -1122,18 +1124,17 @@ def get_composite_blend_thresholds(settings: dict) -> dict:
 def get_composite_image_capture_config_from_settings(
     settings: dict,
 ) -> image_mode.ImageCaptureConfig:
-    """The capture/save intent for a composite run.
+    """The capture/save intent for a composite run: a scan's, but for the format.
 
-    Two departures from the user's sequenced settings, both forced by what
-    the merge consumes:
+    The per-channel captures are taken and saved in the user's image mode,
+    as a scan's are: they are the data the user keeps, and the merge reads
+    each at its own depth; only the merged image is 8-bit RGB.
 
-    - The format follows the user's sequenced preference whenever the merge
-      can read it back, and is otherwise overridden to OME-TIFF with the
-      substitution logged -- a silent one leaves a user wondering why their
-      composite is not the format they picked.
-    - Capture is 8-bit: the merge downconverts to 8-bit regardless, so a
-      12-bit acquisition would spend exposure time on depth the merged
-      artifact discards.
+    The one departure is forced by what the merge consumes: the format
+    follows the user's sequenced preference whenever the merge can read it
+    back, and is otherwise overridden to OME-TIFF with the substitution
+    logged -- a silent one leaves a user wondering why their composite is
+    not the format they picked.
     """
     output_format = settings['image_output_format']
     requested = output_format['sequenced']
@@ -1146,11 +1147,8 @@ def get_composite_image_capture_config_from_settings(
             f'this run saves {resolved!r} instead.'
         )
 
-    return image_mode.ImageCaptureConfig.from_image_mode(
-        image_mode.ImageMode.EIGHT_BIT,
-        output_format_live=output_format['live'],
-        output_format_sequenced=resolved,
-        jpg_quality=settings['jpg_quality'],
+    return dataclasses.replace(
+        get_image_capture_config_from_settings(settings), output_format_sequenced=resolved
     )
 
 

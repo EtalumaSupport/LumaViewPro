@@ -28,11 +28,13 @@ import shutil
 import threading
 import time
 
+import numpy as np
 import pytest
 import tifffile as tf
 
+import _lumascope.modules.image_utils as image_utils
 from _lumascope.modules.caller import Caller, calling
-from _lumascope.modules.image_mode import OutputFormat
+from _lumascope.modules.image_mode import ImageMode, OutputFormat
 from _lumascope.modules.run_events import RunEvents
 from tests.protocol_drives import wait_until_not_running
 from tests.scope_fakes import home_sim_scope
@@ -405,6 +407,47 @@ class TestTheEngineMatchesTheWorkerItReplaces:
             'does from the same on-disk frames; the orchestrators disagree '
             'about depth, channel selection, or threshold scale'
         )
+
+
+@pytest.mark.parametrize(
+    'mode',
+    [ImageMode.SCIENTIFIC, ImageMode.SCALED, ImageMode.FALSE_COLOR_RGB],
+    ids=['scientific', 'scaled', 'false_color_rgb'],
+)
+def test_a_composite_keeps_the_image_modes_depth_in_its_per_channel_files(tmp_path, mode):
+    """A composite's per-channel files are data the user keeps, so they are
+    taken and saved in the stored Image Mode like a scan's; only the merged
+    image is the 8-bit RGB viewing product. Each 12-bit mode saves its own
+    encoding, so each is a case: right-aligned, MSB-aligned, false-colour RGB.
+
+    On the default simulated camera (Mono8 and Mono12), Sum 1: the right-aligned
+    file states its 12 bits; the MSB-aligned and RGB files are stamped at their
+    16-bit container. A per-channel file cut to 8 bits fails here, and so does
+    a composite that produced nothing.
+    """
+    settings = headless_settings(tmp_path)
+    settings['image_mode'] = mode
+    with open_composite_session(settings) as (_session, runner):
+        artifact = runner.run_composite(
+            sequence_name='depth', parent_dir=str(tmp_path)
+        ).artifact_path
+
+    expected_bits = 12 if mode is ImageMode.SCIENTIFIC else 16
+    run_dir = single_run_dir(tmp_path)
+    for channel in _ACQUIRING:
+        (path,) = [p for p in run_dir.glob('*.tiff') if channel in p.name]
+        image, significant_bits, _white = image_utils.load_pixels(
+            path, collapse_legacy_false_color=False
+        )
+        assert (image.dtype, significant_bits) == (np.uint16, expected_bits), (
+            f'{mode}: the {channel} file holds {image.dtype} at {significant_bits} bits, '
+            f"not the mode's uint16 at {expected_bits}"
+        )
+
+    merged = tf.imread(str(artifact))
+    assert (merged.dtype, merged.ndim, merged.shape[-1]) == (np.uint8, 3, 3), (
+        f'the merged composite is {merged.dtype} {merged.shape}, not 8-bit RGB'
+    )
 
 
 def test_a_composite_runs_merge_is_built_on_the_post_processing_lane(tmp_path, monkeypatch):

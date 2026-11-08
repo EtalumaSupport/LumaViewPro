@@ -22,7 +22,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from _lumascope.modules.image_mode import OutputFormat
+from _lumascope.modules.image_mode import ImageCaptureConfig, ImageMode, OutputFormat
 
 import _lumascope.modules.config_helpers as config_helpers
 from _lumascope.modules.channel_record import release_catalogue
@@ -299,14 +299,20 @@ class TestCompositeOutputFormat:
         )
         assert config.output_format_sequenced != OutputFormat.HYPERSTACK
 
-    def test_the_composite_captures_eight_bit(self):
-        # build_composite downconverts to 8-bit, so a 12-bit capture would
-        # cost acquisition time for depth the merged artifact discards.
-        config = config_helpers.get_composite_image_capture_config_from_settings(
-            _settings(acquiring=('BF', LED0))
-        )
-        assert config.image_mode == '8bit'
-        assert config.capture_depth == 8
+    def test_the_composite_captures_in_the_stored_image_mode(self):
+        # The per-channel files are kept data, and the merge reads each at
+        # its own depth, so a composite captures and saves in the user's
+        # Image Mode like a scan; only the format departs from the scan's.
+        wrong = []
+        for mode in ImageMode:
+            settings = _settings(acquiring=('BF', LED0))
+            settings['image_mode'] = mode
+            config = config_helpers.get_composite_image_capture_config_from_settings(settings)
+            got = (config.image_mode, config.capture_depth, config.save_encoding)
+            want = ImageCaptureConfig.from_image_mode(mode)
+            if got != (want.image_mode, want.capture_depth, want.save_encoding):
+                wrong.append(f'{mode}: {got}')
+        assert not wrong, f'the composite does not follow the stored mode: {wrong}'
 
 
 def test_the_run_records_the_stored_plate():
