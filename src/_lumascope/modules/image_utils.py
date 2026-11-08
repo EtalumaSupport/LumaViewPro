@@ -1384,6 +1384,22 @@ def stated_frame_time(record: dict | None) -> datetime.datetime | None:
     return datetime.datetime.fromisoformat(stated) if stated else None
 
 
+def frame_time(stated: datetime.datetime | None, recorded: object) -> datetime.datetime | None:
+    """The time a frame was taken: the one its file states, else its run record's.
+
+    `recorded` is the run record's Timestamp cell as the record loader gives
+    it: a time, or the empty string the loader fills a missing one with (a
+    record-less recording's frames, a row whose run stated none). A derived
+    image states no time of its own, so a projection's time is its scan's,
+    from the record. A time is a datetime whether pandas kept the cell as its
+    own Timestamp (one offset through the run) or as the record's datetime
+    (offsets that differ).
+    """
+    if stated is not None:
+        return stated
+    return recorded if isinstance(recorded, datetime.datetime) else None
+
+
 def comparable_times(
     times: Iterable[datetime.datetime | None],
 ) -> list[datetime.datetime] | None:

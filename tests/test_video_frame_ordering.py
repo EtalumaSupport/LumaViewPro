@@ -33,7 +33,9 @@ def _consumed_order(tmp_path, frame_numbers):
     order the builder consumed them (writer and file reads stubbed)."""
     shuffled = list(frame_numbers)
     random.Random(42).shuffle(shuffled)
-    df = pd.DataFrame({'Filepath': [_frame_name(n) for n in shuffled]})
+    # Every record row carries its time; a recording's frames with none have
+    # the empty string the loader fills a missing one with.
+    df = pd.DataFrame({'Filepath': [_frame_name(n) for n in shuffled], 'Timestamp': ''})
 
     consumed = []
 

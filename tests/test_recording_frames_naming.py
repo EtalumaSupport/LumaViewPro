@@ -136,6 +136,9 @@ class TestManualFramesTakeTheNumericSortBranch:
                     f'ManualVideo_Frame_{n:04}_2026-08-09_12-00-00-000.tiff' for n in frames
                 ],
                 'Scan Count': range(len(frames)),
+                # Every record row carries its time; a manual recording's is
+                # the empty string the loader fills a missing one with.
+                'Timestamp': '',
             }
         )
 

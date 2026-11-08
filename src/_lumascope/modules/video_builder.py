@@ -1,6 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import datetime
 import json
 import pathlib
 
@@ -182,7 +181,7 @@ class VideoBuilder(ProtocolPostProcessor):
         image_path: pathlib.Path,
         *,
         enable_timestamp_overlay: bool,
-        fallback_timestamp=None,
+        recorded_time: object = None,
     ) -> bool:
         """Read one saved frame and hand it to the writer with its payload depth.
 
@@ -198,8 +197,9 @@ class VideoBuilder(ProtocolPostProcessor):
 
         When the timestamp overlay is on, the per-frame time comes from each
         frame's own metadata so a video built from recorded frames shows the real
-        capture time per frame; it falls back to the caller-supplied step time
-        when the frame carries none. The pixels, depth, and timestamp are read
+        capture time per frame; when the frame carries none it is the run
+        record's time for the frame's row (`image_utils.frame_time`), the one
+        answer to a frame's time. The pixels, depth, and timestamp are read
         from a single file open, so an overlay-enabled build opens each frame
         once rather than twice. When the overlay is off, the timestamp is neither
         read nor stamped, so the cheaper depth-only read is used.
@@ -209,11 +209,10 @@ class VideoBuilder(ProtocolPostProcessor):
         """
         try:
             if enable_timestamp_overlay:
-                image, significant_bits, white_bits, frame_ts = (
+                image, significant_bits, white_bits, stated_ts = (
                     image_utils.load_pixels_with_timestamp(image_path)
                 )
-                if frame_ts is None:
-                    frame_ts = fallback_timestamp
+                frame_ts = image_utils.frame_time(stated_ts, recorded_time)
             else:
                 image, significant_bits, white_bits = image_utils.load_pixels(image_path)
                 frame_ts = None
@@ -281,20 +280,11 @@ class VideoBuilder(ProtocolPostProcessor):
         skipped = 0
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
-            # The step time is only the fallback the overlay uses when a frame
-            # carries no timestamp of its own, so with the overlay off it is never
-            # read. Guard the dataframe Timestamp: the loader fills missing
-            # values with the empty string, and a time is a datetime whether
-            # pandas kept the cell as its own Timestamp (one offset through the
-            # run) or as the record's datetime (offsets that differ).
-            fallback_ts = None
-            if enable_timestamp_overlay and isinstance(row['Timestamp'], datetime.datetime):
-                fallback_ts = row['Timestamp']
             if not self._add_source_frame(
                 video,
                 image_path,
                 enable_timestamp_overlay=enable_timestamp_overlay,
-                fallback_timestamp=fallback_ts,
+                recorded_time=row['Timestamp'],
             ):
                 skipped += 1
                 continue
