@@ -44,10 +44,17 @@ class VideoPhase(enum.StrEnum):
 class VideoProgress:
     """Where a video step is, as its ``video_progress`` event says.
 
-    ``phase`` is ``RECORDING`` (``elapsed_s`` of ``total_s``), ``WRITING``
-    (``progress_pct`` of the recorded frames written) or ``ENDED``, which follows
-    once any recording or writing phase on every path that had one; a step
-    that ends before it records sends no phase and no ``ENDED``.
+    A step that ends before it records sends no phase and no ``ENDED``.
+
+    Attributes:
+        phase: ``RECORDING``, ``WRITING`` or ``ENDED``. ``ENDED`` follows once
+            any recording or writing phase, on every path that had one.
+        elapsed_s: Seconds recorded so far, never past ``total_s``; None
+            outside ``RECORDING``.
+        total_s: The step's recording duration in seconds; None outside
+            ``RECORDING``.
+        progress_pct: The percentage of the recorded frames written so far;
+            None outside ``WRITING``.
     """
 
     phase: VideoPhase
@@ -59,7 +66,14 @@ class VideoProgress:
 @api_fields('scan_index', 'scans_remaining', 'period_s')
 @dataclasses.dataclass(frozen=True)
 class ScanStarted:
-    """A ``scan_started`` event: the scan's index from 0, the scans left with it, the period in seconds."""
+    """A ``scan_started`` event, sent as a scan begins.
+
+    Attributes:
+        scan_index: The scan's index, from 0.
+        scans_remaining: How many scans remain, this one included.
+        period_s: How often the protocol scans, in seconds; 0 or None for
+            one scan.
+    """
 
     scan_index: int
     scans_remaining: int
@@ -69,7 +83,14 @@ class ScanStarted:
 @api_fields('scan_index', 'scans_remaining', 'period_s')
 @dataclasses.dataclass(frozen=True)
 class ScanEnded:
-    """A ``scan_ended`` event: the scan's index from 0, the scans left after it, the period in seconds."""
+    """A ``scan_ended`` event, sent as a scan ends, a stopped one included.
+
+    Attributes:
+        scan_index: The index of the scan that ended, from 0.
+        scans_remaining: How many scans remain after it.
+        period_s: How often the protocol scans, in seconds; 0 or None for
+            one scan.
+    """
 
     scan_index: int
     scans_remaining: int
@@ -79,7 +100,11 @@ class ScanEnded:
 @api_fields('step_index')
 @dataclasses.dataclass(frozen=True)
 class StepStarted:
-    """A ``step_started`` event: the index of the step beginning."""
+    """A ``step_started`` event, sent as each step begins, step 0 included.
+
+    Attributes:
+        step_index: The index of the step beginning, from 0.
+    """
 
     step_index: int
 
@@ -87,7 +112,15 @@ class StepStarted:
 @api_fields('image', 'frames_summed', 'frame_significant_bits')
 @dataclasses.dataclass(frozen=True)
 class FrameCaptured:
-    """A ``frame_captured`` event: the frame as its file gets it, how many summed, its bits."""
+    """A ``frame_captured`` event, sent for each frame whose write the run's writer has taken.
+
+    Attributes:
+        image: The frame as its file gets it, a sum when summing; read-only.
+        frames_summed: How many frames are summed into ``image``; 1 for a
+            single frame.
+        frame_significant_bits: The depth each summed frame was delivered
+            at; with ``frames_summed`` it gives the sum's depth and full scale.
+    """
 
     image: np.ndarray
     frames_summed: int
@@ -97,7 +130,14 @@ class FrameCaptured:
 @api_fields('outcome', 'run_dir', 'protocol')
 @dataclasses.dataclass(frozen=True)
 class RunEnded:
-    """A ``run_ended`` event: the outcome, the run's folder (None when it saved nothing), its protocol."""
+    """A ``run_ended`` event, sent once the run has let go of the scope and its outcome has settled.
+
+    Attributes:
+        outcome: How the run ended.
+        run_dir: The run's folder; None for a run that saved nothing.
+        protocol: The copy of the protocol the run executed, a live object;
+            the event stream leaves it out.
+    """
 
     outcome: RunOutcome
     run_dir: pathlib.Path | None
@@ -107,7 +147,13 @@ class RunEnded:
 @api_fields('run_dir', 'files')
 @dataclasses.dataclass(frozen=True)
 class FilesWritten:
-    """A ``files_written`` event: the run's folder, and what became of its images."""
+    """A ``files_written`` event, sent once the run's last image write has landed.
+
+    Attributes:
+        run_dir: The run's folder; None for a run that saved nothing.
+        files: ``WRITTEN``, or ``INCOMPLETE`` when some of the run's images
+            are not on disk.
+    """
 
     run_dir: pathlib.Path | None
     files: FilesOutcome

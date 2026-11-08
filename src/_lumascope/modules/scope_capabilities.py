@@ -179,7 +179,12 @@ def _resolve_lens_focal_length_mm(motorconfig, optics: dict) -> float | None:
 @api_fields('width', 'height')
 @dataclass(frozen=True)
 class FrameSize:
-    """A frame's size, in pixels."""
+    """A frame's size, in pixels.
+
+    Attributes:
+        width: The frame's width, in pixels.
+        height: The frame's height, in pixels.
+    """
 
     width: int
     height: int
@@ -188,7 +193,12 @@ class FrameSize:
 @api_fields('width_um', 'height_um')
 @dataclass(frozen=True)
 class FieldOfView:
-    """The area a frame covers on the sample, in micrometres."""
+    """The area a frame covers on the sample, in micrometres.
+
+    Attributes:
+        width_um: The width of the sample the frame covers, in micrometres.
+        height_um: The height of the sample the frame covers, in micrometres.
+    """
 
     width_um: float
     height_um: float
@@ -211,23 +221,33 @@ class CameraLimits:
     value outside them before it reaches the camera. A limit the camera
     does not declare is None, and that end is not checked.
 
-    ``gain_max_db`` is the most gain the camera applies, digital stage
-    included; ``analog_gain_max_db`` the most before a digital stage, past
-    which the camera multiplies digitised values and the noise with the
-    signal: the analog maximum the camera's profile documents, or, for a
-    camera whose profile states no digital stage, its total maximum (all
-    its gain is analog), None for a camera with a digital stage and no
-    documented split. ``frame_max`` is the largest frame the scope
-    delivers, unbinned: the smallest of the sensor size the camera's
-    profile documents, the maximum the camera reports at connect
-    multiplied back by the binning it reported then, and the model's
-    catalogue ``MaxFrame`` (a lens that images less than the sensor: the
-    LS560's 1700), each where it is known. The profile stays in that
-    comparison because a camera can report a few rows and columns more
-    than its documented sensor (the LS850T's daA3840 reports 3860 x 2178
-    against 3840 x 2160). ``set_frame_size`` divides it by the
-    binning in force. ``frame_min`` is the smallest frame the camera
-    reported at connect.
+    Attributes:
+        gain_min_db: The least gain the camera takes, in dB; None when the
+            camera declares none.
+        gain_max_db: The most gain the camera applies, digital stage
+            included, in dB; None when the camera declares none.
+        analog_gain_max_db: The most gain before a digital stage, in dB,
+            past which the camera multiplies digitised values and the noise
+            with the signal: the analog maximum the camera's profile
+            documents, or, for a camera whose profile states no digital
+            stage, its total maximum (all its gain is analog); None for a
+            camera with a digital stage and no documented split.
+        exposure_min_ms: The shortest exposure the camera takes, in
+            milliseconds; None when the camera declares none.
+        exposure_max_ms: The longest exposure the camera takes, in
+            milliseconds; None when the camera declares none.
+        frame_min: The smallest frame the camera reported at connect; None
+            when it reported none.
+        frame_max: The largest frame the scope delivers, unbinned: the
+            smallest of the sensor size the camera's profile documents, the
+            maximum the camera reports at connect multiplied back by the
+            binning it reported then, and the model's catalogue
+            ``MaxFrame`` (a lens that images less than the sensor: the
+            LS560's 1700), each where it is known; None when none is.
+            The profile stays in that comparison because a camera can
+            report a few rows and columns more than its documented sensor
+            (the LS850T's daA3840 reports 3860 x 2178 against 3840 x
+            2160). ``set_frame_size`` divides it by the binning in force.
     """
 
     gain_min_db: float | None

@@ -455,10 +455,22 @@ class Lumascope:
     """The microscope: its boards and camera, reached through its sub-APIs.
 
     Attributes:
+        camera: The camera's settings, reads and holds (``CameraAPI``).
         capabilities: What this scope has (``ScopeCapabilities``), read
             once when the scope is built and fixed for its life.
         channel_identity: Which model this scope is and the channels it
             has (``ChannelIdentity``).
+        diagnostics: The boards' and camera's diagnostic reads and probes
+            (``DiagnosticsAPI``).
+        illumination: The LEDs: which channel is lit, and lighting and
+            darkening them (``IlluminationAPI``).
+        imaging: The capture: the grab, the frame listeners and the scale
+            bar (``ImagingAPI``).
+        motion: The stage, focus and turret: moves, homes and positions
+            (``MotionAPI``).
+        runtime_state: The user configuration the scope acts on -- labware,
+            objective, turret and stage -- read from the session's settings
+            (``RuntimeState``).
     """
 
     # --- Input validation constants ---

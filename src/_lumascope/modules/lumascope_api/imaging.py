@@ -212,12 +212,16 @@ def _refuse_unusable_depth(significant_bits: int) -> None:
 class DeliveredRate:
     """What the camera delivered to the host over the last second.
 
-    ``frame_rate_fps`` counts the frames stored, whatever any display does with
-    them. ``bytes_per_s`` is the bytes those same frames took on the link --
-    the payload the camera sent, not the transport's protocol overhead -- so
     ``bytes_per_s / frame_rate_fps`` is the bytes one frame takes on the link.
     Both are 0 when nothing was delivered in the last window: no camera, a
     camera not streaming, or no recent window measured.
+
+    Attributes:
+        frame_rate_fps: The frames stored per second, whatever any display
+            does with them.
+        bytes_per_s: The bytes per second those same frames took on the
+            link: the payload the camera sent, not the transport's protocol
+            overhead.
     """
 
     frame_rate_fps: float
@@ -371,9 +375,13 @@ class _BudgetedHandler:
 @api_fields('frame')
 @dataclasses.dataclass(frozen=True)
 class FrameDelivered:
-    """A frame the camera delivered: its ``Frame`` record -- the read-only
-    image, its arrival number and times, its depth, and its chunk data when
-    the camera sends any."""
+    """A frame the camera delivered.
+
+    Attributes:
+        frame: The frame's ``Frame`` record: the read-only image, its arrival
+            number and times, its depth, and its chunk data when the camera
+            sends any.
+    """
 
     frame: Frame
 

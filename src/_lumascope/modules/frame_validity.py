@@ -114,7 +114,13 @@ class Counter(enum.StrEnum):
 @api_fields('seq', 'by')
 @dataclasses.dataclass(frozen=True)
 class Credit:
-    """One frame counted toward a change, and who counted it."""
+    """One frame counted toward a change, and who counted it.
+
+    Attributes:
+        seq: The frame's arrival ordinal, from the grab that produced it.
+        by: Who counted it: the capture's drain, a grab, or the live
+            preview.
+    """
 
     seq: int
     by: Counter

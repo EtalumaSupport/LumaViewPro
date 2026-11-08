@@ -159,9 +159,19 @@ T = typing.TypeVar('T')
 class RunFiles:
     """What became of one run's images, once its writes are done.
 
-    The run's batch's own account, read when it completed: its outcome,
-    and when it is ``INCOMPLETE``, how many images are not on disk and why
-    (the batch's ``not_written_reason``).
+    The run's batch's own account, read when it completed.
+
+    Attributes:
+        outcome: ``WRITTEN`` when every image the run captured is on disk,
+            ``INCOMPLETE`` when some are not.
+        written: How many of the run's images landed on disk.
+        not_written: How many images the run captured that are not on disk.
+        not_written_reason: Why some are not on disk, as a reason code:
+            ``write_batch_abandoned`` (a recovery or a shutdown gave up on
+            some writes), ``write_batch_not_taken`` (the writer never took
+            some), or the first of ``write_batch_save_failed``,
+            ``write_batch_disk_full`` and ``write_batch_video_unfinished``
+            to happen. None when none is missing.
     """
 
     outcome: FilesOutcome

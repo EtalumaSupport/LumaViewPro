@@ -1299,14 +1299,17 @@ class RestServerNotStartedError(Fault, Exception):
 
 @api_fields('loc', 'msg', 'type')
 class UnfitArgument(NamedTuple):
-    """One argument of a request that does not fit its member, as the request reader found it."""
+    """One argument of a request that does not fit its member, as the request reader found it.
 
-    # Where the argument is: ``body``, ``query`` or ``path``, then its name
-    # and, inside it, the key or index.
+    Attributes:
+        loc: Where the argument is: ``body``, ``query`` or ``path``, then its
+            name and, inside it, the key or index.
+        msg: Why it does not fit, in the reader's words.
+        type: The reader's code for why.
+    """
+
     loc: tuple[str | int, ...]
-    # Why it does not fit, in the reader's words.
     msg: str
-    # The reader's code for why.
     type: str
 
 

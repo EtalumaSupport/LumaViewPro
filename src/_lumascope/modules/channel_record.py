@@ -170,39 +170,35 @@ class CatalogueChannel:
 class ChannelRecord:
     """Identity of one channel on one unit.
 
-    `id` is the internal key and the display position -- assigned from
-    the release catalogue's order, never persisted to any per-unit or
-    user file, so it can renumber freely between releases.
-
-    `key_name` is the stable serialisation name (settings block keys,
-    protocol TSV `Color`, filename tokens, metadata `channel`). It never
-    changes when a channel is renamed.
-
-    `display_name` is the unit's name for the channel. Freely changeable: a
-    rename touches this field and nothing persisted. None for a
-    fluorescence channel a board's Channels block names by its excitation
-    alone.
-
-    `led_addresses` is the LED board address(es) this channel drives, empty
-    for a channel with no LED (luminescence). A tuple rather than a single
-    value because a future channel (quantitative phase) drives several
-    switches as one channel; today every shipped row carries zero or one.
-    A row in a model's file names them ``led_channel``, read into this
-    field by the one row reader.
-
-    `excitation_nm` is the excitation wavelength -- named for what it
-    holds, since an ambiguous "wavelength" invites silently wrong
-    metadata -- and the number a fluorescence key names (``Ex<nm>``).
-    None is the truth for broadband transmitted light and for LED-less
-    channels.
-
-    `modality` and `background` are the channel's catalogue record's
-    (`CatalogueChannel`). `display_color` is the unit's colour for the channel:
-    its board block row's, else the catalogue record's.
-
-    `label` is what the channel is called wherever it is shown or written:
-    a fluorescence channel's excitation (``'405 nm'``), any other channel's
-    `display_name`.
+    Attributes:
+        id: The internal key and the display position, assigned from the
+            release catalogue's order; never stored in any per-unit or user
+            file, so it can renumber freely between releases.
+        key_name: The stable name the channel is stored under (settings
+            block keys, the protocol TSV's ``Color``, file name tokens, the
+            metadata's ``channel``); it never changes when a channel is
+            renamed.
+        display_name: The unit's name for the channel, free to change: a
+            rename touches this field and nothing stored. None for a
+            fluorescence channel a board's Channels block names by its
+            excitation alone.
+        led_addresses: The LED board addresses this channel drives, empty
+            for a channel with no LED (luminescence). A tuple because a
+            channel may drive several switches as one; every shipped row
+            carries zero or one. A row in a model's file names them
+            ``led_channel``, read into this field by the one row reader.
+        excitation_nm: The excitation wavelength, in nm, and the number a
+            fluorescence key names (``Ex<nm>``). None for broadband
+            transmitted light and for a channel with no LED.
+        modality: The kind of light the channel images, from its catalogue
+            record (``CatalogueChannel``).
+        background: Whether the channel's field of view is bright or dark,
+            from its catalogue record.
+        display_color: The unit's colour for the channel, ``'#rrggbb'``: its
+            board block row's, else the catalogue record's.
+        label: What the channel is called wherever it is shown or written:
+            a fluorescence channel's excitation (``'405 nm'``), any other
+            channel's ``display_name``.
     """
 
     id: int
@@ -260,23 +256,30 @@ STOCK_OPTICS_MODEL = 'LS850'
 class ChannelIdentity:
     """The resolved per-unit identity snapshot.
 
-    `source` records which rung answered: ``MOTORCONFIG`` (the unit's own
-    block -- authoritative and complete when present), ``SCOPES`` (the
-    model's rows -- what a pre-block unit of this model has), ``STOCK``
-    (the model is one the catalogue does not list, an OEM unit's own name,
-    so the rows are those of the stock optics module, which every OEM unit
-    carries), or ``UNRESOLVED`` (no block and no model, or an override
-    naming a model the catalogue lacks; empty, and loud at the point of
-    LED use rather than silently wrong here).
-
-    `model` is the scope model the resolver settled on, whichever rung
-    answered: the override, else the model the board reports, else the
-    operator's selection -- the only identity an FX2 scope has, since it
-    cannot report its own. A model the catalogue lacks is still carried:
-    with the stock module's channels, or with none when an override names
-    it; `None` means there was no model at all. Every reader of "which
-    model is this scope" takes it from here, so the channels, the
-    capabilities and the saved files name one model.
+    Attributes:
+        channels: The unit's channel records, in the release's order
+            (``ChannelRecord.id``); empty when ``source`` is ``UNRESOLVED``.
+        filterset: The name of the unit's filterset: its board block's
+            ``Filterset``, else its model's row's; an empty string where
+            neither names one.
+        model: The scope model the resolver settled on, whichever rung
+            answered: the override, else the model the board reports, else
+            the operator's selection -- the only identity an FX2 scope has,
+            since it cannot report its own. A model the catalogue lacks is
+            still carried: with the stock module's channels, or with none
+            when an override names it; None means there was no model at
+            all. Every reader of "which model is this scope" takes it from
+            here, so the channels, the capabilities and the saved files name
+            one model.
+        source: Which rung answered: ``MOTORCONFIG`` (the unit's own block,
+            authoritative and complete when present), ``SCOPES`` (the
+            model's rows, what a pre-block unit of this model has),
+            ``STOCK`` (the model is one the catalogue does not list, an OEM
+            unit's own name, so the rows are those of the stock optics
+            module, which every OEM unit carries), or ``UNRESOLVED`` (no
+            block and no model, or an override naming a model the catalogue
+            lacks; empty, and loud at the point of LED use rather than
+            silently wrong here).
     """
 
     channels: tuple[ChannelRecord, ...]
@@ -658,19 +661,32 @@ class MotorBoardFamily(enum.StrEnum):
 class ScopeModel:
     """One model of the installation's catalogue (``scopes.json``'s ``Models``), read once at bring-up.
 
-    ``id`` is the model's name, the key the operator selects and a board
-    reports. ``has_focus``, ``has_xy_stage`` and ``has_turret`` are the motor
-    axes the model is built with: Z, X and Y, T. ``channels`` are the model's
-    channel rows, resolved against the release's channel vocabulary: what a unit
-    of the model has when its board carries no Channels block of its own.
-    ``led_board`` and ``motor_board`` name the model's boards, ``motor_board``
-    None for a model with no motor axes; production finds the boards it has
-    and reads neither, and the simulator builds from them. ``filterset`` is
-    None where the row names none. ``pixel_size_um`` (the sensor's pixel
-    pitch) and ``lens_focal_length_mm`` (the tube lens) are a Classic
-    model's optics, which no motorconfig carries; ``max_frame`` is the
-    largest frame, unbinned, of a model whose lens images less than its
-    sensor. Each is None where the row declares none.
+    Attributes:
+        id: The model's name, the key the operator selects and a board
+            reports.
+        has_focus: Whether the model is built with a focus drive (Z).
+        has_xy_stage: Whether the model is built with an XY stage (X and Y).
+        has_turret: Whether the model is built with an objective turret (T):
+            the answer ``ScopeCapabilities.has_turret`` gives when the
+            scope's motor board did not come up.
+        led_board: The kind of board the model's LEDs are on. Production
+            finds the boards it has and does not read it; the simulator
+            builds from it.
+        motor_board: The kind of motor board the model has; None for a
+            model with no motor axes. Read, like ``led_board``, only by the
+            simulator.
+        channels: The model's channel rows, resolved against the release's
+            channel vocabulary and in its order: what a unit of the model
+            has when its board carries no Channels block of its own.
+        filterset: The name of the model's filterset; None where the row
+            names none.
+        pixel_size_um: The sensor's pixel pitch, in um, for a Classic
+            model, whose optics no motorconfig carries; None where the row
+            declares none.
+        lens_focal_length_mm: The tube lens's focal length, in mm, for a
+            Classic model; None where the row declares none.
+        max_frame: The largest frame, unbinned, of a model whose lens
+            images less than its sensor; None where the row declares none.
     """
 
     id: str

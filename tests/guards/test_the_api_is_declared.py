@@ -5,7 +5,7 @@ A member is API when it carries ``@api``; a class publishes the data
 attributes its ``@api_fields`` names (``src/_lumascope/modules/api_surface.py``). Before the
 marker, the surface was inferred from names, so whoever named a member decided
 whether it was API, and nothing asked what a published member hands out. This
-guard holds eleven things over the declared API (``tests.marked_set``): the
+guard holds twelve things over the declared API (``tests.marked_set``): the
 marked members and fields of every class the API can name
 (``wire_encoding.project_classes``: each defined under ``src/_lumascope/modules/``, and each
 project class a marked annotation resolves to, a driver's record among them),
@@ -71,8 +71,12 @@ path (``_lumascope.rest.app.build_app``):
     ``lumascope``, as its heading says (``lumascope.ScopeSession``).
 11. **Every parameter is described.** Every parameter of a marked member
     has an entry in its docstring's ``Args:`` section.
+12. **Every field is described.** Every published field has an entry in
+    its class's ``Attributes:`` section (``field_descriptions``, a base's
+    entry counting for a subclass), so the reference and the OpenAPI give
+    a reader the field's words wherever it is shown.
 
-Beside the eleven, two hold the set itself whole. A module's function is
+Beside the twelve, two hold the set itself whole. A module's function is
 never marked for the wire, since nothing routes a function: it is
 ``in_process``. And every class defined in a project module that carries a
 mark is in the table, by identity, so no mark sits where the rules cannot
@@ -272,6 +276,20 @@ def test_every_parameter_is_described(marked: dict[str, Marked]) -> None:
     assert not undescribed, (
         f'{len(undescribed)} members take a parameter their docstring has no Args: entry for:\n'
         + ''.join(f'  {key}: {names}\n' for key, names in undescribed.items())
+    )
+
+
+def test_every_field_is_described(marked: dict[str, Marked]) -> None:
+    from _lumascope.modules.api_surface import field_descriptions
+
+    undescribed = sorted(
+        key
+        for key, item in marked.items()
+        if item.field and item.member not in field_descriptions(item.owner)
+    )
+    assert not undescribed, (
+        f'{len(undescribed)} published fields have no Attributes: entry on their class:\n'
+        + ''.join(f'  {key}\n' for key in undescribed)
     )
 
 

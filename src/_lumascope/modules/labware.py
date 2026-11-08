@@ -23,11 +23,24 @@ from _lumascope.modules.api_surface import api, api_fields
 class Labware:
     """One multi-well plate of the installation's catalogue, read once at bring-up.
 
-    Plate positions are in mm. ``offset_*`` is the first well's centre and
-    ``spacing_*`` the pitch between well centres; ``width_mm`` and
-    ``height_mm`` the plate's outline. ``well_diameter_mm`` is None where
-    the catalogue states none. A plate with no wells (the Blank labware)
-    has ``rows`` and ``columns`` 0.
+    Plate positions are in mm from the plate's top-left corner.
+
+    Attributes:
+        name: The plate's name, its key in the catalogue.
+        rows: The number of rows of wells; 0 for a plate with no wells
+            (the Blank labware).
+        columns: The number of columns of wells; 0 for a plate with no
+            wells (the Blank labware).
+        spacing_x_mm: The pitch between well centres along X, in mm.
+        spacing_y_mm: The pitch between well centres along Y, in mm.
+        offset_x_mm: The X of the first well's centre, in mm.
+        offset_y_mm: The Y of the first well's centre, in mm.
+        width_mm: The plate's outline along X, in mm.
+        height_mm: The plate's outline along Y, in mm.
+        well_diameter_mm: A well's diameter, in mm; None where the
+            catalogue states none.
+        standard: The plate standard the catalogue says the plate follows
+            (``ANSI SLAS 2004``); '' where it states none.
     """
 
     name: str

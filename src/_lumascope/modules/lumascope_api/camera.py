@@ -221,8 +221,34 @@ class _HeldChannel:
 )
 @dataclasses.dataclass(frozen=True)
 class AutoGainLock:
-    """The result of locking an auto-gain arm; ``state`` is None when no
-    arm was recorded (nothing was locked, no driver traffic happened)."""
+    """The result of locking an auto-gain arm.
+
+    Attributes:
+        state: Where the arm landed; None when no arm was recorded, so
+            nothing was locked and nothing was written to the camera.
+        exposure_ms: The exposure the auto loop reached, in ms, written back
+            as the manual exposure; None when ``state`` is None or
+            ``FAILED``.
+        gain_db: The gain the auto loop reached, in dB, written back as the
+            manual gain; None exactly when ``exposure_ms`` is.
+        floor_ms: The arm's ``min_exposure_ms``, the exposure at or below
+            which the lock is ``AT_MINIMUM``; None when the arm had none.
+        ceiling_ms: The exposure ceiling the camera was armed with, in ms,
+            the arm's ``max_exposure_ms`` within the camera's range; None
+            when the arm had none.
+        resume_after_capture: Whether the arm is re-armed after the capture
+            (a live-view arm), rather than left at the locked values (a
+            protocol step's).
+        settings: The auto-gain settings the arm was armed with, used to
+            re-arm it; None when no arm was recorded.
+        stored_exposure_ms: The exposure a caller stores as the channel's
+            manual setting after the lock: ``exposure_ms`` raised to
+            ``floor_ms``. The loop can drive the camera below that floor on a
+            bright scene, and a setting stored that low makes near-black
+            captures of ordinary scenes, so the store keeps the floor while
+            ``exposure_ms`` keeps what the camera reached. None when
+            ``exposure_ms`` is.
+    """
 
     state: AutoGainConvergence | None
     exposure_ms: float | None = None
@@ -231,12 +257,6 @@ class AutoGainLock:
     ceiling_ms: float | None = None
     resume_after_capture: bool = False
     settings: dict | None = None
-    # The exposure a caller STORES as the channel's manual setting after the
-    # lock: the achieved value floored to the class's usable floor. The
-    # auto loop can drive the camera below that floor on a bright scene;
-    # a setting stored that low makes near-black captures on ordinary
-    # scenes, so the store keeps the floor while exposure_ms keeps the
-    # truth. Decided here so a GUI and a REST caller store the same value.
     stored_exposure_ms: float | None = None
 
     def __post_init__(self) -> None:
@@ -297,7 +317,15 @@ def _refuse_a_contradicted_cap(
 @api_fields('applied_db', 'capped', 'stored_db')
 @dataclasses.dataclass(frozen=True)
 class AppliedGain:
-    """What a stored gain becomes on the attached camera, in dB (``applied_gain_db_for``)."""
+    """What a stored gain becomes on the attached camera, in dB (``applied_gain_db_for``).
+
+    Attributes:
+        stored_db: The gain the channel stores, in dB, unchanged.
+        applied_db: The gain the camera is given, in dB: ``stored_db`` held
+            to the camera's gain range, or ``stored_db`` itself when no
+            camera publishes one.
+        capped: Whether ``applied_db`` differs from ``stored_db``.
+    """
 
     stored_db: float
     applied_db: float
@@ -310,7 +338,15 @@ class AppliedGain:
 @api_fields('applied_ms', 'capped', 'stored_ms')
 @dataclasses.dataclass(frozen=True)
 class AppliedExposure:
-    """What a stored exposure becomes on the attached camera, in ms (``applied_exposure_ms_for``)."""
+    """What a stored exposure becomes on the attached camera, in ms (``applied_exposure_ms_for``).
+
+    Attributes:
+        stored_ms: The exposure the channel stores, in ms, unchanged.
+        applied_ms: The exposure the camera is given, in ms: ``stored_ms``
+            held to the camera's exposure range, or ``stored_ms`` itself when
+            no camera publishes one.
+        capped: Whether ``applied_ms`` differs from ``stored_ms``.
+    """
 
     stored_ms: float
     applied_ms: float
@@ -323,7 +359,14 @@ class AppliedExposure:
 @api_fields('applied', 'capped', 'stored')
 @dataclasses.dataclass(frozen=True)
 class AppliedAutoGain:
-    """What a stored auto-gain preference becomes on the attached camera (``applied_auto_gain_for``)."""
+    """What a stored auto-gain preference becomes on the attached camera (``applied_auto_gain_for``).
+
+    Attributes:
+        stored: Whether the channel stores auto-gain on, unchanged.
+        applied: Whether the camera runs auto-gain: ``stored``, and off on a
+            camera without hardware auto-gain.
+        capped: Whether ``applied`` differs from ``stored``.
+    """
 
     stored: bool
     applied: bool
@@ -626,7 +669,11 @@ def _describe_geometry(snapshot: dict) -> str:
 @api_fields('gain_db')
 @dataclasses.dataclass(frozen=True)
 class GainChanged:
-    """A gain event: the gain now in effect, in dB."""
+    """A gain event.
+
+    Attributes:
+        gain_db: The gain now in effect, in dB.
+    """
 
     gain_db: float
 
@@ -634,7 +681,11 @@ class GainChanged:
 @api_fields('exposure_ms')
 @dataclasses.dataclass(frozen=True)
 class ExposureChanged:
-    """An exposure event: the exposure now in effect, in ms."""
+    """An exposure event.
+
+    Attributes:
+        exposure_ms: The exposure now in effect, in ms.
+    """
 
     exposure_ms: float
 

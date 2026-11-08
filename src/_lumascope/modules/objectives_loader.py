@@ -55,16 +55,40 @@ OBJECTIVE_CONFIRMED_ON_A_TURRET = 'turret'
 class Objective:
     """One objective of the installation's catalogue, read once at bring-up.
 
-    ``id`` is the catalogue key, the objective's one identity everywhere in
-    the program; ``short_name`` the token step and file names carry, derived
-    from the id alone (``objective_short_name``). Autofocus starts at
-    ``autofocus_step_max_um`` and refines down to ``autofocus_step_min_um``
-    across ``autofocus_half_range_um`` either side of where it starts. A
-    jog moves the ``jog_*`` distance on its axis. ``focus_peak_fwhm_dense_um``
-    is the objective's measured focus-peak width (full width at half
-    maximum), None until it has been measured. ``manufacturer`` names
-    who makes the glass; the catalogue lists each maker's objectives
-    together (``ObjectiveLoader.objectives``).
+    Attributes:
+        id: The catalogue key, the objective's one identity everywhere in
+            the program.
+        description: The objective's full name, for a person to read
+            (``'1.25x Plan Apochromat Olympus'``).
+        manufacturer: Who makes the glass; the catalogue lists each maker's
+            objectives together (``ObjectiveLoader.objectives``).
+        short_name: The token step and file names carry, derived from the
+            id alone (``objective_short_name``).
+        magnification: The objective's nominal magnification (``10`` for a
+            10x objective).
+        focal_length_mm: The objective's focal length, in mm; with the tube
+            lens's, it sets the size of an image's pixel.
+        numerical_aperture: The objective's numerical aperture, written into
+            a saved file's metadata.
+        depth_of_field_um: The objective's depth of field, in um; the
+            simulated camera's focus falls off by it.
+        working_distance_mm: The objective's working distance, in mm,
+            written into a saved file's metadata.
+        autofocus_step_min_um: The Z step, in um, autofocus refines down to.
+        autofocus_step_max_um: The Z step, in um, autofocus starts at.
+        autofocus_half_range_um: How far, in um, autofocus searches either
+            side of where it starts.
+        jog_z_fine_um: The distance, in um, a fine Z jog moves.
+        jog_z_coarse_um: The distance, in um, a coarse Z jog moves.
+        jog_xy_fine_um: The distance, in um, a fine X or Y jog moves.
+        jog_xy_coarse_um: The distance, in um, a coarse X or Y jog moves.
+        z_settle_tolerance_um: A Z settle tolerance, in um, stored for each
+            objective; LumaViewPro does not yet use it.
+        z_settle_timeout_ms: A Z settle timeout, in ms, stored for each
+            objective; LumaViewPro does not yet use it.
+        focus_peak_fwhm_dense_um: The objective's measured focus-peak width
+            (full width at half maximum), in um; None until it has been
+            measured.
     """
 
     id: str

@@ -701,12 +701,15 @@ def _read_step_column(df: pd.DataFrame, column: str, *, blank_kept: bool = False
 @api_fields('duration_s')
 @dataclasses.dataclass(frozen=True)
 class VideoConfig:
-    """What a video step records: its length in seconds.
+    """What a video step records.
 
     A step carries no rate: every recording keeps every frame the camera
     delivers, or samples down to the one global limit (``video.max_fps``).
-    None where the step's config does not say; a step that records no video
-    may not say.
+
+    Attributes:
+        duration_s: How long the step records, in seconds. None where the
+            step's config does not say; a step that records no video may not
+            say.
     """
 
     duration_s: float | None
@@ -717,8 +720,16 @@ class VideoConfig:
 class Stimulation:
     """One channel's stimulation for a step: on or off, its current, and its pulses.
 
-    None where the step's config does not say, as in a file from before a
-    value was kept.
+    Each field is None where the step's config does not say, as in a file
+    from before a value was kept.
+
+    Attributes:
+        enabled: Whether the step asks for stimulation on this channel.
+        illumination_ma: The LED current the step asks for while stimulating
+            on this channel, in mA.
+        frequency_hz: The pulse rate the step asks for, in Hz.
+        pulse_width_ms: How long the step asks each pulse to last, in ms.
+        pulse_count: How many pulses the step asks for.
     """
 
     enabled: bool | None
@@ -1169,6 +1180,14 @@ class ProtocolSizeAdvisory:
     Carries the numbers alongside the sentence so a caller that wants to
     render something other than the sentence -- REST, a log line -- does not
     have to parse it back out.
+
+    Attributes:
+        num_steps: How many steps the protocol has.
+        projected_mb: About how many megabytes of images the protocol's
+            steps write. When its video steps cannot be sized (the camera
+            delivering no frames and no rate limit set), the still steps only.
+        message: The advisory in words a person reads: the step count, the
+            size, any video steps left unsized, and to check free disk.
     """
 
     num_steps: int

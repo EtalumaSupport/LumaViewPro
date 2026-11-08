@@ -19,7 +19,12 @@ import _lumascope.modules.labware as lw
 @api_fields('min_um', 'max_um')
 @dataclasses.dataclass(frozen=True)
 class AxisLimits:
-    """An axis's travel, in um: a move outside it is refused."""
+    """An axis's travel, in um: a move outside it is refused.
+
+    Attributes:
+        min_um: The lowest position the axis may be moved to, in um.
+        max_um: The highest position the axis may be moved to, in um.
+    """
 
     min_um: float
     max_um: float
@@ -28,7 +33,12 @@ class AxisLimits:
 @api_fields('x_um', 'y_um')
 @dataclasses.dataclass(frozen=True)
 class StagePosition:
-    """A stage X/Y position, in um."""
+    """A stage X/Y position, in um.
+
+    Attributes:
+        x_um: The stage X, in um.
+        y_um: The stage Y, in um.
+    """
 
     x_um: float
     y_um: float
@@ -37,7 +47,12 @@ class StagePosition:
 @api_fields('x_mm', 'y_mm')
 @dataclasses.dataclass(frozen=True)
 class PlatePosition:
-    """A position on a plate, in mm from the plate's top-left corner."""
+    """A position on a plate, in mm from the plate's top-left corner.
+
+    Attributes:
+        x_mm: The X on the plate, in mm from its left edge.
+        y_mm: The Y on the plate, in mm from its top edge.
+    """
 
     x_mm: float
     y_mm: float
@@ -48,7 +63,13 @@ class PlatePosition:
 class PlateLocation:
     """Where the scope is on a plate, focus included: X and Y in mm on the plate, Z in um.
 
-    None on an axis is no position there: a move to it leaves that axis where it is.
+    Attributes:
+        x_mm: The X on the plate, in mm from its left edge; None for no
+            position on X, which a move leaves where it is.
+        y_mm: The Y on the plate, in mm from its top edge; None for no
+            position on Y, which a move leaves where it is.
+        z_um: The focus position, in um; None for no position on Z, which
+            a move leaves where it is.
     """
 
     x_mm: float | None
@@ -59,7 +80,14 @@ class PlateLocation:
 @api_fields('x_um', 'y_um')
 @dataclasses.dataclass(frozen=True)
 class StageOffset:
-    """Where the plate is mounted on the stage, in um: the offset the two conversions apply."""
+    """Where the plate is mounted on the stage, in um: the offset the two conversions apply.
+
+    Attributes:
+        x_um: The mount's offset on X, in um, added to a stage X when it is
+            converted to a plate X.
+        y_um: The mount's offset on Y, in um, added to a stage Y when it is
+            converted to a plate Y.
+    """
 
     x_um: float
     y_um: float

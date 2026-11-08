@@ -113,7 +113,15 @@ class BuildResult:
 @api_fields('source_path', 'output_path', 'recipe_path')
 @dataclasses.dataclass(frozen=True)
 class EnhancedFile:
-    """One file Quick Enhance derived: its source, the derived image, and its recipe."""
+    """One file Quick Enhance derived: its source, the derived image, and its recipe.
+
+    Attributes:
+        source_path: The image the enhance was made from.
+        output_path: The enhanced image, beside its source, in its source's
+            format (``<name>_enhanced.tiff`` or ``<name>_enhanced.ome.tiff``).
+        recipe_path: The JSON file beside it recording the settings the
+            enhance applied (``<name>_enhanced.recipe.json``).
+    """
 
     source_path: pathlib.Path
     output_path: pathlib.Path

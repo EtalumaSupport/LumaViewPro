@@ -176,10 +176,10 @@ Owns the shared, GUI-independent state for one microscope session.
 
 **Fields**
 
-- <a id="ScopeSession.manual_capture"></a>`manual_capture`: `ManualCaptureController` -- (no description)
-- <a id="ScopeSession.manual_recording"></a>`manual_recording`: `ManualRecordingController` -- (no description)
-- <a id="ScopeSession.post_processing"></a>`post_processing`: `PostProcessingAPI` -- (no description)
-- <a id="ScopeSession.scope"></a>`scope`: `Lumascope` -- (no description)
+- <a id="ScopeSession.manual_capture"></a>`manual_capture`: `ManualCaptureController` -- The manual still, one at a time, captured and saved (`ManualCaptureController`).
+- <a id="ScopeSession.manual_recording"></a>`manual_recording`: `ManualRecordingController` -- The manual recording, from start to its finished file (`ManualRecordingController`).
+- <a id="ScopeSession.post_processing"></a>`post_processing`: `PostProcessingAPI` -- The post-processing builds: stitch, z-project, composite, video, enhance, cell count and graph (`PostProcessingAPI`).
+- <a id="ScopeSession.scope"></a>`scope`: `Lumascope` -- The microscope this session drives (`Lumascope`).
 
 <a id="ScopeSession.acceleration_limit_pct"></a>
 ### `ScopeSession.acceleration_limit_pct`
@@ -4715,14 +4715,14 @@ The microscope: its boards and camera, reached through its sub-APIs.
 
 **Fields**
 
-- <a id="Lumascope.camera"></a>`camera`: `CameraAPI` -- (no description)
+- <a id="Lumascope.camera"></a>`camera`: `CameraAPI` -- The camera's settings, reads and holds (`CameraAPI`).
 - <a id="Lumascope.capabilities"></a>`capabilities`: `ScopeCapabilities` -- What this scope has (`ScopeCapabilities`), read once when the scope is built and fixed for its life.
 - <a id="Lumascope.channel_identity"></a>`channel_identity`: `ChannelIdentity` -- Which model this scope is and the channels it has (`ChannelIdentity`).
-- <a id="Lumascope.diagnostics"></a>`diagnostics`: `DiagnosticsAPI` -- (no description)
-- <a id="Lumascope.illumination"></a>`illumination`: `IlluminationAPI` -- (no description)
-- <a id="Lumascope.imaging"></a>`imaging`: `ImagingAPI` -- (no description)
-- <a id="Lumascope.motion"></a>`motion`: `MotionAPI` -- (no description)
-- <a id="Lumascope.runtime_state"></a>`runtime_state`: `RuntimeState` -- (no description)
+- <a id="Lumascope.diagnostics"></a>`diagnostics`: `DiagnosticsAPI` -- The boards' and camera's diagnostic reads and probes (`DiagnosticsAPI`).
+- <a id="Lumascope.illumination"></a>`illumination`: `IlluminationAPI` -- The LEDs: which channel is lit, and lighting and darkening them (`IlluminationAPI`).
+- <a id="Lumascope.imaging"></a>`imaging`: `ImagingAPI` -- The capture: the grab, the frame listeners and the scale bar (`ImagingAPI`).
+- <a id="Lumascope.motion"></a>`motion`: `MotionAPI` -- The stage, focus and turret: moves, homes and positions (`MotionAPI`).
+- <a id="Lumascope.runtime_state"></a>`runtime_state`: `RuntimeState` -- The user configuration the scope acts on -- labware, objective, turret and stage -- read from the session's settings (`RuntimeState`).
 
 <a id="Lumascope.labware"></a>
 ### `Lumascope.labware`
@@ -9348,9 +9348,9 @@ What a stored auto-gain preference becomes on the attached camera (`applied_auto
 
 **Fields**
 
-- <a id="AppliedAutoGain.applied"></a>`applied`: `bool` -- (no description)
-- <a id="AppliedAutoGain.capped"></a>`capped`: `bool` -- (no description)
-- <a id="AppliedAutoGain.stored"></a>`stored`: `bool` -- (no description)
+- <a id="AppliedAutoGain.applied"></a>`applied`: `bool` -- Whether the camera runs auto-gain: `stored`, and off on a camera without hardware auto-gain.
+- <a id="AppliedAutoGain.capped"></a>`capped`: `bool` -- Whether `applied` differs from `stored`.
+- <a id="AppliedAutoGain.stored"></a>`stored`: `bool` -- Whether the channel stores auto-gain on, unchanged.
 
 <a id="AppliedExposure"></a>
 ## `lumascope.AppliedExposure`
@@ -9362,9 +9362,9 @@ What a stored exposure becomes on the attached camera, in ms (`applied_exposure_
 
 **Fields**
 
-- <a id="AppliedExposure.applied_ms"></a>`applied_ms`: `float` -- (no description)
-- <a id="AppliedExposure.capped"></a>`capped`: `bool` -- (no description)
-- <a id="AppliedExposure.stored_ms"></a>`stored_ms`: `float` -- (no description)
+- <a id="AppliedExposure.applied_ms"></a>`applied_ms`: `float` -- The exposure the camera is given, in ms: `stored_ms` held to the camera's exposure range, or `stored_ms` itself when no camera publishes one.
+- <a id="AppliedExposure.capped"></a>`capped`: `bool` -- Whether `applied_ms` differs from `stored_ms`.
+- <a id="AppliedExposure.stored_ms"></a>`stored_ms`: `float` -- The exposure the channel stores, in ms, unchanged.
 
 <a id="AppliedGain"></a>
 ## `lumascope.AppliedGain`
@@ -9376,9 +9376,9 @@ What a stored gain becomes on the attached camera, in dB (`applied_gain_db_for`)
 
 **Fields**
 
-- <a id="AppliedGain.applied_db"></a>`applied_db`: `float` -- (no description)
-- <a id="AppliedGain.capped"></a>`capped`: `bool` -- (no description)
-- <a id="AppliedGain.stored_db"></a>`stored_db`: `float` -- (no description)
+- <a id="AppliedGain.applied_db"></a>`applied_db`: `float` -- The gain the camera is given, in dB: `stored_db` held to the camera's gain range, or `stored_db` itself when no camera publishes one.
+- <a id="AppliedGain.capped"></a>`capped`: `bool` -- Whether `applied_db` differs from `stored_db`.
+- <a id="AppliedGain.stored_db"></a>`stored_db`: `float` -- The gain the channel stores, in dB, unchanged.
 
 <a id="AutoGainLock"></a>
 ## `lumascope.AutoGainLock`
@@ -9386,19 +9386,18 @@ What a stored gain becomes on the attached camera, in dB (`applied_gain_db_for`)
 A record: it crosses the wire as its data.  
 Returned by: [`CameraAPI.lock_auto_gain`](#CameraAPI.lock_auto_gain), [`ScopeSession.channel_auto_gain_lock`](#ScopeSession.channel_auto_gain_lock), [`ScopeSession.set_channel_auto_gain`](#ScopeSession.set_channel_auto_gain).
 
-The result of locking an auto-gain arm; `state` is None when no
-arm was recorded (nothing was locked, no driver traffic happened).
+The result of locking an auto-gain arm.
 
 **Fields**
 
-- <a id="AutoGainLock.ceiling_ms"></a>`ceiling_ms`: `float | None` -- (no description)
-- <a id="AutoGainLock.exposure_ms"></a>`exposure_ms`: `float | None` -- (no description)
-- <a id="AutoGainLock.floor_ms"></a>`floor_ms`: `float | None` -- (no description)
-- <a id="AutoGainLock.gain_db"></a>`gain_db`: `float | None` -- (no description)
-- <a id="AutoGainLock.resume_after_capture"></a>`resume_after_capture`: `bool` -- (no description)
-- <a id="AutoGainLock.settings"></a>`settings`: `dict | None` -- (no description)
-- <a id="AutoGainLock.state"></a>`state`: `AutoGainConvergence | None` -- (no description)
-- <a id="AutoGainLock.stored_exposure_ms"></a>`stored_exposure_ms`: `float | None` -- (no description)
+- <a id="AutoGainLock.ceiling_ms"></a>`ceiling_ms`: `float | None` -- The exposure ceiling the camera was armed with, in ms, the arm's `max_exposure_ms` within the camera's range; None when the arm had none.
+- <a id="AutoGainLock.exposure_ms"></a>`exposure_ms`: `float | None` -- The exposure the auto loop reached, in ms, written back as the manual exposure; None when `state` is None or `FAILED`.
+- <a id="AutoGainLock.floor_ms"></a>`floor_ms`: `float | None` -- The arm's `min_exposure_ms`, the exposure at or below which the lock is `AT_MINIMUM`; None when the arm had none.
+- <a id="AutoGainLock.gain_db"></a>`gain_db`: `float | None` -- The gain the auto loop reached, in dB, written back as the manual gain; None exactly when `exposure_ms` is.
+- <a id="AutoGainLock.resume_after_capture"></a>`resume_after_capture`: `bool` -- Whether the arm is re-armed after the capture (a live-view arm), rather than left at the locked values (a protocol step's).
+- <a id="AutoGainLock.settings"></a>`settings`: `dict | None` -- The auto-gain settings the arm was armed with, used to re-arm it; None when no arm was recorded.
+- <a id="AutoGainLock.state"></a>`state`: `AutoGainConvergence | None` -- Where the arm landed; None when no arm was recorded, so nothing was locked and nothing was written to the camera.
+- <a id="AutoGainLock.stored_exposure_ms"></a>`stored_exposure_ms`: `float | None` -- The exposure a caller stores as the channel's manual setting after the lock: `exposure_ms` raised to `floor_ms`. The loop can drive the camera below that floor on a bright scene, and a setting stored that low makes near-black captures of ordinary scenes, so the store keeps the floor while `exposure_ms` keeps what the camera reached. None when `exposure_ms` is.
 
 <a id="AxisLimits"></a>
 ## `lumascope.AxisLimits`
@@ -9410,8 +9409,8 @@ An axis's travel, in um: a move outside it is refused.
 
 **Fields**
 
-- <a id="AxisLimits.max_um"></a>`max_um`: `float` -- (no description)
-- <a id="AxisLimits.min_um"></a>`min_um`: `float` -- (no description)
+- <a id="AxisLimits.max_um"></a>`max_um`: `float` -- The highest position the axis may be moved to, in um.
+- <a id="AxisLimits.min_um"></a>`min_um`: `float` -- The lowest position the axis may be moved to, in um.
 
 <a id="AxisPosition"></a>
 ## `lumascope.AxisPosition`
@@ -9423,15 +9422,12 @@ Taken by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener),
 
 One stage axis's state and its position, read together: X, Y or Z.
 
-`position_um` is None unless the axis is IDLE or MOVING: an axis whose
-reference is lost or still being established keeps answering the last
-number it reported, and a caller writing a position into a file must
-not be handed it. The turret has a slot, not a position: `TurretStatus`.
+The turret has a slot, not a position: `TurretStatus`.
 
 **Fields**
 
-- <a id="AxisPosition.position_um"></a>`position_um`: `float | None` -- (no description)
-- <a id="AxisPosition.state"></a>`state`: `AxisState` -- (no description)
+- <a id="AxisPosition.position_um"></a>`position_um`: `float | None` -- The axis's last reported position, in um. None unless the axis is IDLE or MOVING: an axis whose reference is lost or still being established keeps answering the last number it reported, and a caller writing a position into a file must not be handed it.
+- <a id="AxisPosition.state"></a>`state`: `AxisState` -- The axis's `AxisState`.
 
 <a id="BringUpRecord"></a>
 ## `lumascope.BringUpRecord`
@@ -9443,9 +9439,9 @@ What bring-up found, substituted and set aside.
 
 **Fields**
 
-- <a id="BringUpRecord.parts"></a>`parts`: `tuple[PartStatus, ...]` -- (no description)
-- <a id="BringUpRecord.settings_set_aside"></a>`settings_set_aside`: `SettingsSetAside | None` -- (no description)
-- <a id="BringUpRecord.substitutions"></a>`substitutions`: `tuple[Substitution, ...]` -- (no description)
+- <a id="BringUpRecord.parts"></a>`parts`: `tuple[PartStatus, ...]` -- Each part bring-up looked for, and whether it came up.
+- <a id="BringUpRecord.settings_set_aside"></a>`settings_set_aside`: `SettingsSetAside | None` -- The user's settings file that could not be used, and why; None when it was used.
+- <a id="BringUpRecord.substitutions"></a>`substitutions`: `tuple[Substitution, ...]` -- Each saved setting the camera could not take, with what ran in its place; empty when none was substituted.
 
 <a id="BringUpRecord.missing"></a>
 ### `BringUpRecord.missing`
@@ -9516,33 +9512,15 @@ The ranges the attached camera takes, read once at connect.
 value outside them before it reaches the camera. A limit the camera
 does not declare is None, and that end is not checked.
 
-`gain_max_db` is the most gain the camera applies, digital stage
-included; `analog_gain_max_db` the most before a digital stage, past
-which the camera multiplies digitised values and the noise with the
-signal: the analog maximum the camera's profile documents, or, for a
-camera whose profile states no digital stage, its total maximum (all
-its gain is analog), None for a camera with a digital stage and no
-documented split. `frame_max` is the largest frame the scope
-delivers, unbinned: the smallest of the sensor size the camera's
-profile documents, the maximum the camera reports at connect
-multiplied back by the binning it reported then, and the model's
-catalogue `MaxFrame` (a lens that images less than the sensor: the
-LS560's 1700), each where it is known. The profile stays in that
-comparison because a camera can report a few rows and columns more
-than its documented sensor (the LS850T's daA3840 reports 3860 x 2178
-against 3840 x 2160). `set_frame_size` divides it by the
-binning in force. `frame_min` is the smallest frame the camera
-reported at connect.
-
 **Fields**
 
-- <a id="CameraLimits.analog_gain_max_db"></a>`analog_gain_max_db`: `float | None` -- (no description)
-- <a id="CameraLimits.exposure_max_ms"></a>`exposure_max_ms`: `float | None` -- (no description)
-- <a id="CameraLimits.exposure_min_ms"></a>`exposure_min_ms`: `float | None` -- (no description)
-- <a id="CameraLimits.frame_max"></a>`frame_max`: `FrameSize | None` -- (no description)
-- <a id="CameraLimits.frame_min"></a>`frame_min`: `FrameSize | None` -- (no description)
-- <a id="CameraLimits.gain_max_db"></a>`gain_max_db`: `float | None` -- (no description)
-- <a id="CameraLimits.gain_min_db"></a>`gain_min_db`: `float | None` -- (no description)
+- <a id="CameraLimits.analog_gain_max_db"></a>`analog_gain_max_db`: `float | None` -- The most gain before a digital stage, in dB, past which the camera multiplies digitised values and the noise with the signal: the analog maximum the camera's profile documents, or, for a camera whose profile states no digital stage, its total maximum (all its gain is analog); None for a camera with a digital stage and no documented split.
+- <a id="CameraLimits.exposure_max_ms"></a>`exposure_max_ms`: `float | None` -- The longest exposure the camera takes, in milliseconds; None when the camera declares none.
+- <a id="CameraLimits.exposure_min_ms"></a>`exposure_min_ms`: `float | None` -- The shortest exposure the camera takes, in milliseconds; None when the camera declares none.
+- <a id="CameraLimits.frame_max"></a>`frame_max`: `FrameSize | None` -- The largest frame the scope delivers, unbinned: the smallest of the sensor size the camera's profile documents, the maximum the camera reports at connect multiplied back by the binning it reported then, and the model's catalogue `MaxFrame` (a lens that images less than the sensor: the LS560's 1700), each where it is known; None when none is. The profile stays in that comparison because a camera can report a few rows and columns more than its documented sensor (the LS850T's daA3840 reports 3860 x 2178 against 3840 x 2160). `set_frame_size` divides it by the binning in force.
+- <a id="CameraLimits.frame_min"></a>`frame_min`: `FrameSize | None` -- The smallest frame the camera reported at connect; None when it reported none.
+- <a id="CameraLimits.gain_max_db"></a>`gain_max_db`: `float | None` -- The most gain the camera applies, digital stage included, in dB; None when the camera declares none.
+- <a id="CameraLimits.gain_min_db"></a>`gain_min_db`: `float | None` -- The least gain the camera takes, in dB; None when the camera declares none.
 
 <a id="CameraLink"></a>
 ## `lumascope.CameraLink`
@@ -9790,30 +9768,12 @@ Held in: [`Lumascope.channel_identity`](#Lumascope.channel_identity).
 
 The resolved per-unit identity snapshot.
 
-`source` records which rung answered: `MOTORCONFIG` (the unit's own
-block -- authoritative and complete when present), `SCOPES` (the
-model's rows -- what a pre-block unit of this model has), `STOCK`
-(the model is one the catalogue does not list, an OEM unit's own name,
-so the rows are those of the stock optics module, which every OEM unit
-carries), or `UNRESOLVED` (no block and no model, or an override
-naming a model the catalogue lacks; empty, and loud at the point of
-LED use rather than silently wrong here).
-
-`model` is the scope model the resolver settled on, whichever rung
-answered: the override, else the model the board reports, else the
-operator's selection -- the only identity an FX2 scope has, since it
-cannot report its own. A model the catalogue lacks is still carried:
-with the stock module's channels, or with none when an override names
-it; `None` means there was no model at all. Every reader of "which
-model is this scope" takes it from here, so the channels, the
-capabilities and the saved files name one model.
-
 **Fields**
 
-- <a id="ChannelIdentity.channels"></a>`channels`: `tuple[ChannelRecord, ...]` -- (no description)
-- <a id="ChannelIdentity.filterset"></a>`filterset`: `str` -- (no description)
-- <a id="ChannelIdentity.model"></a>`model`: `str | None` -- (no description)
-- <a id="ChannelIdentity.source"></a>`source`: `IdentitySource` -- (no description)
+- <a id="ChannelIdentity.channels"></a>`channels`: `tuple[ChannelRecord, ...]` -- The unit's channel records, in the release's order (`ChannelRecord.id`); empty when `source` is `UNRESOLVED`.
+- <a id="ChannelIdentity.filterset"></a>`filterset`: `str` -- The name of the unit's filterset: its board block's `Filterset`, else its model's row's; an empty string where neither names one.
+- <a id="ChannelIdentity.model"></a>`model`: `str | None` -- The scope model the resolver settled on, whichever rung answered: the override, else the model the board reports, else the operator's selection -- the only identity an FX2 scope has, since it cannot report its own. A model the catalogue lacks is still carried: with the stock module's channels, or with none when an override names it; None means there was no model at all. Every reader of "which model is this scope" takes it from here, so the channels, the capabilities and the saved files name one model.
+- <a id="ChannelIdentity.source"></a>`source`: `IdentitySource` -- Which rung answered: `MOTORCONFIG` (the unit's own block, authoritative and complete when present), `SCOPES` (the model's rows, what a pre-block unit of this model has), `STOCK` (the model is one the catalogue does not list, an OEM unit's own name, so the rows are those of the stock optics module, which every OEM unit carries), or `UNRESOLVED` (no block and no model, or an override naming a model the catalogue lacks; empty, and loud at the point of LED use rather than silently wrong here).
 
 <a id="ChannelIdentity.find"></a>
 ### `ChannelIdentity.find`
@@ -9880,51 +9840,17 @@ Held in: [`ChannelIdentity.channels`](#ChannelIdentity.channels), [`ScopeModel.c
 
 Identity of one channel on one unit.
 
-`id` is the internal key and the display position -- assigned from
-the release catalogue's order, never persisted to any per-unit or
-user file, so it can renumber freely between releases.
-
-`key_name` is the stable serialisation name (settings block keys,
-protocol TSV `Color`, filename tokens, metadata `channel`). It never
-changes when a channel is renamed.
-
-`display_name` is the unit's name for the channel. Freely changeable: a
-rename touches this field and nothing persisted. None for a
-fluorescence channel a board's Channels block names by its excitation
-alone.
-
-`led_addresses` is the LED board address(es) this channel drives, empty
-for a channel with no LED (luminescence). A tuple rather than a single
-value because a future channel (quantitative phase) drives several
-switches as one channel; today every shipped row carries zero or one.
-A row in a model's file names them `led_channel`, read into this
-field by the one row reader.
-
-`excitation_nm` is the excitation wavelength -- named for what it
-holds, since an ambiguous "wavelength" invites silently wrong
-metadata -- and the number a fluorescence key names (`Ex<nm>`).
-None is the truth for broadband transmitted light and for LED-less
-channels.
-
-`modality` and `background` are the channel's catalogue record's
-(`CatalogueChannel`). `display_color` is the unit's colour for the channel:
-its board block row's, else the catalogue record's.
-
-`label` is what the channel is called wherever it is shown or written:
-a fluorescence channel's excitation (`'405 nm'`), any other channel's
-`display_name`.
-
 **Fields**
 
-- <a id="ChannelRecord.background"></a>`background`: `Background` -- (no description)
-- <a id="ChannelRecord.display_color"></a>`display_color`: `str` -- (no description)
-- <a id="ChannelRecord.display_name"></a>`display_name`: `str | None` -- (no description)
-- <a id="ChannelRecord.excitation_nm"></a>`excitation_nm`: `float | None` -- (no description)
-- <a id="ChannelRecord.id"></a>`id`: `int` -- (no description)
-- <a id="ChannelRecord.key_name"></a>`key_name`: `str` -- (no description)
-- <a id="ChannelRecord.label"></a>`label`: `str` -- (no description)
-- <a id="ChannelRecord.led_addresses"></a>`led_addresses`: `tuple[int, ...]` -- (no description)
-- <a id="ChannelRecord.modality"></a>`modality`: `Modality` -- (no description)
+- <a id="ChannelRecord.background"></a>`background`: `Background` -- Whether the channel's field of view is bright or dark, from its catalogue record.
+- <a id="ChannelRecord.display_color"></a>`display_color`: `str` -- The unit's colour for the channel, `'#rrggbb'`: its board block row's, else the catalogue record's.
+- <a id="ChannelRecord.display_name"></a>`display_name`: `str | None` -- The unit's name for the channel, free to change: a rename touches this field and nothing stored. None for a fluorescence channel a board's Channels block names by its excitation alone.
+- <a id="ChannelRecord.excitation_nm"></a>`excitation_nm`: `float | None` -- The excitation wavelength, in nm, and the number a fluorescence key names (`Ex<nm>`). None for broadband transmitted light and for a channel with no LED.
+- <a id="ChannelRecord.id"></a>`id`: `int` -- The internal key and the display position, assigned from the release catalogue's order; never stored in any per-unit or user file, so it can renumber freely between releases.
+- <a id="ChannelRecord.key_name"></a>`key_name`: `str` -- The stable name the channel is stored under (settings block keys, the protocol TSV's `Color`, file name tokens, the metadata's `channel`); it never changes when a channel is renamed.
+- <a id="ChannelRecord.label"></a>`label`: `str` -- What the channel is called wherever it is shown or written: a fluorescence channel's excitation (`'405 nm'`), any other channel's `display_name`.
+- <a id="ChannelRecord.led_addresses"></a>`led_addresses`: `tuple[int, ...]` -- The LED board addresses this channel drives, empty for a channel with no LED (luminescence). A tuple because a channel may drive several switches as one; every shipped row carries zero or one. A row in a model's file names them `led_channel`, read into this field by the one row reader.
+- <a id="ChannelRecord.modality"></a>`modality`: `Modality` -- The kind of light the channel images, from its catalogue record (`CatalogueChannel`).
 
 <a id="ChannelSettings"></a>
 ## `lumascope.ChannelSettings`
@@ -10089,8 +10015,8 @@ One frame counted toward a change, and who counted it.
 
 **Fields**
 
-- <a id="Credit.by"></a>`by`: `Counter` -- (no description)
-- <a id="Credit.seq"></a>`seq`: `int` -- (no description)
+- <a id="Credit.by"></a>`by`: `Counter` -- Who counted it: the capture's drain, a grab, or the live preview.
+- <a id="Credit.seq"></a>`seq`: `int` -- The frame's arrival ordinal, from the grab that produced it.
 
 <a id="DegradedOutput"></a>
 ## `lumascope.DegradedOutput`
@@ -10115,17 +10041,14 @@ Returned by: [`ImagingAPI.get_delivered_rate`](#ImagingAPI.get_delivered_rate), 
 
 What the camera delivered to the host over the last second.
 
-`frame_rate_fps` counts the frames stored, whatever any display does with
-them. `bytes_per_s` is the bytes those same frames took on the link --
-the payload the camera sent, not the transport's protocol overhead -- so
 `bytes_per_s / frame_rate_fps` is the bytes one frame takes on the link.
 Both are 0 when nothing was delivered in the last window: no camera, a
 camera not streaming, or no recent window measured.
 
 **Fields**
 
-- <a id="DeliveredRate.bytes_per_s"></a>`bytes_per_s`: `float` -- (no description)
-- <a id="DeliveredRate.frame_rate_fps"></a>`frame_rate_fps`: `float` -- (no description)
+- <a id="DeliveredRate.bytes_per_s"></a>`bytes_per_s`: `float` -- The bytes per second those same frames took on the link: the payload the camera sent, not the transport's protocol overhead.
+- <a id="DeliveredRate.frame_rate_fps"></a>`frame_rate_fps`: `float` -- The frames stored per second, whatever any display does with them.
 
 <a id="DisplayRates"></a>
 ## `lumascope.DisplayRates`
@@ -10192,9 +10115,9 @@ One file Quick Enhance derived: its source, the derived image, and its recipe.
 
 **Fields**
 
-- <a id="EnhancedFile.output_path"></a>`output_path`: `pathlib.Path` -- (no description)
-- <a id="EnhancedFile.recipe_path"></a>`recipe_path`: `pathlib.Path` -- (no description)
-- <a id="EnhancedFile.source_path"></a>`source_path`: `pathlib.Path` -- (no description)
+- <a id="EnhancedFile.output_path"></a>`output_path`: `pathlib.Path` -- The enhanced image, beside its source, in its source's format (`<name>_enhanced.tiff` or `<name>_enhanced.ome.tiff`).
+- <a id="EnhancedFile.recipe_path"></a>`recipe_path`: `pathlib.Path` -- The JSON file beside it recording the settings the enhance applied (`<name>_enhanced.recipe.json`).
+- <a id="EnhancedFile.source_path"></a>`source_path`: `pathlib.Path` -- The image the enhance was made from.
 
 <a id="ExcludedInput"></a>
 ## `lumascope.ExcludedInput`
@@ -10218,11 +10141,11 @@ made.
 A record: it crosses the wire as its data.  
 Delivered by: [`CameraAPI.add_exposure_listener`](#CameraAPI.add_exposure_listener).
 
-An exposure event: the exposure now in effect, in ms.
+An exposure event.
 
 **Fields**
 
-- <a id="ExposureChanged.exposure_ms"></a>`exposure_ms`: `float` -- (no description)
+- <a id="ExposureChanged.exposure_ms"></a>`exposure_ms`: `float` -- The exposure now in effect, in ms.
 
 <a id="FailedCapture"></a>
 ## `lumascope.FailedCapture`
@@ -10249,8 +10172,8 @@ The area a frame covers on the sample, in micrometres.
 
 **Fields**
 
-- <a id="FieldOfView.height_um"></a>`height_um`: `float` -- (no description)
-- <a id="FieldOfView.width_um"></a>`width_um`: `float` -- (no description)
+- <a id="FieldOfView.height_um"></a>`height_um`: `float` -- The height of the sample the frame covers, in micrometres.
+- <a id="FieldOfView.width_um"></a>`width_um`: `float` -- The width of the sample the frame covers, in micrometres.
 
 <a id="FilesWritten"></a>
 ## `lumascope.FilesWritten`
@@ -10258,12 +10181,12 @@ The area a frame covers on the sample, in micrometres.
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.files_written`](#RunEvents.files_written).
 
-A `files_written` event: the run's folder, and what became of its images.
+A `files_written` event, sent once the run's last image write has landed.
 
 **Fields**
 
-- <a id="FilesWritten.files"></a>`files`: `FilesOutcome` -- (no description)
-- <a id="FilesWritten.run_dir"></a>`run_dir`: `pathlib.Path | None` -- (no description)
+- <a id="FilesWritten.files"></a>`files`: `FilesOutcome` -- `WRITTEN`, or `INCOMPLETE` when some of the run's images are not on disk.
+- <a id="FilesWritten.run_dir"></a>`run_dir`: `pathlib.Path | None` -- The run's folder; None for a run that saved nothing.
 
 <a id="FilterBounds"></a>
 ## `lumascope.FilterBounds`
@@ -10324,13 +10247,13 @@ records are equal only when they are the same delivery (identity).
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.frame_captured`](#RunEvents.frame_captured).
 
-A `frame_captured` event: the frame as its file gets it, how many summed, its bits.
+A `frame_captured` event, sent for each frame whose write the run's writer has taken.
 
 **Fields**
 
-- <a id="FrameCaptured.frame_significant_bits"></a>`frame_significant_bits`: `int` -- (no description)
-- <a id="FrameCaptured.frames_summed"></a>`frames_summed`: `int` -- (no description)
-- <a id="FrameCaptured.image"></a>`image`: `np.ndarray` -- (no description)
+- <a id="FrameCaptured.frame_significant_bits"></a>`frame_significant_bits`: `int` -- The depth each summed frame was delivered at; with `frames_summed` it gives the sum's depth and full scale.
+- <a id="FrameCaptured.frames_summed"></a>`frames_summed`: `int` -- How many frames are summed into `image`; 1 for a single frame.
+- <a id="FrameCaptured.image"></a>`image`: `np.ndarray` -- The frame as its file gets it, a sum when summing; read-only.
 
 <a id="FrameDelivered"></a>
 ## `lumascope.FrameDelivered`
@@ -10338,13 +10261,11 @@ A `frame_captured` event: the frame as its file gets it, how many summed, its bi
 A record: it crosses the wire as its data.  
 Delivered by: [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener).
 
-A frame the camera delivered: its `Frame` record -- the read-only
-image, its arrival number and times, its depth, and its chunk data when
-the camera sends any.
+A frame the camera delivered.
 
 **Fields**
 
-- <a id="FrameDelivered.frame"></a>`frame`: `Frame` -- (no description)
+- <a id="FrameDelivered.frame"></a>`frame`: `Frame` -- The frame's `Frame` record: the read-only image, its arrival number and times, its depth, and its chunk data when the camera sends any.
 
 <a id="FrameRecord"></a>
 ## `lumascope.FrameRecord`
@@ -10412,8 +10333,8 @@ A frame's size, in pixels.
 
 **Fields**
 
-- <a id="FrameSize.height"></a>`height`: `int` -- (no description)
-- <a id="FrameSize.width"></a>`width`: `int` -- (no description)
+- <a id="FrameSize.height"></a>`height`: `int` -- The frame's height, in pixels.
+- <a id="FrameSize.width"></a>`width`: `int` -- The frame's width, in pixels.
 
 <a id="FrameTime"></a>
 ## `lumascope.FrameTime`
@@ -10441,11 +10362,11 @@ give a frame its time, and a reader comparing frames must know which.
 A record: it crosses the wire as its data.  
 Delivered by: [`CameraAPI.add_gain_listener`](#CameraAPI.add_gain_listener).
 
-A gain event: the gain now in effect, in dB.
+A gain event.
 
 **Fields**
 
-- <a id="GainChanged.gain_db"></a>`gain_db`: `float` -- (no description)
+- <a id="GainChanged.gain_db"></a>`gain_db`: `float` -- The gain now in effect, in dB.
 
 <a id="GraphOptions"></a>
 ## `lumascope.GraphOptions`
@@ -10566,25 +10487,21 @@ Returned by: [`Lumascope.labware`](#Lumascope.labware).
 
 One multi-well plate of the installation's catalogue, read once at bring-up.
 
-Plate positions are in mm. `offset_*` is the first well's centre and
-`spacing_*` the pitch between well centres; `width_mm` and
-`height_mm` the plate's outline. `well_diameter_mm` is None where
-the catalogue states none. A plate with no wells (the Blank labware)
-has `rows` and `columns` 0.
+Plate positions are in mm from the plate's top-left corner.
 
 **Fields**
 
-- <a id="Labware.columns"></a>`columns`: `int` -- (no description)
-- <a id="Labware.height_mm"></a>`height_mm`: `float` -- (no description)
-- <a id="Labware.name"></a>`name`: `str` -- (no description)
-- <a id="Labware.offset_x_mm"></a>`offset_x_mm`: `float` -- (no description)
-- <a id="Labware.offset_y_mm"></a>`offset_y_mm`: `float` -- (no description)
-- <a id="Labware.rows"></a>`rows`: `int` -- (no description)
-- <a id="Labware.spacing_x_mm"></a>`spacing_x_mm`: `float` -- (no description)
-- <a id="Labware.spacing_y_mm"></a>`spacing_y_mm`: `float` -- (no description)
-- <a id="Labware.standard"></a>`standard`: `str` -- (no description)
-- <a id="Labware.well_diameter_mm"></a>`well_diameter_mm`: `float | None` -- (no description)
-- <a id="Labware.width_mm"></a>`width_mm`: `float` -- (no description)
+- <a id="Labware.columns"></a>`columns`: `int` -- The number of columns of wells; 0 for a plate with no wells (the Blank labware).
+- <a id="Labware.height_mm"></a>`height_mm`: `float` -- The plate's outline along Y, in mm.
+- <a id="Labware.name"></a>`name`: `str` -- The plate's name, its key in the catalogue.
+- <a id="Labware.offset_x_mm"></a>`offset_x_mm`: `float` -- The X of the first well's centre, in mm.
+- <a id="Labware.offset_y_mm"></a>`offset_y_mm`: `float` -- The Y of the first well's centre, in mm.
+- <a id="Labware.rows"></a>`rows`: `int` -- The number of rows of wells; 0 for a plate with no wells (the Blank labware).
+- <a id="Labware.spacing_x_mm"></a>`spacing_x_mm`: `float` -- The pitch between well centres along X, in mm.
+- <a id="Labware.spacing_y_mm"></a>`spacing_y_mm`: `float` -- The pitch between well centres along Y, in mm.
+- <a id="Labware.standard"></a>`standard`: `str` -- The plate standard the catalogue says the plate follows (`ANSI SLAS 2004`); '' where it states none.
+- <a id="Labware.well_diameter_mm"></a>`well_diameter_mm`: `float | None` -- A well's diameter, in mm; None where the catalogue states none.
+- <a id="Labware.width_mm"></a>`width_mm`: `float` -- The plate's outline along X, in mm.
 
 <a id="Labware.get_well_index"></a>
 ### `Labware.get_well_index`
@@ -10824,9 +10741,9 @@ Per-namespace snapshot for tech-support + diagnostic probes.
 
 **Fields**
 
-- <a id="NamespaceHealth.loaded"></a>`loaded`: `tuple[PluginStatus, ...]` -- (no description)
-- <a id="NamespaceHealth.namespace"></a>`namespace`: `str` -- (no description)
-- <a id="NamespaceHealth.runtime_failures"></a>`runtime_failures`: `tuple[PluginRuntimeFailure, ...]` -- Every exception caught from a plugin handler in this namespace since it was created, oldest first; never trimmed.
+- <a id="NamespaceHealth.loaded"></a>`loaded`: `tuple[PluginStatus, ...]` -- The plugins registered in this namespace when the snapshot was taken.
+- <a id="NamespaceHealth.namespace"></a>`namespace`: `str` -- The namespace this snapshot is of: `ui`, `post_processing`, `live_processing` or `rest`.
+- <a id="NamespaceHealth.runtime_failures"></a>`runtime_failures`: `tuple[PluginRuntimeFailure, ...]` -- Every failure of a plugin handler in this namespace since it was created, raised or returned, oldest first; never trimmed.
 
 <a id="Notification"></a>
 ## `lumascope.Notification`
@@ -10872,38 +10789,27 @@ Taken by: [`Protocol.validate_steps`](#Protocol.validate_steps).
 
 One objective of the installation's catalogue, read once at bring-up.
 
-`id` is the catalogue key, the objective's one identity everywhere in
-the program; `short_name` the token step and file names carry, derived
-from the id alone (`objective_short_name`). Autofocus starts at
-`autofocus_step_max_um` and refines down to `autofocus_step_min_um`
-across `autofocus_half_range_um` either side of where it starts. A
-jog moves the `jog_*` distance on its axis. `focus_peak_fwhm_dense_um`
-is the objective's measured focus-peak width (full width at half
-maximum), None until it has been measured. `manufacturer` names
-who makes the glass; the catalogue lists each maker's objectives
-together (`ObjectiveLoader.objectives`).
-
 **Fields**
 
-- <a id="Objective.autofocus_half_range_um"></a>`autofocus_half_range_um`: `float` -- (no description)
-- <a id="Objective.autofocus_step_max_um"></a>`autofocus_step_max_um`: `float` -- (no description)
-- <a id="Objective.autofocus_step_min_um"></a>`autofocus_step_min_um`: `float` -- (no description)
-- <a id="Objective.depth_of_field_um"></a>`depth_of_field_um`: `float` -- (no description)
-- <a id="Objective.description"></a>`description`: `str` -- (no description)
-- <a id="Objective.focal_length_mm"></a>`focal_length_mm`: `float` -- (no description)
-- <a id="Objective.focus_peak_fwhm_dense_um"></a>`focus_peak_fwhm_dense_um`: `float | None` -- (no description)
-- <a id="Objective.id"></a>`id`: `str` -- (no description)
-- <a id="Objective.jog_xy_coarse_um"></a>`jog_xy_coarse_um`: `float` -- (no description)
-- <a id="Objective.jog_xy_fine_um"></a>`jog_xy_fine_um`: `float` -- (no description)
-- <a id="Objective.jog_z_coarse_um"></a>`jog_z_coarse_um`: `float` -- (no description)
-- <a id="Objective.jog_z_fine_um"></a>`jog_z_fine_um`: `float` -- (no description)
-- <a id="Objective.magnification"></a>`magnification`: `float` -- (no description)
-- <a id="Objective.manufacturer"></a>`manufacturer`: `str` -- (no description)
-- <a id="Objective.numerical_aperture"></a>`numerical_aperture`: `float` -- (no description)
-- <a id="Objective.short_name"></a>`short_name`: `str` -- (no description)
-- <a id="Objective.working_distance_mm"></a>`working_distance_mm`: `float` -- (no description)
-- <a id="Objective.z_settle_timeout_ms"></a>`z_settle_timeout_ms`: `float` -- (no description)
-- <a id="Objective.z_settle_tolerance_um"></a>`z_settle_tolerance_um`: `float` -- (no description)
+- <a id="Objective.autofocus_half_range_um"></a>`autofocus_half_range_um`: `float` -- How far, in um, autofocus searches either side of where it starts.
+- <a id="Objective.autofocus_step_max_um"></a>`autofocus_step_max_um`: `float` -- The Z step, in um, autofocus starts at.
+- <a id="Objective.autofocus_step_min_um"></a>`autofocus_step_min_um`: `float` -- The Z step, in um, autofocus refines down to.
+- <a id="Objective.depth_of_field_um"></a>`depth_of_field_um`: `float` -- The objective's depth of field, in um; the simulated camera's focus falls off by it.
+- <a id="Objective.description"></a>`description`: `str` -- The objective's full name, for a person to read (`'1.25x Plan Apochromat Olympus'`).
+- <a id="Objective.focal_length_mm"></a>`focal_length_mm`: `float` -- The objective's focal length, in mm; with the tube lens's, it sets the size of an image's pixel.
+- <a id="Objective.focus_peak_fwhm_dense_um"></a>`focus_peak_fwhm_dense_um`: `float | None` -- The objective's measured focus-peak width (full width at half maximum), in um; None until it has been measured.
+- <a id="Objective.id"></a>`id`: `str` -- The catalogue key, the objective's one identity everywhere in the program.
+- <a id="Objective.jog_xy_coarse_um"></a>`jog_xy_coarse_um`: `float` -- The distance, in um, a coarse X or Y jog moves.
+- <a id="Objective.jog_xy_fine_um"></a>`jog_xy_fine_um`: `float` -- The distance, in um, a fine X or Y jog moves.
+- <a id="Objective.jog_z_coarse_um"></a>`jog_z_coarse_um`: `float` -- The distance, in um, a coarse Z jog moves.
+- <a id="Objective.jog_z_fine_um"></a>`jog_z_fine_um`: `float` -- The distance, in um, a fine Z jog moves.
+- <a id="Objective.magnification"></a>`magnification`: `float` -- The objective's nominal magnification (`10` for a 10x objective).
+- <a id="Objective.manufacturer"></a>`manufacturer`: `str` -- Who makes the glass; the catalogue lists each maker's objectives together (`ObjectiveLoader.objectives`).
+- <a id="Objective.numerical_aperture"></a>`numerical_aperture`: `float` -- The objective's numerical aperture, written into a saved file's metadata.
+- <a id="Objective.short_name"></a>`short_name`: `str` -- The token step and file names carry, derived from the id alone (`objective_short_name`).
+- <a id="Objective.working_distance_mm"></a>`working_distance_mm`: `float` -- The objective's working distance, in mm, written into a saved file's metadata.
+- <a id="Objective.z_settle_timeout_ms"></a>`z_settle_timeout_ms`: `float` -- A Z settle timeout, in ms, stored for each objective; LumaViewPro does not yet use it.
+- <a id="Objective.z_settle_tolerance_um"></a>`z_settle_tolerance_um`: `float` -- A Z settle tolerance, in um, stored for each objective; LumaViewPro does not yet use it.
 
 <a id="ObjectiveQuestion"></a>
 ## `lumascope.ObjectiveQuestion`
@@ -11148,13 +11054,11 @@ Taken by: [`MotionAPI.move_to_plate`](#MotionAPI.move_to_plate), [`MotionAPI.sta
 
 Where the scope is on a plate, focus included: X and Y in mm on the plate, Z in um.
 
-None on an axis is no position there: a move to it leaves that axis where it is.
-
 **Fields**
 
-- <a id="PlateLocation.x_mm"></a>`x_mm`: `float | None` -- (no description)
-- <a id="PlateLocation.y_mm"></a>`y_mm`: `float | None` -- (no description)
-- <a id="PlateLocation.z_um"></a>`z_um`: `float | None` -- (no description)
+- <a id="PlateLocation.x_mm"></a>`x_mm`: `float | None` -- The X on the plate, in mm from its left edge; None for no position on X, which a move leaves where it is.
+- <a id="PlateLocation.y_mm"></a>`y_mm`: `float | None` -- The Y on the plate, in mm from its top edge; None for no position on Y, which a move leaves where it is.
+- <a id="PlateLocation.z_um"></a>`z_um`: `float | None` -- The focus position, in um; None for no position on Z, which a move leaves where it is.
 
 <a id="PlatePosition"></a>
 ## `lumascope.PlatePosition`
@@ -11166,8 +11070,8 @@ A position on a plate, in mm from the plate's top-left corner.
 
 **Fields**
 
-- <a id="PlatePosition.x_mm"></a>`x_mm`: `float` -- (no description)
-- <a id="PlatePosition.y_mm"></a>`y_mm`: `float` -- (no description)
+- <a id="PlatePosition.x_mm"></a>`x_mm`: `float` -- The X on the plate, in mm from its left edge.
+- <a id="PlatePosition.y_mm"></a>`y_mm`: `float` -- The Y on the plate, in mm from its top edge.
 
 <a id="PluginHealth"></a>
 ## `lumascope.PluginHealth`
@@ -11179,8 +11083,8 @@ Every namespace's health and the plugins that did not load, for tech-support rep
 
 **Fields**
 
-- <a id="PluginHealth.namespaces"></a>`namespaces`: `tuple[NamespaceHealth, ...]` -- (no description)
-- <a id="PluginHealth.not_loaded"></a>`not_loaded`: `tuple[PluginNotLoaded, ...]` -- (no description)
+- <a id="PluginHealth.namespaces"></a>`namespaces`: `tuple[NamespaceHealth, ...]` -- One snapshot per namespace, in the order `ui`, `post_processing`, `live_processing`, `rest`.
+- <a id="PluginHealth.not_loaded"></a>`not_loaded`: `tuple[PluginNotLoaded, ...]` -- Every plugin that did not load, in the order discovery met them.
 
 <a id="PluginNotLoaded"></a>
 ## `lumascope.PluginNotLoaded`
@@ -11195,9 +11099,9 @@ which a plugin that never loaded did not do.
 
 **Fields**
 
-- <a id="PluginNotLoaded.name"></a>`name`: `str` -- (no description)
-- <a id="PluginNotLoaded.reason"></a>`reason`: `str` -- (no description)
-- <a id="PluginNotLoaded.version"></a>`version`: `str` -- (no description)
+- <a id="PluginNotLoaded.name"></a>`name`: `str` -- The plugin's name, or its entry point's when it has no spec.
+- <a id="PluginNotLoaded.reason"></a>`reason`: `str` -- Why it did not load, in words a person can act on.
+- <a id="PluginNotLoaded.version"></a>`version`: `str` -- The plugin's version, or '' when it is not known.
 
 <a id="PluginRegistry"></a>
 ## `lumascope.PluginRegistry`
@@ -11225,7 +11129,7 @@ Lifecycle:
 A record: it crosses the wire as its data.  
 Held in: [`NamespaceHealth.runtime_failures`](#NamespaceHealth.runtime_failures).
 
-The record of an exception caught from a plugin handler; a record, never raised.
+The record of a plugin handler's failure, raised or returned; a record, never raised.
 
 Distinct from a load failure: the plugin loaded fine, but failed
 while servicing a callback (e.g. auto_run_on_protocol_complete). Reported by
@@ -11235,11 +11139,11 @@ attribute fault to the right plugin.
 
 **Fields**
 
-- <a id="PluginRuntimeFailure.exc_type"></a>`exc_type`: `str` -- (no description)
-- <a id="PluginRuntimeFailure.hook"></a>`hook`: `str` -- (no description)
-- <a id="PluginRuntimeFailure.message"></a>`message`: `str` -- (no description)
-- <a id="PluginRuntimeFailure.namespace"></a>`namespace`: `str` -- (no description)
-- <a id="PluginRuntimeFailure.plugin_name"></a>`plugin_name`: `str` -- (no description)
+- <a id="PluginRuntimeFailure.exc_type"></a>`exc_type`: `str` -- The name of the exception's class, or '' when the plugin failed by what it returned rather than by raising.
+- <a id="PluginRuntimeFailure.hook"></a>`hook`: `str` -- What the host was calling the plugin for, such as `auto_run_on_protocol_complete`, `mount` or `ui_event`.
+- <a id="PluginRuntimeFailure.message"></a>`message`: `str` -- The account of the failure given with it (a failed ProcessorResult's message, or what the host found wrong with what the plugin returned), else the exception's text.
+- <a id="PluginRuntimeFailure.namespace"></a>`namespace`: `str` -- The namespace the plugin is registered in.
+- <a id="PluginRuntimeFailure.plugin_name"></a>`plugin_name`: `str` -- The plugin that failed.
 
 <a id="PluginSpec"></a>
 ## `lumascope.PluginSpec`
@@ -11270,9 +11174,9 @@ A loaded plugin, for health reports.
 
 **Fields**
 
-- <a id="PluginStatus.name"></a>`name`: `str` -- (no description)
-- <a id="PluginStatus.namespace"></a>`namespace`: `str` -- (no description)
-- <a id="PluginStatus.version"></a>`version`: `str` -- (no description)
+- <a id="PluginStatus.name"></a>`name`: `str` -- The plugin's name, from its spec.
+- <a id="PluginStatus.namespace"></a>`namespace`: `str` -- The namespace it registered in: `ui`, `post_processing`, `live_processing` or `rest`.
+- <a id="PluginStatus.version"></a>`version`: `str` -- The plugin's version, from its spec.
 
 <a id="PositionChanged"></a>
 ## `lumascope.PositionChanged`
@@ -11284,8 +11188,8 @@ A position event: a stage axis, and its state and position as `axis_positions` a
 
 **Fields**
 
-- <a id="PositionChanged.at"></a>`at`: `AxisPosition` -- (no description)
-- <a id="PositionChanged.axis"></a>`axis`: `StageAxis` -- (no description)
+- <a id="PositionChanged.at"></a>`at`: `AxisPosition` -- Its state and position after the change.
+- <a id="PositionChanged.axis"></a>`axis`: `StageAxis` -- The stage axis that changed: X, Y or Z.
 
 <a id="PostProcessingRegistry"></a>
 ## `lumascope.PostProcessingRegistry`
@@ -12274,9 +12178,9 @@ have to parse it back out.
 
 **Fields**
 
-- <a id="ProtocolSizeAdvisory.message"></a>`message`: `str` -- (no description)
-- <a id="ProtocolSizeAdvisory.num_steps"></a>`num_steps`: `int` -- (no description)
-- <a id="ProtocolSizeAdvisory.projected_mb"></a>`projected_mb`: `float` -- (no description)
+- <a id="ProtocolSizeAdvisory.message"></a>`message`: `str` -- The advisory in words a person reads: the step count, the size, any video steps left unsized, and to check free disk.
+- <a id="ProtocolSizeAdvisory.num_steps"></a>`num_steps`: `int` -- How many steps the protocol has.
+- <a id="ProtocolSizeAdvisory.projected_mb"></a>`projected_mb`: `float` -- About how many megabytes of images the protocol's steps write. When its video steps cannot be sized (the camera delivering no frames and no rate limit set), the still steps only.
 
 <a id="RESTRegistry"></a>
 ## `lumascope.RESTRegistry`
@@ -12361,13 +12265,13 @@ place.
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.run_ended`](#RunEvents.run_ended).
 
-A `run_ended` event: the outcome, the run's folder (None when it saved nothing), its protocol.
+A `run_ended` event, sent once the run has let go of the scope and its outcome has settled.
 
 **Fields**
 
-- <a id="RunEnded.outcome"></a>`outcome`: `RunOutcome` -- (no description)
-- <a id="RunEnded.protocol"></a>`protocol`: `Protocol` -- (no description)
-- <a id="RunEnded.run_dir"></a>`run_dir`: `pathlib.Path | None` -- (no description)
+- <a id="RunEnded.outcome"></a>`outcome`: `RunOutcome` -- How the run ended.
+- <a id="RunEnded.protocol"></a>`protocol`: `Protocol` -- The copy of the protocol the run executed, a live object; the event stream leaves it out.
+- <a id="RunEnded.run_dir"></a>`run_dir`: `pathlib.Path | None` -- The run's folder; None for a run that saved nothing.
 
 <a id="RunEvents"></a>
 ## `lumascope.RunEvents`
@@ -12412,16 +12316,14 @@ Held in: [`Operation.files`](#Operation.files).
 
 What became of one run's images, once its writes are done.
 
-The run's batch's own account, read when it completed: its outcome,
-and when it is `INCOMPLETE`, how many images are not on disk and why
-(the batch's `not_written_reason`).
+The run's batch's own account, read when it completed.
 
 **Fields**
 
-- <a id="RunFiles.not_written"></a>`not_written`: `int` -- (no description)
-- <a id="RunFiles.not_written_reason"></a>`not_written_reason`: `str | None` -- (no description)
-- <a id="RunFiles.outcome"></a>`outcome`: `FilesOutcome` -- (no description)
-- <a id="RunFiles.written"></a>`written`: `int` -- (no description)
+- <a id="RunFiles.not_written"></a>`not_written`: `int` -- How many images the run captured that are not on disk.
+- <a id="RunFiles.not_written_reason"></a>`not_written_reason`: `str | None` -- Why some are not on disk, as a reason code: `write_batch_abandoned` (a recovery or a shutdown gave up on some writes), `write_batch_not_taken` (the writer never took some), or the first of `write_batch_save_failed`, `write_batch_disk_full` and `write_batch_video_unfinished` to happen. None when none is missing.
+- <a id="RunFiles.outcome"></a>`outcome`: `FilesOutcome` -- `WRITTEN` when every image the run captured is on disk, `INCOMPLETE` when some are not.
+- <a id="RunFiles.written"></a>`written`: `int` -- How many of the run's images landed on disk.
 
 <a id="RunOutcome"></a>
 ## `lumascope.RunOutcome`
@@ -12526,13 +12428,13 @@ place a JPG's channel, position and frame are stated.
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.scan_ended`](#RunEvents.scan_ended).
 
-A `scan_ended` event: the scan's index from 0, the scans left after it, the period in seconds.
+A `scan_ended` event, sent as a scan ends, a stopped one included.
 
 **Fields**
 
-- <a id="ScanEnded.period_s"></a>`period_s`: `float | None` -- (no description)
-- <a id="ScanEnded.scan_index"></a>`scan_index`: `int` -- (no description)
-- <a id="ScanEnded.scans_remaining"></a>`scans_remaining`: `int` -- (no description)
+- <a id="ScanEnded.period_s"></a>`period_s`: `float | None` -- How often the protocol scans, in seconds; 0 or None for one scan.
+- <a id="ScanEnded.scan_index"></a>`scan_index`: `int` -- The index of the scan that ended, from 0.
+- <a id="ScanEnded.scans_remaining"></a>`scans_remaining`: `int` -- How many scans remain after it.
 
 <a id="ScanStarted"></a>
 ## `lumascope.ScanStarted`
@@ -12540,13 +12442,13 @@ A `scan_ended` event: the scan's index from 0, the scans left after it, the peri
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.scan_started`](#RunEvents.scan_started).
 
-A `scan_started` event: the scan's index from 0, the scans left with it, the period in seconds.
+A `scan_started` event, sent as a scan begins.
 
 **Fields**
 
-- <a id="ScanStarted.period_s"></a>`period_s`: `float | None` -- (no description)
-- <a id="ScanStarted.scan_index"></a>`scan_index`: `int` -- (no description)
-- <a id="ScanStarted.scans_remaining"></a>`scans_remaining`: `int` -- (no description)
+- <a id="ScanStarted.period_s"></a>`period_s`: `float | None` -- How often the protocol scans, in seconds; 0 or None for one scan.
+- <a id="ScanStarted.scan_index"></a>`scan_index`: `int` -- The scan's index, from 0.
+- <a id="ScanStarted.scans_remaining"></a>`scans_remaining`: `int` -- How many scans remain, this one included.
 
 <a id="ScopeCapabilities"></a>
 ## `lumascope.ScopeCapabilities`
@@ -12604,33 +12506,19 @@ Returned by: [`Lumascope.scope_models`](#Lumascope.scope_models).
 
 One model of the installation's catalogue (`scopes.json`'s `Models`), read once at bring-up.
 
-`id` is the model's name, the key the operator selects and a board
-reports. `has_focus`, `has_xy_stage` and `has_turret` are the motor
-axes the model is built with: Z, X and Y, T. `channels` are the model's
-channel rows, resolved against the release's channel vocabulary: what a unit
-of the model has when its board carries no Channels block of its own.
-`led_board` and `motor_board` name the model's boards, `motor_board`
-None for a model with no motor axes; production finds the boards it has
-and reads neither, and the simulator builds from them. `filterset` is
-None where the row names none. `pixel_size_um` (the sensor's pixel
-pitch) and `lens_focal_length_mm` (the tube lens) are a Classic
-model's optics, which no motorconfig carries; `max_frame` is the
-largest frame, unbinned, of a model whose lens images less than its
-sensor. Each is None where the row declares none.
-
 **Fields**
 
-- <a id="ScopeModel.channels"></a>`channels`: `tuple[ChannelRecord, ...]` -- (no description)
-- <a id="ScopeModel.filterset"></a>`filterset`: `str | None` -- (no description)
-- <a id="ScopeModel.has_focus"></a>`has_focus`: `bool` -- (no description)
-- <a id="ScopeModel.has_turret"></a>`has_turret`: `bool` -- (no description)
-- <a id="ScopeModel.has_xy_stage"></a>`has_xy_stage`: `bool` -- (no description)
-- <a id="ScopeModel.id"></a>`id`: `str` -- (no description)
-- <a id="ScopeModel.led_board"></a>`led_board`: `LedBoardFamily` -- (no description)
-- <a id="ScopeModel.lens_focal_length_mm"></a>`lens_focal_length_mm`: `float | None` -- (no description)
-- <a id="ScopeModel.max_frame"></a>`max_frame`: `FrameSize | None` -- (no description)
-- <a id="ScopeModel.motor_board"></a>`motor_board`: `MotorBoardFamily | None` -- (no description)
-- <a id="ScopeModel.pixel_size_um"></a>`pixel_size_um`: `float | None` -- (no description)
+- <a id="ScopeModel.channels"></a>`channels`: `tuple[ChannelRecord, ...]` -- The model's channel rows, resolved against the release's channel vocabulary and in its order: what a unit of the model has when its board carries no Channels block of its own.
+- <a id="ScopeModel.filterset"></a>`filterset`: `str | None` -- The name of the model's filterset; None where the row names none.
+- <a id="ScopeModel.has_focus"></a>`has_focus`: `bool` -- Whether the model is built with a focus drive (Z).
+- <a id="ScopeModel.has_turret"></a>`has_turret`: `bool` -- Whether the model is built with an objective turret (T): the answer `ScopeCapabilities.has_turret` gives when the scope's motor board did not come up.
+- <a id="ScopeModel.has_xy_stage"></a>`has_xy_stage`: `bool` -- Whether the model is built with an XY stage (X and Y).
+- <a id="ScopeModel.id"></a>`id`: `str` -- The model's name, the key the operator selects and a board reports.
+- <a id="ScopeModel.led_board"></a>`led_board`: `LedBoardFamily` -- The kind of board the model's LEDs are on. Production finds the boards it has and does not read it; the simulator builds from it.
+- <a id="ScopeModel.lens_focal_length_mm"></a>`lens_focal_length_mm`: `float | None` -- The tube lens's focal length, in mm, for a Classic model; None where the row declares none.
+- <a id="ScopeModel.max_frame"></a>`max_frame`: `FrameSize | None` -- The largest frame, unbinned, of a model whose lens images less than its sensor; None where the row declares none.
+- <a id="ScopeModel.motor_board"></a>`motor_board`: `MotorBoardFamily | None` -- The kind of motor board the model has; None for a model with no motor axes. Read, like `led_board`, only by the simulator.
+- <a id="ScopeModel.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The sensor's pixel pitch, in um, for a Classic model, whose optics no motorconfig carries; None where the row declares none.
 
 <a id="SensorExposure"></a>
 ## `lumascope.SensorExposure`
@@ -12689,8 +12577,8 @@ save over the file until the person decides what happens to it.
 
 **Fields**
 
-- <a id="SettingsSetAside.path"></a>`path`: `pathlib.Path` -- (no description)
-- <a id="SettingsSetAside.reason"></a>`reason`: `str` -- (no description)
+- <a id="SettingsSetAside.path"></a>`path`: `pathlib.Path` -- The settings file (`current.json`) that was set aside, untouched.
+- <a id="SettingsSetAside.reason"></a>`reason`: `str` -- Why it could not be used, in words a person reads.
 
 <a id="ShownChannel"></a>
 ## `lumascope.ShownChannel`
@@ -12861,8 +12749,8 @@ Where the plate is mounted on the stage, in um: the offset the two conversions a
 
 **Fields**
 
-- <a id="StageOffset.x_um"></a>`x_um`: `float` -- (no description)
-- <a id="StageOffset.y_um"></a>`y_um`: `float` -- (no description)
+- <a id="StageOffset.x_um"></a>`x_um`: `float` -- The mount's offset on X, in um, added to a stage X when it is converted to a plate X.
+- <a id="StageOffset.y_um"></a>`y_um`: `float` -- The mount's offset on Y, in um, added to a stage Y when it is converted to a plate Y.
 
 <a id="StagePosition"></a>
 ## `lumascope.StagePosition`
@@ -12874,8 +12762,8 @@ A stage X/Y position, in um.
 
 **Fields**
 
-- <a id="StagePosition.x_um"></a>`x_um`: `float` -- (no description)
-- <a id="StagePosition.y_um"></a>`y_um`: `float` -- (no description)
+- <a id="StagePosition.x_um"></a>`x_um`: `float` -- The stage X, in um.
+- <a id="StagePosition.y_um"></a>`y_um`: `float` -- The stage Y, in um.
 
 <a id="Status"></a>
 ## `lumascope.Status`
@@ -12946,11 +12834,11 @@ One step of a protocol, a field per column of its steps table.
 A record: it crosses the wire as its data.  
 Delivered by: [`RunEvents.step_started`](#RunEvents.step_started).
 
-A `step_started` event: the index of the step beginning.
+A `step_started` event, sent as each step begins, step 0 included.
 
 **Fields**
 
-- <a id="StepStarted.step_index"></a>`step_index`: `int` -- (no description)
+- <a id="StepStarted.step_index"></a>`step_index`: `int` -- The index of the step beginning, from 0.
 
 <a id="Stimulation"></a>
 ## `lumascope.Stimulation`
@@ -12960,16 +12848,16 @@ Held in: [`StepRecord.stim_config`](#StepRecord.stim_config).
 
 One channel's stimulation for a step: on or off, its current, and its pulses.
 
-None where the step's config does not say, as in a file from before a
-value was kept.
+Each field is None where the step's config does not say, as in a file
+from before a value was kept.
 
 **Fields**
 
-- <a id="Stimulation.enabled"></a>`enabled`: `bool | None` -- (no description)
-- <a id="Stimulation.frequency_hz"></a>`frequency_hz`: `float | None` -- (no description)
-- <a id="Stimulation.illumination_ma"></a>`illumination_ma`: `float | None` -- (no description)
-- <a id="Stimulation.pulse_count"></a>`pulse_count`: `int | None` -- (no description)
-- <a id="Stimulation.pulse_width_ms"></a>`pulse_width_ms`: `float | None` -- (no description)
+- <a id="Stimulation.enabled"></a>`enabled`: `bool | None` -- Whether the step asks for stimulation on this channel.
+- <a id="Stimulation.frequency_hz"></a>`frequency_hz`: `float | None` -- The pulse rate the step asks for, in Hz.
+- <a id="Stimulation.illumination_ma"></a>`illumination_ma`: `float | None` -- The LED current the step asks for while stimulating on this channel, in mA.
+- <a id="Stimulation.pulse_count"></a>`pulse_count`: `int | None` -- How many pulses the step asks for.
+- <a id="Stimulation.pulse_width_ms"></a>`pulse_width_ms`: `float | None` -- How long the step asks each pulse to last, in ms.
 
 <a id="Stitch"></a>
 ## `lumascope.Stitch`
@@ -12999,9 +12887,9 @@ refitted as the API fits one; the saved image mode stays saved.
 
 **Fields**
 
-- <a id="Substitution.saved"></a>`saved`: `SettingValue` -- (no description)
-- <a id="Substitution.setting"></a>`setting`: `str` -- (no description)
-- <a id="Substitution.used"></a>`used`: `SettingValue` -- (no description)
+- <a id="Substitution.saved"></a>`saved`: `SettingValue` -- The value the settings held: the binning factor, the frame's (width, height) in pixels, or True for a feature.
+- <a id="Substitution.setting"></a>`setting`: `str` -- What was substituted: `'binning'`, `'frame'`, or the settings path of a camera feature the camera lacks (`'camera.high_conversion_gain'`, `'camera.line_noise_reduction'`).
+- <a id="Substitution.used"></a>`used`: `SettingValue` -- The value bring-up ran with in its place: the camera's binning factor, the fitted frame's (width, height), or False.
 
 <a id="SupportReportSaved"></a>
 ## `lumascope.SupportReportSaved`
@@ -13081,7 +12969,7 @@ A turret event: its state and slot as `turret_status` answers.
 
 **Fields**
 
-- <a id="TurretChanged.at"></a>`at`: `TurretStatus` -- (no description)
+- <a id="TurretChanged.at"></a>`at`: `TurretStatus` -- The turret's state and slot after the change.
 
 <a id="TurretSlotQuestion"></a>
 ## `lumascope.TurretSlotQuestion`
@@ -13116,16 +13004,10 @@ Taken by: [`MotionAPI.add_turret_listener`](#MotionAPI.add_turret_listener), [`M
 
 The turret's state and the slot in the light path, read together.
 
-`slot` is the slot the last turret command left the turret in, None
-before the first, while one is in flight, after one failed, and
-whenever the turret's position is lost (`MotionAPI.turret_status`). `state` is the
-turret's `AxisState`, which the slot alone cannot say: homing, moving
-or unknown.
-
 **Fields**
 
-- <a id="TurretStatus.slot"></a>`slot`: `int | None` -- (no description)
-- <a id="TurretStatus.state"></a>`state`: `AxisState` -- (no description)
+- <a id="TurretStatus.slot"></a>`slot`: `int | None` -- The slot the last turret command left the turret in. None before the first, while one is in flight, after one failed, and whenever the turret's position is lost (`MotionAPI.turret_status`).
+- <a id="TurretStatus.state"></a>`state`: `AxisState` -- The turret's `AxisState`, which the slot alone cannot say: homing, moving or unknown.
 
 <a id="UIRegistry"></a>
 ## `lumascope.UIRegistry`
@@ -13191,9 +13073,9 @@ One argument of a request that does not fit its member, as the request reader fo
 
 **Fields**
 
-- <a id="UnfitArgument.loc"></a>`loc`: `tuple[str | int, ...]` -- (no description)
-- <a id="UnfitArgument.msg"></a>`msg`: `str` -- (no description)
-- <a id="UnfitArgument.type"></a>`type`: `str` -- (no description)
+- <a id="UnfitArgument.loc"></a>`loc`: `tuple[str | int, ...]` -- Where the argument is: `body`, `query` or `path`, then its name and, inside it, the key or index.
+- <a id="UnfitArgument.msg"></a>`msg`: `str` -- Why it does not fit, in the reader's words.
+- <a id="UnfitArgument.type"></a>`type`: `str` -- The reader's code for why.
 
 <a id="UsbDeviceBinding"></a>
 ## `lumascope.UsbDeviceBinding`
@@ -13249,16 +13131,14 @@ A video, as `build` takes it: each position's time series to one video.
 A record: it crosses the wire as its data.  
 Held in: [`StepRecord.video_config`](#StepRecord.video_config).
 
-What a video step records: its length in seconds.
+What a video step records.
 
 A step carries no rate: every recording keeps every frame the camera
 delivers, or samples down to the one global limit (`video.max_fps`).
-None where the step's config does not say; a step that records no video
-may not say.
 
 **Fields**
 
-- <a id="VideoConfig.duration_s"></a>`duration_s`: `float | None` -- (no description)
+- <a id="VideoConfig.duration_s"></a>`duration_s`: `float | None` -- How long the step records, in seconds. None where the step's config does not say; a step that records no video may not say.
 
 <a id="VideoProgress"></a>
 ## `lumascope.VideoProgress`
@@ -13269,17 +13149,14 @@ Delivered by: [`RunEvents.video_progress`](#RunEvents.video_progress).
 
 Where a video step is, as its `video_progress` event says.
 
-`phase` is `RECORDING` (`elapsed_s` of `total_s`), `WRITING`
-(`progress_pct` of the recorded frames written) or `ENDED`, which follows
-once any recording or writing phase on every path that had one; a step
-that ends before it records sends no phase and no `ENDED`.
+A step that ends before it records sends no phase and no `ENDED`.
 
 **Fields**
 
-- <a id="VideoProgress.elapsed_s"></a>`elapsed_s`: `float | None` -- (no description)
-- <a id="VideoProgress.phase"></a>`phase`: `VideoPhase` -- (no description)
-- <a id="VideoProgress.progress_pct"></a>`progress_pct`: `float | None` -- (no description)
-- <a id="VideoProgress.total_s"></a>`total_s`: `float | None` -- (no description)
+- <a id="VideoProgress.elapsed_s"></a>`elapsed_s`: `float | None` -- Seconds recorded so far, never past `total_s`; None outside `RECORDING`.
+- <a id="VideoProgress.phase"></a>`phase`: `VideoPhase` -- `RECORDING`, `WRITING` or `ENDED`. `ENDED` follows once any recording or writing phase, on every path that had one.
+- <a id="VideoProgress.progress_pct"></a>`progress_pct`: `float | None` -- The percentage of the recorded frames written so far; None outside `WRITING`.
+- <a id="VideoProgress.total_s"></a>`total_s`: `float | None` -- The step's recording duration in seconds; None outside `RECORDING`.
 
 <a id="WorkItem"></a>
 ## `lumascope.WorkItem`

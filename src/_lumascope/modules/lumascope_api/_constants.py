@@ -141,10 +141,15 @@ class AxisState(enum.StrEnum):
 class AxisPosition:
     """One stage axis's state and its position, read together: X, Y or Z.
 
-    ``position_um`` is None unless the axis is IDLE or MOVING: an axis whose
-    reference is lost or still being established keeps answering the last
-    number it reported, and a caller writing a position into a file must
-    not be handed it. The turret has a slot, not a position: ``TurretStatus``.
+    The turret has a slot, not a position: ``TurretStatus``.
+
+    Attributes:
+        state: The axis's ``AxisState``.
+        position_um: The axis's last reported position, in um. None unless
+            the axis is IDLE or MOVING: an axis whose reference is lost or
+            still being established keeps answering the last number it
+            reported, and a caller writing a position into a file must not
+            be handed it.
     """
 
     state: AxisState
@@ -156,11 +161,13 @@ class AxisPosition:
 class TurretStatus:
     """The turret's state and the slot in the light path, read together.
 
-    ``slot`` is the slot the last turret command left the turret in, None
-    before the first, while one is in flight, after one failed, and
-    whenever the turret's position is lost (``MotionAPI.turret_status``). ``state`` is the
-    turret's ``AxisState``, which the slot alone cannot say: homing, moving
-    or unknown.
+    Attributes:
+        state: The turret's ``AxisState``, which the slot alone cannot say:
+            homing, moving or unknown.
+        slot: The slot the last turret command left the turret in. None
+            before the first, while one is in flight, after one failed, and
+            whenever the turret's position is lost
+            (``MotionAPI.turret_status``).
     """
 
     state: AxisState

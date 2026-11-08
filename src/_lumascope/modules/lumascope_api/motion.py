@@ -261,7 +261,12 @@ class _Move:
 @api_fields('axis', 'at')
 @dataclasses.dataclass(frozen=True)
 class PositionChanged:
-    """A position event: a stage axis, and its state and position as ``axis_positions`` answers."""
+    """A position event: a stage axis, and its state and position as ``axis_positions`` answers.
+
+    Attributes:
+        axis: The stage axis that changed: X, Y or Z.
+        at: Its state and position after the change.
+    """
 
     axis: StageAxis
     at: AxisPosition
@@ -270,7 +275,11 @@ class PositionChanged:
 @api_fields('at')
 @dataclasses.dataclass(frozen=True)
 class TurretChanged:
-    """A turret event: its state and slot as ``turret_status`` answers."""
+    """A turret event: its state and slot as ``turret_status`` answers.
+
+    Attributes:
+        at: The turret's state and slot after the change.
+    """
 
     at: TurretStatus
 

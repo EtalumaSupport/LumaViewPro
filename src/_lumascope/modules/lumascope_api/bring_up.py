@@ -155,6 +155,15 @@ class Substitution:
     camera delivered at is stored in the saved binning's place, with the
     frame it belongs to, and so is a saved frame the camera cannot run,
     refitted as the API fits one; the saved image mode stays saved.
+
+    Attributes:
+        setting: What was substituted: ``'binning'``, ``'frame'``, or the
+            settings path of a camera feature the camera lacks
+            (``'camera.high_conversion_gain'``, ``'camera.line_noise_reduction'``).
+        saved: The value the settings held: the binning factor, the frame's
+            (width, height) in pixels, or True for a feature.
+        used: The value bring-up ran with in its place: the camera's
+            binning factor, the fitted frame's (width, height), or False.
     """
 
     setting: str
@@ -169,6 +178,11 @@ class SettingsSetAside:
 
     The app runs on the shipped template while this stands, and refuses to
     save over the file until the person decides what happens to it.
+
+    Attributes:
+        path: The settings file (``current.json``) that was set aside,
+            untouched.
+        reason: Why it could not be used, in words a person reads.
     """
 
     path: pathlib.Path
@@ -178,7 +192,15 @@ class SettingsSetAside:
 @api_fields('parts', 'settings_set_aside', 'substitutions')
 @dataclass(frozen=True)
 class BringUpRecord:
-    """What bring-up found, substituted and set aside."""
+    """What bring-up found, substituted and set aside.
+
+    Attributes:
+        parts: Each part bring-up looked for, and whether it came up.
+        substitutions: Each saved setting the camera could not take, with
+            what ran in its place; empty when none was substituted.
+        settings_set_aside: The user's settings file that could not be used,
+            and why; None when it was used.
+    """
 
     parts: tuple[PartStatus, ...]
     substitutions: tuple[Substitution, ...] = ()

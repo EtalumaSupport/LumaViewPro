@@ -171,7 +171,14 @@ class PluginSpec:
 @api_fields('name', 'version', 'namespace')
 @dataclass(frozen=True)
 class PluginStatus:
-    """A loaded plugin, for health reports."""
+    """A loaded plugin, for health reports.
+
+    Attributes:
+        name: The plugin's name, from its spec.
+        version: The plugin's version, from its spec.
+        namespace: The namespace it registered in: ``ui``,
+            ``post_processing``, ``live_processing`` or ``rest``.
+    """
 
     name: str
     version: str
@@ -185,6 +192,11 @@ class PluginNotLoaded:
 
     It has no namespace: a plugin is filed under one only by registering,
     which a plugin that never loaded did not do.
+
+    Attributes:
+        name: The plugin's name, or its entry point's when it has no spec.
+        version: The plugin's version, or '' when it is not known.
+        reason: Why it did not load, in words a person can act on.
     """
 
     name: str
@@ -195,13 +207,24 @@ class PluginNotLoaded:
 @api_fields('plugin_name', 'namespace', 'hook', 'exc_type', 'message')
 @dataclass(frozen=True)
 class PluginRuntimeFailure:
-    """The record of an exception caught from a plugin handler; a record, never raised.
+    """The record of a plugin handler's failure, raised or returned; a record, never raised.
 
     Distinct from a load failure: the plugin loaded fine, but failed
     while servicing a callback (e.g. auto_run_on_protocol_complete). Reported by
     PluginRegistry.record_runtime_error and kept in
     NamespaceHealth.runtime_failures so diagnostic probes can
     attribute fault to the right plugin.
+
+    Attributes:
+        plugin_name: The plugin that failed.
+        namespace: The namespace the plugin is registered in.
+        hook: What the host was calling the plugin for, such as
+            ``auto_run_on_protocol_complete``, ``mount`` or ``ui_event``.
+        exc_type: The name of the exception's class, or '' when the plugin
+            failed by what it returned rather than by raising.
+        message: The account of the failure given with it (a failed
+            ProcessorResult's message, or what the host found wrong with
+            what the plugin returned), else the exception's text.
     """
 
     plugin_name: str
@@ -217,8 +240,13 @@ class NamespaceHealth:
     """Per-namespace snapshot for tech-support + diagnostic probes.
 
     Attributes:
-        runtime_failures: Every exception caught from a plugin handler in
-            this namespace since it was created, oldest first; never trimmed.
+        namespace: The namespace this snapshot is of: ``ui``,
+            ``post_processing``, ``live_processing`` or ``rest``.
+        loaded: The plugins registered in this namespace when the
+            snapshot was taken.
+        runtime_failures: Every failure of a plugin handler in this
+            namespace since it was created, raised or returned, oldest
+            first; never trimmed.
     """
 
     namespace: str
@@ -229,7 +257,14 @@ class NamespaceHealth:
 @api_fields('namespaces', 'not_loaded')
 @dataclass(frozen=True)
 class PluginHealth:
-    """Every namespace's health and the plugins that did not load, for tech-support reports."""
+    """Every namespace's health and the plugins that did not load, for tech-support reports.
+
+    Attributes:
+        namespaces: One snapshot per namespace, in the order ``ui``,
+            ``post_processing``, ``live_processing``, ``rest``.
+        not_loaded: Every plugin that did not load, in the order discovery
+            met them.
+    """
 
     namespaces: tuple[NamespaceHealth, ...]
     not_loaded: tuple[PluginNotLoaded, ...]

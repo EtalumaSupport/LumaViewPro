@@ -583,7 +583,18 @@ class LiveFolderEntry:
     'status_at_edge',
 )
 class ScopeSession:
-    """Owns the shared, GUI-independent state for one microscope session."""
+    """Owns the shared, GUI-independent state for one microscope session.
+
+    Attributes:
+        manual_capture: The manual still, one at a time, captured and saved
+            (``ManualCaptureController``).
+        manual_recording: The manual recording, from start to its finished
+            file (``ManualRecordingController``).
+        post_processing: The post-processing builds: stitch, z-project,
+            composite, video, enhance, cell count and graph
+            (``PostProcessingAPI``).
+        scope: The microscope this session drives (``Lumascope``).
+    """
 
     # What the session holds, set during construction.
     manual_capture: ManualCaptureController
