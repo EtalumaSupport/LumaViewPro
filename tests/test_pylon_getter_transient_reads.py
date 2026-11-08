@@ -44,12 +44,16 @@ def _induce_gain(cam):
     cam.active.Gain.GetValue.side_effect = _boom
 
 
-def _induce_exposure_nodes_unreadable(cam):
-    cam._node_attr_get = lambda *a, **k: None
+def _absent(name):
+    raise genicam.LogicalErrorException(f'Node not existing: {name}')
+
+
+def _induce_exposure_nodes_absent(cam):
+    cam.active.GetNodeMap.return_value.GetNode.side_effect = _absent
 
 
 def _induce_exposure_read_raises(cam):
-    cam._node_attr_get = _boom
+    cam.active.GetNodeMap.return_value.GetNode.return_value.GetValue.side_effect = _boom
 
 
 def _induce_pixel_format(cam):
@@ -73,9 +77,9 @@ GETTER_CASES = [
     pytest.param('get_gain', _induce_gain, -1, id='get_gain'),
     pytest.param(
         'get_exposure_t',
-        _induce_exposure_nodes_unreadable,
+        _induce_exposure_nodes_absent,
         -1,
-        id='get_exposure_t-nodes-unreadable',
+        id='get_exposure_t-nodes-absent',
     ),
     pytest.param(
         'get_exposure_t', _induce_exposure_read_raises, -1, id='get_exposure_t-read-raises'

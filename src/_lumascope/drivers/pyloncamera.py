@@ -675,37 +675,22 @@ class PylonCamera(Camera):
             rfr = None
             underrun_value = None
             underrun_name = ''
+            temp_state = None
+            # A node this camera or transport lacks reads None and the CSV
+            # row states the absence; a failed read ends this cycle's reads
+            # and is told.
             try:
-                cam = self.active
-                sg = cam.GetStreamGrabberNodeMap() if cam is not None else None
-                if sg is not None:
+                if self.active is not None:
                     for name in self._STATS_NODE_NAMES:
-                        try:
-                            node = self._find_node(sg, name)
-                            stats[name] = node.GetValue() if node is not None else None
-                        except Exception:
-                            stats[name] = None
-                    # Read the canonical underrun counter directly. If
-                    # absent on this SDK / transport, leave value None
-                    # and emit the absence in the CSV row.
-                    try:
-                        node = self._find_node(sg, self._UNDERRUN_NODE_NAME)
-                        if node is not None:
-                            underrun_value = node.GetValue()
-                            underrun_name = self._UNDERRUN_NODE_NAME
-                    except Exception:
-                        underrun_value = None
-                if cam is not None:
-                    # ace 2 / dart M/R expose BslResultingAcquisitionFrameRate
-                    # as the canonical node; legacy ace exposes
-                    # ResultingFrameRate. Try the Bsl variant first.
-                    rfr = self._node_attr_get(
-                        cam,
-                        'BslResultingAcquisitionFrameRate',
-                        'ResultingFrameRate',
-                    )
+                        stats[name] = self._read_first_offered((name,), 'stream')
+                    # Read the canonical underrun counter directly.
+                    underrun_value = self._read_first_offered((self._UNDERRUN_NODE_NAME,), 'stream')
+                    if underrun_value is not None:
+                        underrun_name = self._UNDERRUN_NODE_NAME
+                    rfr = self._read_first_offered(self._RESULTING_FRAME_RATE_NODES)
+                    temp_state = self._read_first_offered(('TemperatureState',))
             except Exception as e:
-                logger.debug(f'[INSTR PYLON ] stats poll error: {e}')
+                _cam_log.warning(f'[INSTR PYLON ] stats poll error: {e}')
 
             # Underrun: prominent marker, on its own log line.
             if underrun_value is not None:
@@ -754,7 +739,6 @@ class PylonCamera(Camera):
             # before restart -- presents identically to a frame-rate
             # stall in the user log without temperature attribution.
             # Warn on any non-Ok state so the cause is visible.
-            temp_state = self._node_attr_get(cam, 'TemperatureState') if cam is not None else None
             prev_temp_state = getattr(self, '_prev_temp_state', None)
             if temp_state is not None and temp_state != prev_temp_state:
                 if temp_state in ('Critical', 'Error'):
@@ -2759,16 +2743,8 @@ class PylonCamera(Camera):
         """
         if not self.active:
             return None
-        try:
-            nodemap = self.active.GetNodeMap()
-            for name in ('BslResultingAcquisitionFrameRate', 'ResultingFrameRate'):
-                if self._has_node(nodemap, name):
-                    return float(getattr(self.active, name).GetValue())
-            return None
-        except Exception as e:
-            raise CameraReadFailedError(
-                f'Resulting frame rate read failed: {type(e).__name__}: {e}'
-            ) from e
+        rate = self._read_first_offered(self._RESULTING_FRAME_RATE_NODES)
+        return None if rate is None else float(rate)
 
     def get_link_info(self) -> dict | None:
         """The device class, DeviceLinkSpeed and, on GigE, the stream packet
@@ -3796,55 +3772,32 @@ class PylonCamera(Camera):
         one flaky node read.
 
         Returns:
-            float: Exposure time in milliseconds. Returns ``-1.0`` on
-                any error path (inactive camera, both nodes
-                unreadable) so callers can treat ``< 0`` as "read
-                failed" without needing a try/except.
+            float: Exposure time in milliseconds. Returns ``-1.0`` when
+                the camera is inactive, offers neither node, or the read
+                fails, so callers can treat ``< 0`` as "read failed"
+                without needing a try/except.
         """
 
         if self.active is None:
             _cam_log.warning('[CAM Class ] Cannot read exposure: camera inactive')
             return -1
 
+        # A failed read is still only a READ failure: intentionally no
+        # disconnect teardown (latching device-removed on a transient read
+        # killed the stream). If the camera is really gone, the SDK removal
+        # callback + the grab loop's definitive paths fire within frames.
         try:
-            # ace 2, boost R, and dart R/M expose BslEffectiveExposureTime
-            # as the read-only "value the camera actually used" (per
-            # Basler doc exposure-time.html: "It takes factors like
-            # internal offsets or clock speed requirements into account
-            # that may cause the exposure time to differ from the
-            # exposure time set."). Fall back to ExposureTime (the set
-            # value) if the Bsl-prefixed effective node is absent
-            # (legacy ace cameras don't expose it).
-            microsec = self._node_attr_get(
-                self.active,
-                'BslEffectiveExposureTime',
-                'ExposureTime',
-            )
-            if microsec is None:
-                # Both nodes unreadable is still only a READ failure:
-                # intentionally no disconnect teardown (latching
-                # device-removed on a transient read killed the stream). If
-                # the camera is really gone, the SDK removal callback + the
-                # grab loop's definitive paths fire within frames.
-                _cam_log.error(
-                    '[CAM Class ] Failed to read exposure time: both '
-                    'BslEffectiveExposureTime and ExposureTime nodes '
-                    'unavailable.'
-                )
-                return -1
-            return microsec / 1000  # microseconds -> milliseconds
-        except (genicam.TimeoutException, genicam.RuntimeException) as e:
-            # Both error classes are transient at a single node read: return
-            # the documented sentinel, don't mark disconnected (the caller
-            # can retry). Removal detection belongs to the SDK removal
-            # callback + the grab loop's definitive paths, which still fire
-            # on a real unplug -- tearing down from here latched
-            # device-removed and killed the live stream on one flaky read.
+            microsec = self._read_first_offered(self._EFFECTIVE_EXPOSURE_NODES)
+        except CameraReadFailedError as e:
             _cam_log.error(f'[CAM Class ] Failed to read exposure time: {e}')
             return -1
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error reading exposure time: {e}')
+        if microsec is None:
+            _cam_log.error(
+                '[CAM Class ] Failed to read exposure time: the camera offers '
+                'neither BslEffectiveExposureTime nor ExposureTime.'
+            )
             return -1
+        return microsec / 1000  # microseconds -> milliseconds
 
     def auto_exposure_t(self, state: bool = True) -> bool | None:
         """Enable or disable continuous auto-exposure.
@@ -4148,31 +4101,33 @@ class PylonCamera(Camera):
         """
         return node_snapshot_value(lambda name: cls._read_node_in(nodemap, name), *names)
 
-    @staticmethod
-    def _node_attr_get(camera, *names: str):
-        """Read camera.<name>.GetValue() trying each name in order.
+    # One setting under the names camera families give it: ace 2 / boost /
+    # dart M/R name it Bsl-prefixed, legacy ace unprefixed (Basler
+    # resulting-acquisition-frame-rate.html, exposure-time.html). The
+    # effective exposure is the value the camera used, after its clock
+    # rounding; ExposureTime is the value set.
+    _RESULTING_FRAME_RATE_NODES = ('BslResultingAcquisitionFrameRate', 'ResultingFrameRate')
+    _EFFECTIVE_EXPOSURE_NODES = ('BslEffectiveExposureTime', 'ExposureTime')
 
-        Used at attribute-access call sites (live read paths) where
-        going through GetNodeMap().GetNode() adds overhead. Companion
-        to _safe_node which serves the diagnostic-snapshot probe path.
-        Returns None if no name resolves to a readable value.
+    def _read_first_offered(self, names: tuple[str, ...], node_map: str = 'device'):
+        """The value of the first of ``names`` the camera offers, read live.
+
+        A live reader's contract, where the diagnostic snapshot's
+        (``_safe_node``) reports every answer: a name the camera does not
+        offer tries the next, and none offered answers None.
+
+        Raises:
+            CameraReadFailedError: The read failed, or the node offered
+                holds no value now (``CameraNodeHasNoValue``), which is not
+                the value asked for.
         """
         for name in names:
-            try:
-                node = getattr(camera, name, None)
-            except Exception:
-                # pypylon's InstantCamera.__getattr__ raises
-                # genicam.LogicalErrorException for missing nodes instead
-                # of letting Python's default-arg fallback fire. Treat as
-                # "not present" and try the next name. Bench-verified
-                # 2026-05-08: 1540 tracebacks per protocol run before fix.
+            answer = self.read_node(name, node_map)
+            if answer is None:
                 continue
-            if node is None:
-                continue
-            try:
-                return node.GetValue()
-            except Exception:
-                continue
+            if isinstance(answer, CameraNodeHasNoValue):
+                raise CameraReadFailedError(f'{name} holds no value to read ({answer})')
+            return answer.value
         return None
 
     def read_diagnostic_snapshot(
@@ -4277,7 +4232,7 @@ class PylonCamera(Camera):
             (('Height',), 'height'),
             (('SensorWidth',), 'sensor_width'),
             (('SensorHeight',), 'sensor_height'),
-            (('BslEffectiveExposureTime', 'ExposureTime'), 'exposure_us'),
+            (self._EFFECTIVE_EXPOSURE_NODES, 'exposure_us'),
             (('Gain',), 'gain_db'),
             (('BlackLevel',), 'black_level'),
             (('DeviceLinkThroughputLimitMode',), 'dltl_mode'),
@@ -4285,7 +4240,7 @@ class PylonCamera(Camera):
             (('BslDeviceLinkCurrentThroughput',), 'current_throughput_bps'),
             (('AcquisitionFrameRateEnable',), 'acquisition_frame_rate_enable'),
             (('AcquisitionFrameRate',), 'acquisition_frame_rate'),
-            (('BslResultingAcquisitionFrameRate', 'ResultingFrameRate'), 'resulting_frame_rate'),
+            (self._RESULTING_FRAME_RATE_NODES, 'resulting_frame_rate'),
             # GigE network-related parameters per Basler doc
             # network-related-parameters.md. Read-only entries
             # (assigned bandwidth, max throughput, frame jitter max,

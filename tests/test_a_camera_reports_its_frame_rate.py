@@ -43,10 +43,11 @@ def test_the_fx2_reports_none(fx2_session):
 def _pylon(nodes):
     cam = bare_pylon_camera()
 
+    # The node is the camera's attribute of that name, as pypylon's map hands back.
     def get_node(name):
         if name not in nodes:
             raise genicam.LogicalErrorException('Node not existing')
-        return MagicMock()
+        return getattr(cam.active, name)
 
     cam.active.GetNodeMap.return_value.GetNode.side_effect = get_node
     return cam
@@ -74,9 +75,19 @@ def test_pylon_failed_read_raises_and_keeps_the_camera():
     cam.active.BslResultingAcquisitionFrameRate.GetValue.side_effect = genicam.RuntimeException(
         'transient'
     )
-    with pytest.raises(HardwareError, match='Resulting frame rate read failed'):
+    with pytest.raises(HardwareError, match='BslResultingAcquisitionFrameRate'):
         cam.get_resulting_frame_rate()
     cam._mark_disconnected.assert_not_called()
+
+
+def test_pylon_raises_for_a_first_node_it_offers_but_cannot_read_now():
+    """A rate node the camera offers but holds unreadable is not the rate,
+    and not a reason to read the legacy node in its place."""
+    cam = _pylon(nodes=('BslResultingAcquisitionFrameRate', 'ResultingFrameRate'))
+    cam.active.BslResultingAcquisitionFrameRate.readable = False
+    cam.active.ResultingFrameRate.GetValue.return_value = 99.0
+    with pytest.raises(HardwareError, match='not_readable_now'):
+        cam.get_resulting_frame_rate()
 
 
 # --- IDS ----------------------------------------------------------------------
