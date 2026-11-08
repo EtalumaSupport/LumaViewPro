@@ -308,14 +308,17 @@ class SimWalk:
 
     def _read(self, step):
         widget = self._resolve(step['path'])
-        record = {'step': self._number, 'path': step['path']}
+        props = {}
         for prop in step['props']:
             if not hasattr(widget, prop):
                 raise WalkStepError(f'{step["path"]} has no property {prop!r}')
             value = getattr(widget, prop)
-            record[prop] = (
+            props[prop] = (
                 value if isinstance(value, (str, int, float, bool, type(None))) else repr(value)
             )
+        # A control's properties keep their own dict, so a slider's `step`
+        # never overwrites the walk's step number.
+        record = {'step': self._number, 'path': step['path'], 'props': props}
         self.reads.append(record)
         logger.info(f'[SIM WALK  ] step {self._number} read {record}')
         yield from ()

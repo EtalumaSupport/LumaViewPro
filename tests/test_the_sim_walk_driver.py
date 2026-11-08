@@ -256,6 +256,15 @@ Builder.load_string('''
             Rectangle:
                 pos: self.x, self.top - 40
                 size: self.width, 40
+    Slider:
+        id: slider
+        min: 1
+        max: 100
+        step: 1
+        value: 50
+        size_hint: None, None
+        size: 200, 40
+        pos: 380, 20
 ''')
 
 root = FloatLayout()
@@ -512,7 +521,7 @@ def test_every_action_reaches_its_widget_as_a_touch_would(tmp_path):
         step_8
     )
     assert result['reads'] == [
-        {'step': 13, 'path': 'Panel/field', 'text': '12.5', 'disabled': False}
+        {'step': 13, 'path': 'Panel/field', 'props': {'text': '12.5', 'disabled': False}}
     ]
     assert result['shots'] == [str(tmp_path / 'after.png')], result
     assert (tmp_path / 'after.png').is_file()
@@ -534,7 +543,29 @@ def test_a_press_inside_a_view_it_is_already_in_scrolls_nothing(tmp_path):
     )
     assert result['outcome'] == 'done', result
     assert result['hits'] == ['shallow'], result
-    assert result['reads'] == [{'step': 2, 'path': 'Panel/short', 'scroll_y': 1.0}], result
+    assert result['reads'] == [{'step': 2, 'path': 'Panel/short', 'props': {'scroll_y': 1.0}}], (
+        result
+    )
+
+
+def test_a_read_of_a_property_named_like_the_record_keeps_both(tmp_path):
+    """A slider's ``step`` is read as the slider's, and the walk's step number survives it.
+
+    The walk's own keys and the control's properties share no namespace, so a
+    property named ``step`` or ``path`` cannot overwrite the record's.
+    """
+    result = _run(
+        tmp_path,
+        [
+            {'do': 'press', 'path': 'Panel/btn'},
+            {'do': 'read', 'path': 'Panel/slider', 'props': ['step', 'min', 'max']},
+        ],
+    )
+
+    assert result['outcome'] == 'done', result
+    assert result['reads'] == [
+        {'step': 2, 'path': 'Panel/slider', 'props': {'step': 1, 'min': 1, 'max': 100}}
+    ], result
 
 
 def test_an_uncommitted_entry_commits_in_the_frame_of_the_next_press(tmp_path):
@@ -987,7 +1018,7 @@ def test_a_shot_of_a_control_is_the_screen_inside_its_bounds(tmp_path):
     )
 
     assert result['outcome'] == 'done', result
-    bounds = result['reads'][0]
+    bounds = result['reads'][0]['props']
     # The fragment's Panel fills the window, so the button's coordinates are the window's.
     left, bottom = round(bounds['x']), round(bounds['y'])
     right, top = left + round(bounds['width']), bottom + round(bounds['height'])
@@ -1014,7 +1045,7 @@ def test_a_shot_of_a_control_ends_a_margin_below_its_last_drawn_row(tmp_path):
     )
 
     assert result['outcome'] == 'done', result
-    bounds = result['reads'][0]
+    bounds = result['reads'][0]['props']
     left, bottom = round(bounds['x']), round(bounds['y'])
     right, top = left + round(bounds['width']), bottom + round(bounds['height'])
     height = result['window_size'][1]
