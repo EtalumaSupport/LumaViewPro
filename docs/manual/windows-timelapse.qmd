@@ -1,13 +1,19 @@
 # Setting up Windows for a time-lapse {#sec-windows-timelapse}
 
-LumaViewPro does not keep the computer awake while a protocol runs, so a
-computer that sleeps, or restarts for an update, interrupts the run. Before a long time-lapse, set up Windows 11 as
-below.
+A computer that sleeps, or restarts for an update, interrupts a run.
+Before a long time-lapse, set up Windows 11 as below.
 
 ## Power {#sec-windows-power}
 
-Open Settings (the Start button, then the gear), choose System, then Power &
-Battery, and set every screen and sleep time to Never (@fig-windows-power).
+While a protocol runs or a video records, LumaViewPro keeps the computer
+from going to sleep when it is left idle. The screen may still turn off,
+which does not affect the run. Closing a laptop's lid, choosing Sleep, or a
+restart for an update still interrupts the run.
+
+If LumaViewPro cannot keep the computer awake, it shows the notice
+"Computer may sleep" and the run goes on. Then open Settings (the Start
+button, then the gear), choose System, then Power & Battery, and set every
+sleep time to Never (@fig-windows-power).
 
 ![Windows 11 power settings](images/windows-power.jpg){#fig-windows-power width=80%}
 
