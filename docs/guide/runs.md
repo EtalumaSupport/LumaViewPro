@@ -172,7 +172,8 @@ scan 0); the protocol it ran, `<sequence_name>.tsv` (named by the start's
 `sequence_name`; given none, a single scan's is scan.tsv and a protocol's
 protocol.tsv); and
 `protocol_record.tsv`, one row per capture after a short header naming that
-protocol file. Its columns: `Filename`, `Step Name`, `Step Index` (the step's
+protocol file. Its columns: `Filename`, `Step Name` (the step's own name, the
+protocol file's `Name` column, never its file's), `Step Index` (the step's
 row, from 0), `Scan Count` (the scan, from 0), `Timestamp` (with its UTC
 offset), `Frame Count` (1 for a still, the frames written for a video step,
 0 for a capture that left no file) and `Duration (s)` (a video step's). A
