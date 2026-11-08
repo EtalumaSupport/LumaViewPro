@@ -1061,8 +1061,12 @@ def _code_and_comment(line):
 
 
 def _expand(token, variables):
+    # ``${NAME}`` or ``$NAME``: a brace closes the name only after one opened
+    # it, so the ``}`` of JSON after ``$NAME`` stays the JSON's.
     return re.sub(
-        r'\$\{?([A-Z_][A-Z0-9_]*)\}?', lambda m: variables.get(m.group(1), m.group(0)), token
+        r'\$(?:\{([A-Z_][A-Z0-9_]*)\}|([A-Z_][A-Z0-9_]*))',
+        lambda m: variables.get(m.group(1) or m.group(2), m.group(0)),
+        token,
     )
 
 
@@ -1235,6 +1239,11 @@ class TestLumascopeSkillsWalkthroughRuns:
         assert 'answered 422, not the 200 it states' in reported['a wrong status'][0]
         assert "answered reason 'not_offered', not the axis_absent" in reported['a wrong reason'][0]
         assert 'answered 404' in reported['an unstated failure'][0]
+
+    def test_a_variable_before_a_json_brace_leaves_the_brace(self):
+        variables = {'SLOT': 'null', 'ID': '7'}
+        assert _expand('{"slot": $SLOT}', variables) == '{"slot": null}'
+        assert _expand('${ID}x/$ID', variables) == '7x/7'
 
 
 # The names the guide's prose is held to, each kind by its owner; every other
