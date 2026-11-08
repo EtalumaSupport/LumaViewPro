@@ -6417,7 +6417,7 @@ class ScopeSession:
                 from _lumascope.modules.sequential_io_executor import IOTask
 
                 fut = self.io_executor.put(
-                    IOTask(action=self.scope.illumination._leds_off_if_present),
+                    IOTask(action=self.scope.illumination.force_off),
                     return_future=True,
                     override=self._io_override_key,
                 )

@@ -225,6 +225,9 @@ def test_a_floor_met_after_the_run_settled_is_told_once_as_lost_images(
         settled_at.append(time.monotonic())
         settled.set()
         files = run.files.result(timeout=WAIT_S)
+        # The session's own teardown darkens the LEDs as the block exits;
+        # what is read is the run's, up to its last fact.
+        told_at = time.monotonic()
 
     posts = [(n.title, n.shown) for n in centre_posts[start:]]
     assert (outcome.status, outcome.reason) == ('completed', 'completed'), outcome
@@ -233,7 +236,9 @@ def test_a_floor_met_after_the_run_settled_is_told_once_as_lost_images(
     assert ('Disk Space Critical', True) not in posts, posts
     assert not [p for p in posts if p[0] == RecordIncompleteError.title and p[1]], posts
     assert not [r for r in caplog.records if '[Task:write_capture]' in r.getMessage()]
-    assert not [t for t in darkened_at if t > settled_at[0]], 'the LEDs were commanded after'
+    assert not [t for t in darkened_at if settled_at[0] < t < told_at], (
+        'the LEDs were commanded after'
+    )
 
 
 def test_a_crashed_run_loop_is_shown_once(tmp_path, monkeypatch, centre_posts):

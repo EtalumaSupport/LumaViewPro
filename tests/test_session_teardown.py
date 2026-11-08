@@ -64,7 +64,7 @@ def _spy_lane(lane):
 
 
 def _drain_before_lane_shutdown(events):
-    puts = [i for i, e in enumerate(events) if e[0] == 'put' and e[1] == '_leds_off_if_present']
+    puts = [i for i, e in enumerate(events) if e[0] == 'put' and e[1] == 'force_off']
     shuts = [i for i, e in enumerate(events) if e[0] == 'shutdown']
     return bool(puts) and bool(shuts) and puts[0] < shuts[0]
 
