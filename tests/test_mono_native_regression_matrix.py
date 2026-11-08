@@ -106,53 +106,46 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_pure_blue_mp4_roundtrip(tmp_path):
-    """Synth a 1-frame mono TIFF input; run VideoBuilder; decode the
-    first MP4 frame via PyAV; assert the Blue channel carries the data.
+def test_pure_blue_mp4_roundtrip(sim_scope, tmp_path):
+    """Build a 1-frame mono recording of a blue channel through the Video
+    build; decode the first MP4 frame via PyAV; assert the Blue channel
+    carries the data.
 
-    VideoBuilder reads the mono input (no cv2 detour -- the failure
-    surface that produced #657's wrong-channel decode), applies
-    false-color via the boundary helper, then encodes RGB to MP4. The
-    test is structural: the decoded frame's Blue channel must carry the
-    source mono value at its correct linear scaling, and the other
-    channels must stay dark, regardless of internal pipeline shape.
+    The build reads the mono input (no cv2 detour -- the failure surface
+    that produced #657's wrong-channel decode), the writer applies the
+    false colour, then encodes RGB to MP4. The test is structural: the
+    decoded frame's Blue channel must carry the source mono value at its
+    correct linear scaling, and the other channels must stay dark,
+    regardless of internal pipeline shape.
     """
-    pytest.importorskip('av')
+    import json
+
     import av
 
     from _lumascope.modules.video_builder import VideoBuilder
+    from tests.installation_fixtures import shipped_grids
+    from tests.test_issue_656_manual_video import _write_manual_frame
 
-    # One mono input TIFF (post-1d input shape).
-    input_dir = tmp_path / 'tiff_in'
-    input_dir.mkdir()
-    src = np.full((8, 8), 42000, dtype=np.uint16)
-    tf.imwrite(str(input_dir / f'frame_0000_{LED0}.tiff'), src)
-
-    out_path = tmp_path / 'out.mp4'
-
-    # Direct invocation through VideoBuilder's frame-processing surface.
-    # Post-1d API: VideoBuilder reads mono inputs + applies false-color
-    # via boundary helper before encode.
-    builder = VideoBuilder(has_turret=False)
-    builder.build_video(
-        source_dir=input_dir,
-        output_file=out_path,
-        false_color=True,
-        color=LED0,
-        channel_colors=release_colors(),
+    folder = tmp_path / 'MyRecording'
+    folder.mkdir()
+    _write_manual_frame(sim_scope, folder, 0, value=42000)
+    (folder / 'session_manifest.json').write_text(
+        json.dumps({'manifest_version': 1, 'recording': {'channel_color': LED0}})
     )
 
-    # Decode first frame via PyAV
-    container = av.open(str(out_path))
+    VideoBuilder(has_turret=False).build_from_folder(
+        folder, shipped_grids(), None, frame_rate_fps=5, channel_colors=release_colors()
+    )
+
+    container = av.open(str(folder / 'MyRecording.mp4'))
     frame = next(container.decode(video=0))
     arr = frame.to_ndarray(format='rgb24')
     container.close()
 
-    # The synthetic TIFF carries no significant-bits tag, so the loader
-    # correctly treats it as full 16-bit: 42000/65535 scales to 163 in
-    # uint8, and yuv420 encode rounding costs ~1 count either way. A
-    # value outside this window means the pipeline mis-scaled (e.g.
-    # treated the payload as 12-bit, the reads-near-black defect class).
+    # The frame states 16 significant bits, so 42000/65535 scales to 163 in
+    # uint8, and yuv420 encode rounding costs ~1 count either way. A value
+    # outside this window means the pipeline mis-scaled (e.g. treated the
+    # payload as 12-bit, the reads-near-black defect class).
     assert 155 <= arr[0, 0, 2] <= 170, (
         f'Decoded Blue channel must carry the source value at its 16-bit '
         f'linear scaling (42000/65535 -> ~163); got arr[0,0]={arr[0, 0]}.'

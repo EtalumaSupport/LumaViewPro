@@ -62,13 +62,13 @@ def _first_frame(video_path):
     return frame
 
 
-def _write_manual_frame(scope, folder, frame_num, *, value=20000):
+def _write_manual_frame(scope, folder, frame_num, *, value=20000, significant_bits=16):
     """Write one frame the way the manual recording path does: through the
     one recorded-frame writer, its time the host's arrival, with its offset."""
     ts = _ts(frame_num).astimezone()
     record = recorded_record(
         captured_at=FrameTime(at=ts, source=TimestampSource.HOST_ARRIVAL),
-        frame_significant_bits=16,
+        frame_significant_bits=significant_bits,
     )
     stamp = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
     file_loc = folder / f'ManualVideo_Frame_{frame_num:04}_{stamp}.tiff'
@@ -208,6 +208,35 @@ def test_a_rebuild_with_every_name_taken_is_refused_names_exhausted(sim_scope, t
     assert refused.value.reason == 'names_exhausted'
     assert sorted(folder.glob('*.mp4')) == sorted(taken)
     assert all(path.read_bytes() == b'an earlier video' for path in taken)
+
+
+def test_a_frame_that_cannot_be_read_leaves_the_video_short_and_says_so(sim_scope, tmp_path):
+    import pytest
+
+    from _lumascope.modules.exceptions import PostProcessingFailedError
+
+    folder = _make_manual_folder(sim_scope, tmp_path, n_frames=2, include_hyperstack=False)
+    (folder / 'ManualVideo_Frame_0002_2026-05-30_14-22-02-000.tiff').write_bytes(b'not a tiff')
+
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        _build(folder)
+
+    assert '1 frame(s) could not be added' in str(incomplete.value)
+    assert list(incomplete.value.produced_paths) == [str(folder / 'MyRecording.mp4')]
+    assert _frame_count(folder / 'MyRecording.mp4') == 2
+
+
+def test_a_twelve_bit_recording_is_scaled_by_its_own_depth(sim_scope, tmp_path):
+    # A right-aligned 12-bit frame at full scale is white; scaled as the
+    # 16-bit container it would encode near black (4095 -> about 16 of 255).
+    folder = tmp_path / 'MyRecording'
+    folder.mkdir()
+    _write_manual_frame(sim_scope, folder, 0, value=4095, significant_bits=12)
+    (folder / 'session_manifest.json').write_text(json.dumps({'manifest_version': 1}))
+
+    _build(folder)
+
+    assert _first_frame(folder / 'MyRecording.mp4').mean() > 240
 
 
 def test_build_from_folder_empty_is_refused(tmp_path):

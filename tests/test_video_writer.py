@@ -15,7 +15,6 @@ import pytest
 import _lumascope.modules.video_writer as video_writer_module
 from _lumascope.modules.video_writer import VideoWriter
 from _lumascope.modules.channel_record import GREY, release_color
-from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0, LED2
 from tests.video_step_drives import record_first_frame
 
@@ -334,93 +333,6 @@ class TestProtocolVideoDropNotification:
             None,
             None,
             3000.0,
-        )
-
-
-class TestVideoBuilderDropAccounting:
-    """The post-processing video builder skips unreadable source frames; those
-    skips must be counted and returned, not silently dropped from the output."""
-
-    def test_unreadable_sources_counted_as_dropped(self, tmp_path):
-        from _lumascope.modules.video_builder import VideoBuilder
-
-        src = tmp_path / 'frames'
-        src.mkdir()
-        (src / 'a.tiff').write_bytes(b'not a real tiff')
-        (src / 'b.tiff').write_bytes(b'also garbage')
-        builder = VideoBuilder(has_turret=False)
-        result = builder.build_video(
-            source_dir=src,
-            output_file=tmp_path / 'out.mp4',
-            fps=10,
-            channel_colors=release_colors(),
-        )
-        assert result['frame_count'] == 0, 'no readable frame should encode'
-        assert result['dropped_frames'] == 2, 'both unreadable sources must be counted'
-
-
-class TestBuildVideoSignificantBits:
-    """build_video must read each source TIFF's significant-bit depth and pass
-    it to the writer, exactly as the protocol-post pipeline (_create_video)
-    does. A right-aligned 12-bit frame (full-scale payload 4095) scaled as if it
-    were full 16-bit renders near-black -- white maps to ~15/255 -- so the depth
-    has to reach add_frame on this path too, not just the pipeline path."""
-
-    @staticmethod
-    def _write_right_aligned_12bit(path, value=4095):
-        import tifffile as tf
-
-        # Store a uint16 frame whose payload is right-aligned 12-bit (0..4095)
-        # and record SignificantBits=12 via the durable private tag the loader
-        # reads back (image_utils._TIFF_TAG_SIGNIFICANT_BITS == 65123, type SHORT).
-        frame = np.full((8, 8), value, dtype=np.uint16)
-        tf.imwrite(str(path), frame, extratags=[(65123, 3, 1, 12, True)])
-
-    def test_right_aligned_12bit_depth_reaches_writer(self, tmp_path):
-        import _lumascope.modules.image_utils as image_utils
-        import _lumascope.modules.video_builder as video_builder_module
-        from _lumascope.modules.video_builder import VideoBuilder
-
-        src = tmp_path / 'frames'
-        src.mkdir()
-        frame_path = src / 'frame_0000.tiff'
-        self._write_right_aligned_12bit(frame_path)
-
-        # Guard the fixture itself: the file must record 12-bit depth, not the
-        # 16-bit container width, or the test could not distinguish the bug.
-        assert image_utils.read_tiff_significant_bits(frame_path) == 12
-
-        captured = []
-
-        class _RecordingWriter:
-            dropped_frames = 0
-
-            def __init__(self, *args, **kwargs):
-                # Production reads back writer.output_path as the record
-                # authority after close.
-                self.output_path = kwargs.get('output_path') or (args[0] if args else None)
-
-            def add_frame(self, image=None, timestamp=None, significant_bits=None, white_bits=None):
-                captured.append(significant_bits)
-
-            def close(self):
-                pass
-
-        with mock.patch.object(video_builder_module, 'VideoWriter', _RecordingWriter):
-            builder = VideoBuilder(has_turret=False)
-            result = builder.build_video(
-                source_dir=src,
-                output_file=tmp_path / 'out.mp4',
-                fps=10,
-                channel_colors=release_colors(),
-            )
-
-        assert result['frame_count'] == 1, 'the readable frame must encode'
-        # The bug passed significant_bits=None (16-bit fallback in add_frame),
-        # which maps 4095 -> ~15/255 and renders the video near-black.
-        assert captured == [12], (
-            'build_video must hand the writer the source frame depth (12), '
-            f'not the 16-bit container width; got {captured}'
         )
 
 
