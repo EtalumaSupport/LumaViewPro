@@ -323,6 +323,29 @@ def test_the_server_prints_a_corrupt_current_json_exits_1_and_gives_the_lock_bac
     assert _another_process_can_take(port)
 
 
+def test_the_server_prints_a_model_it_does_not_know_exits_1_and_gives_the_lock_back(
+    monkeypatch, capsys, a_host_in_this_process
+):
+    import _lumascope.modules.path_utils
+    from _lumascope.rest.headless import main
+
+    port = _free_port()
+    root = installation_of_its_own()
+    (root / 'data' / 'current.json').write_text(
+        json.dumps(complete_settings(microscope='LS999', lvp_lock_port=port))
+    )
+    monkeypatch.setattr(_lumascope.modules.path_utils, 'get_source_root', lambda *_args: root)
+
+    assert main(['--simulate']) == 1
+    said = capsys.readouterr()
+    # The refusal's own words, not the crash hook's class-prefixed line.
+    [line] = said.err.strip().splitlines()
+    assert line.startswith("'LS999' is not a scope model this version of LumaViewPro knows.")
+    assert 'LS850' in line
+    assert 'REST server:' not in said.out
+    assert _another_process_can_take(port)
+
+
 def test_the_server_takes_no_host():
     from _lumascope.rest.headless import main
 

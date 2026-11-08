@@ -11,14 +11,19 @@ the bring-up, and a headless host never did.
 """
 
 import logging
+import threading
 
 import pytest
 
+import _lumascope.modules.lumascope_api._lumascope as lumascope_module
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.null_motorboard import NullMotionBoard
+from _lumascope.modules.exceptions import ScopeModelUnknownError
 from _lumascope.modules.lumascope_api.simulation import SimulatedModelAnswer, SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
 from tests.log_capture import records_of
-from tests.settings_fixtures import complete_settings
-from tests.scope_fakes import build_scope
+from tests.settings_fixtures import complete_settings, installation_of_its_own
+from tests.scope_fakes import build_scope, simulated_camera_on_a_real_scope
 
 
 def _sim_scope(**kwargs):
@@ -139,6 +144,33 @@ class TestTheBringUpAdoptsTheReportedModel:
         finally:
             session.shutdown()
 
+    def test_a_board_reporting_a_model_no_catalogue_lists_describes_the_scope(self, tmp_path):
+        # An OEM board names itself (its branding), which no catalogue lists;
+        # its own enabled axes describe the scope, so an unlisted stored
+        # model is not refused under it. Green before the change too: it
+        # guards the refusal below from reaching a board that spoke.
+        session = self._created(
+            tmp_path,
+            sim_model='LS850',
+            sim_model_answer=SimulatedModelAnswer('OEM-200'),
+            microscope='LS999',
+        )
+        try:
+            assert session.scope.diagnostics.get_motor_info().model == 'OEM-200'
+            assert session.scope.capabilities.axes == ('X', 'Y', 'Z')
+            assert session.settings['microscope'] == 'LS999'
+        finally:
+            session.shutdown()
+
+    def test_a_listed_reported_model_replaces_an_unlisted_stored_one(self, tmp_path):
+        # Green before the change too: the board's word is taken before the
+        # stored model is judged.
+        session = self._created(tmp_path, sim_model='LS850', microscope='LS999')
+        try:
+            assert session.settings['microscope'] == 'LS850'
+        finally:
+            session.shutdown()
+
     def test_a_declared_model_survives_a_simulated_create(self, tmp_path):
         # A regression guard, green before and after: the sim reports the
         # declaration, so step 0 has nothing to correct.
@@ -150,3 +182,35 @@ class TestTheBringUpAdoptsTheReportedModel:
         finally:
             session.shutdown()
             session.scope.disconnect()
+
+
+def test_with_no_board_to_say_what_the_scope_is_an_unlisted_stored_model_is_refused(monkeypatch):
+    """A real scope whose motor board reports no model (none is plugged in: an
+    FX2 Classic, a manual scope) is described by its stored model alone, so
+    one the catalogue does not list is refused at bring-up, as the simulator
+    already refuses it, and nothing the bring-up started is left running.
+    """
+    # a stand-in by design: the registries' port scans, which the suite never
+    # runs; the boards are production's null drivers, the camera the simulated one.
+    monkeypatch.setattr(
+        lumascope_module.motor_registry,
+        'create_with_fallback',
+        lambda name='auto', **_kwargs: (NullMotionBoard(), None),
+    )
+    monkeypatch.setattr(
+        lumascope_module.led_registry,
+        'create_with_fallback',
+        lambda name='auto', **_kwargs: (NullLEDBoard(), None),
+    )
+    simulated_camera_on_a_real_scope(monkeypatch)
+    before = set(threading.enumerate())
+
+    with pytest.raises(ScopeModelUnknownError) as refused:
+        ScopeSession.create(
+            complete_settings(microscope='LS999'),
+            source_path=str(installation_of_its_own()),
+            simulate=False,
+            warn_pre_release=False,
+        )
+    assert refused.value.model == 'LS999'
+    assert [t.name for t in threading.enumerate() if t not in before] == []
