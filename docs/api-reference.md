@@ -1106,12 +1106,14 @@ then the camera start gate released) and is torn down by
 - `ArgumentRefusedError`: `'needs_simulated_scope'`, `simulated` without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, the record's `camera_stall` or `focal_spread_um` for a model simulated with an FX2 or with `camera_present` False (`argument` names the scope's `sim_camera_stall` or `sim_focal_spread_um`). `'not_injectable_on_board'`, its `model_answer`, `refused_stream_starts` or `refused_camera_writes` for a scope whose board or camera cannot show it; `'fault_unknown'`, its `refused_stream_starts` or `refused_camera_writes` with `camera_present` False, a camera the scope does not have; `'fault_bound'`, a negative `refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it).
 - `SettingRefusedError`: `'wrong_kind'` or `'out_of_range'`, a value in `settings` the writer refuses: a dict handed to a session is a write of every key at once, held to the same ranges.
 - `ScopeInUseError`: `'scope_in_use'`, a session with `simulate=False` asked for while another LumaViewPro, REST server or script drives the microscope, or while another real scope in this process is open. Nothing was opened.
+- `ScopeModelUnknownError`: the stored `microscope` is a model the catalogue does not list, and no motor board reports a model to stand in its place (a simulated scope is built as the stored model unless `simulated.model` names another). Nothing it started is left running.
 
 **Refusals**
 
 - [`ScopeInUseError`](#ScopeInUseError): `scope_in_use`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `needs_simulated_camera`, `not_injectable_on_board`, `fault_unknown`, `fault_bound`, `not_offered`, `wrong_kind`
 - [`SettingRefusedError`](#SettingRefusedError): `wrong_kind`, `out_of_range`
+- [`ScopeModelUnknownError`](#ScopeModelUnknownError): `model_unknown`
 
 <a id="ScopeSession.create_empty_protocol"></a>
 ### `ScopeSession.create_empty_protocol`

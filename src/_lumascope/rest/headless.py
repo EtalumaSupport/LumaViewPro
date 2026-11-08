@@ -7,9 +7,11 @@ plugins, the metrics -- and serves the declared API through
 ``_lumascope.rest.server.build_server`` on ``rest_api.address`` and ``rest_api.port``
 (shipped ``127.0.0.1:8000``, this computer only). It has no credentials:
 anyone who can reach the address drives the scope, unless
-``rest_api.allowed_clients`` names the clients served. A ``rest_api``
-setting that cannot be used, or an address and port that cannot be taken,
-is printed and it exits 1. SIGINT or SIGTERM
+``rest_api.allowed_clients`` names the clients served. A ``current.json``
+that cannot be used, a scope model it names that this version does not
+know (on a scope whose board names none), a ``rest_api`` setting that
+cannot be used, or an address and port that cannot be taken, is printed
+and it exits 1. SIGINT or SIGTERM
 closes it with its clients connected (``_lumascope.rest.server``); it exits 0, or 1
 when the session did not close cleanly.
 """
@@ -60,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Imported at the call, after the lock. ``python -m lumascope.rest`` has
     # loaded the whole API, the server's dependencies with it, before this runs.
-    from _lumascope.modules.exceptions import RestServerNotStartedError
+    from _lumascope.modules.exceptions import RestServerNotStartedError, ScopeModelUnknownError
     from _lumascope.modules.scope_session import ScopeSession
     from _lumascope.modules.settings_init import SettingsFileError
     from _lumascope.rest.server import build_server
@@ -75,13 +77,21 @@ def main(argv: list[str] | None = None) -> int:
         instance_lock.close()
         return 1
 
-    session = ScopeSession.create(
-        settings=settings,
-        source_path=str(source_path),
-        simulate=args.simulate,
-        warn_pre_release=False,
-        settings_file=ScopeSession.user_settings_file(source_path),
-    )
+    # So is a model this version does not know, on a scope whose board names
+    # none: the GUI would come up on the template and ask.
+    try:
+        session = ScopeSession.create(
+            settings=settings,
+            source_path=str(source_path),
+            simulate=args.simulate,
+            warn_pre_release=False,
+            settings_file=ScopeSession.user_settings_file(source_path),
+        )
+    except ScopeModelUnknownError as e:
+        logger.error(f'[REST     ] {e}')
+        print(e, file=sys.stderr)
+        instance_lock.close()
+        return 1
     try:
         try:
             server = build_server(session, shut_down=session.shutdown)

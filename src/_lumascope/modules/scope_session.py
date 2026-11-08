@@ -1696,6 +1696,11 @@ class ScopeSession:
                 ``simulate=False`` asked for while another LumaViewPro, REST
                 server or script drives the microscope, or while another
                 real scope in this process is open. Nothing was opened.
+            ScopeModelUnknownError: the stored ``microscope`` is a model the
+                catalogue does not list, and no motor board reports a model
+                to stand in its place (a simulated scope is built as the
+                stored model unless ``simulated.model`` names another).
+                Nothing it started is left running.
         """
         from _lumascope.lvp_logger import log_environment_banner, start_session_logging, version
         from _lumascope.modules.app_environment import camera_sdk_probe
@@ -5030,8 +5035,9 @@ class ScopeSession:
         Once, after construction, on a real scope: adopt the model the
         hardware reports when the catalogue knows it (a WRITE into this
         session's ``settings['microscope']`` -- hardware truth outranks
-        the stored selection; a model outside the catalogue, or no motor
-        board to ask, leaves the stored one), normalize the turret slot
+        the stored selection; a model outside the catalogue leaves the
+        stored one; with no motor board to ask, the stored one must be a
+        model the catalogue lists), normalize the turret slot
         keys a caller-supplied dict may still carry as JSON strings,
         resolve the model's catalogue entry, replace a stored plate the
         catalogue cannot resolve with the shipped one (told once, as a
@@ -5057,6 +5063,8 @@ class ScopeSession:
                 holds the scope. The configuration rewrites the LEDs, the
                 camera geometry and acceleration under whatever holds it,
                 and its writes run inline, where no lane refuses them.
+            ScopeModelUnknownError: the motor board reports no model and the
+                stored ``microscope`` is one the catalogue does not list.
         """
         replaced: list[tuple[str, object, object]] = []
         try:
@@ -5095,6 +5103,13 @@ class ScopeSession:
                 f'[Session  ] scope reports model {detected}, not in the catalogue; '
                 f'the stored model {stored!r} stands'
             )
+        elif stored not in scope_models:
+            # A board that reports a model, an OEM name included, describes
+            # the scope itself (its axes, optics and channel block). With no
+            # board to ask, the stored selection is the scope's whole
+            # description, and one the catalogue does not list would bring it
+            # up with no axes, channels or optics to stand on.
+            raise ScopeModelUnknownError(stored, scope_models)
         self._put_a_stageless_scope_on_center_plate()
         scope_config = scope_models.get(self.settings.get('microscope'))
         # Before anything is commanded: every well position is computed on it.

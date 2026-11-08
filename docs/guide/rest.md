@@ -73,7 +73,11 @@ before anything is served, from every host: LumaViewPro shows it and runs on
 without a server, and `python -m lumascope.rest` prints it and exits `1`. A
 `current.json` the server cannot use, an edit that left it short of a key or
 holding a block of the wrong kind, is `SettingsFileError`, printed the same
-way, naming the file and what is wrong; the file is not changed. While it
+way, naming the file and what is wrong; the file is not changed. So is a
+scope model it names that this version does not know, on a scope whose motor
+board reports no model (a board that reports one, an OEM name included, says
+what the scope is), `ScopeModelUnknownError`, naming the models it does know.
+While it
 serves, `server.reach` says where and to whom (`python -m lumascope.rest`
 prints it, and LumaViewPro shows it in Advanced Settings).
 
