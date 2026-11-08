@@ -238,7 +238,8 @@ class FrameRecord:
         clock_mapping: The camera's clock mapped onto the host's, latched
             by the capture at the top of the cycle that grabbed the frame,
             before its drain (``ClockMapping``); None on a
-            camera without a latch (``capabilities.camera_has_clock_latch``).
+            camera without a latch (``capabilities.camera_has_clock_latch``),
+            and when the latch probe failed as the camera came up.
         judgments: The frame judged against each source's last change
             (``FrameValidity.judgments``): for a summed capture, the first
             frame summed. Empty when no change has been recorded; None for

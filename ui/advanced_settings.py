@@ -84,8 +84,10 @@ class AdvancedSettings(Popup):
         self.rest_reach = App.get_running_app().rest_reach()
 
         caps = ctx.lumaview.scope.capabilities
-        self.conversion_gain_supported = caps.camera_supports_conversion_gain_mode
-        self.line_noise_reduction_supported = caps.camera_supports_line_noise_reduction
+        # Shown unless the camera lacks it: a None (its probe failed at
+        # bring-up) is offered, and a press asks the API, which probes live.
+        self.conversion_gain_supported = caps.camera_supports_conversion_gain_mode is not False
+        self.line_noise_reduction_supported = caps.camera_supports_line_noise_reduction is not False
         self.xy_stage_supported = caps.has_xy_stage
         self._show_camera_modes()
 

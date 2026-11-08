@@ -42,6 +42,7 @@ from _lumascope.drivers.camera import Camera
 from _lumascope.drivers.exceptions import (
     BoardNoReplyError,
     CameraFirmwareMissingError,
+    CameraReadFailedError,
     CameraUsbDriverUnusableError,
     HardwareError,
 )
@@ -390,6 +391,14 @@ def _camera_failure_cause(exc: BaseException, fx2_could_be_this_scope: bool) -> 
 # on first last: a camera that has gone outranks a stream that did not
 # start, which outranks a setting it did not take.
 _CAMERA_CAUSE_ORDER = ('settings_not_applied', 'stream_not_started', 'camera_left')
+
+
+def _probe_failed_at_bring_up(feature: str) -> CameraReadFailedError:
+    """The record of a toggle bring-up did not apply because its probe failed."""
+    return CameraReadFailedError(
+        f"The camera's {feature} probe failed when it came up; "
+        'the saved setting is kept and was not applied'
+    )
 
 
 def _a_declined_fx2_could_be_this_scope(
@@ -1619,15 +1628,30 @@ class Lumascope:
             # it): the impl refuses the other setting on such a camera with
             # CameraSettingUnsupportedError, which is not a
             # CameraSettingRejected and would abort bring-up.
+            # A toggle whose probe failed as the camera came up is not
+            # applied: whether the camera has it is not known, so its saved
+            # setting is kept, the held setting stays unknown, and the
+            # record says so. The probe's failure was logged where it was
+            # caught, with its words; bring-up reports nothing more.
             caps = self.capabilities
-            mode = (
-                'High'
-                if config.high_conversion_gain and caps.camera_supports_conversion_gain_mode
-                else 'Low'
-            )
-            applies.append(lambda: self.camera._set_conversion_gain_mode_impl(mode))
-            filtered = config.line_noise_reduction and caps.camera_supports_line_noise_reduction
-            applies.append(lambda: self.camera._set_line_noise_reduction_impl(filtered))
+            if caps.camera_supports_conversion_gain_mode is None:
+                self._record_camera_problem(
+                    'settings_not_applied', _probe_failed_at_bring_up('conversion gain')
+                )
+            else:
+                mode = (
+                    'High'
+                    if config.high_conversion_gain and caps.camera_supports_conversion_gain_mode
+                    else 'Low'
+                )
+                applies.append(lambda: self.camera._set_conversion_gain_mode_impl(mode))
+            if caps.camera_supports_line_noise_reduction is None:
+                self._record_camera_problem(
+                    'settings_not_applied', _probe_failed_at_bring_up('line noise reduction')
+                )
+            else:
+                filtered = config.line_noise_reduction and caps.camera_supports_line_noise_reduction
+                applies.append(lambda: self.camera._set_line_noise_reduction_impl(filtered))
             # Bring-up continues at the value the camera holds. A refused
             # conversion gain or line-noise value stays saved: no driver
             # reads either back, so what the camera holds instead is not
@@ -1734,9 +1758,11 @@ class Lumascope:
         """
         caps = self.capabilities
         absent = []
-        if config.high_conversion_gain and not caps.camera_supports_conversion_gain_mode:
+        # Absent is False; None is a probe that failed, which says nothing
+        # about whether the camera has the feature.
+        if config.high_conversion_gain and caps.camera_supports_conversion_gain_mode is False:
             absent.append(('camera.high_conversion_gain', 'high conversion gain'))
-        if config.line_noise_reduction and not caps.camera_supports_line_noise_reduction:
+        if config.line_noise_reduction and caps.camera_supports_line_noise_reduction is False:
             absent.append(('camera.line_noise_reduction', 'line noise reduction'))
         if not absent:
             return

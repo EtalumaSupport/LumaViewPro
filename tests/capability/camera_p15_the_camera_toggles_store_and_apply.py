@@ -85,6 +85,10 @@ def main():
         has_ln = caps.camera_supports_line_noise_reduction
         figure('supports.conversion_gain_mode', has_cg)
         figure('supports.line_noise_reduction', has_ln)
+        # A probe that failed at bring-up (None) says neither: it is a failed
+        # check, and neither side runs for that toggle.
+        check('the conversion gain mode probe answered at bring-up', has_cg is not None)
+        check('the line noise reduction probe answered at bring-up', has_ln is not None)
         # Which side each toggle runs is the camera's: a camera with the mode
         # stores and applies it, one without refuses on and keeps off.
         if has_cg:
@@ -116,7 +120,7 @@ def main():
                 'line_noise_reduction',
                 'line_noise_reduction',
             )
-        if not has_cg:
+        if has_cg is False:
             _absent(
                 session,
                 'high_conversion_gain',
@@ -124,7 +128,7 @@ def main():
                 'high_conversion_gain',
                 'conversion_gain_mode_unsupported',
             )
-        if not has_ln:
+        if has_ln is False:
             _absent(
                 session,
                 'line_noise_reduction',

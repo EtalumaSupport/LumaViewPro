@@ -316,7 +316,8 @@ class DiagnosticsAPI:
             only for a camera with no temperature sensor
             (``capabilities.camera_reports_temperature`` False). None when no
             camera is connected, after ``disconnect()`` too: a read with no
-            camera to describe.
+            camera to describe. A temperature probe that failed as the
+            camera came up does not stop the read, which is live.
 
         Raises:
             CameraReadFailedError: ``'camera_read_failed'``, a camera is

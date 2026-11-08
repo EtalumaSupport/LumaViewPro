@@ -10,13 +10,16 @@ callback, the DEVICE_NOT_FOUND grab path, the consecutive-failure cascade).
 
 One parametrized test covers every pure getter: induce a RuntimeException on
 the getter's node accessor, assert (a) the documented sentinel comes back and
-(b) _mark_disconnected was never called.
+(b) _mark_disconnected was never called. The feature probes have no sentinel:
+a failed probe raises CameraReadFailedError, the capabilities' failed answer,
+and keeps the camera too.
 """
 
 import pytest
 
 from pypylon import genicam
 
+from _lumascope.drivers.exceptions import CameraReadFailedError
 from tests.camera_fakes import bare_pylon_camera
 
 
@@ -88,10 +91,6 @@ GETTER_CASES = [
     pytest.param(
         'get_supported_pixel_formats', _induce_supported_formats, (), id='supported_pixel_formats'
     ),
-    pytest.param(
-        'supports_conversion_gain_mode', _induce_nodemap, False, id='supports_conversion_gain'
-    ),
-    pytest.param('supports_line_noise_reduction', _induce_nodemap, False, id='supports_line_noise'),
 ]
 
 
@@ -102,3 +101,24 @@ def test_transient_read_returns_sentinel_and_keeps_camera(getter, induce, sentin
     result = getattr(cam, getter)()
     assert result == sentinel
     cam._mark_disconnected.assert_not_called()
+
+
+def test_a_failed_feature_probe_raises_and_keeps_the_camera():
+    offenders = []
+    for probe in (
+        'supports_conversion_gain_mode',
+        'supports_line_noise_reduction',
+        'supports_black_level',
+    ):
+        cam = bare_pylon_camera()
+        _induce_nodemap(cam)
+        try:
+            answer = getattr(cam, probe)()
+        except CameraReadFailedError as e:
+            if 'transient node read failure' not in str(e):
+                offenders.append(f'{probe}: raised without the SDK words: {e}')
+        else:
+            offenders.append(f'{probe}: answered {answer!r}')
+        if cam._mark_disconnected.called:
+            offenders.append(f'{probe}: marked the camera removed')
+    assert not offenders, '\n'.join(offenders)

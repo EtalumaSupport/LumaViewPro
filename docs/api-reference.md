@@ -6146,12 +6146,13 @@ without the mode is its state, and is saved.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write. Nothing is saved.
 - `CameraSettingUnsupportedError`: `'conversion_gain_mode_unsupported'`, on, for a camera without the mode. Nothing reaches the camera or is saved.
 - `CameraSettingRejected`: The camera refused it or raised from it (chained). Nothing is saved.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera's probe of the mode failed, here and when it came up (`capabilities.camera_supports_conversion_gain_mode` is None). Nothing was written or saved.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `conversion_gain_mode_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_image_mode"></a>
@@ -6214,12 +6215,13 @@ the camera took it, as `set_high_conversion_gain` is.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write. Nothing is saved.
 - `CameraSettingUnsupportedError`: `'line_noise_reduction_unsupported'`, on, for a camera without the filter. Nothing reaches the camera or is saved.
 - `CameraSettingRejected`: The camera refused it or raised from it (chained). Nothing is saved.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera's probe of the filter failed, here and when it came up (`capabilities.camera_supports_line_noise_reduction` is None). Nothing was written or saved.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `line_noise_reduction_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="DiagnosticsAPI"></a>
@@ -6290,7 +6292,7 @@ or an engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
-dict[str, float] | None: Each sensor's temperature in degC, by the sensor's name, which is the camera's own (a Basler body's `'FpgaCore'`; `'Device'` on an IDS body with one sensor). Empty only for a camera with no temperature sensor (`capabilities.camera_reports_temperature` False). None when no camera is connected, after `disconnect()` too: a read with no camera to describe.
+dict[str, float] | None: Each sensor's temperature in degC, by the sensor's name, which is the camera's own (a Basler body's `'FpgaCore'`; `'Device'` on an IDS body with one sensor). Empty only for a camera with no temperature sensor (`capabilities.camera_reports_temperature` False). None when no camera is connected, after `disconnect()` too: a read with no camera to describe. A temperature probe that failed as the camera came up does not stop the read, which is live.
 
 **Raises**
 
@@ -7081,7 +7083,7 @@ starts and maps every frame's tick through it.
 
 **Returns**
 
-ClockMapping | None: The mapping; None for a camera without a latch (`capabilities.camera_has_clock_latch`).
+ClockMapping | None: The mapping; None for a camera without a latch (`capabilities.camera_has_clock_latch`), and when the latch probe failed as the camera came up.
 
 **Raises**
 
@@ -10319,7 +10321,7 @@ Built only by this module's two entries: `grab_record` for a still,
 - <a id="FrameRecord.camera_tick_hz"></a>`camera_tick_hz`: `int | None` -- Ticks per second of that clock.
 - <a id="FrameRecord.camera_timestamp_ticks"></a>`camera_timestamp_ticks`: `int | None` -- The camera's own clock for the frame (for a summed capture, the first frame's).
 - <a id="FrameRecord.captured_at"></a>`captured_at`: `FrameTime` -- When the frame was taken, with what that time is (`FrameTime`).
-- <a id="FrameRecord.clock_mapping"></a>`clock_mapping`: `ClockMapping | None` -- The camera's clock mapped onto the host's, latched by the capture at the top of the cycle that grabbed the frame, before its drain (`ClockMapping`); None on a camera without a latch (`capabilities.camera_has_clock_latch`).
+- <a id="FrameRecord.clock_mapping"></a>`clock_mapping`: `ClockMapping | None` -- The camera's clock mapped onto the host's, latched by the capture at the top of the cycle that grabbed the frame, before its drain (`ClockMapping`); None on a camera without a latch (`capabilities.camera_has_clock_latch`), and when the latch probe failed as the camera came up.
 - <a id="FrameRecord.dark"></a>`dark`: `bool | None` -- True when the frame was kept with no pixel above the dark floor while illumination was commanded on, after the capture waited out its budget for a lit one; for a summed capture, when any frame was. None when the capture did not judge it (no LED on, or `accept_dark`).
 - <a id="FrameRecord.exposure_ms"></a>`exposure_ms`: `float | None` -- Per-frame exposure. For a summed capture this is each frame's exposure, not the total; `frames_summed` says how many. None for a recorded frame that carries no exposure of its own.
 - <a id="FrameRecord.exposure_source"></a>`exposure_source`: `SettingSource | None` -- Whether `exposure_ms` is the frame's own or the setting read beside the grab (`SettingSource`); None exactly when `exposure_ms` is.
@@ -12553,22 +12555,22 @@ tuple.
 - <a id="ScopeCapabilities.buffer_bit_depth"></a>`buffer_bit_depth`: `int` -- The width of the buffers frames are delivered in, not the bits that carry data: 16 for Mono10, Mono12 and Mono16, right-aligned in 16-bit buffers; 8 for a camera that delivers only 8-bit buffers (a Classic's). The data's depth is `camera_max_significant_bits`, and the current frames' `imaging.significant_bits`.
 - <a id="ScopeCapabilities.camera_binning_sizes"></a>`camera_binning_sizes`: `tuple[int, ...]` -- The binning factors the camera offers; empty with no camera, or one that offers none.
 - <a id="ScopeCapabilities.camera_firmware_version"></a>`camera_firmware_version`: `str | None` -- The firmware version the camera reports at connect, or None (a Classic's camera reports none).
-- <a id="ScopeCapabilities.camera_has_clock_latch"></a>`camera_has_clock_latch`: `bool` -- True when the host can latch the camera's timestamp clock and read it, which maps the camera's clock onto the host's: each capture's `FrameRecord.clock_mapping`. False on a camera without a latch (IDS, a Classic's), or whose tick rate is unknown, as it is for a camera whose frames do not carry their start on that clock; its frames carry no mapping.
+- <a id="ScopeCapabilities.camera_has_clock_latch"></a>`camera_has_clock_latch`: `bool | None` -- True when the host can latch the camera's timestamp clock and read it, which maps the camera's clock onto the host's: each capture's `FrameRecord.clock_mapping`. False on a camera without a latch (IDS, a Classic's), or whose tick rate is unknown, as it is for a camera whose frames do not carry their start on that clock; its frames carry no mapping. None when the latch probe failed as the camera came up; its frames then carry no mapping either.
 - <a id="ScopeCapabilities.camera_limits"></a>`camera_limits`: `CameraLimits | None` -- The ranges the attached camera takes, read once at connect; None with no camera connected.
 - <a id="ScopeCapabilities.camera_max_significant_bits"></a>`camera_max_significant_bits`: `int | None` -- The deepest depth the camera delivers over its pixel formats: 12 for a camera that offers Mono12, 8 for one that streams only 8 bits. None with no camera, or one whose formats are unknown. The depth of the frames it delivers now, which follows `set_image_mode`, is `imaging.significant_bits`.
 - <a id="ScopeCapabilities.camera_model"></a>`camera_model`: `str | None` -- The model the camera reports at connect; None with no camera, or one that did not say.
 - <a id="ScopeCapabilities.camera_node_maps"></a>`camera_node_maps`: `tuple[str, ...]` -- The maps of the camera's named settings `scope.diagnostics.read_camera_node` reads, by the camera SDK's names for them: `'device'` (the camera's own), and on a Basler `'transport'`, `'stream'`, `'instant_camera'` and `'event'`, on an IDS body `'stream'`. Empty for a camera with no named settings -- a Classic's, the simulated camera -- and with no camera.
 - <a id="ScopeCapabilities.camera_pixel_formats"></a>`camera_pixel_formats`: `tuple[str, ...]` -- The pixel formats the camera offers (`'Mono8'`, `'Mono12'`, ...); empty with no camera.
-- <a id="ScopeCapabilities.camera_reports_temperature"></a>`camera_reports_temperature`: `bool` -- True when the camera has a temperature sensor. Where it is False, `scope.diagnostics.get_camera_temperatures_degc` answers `{}`; where it is True an empty answer cannot happen, and a read that fails raises.
+- <a id="ScopeCapabilities.camera_reports_temperature"></a>`camera_reports_temperature`: `bool | None` -- True when the camera has a temperature sensor. Where it is False, `scope.diagnostics.get_camera_temperatures_degc` answers `{}`; where it is True an empty answer cannot happen, and a read that fails raises. None when the probe failed as the camera came up; the read is live, and answers as the camera does.
 - <a id="ScopeCapabilities.camera_sdk_version"></a>`camera_sdk_version`: `str | None` -- The version of the camera vendor's SDK the camera is driven through, read at connect, which ties a measurement to the runtime that made it. None when the SDK does not say, for a camera driven without one (a Classic's, the simulator's), or no camera.
 - <a id="ScopeCapabilities.camera_sensor"></a>`camera_sensor`: `str | None` -- The camera's sensor (`'Sony IMX334LLR-C'`), from its datasheet entry; None for a camera no entry describes, or no camera.
 - <a id="ScopeCapabilities.camera_serial_number"></a>`camera_serial_number`: `str | None` -- The serial number the camera reports at connect, or None.
 - <a id="ScopeCapabilities.camera_shutter"></a>`camera_shutter`: `CameraShutter | None` -- The sensor's shutter, from the same entry; None where `camera_sensor` is.
 - <a id="ScopeCapabilities.camera_supports_auto_exposure"></a>`camera_supports_auto_exposure`: `bool` -- True when the camera has hardware auto-exposure.
 - <a id="ScopeCapabilities.camera_supports_auto_gain"></a>`camera_supports_auto_gain`: `bool` -- True when the camera has hardware auto-gain.
-- <a id="ScopeCapabilities.camera_supports_black_level"></a>`camera_supports_black_level`: `bool` -- True when the camera's black level can be set (`scope.camera.set_black_level`). The black level is read with `scope.camera.read_black_level` on any camera that reports one, settable or not (a Classic's reports its fixed Row Black Target).
-- <a id="ScopeCapabilities.camera_supports_conversion_gain_mode"></a>`camera_supports_conversion_gain_mode`: `bool` -- True when the camera has a switchable sensor conversion gain (High: low read noise, narrow range; Low: wide range).
-- <a id="ScopeCapabilities.camera_supports_line_noise_reduction"></a>`camera_supports_line_noise_reduction`: `bool` -- True when the camera has the line-noise-reduction filter, which smooths horizontal stripes.
+- <a id="ScopeCapabilities.camera_supports_black_level"></a>`camera_supports_black_level`: `bool | None` -- True when the camera's black level can be set (`scope.camera.set_black_level`). The black level is read with `scope.camera.read_black_level` on any camera that reports one, settable or not (a Classic's reports its fixed Row Black Target). None when the probe failed as the camera came up: whether the camera has it is not known; a write, and the camera-state snapshot, probe the camera live.
+- <a id="ScopeCapabilities.camera_supports_conversion_gain_mode"></a>`camera_supports_conversion_gain_mode`: `bool | None` -- True when the camera has a switchable sensor conversion gain (High: low read noise, narrow range; Low: wide range). None when the probe failed as the camera came up: whether the camera has it is not known, the saved setting is kept unapplied, and a write probes the camera live.
+- <a id="ScopeCapabilities.camera_supports_line_noise_reduction"></a>`camera_supports_line_noise_reduction`: `bool | None` -- True when the camera has the line-noise-reduction filter, which smooths horizontal stripes. None when the probe failed as the camera came up: whether the camera has it is not known, the saved setting is kept unapplied, and a write probes the camera live.
 - <a id="ScopeCapabilities.camera_timestamp_tick_hz"></a>`camera_timestamp_tick_hz`: `int | None` -- The rate of the camera's frame timestamp clock in Hz, or None for a camera whose frames carry no timestamp.
 - <a id="ScopeCapabilities.frame_rules"></a>`frame_rules`: `Mapping[FrameValiditySource, FrameRule]` -- For each frame-validity source, the frames a change of it waits before a frame counts, on every camera: the largest count the record measured for the source over the microscopes the camera was measured on, with the run and microscope in its `provenance`, else the shipped count with none. Read once at bring-up from the camera's timing record.
 - <a id="ScopeCapabilities.has_firmware_stim"></a>`has_firmware_stim`: `bool` -- True when the LED firmware runs a stimulation pulse train itself (LED firmware 3.0.8 and later). Paced from the host, a pulse under about 20 ms is unreliable, since the USB bridge batches back-to-back writes; the firmware's train keeps its edges to under a microsecond.

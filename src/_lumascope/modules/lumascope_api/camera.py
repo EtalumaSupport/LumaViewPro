@@ -510,6 +510,22 @@ def _absent_mode_refusal(
     )
 
 
+def _has_settable_feature(published: bool | None, probe: Callable[[], bool]) -> bool:
+    """Whether the camera has a settable feature, as a setter asks it.
+
+    ``published`` is the capability bring-up recorded: True or False is the
+    answer; None (its probe failed then) asks the camera now. The published
+    field keeps None after: it is bring-up's record, and this probe answers
+    its own call.
+
+    Raises:
+        CameraReadFailedError: The live probe failed; nothing was written.
+    """
+    if published is None:
+        return bool(probe())
+    return published
+
+
 # What stays as it is when an auto mode the camera lacks is refused.
 _AUTO_MODE_STAYS = 'The gain and exposure stay as they are set.'
 
@@ -2056,6 +2072,10 @@ class CameraAPI:
                 is saved.
             CameraSettingRejected: The camera refused it or raised from it
                 (chained). Nothing is saved.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's
+                probe of the mode failed, here and when it came up
+                (``capabilities.camera_supports_conversion_gain_mode`` is
+                None). Nothing was written or saved.
         """
         self._dispatch_camera(
             self._saved_after(
@@ -2088,6 +2108,10 @@ class CameraAPI:
                 or is saved.
             CameraSettingRejected: The camera refused it or raised from it
                 (chained). Nothing is saved.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's
+                probe of the filter failed, here and when it came up
+                (``capabilities.camera_supports_line_noise_reduction`` is
+                None). Nothing was written or saved.
         """
         self._dispatch_camera(
             self._saved_after(
@@ -2662,7 +2686,10 @@ class CameraAPI:
         """
         if not self._driver or not self._driver.active:
             return False
-        if not self._scope.capabilities.camera_supports_conversion_gain_mode:
+        if not _has_settable_feature(
+            self._scope.capabilities.camera_supports_conversion_gain_mode,
+            self._driver.supports_conversion_gain_mode,
+        ):
             if mode == 'Low':
                 self._commit_camera_writes({'high_conversion_gain': False})
                 return True
@@ -2713,7 +2740,10 @@ class CameraAPI:
         """
         if not self._driver or not self._driver.active:
             return False
-        if not self._scope.capabilities.camera_supports_line_noise_reduction:
+        if not _has_settable_feature(
+            self._scope.capabilities.camera_supports_line_noise_reduction,
+            self._driver.supports_line_noise_reduction,
+        ):
             if not enabled:
                 self._commit_camera_writes({'line_noise_reduction': False})
                 return True
@@ -2879,14 +2909,16 @@ class CameraAPI:
 
     def _set_black_level_impl(self, value: float) -> float | None:
         """Set the black level; the refusals of ``set_black_level`` are raised
-        here, on the camera lane, because the support probe and the range are
-        live camera reads. A write that did not apply raises
-        ``CameraSettingRejected`` (``_camera_write``).
+        here, on the camera lane, because the range is a live camera read, as
+        the support probe is when bring-up's failed. A write that did not
+        apply raises ``CameraSettingRejected`` (``_camera_write``).
         """
         driver = self._driver
         if not driver or not driver.active:
             return None
-        if not driver.supports_black_level():
+        if not _has_settable_feature(
+            self._scope.capabilities.camera_supports_black_level, driver.supports_black_level
+        ):
             raise _absent_mode_refusal(
                 'black_level',
                 value,
@@ -3614,7 +3646,8 @@ class CameraAPI:
         """The camera's restorable settings beyond gain and exposure, read live.
 
         Empty when no camera is active. Binning appears only where the camera
-        offers more than one size, the black level only where it can be set.
+        offers more than one size, the black level only where it can be set,
+        or where the camera reports one when its probe failed at bring-up.
         The conversion-gain mode and line-noise reduction are the values held,
         None when unknown: no driver reads them back.
 
@@ -3634,6 +3667,13 @@ class CameraAPI:
             if black_level is None:
                 raise CameraReadFailedError("The camera's black level could not be read")
             now['black_level'] = black_level
+        elif caps.camera_supports_black_level is None:
+            # Its probe failed at bring-up: the camera's answer now decides.
+            # One that reports none has none to restore; a restore meets the
+            # setter's own live probe.
+            black_level = self._read_black_level_impl()
+            if black_level is not None:
+                now['black_level'] = black_level
         for key in _HELD_TOGGLES:
             now[key] = self._held(key)
         return now

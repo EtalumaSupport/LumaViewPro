@@ -2606,26 +2606,26 @@ class PylonCamera(Camera):
                 f'set_line_noise_reduction({enabled}) failed: {type(e).__name__}: {e}'
             ) from e
 
+    # The three feature probes. A failed probe raises and does not tear the
+    # camera down: latching device-removed on a transient probe read killed
+    # the stream; removal is owned by the SDK removal callback + the grab
+    # loop's definitive paths.
+
     def supports_conversion_gain_mode(self) -> bool:
-        """True if the camera exposes the conversion-gain-mode node."""
+        """True if the camera exposes the conversion-gain-mode node.
+        See ``Camera.supports_conversion_gain_mode``."""
         if not self.active:
             return False
         try:
             return self._has_node(self.active.GetNodeMap(), 'BslConversionGainMode')
-        except genicam.RuntimeException as e:
-            # Intentionally NO disconnect teardown (latching device-removed on
-            # a transient probe read killed the stream); removal is owned by
-            # the SDK removal callback + the grab loop's definitive paths.
-            _cam_log.error(f'[CAM Class ] Failed to probe conversion gain mode support: {e}')
-            return False
         except Exception as e:
-            _cam_log.exception(
-                f'[CAM Class ] Unexpected error probing conversion gain mode support: {e}'
-            )
-            return False
+            raise CameraReadFailedError(
+                f'BslConversionGainMode probe failed: {type(e).__name__}: {e}'
+            ) from e
 
     def supports_line_noise_reduction(self) -> bool:
-        """True if the camera exposes the line-noise-reduction nodes."""
+        """True if the camera exposes the line-noise-reduction nodes.
+        See ``Camera.supports_line_noise_reduction``."""
         if not self.active:
             return False
         try:
@@ -2633,17 +2633,10 @@ class PylonCamera(Camera):
             return self._has_node(node_map, 'BslLineNoiseReductionEnable') and self._has_node(
                 node_map, 'BslLineNoiseReduction'
             )
-        except genicam.RuntimeException as e:
-            # Intentionally NO disconnect teardown (latching device-removed on
-            # a transient probe read killed the stream); removal is owned by
-            # the SDK removal callback + the grab loop's definitive paths.
-            _cam_log.error(f'[CAM Class ] Failed to probe line noise reduction support: {e}')
-            return False
         except Exception as e:
-            _cam_log.exception(
-                f'[CAM Class ] Unexpected error probing line noise reduction support: {e}'
-            )
-            return False
+            raise CameraReadFailedError(
+                f'BslLineNoiseReduction probe failed: {type(e).__name__}: {e}'
+            ) from e
 
     def supports_black_level(self) -> bool:
         """True if the camera exposes the BlackLevel node."""
@@ -2652,7 +2645,6 @@ class PylonCamera(Camera):
         try:
             return self._has_node(self.active.GetNodeMap(), 'BlackLevel')
         except Exception as e:
-            # No disconnect teardown, as in the probes above.
             raise CameraReadFailedError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
 
     def get_black_level(self) -> float | None:

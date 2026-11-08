@@ -49,24 +49,25 @@ if TYPE_CHECKING:
     from _lumascope.modules.channel_record import ChannelIdentity, ScopeModel
 
 
-def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
-    """Run a capability probe; return fallback on expected absence; log
-    on hardware fault. Other exceptions (TypeErrors, KeyErrors from buggy
-    code) propagate so they surface for debugging.
+def _probe(label: str, fn: Callable[[], Any], absent: Any, *, failed: Any) -> Any:
+    """Run a capability probe: its answer, ``absent`` for a feature the
+    driver does not have, ``failed`` for a probe that failed. Other
+    exceptions (TypeErrors, KeyErrors from buggy code) propagate so they
+    surface for debugging.
 
     Catches:
         - AttributeError / NotImplementedError: feature absent.
-        - HardwareError: real driver fault. Logged at warning so it's
-          visible in main log; fallback used so capability dataclass
-          still constructs.
+        - HardwareError: real driver fault. Logged at warning, the one
+          line of the fault, since its words exist only here; the
+          capability dataclass still constructs.
     """
     try:
         return fn()
     except (AttributeError, NotImplementedError):
-        return fallback
+        return absent
     except HardwareError as e:
-        logger.warning(f'[CAPABILITIES] {label} probe failed: {e}; using fallback')
-        return fallback
+        logger.warning(f'[CAPABILITIES] {label} probe failed: {e}; answering {failed!r}')
+        return failed
 
 
 def _declared_optics(scope_models: Mapping[str, ScopeModel], model: str) -> dict[str, float]:
@@ -143,7 +144,7 @@ def _resolve_pixel_size_um(motorconfig, optics: dict, camera) -> float | None:
     and None is the honest signal for that.
     """
     if motorconfig is not None:
-        mc = _probe('motorconfig.pixel_size', motorconfig.pixel_size, None)
+        mc = _probe('motorconfig.pixel_size', motorconfig.pixel_size, None, failed=None)
         if mc is not None:
             return float(mc)
     optics_px = optics.get('PixelSize')
@@ -167,7 +168,9 @@ def _resolve_lens_focal_length_mm(motorconfig, optics: dict) -> float | None:
     and no hardcoded fallback.
     """
     if motorconfig is not None:
-        mc = _probe('motorconfig.lens_focal_length', motorconfig.lens_focal_length, None)
+        mc = _probe(
+            'motorconfig.lens_focal_length', motorconfig.lens_focal_length, None, failed=None
+        )
         if mc is not None:
             return float(mc)
     optics_fl = optics.get('LensFocalLength')
@@ -400,7 +403,9 @@ class ScopeCapabilities:
             sensor. Where it is False,
             ``scope.diagnostics.get_camera_temperatures_degc`` answers
             ``{}``; where it is True an empty answer cannot happen, and a
-            read that fails raises.
+            read that fails raises. None when the probe failed as the
+            camera came up; the read is live, and answers as the camera
+            does.
         is_color_native: True when the camera delivers 3-channel color
             frames; False for a mono camera, as every shipped one is, and
             when the camera is unknown.
@@ -424,15 +429,23 @@ class ScopeCapabilities:
             and with no camera.
         camera_supports_conversion_gain_mode: True when the camera has a
             switchable sensor conversion gain (High: low read noise, narrow
-            range; Low: wide range).
+            range; Low: wide range). None when the probe failed as the
+            camera came up: whether the camera has it is not known, the
+            saved setting is kept unapplied, and a write probes the camera
+            live.
         camera_supports_line_noise_reduction: True when the camera has the
             line-noise-reduction filter, which smooths horizontal stripes.
+            None when the probe failed as the camera came up: whether the
+            camera has it is not known, the saved setting is kept
+            unapplied, and a write probes the camera live.
         camera_has_clock_latch: True when the host can latch the camera's
             timestamp clock and read it, which maps the camera's clock onto
             the host's: each capture's ``FrameRecord.clock_mapping``. False
             on a camera without a latch (IDS, a Classic's), or whose tick
             rate is unknown, as it is for a camera whose frames do not carry
-            their start on that clock; its frames carry no mapping.
+            their start on that clock; its frames carry no mapping. None
+            when the latch probe failed as the camera came up; its frames
+            then carry no mapping either.
         frame_rules: For each frame-validity source, the frames a change of
             it waits before a frame counts, on every camera: the largest
             count the record measured for the source over the microscopes
@@ -444,7 +457,9 @@ class ScopeCapabilities:
             be set (``scope.camera.set_black_level``). The black level is
             read with ``scope.camera.read_black_level`` on any camera that
             reports one, settable or not (a Classic's reports its fixed Row
-            Black Target).
+            Black Target). None when the probe failed as the camera came
+            up: whether the camera has it is not known; a write, and the
+            camera-state snapshot, probe the camera live.
         has_firmware_stim: True when the LED firmware runs a stimulation
             pulse train itself (LED firmware 3.0.8 and later). Paced from
             the host, a pulse under about 20 ms is unreliable, since the USB
@@ -478,17 +493,17 @@ class ScopeCapabilities:
     camera_pixel_formats: tuple[str, ...]
     camera_binning_sizes: tuple[int, ...]
     camera_limits: CameraLimits | None
-    camera_reports_temperature: bool
+    camera_reports_temperature: bool | None
     is_color_native: bool = False
     buffer_bit_depth: int = 16
     camera_max_significant_bits: int | None = None
-    camera_supports_conversion_gain_mode: bool = False
-    camera_supports_line_noise_reduction: bool = False
-    camera_has_clock_latch: bool = False
+    camera_supports_conversion_gain_mode: bool | None = False
+    camera_supports_line_noise_reduction: bool | None = False
+    camera_has_clock_latch: bool | None = False
     frame_rules: Mapping[FrameValiditySource, FrameRule] = field(
         default_factory=FrameValidity.credit_rules
     )
-    camera_supports_black_level: bool = False
+    camera_supports_black_level: bool | None = False
     camera_node_maps: tuple[str, ...] = ()
 
     # ---- Cross-cutting feature flags ----
@@ -530,7 +545,10 @@ class ScopeCapabilities:
         """
         # Motion
         axes = _probe(
-            'detect_present_axes', lambda: tuple(Axis(a) for a in motion.detect_present_axes()), ()
+            'detect_present_axes',
+            lambda: tuple(Axis(a) for a in motion.detect_present_axes()),
+            (),
+            failed=(),
         )
         model = channel_identity.model or ''
 
@@ -545,7 +563,7 @@ class ScopeCapabilities:
         # no current cap, not the null board's stand-in table and 0 mA.
         led_present = not isinstance(led, NullLEDBoard)
         led_addresses = (
-            _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
+            _probe('led.available_channels', lambda: tuple(led.available_channels()), (), failed=())
             if led_present
             else None
         )
@@ -559,11 +577,14 @@ class ScopeCapabilities:
             'led.supports_firmware_stim',
             lambda: bool(led.supports_firmware_stim()),
             False,
+            failed=False,
         )
         # The cap is the driver's to publish; there is no value to assume
         # in its place. A driver that does not answer leaves no legal
         # current above zero.
-        led_max_ma = _probe('led.max_ma', lambda: int(led.max_ma()), 0) if led_present else None
+        led_max_ma = (
+            _probe('led.max_ma', lambda: int(led.max_ma()), 0, failed=0) if led_present else None
+        )
 
         # Camera
         camera_model: str | None = None
@@ -614,34 +635,53 @@ class ScopeCapabilities:
                     camera_analog_gain_max_db = float(gain.analog_max_db)
                 elif not gain.has_digital and gain.total_max_db is not None:
                     camera_analog_gain_max_db = float(gain.total_max_db)
-            size = _probe('camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None)
+            size = _probe(
+                'camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None, failed=None
+            )
             reported = (int(size['width']), int(size['height'])) if size else None
-            binning = _probe('camera.get_binning_size', lambda: camera.get_binning_size(), None)
+            binning = _probe(
+                'camera.get_binning_size', lambda: camera.get_binning_size(), None, failed=None
+            )
             camera_max_frame_size = _smallest_frame(
                 documented, _unbinned(reported, binning), _declared_max_frame(scope_models, model)
             )
             if camera.active:
                 camera_limits = CameraLimits(
                     gain_min_db=_limit(
-                        _probe('camera.min_gain', lambda: camera.min_gain, None),
+                        _probe('camera.min_gain', lambda: camera.min_gain, None, failed=None),
                         lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
                     ),
                     gain_max_db=_limit(
-                        _probe('camera.get_max_gain', lambda: camera.get_max_gain(), None),
+                        _probe(
+                            'camera.get_max_gain', lambda: camera.get_max_gain(), None, failed=None
+                        ),
                         lambda v: isinstance(v, (int, float)) and v > 0,
                     ),
                     analog_gain_max_db=camera_analog_gain_max_db,
                     exposure_min_ms=_limit(
-                        _probe('camera.get_min_exposure', lambda: camera.get_min_exposure(), None),
+                        _probe(
+                            'camera.get_min_exposure',
+                            lambda: camera.get_min_exposure(),
+                            None,
+                            failed=None,
+                        ),
                         common_utils.is_valid_exposure_ms,
                     ),
                     exposure_max_ms=_limit(
-                        _probe('camera.get_max_exposure', lambda: camera.get_max_exposure(), None),
+                        _probe(
+                            'camera.get_max_exposure',
+                            lambda: camera.get_max_exposure(),
+                            None,
+                            failed=None,
+                        ),
                         common_utils.is_valid_exposure_ms,
                     ),
                     frame_min=_frame(
                         _probe(
-                            'camera.get_min_frame_size', lambda: camera.get_min_frame_size(), None
+                            'camera.get_min_frame_size',
+                            lambda: camera.get_min_frame_size(),
+                            None,
+                            failed=None,
                         )
                     ),
                     frame_max=FrameSize(*camera_max_frame_size) if camera_max_frame_size else None,
@@ -656,16 +696,19 @@ class ScopeCapabilities:
                 'camera.supports_conversion_gain_mode',
                 lambda: bool(camera.supports_conversion_gain_mode()),
                 False,
+                failed=None,
             )
             camera_supports_line_noise_reduction = _probe(
                 'camera.supports_line_noise_reduction',
                 lambda: bool(camera.supports_line_noise_reduction()),
                 False,
+                failed=None,
             )
             camera_supports_black_level = _probe(
                 'camera.supports_black_level',
                 lambda: bool(camera.supports_black_level()),
                 False,
+                failed=None,
             )
             # A latch maps the camera's clock only at a known tick rate, which
             # a camera states only when its frames carry their start on it.
@@ -673,11 +716,13 @@ class ScopeCapabilities:
                 'camera.supports_clock_latch',
                 lambda: bool(camera.supports_clock_latch()),
                 False,
+                failed=None,
             )
             camera_reports_temperature = _probe(
                 'camera.supports_temperature',
                 lambda: bool(camera.supports_temperature()),
                 False,
+                failed=None,
             )
             # Record the detected low-noise toggles so a support bundle shows
             # whether they were available on this camera without debug mode.

@@ -1351,7 +1351,8 @@ class ImagingAPI:
 
         Returns:
             ClockMapping | None: The mapping; None for a camera without a
-                latch (``capabilities.camera_has_clock_latch``).
+                latch (``capabilities.camera_has_clock_latch``), and when
+                the latch probe failed as the camera came up.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the

@@ -1800,6 +1800,22 @@ class Camera(ABC):
         """
         pass
 
+    def supports_conversion_gain_mode(self) -> bool:
+        """Whether the camera has a switchable sensor conversion gain.
+
+        Raises:
+            HardwareError: The probe failed.
+        """
+        return False
+
+    def supports_line_noise_reduction(self) -> bool:
+        """Whether the camera has the line-noise-reduction filter.
+
+        Raises:
+            HardwareError: The probe failed.
+        """
+        return False
+
     # Black level is the camera's own offset parameter, in the camera's own
     # units (Basler's step in DN differs by model and sensor bit depth; IDS
     # states DN of the current format), never converted to output DN here:
