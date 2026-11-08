@@ -399,14 +399,12 @@ class ImageSettings(BoxLayout):
         ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
 
-        # move position of settings and stop histogram if main settings are collapsed
+        # The shown channel's histogram stays scheduled while the panel is
+        # folded: it skips its own work while it is not on screen
+        # (Histogram._is_displayed), so it draws again the moment the panel
+        # unfolds.
         if self.ids['toggle_imagesettings'].state == 'normal':
             self.x = lumaview.width - self.tab_width
-
-            for channel in common_utils.get_channels():
-                channel_control = ctx.image_settings.channel_control_lookup(channel=channel)
-                Clock.unschedule(channel_control.ids['histo_id'].histogram)
-                logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
             self.x = lumaview.width - self.settings_width
 

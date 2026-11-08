@@ -121,3 +121,58 @@ def test_histogram_calls_is_displayed_before_camera_read():
     guard = SRC.index('_is_displayed(ctx)')
     read = SRC.index('get_image_from_buffer(force_to_8bit')
     assert guard < read, '_is_displayed guard must precede the camera read'
+
+
+def test_the_shown_histogram_draws_again_after_the_panel_folds_and_unfolds(monkeypatch):
+    """Folding the image-settings panel leaves the shown channel's histogram
+    scheduled, so it draws again the moment the panel unfolds; while folded,
+    _is_displayed (above) is what skips its work."""
+    from types import SimpleNamespace
+
+    import _lumascope.modules.app_context as _app_ctx
+    import _lumascope.modules.common_utils as common_utils
+    import ui.image_settings as image_settings
+
+    # a stand-in by design: Kivy is stubbed in the test process, so the
+    # Clock is a recorder of what is scheduled; the subject is the panel's
+    # fold, not Kivy's timer
+    scheduled = set()
+    monkeypatch.setattr(
+        image_settings,
+        'Clock',
+        SimpleNamespace(
+            schedule_interval=lambda callback, _interval: scheduled.add(callback),
+            unschedule=scheduled.discard,
+        ),
+    )
+    controls = {
+        channel: SimpleNamespace(ids={'histo_id': SimpleNamespace(histogram=lambda *a: None)})
+        for channel in common_utils.get_channels()
+    }
+    panel = SimpleNamespace(
+        ids={'toggle_imagesettings': SimpleNamespace(state='down')},
+        x=0,
+        tab_width=20,
+        settings_width=300,
+        channel_control_lookup=lambda channel: controls[channel],
+        update_transmitted=lambda: None,
+    )
+    monkeypatch.setattr(
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(
+            session=SimpleNamespace(controls_lock=SimpleNamespace(run_named=None)),
+            lumaview=SimpleNamespace(width=1000),
+            image_settings=panel,
+        ),
+    )
+    image_settings.set_histogram_channel(active_channel=LED1)
+    shown = controls[LED1].ids['histo_id'].histogram
+
+    panel.ids['toggle_imagesettings'].state = 'normal'
+    image_settings.ImageSettings.place_settings(panel)
+    panel.ids['toggle_imagesettings'].state = 'down'
+    image_settings.ImageSettings.place_settings(panel)
+
+    assert panel.x == 1000 - 300
+    assert scheduled == {shown}
