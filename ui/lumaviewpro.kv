@@ -2377,7 +2377,6 @@
     padding: '5dp'
     spacing: '5dp'
     orientation: 'vertical'
-    disabled: app.lock.controls_locked
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
@@ -2395,424 +2394,435 @@
 			height: self.minimum_height
 			padding: 0, 0, dp(8), 0
 			spacing: dp(5)
+			# Every row but the action buttons locks while a run, a recording or
+			# a held control session holds the scope. Kivy disables every child
+			# of a disabled widget, so the lock sits here, not on the rule root,
+			# to leave Zip Logs and the support report live; the API makes both
+			# at any time.
 			BoxLayout:
-				orientation: 'horizontal'
+				orientation: 'vertical'
 				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Lumascope Model: ' + root.current_scope_model + (' (' + root.next_start_model + ' at next start)' if root.next_start_model else '')
-					tooltip_text: 'Current scope model. Change it in Advanced Settings.'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-					font_size: '12sp'
-
-			# Frame Size
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				padding: '0dp'
-				spacing: '5dp'
-
-				Label:
-					text: 'Frame Size'
-					tooltip_text: 'Camera sensor frame size in pixels'
-					halign: 'left'
-					valign: 'middle'
-					font_size: '12sp'
-					size_hint_x: None
-					width: '80dp'
-					text_size: self.size
-
-				CommitInput:
-					id: frame_width_id
-					disabled: app.lock.run_lockout or not root.camera_connected
-					multiline: False
-					padding: ['2dp', (self.height-self.line_height)/2]
-					halign: 'center'
-					input_filter: 'int'
-					text: '1900'
-					on_commit: root.frame_size('frame_width_id')
-					font_size: '12sp'
-				Label:
-					text: 'x'
-					tooltip_text: "Camera frame size in pixels;\nthe camera's sensor is the largest"
-					size_hint_x: None
-					width: '15dp'
-					font_size: '12sp'
-					halign: 'center'
-				CommitInput:
-					id: frame_height_id
-					disabled: app.lock.run_lockout or not root.camera_connected
-					multiline: False
-					padding: ['5dp', (self.height-self.line_height)/2]
-					halign: 'center'
-					input_filter: 'int'
-					text: '1900'
-					on_commit: root.frame_size('frame_height_id')
-					font_size: '12sp'
-			
-			# Field of View
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Field of View'
-					tooltip_text: 'FOV calculated from magnification and frame size'
-					size_hint_x: None
-					width: '120dp'
-					font_size: '12sp'
-
-				TextInput:
-					id: field_of_view_width_id
-					multiline: False
-					padding: ['2dp', (self.height-self.line_height)/2]
-					halign: 'center'
-					input_filter: 'int'
-					text: ''
-					font_size: '12sp'
-					disabled: True
-				Label:
-					text: 'x'
-					size_hint_x: None
-					width: '15dp'
-					font_size: '12sp'
-					halign: 'center'
-				TextInput:
-					id: field_of_view_height_id
-					multiline: False
-					padding: ['5dp', (self.height-self.line_height)/2]
-					halign: 'center'
-					input_filter: 'int'
-					text: ''
-					font_size: '12sp'
-					disabled: True
-				Label:
-					text: ' um'
-					size_hint_x: None
-					width: '15dp'
-					font_size: '12sp'
-					halign: 'center'
-
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Live Image Format'
-					tooltip_text: 'TIFF / OME-TIFF (scientific, full depth) or\nJPG (8-bit, lossy, displayed color baked in)\nfor live image capture'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-					font_size: '12sp'
-				PickSpinner:
-					id: live_image_output_format_spinner
-					sync_height: True
-					text: 'Select'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					log_name: 'LIVE_IMAGE_OUTPUT_FORMAT'
-					text_follows_pick: True
-					on_text: root.select_live_image_output_format()
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Sequenced Image Format'
-					tooltip_text: 'Choose between TIFF, OME-TIFF,\nHyperstack, or JPG\nfor Protocol image capture.\nHyperstack saves each well as one\nOME-TIFF stack after the run.\nJPG is 8-bit lossy with no embedded metadata\nand cannot be used for composite / stitch.'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-					font_size: '12sp'
-				PickSpinner:
-					id: sequenced_image_output_format_spinner
-					sync_height: True
-					text: 'Select'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					log_name: 'SEQUENCED_IMAGE_OUTPUT_FORMAT'
-					text_follows_pick: True
-					on_text: root.select_sequenced_image_output_format()
-
-			BoxLayout:
-				id: jpg_quality_row
-				orientation: 'horizontal'
-				size_hint_y: None
-				# One shared JPG-quality control for both Live and Sequenced
-				# capture (single jpg_quality setting). Shown only when either
-				# format is JPG. The settings panel is crowded, so collapse the
-				# row's height and hide it rather than leave an inert greyed-out
-				# row taking up space.
-				height: '30dp' if live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG' else 0
-				opacity: 1 if live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG' else 0
-				disabled: live_image_output_format_spinner.text != 'JPG' and sequenced_image_output_format_spinner.text != 'JPG'
-				Label:
-					text: 'JPG Quality'
-					tooltip_text: 'JPEG quality 1-100. Higher = better image, larger file. Applies to both Live and Sequenced capture when their format is JPG.'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-					font_size: '12sp'
-					size_hint_x: 0.5
-				ModSlider:
-					id: jpg_quality_slider
-					min: JPG_QUALITY_RANGE[0]
-					max: JPG_QUALITY_RANGE[1]
-					step: 1
-					value: 90
-					size_hint_x: 0.4
-					cursor_size: '20dp','20dp'
-					cursor_image: build_file('data/icons/slider_cursor.png')
-					value_track: True
-					value_track_width: dp(5)
-					on_value: root.update_jpg_quality(self.value)
-					on_release: root.record_jpg_quality(self.value)
-				Label:
-					id: jpg_quality_value_label
-					text: '90'
-					halign: 'center'
-					valign: 'middle'
-					font_size: '12sp'
-					size_hint_x: 0.1
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Video Recording\nFormat'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-					font_size: '12sp'
-				PickSpinner:
-					id: video_recording_format_spinner
-					sync_height: True
-					text: 'Select'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					text_autoupdate: True
-					log_name: 'VIDEO_RECORDING_FORMAT'
-					text_follows_pick: True
-					on_text: root.select_video_recording_format()
-					values: ('mp4', 'Frames')
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					font_size: '12sp'
-					text: 'Image Mode'
-					tooltip_text: 'How images are saved: 8-bit; or at full depth,\nkeeping the pixel depth the camera delivers (and a\nsum\'s added range): scientific (right-aligned, dark\nin Windows), scaled (bright everywhere) or RGB\n(false colour).'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				PickSpinner:
-					id: image_mode_spinner
-					disabled: app.lock.run_lockout
-					sync_height: True
-					text: 'Select'
-					font_size: '12sp'
-					option_cls: "SpinnerOption0"
-					on_release: root.load_image_modes()
-					log_name: 'IMAGE_MODE'
-					text_follows_pick: True
-					on_text: root.select_image_mode()
-
-			BoxLayout:
-				id: image_mode_jpg_hint_row
-				orientation: 'horizontal'
-				size_hint_y: None
-				# Shown (toggled via jpg_depth_hint_active, the API's predicate)
-				# only when a full-depth mode is paired with a JPG output format:
-				# JPG is 8-bit, so it cannot carry the payload at full depth.
-				# Collapse height + hide rather than grey out.
-				height: '30dp' if root.jpg_depth_hint_active else 0
-				opacity: 1 if root.jpg_depth_hint_active else 0
-				Label:
-					text: 'JPG saves 8-bit; the full-depth payload is kept only in TIFF.'
-					color: 1, 0.6, 0, 1
-					font_size: '11sp'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Binning'
-					tooltip_text: 'Add adjacent pixels together for increased sensitivity\nsacrificing resolution'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-					font_size: '12sp'
-				PickSpinner:
-					id: binning_spinner
-					disabled: app.lock.run_lockout or not root.camera_connected
-					sync_height: True
-					text: 'Select'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					# Text is driven by the stored value, not text_autoupdate
-					# (kept False): reassigning .values would otherwise reset
-					# .text to the alphabetically-first entry and fire on_text
-					# with the wrong selection.
-					on_release: root.load_binning_sizes()
-					log_name: 'BINNING'
-					text_follows_pick: True
-					on_text: root.select_binning_size()
-
-			BoxLayout:
-				id: binning_depth_hint_row
-				orientation: 'horizontal'
-				size_hint_y: None
-				# Shown (toggled via binning_depth_hint_active from select_binning_size
-				# / select_image_mode) only when binning is active in an 8-bit mode: the
-				# binned range is downconverted to 8 bits on save. The row height follows
-				# the label's wrapped texture so the multi-line warning is not clipped.
-				height: binning_depth_hint_label.texture_size[1] + dp(6) if root.binning_depth_hint_active else 0
-				opacity: 1 if root.binning_depth_hint_active else 0
-				Label:
-					id: binning_depth_hint_label
-					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a full-depth mode to preserve it.'
-					color: 1, 0.6, 0, 1
-					font_size: '11sp'
-					halign: 'left'
-					valign: 'middle'
+				height: self.minimum_height
+				spacing: dp(5)
+				disabled: app.lock.controls_locked
+				BoxLayout:
+					orientation: 'horizontal'
 					size_hint_y: None
-					text_size: self.width, None
-					height: self.texture_size[1]
+					height: '30dp'
+					Label:
+						text: 'Lumascope Model: ' + root.current_scope_model + (' (' + root.next_start_model + ' at next start)' if root.next_start_model else '')
+						tooltip_text: 'Current scope model. Change it in Advanced Settings.'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+						font_size: '12sp'
 
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					font_size: '12sp'
-					text: 'Enable Scale Bar'
-					tooltip_text: 'Show scale bar in lower right corner of image'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				IconToggleButton:
-					id: enable_scale_bar_btn
-					tooltip_text: 'Show scale bar in lower right corner of image'
-					size_hint: None, None
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: build_file('data/icons/ToggleL.png')
-					background_down: build_file('data/icons/ToggleRW.png')
-					on_release: root.update_scale_bar_state()
-					state: 'normal'
-					
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					font_size: '12sp'
-					text: 'Enable Crosshairs'
-					tooltip_text: 'Display crosshairs over the live image \n(A capture also saves a second copy with the overlay)'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				IconToggleButton:
-					id: enable_crosshairs_btn
-					disabled: app.lock.run_lockout
-					tooltip_text: 'Display crosshairs over the live image \n(A capture also saves a second copy with the overlay)'
-					size_hint: None, None
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: build_file('data/icons/ToggleL.png')
-					background_down: build_file('data/icons/ToggleRW.png')
-					on_release: root.update_crosshairs_state()
-					state: 'normal'
+				# Frame Size
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					padding: '0dp'
+					spacing: '5dp'
 
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					font_size: '12sp'
-					text: 'Live Image Contrast Stretching'
-					tooltip_text: 'Expand pixel brightness histogram to full dynamic range,\ndoes not effect saved image'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				IconToggleButton:
-					id: enable_live_image_histogram_equalization_btn
-					disabled: app.lock.run_lockout
-					tooltip_text: 'Show image with full dynamic range pixel brightness histogram\nsaved image may appear black but this shows what information is in the image\nif expanded post acquisition'
-					size_hint: None, None
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: build_file('data/icons/ToggleL.png')
-					background_down: build_file('data/icons/ToggleRW.png')
-					on_release: root.update_live_image_histogram_equalization()
-					state: 'normal'
+					Label:
+						text: 'Frame Size'
+						tooltip_text: 'Camera sensor frame size in pixels'
+						halign: 'left'
+						valign: 'middle'
+						font_size: '12sp'
+						size_hint_x: None
+						width: '80dp'
+						text_size: self.size
 
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					font_size: '12sp'
-					text: 'Show Tooltips'
-					tooltip_text: 'Display hint while hovering over controls'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				IconToggleButton:
-					id: show_tooltips_btn
-					size_hint: None, None
-					tooltip_text: 'Display hint while hovering over controls'
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: build_file('data/icons/ToggleL.png')
-					background_down: build_file('data/icons/ToggleRW.png')
-					on_release: root.update_show_tooltips()
-					state: 'normal'
+					CommitInput:
+						id: frame_width_id
+						disabled: app.lock.run_lockout or not root.camera_connected
+						multiline: False
+						padding: ['2dp', (self.height-self.line_height)/2]
+						halign: 'center'
+						input_filter: 'int'
+						text: '1900'
+						on_commit: root.frame_size('frame_width_id')
+						font_size: '12sp'
+					Label:
+						text: 'x'
+						tooltip_text: "Camera frame size in pixels;\nthe camera's sensor is the largest"
+						size_hint_x: None
+						width: '15dp'
+						font_size: '12sp'
+						halign: 'center'
+					CommitInput:
+						id: frame_height_id
+						disabled: app.lock.run_lockout or not root.camera_connected
+						multiline: False
+						padding: ['5dp', (self.height-self.line_height)/2]
+						halign: 'center'
+						input_filter: 'int'
+						text: '1900'
+						on_commit: root.frame_size('frame_height_id')
+						font_size: '12sp'
 			
-			BoxLayout:
-				height: '30dp'
-				size_hint_y: None
-				orientation: 'horizontal'
-				opacity: 0
+				# Field of View
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					Label:
+						text: 'Field of View'
+						tooltip_text: 'FOV calculated from magnification and frame size'
+						size_hint_x: None
+						width: '120dp'
+						font_size: '12sp'
 
-			BoxLayout:
-				id: enable_bullseye_box_id
-				opacity: 0
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '0dp'
-				Label:
-					font_size: '12sp'
-					text: 'Enable Bullseye Mode'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				IconToggleButton:
-					id: enable_bullseye_btn_id
-					size_hint: None, None
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: build_file('data/icons/ToggleL.png')
-					background_down: build_file('data/icons/ToggleRW.png')
-					on_release: root.update_bullseye_state()
+					TextInput:
+						id: field_of_view_width_id
+						multiline: False
+						padding: ['2dp', (self.height-self.line_height)/2]
+						halign: 'center'
+						input_filter: 'int'
+						text: ''
+						font_size: '12sp'
+						disabled: True
+					Label:
+						text: 'x'
+						size_hint_x: None
+						width: '15dp'
+						font_size: '12sp'
+						halign: 'center'
+					TextInput:
+						id: field_of_view_height_id
+						multiline: False
+						padding: ['5dp', (self.height-self.line_height)/2]
+						halign: 'center'
+						input_filter: 'int'
+						text: ''
+						font_size: '12sp'
+						disabled: True
+					Label:
+						text: ' um'
+						size_hint_x: None
+						width: '15dp'
+						font_size: '12sp'
+						halign: 'center'
+
+
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					Label:
+						text: 'Live Image Format'
+						tooltip_text: 'TIFF / OME-TIFF (scientific, full depth) or\nJPG (8-bit, lossy, displayed color baked in)\nfor live image capture'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+						font_size: '12sp'
+					PickSpinner:
+						id: live_image_output_format_spinner
+						sync_height: True
+						text: 'Select'
+						font_size:'12sp'
+						option_cls: "SpinnerOption0"
+						log_name: 'LIVE_IMAGE_OUTPUT_FORMAT'
+						text_follows_pick: True
+						on_text: root.select_live_image_output_format()
+
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					Label:
+						text: 'Sequenced Image Format'
+						tooltip_text: 'Choose between TIFF, OME-TIFF,\nHyperstack, or JPG\nfor Protocol image capture.\nHyperstack saves each well as one\nOME-TIFF stack after the run.\nJPG is 8-bit lossy with no embedded metadata\nand cannot be used for composite / stitch.'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+						font_size: '12sp'
+					PickSpinner:
+						id: sequenced_image_output_format_spinner
+						sync_height: True
+						text: 'Select'
+						font_size:'12sp'
+						option_cls: "SpinnerOption0"
+						log_name: 'SEQUENCED_IMAGE_OUTPUT_FORMAT'
+						text_follows_pick: True
+						on_text: root.select_sequenced_image_output_format()
+
+				BoxLayout:
+					id: jpg_quality_row
+					orientation: 'horizontal'
+					size_hint_y: None
+					# One shared JPG-quality control for both Live and Sequenced
+					# capture (single jpg_quality setting). Shown only when either
+					# format is JPG. The settings panel is crowded, so collapse the
+					# row's height and hide it rather than leave an inert greyed-out
+					# row taking up space.
+					height: '30dp' if live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG' else 0
+					opacity: 1 if live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG' else 0
+					disabled: live_image_output_format_spinner.text != 'JPG' and sequenced_image_output_format_spinner.text != 'JPG'
+					Label:
+						text: 'JPG Quality'
+						tooltip_text: 'JPEG quality 1-100. Higher = better image, larger file. Applies to both Live and Sequenced capture when their format is JPG.'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+						font_size: '12sp'
+						size_hint_x: 0.5
+					ModSlider:
+						id: jpg_quality_slider
+						min: JPG_QUALITY_RANGE[0]
+						max: JPG_QUALITY_RANGE[1]
+						step: 1
+						value: 90
+						size_hint_x: 0.4
+						cursor_size: '20dp','20dp'
+						cursor_image: build_file('data/icons/slider_cursor.png')
+						value_track: True
+						value_track_width: dp(5)
+						on_value: root.update_jpg_quality(self.value)
+						on_release: root.record_jpg_quality(self.value)
+					Label:
+						id: jpg_quality_value_label
+						text: '90'
+						halign: 'center'
+						valign: 'middle'
+						font_size: '12sp'
+						size_hint_x: 0.1
+
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					Label:
+						text: 'Video Recording\nFormat'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+						font_size: '12sp'
+					PickSpinner:
+						id: video_recording_format_spinner
+						sync_height: True
+						text: 'Select'
+						font_size:'12sp'
+						option_cls: "SpinnerOption0"
+						text_autoupdate: True
+						log_name: 'VIDEO_RECORDING_FORMAT'
+						text_follows_pick: True
+						on_text: root.select_video_recording_format()
+						values: ('mp4', 'Frames')
+
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					Label:
+						font_size: '12sp'
+						text: 'Image Mode'
+						tooltip_text: 'How images are saved: 8-bit; or at full depth,\nkeeping the pixel depth the camera delivers (and a\nsum\'s added range): scientific (right-aligned, dark\nin Windows), scaled (bright everywhere) or RGB\n(false colour).'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+					PickSpinner:
+						id: image_mode_spinner
+						disabled: app.lock.run_lockout
+						sync_height: True
+						text: 'Select'
+						font_size: '12sp'
+						option_cls: "SpinnerOption0"
+						on_release: root.load_image_modes()
+						log_name: 'IMAGE_MODE'
+						text_follows_pick: True
+						on_text: root.select_image_mode()
+
+				BoxLayout:
+					id: image_mode_jpg_hint_row
+					orientation: 'horizontal'
+					size_hint_y: None
+					# Shown (toggled via jpg_depth_hint_active, the API's predicate)
+					# only when a full-depth mode is paired with a JPG output format:
+					# JPG is 8-bit, so it cannot carry the payload at full depth.
+					# Collapse height + hide rather than grey out.
+					height: '30dp' if root.jpg_depth_hint_active else 0
+					opacity: 1 if root.jpg_depth_hint_active else 0
+					Label:
+						text: 'JPG saves 8-bit; the full-depth payload is kept only in TIFF.'
+						color: 1, 0.6, 0, 1
+						font_size: '11sp'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					Label:
+						text: 'Binning'
+						tooltip_text: 'Add adjacent pixels together for increased sensitivity\nsacrificing resolution'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+						font_size: '12sp'
+					PickSpinner:
+						id: binning_spinner
+						disabled: app.lock.run_lockout or not root.camera_connected
+						sync_height: True
+						text: 'Select'
+						font_size:'12sp'
+						option_cls: "SpinnerOption0"
+						# Text is driven by the stored value, not text_autoupdate
+						# (kept False): reassigning .values would otherwise reset
+						# .text to the alphabetically-first entry and fire on_text
+						# with the wrong selection.
+						on_release: root.load_binning_sizes()
+						log_name: 'BINNING'
+						text_follows_pick: True
+						on_text: root.select_binning_size()
+
+				BoxLayout:
+					id: binning_depth_hint_row
+					orientation: 'horizontal'
+					size_hint_y: None
+					# Shown (toggled via binning_depth_hint_active from select_binning_size
+					# / select_image_mode) only when binning is active in an 8-bit mode: the
+					# binned range is downconverted to 8 bits on save. The row height follows
+					# the label's wrapped texture so the multi-line warning is not clipped.
+					height: binning_depth_hint_label.texture_size[1] + dp(6) if root.binning_depth_hint_active else 0
+					opacity: 1 if root.binning_depth_hint_active else 0
+					Label:
+						id: binning_depth_hint_label
+						text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a full-depth mode to preserve it.'
+						color: 1, 0.6, 0, 1
+						font_size: '11sp'
+						halign: 'left'
+						valign: 'middle'
+						size_hint_y: None
+						text_size: self.width, None
+						height: self.texture_size[1]
+
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					Label:
+						font_size: '12sp'
+						text: 'Enable Scale Bar'
+						tooltip_text: 'Show scale bar in lower right corner of image'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+					IconToggleButton:
+						id: enable_scale_bar_btn
+						tooltip_text: 'Show scale bar in lower right corner of image'
+						size_hint: None, None
+						size: '45dp', '30dp'
+						border: 0, 0, 0, 0
+						valign: 'middle'
+						background_normal: build_file('data/icons/ToggleL.png')
+						background_down: build_file('data/icons/ToggleRW.png')
+						on_release: root.update_scale_bar_state()
+						state: 'normal'
+					
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					Label:
+						font_size: '12sp'
+						text: 'Enable Crosshairs'
+						tooltip_text: 'Display crosshairs over the live image \n(A capture also saves a second copy with the overlay)'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+					IconToggleButton:
+						id: enable_crosshairs_btn
+						disabled: app.lock.run_lockout
+						tooltip_text: 'Display crosshairs over the live image \n(A capture also saves a second copy with the overlay)'
+						size_hint: None, None
+						size: '45dp', '30dp'
+						border: 0, 0, 0, 0
+						valign: 'middle'
+						background_normal: build_file('data/icons/ToggleL.png')
+						background_down: build_file('data/icons/ToggleRW.png')
+						on_release: root.update_crosshairs_state()
+						state: 'normal'
+
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					Label:
+						font_size: '12sp'
+						text: 'Live Image Contrast Stretching'
+						tooltip_text: 'Expand pixel brightness histogram to full dynamic range,\ndoes not effect saved image'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+					IconToggleButton:
+						id: enable_live_image_histogram_equalization_btn
+						disabled: app.lock.run_lockout
+						tooltip_text: 'Show image with full dynamic range pixel brightness histogram\nsaved image may appear black but this shows what information is in the image\nif expanded post acquisition'
+						size_hint: None, None
+						size: '45dp', '30dp'
+						border: 0, 0, 0, 0
+						valign: 'middle'
+						background_normal: build_file('data/icons/ToggleL.png')
+						background_down: build_file('data/icons/ToggleRW.png')
+						on_release: root.update_live_image_histogram_equalization()
+						state: 'normal'
+
+
+				BoxLayout:
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '30dp'
+					Label:
+						font_size: '12sp'
+						text: 'Show Tooltips'
+						tooltip_text: 'Display hint while hovering over controls'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+					IconToggleButton:
+						id: show_tooltips_btn
+						size_hint: None, None
+						tooltip_text: 'Display hint while hovering over controls'
+						size: '45dp', '30dp'
+						border: 0, 0, 0, 0
+						valign: 'middle'
+						background_normal: build_file('data/icons/ToggleL.png')
+						background_down: build_file('data/icons/ToggleRW.png')
+						on_release: root.update_show_tooltips()
+						state: 'normal'
+			
+				BoxLayout:
+					height: '30dp'
+					size_hint_y: None
+					orientation: 'horizontal'
+					opacity: 0
+
+				BoxLayout:
+					id: enable_bullseye_box_id
+					opacity: 0
+					orientation: 'horizontal'
+					size_hint_y: None
+					height: '0dp'
+					Label:
+						font_size: '12sp'
+						text: 'Enable Bullseye Mode'
+						halign: 'left'
+						valign: 'middle'
+						text_size: self.size
+					IconToggleButton:
+						id: enable_bullseye_btn_id
+						size_hint: None, None
+						size: '45dp', '30dp'
+						border: 0, 0, 0, 0
+						valign: 'middle'
+						background_normal: build_file('data/icons/ToggleL.png')
+						background_down: build_file('data/icons/ToggleRW.png')
+						on_release: root.update_bullseye_state()
 
 			# Panel action buttons, stacked vertically, each alone in its row
 			# and so at NARROW_WIDTH.
@@ -2824,6 +2834,7 @@
 				spacing: dp(4)
 				RoundedButton:
 					id: btn_advanced_settings
+					disabled: app.lock.controls_locked
 					text: 'Advanced Settings'
 					font_size: '12sp'
 					size_hint_x: NARROW_WIDTH

@@ -111,7 +111,7 @@ class TestTheLockRecord:
             len(re.findall(r'app\.lock\.(run_lockout|controls_locked)\b', text))
             for text in kv_sources.values()
         )
-        assert bound == 95, f'{bound} lock bindings; each greyed surface binds the record'
+        assert bound == 96, f'{bound} lock bindings; each greyed surface binds the record'
 
 
 class TestKvBindingTopology:
@@ -138,8 +138,11 @@ class TestKvBindingTopology:
     def test_lock_moved_to_region_roots(self):
         # The non-exempt motion regions re-acquire the lock at their rule
         # or content roots so the locked surface matches the old accordion
-        # bind minus exactly the stop toggles.
-        for marker in ('<MicroscopeSettings>:', '<PostProcessingAccordion>:'):
+        # bind minus exactly the stop toggles. Microscope Settings locks a
+        # box around its rows and Advanced Settings instead, so Zip Logs and
+        # the support report stay live (test_issue_166_kv_lock_bindings.py,
+        # the KEEP roster and the lock representatives).
+        for marker in ('<PostProcessingAccordion>:',):
             idx = KV_SRC.find(marker)
             assert idx > 0, marker
             assert 'disabled: app.lock.controls_locked' in KV_SRC[idx : idx + 200], (

@@ -18,7 +18,7 @@ not instantiate widgets) and asserts the binding structure:
   fast_preview_stitch_btn) carry
   it on their own block even though another token may be present.
 - NEGATIVE (critical): the KEEP roster -- fit_btn, one2one_btn,
-  show_tooltips_btn, btn_support_report, btn_zip_logs, logHistogram_id,
+  btn_support_report, btn_zip_logs, logHistogram_id,
   toggle_motionsettings, toggle_imagesettings, and the three run/abort toggles
   -- must NOT carry the binding in their own widget block. Stranding the abort
   toggle is the worst regression this guards against.
@@ -169,12 +169,16 @@ def _class_rule_root_has_bind(class_name: str) -> bool:
     assert start is not None, f'rule {header} not found'
 
     header_indent = _indent(lines[start])
+    child_header = re.compile(r'^[ \t]+[A-Z][A-Za-z_]*:\s*(#.*)?$')
     for line in lines[start + 1 :]:
         if line.strip() == '' or line.lstrip().startswith('#'):
             continue
         if _indent(line) <= header_indent:
             break  # end of rule
-        # First non-comment property line establishes the rule-root depth.
+        # The root's own properties end at its first child widget: a bind
+        # inside a child subtree is that child's, not the rule root's.
+        if child_header.match(line):
+            break
         if line.strip().startswith('disabled:') and (
             'app.lock.run_lockout' in line or 'app.lock.controls_locked' in line
         ):
@@ -214,6 +218,11 @@ LOCK_REPRESENTATIVES = {
     'image_mode_spinner': None,
     'binning_spinner': None,
     'enable_crosshairs_btn': None,
+    # Show Tooltips locks with the drawer's rows (Eric 2026-11-08, "Logs
+    # only"); Advanced Settings shares the support buttons' row and carries
+    # its own bind.
+    'show_tooltips_btn': 'ANCESTOR',
+    'btn_advanced_settings': None,
 }
 
 
@@ -363,7 +372,7 @@ def test_save_protocol_button_disabled():
 KEEP_CONTROLS = (
     'fit_btn',
     'one2one_btn',
-    'show_tooltips_btn',
+    # The record of what already happened, which the API makes at any time.
     'btn_support_report',
     'btn_zip_logs',
     'logHistogram_id',
@@ -378,14 +387,33 @@ KEEP_CONTROLS = (
 )
 
 
-def test_keep_controls_not_self_bound():
-    for control_id in KEEP_CONTROLS:
-        block = _block_for_id(control_id)
-        assert not _block_has_bind(block), (
-            f'KEEP control {control_id!r} must NOT carry {BIND!r} in its own '
-            f'widget block -- binding it would strand a view-only control or, '
-            f'worst case, the abort toggle. (#166)'
-        )
+def _rule_of(control_id: str) -> str:
+    """The name of the ``<Class>:`` rule whose body holds ``id: control_id``."""
+    lines = _kv_lines()
+    id_pat = re.compile(r'^[ \t]*id:\s*' + re.escape(control_id) + r'\s*(#.*)?$')
+    i = next(i for i, line in enumerate(lines) if id_pat.match(line))
+    while not lines[i].startswith('<'):
+        i -= 1
+    return lines[i].strip()[1:-2].split('@')[0]
+
+
+def test_keep_controls_are_not_locked_from_anywhere():
+    # Kivy disables every child of a disabled widget, so a bind on an
+    # enclosing block or on the rule's root locks a KEEP control as surely
+    # as one on its own block: the Microscope Settings root once greyed Zip
+    # Logs and the support report through every run.
+    locked = [
+        control_id
+        for control_id in KEEP_CONTROLS
+        if _block_has_bind(_block_for_id(control_id))
+        or _ancestor_has_bind(control_id)
+        or _class_rule_root_has_bind(_rule_of(control_id))
+    ]
+    assert locked == [], (
+        f'KEEP controls locked during a protocol: {locked} -- a lock on the '
+        f'control, an enclosing block or its rule root strands a view-only '
+        f'control or, worst case, the abort toggle. (#166)'
+    )
 
 
 def test_run_abort_toggles_live_for_abort():

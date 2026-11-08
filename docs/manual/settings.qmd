@@ -158,6 +158,11 @@ it. Default: off.
 [Zip Logs Only]{.guilabel} create files for Etaluma Technical Support
 (@sec-support-report).
 
+While a protocol runs, a video records, or another program controls the
+microscope, every control in Microscope Settings is greyed out except
+[Generate Support Report]{.guilabel} and [Zip Logs Only]{.guilabel}, so
+the logs can be sent while a long run is still going.
+
 ## Advanced Settings {#sec-advanced-settings}
 
 The Advanced Settings window (@fig-advanced) groups its settings under
