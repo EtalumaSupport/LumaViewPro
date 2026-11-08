@@ -230,6 +230,17 @@ def asked_as_made() -> Iterator[None]:
         yield
 
 
+@contextlib.contextmanager
+def asked_at(ask: int) -> Iterator[None]:
+    """Run as asked at ``ask``, a mark from ``ask_now``: work made here is asked then.
+
+    For a thread that is no executor's worker but does one asker's work: a
+    press of STOP after ``ask`` withholds every move it makes from then on.
+    """
+    with _running_ask(ask):
+        yield
+
+
 def refuse_blocking_inline(member: str) -> None:
     """Refuse a blocking call inside the inline boundary, before any wait is made.
 

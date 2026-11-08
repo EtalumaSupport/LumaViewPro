@@ -89,7 +89,7 @@ from _lumascope.modules.run_outcome import (
 )
 
 from _lumascope.modules.scheduler import Scheduler
-from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
+from _lumascope.modules.sequential_io_executor import SequentialIOExecutor, ask_now, asked_at
 from _lumascope.modules.video_cadence import video_sizing_fps
 from _lumascope.lvp_logger import logger
 import threading
@@ -1878,8 +1878,11 @@ class SequencedCaptureRunner:
                     # subscriber may start the next, whose setup replaces
                     # the runner's.
                     handle._run_dir = self._run_dir
+                    # The run is asked here, under the lock a press's Stop
+                    # takes: a press before it has ended the run, and one
+                    # after it withholds every move the run makes.
                     dispatch_future = self.protocol_thread.run_protocol(
-                        functools.partial(self._run_loop_under_claim, handle)
+                        functools.partial(self._run_loop_under_claim, handle, ask_now())
                     )
                     self._run_loop_future = dispatch_future
             # A dispatch refusal is synchronous: run_protocol seals the
@@ -2163,15 +2166,20 @@ class SequencedCaptureRunner:
                 except Exception as ex:
                     notifications.report_outcome(ex, solicited=False, category='Protocol')
 
-    def _run_loop_under_claim(self, run: EngineRun) -> None:
+    def _run_loop_under_claim(self, run: EngineRun, asked: int) -> None:
         """The run loop, on the protocol thread, acting under the run's taking.
 
         Every move, LED and camera task the run submits is stamped with the
         taking its thread acts under, and a lane refuses one that is not the
         holder's while the scope is held -- this is what makes the run's own
         work its own.
+
+        Every move it makes is asked at ``asked``, the run's start, so a
+        press of STOP during the run withholds each one asked after the
+        press too: a move the loop asked once a queued move came back
+        drove after the STOP.
         """
-        with acting(self._held_claim):
+        with acting(self._held_claim), asked_at(asked):
             self._run_loop_executor.run_loop(run)
 
     def _release_scan_led_lease(self):

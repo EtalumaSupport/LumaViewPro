@@ -148,7 +148,7 @@ class TestTeardownAuthority:
         cleanup itself, for the live run: app close is the last chance to
         release the scope, and a cleanup that did not know which run it
         ended would leave it held for good."""
-        monkeypatch.setattr(executor, '_run_loop_under_claim', lambda run: None)
+        monkeypatch.setattr(executor, '_run_loop_under_claim', lambda run, asked: None)
         done = threading.Event()
         _start_run(executor, tmp_path, done)
         deadline = time.monotonic() + 5.0

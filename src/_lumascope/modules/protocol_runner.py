@@ -442,7 +442,8 @@ class ProtocolRunner:
                 already puts it.
             events: The run's event handlers (``RunEvents``); None for none.
             return_to_start: Whether to put the stage back where the stack
-                was centred when the run ends. On by default, because a
+                was centred when the run ends; a press of STOP
+                (``stop_motion``) leaves it where it stopped. On by default, because a
                 stack leaves Z at whichever end it finished on, which is
                 not where the operator was looking. A bool rather than a
                 position, so a caller cannot hand back coordinates in a
@@ -740,7 +741,8 @@ class ProtocolRunner:
                 ``Manual/Z-Stacks`` under the live folder.
             events: The run's event handlers (``RunEvents``); None for none.
             return_to_start: Whether to put the stage back where the stack
-                was centred when the run ends.
+                was centred when the run ends; a press of STOP
+                (``stop_motion``) leaves it where it stopped.
             enable_image_saving: Whether the slices are written.
             timeout_s: How long to wait for the run to end, in seconds, from 0
                 to 30 days; None waits for its end.

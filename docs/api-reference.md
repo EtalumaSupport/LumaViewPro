@@ -11832,7 +11832,7 @@ A run that ends any way returns its outcome, a stopped one included.
 - `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
 - `parent_dir`: The folder the run's own folder is made in; None for `Manual/Z-Stacks` under the live folder.
 - `events`: The run's event handlers (`RunEvents`); None for none.
-- `return_to_start`: Whether to put the stage back where the stack was centred when the run ends.
+- `return_to_start`: Whether to put the stage back where the stack was centred when the run ends; a press of STOP (`stop_motion`) leaves it where it stopped.
 - `enable_image_saving`: Whether the slices are written.
 - `timeout_s`: How long to wait for the run to end, in seconds, from 0 to 30 days; None waits for its end.
 
@@ -12149,7 +12149,7 @@ enabled ones, this is the line that changes.
 - `sequence_name`: The name of the protocol file the run saves in its folder ('.tsv' added): a name, not a path.
 - `parent_dir`: Parent directory for output. Defaults to 'Manual/Z-Stacks' under the live folder, where the button already puts it.
 - `events`: The run's event handlers (`RunEvents`); None for none.
-- `return_to_start`: Whether to put the stage back where the stack was centred when the run ends. On by default, because a stack leaves Z at whichever end it finished on, which is not where the operator was looking. A bool rather than a position, so a caller cannot hand back coordinates in a frame this run never used.
+- `return_to_start`: Whether to put the stage back where the stack was centred when the run ends; a press of STOP (`stop_motion`) leaves it where it stopped. On by default, because a stack leaves Z at whichever end it finished on, which is not where the operator was looking. A bool rather than a position, so a caller cannot hand back coordinates in a frame this run never used.
 - `enable_image_saving`: Whether the slices are written. On by default; off, the stack moves and captures and writes no file, to exercise the stage without filling the disk.
 
 **Returns**
