@@ -618,6 +618,36 @@ def test_a_run_groups_video_whose_encode_raises_leaves_no_file(tmp_path, monkeyp
     assert list(folder.rglob('*.mp4')) == []
 
 
+def test_a_run_groups_video_that_cannot_take_its_name_fails_that_group(tmp_path, monkeypatch):
+    # The planned name held open (a player on Windows): the move fails, the
+    # earlier video keeps its bytes, the group fails with the OS's words, and
+    # no temporary is left behind.
+    import os
+
+    folder = _a_run_with_one_video_group(tmp_path)
+    (planned,) = _build_the_runs_video(folder)['artifact_paths']
+    earlier = pathlib.Path(planned).read_bytes()
+    (folder / 'protocol_post_record.tsv').unlink()
+    real_replace = os.replace
+
+    # a stand-in by design: a file held open by another program, which no
+    # simulated device produces; every other move (the record's) is real
+    def _held_open(source, target):
+        if str(target).endswith('.mp4'):
+            raise PermissionError(13, 'the file is open in another program', str(target))
+        return real_replace(source, target)
+
+    monkeypatch.setattr(os, 'replace', _held_open)
+
+    with pytest.raises(PostProcessingFailedError) as failed:
+        _build_the_runs_video(folder)
+
+    assert 'could not take its name' in str(failed.value)
+    assert 'open in another program' in str(failed.value)
+    assert pathlib.Path(planned).read_bytes() == earlier
+    assert [video.name for video in folder.rglob('*.mp4')] == [pathlib.Path(planned).name]
+
+
 # ---------------------------------------------------------------------------
 # Tiling inference reads the Tile column; tile-shaped user text in NAMES
 # cannot fake a tiling (the old parse-based false positive).

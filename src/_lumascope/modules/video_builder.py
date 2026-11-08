@@ -347,7 +347,7 @@ class VideoBuilder(ProtocolPostProcessor):
             'error': None,
             # The writer is the authority on where the file landed (a
             # collision suffix may have moved it from the requested path);
-            # the record must point at the real file, not the request.
+            # the build's answer names the real file, not the request.
             'actual_output_file_loc': video.output_path,
             # Video encodes an 8-bit stream (every frame is downconverted to
             # 8 bits inside the writer), so the output artifact's depth is 8
