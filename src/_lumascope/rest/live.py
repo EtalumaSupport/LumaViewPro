@@ -9,7 +9,8 @@ in the live folder.
 One frame listener serves every watcher, attached while anyone watches. It
 keeps the newest frame (the camera's read-only record, so no copy) and
 returns, on the camera's thread; each
-client encodes the newest frame when it is ready for one, so a slow client
+client takes the newest frame when it is ready for one, encoded once per
+width for every client that asks for it then, so a slow client
 skips frames rather than falling behind, and the camera is never held up.
 Each part carries ``X-Frame-Ordinal``, a count of the frames received
 while anyone watched, never reset, so a client can tell what it skipped. A camera removed while
@@ -80,6 +81,10 @@ class LiveView:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._wake: asyncio.Event | None = None
         self._attaching: asyncio.Lock | None = None
+        # One encode per (frame, max_width), shared by every watcher asking for
+        # it: the encodes of the frame named by ordinal, by width. On the loop.
+        self._encoded_ordinal = 0
+        self._encoded: dict[int | None, asyncio.Future[bytes]] = {}
 
     @property
     def watchers(self) -> int:
@@ -146,7 +151,7 @@ class LiveView:
         sent = 0
         while (frame := await self._newer_than(sent)) is not None:
             sent = frame.ordinal
-            jpeg = await asyncio.to_thread(encode, frame, max_width)
+            jpeg = await self._jpeg(frame, max_width)
             head = ''.join(f'{k}: {v}\r\n' for k, v in frame.headers().items())
             yield (
                 (
@@ -171,7 +176,20 @@ class LiveView:
             await self.leave()
         if frame is None:
             return None
-        return frame, await asyncio.to_thread(encode, frame, max_width)
+        return frame, await self._jpeg(frame, max_width)
+
+    async def _jpeg(self, frame: Frame, max_width: int | None) -> bytes:
+        """The frame's JPEG at *max_width*, encoded once for every watcher that asks for it.
+
+        Shielded: a watcher that goes mid-encode leaves the encode to the others.
+        """
+        if frame.ordinal != self._encoded_ordinal:
+            self._encoded_ordinal, self._encoded = frame.ordinal, {}
+        encoding = self._encoded.get(max_width)
+        if encoding is None:
+            encoding = asyncio.ensure_future(asyncio.to_thread(encode, frame, max_width))
+            self._encoded[max_width] = encoding
+        return await asyncio.shield(encoding)
 
     async def _newer_than(self, ordinal: int) -> Frame | None:
         """The newest frame once it is newer than *ordinal*; None once the view has finished."""

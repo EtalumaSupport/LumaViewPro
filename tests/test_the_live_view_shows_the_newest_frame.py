@@ -17,6 +17,7 @@ ends, and only a socket lets a client stop reading one.
 from __future__ import annotations
 
 import asyncio
+import collections
 import contextlib
 import datetime
 import threading
@@ -211,6 +212,46 @@ def test_a_client_ready_for_a_frame_gets_the_newest_skipping_the_rest(session):
     first, then = asyncio.run(watch())
 
     assert then >= first + skipped_by
+
+
+def test_watchers_of_one_frame_at_one_width_share_one_encode(session, monkeypatch):
+    # Driven through the view's own streams, as above. A spy on the real
+    # encode, by design: how many encodes a frame costs is the contract.
+    from _lumascope.rest import live as live_module
+
+    real_encode = live_module.encode
+    encodes: list[tuple[int, int | None]] = []
+    counting = threading.Lock()
+
+    def counted_encode(frame, max_width):
+        with counting:
+            encodes.append((frame.ordinal, max_width))
+        return real_encode(frame, max_width)
+
+    monkeypatch.setattr(live_module, 'encode', counted_encode)
+
+    async def watch() -> list[tuple[int, int | None]]:
+        live = LiveView(session)
+        streams = {'browser': None, 'script': None, 'thumbnail': 64}
+        for _ in streams:
+            await live.watch()
+        parts = {name: live.parts(width) for name, width in streams.items()}
+        shown = []
+        for _ in range(3):
+            sent = await asyncio.gather(*(anext(p) for p in parts.values()))
+            shown += [
+                (_ordinal(part), width) for part, width in zip(sent, streams.values(), strict=True)
+            ]
+        for p in parts.values():
+            await p.aclose()
+        for _ in streams:
+            await live.leave()
+        return shown
+
+    shown = asyncio.run(watch())
+
+    assert len(set(shown)) < len(shown), 'no two watchers were shown one frame at one width'
+    assert collections.Counter(encodes) == collections.Counter(set(shown))
 
 
 def _ordinal(part: bytes) -> int:
