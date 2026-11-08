@@ -2224,6 +2224,7 @@ class ImagingAPI:
         force_to_8bit: bool = True,
         out_8bit: np.ndarray | None = None,
         unless_seq: int | None = None,
+        stride: int = 1,
     ) -> tuple:
         """Grab the latest buffered frame from the camera without forcing a new capture.
 
@@ -2251,6 +2252,11 @@ class ImagingAPI:
                 the buffer still holds that frame, nothing is drawn or
                 converted: a poll faster than the camera delivers costs no
                 conversion.
+            stride: Take every ``stride``-th pixel of every ``stride``-th
+                row, 1 or more. A read with a stride above 1 samples the
+                raw frame and converts only the sample, and draws no scale
+                bar, whose size would be wrong on a sample: the pixels are
+                the image's own.
 
         Returns:
             tuple: (image, seq) where image is numpy.ndarray and seq is the
@@ -2260,9 +2266,16 @@ class ImagingAPI:
                    Per the Sentinel-return contract: `if image is None: ...`.
 
         Raises:
-            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
-                this scope, so it has no scale-bar setting to read.
+            ArgumentRefusedError: ``'wrong_kind'``, a ``stride`` that is not
+                a whole number 1 or more.
+            ConfigurationDefectError: ``'scope_not_composed'``, a read with
+                no stride when no session has bound this scope, so it has
+                no scale-bar setting to read.
         """
+        if isinstance(stride, bool) or not isinstance(stride, int) or stride < 1:
+            raise ArgumentRefusedError(
+                'wrong_kind', argument='stride', value=stride, takes='a whole number, 1 or more'
+            )
         if not self._driver or not self._driver.active:
             return None, None
 
@@ -2281,20 +2294,22 @@ class ImagingAPI:
             return None, frame.seq
         tmp = frame.image
 
-        objective = self._scope.runtime_state.get_current_objective()
-        use_scale_bar = self._resolve_use_scale_bar(
-            self._scope.read_setting('scale_bar.enabled'), objective
-        )
-
-        if use_scale_bar:
-            tmp = image_utils.add_scale_bar(
-                image=tmp,
-                objective=objective,
-                binning_size=self._camera.binning,
-                frames_summed=1,
-                frame_bits=frame.significant_bits,
-                capabilities=self._scope.capabilities,
+        if stride > 1:
+            tmp = tmp[::stride, ::stride]
+        else:
+            objective = self._scope.runtime_state.get_current_objective()
+            use_scale_bar = self._resolve_use_scale_bar(
+                self._scope.read_setting('scale_bar.enabled'), objective
             )
+            if use_scale_bar:
+                tmp = image_utils.add_scale_bar(
+                    image=tmp,
+                    objective=objective,
+                    binning_size=self._camera.binning,
+                    frames_summed=1,
+                    frame_bits=frame.significant_bits,
+                    capabilities=self._scope.capabilities,
+                )
 
         if force_to_8bit and tmp.dtype != np.uint8:
             tmp = image_utils.convert_to_8bit(tmp, frame.significant_bits, out=out_8bit)

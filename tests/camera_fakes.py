@@ -12,7 +12,9 @@ constructible in the first place.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import queue as _queue_mod
+import threading
 import time
 from types import MappingProxyType
 from unittest.mock import MagicMock
@@ -508,3 +510,38 @@ def frames_carrying(monkeypatch, driver, pixels) -> None:
         driver, 'grab_new_capture', lambda timeout_s: carrying(real_new_capture(timeout_s))
     )
     monkeypatch.setattr(driver, 'grab', lambda: carrying(real_grab()))
+
+
+class _StreamStopped(logging.Handler):
+    """Set when the simulated camera says its stream has stopped.
+
+    The sensor loop says so at the top of its first stalled pass, after any
+    frame it had in hand is stored, so from then on the buffer holds one
+    frame until the stall ends.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.stopped = threading.Event()
+
+    def emit(self, record):
+        if 'simulated stall: frames stopped' in record.getMessage():
+            self.stopped.set()
+
+
+def stall_with_a_frame_buffered(scope, for_s: float = 600.0, wait_s: float = 10.0) -> None:
+    """Stall a simulated scope's stream with a frame in its buffer, which then stays put.
+
+    A capture first, so the buffer holds a frame; then the stall, returned
+    from once the sensor says it has stopped. ``scope.simulation.clear()``
+    lifts it.
+    """
+    scope.imaging.get_image(force_to_8bit=False)
+    watcher = _StreamStopped()
+    logger = logging.getLogger('lvp_logger')
+    logger.addHandler(watcher)
+    try:
+        scope.simulation.stall_stream(0.0, for_s)
+        assert watcher.stopped.wait(wait_s), 'the simulated stream never stopped'
+    finally:
+        logger.removeHandler(watcher)

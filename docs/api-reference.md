@@ -6827,6 +6827,7 @@ def get_image_from_buffer(
     force_to_8bit: bool = True,
     out_8bit: np.ndarray | None = None,
     unless_seq: int | None = None,
+    stride: int = 1,
 ) -> tuple
 ```
 
@@ -6849,6 +6850,7 @@ Copy budget (per frame):
 - `force_to_8bit`: Convert 12-bit images to 8-bit output.
 - `out_8bit`: Optional caller-owned (H, W) uint8 buffer reused as the 12->8 LUT destination, avoiding a fresh per-frame allocation on the 30 fps preview path. Each caller must supply its OWN buffer (the preview thread and the histogram run on different threads); a None / mismatched buffer falls back to a fresh allocation. The returned array is the buffer itself when used, so the caller must copy (e.g. tobytes()) before the next call overwrites it.
 - `unless_seq`: The ordinal of the frame the caller already has. When the buffer still holds that frame, nothing is drawn or converted: a poll faster than the camera delivers costs no conversion.
+- `stride`: Take every `stride`-th pixel of every `stride`-th row, 1 or more. A read with a stride above 1 samples the raw frame and converts only the sample, and draws no scale bar, whose size would be wrong on a sample: the pixels are the image's own.
 
 **Returns**
 
@@ -6856,10 +6858,12 @@ tuple: (image, seq) where image is numpy.ndarray and seq is the frame's hand-ove
 
 **Raises**
 
-- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope, so it has no scale-bar setting to read.
+- `ArgumentRefusedError`: `'wrong_kind'`, a `stride` that is not a whole number 1 or more.
+- `ConfigurationDefectError`: `'scope_not_composed'`, a read with no stride when no session has bound this scope, so it has no scale-bar setting to read.
 
 **Refusals**
 
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
 <a id="ImagingAPI.held_frame_rules"></a>

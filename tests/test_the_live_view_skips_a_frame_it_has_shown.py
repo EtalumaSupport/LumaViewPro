@@ -12,8 +12,6 @@ drawn or converted.
 
 from __future__ import annotations
 
-import logging
-import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -24,47 +22,14 @@ from _lumascope.modules.image_mode import ImageMode
 from _lumascope.modules.scope_display_thread import STATUS_DUPLICATE, STATUS_OK
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.ui_queue import UiDispatcher
+from tests.camera_fakes import stall_with_a_frame_buffered
 from ui.scope_display import ScopeDisplay
-
-# Far past any test here; the teardown's clear() lifts it.
-_STALL_S = 600.0
-_STOPPED_WAIT_S = 10.0
-
-
-class _StreamStopped(logging.Handler):
-    """Set when the simulated camera says its stream has stopped.
-
-    The sensor loop says so at the top of its first stalled pass, after any
-    frame it had in hand is stored, so from then on the buffer holds one
-    frame until the stall ends.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.stopped = threading.Event()
-
-    def emit(self, record):
-        if 'simulated stall: frames stopped' in record.getMessage():
-            self.stopped.set()
-
-
-def _stall(scope):
-    """Stall the stream with a frame in the buffer, the capture's own."""
-    scope.imaging.get_image(force_to_8bit=False)
-    watcher = _StreamStopped()
-    logger = logging.getLogger('lvp_logger')
-    logger.addHandler(watcher)
-    try:
-        scope.simulation.stall_stream(0.0, _STALL_S)
-        assert watcher.stopped.wait(_STOPPED_WAIT_S), 'the simulated stream never stopped'
-    finally:
-        logger.removeHandler(watcher)
 
 
 @pytest.fixture
 def stalled_12bit(sim_scope):
     sim_scope.camera.set_image_mode(ImageMode.SCIENTIFIC)
-    _stall(sim_scope)
+    stall_with_a_frame_buffered(sim_scope)
     yield sim_scope
     sim_scope.simulation.clear()
 
@@ -111,7 +76,7 @@ def display(gui_ctx, held_ui):
 def test_the_live_view_converts_nothing_for_a_frame_it_has_shown(gui_ctx, display, monkeypatch):
     scope = gui_ctx.scope
     scope.camera.set_image_mode(ImageMode.SCIENTIFIC)
-    _stall(scope)
+    stall_with_a_frame_buffered(scope)
     try:
         assert display._render_one_frame(open_channel='BF') == STATUS_OK
 

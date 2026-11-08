@@ -79,12 +79,13 @@ class Histogram(Widget):
         bins = 128
 
         if ctx.scope.camera.active:
-            image, _ = ctx.scope.imaging.get_image_from_buffer(force_to_8bit=True)
-            if image is None:
+            # Every fourth pixel of every fourth row, about 16x fewer to
+            # convert and count; the sample is the image's own pixels, with
+            # no scale bar drawn into it.
+            sampled, _ = ctx.scope.imaging.get_image_from_buffer(force_to_8bit=True, stride=4)
+            if sampled is None:
                 return
 
-            # Subsample image for faster histogram (~16x fewer pixels)
-            sampled = image[::4, ::4]
             counts, _ = np.histogram(sampled, bins=bins, range=(0, 256))
 
             ctx.viewer.black = 0.0
