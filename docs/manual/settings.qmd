@@ -16,9 +16,10 @@ when LumaViewPro starts (@fig-tour-left-ls850).
 
 ### Lumascope Model {#sec-model-line}
 
-The first line shows the model LumaViewPro is running as. A different model
-selected for the next start is shown after it, for example "(LS820 at next
-start)". The model is chosen in
+The first line shows the model LumaViewPro is running as. On a microscope
+that does not report its own model, a different model selected for the next
+start is shown after it, for example "(LS560 at next start)". The model is
+chosen in
 [Advanced Settings]{.guilabel} (@sec-advanced-general).
 
 ### Frame Size and Field of View {#sec-frame-size}
@@ -176,9 +177,12 @@ the window, to close it.
 
 #### Lumascope Model
 
-The model of the microscope. A change takes effect at the next start of
-LumaViewPro, and a notice says so. A microscope whose motor board reports
-its model runs as that model regardless of this setting. The model cannot be
+The model of a microscope that does not report its own. On such a
+microscope a change takes effect at the next start of LumaViewPro, and a
+notice says so. A microscope whose motor board reports its model runs as
+that model at every start; a model chosen there is kept for the next
+microscope connected that does not report its own, and a notice says so.
+The model cannot be
 changed while a protocol runs.
 
 LumaViewPro cannot tell an LS460, an LS560 and an LS620 apart. On these

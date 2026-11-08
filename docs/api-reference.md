@@ -1972,10 +1972,13 @@ model: str  # property
 
 Route: `GET /api/v1/model`.
 
-The saved scope model: the one `select_model` saved, brought up at the next start.
+The saved scope model: the one `select_model` saved.
 
-The running scope's model is `scope.channel_identity.model`; the two
-differ until the next bring-up, which `model_at_next_start` says.
+A scope that does not report its own model is brought up as it at
+its next start; a scope whose board names its model runs as the
+board's at every start, and this stays the selection. The running
+scope's model is `scope.channel_identity.model`; whether a start
+will change it is `model_at_next_start`.
 
 **Raises**
 
@@ -1990,11 +1993,15 @@ model_at_next_start: str | None  # property
 
 Route: `GET /api/v1/model_at_next_start`.
 
-The saved model when it is not the one running, else None.
+The model this scope's next start runs as, when it is not the one running, else None.
 
-What `select_model` saved waits for the next bring-up, so until
-then the scope runs as one model and the settings name another; a
-caller shows this rather than comparing the two itself.
+On a scope that takes its model from the selection (a Classic FX2),
+what `select_model` saved waits for the next bring-up, so until
+then the scope runs as one model and the settings name another. A
+scope whose board names its model runs as the board's at every
+start (`ChannelIdentity.model_named_by_board`), so there it is
+None whatever is saved. A caller shows this rather than comparing
+the models itself.
 
 **Raises**
 
@@ -2813,19 +2820,22 @@ def select_model(self, model: str) -> None
 Marks: sets [`model`](#ScopeSession.model); enters: `guarded_write`.  
 Route: `PUT /api/v1/model`.
 
-Save the operator's scope model for the next start.
+Save the operator's scope model, for a scope that does not report its own.
 
 The running scope is not changed: its capabilities are fixed at
 construction, so re-resolving its channels for the new model would
 leave one scope carrying two models -- the new one in its channels,
-the old one in its capabilities and its saved files. The selection
-takes effect when the scope is next brought up, and on a scope whose
-motor board reports its own model the board's report still wins
-there.
+the old one in its capabilities and its saved files. A scope whose
+motor board does not name its model (a Classic FX2) is brought up as
+the selection at its next start. A scope whose board names its model
+(`ChannelIdentity.model_named_by_board`) runs as the board's model
+at every start, and the selection is kept, unchanged by those
+starts, for the next unit connected that does not report its own.
 
 A model that is not the one running is reported as a
-`ScopeModelDeferredNotice`, so every client hears that it waits
-for the next start.
+`ScopeModelDeferredNotice`, so every client hears which of the two
+it is: `'scope_model_deferred'`, it applies at the next start, or
+`'scope_model_for_another_scope'`, this scope names its own.
 
 **Args**
 
@@ -9791,6 +9801,7 @@ The resolved per-unit identity snapshot.
 - <a id="ChannelIdentity.channels"></a>`channels`: `tuple[ChannelRecord, ...]` -- The unit's channel records, in the release's order (`ChannelRecord.id`); empty when `source` is `UNRESOLVED`.
 - <a id="ChannelIdentity.filterset"></a>`filterset`: `str` -- The name of the unit's filterset: its board block's `Filterset`, else its model's row's; an empty string where neither names one.
 - <a id="ChannelIdentity.model"></a>`model`: `str | None` -- The scope model the resolver settled on, whichever rung answered: the override, else the model the board reports, else the operator's selection -- the only identity an FX2 scope has, since it cannot report its own. A model the catalogue lacks is still carried: with the stock module's channels, or with none when an override names it; None means there was no model at all. Every reader of "which model is this scope" takes it from here, so the channels, the capabilities and the saved files name one model.
+- <a id="ChannelIdentity.model_named_by_board"></a>`model_named_by_board`: `bool` -- Whether the motor board named the model itself, so the board's name outranked the operator's selection: every EL-0940 board answering FULLINFO, the LS720's board, every OEM unit. Such a scope runs as the board's model at every start, whatever is selected. False where the selection decided: a Classic FX2, which has no board to ask, and a simulated scope built as the selection. It describes the board, not an engineering override.
 - <a id="ChannelIdentity.source"></a>`source`: `IdentitySource` -- Which rung answered: `MOTORCONFIG` (the unit's own block, authoritative and complete when present), `SCOPES` (the model's rows, what a pre-block unit of this model has), `STOCK` (the model is one the catalogue does not list, an OEM unit's own name, so the rows are those of the stock optics module, which every OEM unit carries), or `UNRESOLVED` (no block and no model, or an override naming a model the catalogue lacks; empty, and loud at the point of LED use rather than silently wrong here).
 
 <a id="ChannelIdentity.find"></a>
@@ -17474,15 +17485,18 @@ that did not come up beside the rest, this refuses the whole scope.
 
 A notice; bases `Notice`, `Exception`.
 
-A scope model saved for the next start, not the one running.
+A scope model saved that is not the one running.
 
-The running scope keeps its model until it is next brought up, so a
-saved selection changes nothing yet; and a microscope that reports its
-own model overrides the selection then.
+`'scope_model_deferred'` -- the scope takes its model from the
+selection, so the selection applies when it is next brought up and
+changes nothing yet. `'scope_model_for_another_scope'` -- the scope's
+board names its own model, which it runs as at every start, so the
+selection is kept for a microscope that does not report its own.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `scope_model_deferred` | -- | 409 |
+| `scope_model_for_another_scope` | -- | 409 |
 
 <a id="ScopeModelUnknownError"></a>
 ### `lumascope.ScopeModelUnknownError`

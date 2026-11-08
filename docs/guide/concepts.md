@@ -153,11 +153,15 @@ Where nobody has said which objective is in the light path, the session asks rat
 `objective_question()` answers the question owed, or None, and
 `confirm_objective` answers it. The pixel size and field of view follow from
 the objective, and are None while it is unknown. `select_model` stores the
-model the scope is brought up as next time, and posts a notice saying it waits
-for the next start (`'scope_model_deferred'`); the running model never
-changes. `session.model` is the stored model, `scope.channel_identity.model`
-the running one, and `session.model_at_next_start` the stored one while the
-two differ, else None.
+model a scope that does not report its own is brought up as next time; the
+running model never changes. A scope whose board names its model
+(`scope.channel_identity.model_named_by_board`) runs as the board's at every
+start and keeps the stored one for the next such scope. The notice says which
+(`'scope_model_deferred'`, it waits for the next start;
+`'scope_model_for_another_scope'`, this scope names its own).
+`session.model` is the stored model, `scope.channel_identity.model` the
+running one, and `session.model_at_next_start` the model the next start runs
+as while it differs from the running one, else None.
 
 ```python model=LS850T
 print(session.select_labware('384 well microplate'))    # True: the plate changed

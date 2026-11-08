@@ -462,7 +462,7 @@ kv = Builder.load_string(
                     height: '30dp'
                     Label:
                         text: 'Lumascope Model'
-                        tooltip_text: 'The model this installation runs as;\\na change takes effect at the next start'
+                        tooltip_text: 'The model of a microscope that does not report its own;\\nit takes effect at its next start'
                         size_hint_x: None
                         width: '110dp'
                         font_size: '12sp'

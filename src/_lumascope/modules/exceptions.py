@@ -500,22 +500,30 @@ class CellCountScaleDroppedNotice(Notice, Exception):  # noqa: N818 -- a notice,
 
 
 class ScopeModelDeferredNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """A scope model saved for the next start, not the one running.
+    """A scope model saved that is not the one running.
 
-    The running scope keeps its model until it is next brought up, so a
-    saved selection changes nothing yet; and a microscope that reports its
-    own model overrides the selection then.
+    ``'scope_model_deferred'`` -- the scope takes its model from the
+    selection, so the selection applies when it is next brought up and
+    changes nothing yet. ``'scope_model_for_another_scope'`` -- the scope's
+    board names its own model, which it runs as at every start, so the
+    selection is kept for a microscope that does not report its own.
     """
 
     title = 'Scope model saved'
-    causes: ClassVar[dict[str, RefusalCause | None]] = {'scope_model_deferred': None}
+    _WORDS: ClassVar[dict[str, str]] = {
+        'scope_model_deferred': (
+            '{model} is saved as the configured model and applies the next time LumaViewPro starts.'
+        ),
+        'scope_model_for_another_scope': (
+            '{model} is saved for a microscope that does not report its own model. '
+            'This microscope reports itself as {running} and runs as {running}.'
+        ),
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
 
-    def __init__(self, model: str):
-        super().__init__(
-            f'{model} is saved as the configured model and applies the next time '
-            'LumaViewPro starts. A microscope that reports its own model overrides '
-            'this selection.'
-        )
+    def __init__(self, reason: str, model: str, *, running: str | None):
+        super().__init__(self._WORDS[reason].format(model=model, running=running))
+        self.reason = reason
         self.model = model
 
 

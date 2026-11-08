@@ -76,9 +76,10 @@ class TestASimulatedScopeReportsItsDeclaredModel:
             session.scope.disconnect()
 
 
-class TestTheBringUpAdoptsTheReportedModel:
-    """Bring-up's step 0: the model the motor board reports lands in
-    the session's settings before anything reads the stored one."""
+class TestTheBringUpRunsAsTheReportedModel:
+    """Bring-up configures for the model the motor board reports, and the
+    stored selection stands: it is the model chosen for a scope that does
+    not report its own."""
 
     def _created(self, tmp_path, *, sim_model=None, sim_model_answer=None, **settings_overrides):
         return ScopeSession.create(
@@ -88,13 +89,14 @@ class TestTheBringUpAdoptsTheReportedModel:
             warn_pre_release=False,
         )
 
-    def test_a_catalogued_model_is_written_before_the_turret_is_decided(
+    def test_a_catalogued_reported_model_decides_the_turret_and_the_stored_one_stands(
         self, tmp_path, session_log
     ):
         # The file says LS850 (no turret) with a stored objective; the board
         # is an LS850T. Whether the objective is stored or derived from the
-        # slot depends on the model having a turret, so the write must
-        # precede that decision.
+        # slot depends on the model having a turret, so the scope is
+        # configured as the board's model, while the stored selection is
+        # kept for a scope that does not report its own.
         session = self._created(
             tmp_path,
             sim_model='LS850T',
@@ -103,14 +105,15 @@ class TestTheBringUpAdoptsTheReportedModel:
             turret_objectives={1: '10x Oly', 2: None, 3: None, 4: None},
         )
         try:
-            assert session.settings['microscope'] == 'LS850T'
+            assert session.scope.channel_identity.model == 'LS850T'
+            assert session.settings['microscope'] == 'LS850'
             assert session.scope.capabilities.has_turret, (
-                'the turret decided against the ADOPTED model'
+                "the turret decided against the stored model, not the board's"
             )
             # Derived from a slot no turret command has named yet, so
             # unknown -- never the stored turretless selection.
             assert session.scope.runtime_state.get_current_objective_id() is None
-            assert any('the hardware wins' in r.getMessage() for r in session_log())
+            assert any('and runs as it' in r.getMessage() for r in session_log())
         finally:
             session.shutdown()
 
@@ -162,12 +165,14 @@ class TestTheBringUpAdoptsTheReportedModel:
         finally:
             session.shutdown()
 
-    def test_a_listed_reported_model_replaces_an_unlisted_stored_one(self, tmp_path):
-        # Green before the change too: the board's word is taken before the
-        # stored model is judged.
+    def test_a_listed_reported_model_runs_over_an_unlisted_stored_one(self, tmp_path):
+        # The board's word is taken before the stored model is judged, so an
+        # unlisted one is not refused under a board that names its model;
+        # it is left as it is, as every stored selection is.
         session = self._created(tmp_path, sim_model='LS850', microscope='LS999')
         try:
-            assert session.settings['microscope'] == 'LS850'
+            assert session.scope.channel_identity.model == 'LS850'
+            assert session.settings['microscope'] == 'LS999'
         finally:
             session.shutdown()
 

@@ -716,7 +716,13 @@ class TestSnapshotSemantics:
         )
         with pytest.raises(AttributeError):
             record.display_name = 'PC-BF'
-        identity = ChannelIdentity(channels=(record,), filterset='', source='scopes', model=None)
+        identity = ChannelIdentity(
+            channels=(record,),
+            filterset='',
+            source='scopes',
+            model=None,
+            model_named_by_board=False,
+        )
         with pytest.raises(AttributeError):
             identity.filterset = 'X'
 

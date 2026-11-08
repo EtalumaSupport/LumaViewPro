@@ -972,6 +972,11 @@ class Lumascope:
 
             default_model = (settings or self._settings_template)['microscope']
             model = sim_model or configured_model or default_model
+            # A simulated board built as the selection only echoes it back:
+            # the name it gives is the selection's, never one of its own, so
+            # the scope's model is the selection's to decide.
+            board_names_its_model = sim_model is not None or sim_unit_config is not None
+            selected_model = configured_model if board_names_its_model else model
             sim_axes = model_axes(self._scope_models, model)
             sim_led_board, sim_motor_board = self._simulated_boards(model, sim_axes)
             if sim_led_board == LedBoardFamily.FX2 or not sim_camera_present:
@@ -986,6 +991,8 @@ class Lumascope:
             if sim_unit_config is not None:
                 _refuse_an_unbootable_unit_config(sim_unit_config, sim_tier, sim_motor_board)
         else:
+            board_names_its_model = True
+            selected_model = configured_model
             # Whether the selected model is a manual scope, so a probe that
             # finds no motor board says so as expected rather than warning
             # on every start. The probe still runs: a board it finds corrects
@@ -1281,7 +1288,8 @@ class Lumascope:
         # without any separate initialize step. Distinct from the live
         # LED state the illumination API keeps: identity says what a
         # channel IS, state says what is lit now.
-        self._configured_model = configured_model
+        self._configured_model = selected_model
+        self._board_names_its_model = board_names_its_model
         self.channel_identity = self._resolve_channel_identity()
 
         # ----- ScopeCapabilities -----
@@ -1393,8 +1401,11 @@ class Lumascope:
         motorconfig = getattr(self._motion_driver, 'motorconfig', None)
         board_block = motorconfig.led_block() if motorconfig is not None else None
         read_ok = motorconfig.board_config_read_ok if motorconfig is not None else True
-        # The board's cached record, read with no exchange.
-        motor_model = self._motion_driver.get_microscope_model()
+        # The board's cached record, read with no exchange; only a name the
+        # board gives as its own outranks the selection.
+        motor_model = (
+            self._motion_driver.get_microscope_model() if self._board_names_its_model else None
+        )
         return resolve_channel_identity(
             board_block=board_block,
             board_config_read_ok=read_ok,
@@ -1415,7 +1426,8 @@ class Lumascope:
         at construction, so a running scope that re-resolved its channels for
         a newly selected model would carry one model in its channels and
         another in its capabilities and its files. A selection is saved
-        (`ScopeSession.select_model`) and applies at the next start.
+        (`ScopeSession.select_model`), and a scope whose board does not
+        name its own model is brought up as it at its next start.
 
         Args:
             override_model: Resolve AS this model for this call only --

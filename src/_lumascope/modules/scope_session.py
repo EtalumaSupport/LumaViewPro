@@ -4957,19 +4957,22 @@ class ScopeSession:
     @api(sets='model', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def select_model(self, model: str) -> None:
-        """Save the operator's scope model for the next start.
+        """Save the operator's scope model, for a scope that does not report its own.
 
         The running scope is not changed: its capabilities are fixed at
         construction, so re-resolving its channels for the new model would
         leave one scope carrying two models -- the new one in its channels,
-        the old one in its capabilities and its saved files. The selection
-        takes effect when the scope is next brought up, and on a scope whose
-        motor board reports its own model the board's report still wins
-        there.
+        the old one in its capabilities and its saved files. A scope whose
+        motor board does not name its model (a Classic FX2) is brought up as
+        the selection at its next start. A scope whose board names its model
+        (``ChannelIdentity.model_named_by_board``) runs as the board's model
+        at every start, and the selection is kept, unchanged by those
+        starts, for the next unit connected that does not report its own.
 
         A model that is not the one running is reported as a
-        ``ScopeModelDeferredNotice``, so every client hears that it waits
-        for the next start.
+        ``ScopeModelDeferredNotice``, so every client hears which of the two
+        it is: ``'scope_model_deferred'``, it applies at the next start, or
+        ``'scope_model_for_another_scope'``, this scope names its own.
 
         Args:
             model: A model the release's catalogue lists.
@@ -4983,22 +4986,33 @@ class ScopeSession:
             raise ScopeModelUnknownError(model, scope_models)
         with self.settings_lock:
             self._store_setting('microscope', model)
-        logger.info(f'[Session  ] scope model {model!r} saved; it applies at the next start')
+        logger.info(f'[Session  ] scope model {model!r} saved')
         # Reported once the lock is released: listeners run on this thread.
-        if model != self.scope.channel_identity.model:
+        identity = self.scope.channel_identity
+        if model != identity.model:
             from _lumascope.modules.notification_center import notifications
 
+            reason = (
+                'scope_model_for_another_scope'
+                if identity.model_named_by_board
+                else 'scope_model_deferred'
+            )
             notifications.report_outcome(
-                ScopeModelDeferredNotice(model), solicited=True, category='Microscope'
+                ScopeModelDeferredNotice(reason, model, running=identity.model),
+                solicited=True,
+                category='Microscope',
             )
 
     @api
     @property
     def model(self) -> str:
-        """The saved scope model: the one ``select_model`` saved, brought up at the next start.
+        """The saved scope model: the one ``select_model`` saved.
 
-        The running scope's model is ``scope.channel_identity.model``; the two
-        differ until the next bring-up, which ``model_at_next_start`` says.
+        A scope that does not report its own model is brought up as it at
+        its next start; a scope whose board names its model runs as the
+        board's at every start, and this stays the selection. The running
+        scope's model is ``scope.channel_identity.model``; whether a start
+        will change it is ``model_at_next_start``.
 
         Raises:
             Nothing.
@@ -5008,17 +5022,24 @@ class ScopeSession:
     @api
     @property
     def model_at_next_start(self) -> str | None:
-        """The saved model when it is not the one running, else None.
+        """The model this scope's next start runs as, when it is not the one running, else None.
 
-        What ``select_model`` saved waits for the next bring-up, so until
-        then the scope runs as one model and the settings name another; a
-        caller shows this rather than comparing the two itself.
+        On a scope that takes its model from the selection (a Classic FX2),
+        what ``select_model`` saved waits for the next bring-up, so until
+        then the scope runs as one model and the settings name another. A
+        scope whose board names its model runs as the board's at every
+        start (``ChannelIdentity.model_named_by_board``), so there it is
+        None whatever is saved. A caller shows this rather than comparing
+        the models itself.
 
         Raises:
             Nothing.
         """
+        identity = self.scope.channel_identity
+        if identity.model_named_by_board:
+            return None
         saved = self.settings['microscope']
-        return None if saved == self.scope.channel_identity.model else saved
+        return None if saved == identity.model else saved
 
     def _put_a_stageless_scope_on_center_plate(self) -> None:
         """Replace a stored plate a scope with no XY stage cannot be on with Center Plate.
@@ -5113,12 +5134,12 @@ class ScopeSession:
     def configure_scope(self) -> None:
         """Configure the scope from this session's settings -- the bring-up.
 
-        Once, after construction, on a real scope: adopt the model the
-        hardware reports when the catalogue knows it (a WRITE into this
-        session's ``settings['microscope']`` -- hardware truth outranks
-        the stored selection; a model outside the catalogue leaves the
-        stored one; with no motor board to ask, the stored one must be a
-        model the catalogue lists), normalize the turret slot
+        Once, after construction, on a real scope: configure for the model
+        the scope runs as (``scope.channel_identity.model``: a model the
+        board reports outranks the stored selection, which is left as it
+        is, for a scope that does not report its own; with no motor board
+        to ask, the stored one must be a model the catalogue lists),
+        normalize the turret slot
         keys a caller-supplied dict may still carry as JSON strings,
         resolve the model's catalogue entry, replace a stored plate the
         catalogue cannot resolve with the shipped one (told once, as a
@@ -5163,36 +5184,36 @@ class ScopeSession:
                 'exclusive_activity_running', 'configure_scope', holder.kind
             )
         scope_models = self.scope.scope_models
-        # The hardware's own model outranks the stored selection, and it
-        # has to land before the two reads of the selection below, or a
-        # unit whose file says the wrong model configures for the wrong
-        # axes. The motor driver caches its identity at connect, so the
-        # read is synchronous; no board (or a board with no model) reports
-        # None and the stored selection stands. The board's own report, not
-        # the scope's resolved model, which falls back to the selection.
+        # The stored selection is never replaced by the board's model: it is
+        # the model chosen for a scope that does not report its own, and a
+        # start on one that does would lose it for the next unit connected.
+        # The motor driver caches its identity at connect, so the read is
+        # synchronous; no board (or a board with no model) reports None.
         detected = self.scope.diagnostics.get_motor_info().model
         stored = self.settings.get('microscope')
-        if detected is not None and detected in scope_models and detected != stored:
-            with self.settings_lock:
-                self._store_setting('microscope', detected)
-            logger.info(
-                f'[Session  ] scope reports model {detected}; settings said {stored!r} '
-                '-- the hardware wins'
-            )
-        elif detected is not None and detected not in scope_models:
+        if detected is None:
+            if stored not in scope_models:
+                # A board that reports a model, an OEM name included,
+                # describes the scope itself (its axes, optics and channel
+                # block). With no board to ask, the stored selection is the
+                # scope's whole description, and one the catalogue does not
+                # list would bring it up with no axes, channels or optics to
+                # stand on.
+                raise ScopeModelUnknownError(stored, scope_models)
+        elif detected not in scope_models:
             logger.info(
                 f'[Session  ] scope reports model {detected}, not in the catalogue; '
                 f'the stored model {stored!r} stands'
             )
-        elif stored not in scope_models:
-            # A board that reports a model, an OEM name included, describes
-            # the scope itself (its axes, optics and channel block). With no
-            # board to ask, the stored selection is the scope's whole
-            # description, and one the catalogue does not list would bring it
-            # up with no axes, channels or optics to stand on.
-            raise ScopeModelUnknownError(stored, scope_models)
+        elif detected != stored:
+            logger.info(
+                f'[Session  ] scope reports model {detected} and runs as it; the stored '
+                f'model {stored!r} stands, for a scope that does not report its own'
+            )
         self._put_a_stageless_scope_on_center_plate()
-        scope_config = scope_models.get(self.settings.get('microscope'))
+        # The model the scope runs as: the board's when it names one, else
+        # the selection.
+        scope_config = scope_models.get(self.scope.channel_identity.model)
         # Before anything is commanded: every well position is computed on it.
         replaced.extend(self._replace_an_unresolvable_stored_plate())
         # Dated before the stored id can be replaced, so the confirmation

@@ -251,7 +251,7 @@ class IdentitySource(enum.StrEnum):
 STOCK_OPTICS_MODEL = 'LS850'
 
 
-@api_fields('channels', 'filterset', 'model', 'source')
+@api_fields('channels', 'filterset', 'model', 'model_named_by_board', 'source')
 @dataclass(frozen=True)
 class ChannelIdentity:
     """The resolved per-unit identity snapshot.
@@ -271,6 +271,14 @@ class ChannelIdentity:
             all. Every reader of "which model is this scope" takes it from
             here, so the channels, the capabilities and the saved files name
             one model.
+        model_named_by_board: Whether the motor board named the model
+            itself, so the board's name outranked the operator's
+            selection: every EL-0940 board answering FULLINFO, the LS720's
+            board, every OEM unit. Such a scope runs as the board's model
+            at every start, whatever is selected. False where the selection
+            decided: a Classic FX2, which has no board to ask, and a
+            simulated scope built as the selection. It describes the
+            board, not an engineering override.
         source: Which rung answered: ``MOTORCONFIG`` (the unit's own block,
             authoritative and complete when present), ``SCOPES`` (the
             model's rows, what a pre-block unit of this model has),
@@ -286,6 +294,7 @@ class ChannelIdentity:
     filterset: str
     source: IdentitySource
     model: str | None
+    model_named_by_board: bool
 
     @api(in_process=True, reads=True)
     def find(self, key_name: str) -> ChannelRecord | None:
@@ -367,7 +376,11 @@ class ChannelIdentity:
 
 
 UNRESOLVED = ChannelIdentity(
-    channels=(), filterset='', source=IdentitySource.UNRESOLVED, model=None
+    channels=(),
+    filterset='',
+    source=IdentitySource.UNRESOLVED,
+    model=None,
+    model_named_by_board=False,
 )
 
 # The release catalogue is loaded once per process: it ships with the
@@ -1179,19 +1192,30 @@ def resolve_channel_identity(
     ``catalogue`` the release's channel records, each read once by its
     owner, so rows are resolved against the one vocabulary every channel
     list in the process uses.
+
+    ``motor_model`` is the name the board gives as its own, None where the
+    scope has no board to name one (``ChannelIdentity.model_named_by_board``).
     """
+    # Decided here, where the board's name is weighed against the selection;
+    # an override impersonates a model and leaves this fact about the board.
+    named_by_board = bool(motor_model)
 
     def _from_model(model: str) -> ChannelIdentity:
         entry = models.get(model)
         if entry is None:
             return ChannelIdentity(
-                channels=(), filterset='', source=IdentitySource.UNRESOLVED, model=model
+                channels=(),
+                filterset='',
+                source=IdentitySource.UNRESOLVED,
+                model=model,
+                model_named_by_board=named_by_board,
             )
         return ChannelIdentity(
             channels=entry.channels,
             filterset=entry.filterset or '',
             source=IdentitySource.SCOPES,
             model=model,
+            model_named_by_board=named_by_board,
         )
 
     if override_model is not None:
@@ -1220,7 +1244,11 @@ def resolve_channel_identity(
         if not isinstance(filterset, str):
             filterset = ''
         return ChannelIdentity(
-            channels=channels, filterset=filterset, source=IdentitySource.MOTORCONFIG, model=model
+            channels=channels,
+            filterset=filterset,
+            source=IdentitySource.MOTORCONFIG,
+            model=model,
+            model_named_by_board=named_by_board,
         )
     if 'Layers' in board or 'Filterset' in board:
         report(ChannelBlockSupersededNotice(model))
@@ -1247,4 +1275,5 @@ def resolve_channel_identity(
         filterset=stock.filterset,
         source=IdentitySource.STOCK,
         model=model,
+        model_named_by_board=named_by_board,
     )

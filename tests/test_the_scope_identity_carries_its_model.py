@@ -140,11 +140,12 @@ class TestNothingReselectsARunningScope:
         with pytest.raises(TypeError):
             ls620_session.scope.refresh_channel_identity(configured_model='LS560')
 
-    def test_the_session_is_the_only_writer_of_the_stored_model(self):
+    def test_the_selection_is_the_only_writer_of_the_stored_model(self):
+        # Bring-up does not write it: the stored model is the selection, kept
+        # for a scope that does not report its own, never the board's model.
         from tests.ast_seams import writers_of_settings_keys
 
         assert writers_of_settings_keys({'microscope'}) == {
-            ('src/_lumascope/modules/scope_session.py', 'ScopeSession._configure_scope'),
             ('src/_lumascope/modules/scope_session.py', 'ScopeSession.select_model'),
         }
 
