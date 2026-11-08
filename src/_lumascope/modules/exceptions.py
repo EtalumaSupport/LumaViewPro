@@ -559,20 +559,22 @@ class CameraConfigNotAppliedNotice(Notice, Exception):  # noqa: N818 -- a notice
 
 
 class FrameRefittedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """The saved frame is larger than this scope delivers; bring-up ran at the largest it does.
+    """The saved frame is not one this scope delivers; bring-up ran the frame the API gives.
 
-    The refitted frame is stored in the saved frame's place, as the
+    That frame is the saved one floored to the camera's alignment, raised to
+    its minimum and capped at the scope's maximum, as a binning change
+    derives one. It is stored in the saved frame's place, as the
     substituted binning is, so the next bring-up has nothing to refit.
     """
 
-    title = 'Saved frame too large'
+    title = 'Saved frame refitted'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'frame_refitted': None}
 
     def __init__(self, saved: tuple[int, int], used: tuple[int, int], binning_size: int):
         super().__init__(
-            f'The saved {saved[0]}x{saved[1]} frame is larger than this scope delivers at '
-            f'{binning_size}x{binning_size} binning; it runs at {used[0]}x{used[1]}, which is '
-            'now the saved frame.'
+            f'The {saved[0]}x{saved[1]} frame at {binning_size}x{binning_size} binning is not '
+            f'one this scope delivers; it runs at {used[0]}x{used[1]}, which is now the saved '
+            'frame.'
         )
 
 

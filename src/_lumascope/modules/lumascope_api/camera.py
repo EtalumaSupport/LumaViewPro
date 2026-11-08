@@ -2394,8 +2394,9 @@ class CameraAPI:
 
         Bring-up applies the saved binning and frame to the camera directly.
         A binning the camera does not offer is replaced by the one it
-        reports, and a saved frame above the scope's maximum is refitted to
-        it, so what the camera delivers can differ from what was saved;
+        reports, and a saved frame the camera cannot run is refitted as a
+        binning change derives one (``_target_frame``), so what the camera
+        delivers can differ from what was saved;
         saving the delivered pair keeps the settings and every reader of them
         on the geometry the camera actually holds. With no camera connected
         nothing was delivered, so nothing is saved.

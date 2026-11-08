@@ -12897,8 +12897,8 @@ A saved setting the camera could not take, and what bring-up used instead.
 What becomes of the saved value is the setting's own rule, not this
 record's: the record says what was saved and what ran. The binning the
 camera delivered at is stored in the saved binning's place, with the
-frame it belongs to, and so is a frame refitted to the scope's maximum;
-the saved image mode stays saved.
+frame it belongs to, and so is a saved frame the camera cannot run,
+refitted as the API fits one; the saved image mode stays saved.
 
 **Fields**
 
@@ -15583,9 +15583,11 @@ declining to go on calling the handler, which the plugin's author can fix
 
 A notice; bases `Notice`, `Exception`.
 
-The saved frame is larger than this scope delivers; bring-up ran at the largest it does.
+The saved frame is not one this scope delivers; bring-up ran the frame the API gives.
 
-The refitted frame is stored in the saved frame's place, as the
+That frame is the saved one floored to the camera's alignment, raised to
+its minimum and capped at the scope's maximum, as a binning change
+derives one. It is stored in the saved frame's place, as the
 substituted binning is, so the next bring-up has nothing to refit.
 
 | Reason | Cause | REST status |

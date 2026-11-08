@@ -17,6 +17,8 @@ from __future__ import annotations
 import ast
 import pathlib
 
+import pytest
+
 import _lumascope.modules.lumascope_api._lumascope as lumascope_module
 import _lumascope.modules.settings_init as settings_init
 from _lumascope.drivers.exceptions import BoardNoReplyError
@@ -28,6 +30,7 @@ from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from _lumascope.modules.exceptions import (
     BinningSubstitutedNotice,
     CameraNotAvailableError,
+    FrameRefittedNotice,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
     MotorBoardUnavailableError,
@@ -567,58 +570,87 @@ class TestSubstitutions:
             s.shutdown()
             s.scope.disconnect()
 
-    def test_a_saved_frame_larger_than_the_scope_delivers_is_refitted_and_reported_once(
-        self, monkeypatch, tmp_path, centre_posts
+    # parametrize-justified: each row is a different rule of the fit, each on a
+    # session of its own, and every row is asked again at a second bring-up.
+    @pytest.mark.parametrize(
+        ('microscope', 'saved', 'ran'),
+        [
+            # The LS560's lens images 1700 of the sensor (data/scopes.json
+            # MaxFrame); the simulated sensor is 3840 x 2160.
+            ('LS560', (1900, 1100), (1700, 1100)),
+            # The simulated camera's minimum frame is 4 x 4 and its grid even.
+            ('LS850', (0, 0), (4, 4)),
+            ('LS850', (3, 3), (4, 4)),
+            ('LS850', (101, 101), (100, 100)),
+        ],
+        ids=['above the maximum', 'zero', 'below the minimum', 'odd sides'],
+    )
+    def test_a_saved_frame_the_camera_cannot_run_runs_as_the_api_fits_it_told_once(
+        self, monkeypatch, tmp_path, centre_posts, microscope, saved, ran
     ):
-        # The LS560's lens images 1700 of the sensor (data/scopes.json
-        # MaxFrame); the simulated sensor is 3840 x 2160.
-        s = _bring_up(
-            monkeypatch,
-            tmp_path,
-            microscope='LS560',
-            binning={'size': '1x1'},
-            frame={'width': 1900, 'height': 1100},
+        frame = {'width': saved[0], 'height': saved[1]}
+        first = _bring_up(
+            monkeypatch, tmp_path, microscope=microscope, binning={'size': '1x1'}, frame=frame
         )
         try:
-            sub = _substitution(s.bring_up_record(), 'frame')
-            assert (sub.saved, sub.used) == ((1900, 1100), (1700, 1100))
-            assert s.scope.camera.frame_size.to_dict() == {'width': 1700, 'height': 1100}
-            assert s.settings['frame']['width'] == 1700, 'the frame that ran is stored'
+            sub = _substitution(first.bring_up_record(), 'frame')
+            assert (sub.saved, sub.used) == (saved, ran)
+            assert first.scope.camera.frame_size.to_dict() == {'width': ran[0], 'height': ran[1]}
+            stored = {k: dict(first.settings[k]) for k in ('binning', 'frame')}
+            assert (stored['frame']['width'], stored['frame']['height']) == ran, (
+                'the frame that ran is stored'
+            )
             notices = [n for n in centre_posts if n.reason == 'frame_refitted']
             assert len(notices) == 1
             assert notices[0].kind == OutcomeKind.NOTICE
-            assert notices[0].title == 'Saved frame too large'
-            assert '1900x1100' in notices[0].message and '1700x1100' in notices[0].message
+            assert notices[0].title == FrameRefittedNotice.title
+            assert f'{saved[0]}x{saved[1]} frame' in notices[0].message
+            assert f'runs at {ran[0]}x{ran[1]}' in notices[0].message
             # What the notice says became of the saved frame is what the
             # store did.
             assert 'now the saved frame' in notices[0].message
         finally:
-            s.shutdown()
-            s.scope.disconnect()
-
-    def test_the_refitted_frame_is_not_reported_again_at_the_next_bring_up(
-        self, monkeypatch, tmp_path, centre_posts
-    ):
-        first = _bring_up(
-            monkeypatch,
-            tmp_path,
-            microscope='LS560',
-            binning={'size': '1x1'},
-            frame={'width': 1900, 'height': 1100},
-        )
-        try:
-            stored = {k: dict(first.settings[k]) for k in ('binning', 'frame')}
-        finally:
             first.shutdown()
             first.scope.disconnect()
         centre_posts.clear()
-        again = _bring_up(monkeypatch, tmp_path, microscope='LS560', **stored)
+        again = _bring_up(monkeypatch, tmp_path, microscope=microscope, **stored)
         try:
             assert again.bring_up_record().substitutions == ()
             assert [n for n in centre_posts if n.reason == 'frame_refitted'] == []
         finally:
             again.shutdown()
             again.scope.disconnect()
+
+    def test_a_saved_binning_the_camera_lacks_rescales_the_frame_then_fits_it(
+        self, monkeypatch, tmp_path, centre_posts
+    ):
+        # The simulated camera offers 1, 2 and 4: a 0 x 0 frame saved at 3x3
+        # rescales to the 2 x 2 the grid floors to at 1x1, which is below the
+        # minimum of 4. The binning's notice tells the change of scale, and
+        # the frame's the raise to the minimum; the record holds the frame
+        # saved beside the one that ran.
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            microscope='LS850',
+            binning={'size': '3x3'},
+            frame={'width': 0, 'height': 0},
+        )
+        try:
+            record = s.bring_up_record()
+            binned = _substitution(record, 'binning')
+            assert (binned.saved, binned.used) == (3, 1)
+            framed = _substitution(record, 'frame')
+            assert (framed.saved, framed.used) == ((0, 0), (4, 4))
+            assert s.scope.camera.frame_size.to_dict() == {'width': 4, 'height': 4}
+            notices = _outcomes(centre_posts, OutcomeKind.NOTICE)
+            assert [n.reason for n in notices].count(BinningSubstitutedNotice.reason) == 1
+            (refit,) = [n for n in notices if n.reason == 'frame_refitted']
+            assert '2x2 frame at 1x1 binning' in refit.message
+            assert 'runs at 4x4' in refit.message
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
 
 
 class TestTheSettingsFileSetAside:

@@ -1386,31 +1386,37 @@ class Lumascope:
                 category='Camera',
             )
         if self.camera_connected:
+            # The saved frame is a DISPLAYED size at the saved factor; the
+            # region it frames is that size unbinned, capped at what the scope
+            # delivers (a frame saved on another model; the LS560's lens
+            # images 1700 of the sensor's 1900). With no maximum known the
+            # region is not capped, as set_frame_size caps nothing.
+            maximum = self.camera._max_frame_unbinned()
+            if maximum is None:
+                region = {
+                    'width': frame_width * binning_size,
+                    'height': frame_height * binning_size,
+                }
+            else:
+                region = binning.displayed_to_native(
+                    {'width': frame_width, 'height': frame_height}, binning_size, maximum
+                )
+            asked = (frame_width, frame_height)
             available_binning = self.capabilities.camera_binning_sizes
             if binning_size not in available_binning:
                 camera_binning = self.camera._held_or_read('binning')
-                # The persisted frame is a DISPLAYED size at the persisted
-                # factor; at a different factor it would come up as a
-                # fraction-area ROI (driver clamping only protects against
-                # too-large requests). Re-derive it from the native intent
-                # at the factor actually being applied.
-                native = binning.displayed_to_native(
-                    {'width': frame_width, 'height': frame_height},
-                    binning_size,
-                    self.camera._max_frame_unbinned()
-                    or {
-                        'width': frame_width * binning_size,
-                        'height': frame_height * binning_size,
-                    },
+                # At a different factor the saved displayed size would frame
+                # a fraction of the region, so the frame asked for is the
+                # region's at the factor applied; the binning's notice tells
+                # the change of scale, and the frame's below only a refit.
+                rescaled = binning.native_to_displayed(
+                    region, camera_binning, self.camera.get_pixel_alignment()
                 )
-                refit = binning.native_to_displayed(
-                    native, camera_binning, self.camera.get_pixel_alignment()
-                )
+                asked = (rescaled['width'], rescaled['height'])
                 logger.info(
                     f'[SCOPE API ] initialize: the frame {frame_width}x{frame_height} saved '
-                    f'at binning {binning_size} is refit to {refit["width"]}x'
-                    f'{refit["height"]} at the camera-reported {camera_binning} '
-                    f'(available: {available_binning})'
+                    f'at binning {binning_size} is rescaled to {asked[0]}x{asked[1]} at the '
+                    f'camera-reported {camera_binning} (available: {available_binning})'
                 )
                 self._bring_up_substitutions.append(
                     Substitution('binning', saved=binning_size, used=camera_binning)
@@ -1421,28 +1427,24 @@ class Lumascope:
                     category='Camera',
                 )
                 binning_size = camera_binning
-                frame_width, frame_height = refit['width'], refit['height']
-            # A saved frame can be larger than this scope delivers at the
-            # binning applied (a frame saved on another model; the LS560's lens
-            # images 1700 of the sensor's 1900): it is refitted to the maximum,
-            # as the API would refuse it, and the replacement is on the record
-            # and reported once. The frame that ran is saved below.
-            maximum = self.camera._max_frame_unbinned()
-            if maximum:
-                fitted = (
-                    min(frame_width, maximum['width'] // binning_size),
-                    min(frame_height, maximum['height'] // binning_size),
+            # The frame runs as the API gives one from a region, the arithmetic
+            # a binning change uses: aligned, raised to the camera's minimum,
+            # within the maximum. A frame the camera cannot run (0, below the
+            # minimum, odd sides) would otherwise stop bring-up or run outside
+            # what the API accepts. A refit is on the record, beside the frame
+            # saved, and reported once; the frame that ran is saved below.
+            target = self.camera._target_frame(region, binning_size)
+            fitted = (target['width'], target['height'])
+            if fitted != asked:
+                self._bring_up_substitutions.append(
+                    Substitution('frame', saved=(frame_width, frame_height), used=fitted)
                 )
-                if fitted != (frame_width, frame_height):
-                    self._bring_up_substitutions.append(
-                        Substitution('frame', saved=(frame_width, frame_height), used=fitted)
-                    )
-                    notifications.report_outcome(
-                        FrameRefittedNotice((frame_width, frame_height), fitted, binning_size),
-                        solicited=False,
-                        category='Camera',
-                    )
-                    frame_width, frame_height = fitted
+                notifications.report_outcome(
+                    FrameRefittedNotice(asked, fitted, binning_size),
+                    solicited=False,
+                    category='Camera',
+                )
+            frame_width, frame_height = fitted
         # Apply the capture pixel format HERE, synchronously, while the start
         # gate is still closed (this runs before the start gate is released, below).
         # Resolving + setting it now -- instead of via the async camera-executor
