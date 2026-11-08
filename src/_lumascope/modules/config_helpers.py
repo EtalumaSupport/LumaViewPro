@@ -1079,34 +1079,29 @@ COMPOSITE_MIN_CHANNELS = 2
 def get_composite_channels(settings: dict) -> list:
     """The channels a composite run captures, in capture order.
 
-    Every channel set to acquire an image contributes one step, except that
-    at most ONE transmitted channel is carried: brightfield, phase and
-    darkfield all occupy the same slot in the merged image, so a second
-    one has nowhere to go. The first acquiring transmitted channel wins,
-    matching the order the channel catalogue presents them in.
+    Every channel set to capture contributes one step, an image or a video,
+    transmitted channels first. None is dropped here: a composite has one
+    transmitted plane and takes no video, and the run engine refuses a
+    second transmitted channel and a Video channel in prepare(), where every
+    refusal a run can meet is raised, so the user is told rather than given
+    a composite without them.
 
     Read from the settings snapshot rather than the open accordion: a
     composite must assemble with every channel collapsed, and a headless
     caller has no accordion at all.
 
-    Fewer than COMPOSITE_MIN_CHANNELS is returned as it is: the run engine
-    refuses that composite in prepare(), where every refusal a run can meet
-    is raised.
+    Fewer than COMPOSITE_MIN_CHANNELS is returned as it is, for prepare()
+    to refuse the same way.
     """
-    transmitted = [
-        channel
-        for channel in common_utils.get_transmitted_channels()
-        if settings[channel]['acquire'] == AcquireMode.IMAGE
-    ]
-    others = [
+    return [
         channel
         for channel in (
+            *common_utils.get_transmitted_channels(),
             *common_utils.get_fluorescence_channels(),
             *common_utils.get_luminescence_channels(),
         )
-        if settings[channel]['acquire'] == AcquireMode.IMAGE
+        if settings[channel]['acquire'] is not None
     ]
-    return transmitted[:1] + others
 
 
 def get_composite_blend_thresholds(settings: dict) -> dict:

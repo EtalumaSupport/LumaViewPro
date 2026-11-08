@@ -167,10 +167,11 @@ What a protocol, and the toolbar's Composite button, take in this channel:
 - [Video]{.guilabel}: a video, as long as [Duration (s)]{.guilabel}.
 
 A composite captured with the Composite button combines the channels set
-to [Image]{.guilabel}; a channel set to [Video]{.guilabel} is left out of
-it. A composite takes at most one transmitted channel: the first set to
-[Image]{.guilabel}, in the order [Brightfield]{.channel},
-[Phase Contrast]{.channel}, [Darkfield]{.channel}.
+to [Image]{.guilabel}, and takes one transmitted channel at most. A
+composite with a channel set to [Video]{.guilabel}, or with more than one
+of [Brightfield]{.channel}, [Phase Contrast]{.channel} and
+[Darkfield]{.channel} set to capture, is refused before anything is
+captured, and the message names the channels to change.
 
 ### CBT (%) {#sec-cbt}
 

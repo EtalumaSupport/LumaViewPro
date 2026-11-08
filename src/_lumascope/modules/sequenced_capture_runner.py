@@ -1216,6 +1216,25 @@ class SequencedCaptureRunner:
         # to capture is an empty protocol too, and "turn on another channel"
         # is the answer its user can act on, where "add a step" is not.
         if run_mode is SequencedCaptureRunMode.SINGLE_COMPOSITE:
+            # A composite merges still images; a channel set to Video would
+            # be captured as a recording the merge cannot take. Ahead of the
+            # count, so a Video channel is named rather than left uncounted.
+            steps = protocol.steps()
+            video = (
+                sorted(steps.loc[steps['Acquire'] == AcquireMode.VIDEO, 'channel'].unique())
+                if protocol.num_steps()
+                else []
+            )
+            if video:
+                one = len(video) == 1
+                self._refuse(
+                    reason='composite_video_channel',
+                    message=(
+                        f'A composite combines still images, but {" and ".join(video)} '
+                        f'{"is" if one else "are"} set to capture video. Set '
+                        f'{"it" if one else "them"} to Image, or off, and try again.'
+                    ),
+                )
             channels = protocol.steps()['channel'].nunique() if protocol.num_steps() else 0
             if channels < COMPOSITE_MIN_CHANNELS:
                 set_to_capture = (
@@ -1240,8 +1259,9 @@ class SequencedCaptureRunner:
                 self._refuse(
                     reason='composite_two_transmitted_channels',
                     message=(
-                        f'A composite takes one transmitted channel, but {" and ".join(transmitted)} '
-                        'are both set to capture. Turn one of them off and try again.'
+                        'A composite takes one transmitted channel, but '
+                        f'{", ".join(transmitted[:-1])} and {transmitted[-1]} are set to '
+                        'capture. Leave one of them on and try again.'
                     ),
                 )
 

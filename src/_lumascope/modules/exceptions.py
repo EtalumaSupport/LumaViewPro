@@ -2032,6 +2032,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             composite with one image per channel.
             ``'composite_two_transmitted_channels'`` -- a composite run has
             more than one transmitted channel set to capture.
+            ``'composite_video_channel'`` -- a composite run has a channel
+            set to capture video; a composite merges still images.
             ``'turret_slot_ambiguous'`` -- a step recorded no turret slot,
             and its objective is assigned to two or more.
             ``'turret_slot_reassigned'`` -- the turret slot a step recorded
@@ -2119,6 +2121,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'no_acquiring_channel': RefusalCause.STATE,
         'channel_already_in_add': RefusalCause.REQUEST,
         'composite_two_transmitted_channels': RefusalCause.REQUEST,
+        'composite_video_channel': RefusalCause.REQUEST,
         'turret_slot_ambiguous': RefusalCause.STATE,
         'turret_slot_reassigned': RefusalCause.STATE,
         'step_position_unknown': RefusalCause.STATE,
@@ -2171,6 +2174,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'no_acquiring_channel': 'No Channel Set to Acquire',
         'channel_already_in_add': 'Step Not Saved',
         'composite_two_transmitted_channels': 'One Transmitted Channel',
+        'composite_video_channel': 'No Video in a Composite',
         'turret_slot_ambiguous': 'Turret Slot Not Chosen',
         'turret_slot_reassigned': 'Turret Slot Reassigned',
         'step_position_unknown': 'Step Not Saved',

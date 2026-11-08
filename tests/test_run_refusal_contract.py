@@ -814,6 +814,11 @@ RUNNER_REFUSAL_COVERAGE = {
     'composite_two_transmitted_channels': (
         'tests/test_run_refusal_contract.py::TestTheCompositeChannelFloor'
     ),
+    # Raised at prepare() only for a composite run whose settings set a
+    # channel to Video; its owner's test starts the composite from them.
+    'composite_video_channel': (
+        'tests/test_composite_run_refusals.py::TestEveryChannelSetToCaptureIsInTheComposite'
+    ),
     'objective_not_in_catalogue': (
         'tests/test_a_tile_grid_is_the_protocols_to_refuse.py::'
         'test_a_step_with_an_unknown_objective_is_refused_not_tiled_at_nan'

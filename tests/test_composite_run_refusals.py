@@ -31,6 +31,7 @@ import pytest
 
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from _lumascope.modules.run_events import RunEvents
+from tests.stock_channels import LED0, LED1
 from tests.test_composite_run_e2e import (
     composite_session,  # noqa: F401  -- imported as a fixture, used by name
     headless_settings,
@@ -321,3 +322,38 @@ class TestFewerThanTwoChannels:
             assert _run_dirs(tmp_path) == [], (
                 f'the refused run created a run directory: {_run_dirs(tmp_path)}'
             )
+
+
+class TestEveryChannelSetToCaptureIsInTheComposite:
+    """A channel set to capture is in the composite or the composite is refused.
+
+    A composite has one transmitted plane and takes no video. A second
+    transmitted channel, or a channel set to Video, was cut from the run
+    before prepare() saw it, so the composite was made without it and
+    nobody was told.
+    """
+
+    def test_two_transmitted_channels_are_refused_not_cut_to_one(self, tmp_path, monkeypatch):
+        settings = headless_settings(tmp_path, acquiring=('BF', 'PC', 'DF', LED0))
+        with open_composite_session(settings) as (session, runner):
+            led_calls = _record_led_calls(monkeypatch, session.scope._led_driver)
+            with pytest.raises(ProtocolRunRefusedError) as refusal:
+                runner.start_composite(sequence_name='two_transmitted', parent_dir=str(tmp_path))
+
+        assert refusal.value.reason == 'composite_two_transmitted_channels', refusal.value.reason
+        assert 'BF, DF and PC are set to capture' in str(refusal.value), str(refusal.value)
+        assert led_calls == [], f'the refused composite lit the board: {led_calls}'
+        assert _run_dirs(tmp_path) == [], _run_dirs(tmp_path)
+
+    def test_a_channel_set_to_video_is_refused_by_name_not_left_out(self, tmp_path):
+        settings = headless_settings(tmp_path, acquiring=('BF', LED0))
+        settings[LED1]['acquire'] = 'video'
+        with (
+            open_composite_session(settings) as (_session, runner),
+            pytest.raises(ProtocolRunRefusedError) as refusal,
+        ):
+            runner.start_composite(sequence_name='video', parent_dir=str(tmp_path))
+
+        assert refusal.value.reason == 'composite_video_channel', refusal.value.reason
+        assert LED1 in str(refusal.value), str(refusal.value)
+        assert _run_dirs(tmp_path) == [], _run_dirs(tmp_path)

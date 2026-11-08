@@ -10,8 +10,8 @@ caller could reach and whose failures surfaced only as popups.
 Covered here:
 1. The assembled input_config's shape: one step per acquiring channel,
    a single named position whose z defers to each layer's own focus.
-2. One-transmitted-wins -- a plate carries at most one transmitted
-   channel into the merge.
+2. Every channel set to capture is carried -- a second transmitted
+   channel and a Video channel reach prepare(), which refuses them.
 3. Fewer than two acquiring channels refuses loudly at assembly.
 4. The run's sequenced output format: the user's preference when the
    merge can read it back, else coerced with the override logged.
@@ -184,15 +184,28 @@ class TestCompositeConfigShape:
 
 
 # ---------------------------------------------------------------------------
-# 2. One transmitted channel wins
+# 2. Every channel set to capture is carried
 # ---------------------------------------------------------------------------
 
 
-class TestOneTransmittedWins:
-    def test_only_the_first_acquiring_transmitted_channel_is_kept(self):
+class TestEveryCapturingChannelIsCarried:
+    """Assembly drops no channel; prepare() refuses what a composite cannot take.
+
+    A composite has one transmitted plane and no video, and a channel cut
+    here was left out with nothing said (test_composite_run_refusals.py,
+    TestEveryChannelSetToCaptureIsInTheComposite).
+    """
+
+    def test_every_acquiring_transmitted_channel_is_kept(self):
         config = _assemble(_settings(acquiring=('BF', 'PC', 'DF', LED0)))
         transmitted = {'BF', 'PC', 'DF'} & set(config['channel_configs'])
-        assert transmitted == {'BF'}
+        assert transmitted == {'BF', 'PC', 'DF'}
+
+    def test_a_video_channel_is_kept(self):
+        settings = _settings(acquiring=('BF', LED0))
+        settings[LED1]['acquire'] = 'video'
+        config = _assemble(settings)
+        assert LED1 in config['channel_configs']
 
     def test_a_later_transmitted_channel_wins_when_it_is_the_only_one(self):
         config = _assemble(_settings(acquiring=('DF', LED0)))
@@ -219,8 +232,8 @@ class TestTwoChannelFloor:
 
     @pytest.mark.parametrize(
         ('acquiring', 'expected'),
-        [((), 0), (('BF',), 1), ((LED0,), 1), (('BF', 'PC'), 1)],
-        ids=['none', 'one_transmitted', 'one_fluorescence', 'two_transmitted_collapse_to_one'],
+        [((), 0), (('BF',), 1), ((LED0,), 1)],
+        ids=['none', 'one_transmitted', 'one_fluorescence'],
     )
     def test_fewer_than_two_channels_is_assembled_without_refusing(
         self, acquiring, expected, centre_posts

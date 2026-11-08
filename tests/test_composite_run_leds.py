@@ -323,16 +323,17 @@ class TestPreRunStateSurvivesACompleteRun:
 # ---------------------------------------------------------------------------
 
 
-_ORDER_ACQUIRING = ('BF', 'PC', 'DF', LED0, LED1)
+_ORDER_ACQUIRING = ('DF', LED0, LED1)
 
 
 @pytest.fixture
 def ordered_composite(tmp_path, monkeypatch):
-    """A composite with every transmitted channel set to acquire.
+    """A composite whose transmitted channel is the catalogue's last.
 
-    Three transmitted channels compete for the one slot the merge has for
-    them, so this is the shape where a capture order derived from
-    anything but the catalogue shows up.
+    Darkfield comes after brightfield and phase in the catalogue, so this is
+    the shape where a capture order derived from anything but the catalogue
+    shows up. A second transmitted channel is refused before anything lights
+    (test_composite_run_refusals.py, TestEveryChannelSetToCaptureIsInTheComposite).
     """
     settings = headless_settings(tmp_path, acquiring=_ORDER_ACQUIRING)
     expected = get_composite_channels(settings)
@@ -350,19 +351,7 @@ def ordered_composite(tmp_path, monkeypatch):
 
 
 class TestCaptureOrder:
-    """One transmitted channel maximum, lit in catalogue order."""
-
-    def test_exactly_one_transmitted_channel_is_lit(self, ordered_composite):
-        # All three transmitted channels occupy the same slot in the
-        # merged image, so a second one is not an extra layer -- it is a
-        # channel that overwrites the first, plus an exposure of the
-        # sample that bought nothing.
-        lit = _lit_sequence(ordered_composite['events'])
-        transmitted = [color for color in lit if color in ('BF', 'PC', 'DF')]
-        assert transmitted == ['BF'], (
-            f'expected only BF of the transmitted channels to light, got {transmitted} '
-            f'(full lit order {lit})'
-        )
+    """The channels set to capture, lit in catalogue order."""
 
     def test_the_lit_order_is_the_catalogue_order(self, ordered_composite):
         # get_composite_channels is what the config assembly promises the
