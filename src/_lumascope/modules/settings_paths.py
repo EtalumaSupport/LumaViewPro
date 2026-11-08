@@ -124,7 +124,6 @@ INSTALLATION_ONLY: typing.Final[frozenset[str]] = frozenset(
         'lvp_lock_port',
         'profile_trace_output_dir',
         'debug_mode',
-        'cprofile_enabled',
         'profile_trace_enabled',
         'memory_profile_enabled',
         'memory_profile_interval_s',

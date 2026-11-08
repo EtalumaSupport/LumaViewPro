@@ -575,7 +575,7 @@ class TestTheProvisionalStateIsTheSessions:
                 if node.func.attr
                 in ('disconnect', 'shutdown_threads', 'stop_motion', 'disable_metrics')
                 or (node.func.attr == 'shutdown' and _chain(node.func.value) != ['session'])
-                or (node.func.attr == 'stop' and _chain(node.func.value) != ['profiling_helper'])
+                or node.func.attr == 'stop'
             ]
             assert stray == [], f'{name} performs teardown steps itself: {stray}'
 

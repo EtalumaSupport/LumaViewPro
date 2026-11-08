@@ -333,6 +333,17 @@ def test_a_stored_tracemalloc_switch_is_dropped():
     assert 'tracemalloc_enabled' not in stored
 
 
+def test_a_stored_cprofile_switch_is_dropped():
+    # cProfile's switch was retired; profile_session is the one CPU profiler.
+    # A file that still carries the switch loads without it.
+    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
+        stored = json.load(f)
+    stored['cprofile_enabled'] = True
+
+    assert settings_init.normalize_loaded_settings(stored) is True
+    assert 'cprofile_enabled' not in stored
+
+
 def test_a_stored_deep_view_switch_is_dropped():
     # The third tracemalloc profiler, the deep view, was retired; a file that
     # still carries its switch loads without it.

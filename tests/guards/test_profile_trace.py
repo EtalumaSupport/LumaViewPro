@@ -364,20 +364,8 @@ class TestDiagnosticOutputIsWritable:
 
     An installed build runs with its CWD in the install folder, where mkdir is
     denied, so a CWD-relative default fails the moment it is reached: the
-    session's profile tracer and the cProfile helper each anchor to the data
-    root instead.
+    session's profile tracer anchors to the data root instead.
     """
-
-    def test_cprofile_default_path_is_under_appdata(self, tmp_path, monkeypatch):
-        from _lumascope.modules import path_utils
-        from _lumascope.modules.profiling_utils import ProfilingHelper
-
-        monkeypatch.setattr(path_utils, 'get_source_root', lambda source_path=None: tmp_path)
-        helper = ProfilingHelper()
-        out = helper._profile_artifact_path
-        assert out.is_absolute()
-        assert tmp_path in out.parents
-        assert out.parent == tmp_path / 'logs' / 'cprofile'
 
     def test_no_module_declares_a_cwd_relative_log_path(self):
         """The cluster guard: a literal './logs...' or 'logs/...' default.

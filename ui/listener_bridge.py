@@ -166,7 +166,6 @@ NOT_SHOWN: frozenset[str] = frozenset(
         'logging',
         'mode',
         'debug_mode',
-        'cprofile_enabled',
         'focus_score_enabled',
         'profile_trace_enabled',
         'profile_trace_output_dir',

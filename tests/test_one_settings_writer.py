@@ -200,7 +200,6 @@ def test_a_setting_with_a_member_is_refused_naming_it(session, path, owner, memb
         ('lvp_lock_port', 1),
         ('profile_trace_output_dir', '/elsewhere'),
         ('debug_mode', True),
-        ('cprofile_enabled', True),
         ('profile_trace_enabled', True),
         ('memory_profile_enabled', True),
         ('memory_profile_interval_s', 1),

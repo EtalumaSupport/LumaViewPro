@@ -97,7 +97,15 @@ RETIRED_PER_LAYER = {
 # - camera_type: no reader; bring-up asks the camera registry.
 # - tracemalloc_enabled: the switch of a second tracemalloc profiler,
 #   retired with it; the memory profiler is the one.
-RETIRED_TOP_LEVEL = {'autofocus', 'stage', 'camera_type', 'tracemalloc_enabled'}
+# - cprofile_enabled: cProfile's switch, retired; profile_session is the
+#   one CPU profiler.
+RETIRED_TOP_LEVEL = {
+    'autofocus',
+    'stage',
+    'camera_type',
+    'tracemalloc_enabled',
+    'cprofile_enabled',
+}
 
 requires_current_json = pytest.mark.skipif(
     not CURRENT_PATH.exists(),

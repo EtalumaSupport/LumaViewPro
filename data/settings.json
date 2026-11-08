@@ -149,7 +149,6 @@
     },
     "mode": "normal",
     "debug_mode": false,
-    "cprofile_enabled": false,
     "focus_score_enabled": false,
     "profile_trace_enabled": false,
     "profile_trace_output_dir": null,

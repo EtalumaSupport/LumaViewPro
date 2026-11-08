@@ -476,6 +476,10 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     # profiler is the one, and a second start of tracemalloc is ignored.
     if settings_dict.pop('tracemalloc_enabled', None) is not None:
         changed = True
+    # The cProfile switch, retired the same way: it profiled the one thread
+    # that started it, and profile_session samples every thread.
+    if settings_dict.pop('cprofile_enabled', None) is not None:
+        changed = True
     if isinstance(profiling, dict) and profiling.pop('enabled', None) is not None:
         changed = True
 

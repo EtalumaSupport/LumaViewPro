@@ -213,12 +213,8 @@ if __name__ == '__main__':
     import _lumascope.modules.app_context as app_context
     import _lumascope.modules.common_utils as common_utils
     import _lumascope.modules.lvp_lock as lvp_lock
-    import _lumascope.modules.profiling_utils as profiling_utils
     from _lumascope.modules.app_context import AppContext
     from _lumascope.modules.scope_session import ScopeSession
-
-    global profiling_helper
-    profiling_helper = None
 
     from _lumascope.modules.path_utils import app_runtime
 
@@ -1164,18 +1160,6 @@ class LumaViewProApp(TooltipMixin, App):
         # hardware init, so any early hardware errors surface as popups
         # instead of being logged-only.
 
-        # CPU profiling -- enabled via cprofile_enabled in settings.json,
-        # independent of debug_mode (which otherwise silently started a
-        # whole-app profiler). On exit, dumps a .profile file to logs/cprofile/
-        # viewable with: pip install snakeviz && snakeviz <file>.profile
-        if settings['cprofile_enabled']:
-            global profiling_helper
-            profiling_helper = profiling_utils.ProfilingHelper()
-            profiling_helper.enable()
-            logger.info(
-                '[LVP Main  ] cProfile enabled (cprofile_enabled=true) -- will dump on exit'
-            )
-
         # The bring-up view goes; the root stays, so the popups stay above.
         # Laid out now, in this tick, as the Window sized the surface when it
         # was the root: its accordions lay themselves out on their first
@@ -1703,9 +1687,6 @@ class LumaViewProApp(TooltipMixin, App):
     def on_stop(self) -> None:
         """Kivy lifecycle hook: close the session if no close did."""
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
-
-        if profiling_helper is not None:
-            profiling_helper.stop()
 
         # A bring-up still running is waited for: a platform quit during
         # bring-up closes the session it brings up, once it exists.
