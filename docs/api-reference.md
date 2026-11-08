@@ -34,6 +34,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`BuildsResult`](#BuildsResult)
 - [`CameraLimits`](#CameraLimits)
 - [`CameraLink`](#CameraLink)
+- [`CameraNodeValue`](#CameraNodeValue)
 - [`CaptureTally`](#CaptureTally)
 - [`CapturedStill`](#CapturedStill)
 - [`CellCountFilters`](#CellCountFilters)
@@ -5831,7 +5832,7 @@ auto-exposure never had, with nothing written.
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5880,7 +5881,7 @@ bool | None: The camera's answer, True or None; True, with nothing written, for 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `wrong_kind`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `wrong_kind`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -5962,7 +5963,7 @@ float | None: The black level now in effect, which differs from the request when
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6347,6 +6348,59 @@ MotorBoardInfo: Each field None when unknown, all of them with no board connecte
 **Raises**
 
 Nothing.
+
+<a id="DiagnosticsAPI.read_camera_node"></a>
+### `DiagnosticsAPI.read_camera_node`
+
+```python
+def read_camera_node(
+    self,
+    name: str,
+    node_map: str = 'device',
+) -> CameraNodeValue | None
+```
+
+Marks: reads (changes nothing); enters: `lane_override`.  
+Route: `GET /api/v1/scope/diagnostics/read_camera_node`.
+
+Read one of the camera's settings by the camera's own name, live.
+
+The name is the camera's (a GenICam node: `Gain`,
+`DeviceTemperature`, `BslChunkTimestampSelector`), so any
+setting the camera has is read without a member of its own; the
+answer is the camera's. A node that a selector indexes
+(`DeviceTemperature` under `DeviceTemperatureSelector`) reads at
+the selector's present entry.
+
+Runs on the camera lane, admitted whatever holds the scope, like the
+temperature read: a node read must not interleave with a camera
+write, and a run does not stop it. It waits behind what is queued
+there, up to 170 s, which a long summed capture or an engineering
+diagnostic ahead of it can outlast.
+
+**Args**
+
+- `name`: The node's name, as the camera's SDK names it.
+- `node_map`: Which of the camera's maps holds it, one of `capabilities.camera_node_maps`: `'device'`, the camera's own, holds its settings; on a Basler, `'stream'` holds the stream grabber's statistics and `'instant_camera'` the SDK's buffer counts.
+
+**Returns**
+
+CameraNodeValue | None: The value and the unit the node states (an enumeration's value is its symbolic name); None when the map has no node of that name.
+
+**Raises**
+
+- `CameraSettingUnsupportedError`: `'camera_node_unsupported'`, the camera has no named settings (`capabilities.camera_node_maps` is empty: a Classic's, the simulated camera's). Nothing reaches the camera.
+- `ArgumentRefusedError`: `'not_offered'`, `node_map` is not one of `capabilities.camera_node_maps`; `'wrong_kind'`, `name` is not a node name. Nothing reaches the camera.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `CameraNodeNotReadableError`: The node holds no value to read, the reason its kind: `'command'`, `'category'`, `'register'`, `'port'`, `'enum_entry'`; or `'not_readable_now'`, a value node the camera does not offer for reading in its present state.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera did not answer the read.
+
+**Refusals by REST status**
+
+- 409: [`CameraNodeNotReadableError`](#CameraNodeNotReadableError): `not_readable_now`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `camera_node_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `wrong_kind`; [`CameraNodeNotReadableError`](#CameraNodeNotReadableError): `command`, `category`, `register`, `port`, `enum_entry`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="IlluminationAPI"></a>
 ## `lumascope.IlluminationAPI`
@@ -9507,6 +9561,19 @@ camera does not report it.
 - <a id="CameraLink.packet_size_bytes"></a>`packet_size_bytes`: `int | None` -- GigE's stream packet size.
 - <a id="CameraLink.transport"></a>`transport`: `str | None` -- `'USB3'`, `'GigE'` or `'USB2'`; the SDK's own name when it is none of these.
 
+<a id="CameraNodeValue"></a>
+## `lumascope.CameraNodeValue`
+
+A record: it crosses the wire as its data.  
+Returned by: [`DiagnosticsAPI.read_camera_node`](#DiagnosticsAPI.read_camera_node).
+
+One of the camera's named settings, as the camera answered a read of it.
+
+**Fields**
+
+- <a id="CameraNodeValue.unit"></a>`unit`: `str` -- The unit the node states (`'dB'`, `'us'`), or `''` for a node that states none.
+- <a id="CameraNodeValue.value"></a>`value`: `int | float | bool | str` -- The node's value. An enumeration's is its symbolic name (`'Mono8'`), not its number.
+
 <a id="CaptureTally"></a>
 ## `lumascope.CaptureTally`
 
@@ -12504,6 +12571,7 @@ tuple.
 - <a id="ScopeCapabilities.camera_limits"></a>`camera_limits`: `CameraLimits | None` -- The ranges the attached camera takes, read once at connect; None with no camera connected.
 - <a id="ScopeCapabilities.camera_max_significant_bits"></a>`camera_max_significant_bits`: `int | None` -- The deepest depth the camera delivers over its pixel formats: 12 for a camera that offers Mono12, 8 for one that streams only 8 bits. None with no camera, or one whose formats are unknown. The depth of the frames it delivers now, which follows `set_image_mode`, is `imaging.significant_bits`.
 - <a id="ScopeCapabilities.camera_model"></a>`camera_model`: `str | None` -- The model the camera reports at connect; None with no camera, or one that did not say.
+- <a id="ScopeCapabilities.camera_node_maps"></a>`camera_node_maps`: `tuple[str, ...]` -- The maps of the camera's named settings `scope.diagnostics.read_camera_node` reads, by the camera SDK's names for them: `'device'` (the camera's own), and on a Basler `'transport'`, `'stream'`, `'instant_camera'` and `'event'`, on an IDS body `'stream'`. Empty for a camera with no named settings -- a Classic's, the simulated camera -- and with no camera.
 - <a id="ScopeCapabilities.camera_pixel_formats"></a>`camera_pixel_formats`: `tuple[str, ...]` -- The pixel formats the camera offers (`'Mono8'`, `'Mono12'`, ...); empty with no camera.
 - <a id="ScopeCapabilities.camera_reports_temperature"></a>`camera_reports_temperature`: `bool` -- True when the camera has a temperature sensor. Where it is False, `scope.diagnostics.get_camera_temperatures_degc` answers `{}`; where it is True an empty answer cannot happen, and a read that fails raises.
 - <a id="ScopeCapabilities.camera_sdk_version"></a>`camera_sdk_version`: `str | None` -- The version of the camera vendor's SDK the camera is driven through, read at connect, which ties a measurement to the runtime that made it. None when the SDK does not say, for a camera driven without one (a Classic's, the simulator's), or no camera.
@@ -14750,6 +14818,32 @@ sent again; whether this one was applied is not known.
 |---|---|---|
 | `camera_no_answer` | -- | 500 |
 
+<a id="CameraNodeNotReadableError"></a>
+### `lumascope.CameraNodeNotReadableError`
+
+A refusal; bases `Refusal`, `Exception`.
+
+A camera setting asked for by name is a node the camera has that holds no value to read.
+
+Declined before the value is asked: the camera's node is not a value
+node (`CameraNodeHasNoValue`), so nothing broke and a read of it, as
+sent, never answers.
+
+**Attributes**
+
+- `reason`: The kind of node. `'command'` -- a command, which is executed, never read. `'category'` -- a category, which groups other nodes. `'register'` -- a raw register block, read as bytes, not as a value. `'port'` -- the port the nodes are read through. `'enum_entry'` -- one entry of an enumeration; read the enumeration for its value. `'not_readable_now'` -- a value node the camera does not offer for reading in its present state, as when another setting disables it; it may answer later.
+- `name`: The node's name, as asked.
+- `node_map`: The map it was asked on.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `category` | request | 422 |
+| `command` | request | 422 |
+| `enum_entry` | request | 422 |
+| `not_readable_now` | state | 409 |
+| `port` | request | 422 |
+| `register` | request | 422 |
+
 <a id="CameraNotAvailableError"></a>
 ### `lumascope.CameraNotAvailableError`
 
@@ -14864,7 +14958,7 @@ for a caller that treats it as the bad argument it is.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code, `'<setting>_unsupported'`. `'auto_gain_unsupported'` -- this camera has no automatic gain to turn on. `'auto_exposure_unsupported'` -- this camera has no automatic exposure to turn on. `'binning_unsupported'` -- the binning size is not one this camera reports. `'black_level_unsupported'` -- this camera has no black level setting. `'conversion_gain_mode_unsupported'` -- this camera has no high conversion gain, or the mode asked for is neither High nor Low. `'line_noise_reduction_unsupported'` -- this camera has no line noise reduction to turn on.
+- `reason`: Machine-readable refusal code, `'<setting>_unsupported'`. `'auto_gain_unsupported'` -- this camera has no automatic gain to turn on. `'auto_exposure_unsupported'` -- this camera has no automatic exposure to turn on. `'binning_unsupported'` -- the binning size is not one this camera reports. `'black_level_unsupported'` -- this camera has no black level setting. `'conversion_gain_mode_unsupported'` -- this camera has no high conversion gain, or the mode asked for is neither High nor Low. `'line_noise_reduction_unsupported'` -- this camera has no line noise reduction to turn on. `'camera_node_unsupported'` -- this camera has no named settings to read by name (a Classic's, the simulated camera's).
 - `setting`: Machine-readable setting name (e.g. 'binning').
 - `requested`: The value asked for.
 - `offered`: The values the camera reports it supports.
@@ -14875,6 +14969,7 @@ for a caller that treats it as the bad argument it is.
 | `auto_gain_unsupported` | request | 422 |
 | `binning_unsupported` | request | 422 |
 | `black_level_unsupported` | request | 422 |
+| `camera_node_unsupported` | request | 422 |
 | `conversion_gain_mode_unsupported` | request | 422 |
 | `line_noise_reduction_unsupported` | request | 422 |
 
@@ -17965,6 +18060,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/diagnostics/get_camera_usb_bindings` | [`DiagnosticsAPI.get_camera_usb_bindings`](#DiagnosticsAPI.get_camera_usb_bindings) |
 | `GET` | `/api/v1/scope/diagnostics/get_led_info` | [`DiagnosticsAPI.get_led_info`](#DiagnosticsAPI.get_led_info) |
 | `GET` | `/api/v1/scope/diagnostics/get_motor_info` | [`DiagnosticsAPI.get_motor_info`](#DiagnosticsAPI.get_motor_info) |
+| `GET` | `/api/v1/scope/diagnostics/read_camera_node` | [`DiagnosticsAPI.read_camera_node`](#DiagnosticsAPI.read_camera_node) |
 | `GET` | `/api/v1/scope/illumination/get_led_states` | [`IlluminationAPI.get_led_states`](#IlluminationAPI.get_led_states) |
 | `POST` | `/api/v1/scope/illumination/led_off` | [`IlluminationAPI.led_off`](#IlluminationAPI.led_off) |
 | `POST` | `/api/v1/scope/illumination/led_on` | [`IlluminationAPI.led_on`](#IlluminationAPI.led_on) |

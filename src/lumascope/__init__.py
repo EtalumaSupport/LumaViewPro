@@ -10,6 +10,7 @@ in any release. Importing this module loads the whole API.
 """
 
 from _lumascope.drivers.camera import (
+    CameraNodeValue,
     Frame,
 )
 from _lumascope.drivers.exceptions import (
@@ -119,6 +120,7 @@ from _lumascope.modules.exceptions import (
     CameraDriverRepairRefusedError,
     CameraDriverRepairedNotice,
     CameraFeatureAbsentNotice,
+    CameraNodeNotReadableError,
     CameraNotAvailableError,
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
@@ -551,6 +553,8 @@ __all__ = [
     'CameraLimits',
     'CameraLink',
     'CameraNoAnswerError',
+    'CameraNodeNotReadableError',
+    'CameraNodeValue',
     'CameraNotAvailableError',
     'CameraReadAnswer',
     'CameraReadFailedError',

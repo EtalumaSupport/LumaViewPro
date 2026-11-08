@@ -101,6 +101,8 @@ class TestCapabilityMapping:
             significant_bits_for_format=lambda name: Camera.format_significant_bits(name, 16),
             # The base driver's SDK label (none), which a real driver inherits.
             get_sdk_info=lambda: Camera.get_sdk_info(None),
+            # The base driver's maps of named settings (none), which a real driver inherits.
+            node_maps=lambda: Camera.node_maps(None),
         )
         return capabilities_of(camera)
 

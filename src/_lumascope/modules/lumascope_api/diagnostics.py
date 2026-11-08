@@ -18,12 +18,15 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from _lumascope.drivers.camera import CameraNodeHasNoValue, CameraNodeValue
 from _lumascope.drivers.exceptions import BoardNoReplyError, HardwareError
 from _lumascope.lvp_logger import log_dir, logger
 from _lumascope.modules.finite_number import refuse_outside, refuse_unless_wait_s
 from _lumascope.modules.api_surface import Admission, ProgressCallback, api, api_fields
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
+    CameraNodeNotReadableError,
+    CameraSettingUnsupportedError,
     CaptureFailedError,
     HardwareCommandRefusedError,
     MissingPart,
@@ -361,6 +364,87 @@ class DiagnosticsAPI:
         # Built by name, so a field the drivers' link_info gains or loses
         # fails here rather than going unpublished.
         return CameraLink(**driver.get_link_info())
+
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
+    def read_camera_node(self, name: str, node_map: str = 'device') -> CameraNodeValue | None:
+        """Read one of the camera's settings by the camera's own name, live.
+
+        The name is the camera's (a GenICam node: ``Gain``,
+        ``DeviceTemperature``, ``BslChunkTimestampSelector``), so any
+        setting the camera has is read without a member of its own; the
+        answer is the camera's. A node that a selector indexes
+        (``DeviceTemperature`` under ``DeviceTemperatureSelector``) reads at
+        the selector's present entry.
+
+        Runs on the camera lane, admitted whatever holds the scope, like the
+        temperature read: a node read must not interleave with a camera
+        write, and a run does not stop it. It waits behind what is queued
+        there, up to 170 s, which a long summed capture or an engineering
+        diagnostic ahead of it can outlast.
+
+        Args:
+            name: The node's name, as the camera's SDK names it.
+            node_map: Which of the camera's maps holds it, one of
+                ``capabilities.camera_node_maps``: ``'device'``, the
+                camera's own, holds its settings; on a Basler,
+                ``'stream'`` holds the stream grabber's statistics and
+                ``'instant_camera'`` the SDK's buffer counts.
+
+        Returns:
+            CameraNodeValue | None: The value and the unit the node states
+                (an enumeration's value is its symbolic name); None when
+                the map has no node of that name.
+
+        Raises:
+            CameraSettingUnsupportedError: ``'camera_node_unsupported'``,
+                the camera has no named settings
+                (``capabilities.camera_node_maps`` is empty: a Classic's,
+                the simulated camera's). Nothing reaches the camera.
+            ArgumentRefusedError: ``'not_offered'``, ``node_map`` is not one
+                of ``capabilities.camera_node_maps``; ``'wrong_kind'``,
+                ``name`` is not a node name. Nothing reaches the camera.
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                camera, with none connected; ``'scope_disconnected'`` after
+                ``disconnect()``.
+            CameraNodeNotReadableError: The node holds no value to read, the
+                reason its kind: ``'command'``, ``'category'``,
+                ``'register'``, ``'port'``, ``'enum_entry'``; or
+                ``'not_readable_now'``, a value node the camera does not
+                offer for reading in its present state.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera did
+                not answer the read.
+        """
+        # A scope that came up with no camera has no maps; it is refused for
+        # the camera's absence, not as a camera without named settings.
+        self._scope.camera.refuse_camera_not_connected('read_camera_node')
+        maps = self._scope.capabilities.camera_node_maps
+        if not maps:
+            raise CameraSettingUnsupportedError(
+                'camera_node',
+                name,
+                (),
+                message='This camera has no named settings to read by name.',
+            )
+        if node_map not in maps:
+            raise ArgumentRefusedError(
+                'not_offered', argument='node_map', value=node_map, offered=maps
+            )
+        if not name.isidentifier():
+            raise ArgumentRefusedError(
+                'wrong_kind',
+                argument='name',
+                value=name,
+                takes='a node name: letters, digits and underscores, not starting with a digit',
+            )
+        return self._scope.camera._read_on_lane(
+            self._read_camera_node_impl, 'read_camera_node', args=(name, node_map)
+        )
+
+    def _read_camera_node_impl(self, name: str, node_map: str) -> CameraNodeValue | None:
+        answer = self._scope._camera_driver.read_node(name, node_map)
+        if isinstance(answer, CameraNodeHasNoValue):
+            raise CameraNodeNotReadableError(name, node_map, answer)
+        return answer
 
     @api(reads=True)
     def get_camera_usb_bindings(self) -> tuple[UsbIdentityBindings, ...] | None:

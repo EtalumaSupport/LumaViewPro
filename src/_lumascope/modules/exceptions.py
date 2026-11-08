@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 from _lumascope.lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
 from _lumascope.lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
+from _lumascope.drivers.camera import CameraNodeHasNoValue
 from _lumascope.drivers.exceptions import (
     CameraFirmwareMissingError,
     CameraNoAnswerError,
@@ -5327,7 +5328,9 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
             -- this camera has no high conversion gain, or the mode asked
             for is neither High nor Low.
             ``'line_noise_reduction_unsupported'`` -- this camera has no
-            line noise reduction to turn on.
+            line noise reduction to turn on. ``'camera_node_unsupported'``
+            -- this camera has no named settings to read by name (a
+            Classic's, the simulated camera's).
         setting: Machine-readable setting name (e.g. 'binning').
         requested: The value asked for.
         offered: The values the camera reports it supports.
@@ -5344,6 +5347,7 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
             'black_level_unsupported',
             'conversion_gain_mode_unsupported',
             'line_noise_reduction_unsupported',
+            'camera_node_unsupported',
         ),
         RefusalCause.REQUEST,
     )
@@ -5354,6 +5358,50 @@ class CameraSettingUnsupportedError(Refusal, ValueError):
         self.setting = setting
         self.requested = requested
         self.offered = offered
+
+
+class CameraNodeNotReadableError(Refusal, Exception):
+    """A camera setting asked for by name is a node the camera has that holds no value to read.
+
+    Declined before the value is asked: the camera's node is not a value
+    node (``CameraNodeHasNoValue``), so nothing broke and a read of it, as
+    sent, never answers.
+
+    Attributes:
+        reason: The kind of node. ``'command'`` -- a command, which is
+            executed, never read. ``'category'`` -- a category, which groups
+            other nodes. ``'register'`` -- a raw register block, read as
+            bytes, not as a value. ``'port'`` -- the port the nodes are read
+            through. ``'enum_entry'`` -- one entry of an enumeration; read
+            the enumeration for its value. ``'not_readable_now'`` -- a value
+            node the camera does not offer for reading in its present state,
+            as when another setting disables it; it may answer later.
+        name: The node's name, as asked.
+        node_map: The map it was asked on.
+    """
+
+    title = 'Camera Setting Not Readable'
+
+    _SENTENCES: ClassVar[dict[CameraNodeHasNoValue, str]] = {
+        CameraNodeHasNoValue.COMMAND: 'is a command, which is executed, never read',
+        CameraNodeHasNoValue.CATEGORY: 'is a category, which groups other nodes',
+        CameraNodeHasNoValue.REGISTER: 'is a raw register block, not a value',
+        CameraNodeHasNoValue.PORT: 'is the port the nodes are read through',
+        CameraNodeHasNoValue.ENUM_ENTRY: (
+            'is one entry of an enumeration -- read the enumeration for its value'
+        ),
+        CameraNodeHasNoValue.NOT_READABLE_NOW: "is not readable in the camera's present state",
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        **dict.fromkeys(_SENTENCES, RefusalCause.REQUEST),
+        CameraNodeHasNoValue.NOT_READABLE_NOW: RefusalCause.STATE,
+    }
+
+    def __init__(self, name: str, node_map: str, kind: CameraNodeHasNoValue):
+        super().__init__(f'The camera setting {name} ({node_map}) {self._SENTENCES[kind]}.')
+        self.reason = str(kind)
+        self.name = name
+        self.node_map = node_map
 
 
 @api_fields('limits')

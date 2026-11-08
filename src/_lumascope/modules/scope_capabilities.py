@@ -283,6 +283,7 @@ class CameraShutter(enum.StrEnum):
     'camera_limits',
     'camera_max_significant_bits',
     'camera_model',
+    'camera_node_maps',
     'camera_pixel_formats',
     'camera_reports_temperature',
     'camera_sdk_version',
@@ -394,6 +395,13 @@ class ScopeCapabilities:
             one that streams only 8 bits. None with no camera, or one whose
             formats are unknown. The depth of the frames it delivers now,
             which follows ``set_image_mode``, is ``imaging.significant_bits``.
+        camera_node_maps: The maps of the camera's named settings
+            ``scope.diagnostics.read_camera_node`` reads, by the camera
+            SDK's names for them: ``'device'`` (the camera's own), and on a
+            Basler ``'transport'``, ``'stream'``, ``'instant_camera'`` and
+            ``'event'``, on an IDS body ``'stream'``. Empty for a camera
+            with no named settings -- a Classic's, the simulated camera --
+            and with no camera.
         camera_supports_conversion_gain_mode: True when the camera has a
             switchable sensor conversion gain (High: low read noise, narrow
             range; Low: wide range).
@@ -461,6 +469,7 @@ class ScopeCapabilities:
         default_factory=FrameValidity.credit_rules
     )
     camera_supports_black_level: bool = False
+    camera_node_maps: tuple[str, ...] = ()
 
     # ---- Cross-cutting feature flags ----
     has_firmware_stim: bool = False
@@ -559,7 +568,9 @@ class ScopeCapabilities:
         camera_supports_line_noise_reduction = False
         camera_supports_black_level = False
         camera_has_clock_latch = False
+        camera_node_maps: tuple[str, ...] = ()
         if camera is not None:
+            camera_node_maps = tuple(camera.node_maps())
             camera_model = camera.model_name or None
             camera_serial_number = camera.device_serial or None
             camera_firmware_version = camera.device_firmware or None
@@ -690,5 +701,6 @@ class ScopeCapabilities:
             camera_supports_line_noise_reduction=camera_supports_line_noise_reduction,
             camera_supports_black_level=camera_supports_black_level,
             camera_has_clock_latch=camera_has_clock_latch,
+            camera_node_maps=camera_node_maps,
             frame_rules=FrameValidity.rules_from_record(timing_record),
         )

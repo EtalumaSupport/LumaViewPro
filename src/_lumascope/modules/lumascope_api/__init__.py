@@ -11,7 +11,7 @@ Existing imports `from _lumascope.modules.lumascope_api import Lumascope` and
 re-exports below. ``Frame`` is the record a frame listener receives.
 """
 
-from _lumascope.drivers.camera import Frame
+from _lumascope.drivers.camera import CameraNodeValue, Frame
 from _lumascope.modules.axes import Axis, StageAxis
 from _lumascope.modules.lumascope_api._constants import AxisPosition, TurretStatus
 from _lumascope.modules.lumascope_api._lumascope import (
@@ -28,9 +28,10 @@ from _lumascope.modules.lumascope_api.protocols import ProtocolsAPI
 from _lumascope.modules.lumascope_api.runtime_state import RuntimeState
 from _lumascope.modules.api_surface import api_fields
 
-# The camera driver defines the record and cannot import the marker, so the
-# API publishes its fields here.
+# The camera driver defines the records and cannot import the marker, so the
+# API publishes their fields here.
 api_fields('image', 'seq', 'arrived_ns', 'wall_ns', 'significant_bits', 'chunks')(Frame)
+api_fields('value', 'unit')(CameraNodeValue)
 
 __all__ = [
     'Axis',

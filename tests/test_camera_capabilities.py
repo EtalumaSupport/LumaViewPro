@@ -111,6 +111,8 @@ class TestScopeCapabilitiesIntegration:
             significant_bits_for_format=lambda name: int(re.search(r'(\d+)', name).group(1)),
             # The base driver's SDK label (none), which a real driver inherits.
             get_sdk_info=lambda: Camera.get_sdk_info(None),
+            # The base driver's maps of named settings (none), which a real driver inherits.
+            node_maps=lambda: Camera.node_maps(None),
             profile=SimpleNamespace(
                 sensor=None,
                 shutter=None,
