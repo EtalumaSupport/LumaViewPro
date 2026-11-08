@@ -106,7 +106,8 @@ The bit depth and encoding of saved images.
 The mode cannot be changed while a protocol, a Z-stack, a composite or an
 autofocus runs. JPG files are always 8-bit; when a full-depth mode is
 selected with a JPG format, a note below the mode states that full depth is
-kept only in TIFF. Composite captures are always 8-bit.
+kept only in TIFF. A composite's per-channel images are saved in the
+selected mode; only its combined image is 8-bit.
 
 ### Binning {#sec-binning}
 

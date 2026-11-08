@@ -109,8 +109,10 @@ fluorescence channels over each other, or over one transmitted channel.
 Each composite is saved in a new folder, `Manual/Composites/<date>_<time>/`
 in the destination folder: one image per channel, for example
 `Composite_BF_0000.tiff`, and the combined image in its `Composite`
-folder. Composites are saved as TIFF or OME-TIFF, in 8 bits
-(@sec-sequenced-format).
+folder. Composites are saved as TIFF or OME-TIFF
+(@sec-sequenced-format). The per-channel images keep the bit depth of the
+[Image Mode]{.guilabel} (@sec-image-mode); the combined image is 8-bit
+color.
 
 ## A video {#sec-image-video}
 
