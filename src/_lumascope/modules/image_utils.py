@@ -236,8 +236,9 @@ def decimate_for_preview(
     paths take the full-resolution image through other code and are untouched.
 
     Args:
-        image: 2-D ``uint8`` grayscale or 3-D ``(H, W, C)`` ``uint8`` RGB
-            preview frame (already downconverted).
+        image: 2-D grayscale or 3-D ``(H, W, C)`` RGB preview frame: the
+            live view's ``uint8`` (already downconverted), or the raw
+            ``uint16`` frame ``preview_jpeg`` shrinks before converting.
         target_wh: ``(width, height)`` of the display widget in pixels, or None
             when the widget has not been laid out yet -- in which case the
             image is returned unchanged (full-resolution blit, the prior
@@ -1954,13 +1955,22 @@ def preview_jpeg(
     image. ``white_bits`` puts white at one frame's full scale for a sum,
     as ``convert_to_8bit`` does. A colour image is shown as the mean of its
     channels, which reads the same whichever order the channels came in.
+
+    Shrunk before it is converted, so the conversion touches only the pixels
+    shown. Raises ``FrameDepthError`` for a value above ``significant_bits``
+    anywhere in the image: the depth is read off the whole image first, since
+    the shrink averages such a value into range before the conversion sees it.
     """
+    if image.dtype != np.uint8:
+        peak = int(image.max())
+        if peak >= 1 << int(significant_bits):
+            raise FrameDepthError(peak, significant_bits)
+    height, width = image.shape[:2]
+    target = max(1, width // 2) if max_width is None else max_width
+    image = decimate_for_preview(image, (target, max(1, round(height * target / width))))
     if image.ndim == 3:
         image = image.mean(axis=2).astype(image.dtype)
     image = convert_to_8bit(image, significant_bits, white_bits=white_bits)
-    height, width = image.shape
-    target = max(1, width // 2) if max_width is None else max_width
-    image = decimate_for_preview(image, (target, max(1, round(height * target / width))))
     return encode_image(image, fmt='jpeg')
 
 

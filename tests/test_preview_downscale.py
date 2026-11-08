@@ -12,10 +12,13 @@ integer-step factor that rounds to 1 for any frame under 2x the widget).
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
+from _lumascope.modules.exceptions import FrameDepthError
 from _lumascope.modules.image_utils import (
     click_offset_to_um,
     decimate_for_preview,
+    preview_jpeg,
     scaled_preview_target,
 )
 
@@ -230,3 +233,17 @@ class TestClickOffsetToUm:
     def test_degenerate_extent_returns_zero(self):
         assert click_offset_to_um(0, 0, 1900, 0.5) == 0.0
         assert click_offset_to_um(10, -5, 1900, 0.5) == 0.0
+
+
+class TestPreviewJpeg:
+    def test_a_value_past_the_depth_is_refused_though_the_shrink_would_hide_it(self):
+        # preview_jpeg shrinks before it converts; at half width the shrink
+        # averages each pixel with its neighbours, so this one 4096 reaches the
+        # conversion as 1024, inside 12 bits. The depth is read off the whole frame.
+        frame = np.zeros((40, 40), dtype=np.uint16)
+        frame[10, 10] = 4096
+
+        with pytest.raises(FrameDepthError) as refused:
+            preview_jpeg(frame, 12, None)
+
+        assert (refused.value.value, refused.value.significant_bits) == (4096, 12)
