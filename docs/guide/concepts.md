@@ -125,7 +125,9 @@ LumaViewPro at launch, the REST server as it starts, and a script as
 [Bringing a session up in Python](python.md#bringing-a-session-up-in-python)
 shows. `create` returns a session whose scope is connected and configured -- the
 stored objective, plate, frame, binning and image mode applied -- and whose
-camera is streaming, so a capture works at once. It does **not** move anything.
+camera is streaming. A new install has not been told which objective is
+mounted: until its question is answered (below), a saved still and a run are
+refused `ObjectiveUnknownError` (`'none_selected'`). It does **not** move anything.
 The scope's position is unknown until it is homed, and a move or a run before
 that is refused (`'position_unknown'`). `run_application_session()` is the
 startup motion LumaViewPro itself runs at launch: every axis homed, then the

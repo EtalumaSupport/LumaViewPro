@@ -43,6 +43,9 @@ session = ScopeSession.create(
 )
 session.run_application_session()           # the startup motion: home, then the turret
 scope = session.scope
+question = session.objective_question()      # a new install: which objective is mounted?
+if question is not None:                     # until answered, a saved still and a run are refused
+    session.confirm_objective(question.proposed, slot=question.turret_slot)
 ```
 
 `create` warns once (`FutureWarning`) that the API is pre-release until
