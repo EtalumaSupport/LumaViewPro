@@ -390,10 +390,16 @@ class TestAStillIsWaitedForWithinItsBound:
     @pytest.fixture
     def short_bound(self, monkeypatch):
         # a stand-in by design: the bound's size is not what these tests pin,
-        # only what the caller is told when it runs out.
-        from _lumascope.modules.manual_capture import ManualCaptureController
+        # only what the caller is told when it runs out. The lane submit is
+        # called through, with the bound the still asked for cut short.
+        from _lumascope.modules.lumascope_api.camera import CameraAPI
 
-        monkeypatch.setattr(ManualCaptureController, '_bound_s', lambda self, request: 0.2)
+        submit = CameraAPI._submit_camera
+
+        def cut_short(self, impl, name, args=(), *, waiter, bound_s):
+            return submit(self, impl, name, args, waiter=waiter, bound_s=0.2)
+
+        monkeypatch.setattr(CameraAPI, '_submit_camera', cut_short)
 
     def test_a_still_past_its_bound_is_told_still_running_and_is_saved_after(
         self, still_session, short_bound

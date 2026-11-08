@@ -240,35 +240,28 @@ class ManualCaptureController:
             # Submitted on the caller's thread, under the caller's taking: a
             # diagnostic holding the scope takes a still under its own, and
             # a run that takes the scope after this returns finds the still
-            # already on the lane.
-            told = request.scope.camera._submit_camera(
+            # already on the lane. The caller waits as a capture of the channel
+            # shown now waits, plus the write's own stall bound; a still
+            # retaken on another shown channel shares the first capture's
+            # budget.
+            channel = self._shown_channel()
+            channel_config = config_helpers.get_channel_configs(request.settings, [channel])[
+                channel
+            ]
+            told = request.scope.imaging.submit_still(
                 self._still_body,
                 _MEMBER,
                 args=(request,),
                 waiter=waiter,
-                bound_s=self._bound_s(request),
+                timeout_s=_CAPTURE_RETRY_BUDGET_S,
+                sum_count=channel_config['sum'],
+                sum_delay_s=channel_config['exposure_ms'] / 1000,
+                write_bound_s=WRITE_STALL_FATAL_S,
             )
         except BaseException:
             self._in_flight.release()
             raise
         return Operation.following(told)
-
-    def _bound_s(self, request: '_StillRequest') -> float:
-        """How long the caller waits for the still: the bound a capture's call
-        has (``ImagingAPI._capture_wait_s``) for the sum of the channel shown
-        now, the camera's hold of that channel, and the write's own stall
-        bound. A still retaken on another shown channel shares the first
-        capture's budget."""
-        channel = self._shown_channel()
-        channel_config = config_helpers.get_channel_configs(request.settings, [channel])[channel]
-        grab_s = request.scope.imaging._capture_wait_s(
-            (),
-            _CAPTURE_RETRY_BUDGET_S,
-            channel_config['sum'],
-            channel_config['exposure_ms'] / 1000,
-            exposed_after_call=False,
-        )
-        return grab_s + request.scope.camera._CAMERA_WRITE_TIMEOUT_S + WRITE_STALL_FATAL_S
 
     def _release_if_unrun(self, request: '_StillRequest') -> None:
         # Refused while queued or dropped before the lane ran the body, so
@@ -295,7 +288,7 @@ class ManualCaptureController:
 
         The channel is the shown channel, the name a manual recording takes
         too, read on the lane, and the camera holds that channel's stored
-        settings for the grab (``ImagingAPI._capture_holding_channel_impl``),
+        settings for the grab (``ImagingAPI.capture_holding_channel_on_lane``),
         which refuses it while another LED is lit. The shown channel is read
         again once the frame has passed: a channel shown during the grab
         (``show_channel``) means the frame is taken again on it, and every
@@ -319,12 +312,12 @@ class ManualCaptureController:
             channel_config = config_helpers.get_channel_configs(
                 self._settings_snapshot(), [channel]
             )[channel]
-            # The capture's body, not its public member: this still is already
-            # the lane task its taking admitted, and the public member would be
+            # The lane-inline capture, not capture_still: this still is already
+            # the lane task its taking admitted, and capture_still would be
             # admitted again, inline, against whatever holds the scope now -- a
             # run that took it after the still was put on the lane would refuse
             # the still it waits for.
-            still = scope.imaging._capture_holding_channel_impl(
+            still = scope.imaging.capture_holding_channel_on_lane(
                 channel,
                 self._channel_camera_request(channel),
                 _MEMBER,

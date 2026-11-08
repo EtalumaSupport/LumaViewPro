@@ -7,7 +7,7 @@ for one layer and taken at another's: after a run (named for its last step
 at the pre-run layer's settings), after a typed value, and pressed between a
 show's LED and camera halves. The still has the camera hold the shown layer
 inside its own camera-lane task (``manual_capture``,
-``ImagingAPI._capture_holding_channel_impl``), unless a raw camera write came
+``ImagingAPI.capture_holding_channel_on_lane``), unless a raw camera write came
 last: then the raw values stand and the frame's record says no layer was
 held. A still named for the lit LED left the camera holding that LED's
 layer while another was shown, so another LED lit refuses the still,

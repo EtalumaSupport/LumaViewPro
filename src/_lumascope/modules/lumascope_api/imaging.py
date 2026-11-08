@@ -233,6 +233,8 @@ NOT_DELIVERING = DeliveredRate(frame_rate_fps=0.0, bytes_per_s=0.0)
 
 
 if TYPE_CHECKING:
+    import concurrent.futures
+
     from _lumascope.drivers.camera import Camera
     from _lumascope.modules.lumascope_api._lumascope import Lumascope
     from _lumascope.modules.lumascope_api.camera import CameraAPI
@@ -1207,11 +1209,62 @@ class ImagingAPI:
             raise failed.error(member)
         return CapturedStill(image=grabbed.image, record=record)
 
-    def _capture_holding_channel_impl(
+    def submit_still(
+        self,
+        body: Callable[..., object],
+        member: str,
+        *,
+        args: tuple = (),
+        waiter: concurrent.futures.Future,
+        timeout_s: float,
+        sum_count: int,
+        sum_delay_s: float,
+        write_bound_s: float,
+    ) -> concurrent.futures.Future:
+        """Put a still's whole body on the camera lane, bounded as its capture is.
+
+        For a module whose still is one camera-lane task from grab to save
+        (``ManualCaptureController``), so no camera write lands between the
+        grab and the record built about it; the body captures through
+        ``capture_holding_channel_on_lane``. Not part of the L2 surface: a
+        client takes a still through ``capture_still``. The task is admitted
+        or refused on the calling thread, under the caller's taking, and its
+        outcome settles ``waiter``, a Future the caller made and marked
+        running.
+
+        The caller is told within the capture's own bound for ``timeout_s``,
+        ``sum_count`` and ``sum_delay_s`` (as ``capture_still`` bounds it),
+        plus the camera's hold of the shown channel, plus ``write_bound_s``,
+        the body's own work past the capture.
+
+        Returns:
+            The caller's outcome: ``waiter``'s, or ``LaneCallStillRunningError``
+            once the bound runs out first.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
+                ``timeout_s`` or ``sum_delay_s`` that is no wait.
+            HardwareCommandRefusedError: the lane is closed, or a run, a
+                diagnostic or a home holds the scope and this call is not made
+                under its taking.
+        """
+        grab_s = self._capture_wait_s(
+            (), timeout_s, sum_count, sum_delay_s, exposed_after_call=False
+        )
+        return self._camera._submit_camera(
+            body,
+            member,
+            args=args,
+            waiter=waiter,
+            bound_s=grab_s + self._camera._CAMERA_WRITE_TIMEOUT_S + write_bound_s,
+        )
+
+    def capture_holding_channel_on_lane(
         self, channel: str, request: ChannelCameraRequest, member: str, **capture
     ) -> CapturedStill:
         """``_capture_still_impl``, with the camera holding ``channel``'s stored settings.
 
+        Not part of the L2 surface: the capture a ``submit_still`` body takes.
         For a capture that is already its own camera-lane task (the still):
         the camera's hold for a capture (``CameraAPI._hold_channel_for_capture``)
         runs inline, as the capture body does, so neither is admitted again
@@ -1538,7 +1591,7 @@ class ImagingAPI:
             _refuse_unless_auto_gain_settings(hold.request.auto_gain_settings, 'hold')
         # The hold's writes run in the same task, ahead of the capture.
         return self._camera._dispatch_camera(
-            self._capture_holding_channel_impl,
+            self.capture_holding_channel_on_lane,
             'capture_still',
             args=(hold.channel, hold.request, 'capture_still'),
             kwargs=capture,

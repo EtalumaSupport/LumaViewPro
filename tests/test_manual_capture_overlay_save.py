@@ -64,10 +64,10 @@ def capture_ctx(tmp_path):
         'Y': AxisPosition(AxisState.IDLE, 2000.0),
     }
     record = frame_record()
-    scope.imaging._capture_holding_channel_impl.return_value = CapturedStill(
+    scope.imaging.capture_holding_channel_on_lane.return_value = CapturedStill(
         image=np.zeros((4, 4), dtype=np.uint8), record=record
     )
-    scope.camera._submit_camera.side_effect = _run_on_the_calling_thread
+    scope.imaging.submit_still.side_effect = _run_on_the_calling_thread
     return types.SimpleNamespace(
         scope=scope,
         tmp_path=tmp_path,
@@ -77,7 +77,7 @@ def capture_ctx(tmp_path):
     )
 
 
-def _run_on_the_calling_thread(impl, name, args=(), *, waiter, bound_s):
+def _run_on_the_calling_thread(impl, name, *, args=(), waiter, **bound):
     # Settled before it returns, so the bound never runs out: the caller's
     # outcome is the waiter's.
     try:
@@ -139,7 +139,7 @@ class TestOverlayIsSavedRegardlessOfBuildMode:
         save_one = _run_capture(capture_ctx, sum_count=3)
 
         assert save_one.call_count == 1
-        kwargs = capture_ctx.scope.imaging._capture_holding_channel_impl.call_args.kwargs
+        kwargs = capture_ctx.scope.imaging.capture_holding_channel_on_lane.call_args.kwargs
         assert kwargs['sum_count'] == 3
 
     def test_engineering_mode_no_longer_decides_what_is_written(self):
@@ -205,7 +205,7 @@ class TestSummingSurvivesAnOverlay:
 
         _run_capture(capture_ctx, sum_count=3)
 
-        kwargs = capture_ctx.scope.imaging._capture_holding_channel_impl.call_args.kwargs
+        kwargs = capture_ctx.scope.imaging.capture_holding_channel_on_lane.call_args.kwargs
         assert kwargs['sum_count'] == 3, (
             'the overlay path grabbed its frame without the configured frame '
             'count, so an overlay silently reduced a summed capture to one frame'
@@ -273,7 +273,7 @@ class TestASumsOverlayIsDrawnAsItIsShown:
         is drawn on that rendering, so the pixel is white, not 255 of 1023."""
         capture_ctx.use_crosshairs = True
         record = frame_record(frames_summed=3, frame_significant_bits=8)
-        capture_ctx.scope.imaging._capture_holding_channel_impl.return_value = CapturedStill(
+        capture_ctx.scope.imaging.capture_holding_channel_on_lane.return_value = CapturedStill(
             image=np.full((4, 4), 255, dtype=np.uint16), record=record
         )
 
