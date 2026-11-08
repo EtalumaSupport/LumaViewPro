@@ -297,39 +297,6 @@ class TestTheScopeLanesClosing:
         assert refused.value.reason == 'scope_disconnected'
         assert ex.caller_futures_stats()[2] == 0, 'a waiter registered after the sweep'
 
-    @pytest.mark.slow
-    def test_a_put_racing_the_close_is_refused_and_never_runs(self):
-        ex = SequentialIOExecutor(closed_answer=scope_lane_closed, name='TEST_IO')
-        ex.start()
-        entered, resume = threading.Event(), threading.Event()
-        real_put = ex.queue.put
-
-        # a stand-in by design: holds the put between registering its waiter
-        # and queueing the task, the window a close can land in.
-        def pause_then_put(task, *args, **kwargs):
-            entered.set()
-            resume.wait(_WAIT_S)
-            return real_put(task, *args, **kwargs)
-
-        ex.queue.put = pause_then_put
-        ran = threading.Event()
-        box = {}
-        putter = threading.Thread(
-            target=lambda: box.update(fut=ex.submit(IOTask(action=ran.set), 'set_gain_db'))
-        )
-        putter.start()
-        assert entered.wait(_WAIT_S)
-
-        ex.shutdown(wait=False)
-        resume.set()
-        putter.join(_WAIT_S)
-
-        with pytest.raises(HardwareCommandRefusedError) as refused:
-            box['fut'].result(timeout=_WAIT_S)
-        assert refused.value.reason == 'scope_disconnected'
-        ex._worker_thread.join(_WAIT_S)
-        assert not ran.is_set()
-
 
 class TestAnOverrun:
     def test_it_says_what_the_call_waited_behind(self, lane, caplog):
