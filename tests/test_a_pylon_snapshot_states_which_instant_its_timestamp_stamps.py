@@ -30,4 +30,4 @@ def test_a_camera_without_the_selector_says_it_has_none():
 
     snapshot = cam.read_diagnostic_snapshot(duration_s=0)
 
-    assert snapshot['config']['chunk_timestamp_selector'] == '<not present>'
+    assert snapshot['config']['chunk_timestamp_selector'] == '<missing>'

@@ -93,10 +93,81 @@ class AcquireContinuousConfiguration:
     """Stand-in for the SDK's default continuous-grab configuration."""
 
 
+# ---------------------------------------------------------------------------
+# Node types -- real classes, because a driver tells what a node is by its
+# type (isinstance), as pypylon hands back each node as its most derived
+# interface. Checked against pypylon 26.04.1's emulator: the value types
+# answer GetValue (an enumeration its symbolic name), IFloat and IInteger
+# GetUnit as well; a command, category, register, port or enum entry
+# has no GetValue at all. A test builds a node with its value, unit and
+# readability; a value that is an exception is raised by GetValue.
+# ---------------------------------------------------------------------------
+
+
+class _Node:
+    def __init__(self, value=None, *, unit: str = '', readable: bool = True):
+        self._value = value
+        self._unit = unit
+        self.readable = readable
+
+
+class _ValueNode(_Node):
+    def GetValue(self):
+        if isinstance(self._value, BaseException):
+            raise self._value
+        return self._value
+
+
+class _UnitNode(_ValueNode):
+    def GetUnit(self) -> str:
+        return self._unit
+
+
+class IInteger(_UnitNode):
+    pass
+
+
+class IFloat(_UnitNode):
+    pass
+
+
+class IBoolean(_ValueNode):
+    pass
+
+
+class IString(_ValueNode):
+    pass
+
+
+class IEnumeration(_ValueNode):
+    pass
+
+
+class ICommand(_Node):
+    pass
+
+
+class ICategory(_Node):
+    pass
+
+
+class IRegister(_Node):
+    pass
+
+
+class IPort(_Node):
+    pass
+
+
+class IEnumEntry(_Node):
+    pass
+
+
 def IsReadable(node) -> bool:
-    """genicam.IsReadable stand-in: a None node is unreadable; anything
-    a test supplies (MagicMock or fake node) counts as readable."""
-    return node is not None
+    """genicam.IsReadable stand-in: a None node is unreadable, as is one a
+    test built unreadable; anything else a test supplies (MagicMock or fake
+    node) counts as readable."""
+    return node is not None and getattr(node, 'readable', True) is not False
 
 
 # Real pypylon PixelType enum values, so a grab result's pixel type maps to
@@ -156,6 +227,16 @@ _GENICAM_MEMBERS = {
     'LogicalErrorException': LogicalErrorException,
     'OutOfRangeException': OutOfRangeException,
     'IsReadable': IsReadable,
+    'IInteger': IInteger,
+    'IFloat': IFloat,
+    'IBoolean': IBoolean,
+    'IString': IString,
+    'IEnumeration': IEnumeration,
+    'ICommand': ICommand,
+    'ICategory': ICategory,
+    'IRegister': IRegister,
+    'IPort': IPort,
+    'IEnumEntry': IEnumEntry,
     # Increment modes, with the values the real SDK reports (checked
     # against pypylon 26.04.1). These MUST be modelled rather than left
     # to the MagicMock fallback: the fallback hands out a NEW mock per

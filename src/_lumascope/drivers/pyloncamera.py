@@ -8,18 +8,21 @@ import queue
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
 from pypylon import genicam, pylon
 
 from _lumascope.drivers.camera import (
     Camera,
+    CameraNodeHasNoValue,
+    CameraNodeValue,
     Frame,
     FrameGrid,
     HandOver,
     ImageHandlerBase,
     declared_speed,
     link_info,
+    node_snapshot_value,
 )
 from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
@@ -4086,33 +4089,89 @@ class PylonCamera(Camera):
         'Statistic_Failed_Packet_Count',
     )
 
-    @staticmethod
-    def _has_node(nodemap, name: str) -> bool:
-        """True if the nodemap exposes a node by this name.
+    # The instant camera's nodemaps, by the name a caller asks for: the
+    # camera's own, the device transport layer's, the stream grabber's, the
+    # SDK's view of the camera (its buffer counts), the event grabber's. A
+    # node is on one map or several (``MaxNumBuffer`` is on the stream's and
+    # the instant camera's), never found by searching them.
+    _NODE_MAPS: ClassVar[dict[str, str]] = {
+        'device': 'GetNodeMap',
+        'transport': 'GetTLNodeMap',
+        'stream': 'GetStreamGrabberNodeMap',
+        'instant_camera': 'GetInstantCameraNodeMap',
+        'event': 'GetEventGrabberNodeMap',
+    }
 
-        pypylon's GetNode RAISES genicam.LogicalErrorException for a node that
-        is not in the map -- it does not return None. An absent optional node
-        is the EXPECTED case for cameras that do not implement the feature
-        (Basler darts lack the Bsl* nodes; other vendors lack them entirely),
-        so a missing node is a quiet False, not an error. Comms failures
-        (RuntimeException) and any other error propagate to the caller,
-        which answers them as its own failure.
+    def node_maps(self) -> tuple[str, ...]:
+        """The instant camera's five nodemaps (``Camera.node_maps``)."""
+        return tuple(self._NODE_MAPS)
+
+    def read_node(self, name: str, node_map: str) -> CameraNodeValue | CameraNodeHasNoValue | None:
+        """Read one node from one of the instant camera's nodemaps (``Camera.read_node``)."""
+        try:
+            nodemap = getattr(self.active, self._NODE_MAPS[node_map])()
+        except genicam.GenericException as e:
+            raise CameraReadFailedError(
+                f'The camera did not give its {node_map} node map: {e}'
+            ) from e
+        return self._read_node_in(nodemap, name)
+
+    @staticmethod
+    def _find_node(nodemap, name: str):
+        """The node of this name on ``nodemap``, or None when the map has none.
+
+        pypylon's GetNode RAISES ``genicam.LogicalErrorException`` for a node
+        that is not in the map -- it never returns None. Any other error is
+        the camera's or the SDK's failure and propagates.
         """
         try:
-            return nodemap.GetNode(name) is not None
+            return nodemap.GetNode(name)
         except genicam.LogicalErrorException:
-            return False
+            return None
 
-    @staticmethod
-    def _safe_node(nodemap, *names: str):
-        """Read a nodemap node defensively, trying each name in order.
+    # Node types that hold no value, by what they are. Every other node is
+    # one of genicam's value types (IInteger, IFloat, IBoolean, IString,
+    # IEnumeration); an enumeration's GetValue answers its symbolic name.
+    _NO_VALUE_TYPES = (
+        (genicam.ICommand, CameraNodeHasNoValue.COMMAND),
+        (genicam.ICategory, CameraNodeHasNoValue.CATEGORY),
+        (genicam.IRegister, CameraNodeHasNoValue.REGISTER),
+        (genicam.IPort, CameraNodeHasNoValue.PORT),
+        (genicam.IEnumEntry, CameraNodeHasNoValue.ENUM_ENTRY),
+    )
 
-        pypylon's GetNode may raise ``genicam.LogicalErrorException``
-        ("Node not existing") -- or, on some nodemaps / SDK versions,
-        return None -- for a name the map does not expose. This helper
-        handles both (the ``is None`` skip plus the broad except below)
-        and folds any miss into a sentinel string so it never propagates
-        an exception out of an optional read.
+    @classmethod
+    def _read_node_in(cls, nodemap, name: str) -> CameraNodeValue | CameraNodeHasNoValue | None:
+        """``read_node`` on a nodemap already in hand."""
+        try:
+            node = cls._find_node(nodemap, name)
+            if node is None:
+                return None
+            for node_type, kind in cls._NO_VALUE_TYPES:
+                if isinstance(node, node_type):
+                    return kind
+            if not genicam.IsReadable(node):
+                return CameraNodeHasNoValue.NOT_READABLE_NOW
+            unit = node.GetUnit() if isinstance(node, (genicam.IFloat, genicam.IInteger)) else ''
+            return CameraNodeValue(node.GetValue(), unit)
+        except genicam.GenericException as e:
+            raise CameraReadFailedError(f'The camera did not answer a read of {name}: {e}') from e
+
+    @classmethod
+    def _has_node(cls, nodemap, name: str) -> bool:
+        """True if the nodemap exposes a node by this name.
+
+        An absent optional node is the EXPECTED case for cameras that do not
+        implement the feature (Basler darts lack the Bsl* nodes; other
+        vendors lack them entirely), so a missing node is a quiet False, not
+        an error. Comms failures (RuntimeException) and any other error
+        propagate to the caller, which answers them as its own failure.
+        """
+        return cls._find_node(nodemap, name) is not None
+
+    @classmethod
+    def _safe_node(cls, nodemap, *names: str):
+        """A diagnostic snapshot's or log line's entry for one setting (``node_snapshot_value``).
 
         Multiple names support the case where different camera families
         expose the same logical parameter under different canonical
@@ -4124,21 +4183,7 @@ class PylonCamera(Camera):
         the helper falls back to the unprefixed form if the camera
         doesn't expose the Bsl variant.
         """
-        last_sentinel = '<missing>'
-        for name in names:
-            try:
-                n = nodemap.GetNode(name)
-                if n is None:
-                    last_sentinel = '<not present>'
-                    continue
-                try:
-                    return n.GetValue()
-                except Exception as e:
-                    last_sentinel = f'<read err: {type(e).__name__}>'
-                    continue
-            except Exception:
-                continue
-        return last_sentinel
+        return node_snapshot_value(lambda name: cls._read_node_in(nodemap, name), *names)
 
     @staticmethod
     def _node_attr_get(camera, *names: str):

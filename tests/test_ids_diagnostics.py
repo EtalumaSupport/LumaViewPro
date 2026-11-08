@@ -9,6 +9,7 @@ driver uses (FindNode().Value() for scalars, CurrentEntry()/AvailableEntries()
 
 import pytest
 
+from tests import ids_peak_stub
 from tests.camera_fakes import bare_ids_camera
 
 
@@ -23,21 +24,19 @@ class _Entry:
         return self._symbolic
 
 
-class _ValueNode:
+class _ValueNode(ids_peak_stub.IntegerNode):
+    """A value node, typed as the SDK types one, which the driver's reader
+    tells a value from a command or a category by. Which value type does not
+    matter to these reads: none of them states a unit."""
+
     def __init__(self, value):
-        self._value = value
-
-    def Value(self):
-        return self._value
+        super().__init__(value)
 
 
-class _RangeNode:
+class _RangeNode(_ValueNode):
     def __init__(self, value, maximum):
-        self._value = value
+        super().__init__(value)
         self._maximum = maximum
-
-    def Value(self):
-        return self._value
 
     def Maximum(self):
         return self._maximum
@@ -53,12 +52,11 @@ class _SequenceNode:
         return next(self._values)
 
 
-class _EnumNode:
-    def __init__(self, symbolic):
-        self._symbolic = symbolic
+class _EnumNode(ids_peak_stub.EnumerationNode):
+    """An enumeration, typed as the SDK types one: it reads as its current entry."""
 
-    def CurrentEntry(self):
-        return _Entry(self._symbolic)
+    def __init__(self, symbolic):
+        super().__init__(symbolic)
 
 
 class _TempSelector:

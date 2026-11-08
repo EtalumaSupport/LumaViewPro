@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator, Mapping
 import contextlib
 from dataclasses import dataclass
+import enum
 import re
 import threading
 import time
@@ -18,6 +19,7 @@ from _lumascope.lib.log_helpers import logger
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.aoi_geometry import AoiPlan, center_crop, plan_aoi
 from _lumascope.drivers.camera_profiles import CameraProfile, lookup_profile
+from _lumascope.drivers.exceptions import CameraReadFailedError
 
 default_max_exposure = 1_000  # in ms
 
@@ -135,6 +137,79 @@ class Frame:
     wall_ns: int
     significant_bits: int
     chunks: Mapping[str, int | float] | None
+
+
+@dataclass(frozen=True, slots=True)
+class CameraNodeValue:
+    """One of the camera's named settings, as the camera answered a read of it.
+
+    Attributes:
+        value: The node's value. An enumeration's is its symbolic name
+            (``'Mono8'``), not its number.
+        unit: The unit the node states (``'dB'``, ``'us'``), or ``''`` for a
+            node that states none.
+    """
+
+    value: int | float | bool | str
+    unit: str
+
+
+class CameraNodeHasNoValue(enum.StrEnum):
+    """A named node the camera has that holds no value to read, by why.
+
+    Decided by the node's type before its access is asked, so a category
+    (which the SDK calls readable) and a command (which it does not) are
+    named for what they are.
+
+    Attributes:
+        COMMAND: A command: it is executed, never read.
+        CATEGORY: A category: it groups other nodes.
+        REGISTER: A raw register block, read as bytes, not as a value.
+        PORT: The port the nodes are read through.
+        ENUM_ENTRY: One entry of an enumeration; the enumeration holds the
+            value.
+        NOT_READABLE_NOW: A value node the camera does not offer for reading
+            in its present state, as when another setting disables it.
+    """
+
+    COMMAND = 'command'
+    CATEGORY = 'category'
+    REGISTER = 'register'
+    PORT = 'port'
+    ENUM_ENTRY = 'enum_entry'
+    NOT_READABLE_NOW = 'not_readable_now'
+
+
+def node_snapshot_value(
+    read: Callable[[str], CameraNodeValue | CameraNodeHasNoValue | None], *names: str
+) -> int | float | bool | str:
+    """A diagnostic snapshot's entry for one setting: its value, or a string saying why there is none.
+
+    ``read`` is the driver's reader of one name. The names are tried in
+    order and the first value answered is the entry, so a setting a newer
+    camera names one way and an older one another (``BslResultingAcquisitionFrameRate``,
+    ``ResultingFrameRate``) is one entry. With no value, the entry names the
+    last reason met: ``'<missing>'`` when no name is on the map,
+    ``'<no value: <kind>>'`` for a node that holds none
+    (``CameraNodeHasNoValue``), ``'<read err: <type>>'`` for a read that
+    raised, the type the SDK's own. A snapshot lists every entry it can, so
+    no read stops it; the reader itself raises.
+    """
+    entry = '<missing>'
+    for name in names:
+        try:
+            answer = read(name)
+        except Exception as e:
+            sdk_error = e.__cause__ if isinstance(e, CameraReadFailedError) and e.__cause__ else e
+            entry = f'<read err: {type(sdk_error).__name__}>'
+            continue
+        if answer is None:
+            continue
+        if isinstance(answer, CameraNodeHasNoValue):
+            entry = f'<no value: {answer}>'
+            continue
+        return answer.value
+    return entry
 
 
 class ImageHandlerBase:
@@ -1289,6 +1364,37 @@ class Camera(ABC):
             HardwareError: The read failed.
         """
         raise NotImplementedError(f'{type(self).__name__} has no clock latch')
+
+    def node_maps(self) -> tuple[str, ...]:
+        """The maps of named settings ``read_node`` reads, by this driver's names for them.
+
+        A camera's settings are read by the camera's own names (GenICam
+        nodes: ``Gain``, ``DeviceTemperature``), and the SDK holds them on
+        several maps -- the camera's own, the stream's, the SDK's view of
+        the camera -- which differ by vendor, so each driver names its own.
+        Empty for a camera with no named settings, whose ``read_node`` is
+        never called.
+        """
+        return ()
+
+    def read_node(self, name: str, node_map: str) -> CameraNodeValue | CameraNodeHasNoValue | None:
+        """Read one named setting from one of ``node_maps()``, live.
+
+        Called only with a camera active, ``node_map`` one of
+        ``node_maps()``, and ``name`` an identifier. A node that a selector
+        indexes (``DeviceTemperature`` under ``DeviceTemperatureSelector``)
+        reads at the selector's present entry.
+
+        Returns:
+            ``CameraNodeValue`` for a node holding a value;
+            ``CameraNodeHasNoValue`` for a node the map has that holds none;
+            None when the map has no node of that name.
+
+        Raises:
+            CameraReadFailedError: The camera or its SDK did not answer the
+                read.
+        """
+        raise NotImplementedError(f'{type(self).__name__} has no named settings')
 
     def get_sdk_info(self) -> dict:
         """Return the camera SDK provenance label for diagnostic snapshots.

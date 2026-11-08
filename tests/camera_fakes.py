@@ -129,9 +129,10 @@ class FakeDiagNode:
 class RecordingNodeMap:
     """GetNode-style nodemap that records every requested node name.
 
-    Missing names return None (the camera-nodemap missing-node shape);
-    present names return a FakeDiagNode. Pass FakeDiagNode instances as
-    values for multi-read sequences (e.g. pre/post counter reads).
+    A missing name raises ``genicam.LogicalErrorException``, as pypylon's
+    GetNode does for a node not in the map; present names return a
+    FakeDiagNode. Pass FakeDiagNode instances as values for multi-read
+    sequences (e.g. pre/post counter reads).
     """
 
     def __init__(self, values=None):
@@ -139,10 +140,12 @@ class RecordingNodeMap:
         self._values = dict(values or {})
 
     def GetNode(self, name):
+        from pypylon import genicam
+
         self.requested.append(name)
         value = self._values.get(name)
         if value is None:
-            return None
+            raise genicam.LogicalErrorException(f'Node not existing: {name}')
         return value if isinstance(value, FakeDiagNode) else FakeDiagNode(value)
 
 

@@ -59,6 +59,7 @@ os.environ['PYTHONPATH'] = os.pathsep.join(
 
 # Typed pypylon stand-in (real handler bases + exception types). Needs the
 # repo-root path insert above.
+from tests import ids_peak_stub as _ids_peak_stub
 from tests import pypylon_stub as _pypylon_stub
 from tests import host_power_stub as _host_power_stub
 from tests import usb_stub as _usb_stub
@@ -165,8 +166,10 @@ def install_mock_deps():
         'pypylon': _pypylon_stub.pypylon,
         'pypylon.pylon': _pypylon_stub.pylon,
         'pypylon.genicam': _pypylon_stub.genicam,
-        'ids_peak': MagicMock(),
-        'ids_peak.ids_peak': MagicMock(),
+        # IDS peak gets typed node and exception classes, which the driver
+        # tells a node and a failure by; the rest stays a MagicMock.
+        'ids_peak': _ids_peak_stub.package,
+        'ids_peak.ids_peak': _ids_peak_stub.ids_peak,
         'ids_peak.ids_peak_ipl_extension': MagicMock(),
         'ids_peak_ipl': MagicMock(),
     }

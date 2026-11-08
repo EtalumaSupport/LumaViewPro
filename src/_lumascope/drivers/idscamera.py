@@ -22,12 +22,15 @@ from _lumascope.lib.log_helpers import VERBOSE
 
 from _lumascope.drivers.camera import (
     Camera,
+    CameraNodeHasNoValue,
+    CameraNodeValue,
     FrameGrid,
     HandOver,
     ImageHandlerBase,
     declared_speed,
     link_info,
     no_hardware_auto_mode,
+    node_snapshot_value,
 )
 from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
@@ -883,24 +886,72 @@ class IDSCamera(Camera):
             return False
         return not self._device_removed
 
-    def _diag_node_value(self, name: str, enum: bool = False, maximum: bool = False):
-        """Read one remote-nodemap value for the snapshot, sentinel on failure.
+    def node_maps(self) -> tuple[str, ...]:
+        """The remote device's nodemap and the data stream's (``Camera.node_maps``)."""
+        # The device's transport-layer maps (``device.NodeMaps()``) are not
+        # offered until a bench shows what an IDS body's hold.
+        return ('device', 'stream')
 
-        Mirrors the Pylon snapshot's ``_safe_node``: a missing/unreadable node
-        records a ``<missing>`` string instead of raising, so one absent node
-        never aborts the whole snapshot. ``enum=True`` reads the current
-        symbolic entry (PixelFormat, throughput component); ``maximum=True``
-        reads the node's maximum instead of its value.
+    def read_node(self, name: str, node_map: str) -> CameraNodeValue | CameraNodeHasNoValue | None:
+        """Read one node from the device's or the data stream's nodemap (``Camera.read_node``)."""
+        if node_map == 'device':
+            return self._read_node_in(self.remote_nodemap, name)
+        try:
+            maps = self.data_stream.NodeMaps()
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(f'The camera did not give its stream node map: {e}') from e
+        if not maps:
+            raise CameraReadFailedError('The camera did not give its stream node map: it has none')
+        return self._read_node_in(maps[0], name)
+
+    # Node types that hold no value, by what they are. Every other node is
+    # one of the value types (IntegerNode, FloatNode, BooleanNode,
+    # StringNode, EnumerationNode).
+    _NO_VALUE_TYPES = (
+        (ids_peak.CommandNode, CameraNodeHasNoValue.COMMAND),
+        (ids_peak.CategoryNode, CameraNodeHasNoValue.CATEGORY),
+        (ids_peak.RegisterNode, CameraNodeHasNoValue.REGISTER),
+        (ids_peak.EnumerationEntryNode, CameraNodeHasNoValue.ENUM_ENTRY),
+    )
+
+    @classmethod
+    def _read_node_in(cls, nodemap, name: str) -> CameraNodeValue | CameraNodeHasNoValue | None:
+        """``read_node`` on a nodemap already in hand.
+
+        Absence is ``HasNode``'s answer: ``FindNode`` raises for an absent
+        name (``NotFoundException``), which is not a failed read.
         """
         try:
-            node = self.remote_nodemap.FindNode(name)
-            if node is None:
-                return '<missing>'
-            if enum:
-                return node.CurrentEntry().SymbolicValue()
-            if maximum:
-                return node.Maximum()
-            return node.Value()
+            if not nodemap.HasNode(name):
+                return None
+            node = nodemap.FindNode(name)
+            for node_type, kind in cls._NO_VALUE_TYPES:
+                if isinstance(node, node_type):
+                    return kind
+            if not node.IsReadable():
+                return CameraNodeHasNoValue.NOT_READABLE_NOW
+            if isinstance(node, ids_peak.EnumerationNode):
+                return CameraNodeValue(node.CurrentEntry().SymbolicValue(), '')
+            unit = (
+                node.Unit() if isinstance(node, (ids_peak.FloatNode, ids_peak.IntegerNode)) else ''
+            )
+            return CameraNodeValue(node.Value(), unit)
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(f'The camera did not answer a read of {name}: {e}') from e
+
+    def _diag_node_value(self, name: str):
+        """One remote-nodemap setting for the snapshot (``node_snapshot_value``)."""
+        return node_snapshot_value(lambda n: self._read_node_in(self.remote_nodemap, n), name)
+
+    def _diag_node_maximum(self, name: str):
+        """One remote-nodemap node's maximum for the snapshot, sentinel on failure.
+
+        A bound is not a value, so it is read here rather than by the
+        reader; a missing or unreadable node records a ``<missing: T>``
+        string, so one absent node never aborts the whole snapshot.
+        """
+        try:
+            return self.remote_nodemap.FindNode(name).Maximum()
         except Exception as e:
             return f'<missing: {type(e).__name__}>'
 
@@ -1070,26 +1121,26 @@ class IDSCamera(Camera):
         ):
             result['camera'][key] = self._diag_node_value(name)
 
-        for name, key, is_enum in (
-            ('PixelFormat', 'pixel_format', True),
-            ('Width', 'width', False),
-            ('Height', 'height', False),
-            ('ExposureTime', 'exposure_us', False),
-            ('Gain', 'gain', False),
-            ('DeviceLinkThroughputLimit', 'dltl_value_bps', False),
-            ('DeviceLinkThroughputLimitComponent', 'dltl_component', True),
-            ('AcquisitionFrameRate', 'acquisition_frame_rate', False),
-            ('PayloadSize', 'payload_size_bytes', False),
-            ('BinningVertical', 'binning_vertical', False),
-            ('BinningHorizontal', 'binning_horizontal', False),
-            ('SensorOperationMode', 'sensor_operation_mode', True),
+        # An enumeration (PixelFormat, the throughput component, the sensor
+        # mode) reads as its symbolic entry.
+        for name, key in (
+            ('PixelFormat', 'pixel_format'),
+            ('Width', 'width'),
+            ('Height', 'height'),
+            ('ExposureTime', 'exposure_us'),
+            ('Gain', 'gain'),
+            ('DeviceLinkThroughputLimit', 'dltl_value_bps'),
+            ('DeviceLinkThroughputLimitComponent', 'dltl_component'),
+            ('AcquisitionFrameRate', 'acquisition_frame_rate'),
+            ('PayloadSize', 'payload_size_bytes'),
+            ('BinningVertical', 'binning_vertical'),
+            ('BinningHorizontal', 'binning_horizontal'),
+            ('SensorOperationMode', 'sensor_operation_mode'),
         ):
-            result['config'][key] = self._diag_node_value(name, enum=is_enum)
+            result['config'][key] = self._diag_node_value(name)
         # The ceilings a measured rate runs against, so a reading names what
         # bounded it.
-        result['config']['dltl_max_bps'] = self._diag_node_value(
-            'DeviceLinkThroughputLimit', maximum=True
-        )
+        result['config']['dltl_max_bps'] = self._diag_node_maximum('DeviceLinkThroughputLimit')
         try:
             result['config']['acquisition_frame_rate_max'] = self.get_resulting_frame_rate()
         except Exception as e:
