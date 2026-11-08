@@ -14,7 +14,6 @@ Thread ownership:
 
 from __future__ import annotations
 
-import gc
 import time
 from typing import TYPE_CHECKING
 
@@ -81,8 +80,6 @@ class ProtocolStepRunner:
         notification at the wrong level and turns transient faults
         into protocol-halting popups.
         """
-        last_maintenance_time = time.monotonic()
-
         # `_aborted` is a threading.Event read here and at every
         # `p._aborted.is_set()` site below WITHOUT holding `_state_lock`.
         # Intentional: Event.is_set() is atomic by contract, and the lock on
@@ -91,15 +88,6 @@ class ProtocolStepRunner:
         # readers. The worst-case race window for a reader to miss the abort
         # signal is one step-body tick.
         while self._p._scan_in_progress.is_set() and not self._p._aborted.is_set():
-            # Periodic cleanup and watchdog logging for long runs
-            now_mono = time.monotonic()
-            if now_mono - last_maintenance_time > 60:
-                last_maintenance_time = now_mono
-
-                collected = gc.collect()
-                if collected > 0:
-                    logger.info(f'[Scan Watchdog] GC collected {collected} objects')
-
             # Run one step iteration. Exceptions propagate to the
             # outer run loop for fatal/transient classification.
             self.scan_iterate()

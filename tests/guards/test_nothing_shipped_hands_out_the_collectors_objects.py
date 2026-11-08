@@ -6,9 +6,11 @@ the calling thread references to objects the collector tracks, a tuple
 another thread is still building among them. When that thread's generator
 released the GIL, its ``tuple()`` found a second reference and raised
 ``SystemError: bad argument to internal function``: the metrics tick's object
-count ended a protocol run that way mid-move. A count or a collection
-(``sys.getallocatedblocks()``, ``gc.collect()``, ``gc.get_stats()``) hands out
-nothing and is not refused. Tests may call them; the app may not.
+count ended a protocol run that way mid-move. A count
+(``sys.getallocatedblocks()``, ``gc.get_stats()``) hands out nothing and is
+not refused; a forced collection is refused for its own reason
+(``test_nothing_shipped_forces_a_collection.py``). Tests may call the three
+that hand out objects; the app may not.
 """
 
 from __future__ import annotations

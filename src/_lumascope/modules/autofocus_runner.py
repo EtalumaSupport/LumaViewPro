@@ -428,7 +428,6 @@ class AutofocusRunner:
         # camera-state restore).
         self._scope.imaging.is_focusing = True
 
-        last_gc_time = time.monotonic()
         completed_successfully = False
         auto_gain_lock = None
         try:
@@ -535,13 +534,6 @@ class AutofocusRunner:
                 and self._is_focusing_event.is_set()
                 and not abort_event.is_set()
             ):
-                # Periodic maintenance: GC every 60 seconds
-                if time.monotonic() - last_gc_time > 60:
-                    import gc
-
-                    gc.collect()
-                    last_gc_time = time.monotonic()
-
                 self._iterate()
 
                 # Small inter-iteration delay; wake early on abort.

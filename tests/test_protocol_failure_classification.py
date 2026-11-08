@@ -175,8 +175,7 @@ class TestOurOwnDefectEndsTheRunAtOnce:
 
 
 class TestScanLoopBehaviorPreserved:
-    """Sanity: scan_loop still runs the iteration body + 60s GC
-    maintenance after the refactor."""
+    """Sanity: scan_loop still runs the iteration body after the refactor."""
 
     def test_scan_loop_still_calls_scan_iterate(self):
         from tests.protocol_drives import protocol_step, scan_ready_runner
@@ -187,28 +186,3 @@ class TestScanLoopBehaviorPreserved:
             'scan_loop must drive scan_iterate (which fetches the step row)'
         )
         assert not runner._scan_in_progress.is_set(), 'the single-step scan must run to completion'
-
-    def test_scan_loop_still_does_periodic_gc(self, monkeypatch):
-        """With >60s elapsing between maintenance checks (faked clock),
-        scan_loop must run its GC sweep."""
-        from types import SimpleNamespace
-        from unittest.mock import MagicMock
-
-        from tests.protocol_drives import protocol_step, scan_ready_runner
-
-        runner = scan_ready_runner(protocol_step())
-        ticks = {'now': 0.0}
-
-        def fake_monotonic():
-            ticks['now'] += 61.0
-            return ticks['now']
-
-        monkeypatch.setattr(
-            '_lumascope.modules.protocol_step_runner.time',
-            SimpleNamespace(monotonic=fake_monotonic, sleep=lambda s: None),
-        )
-        gc_recorder = MagicMock()
-        gc_recorder.collect.return_value = 0
-        monkeypatch.setattr('_lumascope.modules.protocol_step_runner.gc', gc_recorder)
-        runner._step_executor.scan_loop()
-        assert gc_recorder.collect.called, 'scan_loop must run the periodic GC sweep on long scans'
