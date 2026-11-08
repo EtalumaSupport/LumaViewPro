@@ -432,11 +432,20 @@ def published(
     run_events = _run_events()
     for name, record in sorted(records(session).items()):
         fields = {
-            f: (routes.answer_type(alternatives), ...)
+            f: (
+                routes.answer_type(alternatives),
+                pydantic.Field(description=routes.field_words(record, f)),
+            )
             for f, alternatives in _sent_fields(record, handed_out).items()
         }
         if name in run_events:
-            fields['run'] = (routes.RunJob | None, ...)
+            fields['run'] = (
+                routes.RunJob | None,
+                pydantic.Field(
+                    description='The run this event is of, by the job its call handed out; '
+                    'None when the call handed out none.'
+                ),
+            )
         found[name] = _event_model(name, **fields)
     found['job_ended'] = routes.Job
     found['reset'] = _event_model('reset')

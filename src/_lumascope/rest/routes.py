@@ -19,13 +19,14 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import inspect
 import json
 import pathlib
 import typing
 
 import pydantic
 
-from _lumascope.modules import wire_encoding
+from _lumascope.modules import api_surface, wire_encoding
 from _lumascope.modules.exceptions import RemedyName
 from _lumascope.modules.operation import Operation
 from _lumascope.modules.wire_encoding import WireMember, WireParameter
@@ -331,7 +332,11 @@ def query_model(owner: type, member: WireMember) -> type[pydantic.BaseModel]:
                 kind = _type(alternatives, {})
                 fields[f'{p.name}__{field}'] = (
                     typing.Optional[kind],  # noqa: UP045 -- kind may be Annotated
-                    pydantic.Field(default=None, alias=f'{p.name}.{field}'),
+                    pydantic.Field(
+                        default=None,
+                        alias=f'{p.name}.{field}',
+                        description=field_words(present[0].cls, field),
+                    ),
                 )
             continue
         _refuse_no_query_form(where, p.name, present)
@@ -339,6 +344,19 @@ def query_model(owner: type, member: WireMember) -> type[pydantic.BaseModel]:
     return pydantic.create_model(
         f'{owner.__name__}_{member.name}_query', __config__=_QUERY_CONFIG, **fields
     )
+
+
+def field_words(cls: type, name: str) -> str:
+    """The words of what *cls*'s record carries as *name*, as Markdown: what its property says in the OpenAPI.
+
+    A field's are its class's ``Attributes:`` entry; a marked property's, its
+    docstring. Each is rendered as the reference renders it, so a client
+    reads the reference's words.
+    """
+    described = api_surface.field_descriptions(cls)
+    if name in described:
+        return api_surface.markdown_of(described[name])
+    return api_surface.markdown_of(inspect.getdoc(inspect.getattr_static(cls, name).fget))
 
 
 def _is_none(a: wire_encoding.Inbound) -> bool:
@@ -451,7 +469,10 @@ def _one(a: wire_encoding.Inbound, records: dict[type, type[pydantic.BaseModel]]
     if a.form == wire_encoding.OBJECT:
         return dict[str, _type(a.items, records)] if a.items else dict
     if a.cls not in records:
-        fields = {f: (_type(alts, records), ...) for f, alts in a.fields}
+        fields = {
+            f: (_type(alts, records), pydantic.Field(description=field_words(a.cls, f)))
+            for f, alts in a.fields
+        }
         records[a.cls] = pydantic.create_model(a.name, __config__=_MODEL_CONFIG, **fields)
     return records[a.cls]
 
@@ -484,9 +505,15 @@ def _answer(a: wire_encoding.Outbound) -> object:
     if a.form == wire_encoding.OBJECT:
         return dict[str, answer_type(a.items)] if a.items else dict
     if a.cls not in _ANSWER_RECORDS:
-        fields = {f: (answer_type(alts), ...) for f, alts in a.fields}
+        fields = {
+            f: (answer_type(alts), pydantic.Field(description=field_words(a.cls, f)))
+            for f, alts in a.fields
+        }
+        # Each field's words are on its property, so the class's description
+        # leaves its Attributes: section out rather than say them twice.
+        doc = api_surface.markdown_of(api_surface.own_doc(a.cls), leave_out=('Attributes',))
         _ANSWER_RECORDS[a.cls] = pydantic.create_model(
-            a.name, __config__=ANSWER_CONFIG, __doc__=a.cls.__doc__, **fields
+            a.name, __config__=ANSWER_CONFIG, __doc__=doc, **fields
         )
     return _ANSWER_RECORDS[a.cls]
 

@@ -31,6 +31,7 @@ from __future__ import annotations
 import enum
 import json
 import pathlib
+import re
 import typing
 
 import pytest
@@ -212,6 +213,45 @@ def test_every_route_is_described_in_its_own_words(built):
     assert not wrong, '\n'.join(wrong)
     columns = described['paths']['/api/v1/handles/Protocol/{handle_id}/CURRENT_COLUMNS']['get']
     assert columns['description'].startswith('The columns of the steps table'), columns
+
+
+def test_a_record_s_properties_say_its_fields_words(built):
+    """Each property of a record says its field's words, the reference's, at every builder.
+
+    A field's words are its class's ``Attributes:`` entry
+    (``field_descriptions``); the description reads them there at each of
+    its four builders, sampled once each: an answer record, an inbound
+    record, a record read from a query string, and an event. The whole set
+    is held where the words are written (``test_every_field_is_described``).
+    An answer's own description leaves its ``Attributes:`` section out, so a
+    field's words are said once.
+    """
+    from _lumascope.modules.api_surface import field_descriptions, markdown_of
+    from _lumascope.modules.coord_transformations import PlateLocation, StageOffset
+    from _lumascope.modules.run_events import ScanStarted
+    from _lumascope.modules.run_outcome import RunOutcome
+
+    described, _routes, published, _records = built
+    schemas = described['components']['schemas']
+
+    def words(cls: type, field: str) -> str:
+        return markdown_of(field_descriptions(cls)[field])
+
+    answer = schemas['RunOutcome']['properties']['af_data_saved']
+    assert answer.get('description') == words(RunOutcome, 'af_data_saved'), answer
+    inbound = schemas['PlateLocation-Input']['properties']['x_mm']
+    assert inbound.get('description') == words(PlateLocation, 'x_mm'), inbound
+    read = described['paths']['/api/v1/scope/runtime_state/plate_to_stage']['get']
+    query = [p.get('description') for p in read['parameters'] if p['name'] == 'stage_offset.x_um']
+    assert query == [words(StageOffset, 'x_um')], query
+    event = published['scan_started'].model_json_schema()['properties']['scan_index']
+    assert event.get('description') == words(ScanStarted, 'scan_index'), event
+    twice = sorted(
+        name
+        for name, schema in schemas.items()
+        if re.search(r'^Attributes:|\*\*Attributes\*\*', schema.get('description') or '', re.M)
+    )
+    assert not twice, f"an answer's description says its fields' words again: {twice}"
 
 
 def test_the_description_names_no_private_path(built):
