@@ -488,12 +488,16 @@ class RunOutcome:
             only for a run settled before its cleanup ran. A host's own
             display work at the run's end is its ``run_ended`` handler's,
             never a step here.
-        focus_written: Whether the focus a scan found was written into the
-            protocol the caller asked it to write to. None for a run asked
-            to write no focus; False when it was asked and wrote none --
-            the scan did not complete, or the protocol's steps changed
-            during it (reported once, as 'Focus Not Saved') -- and the
-            protocol is unchanged.
+        focus_written: Whether the focus the run found was saved where it
+            was asked to save it: an autofocus scan's into the protocol the
+            caller named, a standalone autofocus's as the focus of the
+            channel it focused. None for a run asked to save no focus,
+            which includes a standalone autofocus lent a diagnostic's claim.
+            False when it was asked and saved none, and the protocol or the
+            channel's focus is unchanged: the scan did not complete, or the
+            protocol's steps changed during it (reported once, as 'Focus
+            Not Saved'); the standalone autofocus chose no Z, or its save
+            was refused (reported once, as the refusal).
         focus_failures: Each step whose autofocus did not focus, a flat
             curve included, in the order they failed: a capture protocol
             captured it at its fallback focus, an autofocus scan left its

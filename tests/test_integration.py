@@ -281,6 +281,7 @@ def executor(scope, executors):
     swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         on_saved=lambda folder: None,
+        save_channel_focus=lambda channel, z_um: None,
         scope=scope,
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
@@ -303,6 +304,7 @@ def af_executor(scope, executors):
     swap_lanes(scope, io=executors['io'], camera=executors['camera'])
     exc = SequencedCaptureRunner(
         on_saved=lambda folder: None,
+        save_channel_focus=lambda channel, z_um: None,
         scope=scope,
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],

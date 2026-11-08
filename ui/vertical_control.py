@@ -293,7 +293,7 @@ class VerticalControl(BoxLayout):
         engineering_mode = ctx.session.engineering_mode
         events = RunEvents(
             frame_captured=show_captured_frame,
-            run_ended=lambda outcome, *_ended: self._autofocus_run_ended(channel, outcome),
+            run_ended=lambda *_ended: self._autofocus_run_ended(channel),
             on_ui_thread=True,
         )
 
@@ -341,15 +341,13 @@ class VerticalControl(BoxLayout):
         button.text = 'Stopping...' if progress.is_stopping else 'Focusing...'
         gui_logger.display('AUTOFOCUS_BUTTON', f'{button.text} held={self.autofocus_held}')
 
-    def _autofocus_run_ended(self, channel: str | None, outcome) -> None:
-        """Save the focus this button's autofocus chose, as the focus of the channel it focused.
+    def _autofocus_run_ended(self, channel: str | None) -> None:
+        """Show the camera settings of the channel this button's autofocus focused, as the run left them.
 
         ``channel`` is the drawer open when the button was pressed, which is
-        the channel the run focused, whatever is open now; the Z is the one
-        the run chose, read from its outcome, never the stage, which may
-        have moved since. An autofocus that chose none leaves the channel's
-        focus alone. A refusal of the Z is reported once by the run's
-        delivery.
+        the channel the run focused, whatever is open now. The run itself
+        saved the Z it chose as that channel's focus (``start_autofocus``),
+        before it let go of the scope; this handler displays.
         """
         ctx = _app_ctx.ctx
         if channel is None:
@@ -357,12 +355,10 @@ class VerticalControl(BoxLayout):
         # AF restored the camera from committed settings; an uncommitted
         # text edit (typed, no Enter) would keep showing a value the
         # hardware no longer has. Re-point the widgets at the truth. Not
-        # conditional on a result, and ahead of the save, which can be
-        # refused: the camera restore happens on every terminal path, and
-        # these widgets show illumination, gain and exposure, not focus.
+        # conditional on a result: the camera restore happens on every
+        # terminal path, and these widgets show illumination, gain and
+        # exposure, not focus.
         ctx.image_settings.channel_control_lookup(channel=channel).sync_widgets_from_settings()
-        if outcome.af_focus_z_um is not None:
-            ctx.session.save_channel_focus(channel, outcome.af_focus_z_um)
 
     def reset_turret_objective(self):
         """Clear the assignment of the slot in the light path.

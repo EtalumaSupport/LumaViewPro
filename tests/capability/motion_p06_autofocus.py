@@ -4,7 +4,7 @@ GUI entry: ui/vertical_control.py:446 run_autofocus_from_ui (kv line 537).
 API member under test: src/_lumascope/modules/protocol_runner.py:281 ProtocolRunner.start_autofocus.
 """
 
-from harness import check, run, void
+from harness import check, run
 from _lumascope.modules.protocol_runner import ProtocolRunner
 from _lumascope.modules.exceptions import ArgumentRefusedError
 from _lumascope.modules.coord_transformations import PlateLocation
@@ -43,13 +43,15 @@ def body(s):
         f'{z_before} -> {z_after}',
     )
 
-    # does it ALSO write the layer's focus the way the button does?
+    # the run saves the Z it chose as the channel's focus, as the button's did
     focus_after = s.get_settings_snapshot()['BF']['focus']
-    void(
-        "start_autofocus wrote settings['BF']['focus'] to what it found",
-        focus_after is not None and abs(focus_after - z_after) < 5.0,
-        f'settings BF focus={focus_after}, stage Z={z_after}; '
-        'a headless caller can only infer the focus from the stage position',
+    check(
+        "start_autofocus saved the Z it chose as settings['BF']['focus']",
+        focus_after is not None
+        and focus_after == outcome.af_focus_z_um
+        and outcome.focus_written is True,
+        f'settings BF focus={focus_after}, chosen Z={outcome.af_focus_z_um}, '
+        f'focus_written={outcome.focus_written}',
     )
 
     # a bad layer is refused

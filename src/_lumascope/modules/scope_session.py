@@ -847,6 +847,7 @@ class ScopeSession:
             on_step_lit=self._step_lit_by_run,
             on_run_ending=self._show_the_channel_shown_before_the_run,
             on_saved=self._saved,
+            save_channel_focus=self.save_channel_focus,
         )
         self._protocol_runner = None
 
@@ -3286,8 +3287,8 @@ class ScopeSession:
     def save_channel_focus(self, channel: str, z_um: float) -> None:
         """Store ``z_um`` as ``channel``'s focus, the Z every new step of the channel is born at.
 
-        The door for a caller that holds a number rather than a stage: the
-        Autofocus button saving the Z its run chose, a script saving one it
+        The door for a caller that holds a number rather than a stage: an
+        autofocus run saving the Z it chose, a script saving one it
         measured. It says only that the number is a Z this scope's focus can
         reach; it guarantees nothing about where the number came from.
         ``save_focus``, which saves the live Z, writes through the same path.

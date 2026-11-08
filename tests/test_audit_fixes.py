@@ -1882,7 +1882,10 @@ def _make_capture_runner(**overrides):
         camera=kwargs.pop('camera_executor', None),
     )
     return SequencedCaptureRunner(
-        **kwargs, on_saved=lambda folder: None, channel_colors=release_colors
+        **kwargs,
+        on_saved=lambda folder: None,
+        save_channel_focus=lambda channel, z_um: None,
+        channel_colors=release_colors,
     )
 
 
@@ -6713,6 +6716,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
 
         exc = SequencedCaptureRunner(
             on_saved=lambda folder: None,
+            save_channel_focus=lambda channel, z_um: None,
             scope=MagicMock(),
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),

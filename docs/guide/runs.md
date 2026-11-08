@@ -116,7 +116,7 @@ read, and refused when a run starts.
 |---|---|
 | `start_single_scan(protocol)` | every step once |
 | `start_protocol(protocol)` | every scan of the schedule |
-| `start_autofocus(channel)` | an autofocus where the stage is |
+| `start_autofocus(channel)` | an autofocus where the stage is, the Z it chose saved as the channel's focus (`RunOutcome.focus_written`); under a diagnostic's claim, saved nowhere |
 | `start_autofocus_all_steps(protocol)` | an autofocus at each step (once per z-stack), written into the protocol when the scan completes and its steps did not change (`RunOutcome.focus_written`) |
 | `start_zstack(channel)` | a stack of the stored range where the stage is |
 | `start_composite(...)` | one capture per acquiring channel, merged |

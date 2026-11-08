@@ -25,15 +25,15 @@ consumers read it across that gap:
   That reuse has since been removed (#324).
 
 The run now clears the result before producing one, and reports what it
-found in its outcome (``af_focus_z_um``). ``start_autofocus`` writes no focus
-itself; the Autofocus button saves the outcome's Z, on ``run_ended``, as the
-focus of the layer it started the run on, through
-``ScopeSession.save_channel_focus``.
+found in its outcome (``af_focus_z_um``). ``start_autofocus`` saves that Z as
+the focus of the channel it focused, through ``ScopeSession.save_channel_focus``,
+before the run lets go of the scope; the Autofocus button only displays.
 """
 
 from __future__ import annotations
 
 import ast
+import contextlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -177,130 +177,149 @@ class TestClearResultIsUnconditional:
 
 
 # ---------------------------------------------------------------------------
-# start_autofocus reports the focus; the Autofocus button saves it
+# start_autofocus saves the focus it chose; the Autofocus button displays
 # ---------------------------------------------------------------------------
 
 
-def test_start_autofocus_reports_the_focus_and_writes_none(tmp_path):
-    """The member a script or REST calls writes no layer focus: what it
-    chose is in its outcome, for the caller to keep or not."""
+@contextlib.contextmanager
+def _session_over_a_focus_target(tmp_path, *, in_focus=True):
+    """A headless session, Z mid-travel; with *in_focus*, a sample whose focus
+    lies inside the sweep's window, off its start; without, a featureless
+    frame, which has no peak, so the sweep chooses none."""
     from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        stored = session.settings['BF']['focus']
         motion = session.scope.motion
         limits = motion.get_axis_limits('Z')
         # Mid-travel, so the sweep's window fits inside Z's travel.
         mid = (limits.min_um + limits.max_um) / 2.0
         motion.move_z(mid)
-        # A focus inside the sweep's window, off its start: a featureless
-        # frame has no peak, and an autofocus over it fails.
-        camera = session.scope._camera_driver
-        camera.set_test_pattern(enabled=True, pattern='focus_target')
-        camera.set_focal_z(mid + 30.0)
-
-        outcome = runner.start_autofocus(channel='BF').result(timeout=60)
-
-        assert outcome is not None and outcome.af_focus_z_um is not None, (
-            f'precondition: the sweep chose a focus; got {outcome}'
-        )
-        assert outcome.af_focus_z_um != stored, 'precondition: the chosen Z differs from the stored'
-        assert session.settings['BF']['focus'] == stored, (
-            "start_autofocus wrote a layer focus; the caller keeps the outcome's Z or not"
-        )
+        if in_focus:
+            camera = session.scope._camera_driver
+            camera.set_test_pattern(enabled=True, pattern='focus_target')
+            camera.set_focal_z(mid + 30.0)
+        yield session, runner
 
 
-def _outcome(z):
-    return SimpleNamespace(af_focus_z_um=z)
+class TestStartAutofocusSavesTheFocusItChose:
+    def test_the_chosen_z_is_the_channels_focus_when_the_run_returns(self, tmp_path):
+        """REST, the SDK and the button get one behaviour: the run saves the Z
+        it chose as the focus of the channel it focused, before its result
+        is returned, and says so."""
+        with _session_over_a_focus_target(tmp_path) as (session, runner):
+            stored = session.settings['BF']['focus']
+
+            outcome = runner.start_autofocus(channel='BF').result(timeout=60)
+
+            assert outcome.af_focus_z_um is not None, (
+                f'precondition: the sweep chose a focus; got {outcome}'
+            )
+            assert outcome.af_focus_z_um != stored, 'precondition: the chosen Z differs'
+            assert session.saved_focus_z_um('BF') == outcome.af_focus_z_um
+            assert outcome.focus_written is True, outcome
+
+    def test_a_run_that_chose_no_z_leaves_the_focus_as_it_was(self, tmp_path):
+        """#816's abort path, kept: no Z chosen, no focus saved, and the
+        outcome says the save it was asked for did not happen."""
+        with _session_over_a_focus_target(tmp_path, in_focus=False) as (session, runner):
+            stored = session.settings['BF']['focus']
+
+            outcome = runner.start_autofocus(channel='BF').result(timeout=60)
+
+            assert outcome.af_focus_z_um is None, f'precondition: no focus chosen; {outcome}'
+            assert session.settings['BF']['focus'] == stored
+            assert outcome.focus_written is False, outcome
+
+    def test_a_stopped_run_saves_exactly_the_z_it_reports(self, tmp_path, monkeypatch):
+        """Stopped mid-sweep, the run's saved focus and its reported Z are one
+        read: the reported Z when it carries one, else the focus untouched."""
+        import _lumascope.modules.autofocus_functions as autofocus_functions
+
+        with _session_over_a_focus_target(tmp_path) as (session, runner):
+            stored = session.settings['BF']['focus']
+            score = autofocus_functions.autofocus_score
+            started = []
+
+            def stop_at_the_first_score(image):
+                if started and not started[0].done():
+                    started[0].stop()
+                return score(image)
+
+            monkeypatch.setattr(
+                '_lumascope.modules.autofocus_functions.autofocus_score',
+                stop_at_the_first_score,
+            )
+            started.append(runner.start_autofocus(channel='BF'))
+            outcome = started[0].result(timeout=60)
+
+            assert outcome.status == 'aborted', f'precondition: the stop ended it; {outcome}'
+            expected = stored if outcome.af_focus_z_um is None else outcome.af_focus_z_um
+            assert session.settings['BF']['focus'] == expected
+            assert outcome.focus_written is (outcome.af_focus_z_um is not None), outcome
+
+    def test_a_refused_save_is_reported_once_and_the_scope_is_released(self, tmp_path, monkeypatch):
+        """A save the session refuses is told once, in its own words; the
+        outcome says the focus was not saved, and the run still lets go of
+        the scope, so the next run starts."""
+        from _lumascope.modules.exceptions import PositionOutOfRangeError
+        from tests.test_autofocus_all_steps_writes_the_focus import _reports_of
+
+        with _session_over_a_focus_target(tmp_path) as (session, runner):
+            stored = session.settings['BF']['focus']
+            store = session._store_channel_focus
+            # A stand-in by design: the simulator's sweep never chooses a Z
+            # outside Z's travel, so the refusal is made by asking the real
+            # store for one.
+            monkeypatch.setattr(session, '_store_channel_focus', lambda ch, _z: store(ch, 1e9))
+
+            with _reports_of(PositionOutOfRangeError) as reported:
+                outcome = runner.start_autofocus(channel='BF').result(timeout=60)
+
+            assert outcome.af_focus_z_um is not None, f'precondition: a Z was chosen; {outcome}'
+            assert len(reported) == 1, reported
+            assert outcome.focus_written is False, outcome
+            assert session.settings['BF']['focus'] == stored
+            assert runner.start_autofocus(channel='BF').result(timeout=60) is not None
+
+    def test_a_run_under_a_diagnostics_claim_saves_nothing(self, tmp_path):
+        """A run lent a diagnostic's claim acts inside that diagnostic, and
+        what it keeps is the diagnostic's call: the channel's focus stays as
+        it was, and the run was asked to save none."""
+        with _session_over_a_focus_target(tmp_path) as (session, runner):
+            stored = session.settings['BF']['focus']
+
+            with session.diagnostic_claim() as claim:
+                outcome = runner.start_autofocus(channel='BF', claim=claim).result(timeout=60)
+
+            assert outcome.af_focus_z_um is not None, (
+                f'precondition: the sweep chose a focus; got {outcome}'
+            )
+            assert session.settings['BF']['focus'] == stored
+            assert outcome.focus_written is None, outcome
 
 
 @pytest.fixture
 def gui(gui_ctx, monkeypatch):
-    """The Autofocus button over a simulated session, unhomed: its Z is not a
-    focus any run chose, so a Z saved from the stage would show."""
+    """The Autofocus button's run-ended handler over a simulated session."""
     import ui.vertical_control as vc
 
     channel_control = MagicMock()
     gui_ctx.image_settings = MagicMock()
     gui_ctx.image_settings.channel_control_lookup.return_value = channel_control
     monkeypatch.setattr(vc.gui_logger, 'button', lambda *a, **kw: None)
-    button = SimpleNamespace(
-        _autofocus_run=None,
-    )
-    button._autofocus_run_ended = lambda layer, outcome: vc.VerticalControl._autofocus_run_ended(
-        button, layer, outcome
-    )
+    button = SimpleNamespace(_autofocus_run=None)
     return SimpleNamespace(vc=vc, ctx=gui_ctx, channel_control=channel_control, button=button)
 
 
-def _focus(gui, layer):
-    return gui.ctx.session.settings[layer]['focus']
-
-
-def _press(gui, monkeypatch):
-    """Press Autofocus; return the events the button handed start_autofocus."""
-    member = MagicMock()
-    gui.ctx.session.protocol_runner = lambda: member
-    gui.button._submit_autofocus_request = lambda call, stop=False: call()
-    gui.vc.VerticalControl.run_autofocus_from_ui(gui.button)
-    return member.start_autofocus.call_args.kwargs['events']
-
-
-class TestTheButtonSavesTheFocusItsRunChose:
-    def test_the_outcomes_z_is_saved_for_the_layer_the_run_started_on(self, gui, monkeypatch):
-        """The shown channel changed before the handler ran: the focus still
-        goes to the layer the run focused, at the Z the run chose."""
-        started_on = gui.ctx.session.shown_channel.channel
-        other = LED1 if started_on != LED1 else 'BF'
-        kept = _focus(gui, other)
-        events = _press(gui, monkeypatch)
-        gui.ctx.session.show_channel(other)
-
-        events.run_ended(_outcome(777.5), None, MagicMock())
-
-        assert _focus(gui, started_on) == 777.5
-        assert _focus(gui, other) == kept
-
-    def test_an_outcome_with_no_focus_saves_nothing(self, gui, monkeypatch):
-        """Not found: an autofocus that found nothing writes nothing. The
-        old code wrote wherever the stage happened to be (#816)."""
-        layer = gui.ctx.session.shown_channel.channel
-        kept = _focus(gui, layer)
-        events = _press(gui, monkeypatch)
-
-        events.run_ended(_outcome(None), None, MagicMock())
-
-        assert _focus(gui, layer) == kept
-
+class TestTheButtonDisplaysTheRunsEnd:
     def test_the_camera_widget_resync_runs_on_every_terminal_path(self, gui):
         """The widget re-sync is not about focus: autofocus restores the
         camera from committed settings on EVERY terminal path, so an
         uncommitted text edit must be re-pointed at the truth even when
         no focus was found."""
-        gui.vc.VerticalControl._autofocus_run_ended(gui.button, LED1, _outcome(None))
+        gui.vc.VerticalControl._autofocus_run_ended(gui.button, LED1)
 
         gui.channel_control.sync_widgets_from_settings.assert_called_once()
-
-    def test_a_refused_focus_is_reported_once_as_the_refusal(self, gui, monkeypatch):
-        """The handler is a run_ended subscriber: a refusal of the Z is
-        reported once by the run's delivery, as the refusal it is."""
-        from _lumascope.modules import run_events
-        from _lumascope.modules.exceptions import PositionOutOfRangeError
-        from _lumascope.modules.notification_center import notifications
-
-        # A Z past the travel: the session refuses to save it.
-        monkeypatch.setattr(run_events, 'schedule_ui', lambda fn: fn(0))
-        reported = []
-        monkeypatch.setattr(
-            notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw))
-        )
-        events = _press(gui, monkeypatch)
-
-        run_events.deliver(events, 'run_ended', _outcome(1e9), None, MagicMock())
-
-        assert [(type(ex), kw) for ex, kw in reported] == [
-            (PositionOutOfRangeError, {'solicited': False, 'category': 'run_ended'})
-        ]
 
     def test_the_completion_handler_never_samples_the_stage(self):
         """An AST lock: _autofocus_run_ended must not call
@@ -322,6 +341,9 @@ class TestTheButtonSavesTheFocusItsRunChose:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         }
         assert 'get_current_position' not in called, (
-            '_autofocus_run_ended samples the stage again. Save the Z the '
-            "run's outcome carries instead (#816)."
+            '_autofocus_run_ended samples the stage again; the run saves the Z it chose (#816).'
+        )
+        assert 'save_channel_focus' not in called, (
+            '_autofocus_run_ended saves a focus; the run already saved the Z it '
+            'chose, for every client (start_autofocus).'
         )

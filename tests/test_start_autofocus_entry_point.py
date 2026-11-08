@@ -188,7 +188,7 @@ class TestAStandaloneAutofocusWritesNoFocusIntoAProtocol:
         """The found focus is never written into a caller's protocol.
 
         Only start_autofocus_all_steps names a protocol to write into; a
-        standalone autofocus focuses the stage and nothing else.
+        standalone autofocus keeps its focus as the channel's, never a step's.
         """
         runner = _runner()
         runner.start_autofocus(channel='BF')

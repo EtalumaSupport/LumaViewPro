@@ -310,6 +310,7 @@ def _make_runner(scope, execs):
     swap_lanes(scope, io=execs['io'], camera=execs['camera'])
     exc = SequencedCaptureRunner(
         on_saved=lambda folder: None,
+        save_channel_focus=lambda channel, z_um: None,
         scope=scope,
         protocol_thread=execs['protocol'],
         file_io_executor=execs['file_io'],

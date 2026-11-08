@@ -77,7 +77,10 @@ class ProtocolRunner:
     # Run methods
     # ------------------------------------------------------------------
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    @api(
+        stop='Operation.stop',
+        admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE, Admission.GUARDED_WRITE),
+    )
     def start_single_scan(
         self,
         protocol: Protocol,
@@ -124,7 +127,10 @@ class ProtocolRunner:
             return_to_position=return_to_position,
         )
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    @api(
+        stop='Operation.stop',
+        admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE, Admission.GUARDED_WRITE),
+    )
     def start_protocol(
         self,
         protocol: Protocol,
@@ -165,7 +171,10 @@ class ProtocolRunner:
             events=events,
         )
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    @api(
+        stop='Operation.stop',
+        admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE, Admission.GUARDED_WRITE),
+    )
     def start_composite(
         self,
         *,
@@ -228,7 +237,10 @@ class ProtocolRunner:
             composite_thresholds_percent=config_helpers.get_composite_blend_thresholds(settings),
         )
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    @api(
+        stop='Operation.stop',
+        admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE, Admission.GUARDED_WRITE),
+    )
     def start_autofocus(
         self,
         channel: str | None,
@@ -244,6 +256,14 @@ class ProtocolRunner:
         The headless twin of the standalone autofocus button: a
         one-position, one-channel run with autofocus on, saving no images and
         no run artifacts, that leaves the stage at the focus it found.
+
+        The Z it chose is saved as *channel*'s focus, the Z every new step
+        of the channel is born at, before the run lets go of the scope, so
+        it is saved when ``result()`` returns; the outcome's
+        ``focus_written`` says whether it was. A run that chose no Z leaves
+        the focus as it was, however it ended. A run under a *claim* saves
+        none: it acts inside the caller's activity, which decides what it
+        keeps from the outcome's ``af_focus_z_um``.
 
         The channel is named rather than discovered. A GUI reads it from
         whichever drawer is open, which is a fact about a running GUI and
@@ -347,7 +367,10 @@ class ProtocolRunner:
             claim=claim,
         )
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    @api(
+        stop='Operation.stop',
+        admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE, Admission.GUARDED_WRITE),
+    )
     def start_autofocus_all_steps(
         self,
         protocol: Protocol,
@@ -398,7 +421,10 @@ class ProtocolRunner:
             write_focus_to=protocol,
         )
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
+    @api(
+        stop='Operation.stop',
+        admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE, Admission.GUARDED_WRITE),
+    )
     def start_zstack(
         self,
         channel: str | None,

@@ -363,6 +363,20 @@ class RunPlan:
 DELIVERED_RATE_WAIT_S = 3.0
 
 
+def _channel_whose_focus_it_saves(plan: RunPlan) -> str | None:
+    """The channel whose focus a run saves the Z it chose as, or None.
+
+    A standalone autofocus's one channel. None for every other run kind, and
+    for an autofocus lent a diagnostic's claim: it acts inside that
+    diagnostic, which decides what it keeps.
+    """
+    if plan.run_mode is not SequencedCaptureRunMode.SINGLE_AUTOFOCUS:
+        return None
+    if plan.borrowed_claim is not None:
+        return None
+    return plan.protocol.step_row(step_index=0)['channel']
+
+
 class SequencedCaptureRunner:
     LOGGER_NAME = 'SeqCapExec'
 
@@ -376,6 +390,7 @@ class SequencedCaptureRunner:
         channel_colors: typing.Callable[[], ChannelColors],
         post_processing: typing.Any,
         on_saved: typing.Callable[[pathlib.Path], None],
+        save_channel_focus: typing.Callable[[str, float], None],
         autofocus_runner: AutofocusRunner | None = None,
         on_run_idle: typing.Callable[[], None] | None = None,
         on_protocol_files_written: typing.Callable[[pathlib.Path, RunWriteBatch, Caller, str], None]
@@ -415,6 +430,10 @@ class SequencedCaptureRunner:
         # Told the run's folder once its last image has landed, when it wrote
         # any, before the caller hears its files are written.
         self._on_saved = on_saved
+        # The session's save of a channel's focus: a standalone autofocus
+        # saves the Z it chose through it, on the protocol thread, before the
+        # run lets go of the scope.
+        self._save_channel_focus = save_channel_focus
         # Stateless, so the run keeps its own. The labware catalogue is the
         # scope's, read where a run needs a plate.
         # The offset a run converts plate positions with; prepare() snapshots
@@ -538,6 +557,7 @@ class SequencedCaptureRunner:
         self._run_outcome = None
         self._run_handle = None
         self._write_focus_to = None
+        self._focus_channel = None
         # Fresh object per run, never a shared Event cleared in place: queued
         # write tasks keep draining after a run ends, and a drain task hitting
         # a fatal fault (disk floor) would set a SHARED flag after the next
@@ -1732,6 +1752,7 @@ class SequencedCaptureRunner:
             self._disable_saving_artifacts = plan.disable_saving_artifacts
             self._save_autofocus_data = plan.save_autofocus_data
             self._write_focus_to = plan.write_focus_to
+            self._focus_channel = _channel_whose_focus_it_saves(plan)
             self._keep_led_between_steps = plan.keep_led_between_steps
             self._video_as_frames = plan.video_as_frames
             self._timestamp_overlay = plan.timestamp_overlay
@@ -1791,7 +1812,7 @@ class SequencedCaptureRunner:
             outcome = PendingRunOutcome()
             # Not written until cleanup writes it, so a run settled without
             # reaching that write -- a shutdown, a failed start -- says so.
-            if plan.write_focus_to is not None:
+            if plan.write_focus_to is not None or self._focus_channel is not None:
                 outcome.record_focus_written(False)
             self._run_outcome = outcome
             # The run's writes, created with its outcome and for the same
@@ -2321,6 +2342,29 @@ class SequencedCaptureRunner:
         )
         return f'The run finished; autofocus did not focus {steps}, {captured}.'
 
+    def _save_chosen_focus(self, outcome: PendingRunOutcome, z_um: float | None) -> None:
+        """Save a standalone autofocus's chosen Z as its channel's focus, and record that it did.
+
+        Here, from the read the outcome reports, so the saved and the reported
+        Z are one value: after cleanup has stopped the sweep and waited for
+        it, before the outcome settles (``focus_written`` is frozen then), and
+        before the run lets go of the scope, so it is the run's own write. A
+        run that chose no Z saves nothing, however it ended. A refused save is
+        reported once and does not raise: cleanup must still give the scope
+        back.
+        """
+        channel = self._focus_channel
+        if channel is None or z_um is None:
+            return
+        try:
+            self._save_channel_focus(channel, z_um)
+        except Exception as refused:
+            from _lumascope.modules.notification_center import notifications
+
+            notifications.report_outcome(refused, solicited=False, category='Protocol')
+            return
+        outcome.record_focus_written(True)
+
     def _settle_run_outcome(self, ending: RunEnding) -> None:
         """Arm the merge on a composite that reached its end; settle every other ending.
 
@@ -2358,7 +2402,9 @@ class SequencedCaptureRunner:
                 # An autofocus scan of every step answers with the protocol's
                 # Z column it wrote, not the last step's focus.
                 if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS:
-                    outcome.record_autofocus_focus(self._autofocus_runner.best_focus_position())
+                    chosen = self._autofocus_runner.best_focus_position()
+                    outcome.record_autofocus_focus(chosen)
+                    self._save_chosen_focus(outcome, chosen)
             if (
                 ending.status not in (RunStatus.COMPLETED, RunStatus.INCOMPLETE)
                 or self._run_mode is not SequencedCaptureRunMode.SINGLE_COMPOSITE

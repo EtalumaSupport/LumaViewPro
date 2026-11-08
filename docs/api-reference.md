@@ -2618,8 +2618,8 @@ Route: `PUT /api/v1/saved_focus_z_um`.
 
 Store `z_um` as `channel`'s focus, the Z every new step of the channel is born at.
 
-The door for a caller that holds a number rather than a stage: the
-Autofocus button saving the Z its run chose, a script saving one it
+The door for a caller that holds a number rather than a stage: an
+autofocus run saving the Z it chose, a script saving one it
 measured. It says only that the number is a Z this scope's focus can
 reach; it guarantees nothing about where the number came from.
 `save_focus`, which saves the live Z, writes through the same path.
@@ -11936,7 +11936,7 @@ def start_autofocus(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`, `guarded_write`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_autofocus`.
 
 Autofocus once on *channel*, at the current stage position.
@@ -11944,6 +11944,14 @@ Autofocus once on *channel*, at the current stage position.
 The headless twin of the standalone autofocus button: a
 one-position, one-channel run with autofocus on, saving no images and
 no run artifacts, that leaves the stage at the focus it found.
+
+The Z it chose is saved as *channel*'s focus, the Z every new step
+of the channel is born at, before the run lets go of the scope, so
+it is saved when `result()` returns; the outcome's
+`focus_written` says whether it was. A run that chose no Z leaves
+the focus as it was, however it ended. A run under a *claim* saves
+none: it acts inside the caller's activity, which decides what it
+keeps from the outcome's `af_focus_z_um`.
 
 The channel is named rather than discovered. A GUI reads it from
 whichever drawer is open, which is a fact about a running GUI and
@@ -11997,7 +12005,7 @@ def start_autofocus_all_steps(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`, `guarded_write`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_autofocus_all_steps`.
 
 Autofocus at every step of *protocol*, and write the focus into it.
@@ -12049,7 +12057,7 @@ def start_composite(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`, `guarded_write`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_composite`.
 
 Assemble a composite run and launch it, returning once committed.
@@ -12097,7 +12105,7 @@ def start_protocol(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`, `guarded_write`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_protocol`.
 
 Run a full protocol (multiple scans over time).
@@ -12141,7 +12149,7 @@ def start_single_scan(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`, `guarded_write`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_single_scan`.
 
 Run a single scan through the protocol steps.
@@ -12186,7 +12194,7 @@ def start_zstack(
 ) -> Operation[RunOutcome]
 ```
 
-Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`, `guarded_write`.  
 Route: `POST /api/v1/handles/ProtocolRunner/{handle_id}/start_zstack`.
 
 Capture a z-stack on *channel*, around the current stage position.
@@ -12431,7 +12439,7 @@ shape for every run kind.
 - <a id="RunOutcome.captures"></a>`captures`: `CaptureTally | None` -- What the run captured of what it was asked for. None only for a run settled before its cleanup counted -- a run torn down by a shutdown before it ended.
 - <a id="RunOutcome.cleanup_failures"></a>`cleanup_failures`: `tuple[str, ...] | None` -- The steps putting the scope back after the run that did not finish ('Restore LED states', 'Return to position', ...); empty when every one did, so the LEDs, camera settings and stage are as the run found them. None only for a run settled before its cleanup ran. A host's own display work at the run's end is its `run_ended` handler's, never a step here.
 - <a id="RunOutcome.focus_failures"></a>`focus_failures`: `tuple[FocusFailure, ...]` -- Each step whose autofocus did not focus, a flat curve included, in the order they failed: a capture protocol captured it at its fallback focus, an autofocus scan left its focus as it was. Counted once per scan and step, so a scan run again that focuses the step clears it. Empty when every autofocus focused, and for a run with none.
-- <a id="RunOutcome.focus_written"></a>`focus_written`: `bool | None` -- Whether the focus a scan found was written into the protocol the caller asked it to write to. None for a run asked to write no focus; False when it was asked and wrote none -- the scan did not complete, or the protocol's steps changed during it (reported once, as 'Focus Not Saved') -- and the protocol is unchanged.
+- <a id="RunOutcome.focus_written"></a>`focus_written`: `bool | None` -- Whether the focus the run found was saved where it was asked to save it: an autofocus scan's into the protocol the caller named, a standalone autofocus's as the focus of the channel it focused. None for a run asked to save no focus, which includes a standalone autofocus lent a diagnostic's claim. False when it was asked and saved none, and the protocol or the channel's focus is unchanged: the scan did not complete, or the protocol's steps changed during it (reported once, as 'Focus Not Saved'); the standalone autofocus chose no Z, or its save was refused (reported once, as the refusal).
 - <a id="RunOutcome.merge_reason"></a>`merge_reason`: `str` -- Why the MERGE produced no file ('write_batch_timeout', 'write_batch_abandoned', 'write_batch_not_taken', 'write_batch_save_failed', 'write_batch_disk_full', 'write_batch_video_unfinished', 'no_run_dir', 'shutdown', ...). Empty on success and on every run that has no merge, so a caller can branch on merged and still log one field.
 - <a id="RunOutcome.merged"></a>`merged`: `bool` -- True only when an artifact was produced.
 - <a id="RunOutcome.message"></a>`message`: `str` -- The sentence a user reads.

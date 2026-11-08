@@ -158,6 +158,7 @@ class _AfRig:
         swap_lanes(self.scope, io=self.io_executor, camera=self.camera_executor)
         self.runner = SequencedCaptureRunner(
             on_saved=lambda folder: None,
+            save_channel_focus=lambda channel, z_um: None,
             scope=self.scope,
             protocol_thread=self.protocol_thread,
             file_io_executor=self.file_io_executor,

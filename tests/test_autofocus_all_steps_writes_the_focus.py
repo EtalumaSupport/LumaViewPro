@@ -230,12 +230,6 @@ class TestOnlyACompletedScanWritesItsFocus:
 
 
 class TestARunThatWritesNoFocusSaysNone:
-    def test_a_standalone_autofocus(self, tmp_path):
-        with _focusing_session(tmp_path) as (_session, runner):
-            outcome = runner.start_autofocus(channel='BF').result(timeout=WAIT_S)
-
-        assert outcome.focus_written is None, outcome
-
     def test_a_scan(self, tmp_path):
         with _focusing_session(tmp_path) as (_session, runner):
             outcome = runner.start_single_scan(

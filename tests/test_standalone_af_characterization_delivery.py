@@ -125,6 +125,7 @@ class TestStandaloneAfDeliversCharacterizationData:
         swap_lanes(scope, io=io_executor, camera=camera_executor)
         runner = SequencedCaptureRunner(
             on_saved=lambda folder: None,
+            save_channel_focus=lambda channel, z_um: None,
             scope=scope,
             protocol_thread=protocol_thread,
             file_io_executor=file_io_executor,
