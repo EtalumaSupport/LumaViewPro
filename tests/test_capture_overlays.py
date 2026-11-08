@@ -55,9 +55,41 @@ def test_the_live_view_draws_the_bullseye_the_file_saves():
 
     from ui.scope_display import ScopeDisplay
 
-    display = types.SimpleNamespace(_bullseye_rgb_buf=None, _bullseye_buf_shape=None)
+    display = types.SimpleNamespace(_bullseye_rgb_buf=None)
     frame = np.arange(256, dtype=np.uint8).reshape(16, 16)
 
     shown = ScopeDisplay.transform_to_bullseye_prealloc(display, frame)
 
     assert np.array_equal(shown, capture_overlays.transform_to_bullseye(frame))
+    assert ScopeDisplay.transform_to_bullseye_prealloc(display, frame) is shown
+
+
+def test_the_bullseye_is_the_table_for_every_layout():
+    frame = np.random.default_rng(5).integers(0, 256, (61, 47), dtype=np.uint8)
+    views = {
+        'contiguous': frame,
+        'strided': frame[::2, ::3],
+        'reversed': frame[::-1],
+        'fortran': np.asfortranarray(frame),
+        'one pixel': frame[:1, :1],
+    }
+    wrong = [
+        name
+        for name, view in views.items()
+        if not np.array_equal(
+            capture_overlays.transform_to_bullseye(view), capture_overlays.BULLSEYE_LUT[view]
+        )
+    ]
+    assert wrong == []
+
+
+def test_the_bullseye_is_drawn_into_a_buffer_that_fits():
+    frame = np.arange(256, dtype=np.uint8).reshape(16, 16)
+    buffer = np.empty((16, 16, 3), dtype=np.uint8)
+
+    drawn = capture_overlays.transform_to_bullseye(frame, out=buffer)
+
+    assert drawn is buffer
+    assert np.array_equal(drawn, capture_overlays.BULLSEYE_LUT[frame])
+    misfit = np.empty((8, 8, 3), dtype=np.uint8)
+    assert capture_overlays.transform_to_bullseye(frame, out=misfit) is not misfit

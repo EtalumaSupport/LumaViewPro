@@ -2,6 +2,7 @@
 
 from collections import deque
 
+import cv2
 import numpy as np
 
 # The most the stretch multiplies an image by. A near-flat frame (a field
@@ -72,7 +73,9 @@ class ContrastStretcher:
         # full-frame array each display tick (~3.6 MB at 1900x1900, ~108 MB/s
         # at 30 fps when histogram-eq is on). Reuse is safe: the sole consumer
         # (scope_display) copies the result to bytes before the next update()
-        # overwrites it, and update() runs on a single thread.
+        # overwrites it, and update() runs on a single thread. OpenCV's table
+        # lookup gives the same pixels as indexing the LUT at about a fortieth
+        # of the cost, on every displayed frame while histogram-eq is on.
         if self._out_buf is None or self._out_buf.shape != image.shape:
             self._out_buf = np.empty(image.shape, dtype=np.uint8)
-        return np.take(lut, image, out=self._out_buf)
+        return cv2.LUT(image, lut, dst=self._out_buf)

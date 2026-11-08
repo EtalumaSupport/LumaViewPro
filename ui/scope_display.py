@@ -120,7 +120,6 @@ class ScopeDisplay(Image):
         self._camera_presence_posted = None
 
         self._bullseye_rgb_buf = None
-        self._bullseye_buf_shape = None
 
         # Reusable 8-bit LUT destination for the preview 12->8 conversion;
         # (re)allocated lazily to match the frame in _render_one_frame.
@@ -453,11 +452,9 @@ class ScopeDisplay(Image):
     transform_to_bullseye = staticmethod(capture_overlays.transform_to_bullseye)
 
     def transform_to_bullseye_prealloc(self, image):
-        target_shape = (*image.shape, 3)
-        if self._bullseye_rgb_buf is None or self._bullseye_buf_shape != image.shape:
-            self._bullseye_rgb_buf = np.empty(target_shape, dtype=np.uint8)
-            self._bullseye_buf_shape = image.shape
-        np.take(capture_overlays.BULLSEYE_LUT, image, axis=0, out=self._bullseye_rgb_buf)
+        self._bullseye_rgb_buf = capture_overlays.transform_to_bullseye(
+            image, out=self._bullseye_rgb_buf
+        )
         return self._bullseye_rgb_buf
 
     def _record_frame_interval(self, cycle_start, intentional_wait_ms):
@@ -739,7 +736,6 @@ class ScopeDisplay(Image):
                 # camera resolution doesn't retain the old allocation
                 # (swapping 2K->4K->2K otherwise leaks ~60 MB per cycle).
                 self._bullseye_rgb_buf = None
-                self._bullseye_buf_shape = None
                 self._display_8bit_buf = None
                 # A reconnected camera's handler counts its frames from one
                 # again, so the last ordinal shown names no frame of it.

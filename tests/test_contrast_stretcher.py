@@ -119,9 +119,10 @@ class TestGainCap:
 
 
 class TestLutApplyBufferReuse:
-    """The LUT is applied into a reused scratch (np.take out=) instead of a
-    fresh per-frame array. The result must still equal fancy-indexing the
-    built LUT, and the scratch must resize when the frame shape changes."""
+    """The LUT is applied into a reused scratch instead of a fresh per-frame
+    array. The result must still equal fancy-indexing the built LUT, for a
+    frame of any memory layout, and the scratch must resize when the frame
+    shape changes."""
 
     def test_output_equals_lut_applied(self):
         cs = ContrastStretcher(window_len=3, bottom_pct=2, top_pct=2)
@@ -137,3 +138,18 @@ class TestLutApplyBufferReuse:
         out_b = cs.update(b)
         assert out_b.shape == b.shape
         assert np.array_equal(out_b, cs._lut[b])
+
+    def test_a_view_of_any_layout_is_stretched_as_its_pixels(self):
+        frame = np.random.default_rng(3).integers(0, 256, (61, 47), dtype=np.uint8)
+        views = {
+            'strided': frame[::2, ::3],
+            'reversed': frame[::-1],
+            'fortran': np.asfortranarray(frame),
+            'one pixel': frame[:1, :1],
+        }
+        wrong = []
+        for name, view in views.items():
+            cs = ContrastStretcher(window_len=3, bottom_pct=2, top_pct=2)
+            if not np.array_equal(cs.update(view), cs._lut[view]):
+                wrong.append(name)
+        assert wrong == []

@@ -4,11 +4,13 @@ crosshairs.
 
 They live here, below the GUI, because the saved overlay copy is part of
 what a capture produces: a script or a REST caller asking for it gets the
-same pixels the Capture button does. The live view draws its own bullseye
-into a reused buffer (``ScopeDisplay.transform_to_bullseye_prealloc``) from
-the same table, so the screen and the file cannot disagree about the map.
+same pixels the Capture button does. The live view draws its bullseye with
+the same renderer into a reused buffer
+(``ScopeDisplay.transform_to_bullseye_prealloc``), so the screen and the
+file cannot disagree about the map.
 """
 
+import cv2
 import numpy as np
 import skimage.draw
 
@@ -44,9 +46,25 @@ def _build_bullseye_lut() -> np.ndarray:
 BULLSEYE_LUT = _build_bullseye_lut()
 
 
-def transform_to_bullseye(image: np.ndarray) -> np.ndarray:
-    """The 8-bit mono ``image`` mapped through the bullseye table, as RGB."""
-    return BULLSEYE_LUT[image]
+# The table as OpenCV applies it to a 3-channel image, one entry per plane.
+_BULLSEYE_LUT_PLANES = BULLSEYE_LUT.reshape(256, 1, 3)
+
+
+def transform_to_bullseye(image: np.ndarray, out: np.ndarray | None = None) -> np.ndarray:
+    """The 8-bit mono ``image`` mapped through the bullseye table, as RGB.
+
+    Args:
+        image: The 2D uint8 frame.
+        out: A C-contiguous ``(H, W, 3)`` uint8 array to draw into, reused
+            across frames; another shape or layout is not used.
+    """
+    shape = (*image.shape, 3)
+    if out is None or out.shape != shape or out.dtype != np.uint8 or not out.flags.c_contiguous:
+        out = np.empty(shape, dtype=np.uint8)
+    # The mono in all three planes, then the table per plane: one interleaved
+    # pass each, about a fifteenth of indexing the table by every pixel.
+    cv2.merge([image, image, image], dst=out)
+    return cv2.LUT(out, _BULLSEYE_LUT_PLANES, dst=out)
 
 
 def add_crosshairs(image: np.ndarray) -> np.ndarray:
