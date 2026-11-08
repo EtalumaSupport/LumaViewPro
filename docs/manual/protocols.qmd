@@ -146,6 +146,12 @@ channel: Change on a slice with another channel shown is refused.
 
 To change only a step's focus, select it, focus, and click
 [Save Focus]{.guilabel} in its channel's drawer (@sec-channel-focus).
+On a slice of a Z-stack, a focus saved this way, or by
+[Change]{.guilabel}, is used only while the channel's
+[Auto Focus]{.guilabel} is off. With it on, the run places the whole stack
+around the focus it finds (@sec-protocol-autofocus-all), every slice at its
+spacing from the slice the stack was placed against, in place of the
+slices' saved focus.
 
 [Delete]{.guilabel} deletes the selected step and selects the one before
 it. To delete many steps at once, see @sec-protocol-file.
