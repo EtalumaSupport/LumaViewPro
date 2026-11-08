@@ -6,8 +6,8 @@ it. The writer used to find the display by reading the GUI's application
 context from inside the engine; then it called a hold hook the GUI handed in
 by name. Now the run publishes ``frame_captured(image, frames_summed,
 frame_significant_bits)`` once the frame's write is the batch's, and every GUI
-run starter subscribes ``show_captured_frame``, which renders the frame and
-holds it. The engine names no display. The dead ``update_scope_display``
+run starter subscribes ``show_captured_frame``, which hands the frame to the
+display to render on its own thread and hold. The engine names no display. The dead ``update_scope_display``
 field, which nothing read, stays gone.
 """
 
@@ -212,9 +212,9 @@ class TestTheGuiHandlerLooksTheDisplayUpLate:
 
         show_captured_frame(image, 1, 8)
 
-        ((held, bits), _kw) = display.hold_protocol_saved_image.call_args
-        assert bits == 8 and held.dtype == np.uint8
-        assert np.array_equal(held, image)
+        ((held, frames_summed, bits), _kw) = display.hold_protocol_saved_image.call_args
+        assert held is image, 'the frame is handed over as saved, unrendered'
+        assert (frames_summed, bits) == (1, 8)
 
 
 def _subscribes_the_handler(call: ast.Call) -> bool:
@@ -301,8 +301,10 @@ class TestEveryGuiRunStarterSubscribesTheHandler:
         )
 
 
-class TestTheHoldShowsASumAsItIsShown:
-    def test_a_sum_reaches_the_display_rendered_against_one_frames_white(self, monkeypatch):
+class TestTheHoldGetsASumWithItsCount:
+    def test_a_sum_reaches_the_display_with_its_count_and_frame_depth(self, monkeypatch):
+        """The display renders a sum against one frame's white, so it is
+        handed the sum as captured, how many frames it holds and their depth."""
         from ui.ui_helpers import show_captured_frame
 
         display = MagicMock()
@@ -316,6 +318,6 @@ class TestTheHoldShowsASumAsItIsShown:
 
         _capture_one_still(writer)
 
-        ((image, bits), _kw) = display.hold_protocol_saved_image.call_args
-        assert image.dtype == np.uint8 and bits == 8
-        assert int(image.min()) == 255
+        ((image, frames_summed, bits), _kw) = display.hold_protocol_saved_image.call_args
+        assert image.dtype == np.uint16 and int(image.min()) == 255
+        assert (frames_summed, bits) == (3, 8)

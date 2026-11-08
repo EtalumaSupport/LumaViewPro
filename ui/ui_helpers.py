@@ -25,7 +25,6 @@ from _lumascope.modules.run_events import VideoPhase
 import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.config_helpers as config_helpers
-import _lumascope.modules.image_utils as image_utils
 
 if typing.TYPE_CHECKING:
     from _lumascope.modules.coord_transformations import PlateLocation
@@ -391,13 +390,13 @@ def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited:
 def show_captured_frame(image, frames_summed: int, frame_significant_bits: int) -> None:
     """Every GUI run's ``frame_captured``: hold the frame a run just captured on screen.
 
-    Rendered as a JPG save renders it -- a sum against one frame's white,
-    brighter -- on the run's thread, where the engine delivers the event, so
-    the display only uploads the result. The display is looked up when the
-    frame arrives, not when the run starts.
+    On the run's thread, where the engine delivers the event; the display
+    renders the frame on its own thread, so the run does not wait for it.
+    The display is looked up when the frame arrives, not when the run starts.
     """
-    rendered = image_utils.convert_sum_to_8bit(image, frames_summed, frame_significant_bits)
-    _app_ctx.ctx.scope_display.hold_protocol_saved_image(rendered, 8)
+    _app_ctx.ctx.scope_display.hold_protocol_saved_image(
+        image, frames_summed, frame_significant_bits
+    )
 
 
 def restore_display_after_run(*_ended) -> None:

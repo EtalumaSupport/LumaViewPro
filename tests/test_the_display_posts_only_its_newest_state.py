@@ -8,7 +8,8 @@ on the UI thread: 0.7M to 74M objects, 8.7 GB, and 10,451 indicator lines
 replayed in under a second when it ran again. Each kind of update the
 display posts now has one pending callback, running the newest state.
 
-A saved protocol frame is posted from the run's thread. A live frame already
+A saved protocol frame is handed over on the run's thread and rendered and
+posted on the display thread, the newest only. A live frame already
 rendering when the hold began was posted after it and drawn over it; a live
 blit now draws nothing while the hold is in force.
 """
@@ -26,6 +27,7 @@ import pytest
 from _lumascope.lib.build_files import build_file
 from _lumascope.modules.ui_queue import UiDispatcher, ui_backlog
 from _lumascope.modules.lumascope_api._lumascope import Lumascope
+from _lumascope.modules.scope_display_thread import STATUS_NOT_READY
 from _lumascope.modules.scope_session import ScopeSession
 from ui.scope_display import ScopeDisplay
 
@@ -177,10 +179,59 @@ def _drawn(display):
     return display._mono_texture.blit_buffer.call_args.args[0]
 
 
-def test_a_saved_frame_is_not_drawn_over_by_a_live_one_during_its_hold(gui_ctx, display, held):
+class _NoLiveView:
+    # a stand-in by design: the subject is the held frame the display thread
+    # renders; a live render would post frames of its own.
+    def _render_one_frame(self, **_kwargs):
+        return STATUS_NOT_READY
+
+
+_RENDER_WAIT_S = 10.0
+
+
+def _render_held(gui_ctx, display, monkeypatch):
+    """Run the display thread until it has posted the held frame handed to it, then stop it."""
+    posted = threading.Event()
+    post = display.post_held_frame
+
+    def posting(show):
+        post(show)
+        posted.set()
+
+    monkeypatch.setattr(display, 'post_held_frame', posting)
+    thread = gui_ctx.scope_display_thread
+    thread.start(_NoLiveView(), fps=30)
+    try:
+        assert posted.wait(_RENDER_WAIT_S), 'the display thread posted no held frame'
+    finally:
+        thread.stop()
+        monkeypatch.setattr(display, 'post_held_frame', post)
+
+
+def test_the_run_thread_only_hands_its_saved_frame_over(gui_ctx, display, held):
+    """The hold starts on the run's thread; nothing is rendered or posted there."""
+    display._PROTOCOL_HOLD_MS = 60_000
+    display.hold_protocol_saved_image(_frame(5), 1, 8)
+    assert ui_backlog() == 0, 'the saved frame was rendered on the run thread'
+    assert gui_ctx.scope_display_thread.protocol_hold_in_force
+
+
+def test_a_sum_is_shown_against_one_frames_white(gui_ctx, display, held, monkeypatch):
+    display._PROTOCOL_HOLD_MS = 60_000
+    summed = np.full((4, 4), 255, dtype=np.uint16)
+    display.hold_protocol_saved_image(summed, 3, 8)
+    _render_held(gui_ctx, display, monkeypatch)
+    held.run()
+    assert _drawn(display) == np.full((4, 4), 255, dtype=np.uint8).tobytes()
+
+
+def test_a_saved_frame_is_not_drawn_over_by_a_live_one_during_its_hold(
+    gui_ctx, display, held, monkeypatch
+):
     display._PROTOCOL_HOLD_MS = 60_000
     for value in range(50):
-        display.hold_protocol_saved_image(_frame(value), 8)
+        display.hold_protocol_saved_image(_frame(value), 1, 8)
+    _render_held(gui_ctx, display, monkeypatch)
     assert ui_backlog() == 1, f'{ui_backlog()} saved frames pending'
 
     # A live frame already rendering when the hold began is posted after
@@ -202,7 +253,9 @@ def test_a_saved_frame_is_not_drawn_over_by_a_live_one_during_its_hold(gui_ctx, 
     assert _drawn(display) == _frame(201).tobytes()
 
 
-def test_a_saved_frame_and_derived_images_wait_as_one_held_frame(gui_ctx, display, held):
+def test_a_saved_frame_and_derived_images_wait_as_one_held_frame(
+    gui_ctx, display, held, monkeypatch
+):
     # Post-processing's derived images and a run's saved frames are one state:
     # each waiting post holds a whole image, so only the newest waits.
     import ui.post_processing as post_processing
@@ -211,7 +264,8 @@ def test_a_saved_frame_and_derived_images_wait_as_one_held_frame(gui_ctx, displa
     shown = []
     # a stand-in by design: the draw is Kivy's texture upload; the subject is the post.
     display.hold_derived_image = lambda image, bits: shown.append(int(image[0, 0]))
-    display.hold_protocol_saved_image(_frame(1), 8)
+    display.hold_protocol_saved_image(_frame(1), 1, 8)
+    _render_held(gui_ctx, display, monkeypatch)
     for value in range(50):
         post_processing.QuickEnhanceControls._queue_derived_image(None, _frame(value), 8)
     assert ui_backlog() == 1, f'{ui_backlog()} held frames pending'
@@ -219,12 +273,13 @@ def test_a_saved_frame_and_derived_images_wait_as_one_held_frame(gui_ctx, displa
     assert shown == [49]
 
 
-def test_a_saved_frame_is_held_its_whole_time_from_its_draw(gui_ctx, display, held):
-    # The hold began on the run's thread when the frame was posted, so the
-    # time the post waited for a slow UI thread came out of it: here all of
-    # it. Counted from the draw, the frame is held its whole time.
+def test_a_saved_frame_is_held_its_whole_time_from_its_draw(gui_ctx, display, held, monkeypatch):
+    # The hold began on the run's thread when the frame was handed over, so
+    # the time the post waited for a slow UI thread came out of it: here all
+    # of it. Counted from the draw, the frame is held its whole time.
     display._PROTOCOL_HOLD_MS = 0
-    display.hold_protocol_saved_image(_frame(7), 8)
+    display.hold_protocol_saved_image(_frame(7), 1, 8)
+    _render_held(gui_ctx, display, monkeypatch)
     assert not gui_ctx.scope_display_thread.protocol_hold_in_force
     display._PROTOCOL_HOLD_MS = 60_000
     held.run()

@@ -443,3 +443,80 @@ def test_widget_start_delegate_silently_noops_when_thread_missing():
             thread.start(fps=30)  # never reached
     finally:
         _app_ctx.ctx = saved_ctx
+
+
+# ---- held renders: a run's saved frame rendered on this thread ----
+
+_HELD_WAIT_S = 5.0
+
+
+def _recording_render(ran, done=None):
+    def render():
+        ran.append(threading.current_thread().name)
+        if done is not None:
+            done.set()
+
+    return render
+
+
+def test_a_held_render_runs_on_the_display_thread_and_only_the_newest():
+    """A run's thread hands its saved frame's render over and goes on; a newer
+    one handed over before the first ran replaces it."""
+    t, widget = _make_thread(status_sequence=[STATUS_EMPTY])
+    older, newer = [], []
+    done = threading.Event()
+    t.render_held(_recording_render(older), category='frame_captured')
+    t.render_held(_recording_render(newer, done), category='frame_captured')
+    assert (older, newer) == ([], []), 'a held render ran on the thread that handed it over'
+
+    t.start(widget, fps=30)
+    try:
+        assert done.wait(_HELD_WAIT_S), 'the held render never ran'
+    finally:
+        t.stop()
+    assert (older, newer) == ([], ['scope_display_thread'])
+
+
+def test_a_held_render_ends_a_hold_wait_and_runs_while_paused():
+    """The loop sleeps through a saved frame's hold and through a pause; a
+    held render handed over then runs at once, not when either ends."""
+    t, widget = _make_thread(status_sequence=[STATUS_EMPTY])
+    t.start(widget, fps=30)
+    try:
+        t.bump_protocol_hold(600.0)
+        held_ran, held_done = [], threading.Event()
+        t.render_held(_recording_render(held_ran, held_done), category='frame_captured')
+        assert held_done.wait(_HELD_WAIT_S), 'a held render waited out the hold'
+
+        t.pause()
+        paused_ran, paused_done = [], threading.Event()
+        t.render_held(_recording_render(paused_ran, paused_done), category='frame_captured')
+        assert paused_done.wait(_HELD_WAIT_S), 'a held render waited for the pause to end'
+    finally:
+        t.stop()
+
+
+def test_a_failed_held_render_is_reported_once_unasked(monkeypatch):
+    from _lumascope.modules.notification_center import notifications
+
+    reported = []
+    done = threading.Event()
+
+    def report(exc, **kwargs):
+        reported.append((exc, kwargs))
+        done.set()
+
+    monkeypatch.setattr(notifications, 'report_outcome', report)
+    failure = RuntimeError('render failed')
+
+    def render():
+        raise failure
+
+    t, widget = _make_thread(status_sequence=[STATUS_EMPTY])
+    t.render_held(render, category='frame_captured')
+    t.start(widget, fps=30)
+    try:
+        assert done.wait(_HELD_WAIT_S), 'the failed render was not reported'
+    finally:
+        t.stop()
+    assert reported == [(failure, {'solicited': False, 'category': 'frame_captured'})]

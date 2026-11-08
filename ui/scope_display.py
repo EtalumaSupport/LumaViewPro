@@ -1117,44 +1117,45 @@ class ScopeDisplay(Image):
             self._count_display_fps()
         # _schedule_next retired; ScopeDisplayThread loop owns pacing.
 
-    def hold_protocol_saved_image(self, image, significant_bits):
-        """Show the most-recent protocol-saved image and hold it.
+    def hold_protocol_saved_image(self, image, frames_summed, frame_significant_bits):
+        """Show the most-recent protocol-saved image and hold it; on the run's thread, which goes on.
 
         Called by the GUI's ``frame_captured`` handler on the run's thread,
-        once a captured frame's write has been handed to the run's writer,
-        with the frame rendered to 8 bits as a JPG save renders it. Pushes
-        the captured frame to the
-        display texture (so the user sees the actual saved frame, not
-        a stale live grab) and bumps the hold deadline to ``now +
-        PROTOCOL_HOLD_MS`` so the live preview's pull loop pauses long
-        enough for the save to be visible. The next protocol save bumps
-        the deadline forward again -- there's no added delay anywhere,
-        only a minimum-visible-time floor on the most-recent saved
-        frame.
+        once a captured frame's write has been handed to the run's writer.
+        Bumps the hold deadline to ``now + PROTOCOL_HOLD_MS`` so the live
+        preview's pull loop pauses long enough for the save to be visible,
+        and hands the render to the display thread, so the run does not
+        wait for it: there the frame is rendered to 8 bits as a JPG save
+        renders it and pushed to the display texture (the user sees the
+        actual saved frame, not a stale live grab). A run that saves faster
+        than the display renders has only its newest frame rendered. The
+        next protocol save bumps the deadline forward again -- there's no
+        added delay anywhere, only a minimum-visible-time floor on the
+        most-recent saved frame.
 
         Args:
-            image: numpy.ndarray, the captured frame in 8-bit or wider
-                grayscale (matching what was saved). The display is
-                luminance-only; if the array is wider than 8 bits, we
-                convert with the same LUT the live path uses.
-            significant_bits: Payload depth of ``image`` so the downconvert
-                scales against the real range (a summed 16-bit frame is not
-                indexed as 12-bit out of range).
+            image: numpy.ndarray, the captured frame as saved, read-only.
+            frames_summed: How many frames ``image`` holds; a sum is shown
+                against one frame's white, brighter.
+            frame_significant_bits: The depth of each frame, as delivered.
         """
         if image is None or getattr(image, 'size', 0) == 0:
             return
-        import _lumascope.modules.image_utils as _image_utils
-
-        arr = image
-        if arr.dtype != np.uint8:
-            arr = _image_utils.convert_to_8bit(arr, significant_bits)
-        shape = arr.shape
-        data = arr.tobytes()
-        gen = self._current_generation()
         # Held from the post as well as the draw: a live frame already
         # rendering when the hold began is posted after this one, and the
         # live blit draws nothing while the hold is in force.
         self._hold_from_now()
+        _app_ctx.ctx.scope_display_thread.render_held(
+            lambda: self._show_saved_frame(image, frames_summed, frame_significant_bits),
+            category='frame_captured',
+        )
+
+    def _show_saved_frame(self, image, frames_summed, frame_significant_bits):
+        """Render a run's saved frame as a JPG save renders it and post it; on the display thread."""
+        arr = image_utils.convert_sum_to_8bit(image, frames_summed, frame_significant_bits)
+        shape = arr.shape
+        data = arr.tobytes()
+        gen = self._current_generation()
         self.post_held_frame(
             lambda b=data, s=shape, g=gen: self.create_and_set_texture(
                 b, s, generation=g, live=False

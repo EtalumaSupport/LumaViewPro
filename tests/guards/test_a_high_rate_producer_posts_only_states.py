@@ -26,6 +26,7 @@ from tests.ast_seams import Words, parse_module, walk_defs
 _PRODUCERS = (
     ('ui/scope_display.py', 'ScopeDisplay._render_one_frame'),
     ('ui/scope_display.py', 'ScopeDisplay.hold_protocol_saved_image'),
+    ('ui/scope_display.py', 'ScopeDisplay._show_saved_frame'),
     ('ui/ui_helpers.py', 'show_captured_frame'),
     ('ui/post_processing.py', 'QuickEnhanceControls._queue_derived_image'),
     ('ui/listener_bridge.py', 'UIListenerBridge._on_position_change'),

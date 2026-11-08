@@ -4,10 +4,11 @@
 """ScopeDisplayThread -- dedicated long-lived thread that paces the
 live-display refresh loop.
 
-Replaces the queue-of-1 SequentialIOExecutor pattern that hosted Bug
-E's orphan-submit retention. The thread owns the FPS-paced loop;
-calls the widget's _render_one_frame(...) per iteration; sleeps via
-_stop_event.wait(timeout=...) for responsive shutdown.
+Replaces a queue-of-1 SequentialIOExecutor, which retained orphaned
+submits. The thread owns the FPS-paced loop; calls the widget's
+_render_one_frame(...) per iteration; renders a held frame handed to it
+before each; and sleeps on one wake event that stop and a held frame
+both set, so neither waits out a pause, a hold or the pacing.
 
 Public API:
   start(renderer, fps)  -- spawn thread, begin rendering through renderer
@@ -21,6 +22,9 @@ Public API:
   bump_protocol_hold(hold_seconds)
                         -- protocol-side bumps the hold deadline so
                            the saved frame stays on screen
+  render_held(render, category)
+                        -- render a held frame on this thread, the
+                           newest only, its failure reported once
   protocol_hold_in_force
                         -- whether that deadline is still ahead; a live
                            blit run during it draws nothing
@@ -35,6 +39,8 @@ import threading
 import time
 from collections.abc import Callable
 from typing import Any
+
+from _lumascope.modules.notification_center import notifications
 
 
 logger = logging.getLogger('LVP.modules.scope_display_thread')
@@ -81,6 +87,9 @@ class ScopeDisplayThread:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._paused = threading.Event()
+        # Set by stop() and by render_held(), so every wait of the loop
+        # ends at once for either.
+        self._wake = threading.Event()
 
         # All UI-published volatile state lives under this lock.
         # The loop reads the snapshot once per iteration; UI publishers
@@ -91,6 +100,9 @@ class ScopeDisplayThread:
         self._fps: int = 30
         self._min_frame_interval: float = 1.0 / 30
         self._protocol_hold_until: float = 0.0
+        # The newest held frame's render not yet run, and the category its
+        # failure is reported under; a newer one replaces it.
+        self._held_render: tuple[Callable[[], None], str] | None = None
 
         # Wall-clock the loop deliberately spent NOT rendering (protocol /
         # derived-image holds, user pause) since the last _render_one_frame
@@ -135,6 +147,7 @@ class ScopeDisplayThread:
 
     def stop(self, timeout: float = 2.0) -> None:
         self._stop_event.set()
+        self._wake.set()
         # Wake the loop if it's in a pause-wait or hold-wait.
         self._paused.clear()
         t = self._thread
@@ -173,6 +186,24 @@ class ScopeDisplayThread:
         Loop honors the deadline and resumes after it expires."""
         with self._config_lock:
             self._protocol_hold_until = time.monotonic() + hold_seconds
+
+    def render_held(self, render: Callable[[], None], category: str) -> None:
+        """Run ``render`` on this thread at its next turn, in place of any not yet run; from any thread.
+
+        A held frame (a run's saved still) is rendered here, not on the
+        thread that sends it, so a run's thread hands it over and goes on.
+        A sender faster than the renders replaces the one waiting, so only
+        the newest is rendered. It runs whether or not the live view is
+        paused, and waits for ``start`` when the loop is not running.
+
+        Args:
+            render: Renders the frame and posts it to the UI thread.
+            category: What a failure of ``render`` is reported as, once and
+                unasked, through ``report_outcome``.
+        """
+        with self._config_lock:
+            self._held_render = (render, category)
+        self._wake.set()
 
     # ---- listeners ----
 
@@ -218,14 +249,33 @@ class ScopeDisplayThread:
 
     # ---- loop ----
 
+    def _wait(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` s, ended early by stop or a held render; True once stopped."""
+        self._wake.wait(timeout=timeout)
+        self._wake.clear()
+        return self._stop_event.is_set()
+
+    def _run_held_render(self) -> None:
+        with self._config_lock:
+            held, self._held_render = self._held_render, None
+        if held is None:
+            return
+        render, category = held
+        try:
+            render()
+        except Exception as ex:
+            notifications.report_outcome(ex, solicited=False, category=category)
+
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
+            self._run_held_render()
+
             # Pause-wait: short tick so resume is responsive without
-            # busy-looping. _stop_event.wait returns True if stop was
-            # signalled; break out of pause + loop on that.
+            # busy-looping. _wait returns True if stop was signalled;
+            # break out of pause + loop on that.
             if self._paused.is_set():
                 pause_wait_start = time.monotonic()
-                if self._stop_event.wait(timeout=0.05):
+                if self._wait(0.05):
                     return
                 self._intentional_wait_s += time.monotonic() - pause_wait_start
                 continue
@@ -238,12 +288,12 @@ class ScopeDisplayThread:
                 min_frame_interval = self._min_frame_interval
                 hold_until = self._protocol_hold_until
 
-            # DISPLAY-1 protocol hold: if a saved frame should stay on
-            # screen, wait until the hold expires. Wait is responsive
-            # to stop_event (zero shutdown latency).
+            # Protocol hold: if a saved frame should stay on screen, wait
+            # until the hold expires. A stop ends the wait at once, and a
+            # held frame handed over ends it to be rendered.
             now = time.monotonic()
             if hold_until > now:
-                if self._stop_event.wait(timeout=hold_until - now):
+                if self._wait(hold_until - now):
                     return
                 self._intentional_wait_s += time.monotonic() - now
                 continue
@@ -283,7 +333,7 @@ class ScopeDisplayThread:
             # never paced below the camera rate.
             if status != STATUS_OK:
                 wait = max(wait, IDLE_BACKOFF_SECONDS)
-            if wait > 0 and self._stop_event.wait(timeout=wait):
+            if wait > 0 and self._wait(wait):
                 return
 
         logger.info('scope_display_thread exiting')

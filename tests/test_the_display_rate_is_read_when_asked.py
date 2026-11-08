@@ -104,8 +104,7 @@ class TestTheRateIsTheLastSecondsDraws:
         assert display.display_fps() == 0
 
     def test_a_saved_image_put_on_the_screen_is_not_a_live_frame(self, display, clock):
-        # With no UI dispatcher set, the hold's blit runs at once.
         image = np.zeros((4, 4), dtype=np.uint8)
-        display.hold_protocol_saved_image(image, 8)
-        assert display.frames_shown == 1, 'the hold did not put the image on the screen'
+        display.create_and_set_texture(image.tobytes(), image.shape, generation=0, live=False)
+        assert display.frames_shown == 1, 'the held image was not put on the screen'
         assert display.display_fps() == 0
