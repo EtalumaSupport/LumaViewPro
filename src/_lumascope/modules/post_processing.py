@@ -15,6 +15,7 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 
+import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.quick_enhance as quick_enhance
@@ -421,6 +422,7 @@ class PostProcessing:
         method: CellCountMethod,
         *,
         tiling_grids: TilingGrids,
+        channel: str | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> dict:
         """Count the cells in the images directly in *path* and write
@@ -433,8 +435,13 @@ class PostProcessing:
         read and never written: a count moves no record aside and starts
         none. *tiling_grids* are the installation's, which the run's protocol
         is read against. In a folder with no run record every image is
-        counted but a Quick Enhance copy, told by its recipe beside it. Each
-        image left out is named, with why, in ``left_out`` and the message.
+        counted but a Quick Enhance copy, told by its recipe beside it. With
+        a *channel* (a release channel's key, which the caller has checked),
+        only the images taken in it are counted (``_counted_as``: the
+        channel the file states, else its record's, an old name read as the
+        channel it names today); an image of another channel, or of none, is
+        left out. Each image left out is named, with why, in ``left_out``
+        and the message.
         Rows are in the order the images were taken (``frame_time``: the
         image's own time, else its record row's), then by name; when the
         times do not compare (one missing, or offsets mixed), the images with
@@ -487,15 +494,6 @@ class PostProcessing:
                 message=str(e),
             ) from e
         recorded, left_out = _images_to_count(pathlib.Path(path), listed, run, post_rows)
-        left_out_words = '; '.join(
-            f'{name} ({_LEFT_OUT_WORDS[reason]})' for name, reason in left_out
-        )
-        if listed and not recorded:
-            raise PostProcessingRefusedError(
-                operation=CELL_COUNT_OPERATION,
-                reason='no_data',
-                message=f'No image in the folder is one to count: {left_out_words}.',
-            )
         filenames = list(recorded)
         results = []
         taken_at = {}
@@ -505,6 +503,11 @@ class PostProcessing:
             file_path = os.path.join(path, filename)
             try:
                 image, significant_bits = read_cell_count_image(file_path)
+                row = recorded[filename]
+                facts = image_utils.read_file_record(file_path)
+                if channel is not None and _counted_as(facts, row) != channel:
+                    left_out.append((filename, LeftOutReason.OTHER_CHANNEL))
+                    continue
                 _, region_info = self.preview_cell_count(
                     image=image,
                     method=method,
@@ -514,8 +517,6 @@ class PostProcessing:
                     ),
                     name=filename,
                 )
-                row = recorded[filename]
-                facts = image_utils.read_file_record(file_path)
                 # The time the image states it was taken, else its record
                 # row's, never the file system's: a copied folder's files
                 # were all made at the copy.
@@ -545,12 +546,20 @@ class PostProcessing:
             if on_progress is not None:
                 on_progress(100 * done / len(filenames), f'{done}/{len(filenames)}: {filename}')
 
+        left_out_words = '; '.join(
+            f'{name} ({_LEFT_OUT_WORDS[reason]})' for name, reason in left_out
+        )
+        left_out_sentence = f' Left out: {left_out_words}.' if left_out else ''
         if not results:
-            message = (
-                f'None of the {len(filenames)} image(s) in the folder could be counted.'
-                if filenames
-                else 'No images were found in the selected folder.'
-            )
+            if not listed:
+                message = 'No images were found in the selected folder.'
+            elif not_counted:
+                message = (
+                    f'None of the {len(filenames)} image(s) in the folder could be counted.'
+                    f'{left_out_sentence}'
+                )
+            else:
+                message = f'No image in the folder is one to count: {left_out_words}.'
             raise PostProcessingRefusedError(
                 operation=CELL_COUNT_OPERATION, reason='no_data', message=message
             )
@@ -625,7 +634,6 @@ class PostProcessing:
                 errors=not_counted,
             ) from e
 
-        left_out_sentence = f' Left out: {left_out_words}.' if left_out else ''
         if not_counted:
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
@@ -653,6 +661,7 @@ class PostProcessing:
 _LEFT_OUT_WORDS = {
     LeftOutReason.NOT_IN_RECORD: "not in the run's record",
     LeftOutReason.QUICK_ENHANCE_COPY: 'a Quick Enhance copy',
+    LeftOutReason.OTHER_CHANNEL: 'not of the channel counted',
 }
 
 
@@ -706,6 +715,22 @@ def _in_taken_order(
     return sorted(rows, key=lambda row: (taken_at[row['file']] is None, row['file']))
 
 
+def _image_channel(facts: dict | None, row: dict | None) -> str | None:
+    """The channel an image was taken in, as it names it: the one its file
+    states, else its record row's; None when neither states one."""
+    stated = facts.get('channel') if facts is not None else None
+    if stated is None and row is not None:
+        return row['channel']
+    return stated
+
+
+def _counted_as(facts: dict | None, row: dict | None) -> str | None:
+    """The release channel an image counts as: its channel, an old name
+    (an old run's ``Blue``) read as the channel it names today."""
+    channel = _image_channel(facts, row)
+    return None if channel is None else channel_record.stored_key(channel)
+
+
 def _where_taken(facts: dict | None, row: dict | None) -> dict:
     """Where an image was taken, as ``results.csv`` writes it.
 
@@ -721,9 +746,7 @@ def _where_taken(facts: dict | None, row: dict | None) -> dict:
     stated = facts if facts is not None else {}
     plate = stated.get('plate')
     well = plate.get('well_label') if plate is not None else None
-    channel = stated.get('channel')
-    if channel is None and row is not None:
-        channel = row['channel']
+    channel = _image_channel(facts, row)
     z = stated.get('z_pos_um')
     return {
         'well': '' if well is None else well,

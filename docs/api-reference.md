@@ -4356,6 +4356,7 @@ def count_cells(
     folder: FilePath,
     *,
     method: CellCountMethod,
+    channel: str | None = None,
     on_progress: ProgressCallback | None = None,
 ) -> CellCountResult
 ```
@@ -4376,6 +4377,7 @@ name.
 
 - `folder`: The folder of images to count; a `results.csv` and `results_method.json` already there are replaced only once both new ones are written whole.
 - `method`: The cell-count method to count by.
+- `channel`: The one channel to count, by its key; None counts every channel. An image is of the channel its file states, else its run record's, an old run's name (`Blue`) read as the channel it names today; one of another channel, or of none, is left out.
 - `on_progress`: Called with a percentage and what the count is doing, from the thread it runs on; None for no progress.
 
 **Returns**
@@ -4384,13 +4386,14 @@ The results table, the method file, how many images were counted, each image lef
 
 **Raises**
 
+- `ArgumentRefusedError`: `'channel_unknown'`, *channel* is not one of this release's channels, before the count is queued.
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *folder*; `'not_a_folder'`, a file is.
 - `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; `'protocol_data_unreadable'`, the run's record, its protocol or its post-processing record cannot be read, or the protocol is gone; or the folder has nothing to count (reason `no_data`).
 - `PostProcessingFailedError`: the results or the method could not be written, or some images could not be counted; the results hold every image that was, and the error names the rest.
 
 **Refusals by REST status**
 
-- 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `method_invalid`, `protocol_data_unreadable`, `no_data`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `method_invalid`, `protocol_data_unreadable`, `no_data`
 - 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
 <a id="PostProcessingAPI.default_cell_count_method"></a>
@@ -13737,10 +13740,12 @@ Why a cell count left out an image in the folder it counted.
 `NOT_IN_RECORD`: the folder is a run's, and its record names no
 capture or build that wrote the image. `QUICK_ENHANCE_COPY`: the
 image is a Quick Enhance copy, told by its recipe beside it, in a folder
-with no run record.
+with no run record. `OTHER_CHANNEL`: the count was of one channel, and
+the image was taken in another, or states none.
 
 - `not_in_record`
 - `quick_enhance_copy`
+- `other_channel`
 
 <a id="LightTiming"></a>
 ### `lumascope.LightTiming`

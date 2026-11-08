@@ -2629,11 +2629,13 @@ class LeftOutReason(StrEnum):
     ``NOT_IN_RECORD``: the folder is a run's, and its record names no
     capture or build that wrote the image. ``QUICK_ENHANCE_COPY``: the
     image is a Quick Enhance copy, told by its recipe beside it, in a folder
-    with no run record.
+    with no run record. ``OTHER_CHANNEL``: the count was of one channel, and
+    the image was taken in another, or states none.
     """
 
     NOT_IN_RECORD = 'not_in_record'
     QUICK_ENHANCE_COPY = 'quick_enhance_copy'
+    OTHER_CHANNEL = 'other_channel'
 
 
 @api_fields('excluded_inputs')

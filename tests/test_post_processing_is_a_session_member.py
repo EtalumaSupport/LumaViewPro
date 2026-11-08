@@ -217,14 +217,20 @@ def test_no_playback_rate_leaves_the_recordings_own_rate_to_the_build(
     assert seen['enable_timestamp_overlay'] is False
 
 
-def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch, tmp_path):
+def test_a_cell_count_takes_the_callers_method_channel_and_progress(session, monkeypatch, tmp_path):
     from _lumascope.modules.cell_count_method import CellCountMethod
     from _lumascope.modules.post_processing import PostProcessing
 
     seen = {}
 
-    def record(self, path, method, *, tiling_grids, on_progress=None):
-        seen.update(path=path, method=method, tiling_grids=tiling_grids, on_progress=on_progress)
+    def record(self, path, method, *, tiling_grids, channel, on_progress=None):
+        seen.update(
+            path=path,
+            method=method,
+            tiling_grids=tiling_grids,
+            channel=channel,
+            on_progress=on_progress,
+        )
         seen['lane'] = getattr(sie._lane_worker, 'executor', None)
         return {
             'message': 'counted',
@@ -243,7 +249,7 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
         told.append((percent, text))
 
     assert session.post_processing.count_cells(
-        tmp_path, method=method, on_progress=progress
+        tmp_path, method=method, channel='BF', on_progress=progress
     ) == CellCountResult(
         message='counted',
         results_path=tmp_path / 'results.csv',
@@ -252,6 +258,7 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
         left_out=(LeftOutImage(path=Path('copy.tif'), reason=LeftOutReason.NOT_IN_RECORD),),
     )
     assert seen['method'] is method
+    assert seen['channel'] == 'BF'
     # The run's protocol is read against the scope's own tiling grids.
     assert seen['tiling_grids'] is session.scope.protocols.tiling_grids()
     # What the build is handed reaches the caller's own callback.

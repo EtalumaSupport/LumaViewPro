@@ -99,6 +99,7 @@ _ROSTER = {
         'FOLDER_CHOOSE_OPEN',
     ),
     'CellCountControls.RoundedButton(apply_method_to_preview_image)': ('APPLY_METHOD_TO_PREVIEW',),
+    'CellCountControls.cell_count_channel_spinner': ('CELL_COUNT_CHANNEL',),
     'CellCountControls.cell_count_fluorescent_mode_id': ('CELL_COUNT_FLUORESCENT_MODE',),
     'CellCountControls.slider_cell_count_area_id': ('CELL_COUNT_AREA_RANGE',),
     'CellCountControls.slider_cell_count_max_intensity_id': ('CELL_COUNT_MAX_INTENSITY_RANGE',),

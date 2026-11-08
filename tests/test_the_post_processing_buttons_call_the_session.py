@@ -101,14 +101,20 @@ def test_video_hands_the_typed_rate_to_the_build_to_judge(session, typed, asked)
     )
 
 
-def test_cell_count_asks_with_the_panels_method(session):
+@pytest.mark.parametrize(
+    ('shown', 'channel'), [(post_processing.ALL_CHANNELS, None), ('BF', 'BF')]
+)  # parametrize-justified: every channel, and one, are the choice's two behaviours
+def test_cell_count_asks_with_the_panels_method_and_channel(session, shown, channel):
     method = CellCountMethod(pixels_per_um=1.0)
-    panel = SimpleNamespace(_method=method)
+    panel = SimpleNamespace(
+        _method=method,
+        ids=SimpleNamespace(cell_count_channel_spinner=SimpleNamespace(text=shown)),
+    )
     _body(post_processing.CellCountControls, 'apply_method_to_folder')(
         panel, MagicMock(), '/data/cells'
     )
     session.post_processing.count_cells.assert_called_once_with(
-        '/data/cells', method=method, on_progress=ANY
+        '/data/cells', method=method, channel=channel, on_progress=ANY
     )
 
 

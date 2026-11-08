@@ -38,7 +38,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from _lumascope.lvp_logger import logger
-from _lumascope.modules import graph_analysis, live_work, path_utils
+from _lumascope.modules import channel_record, graph_analysis, live_work, path_utils
 from _lumascope.modules.activity_claim import ActivityHolder, the_holder_named
 from _lumascope.modules.cell_count_method import CellCountMethod
 from _lumascope.modules.finite_number import is_finite_number
@@ -1348,6 +1348,7 @@ class PostProcessingAPI:
         folder: FilePath,
         *,
         method: CellCountMethod,
+        channel: str | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> CellCountResult:
         """Count the cells in the images directly in *folder* by *method*,
@@ -1365,6 +1366,11 @@ class PostProcessingAPI:
                 ``results_method.json`` already there are replaced only once
                 both new ones are written whole.
             method: The cell-count method to count by.
+            channel: The one channel to count, by its key; None counts
+                every channel. An image is of the channel its file states,
+                else its run record's, an old run's name (``Blue``) read as
+                the channel it names today; one of another channel, or of
+                none, is left out.
             on_progress: Called with a percentage and what the count is
                 doing, from the thread it runs on; None for no progress.
 
@@ -1373,6 +1379,8 @@ class PostProcessingAPI:
             counted, each image left out and why, and the outcome in words.
 
         Raises:
+            ArgumentRefusedError: ``'channel_unknown'``, *channel* is not
+                one of this release's channels, before the count is queued.
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: reason ``method_invalid``, a
@@ -1387,12 +1395,15 @@ class PostProcessingAPI:
         """
         from _lumascope.modules.post_processing import PostProcessing
 
+        if channel is not None:
+            channel_record.refuse_unknown_channel(channel)
         return self._run(
             _answering(_cell_count_result, PostProcessing().apply_cell_count_to_folder),
             'count_cells',
             folder,
             method,
             tiling_grids=self._tiling_grids,
+            channel=channel,
             operation=PostProcessingOperation.CELL_COUNT,
             saved_in=lambda result: result.results_path.parent,
             on_progress=on_progress,

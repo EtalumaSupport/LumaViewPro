@@ -231,7 +231,12 @@ method on one example image, then apply it to a folder:
    not change the outlines until you click it again.
 3. Click [Save Method As...]{.guilabel} to keep the method as a `.json`
    file, or [Load Method]{.guilabel} to use one saved before.
-4. Click [Apply Method to Folder]{.guilabel} and choose the folder to
+4. Choose the channel to count above [Apply Method to Folder]{.guilabel}:
+   All channels, or one channel, so that a method set on a BF
+   image counts only the BF images and one set on a fluorescence image
+   only that channel's. The images of other channels are left out, and
+   named.
+5. Click [Apply Method to Folder]{.guilabel} and choose the folder to
    count.
 
 The controls:

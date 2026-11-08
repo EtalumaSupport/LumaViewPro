@@ -15,7 +15,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.popup import Popup
 
 from ui.progress_popup import show_popup
-from _lumascope.modules import gui_logger
+from _lumascope.modules import common_utils, gui_logger
 from _lumascope.modules.cell_count_method import CellCountMethod, FilterBounds
 from _lumascope.modules.post_processing_api import BuildResult, CellCountSizeScale, ZProject
 from _lumascope.modules.stitch_mode import StitchMode
@@ -487,6 +487,10 @@ def _range_text(low, high, unit: str) -> str:
     return f'{text} {unit}'.strip()
 
 
+# The channel choice that counts every channel: no channel asked.
+ALL_CHANNELS = 'All channels'
+
+
 class CellCountControls(BoxLayout):
     ENABLE_PREVIEW_AUTO_REFRESH = False
 
@@ -506,6 +510,9 @@ class CellCountControls(BoxLayout):
         # preview image and the method; asked again when either's scale changes.
         self._size_scale = size_scale
         self._set_ui_to_method(self._method)
+        # The count takes every channel, or one of the release's.
+        self.ids.cell_count_channel_spinner.values = [ALL_CHANNELS, *common_utils.get_channels()]
+        self.ids.cell_count_channel_spinner.text = ALL_CHANNELS
 
     def apply_method_to_preview_image(self) -> None:
         gui_logger.button('APPLY_METHOD_TO_PREVIEW')
@@ -522,9 +529,11 @@ class CellCountControls(BoxLayout):
         popup.auto_dismiss = False
 
         method = self._method
+        shown = self.ids.cell_count_channel_spinner.text
+        channel = None if shown == ALL_CHANNELS else shown
         _run_build(
             lambda progress: _app_ctx.ctx.session.post_processing.count_cells(
-                path, method=method, on_progress=progress
+                path, method=method, channel=channel, on_progress=progress
             ),
             popup,
             'APPLY_CELL_COUNT_TO_FOLDER',

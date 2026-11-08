@@ -4405,6 +4405,22 @@
 			font_size: '12sp'
 			on_release: self.choose('load_cell_count_method')
 
+		# The channel a folder's count takes: all, or one
+		PickSpinner:
+			id: cell_count_channel_spinner
+			log_name: 'CELL_COUNT_CHANNEL'
+			text_follows_pick: True
+			sync_height: True
+			tooltip_text: 'Count the images of every channel, or of one'
+			size_hint_x: NARROW_WIDTH
+			pos_hint: {"center_x": 0.5}
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			option_cls: "SpinnerOption0"
+			values: '',
+			text: ''
+
 		# Apply method
 		FolderChooseBTN:
 			text: 'Apply Method to Folder'
