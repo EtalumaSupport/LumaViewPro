@@ -107,7 +107,8 @@ Everything is saved under the destination folder: what you take by hand in
 
 Scroll the mouse wheel over the live image to zoom in and out, and drag the
 image to move around it when zoomed. Fit and 1:1 on the toolbar set the zoom
-back. With Ctrl held, the mouse wheel moves the focus instead.
+back. With Ctrl held, the mouse wheel moves the focus instead, in fine
+steps; with Ctrl and Shift held, in coarse steps (@sec-focus-adjust).
 
 When another program takes control of the Lumascope through LumaViewPro's
 API (@sec-integrators), a banner across the top of the live image reads

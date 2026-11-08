@@ -122,8 +122,12 @@ Scale.
 When asking Etaluma for help, attach a support report. In the
 [Microscope Settings]{.guilabel} panel, [Generate Support Report]{.guilabel}
 tests the microscope and saves a zip of the results and LumaViewPro's logs
-to your desktop. On a Lumascope with motors it homes and moves the stage, so
-take any sample off the stage first. It can take a few minutes.
+to your desktop. On a Lumascope with motors it homes every axis, as
+[Home Stage]{.guilabel} does (@sec-xy-stage), and leaves them there: the focus
+near its lowest point and the turret, if there is one, at position 1. Take
+any sample off the stage first, and afterwards bring the sample back into
+focus and check which objective is in the light path. It can take a few
+minutes.
 [Zip Logs Only]{.guilabel} saves the logs alone, quickly, and moves nothing.
 
 Send the zip to Etaluma Technical Support at support@etaluma.com.
