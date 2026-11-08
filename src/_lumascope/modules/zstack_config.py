@@ -36,12 +36,15 @@ class ZStackConfig:
         # Guarding step_size alone let range=0 compute floor(0/step) + 1 == 1,
         # so a store with no extent answered "one plane" and every gate that
         # asks this count read a zero-extent stack as a configured one.
-        if self._step_size <= 0 or self._range <= 0:
+        # Counted in whole units of the Z precision: divided as floats, 0.3 /
+        # 0.1 is 2.9999999999999996, so a range that is a whole number of
+        # steps lost its top slice. A step below the precision has no extent.
+        scale = 10 ** common_utils.max_decimal_precision(parameter='z')
+        range_units = round(self._range * scale)
+        step_units = round(self._step_size * scale)
+        if step_units <= 0 or range_units <= 0:
             return 0
-
-        # int, not the np.float64 the arithmetic yields: callers render this
-        # straight into the Steps field, where a float shows as "11.0".
-        return int(np.floor(self._range / self._step_size) + 1)
+        return range_units // step_units + 1
 
     def reference_slice(self) -> int:
         """The index of the slice built at the Z the stack is built around.
