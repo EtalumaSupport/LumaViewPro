@@ -719,7 +719,7 @@ class SettingsNotSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
 
     Attributes:
         reason: ``'settings_provisional'`` -- the app is running on the
-            shipped template because the user's file could not be read, and
+            shipped template because the user's file could not be used, and
             that file is left as it is until they decide. ``'settings_unmeasured'``
             -- no hardware came up this session, so the per-channel values
             are defaults, not values measured on this scope.
@@ -732,7 +732,7 @@ class SettingsNotSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
         'settings_provisional': (
             'Settings changes are kept for this session only, not saved to {file}: '
             'LumaViewPro is running on its default settings because that file could '
-            'not be read, and it is left as it is until you decide what to do with it.'
+            'not be used, and it is left as it is until you decide what to do with it.'
         ),
         'settings_unmeasured': (
             'Settings changes are kept for this session only, not saved to {file}: no '

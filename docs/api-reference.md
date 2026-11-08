@@ -17574,7 +17574,7 @@ that it will not be there.
 
 **Attributes**
 
-- `reason`: `'settings_provisional'` -- the app is running on the shipped template because the user's file could not be read, and that file is left as it is until they decide. `'settings_unmeasured'` -- no hardware came up this session, so the per-channel values are defaults, not values measured on this scope.
+- `reason`: `'settings_provisional'` -- the app is running on the shipped template because the user's file could not be used, and that file is left as it is until they decide. `'settings_unmeasured'` -- no hardware came up this session, so the per-channel values are defaults, not values measured on this scope.
 - `file`: The file the writes would have been saved to.
 
 | Reason | Cause | REST status |
