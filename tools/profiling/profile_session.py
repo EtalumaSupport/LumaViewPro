@@ -273,15 +273,25 @@ def austin_to_folded(text: str) -> str:
 
 
 # austin's exits (austin 4.0.0 src/austin.c, error.h): its -x window ends by
-# emulating Ctrl-C, so a full recording returns -SIGINT, 254; a target that
-# exits mid-window fails its next sample and returns austin's error, as does a
-# refused attach, AUSTIN_EPERM, 2.
-_AUSTIN_RECORDED = 254
+# emulating Ctrl-C, so a full recording returns -SIGINT, 254. A target that
+# exits mid-window fails its next sample and its re-attach, and
+# do_single_process takes that OS error for the process gone and returns
+# success, so austin exits 0 with the recording up to the exit in its output.
+# A refused attach is AUSTIN_EPERM, 2.
+_AUSTIN_RECORDED = (254, 0)
 _AUSTIN_EPERM = 2
 
 
 def _recorded(sampler: str, returncode: int) -> bool:
-    return returncode == (_AUSTIN_RECORDED if sampler == AUSTIN else 0)
+    return returncode in (_AUSTIN_RECORDED if sampler == AUSTIN else (0,))
+
+
+def _still_running(pid: int) -> bool:
+    """Whether the profiled process outlived the sampler; a zombie has exited."""
+    try:
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
 
 
 def _refused_attach(sampler: str, returncode: int, stderr: str) -> bool:
@@ -303,14 +313,20 @@ def _attach_hint(host: str, is_root: bool) -> str:
     )
 
 
-def _run_sampler(sampler: str, pid: int, duration_s: int, rate_hz: int, raw_path: Path) -> None:
-    """Record the process's stacks and leave them at ``raw_path`` as folded lines."""
+def _run_sampler(sampler: str, pid: int, duration_s: int, rate_hz: int, raw_path: Path) -> float:
+    """Record the process's stacks and leave them at ``raw_path`` as folded lines.
+
+    Returns the seconds the sampler ran: the window asked for, or less when
+    the process exited inside it, whose recording up to the exit is kept.
+    """
     recorded = raw_path.with_suffix('.mojo') if sampler == AUSTIN else raw_path
+    started = time.monotonic()
     result = subprocess.run(
         _sampler_command(sampler, pid, duration_s, rate_hz, recorded),
         capture_output=True,
         text=True,
     )
+    recorded_s = time.monotonic() - started
     if not _recorded(sampler, result.returncode):
         # Surface the sampler's own reason (permission, dead pid, non-Python
         # target) instead of a bare CalledProcessError -- the failure must be
@@ -336,6 +352,7 @@ def _run_sampler(sampler: str, pid: int, duration_s: int, rate_hz: int, raw_path
             austin_to_folded(text_path.read_text(encoding='utf-8', errors='replace')),
             encoding='utf-8',
         )
+    return recorded_s
 
 
 def profile(
@@ -359,7 +376,8 @@ def profile(
         target=_sample_total_cpu, args=(pid, duration_s, cpu_samples, stop), daemon=True
     )
     cpu_thread.start()
-    _run_sampler(sampler_name, pid, duration_s, rate_hz, raw_path)
+    recorded_s = _run_sampler(sampler_name, pid, duration_s, rate_hz, raw_path)
+    target_exited = not _still_running(pid)
     stop.set()
     cpu_thread.join(timeout=3)
 
@@ -384,7 +402,11 @@ def profile(
             'sampler': sampler_name,
             'pid': pid,
             'cmdline': cmdline,
+            # The window asked for; recorded_s is how long the sampler ran,
+            # shorter when the process exited inside the window.
             'duration_s': duration_s,
+            'recorded_s': round(recorded_s, 1),
+            'target_exited': target_exited,
             'rate_hz': rate_hz,
             'total_samples': total_samples,
             'skipped_lines': skipped,
@@ -405,9 +427,14 @@ def _print_ranked(artifact: dict, top_n: int = 20) -> None:
     m = artifact['manifest']
     print(
         f'\nProfile: {m["scenario"]} | {describe_build(m)} | {m["machine"]} | {m["sampler"]}\n'
-        f'  {m["total_samples"]} samples @ {m["rate_hz"]} Hz over {m["duration_s"]}s | '
+        f'  {m["total_samples"]} samples @ {m["rate_hz"]} Hz over {m["recorded_s"]}s | '
         f'process CPU {m["total_process_cpu_pct"]:.0f}% ({m["total_process_cpu_cores"]:.2f} cores)'
     )
+    if m['target_exited']:
+        print(
+            f'  The process exited inside the {m["duration_s"]}s window; '
+            f'the recording runs to its exit.'
+        )
     if m['skipped_lines']:
         print(f'  WARNING: {m["skipped_lines"]} folded lines skipped (format drift?)')
     print(f'\n  {"self CPU%":>9}  {"ms/s":>7}  {"+-95%":>6}  function')

@@ -163,7 +163,7 @@ def test_a_profile_names_the_build_its_process_launched_with(tmp_path, monkeypat
     folder = _linked_folder(tmp_path)
     monkeypatch.setattr(
         'tools.profiling.profile_session._run_sampler',
-        lambda sampler, pid, duration_s, rate_hz, raw_path: raw_path.write_text(''),
+        lambda sampler, pid, duration_s, rate_hz, raw_path: raw_path.write_text('') or 1.0,
     )
 
     with _lumaviewpro(folder, 'banner') as pid:
@@ -293,13 +293,56 @@ def test_a_refused_attach_on_the_mac_names_its_cause_by_whether_it_ran_as_root()
     assert _attach_hint('win32', is_root=False) == ''
 
 
-def test_austin_ending_its_window_is_a_recording_and_only_its_eperm_is_a_refused_attach():
+def test_austin_ending_its_window_or_its_target_is_a_recording_and_only_its_eperm_is_a_refused_attach():
     # austin ends its -x window by emulating Ctrl-C and exits 254 (-SIGINT); a
-    # window cut short by the target's exit returns an error, not a recording.
+    # window cut short by the target's exit exits 0, the recording kept.
     assert _recorded(AUSTIN, 254)
-    assert not _recorded(AUSTIN, 0)
+    assert _recorded(AUSTIN, 0)
     assert not _recorded(AUSTIN, 2)
     assert _refused_attach(AUSTIN, 2, '')
     assert not _refused_attach(AUSTIN, 1, '')
     assert not _recorded(PY_SPY, 254)
     assert _refused_attach(PY_SPY, 1, 'This program requires root on OSX.')
+
+
+def test_a_process_that_exits_inside_the_window_keeps_its_recording_and_says_so(
+    tmp_path, monkeypatch, capsys
+):
+    """A profiled process that exits before the window ends leaves the stacks
+    recorded up to its exit: the artifact is written, states how long the
+    sampler ran rather than the window asked for, and says the process exited."""
+    target = subprocess.Popen(
+        [sys.executable, '-c', 'import sys; print("ready", flush=True); sys.stdin.readline()'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    target.stdout.readline()
+    sample = 'P7;T0:84;/w/app.py:work:12 24987\n'
+
+    # a stand-in by design: austin needs root to attach on macOS and is not run
+    # in the suite; this one does what austin 4.0.0 does when its target exits
+    # mid-window -- the samples so far in its output, exit 0.
+    def sampler_run(command, **kwargs):
+        if pathlib.Path(command[0]).name == 'mojo2austin':
+            pathlib.Path(command[2]).write_text(
+                f'# austin: 4.0.0\n# mode: cpu\n{sample}', encoding='utf-8'
+            )
+        else:
+            target.stdin.close()
+            target.wait(timeout=30)
+            pathlib.Path(command[command.index('-o') + 1]).write_bytes(b'mojo')
+        return subprocess.CompletedProcess(command, 0, '', '')
+
+    monkeypatch.setattr('tools.profiling.profile_session._sampler', lambda: AUSTIN)
+    monkeypatch.setattr('tools.profiling.profile_session._tool_path', lambda name: name)
+    monkeypatch.setattr('tools.profiling.profile_session.subprocess.run', sampler_run)
+
+    path = profile_session.profile(target.pid, 60, 50, 'early', tmp_path / 'out', None)
+
+    manifest = json.loads(path.read_text())['manifest']
+    assert manifest['total_samples'] == 1, 'the recording up to the exit is kept'
+    assert manifest['target_exited'] is True
+    assert manifest['duration_s'] == 60
+    assert manifest['recorded_s'] < 60, 'the length recorded, not the window asked for'
+    assert 'exited inside the 60s window' in capsys.readouterr().out
