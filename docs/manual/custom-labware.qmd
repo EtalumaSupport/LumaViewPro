@@ -67,6 +67,10 @@ LumaViewPro reads `labware.json` when it starts, so restart it after saving
 the file. The new labware is then in the labware list.
 
 If LumaViewPro cannot read the file, because a value is missing or not a
-number, or a comma or brace is out of place, it does not start. Put your
-saved copy back as `labware.json`, start LumaViewPro, and make the change
-again.
+number, or a comma or brace is out of place, it does not start. The reason
+is the last line of `lumaviewpro_errors.log`, in the `logs\LVP_Log` folder
+beside `data`, for example
+`Documents\LumaViewPro 4.0.0\logs\LVP_Log\lumaviewpro_errors.log`. It
+names the plate and the value LumaViewPro could not read, or the line and
+column where the file stops making sense. Put your saved copy back as
+`labware.json`, start LumaViewPro, and make the change again.
