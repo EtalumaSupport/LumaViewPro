@@ -51,11 +51,15 @@ class TestEveryRungCarriesTheModel:
         assert identity.source == 'scopes'
         assert identity.model == 'LS620'
 
-    def test_a_board_model_the_catalogue_lacks_is_carried_with_no_layers(self):
+    def test_a_board_model_the_catalogue_lacks_is_carried_with_the_stock_layers(self):
+        # An OEM unit: its board names a model no catalogue lists, and its
+        # optics are the stock module's.
         identity = _resolve(motor_model='LS9999', configured_model='LS560')
+        stock = channel_record.load_scope_models()[channel_record.STOCK_OPTICS_MODEL]
         assert identity.model == 'LS9999'
-        assert identity.channels == ()
-        assert identity.source == 'unresolved'
+        assert identity.channels == stock.channels
+        assert identity.filterset == stock.filterset
+        assert identity.source == 'stock'
 
     def test_no_model_at_all_is_the_shared_unresolved_snapshot(self):
         identity = _resolve()

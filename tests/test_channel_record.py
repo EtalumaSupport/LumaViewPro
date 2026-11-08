@@ -21,12 +21,14 @@ from _lumascope.modules.channel_record import (
     ChannelIdentity,
     ChannelRecord,
     GREY,
+    STOCK_OPTICS_MODEL,
     Background,
     IdentitySource,
     LedBoardFamily,
     Modality,
     format_display_color,
     load_channel_catalogue,
+    load_scope_models,
     output_color,
     read_scope_models,
     parse_display_color,
@@ -306,13 +308,22 @@ class TestPrecedence:
         assert identity.source == 'scopes'
         assert [r.key_name for r in identity.channels] == ['BF', LED1]
 
-    def test_motor_model_without_entry_goes_unresolved_not_configured(self, caplog, tmp_path):
-        path = write_scopes(tmp_path, {'LS560': {'Layers': LS560_ROWS}})
+    def test_motor_model_without_entry_takes_the_stock_module_not_configured(self, tmp_path):
+        # An OEM unit's board names its own model; its optics are the stock
+        # module's, never the operator's last selection.
+        path = write_scopes(
+            tmp_path,
+            {'LS560': {'Layers': LS560_ROWS}, STOCK_OPTICS_MODEL: {'Layers': LS850T_ROWS}},
+        )
         identity = resolve(path, motor_model='LS9999', configured_model='LS560')
-        assert identity.source == 'unresolved'
-        assert identity.channels == ()
+        assert identity.source == 'stock'
+        assert len(identity.channels) == 7
         assert identity.model == 'LS9999'
-        assert 'LS9999' in errors_logged(caplog)
+
+    def test_the_stock_module_is_the_shipped_templates_model(self):
+        template = read_installation_file(resolve_data_file('settings.json'))
+        assert template['microscope'] == STOCK_OPTICS_MODEL
+        assert STOCK_OPTICS_MODEL in load_scope_models()
 
     def test_nothing_resolvable_is_the_unresolved_snapshot(self, tmp_path):
         path = write_scopes(tmp_path, {})

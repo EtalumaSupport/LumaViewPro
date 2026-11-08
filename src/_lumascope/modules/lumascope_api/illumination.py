@@ -531,9 +531,10 @@ class IlluminationAPI:
         order: the board, then the model. A scope with no LED controller
         connected refuses (``not_connected``); an address off the attached
         board's table is ``led_address_unknown``; an address no channel of
-        this model drives (an LS560's 2) is ``not_on_this_scope``. A model this
-        release does not know (identity unresolved) has no channels to
-        judge an address by, so its addresses are the board's.
+        this model drives (an LS560's 2) is ``not_on_this_scope``. A scope
+        whose identity is unresolved (no model at all, or an override
+        naming a model the catalogue lacks) has no channels to judge an
+        address by, so its addresses are the board's.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or

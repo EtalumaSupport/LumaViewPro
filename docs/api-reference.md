@@ -9697,16 +9697,20 @@ The resolved per-unit identity snapshot.
 
 `source` records which rung answered: `MOTORCONFIG` (the unit's own
 block -- authoritative and complete when present), `SCOPES` (the
-model's rows -- what a pre-block unit of this model has), or
-`UNRESOLVED` (no block and no resolvable model; empty, and loud at
-the point of LED use rather than silently wrong here).
+model's rows -- what a pre-block unit of this model has), `STOCK`
+(the model is one the catalogue does not list, an OEM unit's own name,
+so the rows are those of the stock optics module, which every OEM unit
+carries), or `UNRESOLVED` (no block and no model, or an override
+naming a model the catalogue lacks; empty, and loud at the point of
+LED use rather than silently wrong here).
 
 `model` is the scope model the resolver settled on, whichever rung
 answered: the override, else the model the board reports, else the
 operator's selection -- the only identity an FX2 scope has, since it
-cannot report its own. A model the catalogue lacks is still carried,
-with no channels; `None` means there was no model at all. Every reader
-of "which model is this scope" takes it from here, so the channels, the
+cannot report its own. A model the catalogue lacks is still carried:
+with the stock module's channels, or with none when an override names
+it; `None` means there was no model at all. Every reader of "which
+model is this scope" takes it from here, so the channels, the
 capabilities and the saved files name one model.
 
 **Fields**
@@ -13658,6 +13662,7 @@ Which rung of the identity resolver answered.
 
 - `motorconfig`
 - `scopes`
+- `stock`
 - `unresolved`
 
 <a id="ImageMode"></a>

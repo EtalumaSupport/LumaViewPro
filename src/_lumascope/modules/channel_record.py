@@ -245,7 +245,14 @@ class IdentitySource(enum.StrEnum):
 
     MOTORCONFIG = 'motorconfig'
     SCOPES = 'scopes'
+    STOCK = 'stock'
     UNRESOLVED = 'unresolved'
+
+
+# The optics module every OEM unit carries: a board naming a model the
+# catalogue does not list (an OEM unit's own name) has this model's
+# channels. It is the shipped template's ``microscope``.
+STOCK_OPTICS_MODEL = 'LS850'
 
 
 @api_fields('channels', 'filterset', 'model', 'source')
@@ -255,16 +262,20 @@ class ChannelIdentity:
 
     `source` records which rung answered: ``MOTORCONFIG`` (the unit's own
     block -- authoritative and complete when present), ``SCOPES`` (the
-    model's rows -- what a pre-block unit of this model has), or
-    ``UNRESOLVED`` (no block and no resolvable model; empty, and loud at
-    the point of LED use rather than silently wrong here).
+    model's rows -- what a pre-block unit of this model has), ``STOCK``
+    (the model is one the catalogue does not list, an OEM unit's own name,
+    so the rows are those of the stock optics module, which every OEM unit
+    carries), or ``UNRESOLVED`` (no block and no model, or an override
+    naming a model the catalogue lacks; empty, and loud at the point of
+    LED use rather than silently wrong here).
 
     `model` is the scope model the resolver settled on, whichever rung
     answered: the override, else the model the board reports, else the
     operator's selection -- the only identity an FX2 scope has, since it
-    cannot report its own. A model the catalogue lacks is still carried,
-    with no channels; `None` means there was no model at all. Every reader
-    of "which model is this scope" takes it from here, so the channels, the
+    cannot report its own. A model the catalogue lacks is still carried:
+    with the stock module's channels, or with none when an override names
+    it; `None` means there was no model at all. Every reader of "which
+    model is this scope" takes it from here, so the channels, the
     capabilities and the saved files name one model.
     """
 
@@ -1132,8 +1143,10 @@ def resolve_channel_identity(
     physical filterset assembly, so merging it field-by-field with model
     data could describe hardware that does not exist); else the model's
     `scopes.json` rows, with the motor-reported model outranking the
-    configured one because hardware truth beats a user selection; else
-    the empty `unresolved` snapshot. Whichever rung answers, the snapshot
+    configured one because hardware truth beats a user selection; else,
+    for a model the catalogue does not list, the stock optics module's
+    rows (`stock`); else, with no model at all, the empty `unresolved`
+    snapshot. Whichever rung answers, the snapshot
     carries the model the resolver settled on (`ChannelIdentity.model`).
 
     A block that is absent because the board's config could not be READ
@@ -1179,9 +1192,9 @@ def resolve_channel_identity(
         return identity
 
     # The configured model is consulted only when the hardware reports no
-    # model at all. A motor-reported model with no scopes entry (a newer
-    # unit than this release knows) goes unresolved and loud rather than
-    # silently adopting whatever the user last selected.
+    # model at all. A motor-reported model with no scopes entry is an OEM
+    # unit's own name: it keeps that name and has the stock optics module's
+    # channels (source STOCK), never whatever the user last selected.
     model = motor_model or configured_model
 
     board = board_block or {}
@@ -1206,8 +1219,16 @@ def resolve_channel_identity(
     if not model:
         return UNRESOLVED
     identity = _from_model(model)
-    if identity.source == IdentitySource.UNRESOLVED:
-        logger.error(
-            f'[CHANNEL_RECORD] model {model!r} has no scopes entry; identity is unresolved'
-        )
-    return identity
+    if identity.source != IdentitySource.UNRESOLVED:
+        return identity
+    stock = _from_model(STOCK_OPTICS_MODEL)
+    logger.info(
+        f'[CHANNEL_RECORD] model {model!r} has no scopes entry; its channels are '
+        f"the stock optics module's ({STOCK_OPTICS_MODEL})"
+    )
+    return ChannelIdentity(
+        channels=stock.channels,
+        filterset=stock.filterset,
+        source=IdentitySource.STOCK,
+        model=model,
+    )

@@ -214,9 +214,9 @@ class TestEachPartNamesItsCause:
     def test_a_scope_whose_model_the_catalogue_lacks_is_missing_its_led_board(
         self, monkeypatch, tmp_path, centre_posts
     ):
-        # Only a resolved identity can say a scope has no LED board: one
-        # whose board reports a model this release does not list has no
-        # layers to read, and its held LED board is missing, not unexpected.
+        # A board reporting a model this release does not list is an OEM
+        # unit's: its layers are the stock optics module's, which drive
+        # LEDs, so its held LED board is missing, not unexpected.
         # A stand-in by design: no simulated board reports an unlisted model.
         monkeypatch.setattr(NullMotionBoard, 'get_microscope_model', lambda self: 'LS999X')
         s = _bring_up(
@@ -226,7 +226,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            assert s.scope.channel_identity.channels == ()
+            assert s.scope.channel_identity.source == 'stock'
             led = _status(s.bring_up_record(), Part.LED)
             assert (led.up, led.expected, led.cause) == (False, True, 'port_in_use')
             assert led in s.bring_up_record().missing
