@@ -27,6 +27,9 @@
 # - patches/<tag>_*.patch: a Ctrl-C that lands just before the
 #   firmware blocks reading stdin waits for the next input byte instead of
 #   firing; the patch makes it fire, as on the board.
+# - 1.19's nlr_jump asm lacks a "memory" clobber, so a GCC 14 or newer build
+#   reads a stale return value after a raise and segfaults on every
+#   MemoryError; its patch is upstream's fix (35f3f0a87d, carried by 1.28).
 # - 1.19 predates the compilers on current machines, so its warnings are not
 #   errors.
 # - Floats are single precision, as on the board: the RP2040 port builds

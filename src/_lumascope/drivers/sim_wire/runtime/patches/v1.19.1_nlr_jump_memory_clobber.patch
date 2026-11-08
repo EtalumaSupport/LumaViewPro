@@ -1,0 +1,65 @@
+diff --git a/py/nlraarch64.c b/py/nlraarch64.c
+index 1295351..5f7f1ad 100644
+--- a/py/nlraarch64.c
++++ b/py/nlraarch64.c
+@@ -74,7 +74,7 @@ NORETURN void nlr_jump(void *val) {
+         "ret                     \n"
+         :
+         : "r" (top)
+-        :
++        : "memory"
+         );
+ 
+     MP_UNREACHABLE
+diff --git a/py/nlrthumb.c b/py/nlrthumb.c
+index a8ffecc..a22c5df 100644
+--- a/py/nlrthumb.c
++++ b/py/nlrthumb.c
+@@ -132,7 +132,7 @@ NORETURN void nlr_jump(void *val) {
+         "bx     lr                  \n" // return
+         :                           // output operands
+         : "r" (top)                 // input operands
+-        :                           // clobbered registers
++        : "memory"                  // clobbered registers
+         );
+ 
+     MP_UNREACHABLE
+diff --git a/py/nlrx64.c b/py/nlrx64.c
+index 6f006e7..c37d909 100644
+--- a/py/nlrx64.c
++++ b/py/nlrx64.c
+@@ -105,7 +105,7 @@ NORETURN void nlr_jump(void *val) {
+         "ret                        \n" // return
+         :                           // output operands
+         : "r" (top)                 // input operands
+-        :                           // clobbered registers
++        : "memory"                  // clobbered registers
+         );
+ 
+     MP_UNREACHABLE
+diff --git a/py/nlrx86.c b/py/nlrx86.c
+index f658d41..085e30d 100644
+--- a/py/nlrx86.c
++++ b/py/nlrx86.c
+@@ -95,7 +95,7 @@ NORETURN void nlr_jump(void *val) {
+         "ret                        \n" // return
+         :                           // output operands
+         : "r" (top)                 // input operands
+-        :                           // clobbered registers
++        : "memory"                  // clobbered registers
+         );
+ 
+     MP_UNREACHABLE
+diff --git a/py/nlrxtensa.c b/py/nlrxtensa.c
+index abe9042..ff7af6e 100644
+--- a/py/nlrxtensa.c
++++ b/py/nlrxtensa.c
+@@ -74,7 +74,7 @@ NORETURN void nlr_jump(void *val) {
+         "ret.n                      \n" // return
+         :                           // output operands
+         : "r" (top)                 // input operands
+-        :                           // clobbered registers
++        : "memory"                  // clobbered registers
+         );
+ 
+     MP_UNREACHABLE
