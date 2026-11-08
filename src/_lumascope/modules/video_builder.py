@@ -286,7 +286,8 @@ class VideoBuilder(ProtocolPostProcessor):
             include_timestamp_overlay=enable_timestamp_overlay,
         )
 
-        logger.info(f'[{self._name}] Writing video to {output_file_loc}')
+        # The writer's name, not the request: a taken name has moved it.
+        logger.info(f'[{self._name}] Writing video to {video.output_path}')
 
         # Progress bar percentage calculation
         end_percentage = (current_group / total_groups) * 100
