@@ -429,16 +429,14 @@ class Lumascope:
                 that is not a measurement.
         """
         camera = self._camera_driver
-        if camera is None or not camera.active:
+        if camera is None or not camera.active or not camera.profile.timing_model:
             return None
         path = camera_profiles.timing_record_path(camera.profile)
+        record = read_installation_file(path)
         try:
-            record = camera_profiles.timing_record(camera.profile)
-            if record is None:
-                return None
             FrameValidity.check_timing_record(record)
-        except (OSError, ValueError) as e:
-            raise InstallationFileError(path, f'could not be read ({e})') from e
+        except ValueError as e:
+            raise InstallationFileError(path, f'is not a timing record ({e})') from e
         logger.info(f'[SCOPE API ] Camera timing record {path} checked')
         return record
 

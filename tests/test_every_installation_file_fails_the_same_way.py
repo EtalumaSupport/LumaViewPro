@@ -65,3 +65,38 @@ def test_a_usable_file_is_its_object(tmp_path):
 
 def test_the_error_is_not_a_settings_error():
     assert not issubclass(InstallationFileError, ConfigError)
+
+
+def test_json_no_installation_file_can_mean_is_refused_naming_what(tmp_path):
+    """json.load keeps the last of two equal keys and reads NaN, Infinity and
+    1e400 as floats, all without a word: a pasted plate that kept its name
+    replaced the shipped one. The reader refuses each, naming the file and
+    what it holds; an integer or nesting the parser cannot hold is the same
+    error, not a ValueError or RecursionError from inside the parser."""
+    refused = {
+        'a key twice': ('{"Wellplate": {}, "Wellplate": {}}', "the key 'Wellplate' twice"),
+        'a key twice, nested': ('{"a": {"x": 1, "x": 2}}', "the key 'x' twice"),
+        'a key twice, in a list': ('{"a": [{"x": 1, "x": 2}]}', "the key 'x' twice"),
+        'NaN': ('{"a": NaN}', 'NaN, which is not a number'),
+        'Infinity': ('{"a": -Infinity}', '-Infinity, which is not a number'),
+        'a number past a float': ('{"a": 1e400}', '1e400, which is not finite'),
+        'an integer past the digit limit': ('{"a": ' + '9' * 5000 + '}', 'could not be parsed'),
+        'nesting past the recursion limit': (
+            '{"a": ' + '[' * 100_000 + ']' * 100_000 + '}',
+            'could not be parsed',
+        ),
+    }
+    path = tmp_path / 'labware.json'
+    wrong = {}
+    for case, (text, why) in refused.items():
+        path.write_text(text, encoding='utf-8')
+        try:
+            read_installation_file(path)
+            wrong[case] = 'accepted'
+        except InstallationFileError as e:
+            if e.file_path != path or why not in str(e):
+                wrong[case] = str(e)
+        except Exception as e:  # the reader let a parser error escape unnamed
+            wrong[case] = f'{type(e).__name__}: {e}'[:200]
+
+    assert wrong == {}

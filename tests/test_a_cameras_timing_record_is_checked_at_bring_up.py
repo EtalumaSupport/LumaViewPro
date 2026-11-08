@@ -21,6 +21,7 @@ import pytest
 from _lumascope.drivers import camera_profiles
 from _lumascope.modules.exceptions import InstallationFileError
 from _lumascope.modules.frame_validity import FrameValidity
+from _lumascope.modules.path_utils import read_installation_file
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 _PROVENANCE = {
@@ -62,15 +63,16 @@ def test_every_shipped_record_is_one_this_release_reads():
 
     assert records
     for path in records:
-        FrameValidity.check_timing_record(json.loads(path.read_text()))
+        FrameValidity.check_timing_record(read_installation_file(path))
 
 
 def test_the_simulator_reads_a_record_of_its_own():
     """The simulated camera's record is its own: the record it brings up
     with names the simulated camera, not the dart it was built from."""
     simulated = camera_profiles.simulated_profile()
+    record = read_installation_file(camera_profiles.timing_record_path(simulated))
 
-    assert camera_profiles.timing_record(simulated)['camera_model'] == simulated.model_name
+    assert record['camera_model'] == simulated.model_name
 
 
 def test_a_measured_entry_with_its_provenance_is_accepted():
@@ -179,6 +181,28 @@ def test_a_record_of_the_old_schema_is_refused_at_bring_up(tmp_path, monkeypatch
         build_scope(simulate=True, sim_model='LS850T')
 
     assert refused.value.file_path == record
+
+
+def test_a_timing_record_the_reader_refuses_is_refused_at_bring_up(tmp_path, monkeypatch):
+    """The record is parsed by the installation's one reader: a key twice is
+    refused, as in every installation file, and a record that is not an
+    object is the installation's error, not an AttributeError from the check."""
+    wrong = {}
+    for case, (text, why) in {
+        'a key twice': ('{"schema": 3, "schema": 3}', "the key 'schema' twice"),
+        'a list': ('[1, 2]', 'holds a list, not a JSON object'),
+    }.items():
+        record = _bring_up_with(tmp_path, monkeypatch, text)
+        try:
+            build_scope(simulate=True, sim_model='LS850T').disconnect()
+            wrong[case] = 'brought up'
+        except InstallationFileError as e:
+            if e.file_path != record or why not in str(e):
+                wrong[case] = str(e)
+        except Exception as e:  # the check met a record it was never given the shape of
+            wrong[case] = f'{type(e).__name__}: {e}'
+
+    assert wrong == {}
 
 
 def test_a_broken_timing_record_is_refused_at_bring_up(tmp_path, monkeypatch):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import pathlib
 import sys
@@ -500,6 +501,30 @@ def resolve_data_file(
     return get_source_root(source_path).joinpath('data', *parts)
 
 
+def _one_value_per_key(pairs: list[tuple[str, object]]) -> dict:
+    # json keeps the last of two equal keys and says nothing, so a pasted
+    # copy that keeps its name would silently replace the entry it copied.
+    contents = {}
+    for key, value in pairs:
+        if key in contents:
+            raise ValueError(f'it holds the key {key!r} twice in one object')
+        contents[key] = value
+    return contents
+
+
+def _finite_float(text: str) -> float:
+    # A number too large for a float (1e400) parses to inf without ever
+    # reaching parse_constant, so finiteness is judged on the value.
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f'it holds the number {text}, which is not finite')
+    return value
+
+
+def _no_constant(text: str) -> float:
+    raise ValueError(f'it holds {text}, which is not a number')
+
+
 def read_installation_file(path: str | pathlib.Path) -> dict:
     """The JSON object in a file the installation ships, or a refusal naming the file.
 
@@ -510,17 +535,29 @@ def read_installation_file(path: str | pathlib.Path) -> dict:
 
     Raises:
         InstallationFileError: the file is missing, unreadable, not JSON,
-            or holds something other than a JSON object.
+            holds a key twice in one object, holds a number that is not
+            finite (``NaN``, ``Infinity``, ``1e400``), holds a number or
+            nesting the parser cannot hold, or holds something other than
+            a JSON object.
     """
     try:
         with open(path, encoding='utf-8') as read_file:
-            contents = json.load(read_file)
+            contents = json.load(
+                read_file,
+                object_pairs_hook=_one_value_per_key,
+                parse_float=_finite_float,
+                parse_constant=_no_constant,
+            )
     except FileNotFoundError as e:
         raise InstallationFileError(path, 'is missing') from e
     except json.JSONDecodeError as e:
         raise InstallationFileError(path, f'is not valid JSON ({e})') from e
     except (OSError, UnicodeDecodeError) as e:
         raise InstallationFileError(path, f'cannot be read ({e})') from e
+    # The three refusals above, and valid JSON the parser cannot hold: an
+    # integer past Python's digit limit, or nesting past the recursion limit.
+    except (ValueError, RecursionError) as e:
+        raise InstallationFileError(path, f'could not be parsed ({e})') from e
     if not isinstance(contents, dict):
         raise InstallationFileError(path, f'holds a {type(contents).__name__}, not a JSON object')
     return contents

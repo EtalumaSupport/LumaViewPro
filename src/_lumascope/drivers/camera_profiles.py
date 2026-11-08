@@ -82,7 +82,6 @@ Adding a new camera model
 """
 
 import copy
-import json
 import pathlib
 from dataclasses import dataclass, field, replace
 
@@ -352,19 +351,6 @@ def simulated_profile() -> CameraProfile:
 def timing_record_path(profile: CameraProfile) -> pathlib.Path:
     """Where ``profile``'s measured timing record ships."""
     return build_root() / 'data' / 'camera_timing' / f'{profile.timing_model}.json'
-
-
-def timing_record(profile: CameraProfile) -> dict | None:
-    """``profile``'s measured timing record, or None when it names none.
-
-    A record the profile names is shipped with the installation, so a
-    missing or unreadable one raises (``OSError``, ``ValueError``): a
-    measurement the installation claims to carry is not silently absent.
-    """
-    if not profile.timing_model:
-        return None
-    with open(timing_record_path(profile), encoding='utf-8') as f:
-        return json.load(f)
 
 
 def ids_default_profile(model_name: str) -> CameraProfile:
