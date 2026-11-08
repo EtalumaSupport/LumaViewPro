@@ -299,12 +299,10 @@ class VideoBuilder(ProtocolPostProcessor):
         if i - video.dropped_frames <= 0:
             # Not one frame reached the video: there is no video to record,
             # and a success here put a file that does not exist in the record,
-            # which every later build then skipped as already made. Only a
-            # writer handed a frame opened a file, at a name its collision
-            # check chose; one handed none still names the request, which can
-            # be an earlier build's video.
-            if i > 0:
-                pathlib.Path(video.output_path).unlink(missing_ok=True)
+            # which every later build then skipped as already made. The
+            # writer's name was free when it was made, so whatever is there
+            # is this build's.
+            pathlib.Path(video.output_path).unlink(missing_ok=True)
             return {
                 'status': False,
                 'error': (
@@ -598,21 +596,28 @@ class VideoBuilder(ProtocolPostProcessor):
         )
         output_file_loc = pathlib.Path(f'{path.name}.mp4')
 
-        result = self._create_video(
-            path=path,
-            df=df,
-            frame_rate_fps=frame_rate_fps,
-            enable_timestamp_overlay=enable_timestamp_overlay,
-            output_file_loc=output_file_loc,
-            on_progress=on_progress,
-            total_groups=1,
-            current_group=1,
-            color=(
-                GREY
-                if channel_color is None
-                else channel_record.output_color(channel_color, channel_colors)
-            ),
-        )
+        # The name holds no settings, so a rebuild keeps the earlier video:
+        # the writer moves to the next free numbered name.
+        try:
+            result = self._create_video(
+                path=path,
+                df=df,
+                frame_rate_fps=frame_rate_fps,
+                enable_timestamp_overlay=enable_timestamp_overlay,
+                output_file_loc=output_file_loc,
+                on_progress=on_progress,
+                total_groups=1,
+                current_group=1,
+                color=(
+                    GREY
+                    if channel_color is None
+                    else channel_record.output_color(channel_color, channel_colors)
+                ),
+            )
+        except FileExistsError as e:
+            raise self._refuse(
+                'names_exhausted', f'{e}. Move or remove earlier videos, then build again.'
+            ) from e
 
         if on_progress is not None:
             on_progress(100, None)

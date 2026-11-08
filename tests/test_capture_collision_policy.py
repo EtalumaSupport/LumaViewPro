@@ -394,30 +394,31 @@ def _write_one_frame_and_close(writer):
 
 
 def test_video_writer_uniquifies_existing_output_path(tmp_path, caplog):
-    # Collision resolution runs at encoder init -- after the backend (and
-    # so the REAL container suffix) is known -- and writer.output_path is
-    # the record authority. Pre-create the path the active backend will
-    # actually open (.avi covers the cv2 fallback; .mp4 covers PyAV).
+    # The name is picked when the writer is made, the path_utils rule
+    # (``_001`` first), and writer.output_path names it before any frame:
+    # a grey writer opens its container only at the first frame, and a
+    # cleanup reading output_path before then must not reach the earlier
+    # file.
     from _lumascope.modules.video_writer import VideoWriter
 
     requested = tmp_path / 'A1_BF_video.mp4'
-    for suffix in ('.mp4', '.avi'):
-        requested.with_suffix(suffix).write_bytes(b'previous recording')
+    requested.write_bytes(b'previous recording')
 
     with caplog.at_level(logging.INFO):
         writer = VideoWriter(output_path=requested, fps=5.0)
+        named_before_a_frame = writer.output_path
         _write_one_frame_and_close(writer)
     captured = _video_writer_lines(caplog)
 
     actual = writer.output_path
-    assert actual.stem == 'A1_BF_video_000001', (
-        f'an existing output must gain a numeric suffix; writer landed on {actual}'
+    assert named_before_a_frame == actual == tmp_path / 'A1_BF_video_001.mp4', (
+        f'an existing output moves to the next free name when the writer is made; '
+        f'named {named_before_a_frame} before a frame, landed on {actual}'
     )
-    assert actual.exists() and actual.stat().st_size > 0
-    for suffix in ('.mp4', '.avi'):
-        assert requested.with_suffix(suffix).read_bytes() == b'previous recording', (
-            'the pre-existing recording must be untouched'
-        )
+    assert actual.stat().st_size > 0
+    assert requested.read_bytes() == b'previous recording', (
+        'the pre-existing recording must be untouched'
+    )
     assert any(level == 'WARNING' and 'collision' in msg for level, msg in captured), (
         f'the rename must be surfaced as a warning; captured: {captured}'
     )
@@ -434,9 +435,7 @@ def test_video_writer_keeps_fresh_output_path(tmp_path, caplog):
     captured = _video_writer_lines(caplog)
 
     actual = writer.output_path
-    # The backend may rewrite the container suffix (.avi fallback), but a
-    # fresh path never gains a collision suffix.
-    assert actual.stem == 'A1_BF_video', f'no collision -> the plain name; got {actual.name}'
+    assert actual == requested, f'no collision -> the plain name; got {actual.name}'
     assert actual.exists()
     assert not any('collision' in msg for _, msg in captured)
 
@@ -511,8 +510,7 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
     )
 
     requested = tmp_path / 'out.mp4'
-    for suffix in ('.mp4', '.avi'):
-        requested.with_suffix(suffix).write_bytes(b'taken')
+    requested.write_bytes(b'taken')
 
     builder = VideoBuilder(has_turret=False)
     result = builder._create_video(
@@ -528,7 +526,7 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
     )
     assert result['status'] is True
     actual = pathlib.Path(str(result['actual_output_file_loc']))
-    assert actual.stem == 'out_000001', (
+    assert actual.name == 'out_001.mp4', (
         f'_create_video must report the relocated output; got {actual}'
     )
     assert actual.exists() and actual.stat().st_size > 0

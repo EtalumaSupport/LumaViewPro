@@ -20,6 +20,7 @@ import pytest
 
 from _lumascope.modules.activity_claim import ActivityClaim
 import _lumascope.modules.manual_recording as manual_recording_module
+from _lumascope.drivers import host_clock
 import _lumascope.modules.stack_builder as stack_builder_module
 from _lumascope.modules.coord_transformations import PlatePosition
 from _lumascope.modules.exceptions import RecordingRefusedError
@@ -560,6 +561,17 @@ class TestFramesLeg:
         assert first['timestamp_source'] == 'host_arrival'
 
 
+def _hold_the_wall_second(monkeypatch):
+    """Stop the wall clock, so every start asks for one name.
+
+    A recording is named for the second it starts in, read from the host's
+    wall clock, which the controller's injected clocks do not reach.
+    """
+    # a stand-in by design: the host's wall clock, which the simulator does not own
+    held = host_clock.wall_ns()
+    monkeypatch.setattr(host_clock, 'wall_ns', lambda: held)
+
+
 class TestMp4Leg:
     def test_end_to_end_mp4_and_manifest(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
@@ -575,6 +587,25 @@ class TestMp4Leg:
         assert len(manifests) == 1
         manifest = json.loads(manifests[0].read_text())
         assert manifest['frames_written'] == 5
+
+    def test_a_second_recording_in_one_second_lands_at_the_next_free_name(
+        self, tmp_path, monkeypatch
+    ):
+        _hold_the_wall_second(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        for frames in (3, 5):
+            controller.start()
+            feed_frames(scope, clock, frames, fps=10.0)
+            controller.stop()
+            finish(controller)
+
+        manual = tmp_path / 'Manual'
+        (first,) = [p for p in manual.glob('Video_*.mp4') if not p.stem.endswith('_001')]
+        second = first.with_name(f'{first.stem}_001.mp4')
+        assert sorted(manual.glob('Video_*.mp4')) == [first, second]
+        for video, frames in ((first, 3), (second, 5)):
+            manifest = json.loads((manual / f'{video.stem}_manifest.json').read_text())
+            assert manifest['frames_written'] == frames, video.name
 
 
 def _capture_engine_and_writer(monkeypatch):
@@ -720,6 +751,30 @@ class TestFailedStartUnwind:
         assert made['writer'].close_calls == 1
         assert not list((tmp_path / 'Manual').glob('*.mp4'))
         assert made['engine'].wait_for_drain(timeout=5)
+
+    def test_a_failed_start_keeps_an_earlier_recording_of_its_name(self, tmp_path, monkeypatch):
+        # False colour off is the discriminator: the grey writer opens its
+        # container only at the first frame, so a start that fails before
+        # one leaves nothing of its own, and the cleanup must not reach the
+        # earlier recording holding the name it asked for.
+        _hold_the_wall_second(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+        controller.stop()
+        finish(controller)
+        (earlier,) = (tmp_path / 'Manual').glob('Video_*.mp4')
+        earlier_bytes = earlier.read_bytes()
+
+        made = _capture_engine_and_writer(monkeypatch)
+        _fail_the_finish_thread(monkeypatch)
+        with pytest.raises(RuntimeError):
+            controller.start()
+        assert made['engine'].wait_for_drain(timeout=5)
+
+        assert earlier.is_file() and earlier.read_bytes() == earlier_bytes
+        # The same second, so it asked for the earlier one's name.
+        assert made['writer'].output_path == earlier.with_name(f'{earlier.stem}_001.mp4')
 
     def test_read_only_save_location_refuses_before_the_commit(self, tmp_path):
         # Reserving the per-recording folder is what makes two same-second

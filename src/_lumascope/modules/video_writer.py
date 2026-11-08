@@ -13,6 +13,7 @@ import av
 import numpy as np
 
 import _lumascope.modules.image_utils as image_utils
+import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.wall_time as wall_time
 from _lumascope.modules.channel_record import GREY, Color
 from _lumascope.lvp_logger import logger
@@ -81,12 +82,15 @@ class VideoWriter:
 
         Raises:
             ValueError: If ``fps`` is None outside VFR mode.
+            FileExistsError: ``output_path`` and its first
+                ``path_utils.MAX_COLLISION_SUFFIX`` numbered variants are all
+                taken (``path_utils.free_stem``).
         """
         if fps is None and not vfr:
             raise ValueError(
                 'fps is required unless vfr=True: a constant-rate video has no other timing'
             )
-        self._output_path = pathlib.Path(output_path)
+        self._output_path = self._free_output_path(pathlib.Path(output_path))
         self._fps = fps
         self._color = color
         self._include_timestamp_overlay = include_timestamp_overlay
@@ -101,9 +105,6 @@ class VideoWriter:
         self._dropped_frames = 0
         # Protects _frame_count + encoder state for REST queries
         self._frame_lock = threading.Lock()
-
-        if not self._output_path.parent.exists():
-            self._output_path.parent.mkdir(parents=True)
 
         self._container = None  # PyAV container
         self._stream = None  # PyAV video stream
@@ -129,36 +130,38 @@ class VideoWriter:
     def output_path(self) -> pathlib.Path:
         """The authoritative save location -- read this back when recording.
 
-        May differ from the path the caller requested: a collision adds a
-        numeric suffix. A record built from the requested path would
-        attribute the wrong file to the capture whenever that applies.
+        Fixed when the writer is made, before any frame, and may differ from
+        the path the caller requested: a collision moves it to the next free
+        numbered name. A record built from the requested path would attribute
+        the wrong file to the capture whenever that applies, and a cleanup
+        that removed the requested path could remove an earlier video.
         """
         return self._output_path
 
-    def _resolve_collision_free_output(self):
-        """Never silently overwrite an existing output.
+    @staticmethod
+    def _free_output_path(requested: pathlib.Path) -> pathlib.Path:
+        """*requested*, or the next free numbered name beside it: never an
+        existing file.
 
-        Runs at encoder init, immediately before the container opens, so
-        the check and the open cannot disagree about the path. The plain
-        name is kept when free; a numeric suffix is added only on actual
-        collision, so happy-path filenames are unchanged.
+        Picked when the writer is made, so ``output_path`` names this video's
+        file from the start, whatever colour defers the container's open to
+        the first frame. Checked, not reserved, which holds because no two
+        writers in this process are made for one name at once: a run writes
+        into its own fresh folder with the scan in every name and refuses two
+        steps of one name at its start; manual recordings are taken one at a
+        time under the activity claim; the video builds run on the one
+        post-processing lane.
         """
-        if not self._output_path.exists():
-            return
-        requested_path = self._output_path
-        n = 1
-        while True:
-            candidate = requested_path.with_name(
-                f'{requested_path.stem}_{n:06d}{requested_path.suffix}'
-            )
-            if not candidate.exists():
-                break
-            n += 1
+        requested.parent.mkdir(parents=True, exist_ok=True)
+        stem = path_utils.free_stem(requested.parent, requested.stem, (requested.suffix,))
+        if stem == requested.stem:
+            return requested
+        chosen = requested.with_name(f'{stem}{requested.suffix}')
         logger.warning(
-            f'Video filename collision: {requested_path.name} already '
-            f'exists; saving as {candidate.name} instead.'
+            f'Video filename collision: {requested.name} already '
+            f'exists; saving as {chosen.name} instead.'
         )
-        self._output_path = candidate
+        return chosen
 
     @staticmethod
     def _timestamp_seconds(timestamp) -> float:
@@ -194,7 +197,6 @@ class VideoWriter:
         backend, and swallowing the error here would silently produce no
         video at all.
         """
-        self._resolve_collision_free_output()
         self._container = av.open(str(self._output_path), mode='w')
         # libx264 honors the fractional rate, so a true sub-1 fps recording
         # (timelapse / long-exposure) keeps its real duration -- see

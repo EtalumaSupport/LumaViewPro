@@ -19,6 +19,7 @@ import pytest
 from _lumascope.drivers import host_clock
 from tests.settings_fixtures import complete_settings
 
+from _lumascope.modules import path_utils
 from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.caller import Caller
 import _lumascope.modules.video_recording as video_recording_module
@@ -78,35 +79,26 @@ def make_config(
 class SingleFileWriterStub:
     """Writer edge for the flat-MP4 shape: every frame lands in ONE file.
 
-    Mirrors the real MP4 writer where it matters here -- the destination is
-    resolved at the FIRST write, which is when the container opens, and an
-    existing file at the requested name pushes the write to a suffixed one.
-    So the name the caller asked for is not necessarily the name on disk.
+    Like the real MP4 writer, its name is picked when it is made, by
+    ``path_utils.free_stem``, so an existing file at the requested name moves
+    it to a numbered one; the file appears at the first write, the first
+    time the engine is told the name. So the name the caller asked for is not
+    necessarily the name on disk.
     """
 
     def __init__(self, out_dir: pathlib.Path, requested_name: str):
         self.out_dir = pathlib.Path(out_dir)
-        self.requested = self.out_dir / requested_name
+        requested = self.out_dir / requested_name
+        stem = path_utils.free_stem(self.out_dir, requested.stem, (requested.suffix,))
+        self._name = requested.with_name(f'{stem}{requested.suffix}')
         self.output_path: pathlib.Path | None = None
         self.frames_written = 0
-
-    def _resolve(self) -> pathlib.Path:
-        if not self.requested.exists():
-            return self.requested
-        n = 1
-        while True:
-            candidate = self.requested.with_name(
-                f'{self.requested.stem}_{n:06d}{self.requested.suffix}'
-            )
-            if not candidate.exists():
-                return candidate
-            n += 1
 
     def __call__(
         self, image, timestamp_s, frame_number, config, chunks=None, fact=None
     ) -> pathlib.Path:
         if self.output_path is None:
-            self.output_path = self._resolve()
+            self.output_path = self._name
             self.output_path.write_bytes(b'')
         self.frames_written += 1
         return self.output_path
@@ -499,8 +491,8 @@ class TestManifestNamesTheArtifactItDescribes:
     def test_manifest_takes_the_name_the_writer_resolved(self, tmp_path):
         (tmp_path / 'Video_taken.mp4').write_bytes(b'')  # force the rename
         result, writer = self._record(tmp_path, 0.0, frames=2, requested='Video_taken.mp4')
-        assert writer.output_path.name == 'Video_taken_000001.mp4'
-        assert result.manifest_path.name == 'Video_taken_000001_manifest.json'
+        assert writer.output_path.name == 'Video_taken_001.mp4'
+        assert result.manifest_path.name == 'Video_taken_001_manifest.json'
 
     def test_a_pinned_name_still_wins(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)

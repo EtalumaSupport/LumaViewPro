@@ -168,6 +168,48 @@ def test_build_from_folder_manual_creates_video_excluding_hyperstack(sim_scope, 
     assert (result['new_count'], result['output_root']) == (1, str(folder))
 
 
+def _build(folder):
+    return VideoBuilder(has_turret=False).build_from_folder(
+        folder,
+        shipped_grids(),
+        None,
+        frame_rate_fps=5,
+        enable_timestamp_overlay=False,
+        channel_colors=release_colors(),
+    )
+
+
+def test_a_rebuild_keeps_the_earlier_video_at_the_next_free_name(sim_scope, tmp_path):
+    folder = _make_manual_folder(sim_scope, tmp_path, n_frames=2, include_hyperstack=False)
+
+    first, second = _build(folder), _build(folder)
+
+    assert first['artifact_paths'] == [str(folder / 'MyRecording.mp4')]
+    assert second['artifact_paths'] == [str(folder / 'MyRecording_001.mp4')]
+    assert _frame_count(folder / 'MyRecording.mp4') == 2
+
+
+def test_a_rebuild_with_every_name_taken_is_refused_names_exhausted(sim_scope, tmp_path):
+    import pytest
+
+    from _lumascope.modules.exceptions import PostProcessingRefusedError
+    from _lumascope.modules.path_utils import MAX_COLLISION_SUFFIX
+
+    folder = _make_manual_folder(sim_scope, tmp_path, n_frames=2, include_hyperstack=False)
+    taken = [folder / 'MyRecording.mp4'] + [
+        folder / f'MyRecording_{n:03d}.mp4' for n in range(1, MAX_COLLISION_SUFFIX + 1)
+    ]
+    for path in taken:
+        path.write_bytes(b'an earlier video')
+
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        _build(folder)
+
+    assert refused.value.reason == 'names_exhausted'
+    assert sorted(folder.glob('*.mp4')) == sorted(taken)
+    assert all(path.read_bytes() == b'an earlier video' for path in taken)
+
+
 def test_build_from_folder_empty_is_refused(tmp_path):
     import pytest
 
