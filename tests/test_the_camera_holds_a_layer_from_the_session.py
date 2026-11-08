@@ -71,18 +71,6 @@ class TestBringUp:
     def test_the_camera_holds_bf_once_the_session_is_up(self, session):
         assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
 
-    def test_a_scope_with_no_camera_is_not_applied_and_says_so(self, caplog):
-        applied = MagicMock()
-        stand_in = SimpleNamespace(
-            scope=SimpleNamespace(camera_connected=False),
-            apply_channel_camera=applied,
-            _show_channel=lambda layer: None,
-        )
-        caplog.set_level(logging.INFO)
-        ScopeSession._apply_bring_up_channel(stand_in)
-        applied.assert_not_called()
-        assert any('no camera, so BF is not applied' in line for line in _said(caplog))
-
     def test_a_scope_whose_layers_are_unresolved_still_comes_up(self, caplog):
         applied = MagicMock()
         stand_in = SimpleNamespace(

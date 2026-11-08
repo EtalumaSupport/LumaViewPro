@@ -3265,12 +3265,16 @@ Marks: enters: `lane_call`.
 Route: `POST /api/v1/show_channel`.
 
 Show `channel`: every other LED dark, `channel` lit at its stored
-current if the shown channel was lit, then its camera settings.
+current if the shown channel was lit, then its camera settings, or
+none with no camera connected.
 
 The one way the shown channel changes outside a run; a run's steps
-and `go_to_step` move it too. Each refusal is decided before any
-LED is turned off, so a refused call leaves the LEDs as they were.
-A channel this unit gives no LED is shown with every LED dark.
+and `go_to_step` move it too. A refusal of the request (the
+channel, the LED controller, a recording, a control session) is
+decided before any LED is turned off, so it leaves the LEDs as they
+were; what the camera, or a run or home that takes the scope, answers
+comes after the LEDs are shown. A channel this unit gives no LED is
+shown with every LED dark.
 
 **Args**
 
@@ -3283,7 +3287,7 @@ The shown channel now.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'illumination_out_of_range'`, its stored current is outside the attached board's range.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs or the camera; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one or the shown channel is lit (a recording keeps one channel and the light it started under; nothing is changed).
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs, or the camera when it leaves during the call; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one or the shown channel is lit (a recording keeps one channel and the light it started under; nothing is changed).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `CameraSettingRejected`: the camera refused a setting of the channel; its LEDs are already shown.
 

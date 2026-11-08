@@ -470,8 +470,9 @@ class NoHardwareDetectedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
 
     def __init__(self, reason: str):
         super().__init__(
-            'No microscope hardware was detected. You can continue in software-only '
-            'mode (live view + protocol design will work; capture will not). '
+            'LumaViewPro found no microscope hardware it can use. You can continue in '
+            'software-only mode: protocol design and post-processing work; live view '
+            'and capture need the scope. '
             f'{self._CONNECT[reason]}'
         )
         self.reason = reason

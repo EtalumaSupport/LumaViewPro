@@ -171,7 +171,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 92
+ALLOWED_ENTRIES = 91
 ALLOWED = frozenset(
     {
         'tests/camera_fakes.py::bare_ids_camera',
@@ -256,7 +256,6 @@ ALLOWED = frozenset(
         'tests/test_session_teardown.py::TestACallersScopeIsLeftAlone.test_a_directly_constructed_session_is_the_same_row',
         'tests/test_still_pending_writes.py::_writer',
         'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_whose_layers_are_unresolved_still_comes_up',
-        'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_with_no_camera_is_not_applied_and_says_so',
         'tests/test_the_claim_names_the_holding_run.py::TestTheRunnerReadsTheClaim.test_a_runner_cannot_be_built_without_a_claim',
         'tests/test_the_report_passes_nothing_it_could_not_measure.py::test_a_fullinfo_that_timed_out_is_not_a_serial_number',
         'tests/test_the_run_turns_the_turret_itself.py::test_a_refused_move_raises_instead_of_being_skipped',

@@ -18,6 +18,10 @@ camera never came up or was removed mid-session; ``disconnect()`` returns the
 cache to the no-camera state,
 bring-up reports the absence once, Go To Step is refused before anything
 moves, and the GUI sends no camera apply from a layer.
+
+Showing a channel is not a camera command: with no camera, whether it never
+came up or was removed, the channel is shown and its camera half is skipped,
+with nothing reported, since bring-up or the removal has already said so.
 """
 
 from __future__ import annotations
@@ -30,10 +34,12 @@ from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
+    NoHardwareDetectedNotice,
     ProtocolRunRefusedError,
 )
+from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
-from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.scope_session import ScopeSession, ShownChannel
 from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from tests.test_a_command_for_absent_motion_hardware_is_refused import (
     _protocol,
@@ -156,6 +162,15 @@ def test_a_scope_with_no_camera_comes_up_and_says_so_once(
     # and so nothing came up, inside the one no-hardware notice.
     reports = _camera_posts(centre_posts) + [n for n in centre_posts if n.reason == 'no_hardware']
     assert len(reports) == 1, [(n.title, n.message) for n in reports]
+
+
+def test_the_no_hardware_notice_says_live_view_needs_the_scope():
+    """With nothing up there is no frame to show, so the notice names live
+    view beside capture as what needs the scope, never as what works."""
+    words = str(NoHardwareDetectedNotice('no_hardware'))
+
+    assert 'protocol design and post-processing work' in words
+    assert 'live view and capture need the scope' in words
 
 
 def _not_named_as_the_camera(commands: dict, target) -> dict:
@@ -300,15 +315,30 @@ def test_with_no_camera_a_session_camera_toggle_is_refused_naming_it(
     _assert_names_the_camera(_refused(lambda: getattr(session.scope.camera, member)(False)))
 
 
-def test_with_no_camera_showing_a_channel_is_refused_naming_it(make_session, monkeypatch):
-    """The GUI's drawer and settings apply ask show_channel, which shows the
-    LEDs and then refuses the camera's half, naming the camera."""
-    session = _camera_less(make_session, 'LS850')
+# parametrize-justified: two fixture states, a camera absent from bring-up and
+# one removed mid-session, each reaching the skip by its own route.
+@pytest.mark.parametrize('camera', ('absent_at_bring_up', 'removed_mid_session'))
+def test_with_no_camera_showing_a_channel_shows_it_and_reports_nothing(
+    make_session, monkeypatch, centre_posts, camera
+):
+    """The GUI's channel press asks show_channel: with no camera the channel
+    is shown, its LED lit as the shown channel was, and no popup is raised
+    for the camera half it skips."""
+    if camera == 'absent_at_bring_up':
+        session = _camera_less(make_session, 'LS850')
+    else:
+        session = make_session('LS850')
+        session.scope.simulation.remove_camera()
+    session.light_shown_channel(True)
     before = _camera_store(session)
+    centre_posts.clear()
 
-    _assert_names_the_camera(_refused(lambda: session.show_channel(LED1)))
+    assert session.show_channel(LED1) == ShownChannel(LED1, lit=True)
 
+    lit = {r.name for r in session.scope.illumination.get_led_states() if r.state is LedState.LIT}
+    assert lit == {LED1}
     assert _camera_store(session) == before
+    assert [(n.title, n.message) for n in centre_posts] == []
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))

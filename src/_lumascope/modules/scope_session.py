@@ -2698,7 +2698,6 @@ class ScopeSession:
             channel == self._shown_channel
             and (enabled or holds)
             and not self._an_activity_holds_the_scope()
-            and self.scope.camera_connected
         ):
             # Armed for the shown channel; or, after the lock, the camera
             # recorded as holding the channel at the values just stored.
@@ -2745,7 +2744,12 @@ class ScopeSession:
         """Put ``channel``'s stored exposure, gain and auto-gain on the camera, and wait.
 
         Nothing is written when the camera already holds ``channel`` at its
-        stored settings (``scope.camera.hold_channel``).
+        stored settings (``scope.camera.hold_channel``), and nothing when no
+        camera is connected: every caller shows the channel whether or not
+        there is a camera to set, and a call that needs the camera itself (a
+        capture, a run, Go To Step) is refused by its own check before it
+        gets here. This is asked before ``channel`` is checked against the
+        scope, since bring-up shows BF before it knows the scope has one.
 
         The one way a channel's settings reach the camera outside a run,
         in-process: ``show_channel`` (the public way), bring-up's BF,
@@ -2757,7 +2761,7 @@ class ScopeSession:
 
         Returns:
             What ``scope.camera.hold_channel`` returns: the gain and exposure
-            now in effect.
+            now in effect; ``None`` with no camera connected.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
@@ -2766,10 +2770,12 @@ class ScopeSession:
             ConfigError: this scope's channels could not be resolved. Nothing is applied.
             HardwareCommandRefusedError: a run, a diagnostic or a home holds the
                 scope (an autofocus is a run), or ``'not_connected'``, naming
-                the camera, with none connected; nothing is applied.
+                the camera, when it leaves during the call; nothing is applied.
             CameraSettingRejected: the camera refused a setting; the others
                 were applied.
         """
+        if not self.scope.camera_connected:
+            return None
         self.scope.channel_identity.refuse_unless_on_scope(
             channel, 'apply_channel_camera', then='be applied to the camera'
         )
@@ -4074,8 +4080,7 @@ class ScopeSession:
         if before is None:
             return
         self._show_channel(before)
-        if self.scope.camera_connected:
-            self.apply_channel_camera(before)
+        self.apply_channel_camera(before)
 
     @api(reads=True)
     @property
@@ -4094,12 +4099,16 @@ class ScopeSession:
     @api(admitted_by=(Admission.LANE_CALL,))
     def show_channel(self, channel: str) -> ShownChannel:
         """Show ``channel``: every other LED dark, ``channel`` lit at its stored
-        current if the shown channel was lit, then its camera settings.
+        current if the shown channel was lit, then its camera settings, or
+        none with no camera connected.
 
         The one way the shown channel changes outside a run; a run's steps
-        and ``go_to_step`` move it too. Each refusal is decided before any
-        LED is turned off, so a refused call leaves the LEDs as they were.
-        A channel this unit gives no LED is shown with every LED dark.
+        and ``go_to_step`` move it too. A refusal of the request (the
+        channel, the LED controller, a recording, a control session) is
+        decided before any LED is turned off, so it leaves the LEDs as they
+        were; what the camera, or a run or home that takes the scope, answers
+        comes after the LEDs are shown. A channel this unit gives no LED is
+        shown with every LED dark.
 
         Args:
             channel: The channel shown.
@@ -4113,10 +4122,10 @@ class ScopeSession:
                 is outside the attached board's range.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no ``channel``; ``'not_connected'``, naming the LED
-                controller the light needs or the camera; or
-                ``'exclusive_activity_running'``, a run, a diagnostic or a
-                home holds the scope, or a manual recording runs and
-                ``channel`` is not the shown one or the shown channel is lit
+                controller the light needs, or the camera when it leaves
+                during the call; or ``'exclusive_activity_running'``, a run,
+                a diagnostic or a home holds the scope, or a manual recording
+                runs and ``channel`` is not the shown one or the shown channel is lit
                 (a recording keeps one channel and the light it started under;
                 nothing is changed).
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
@@ -4216,8 +4225,7 @@ class ScopeSession:
         was_lit = self._channel_lit(channel)
         self._show_leds(channel, lit)
         self._show_channel(channel, was_lit=was_lit)
-        if self.scope.camera_connected:
-            self.apply_channel_camera(channel)
+        self.apply_channel_camera(channel)
         return self.shown_channel
 
     @api(in_process=True, event=SettingsChanged)
@@ -4519,7 +4527,7 @@ class ScopeSession:
             return
         if led:
             self._show_leds(channel, True)
-        if camera and self.scope.camera_connected:
+        if camera:
             self.apply_channel_camera(channel)
 
     @api(in_process=True)
@@ -5174,22 +5182,20 @@ class ScopeSession:
         """Show BF dark and put its stored camera settings on the camera, as the GUI opens on BF.
 
         Bring-up has darkened every LED, so BF is shown dark whatever was
-        shown before. The camera half is skipped, and said so once, when
-        there is no camera to set (bring-up has already reported it missing;
-        a second report would only repeat it) or this scope has no BF channel
-        (a newer unit whose channels this release cannot resolve still comes
-        up). The values are capped to the camera's range first, so a
-        refusal here is the camera failing a write. It is one of bring-up's
-        camera writes (``scope.write_camera_at_bring_up``): a setting the
-        camera refuses or does not answer, a write that outlasts the camera
-        lane's bound and a camera that leaves are kept on the camera's part
-        of the bring-up record and told once, and the scope comes up.
+        shown before. The camera half is skipped when there is no camera to
+        set (``apply_channel_camera`` writes nothing then, and bring-up has
+        already reported the camera missing), and skipped and said so once
+        when this scope has no BF channel (a newer unit whose channels this
+        release cannot resolve still comes up). The values are capped to the
+        camera's range first, so a refusal here is the camera failing a write.
+        It is one of bring-up's camera writes
+        (``scope.write_camera_at_bring_up``): a setting the camera refuses or
+        does not answer, a write that outlasts the camera lane's bound and a
+        camera that leaves are kept on the camera's part of the bring-up
+        record and told once, and the scope comes up.
         """
         channel = common_utils.DEFAULT_CHANNEL
         self._show_channel(channel)
-        if not self.scope.camera_connected:
-            logger.info(f'[Session  ] bring-up: no camera, so {channel} is not applied to it')
-            return
         if channel not in self._channels_on_scope():
             logger.info(
                 f'[Session  ] bring-up: this scope has no {channel} channel, '
