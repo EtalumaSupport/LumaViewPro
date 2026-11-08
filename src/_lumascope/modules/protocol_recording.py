@@ -96,9 +96,10 @@ NO_FRAMES = 'no_frames'  # the camera delivered nothing -- a capture failure (st
 CAMERA_LOST = 'camera_lost'  # camera went inactive mid-step; kept frames are final (strike)
 ABORTED = 'aborted'  # the controller aborted the run (disk); no strike, no row here
 
-# The wait loop's tick: how quickly Stop/abort is honored during a video
-# step, and the ceiling on how stale a recording progress can be beyond
-# its 1 s update throttle.
+# The wait loop's tick: how quickly Stop/abort, a lost camera and a stall
+# are honored during a video step, and the ceiling on how stale a
+# recording progress can be beyond its 1 s update throttle. The
+# recording's own end wakes the wait at once.
 _WAIT_TICK_S = 0.1
 _PROGRESS_INTERVAL_S = 1.0
 
@@ -539,7 +540,7 @@ class ProtocolVideoStep:
     def _wait_for_recording(
         self, engine: VideoRecordingEngine, duration_s: float, stall_threshold: float
     ) -> tuple[str, str]:
-        """Poll until the recording ends; say how and why.
+        """Wait until the recording ends; say how and why.
 
         Returns ``(outcome, end_reason)`` as one value so the manifest's
         reason can never drift from the outcome that produced it. Check
@@ -590,7 +591,7 @@ class ProtocolVideoStep:
                         total_s=duration_s,
                     )
                 )
-            time.sleep(_WAIT_TICK_S)
+            engine.wait_for_selection_close(_WAIT_TICK_S)
         return outcome, end_reason
 
     # ------------------------------------------------------------------

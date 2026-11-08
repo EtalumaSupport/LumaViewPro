@@ -397,8 +397,10 @@ class VideoRecordingEngine:
         self._config: RecordingConfig | None = None
         self._selector: CadenceSelector | None = None
         self._writer_thread: threading.Thread | None = None
-        self._recording = False
-        self._selection_closed = True
+        # Set while selection is closed, so a caller waiting on the
+        # recording's end wakes at it rather than at its own next check.
+        self._selection_closed = threading.Event()
+        self._selection_closed.set()
         self._discarding = False
         self._pending = 0
         self._frames_selected = 0
@@ -422,7 +424,11 @@ class VideoRecordingEngine:
     @property
     def is_recording(self) -> bool:
         """True from a successful ``start`` until selection closes."""
-        return self._recording
+        return not self._selection_closed.is_set()
+
+    def wait_for_selection_close(self, timeout: float | None = None) -> bool:
+        """Block until selection closes; True once it has, False on timeout."""
+        return self._selection_closed.wait(timeout)
 
     @property
     def is_draining(self) -> bool:
@@ -471,7 +477,7 @@ class VideoRecordingEngine:
             Anything ``make_config`` raises, with the claim released.
         """
         with self._lock:
-            if self._recording or not self._drained.is_set():
+            if self.is_recording or not self._drained.is_set():
                 raise RecordingRefusedError(
                     reason='recording_active',
                     message='A recording is already in progress. Stop it, then record again.',
@@ -514,8 +520,7 @@ class VideoRecordingEngine:
                     fps=config.fps, max_frames=config.frame_budget, start_ts=start_ts
                 )
                 self._start_ts = start_ts
-                self._recording = True
-                self._selection_closed = False
+                self._selection_closed.clear()
                 self._discarding = False
                 self._drained.clear()
                 self._pending = 0
@@ -543,8 +548,7 @@ class VideoRecordingEngine:
                 # only freeing the claim: a half-started engine that still
                 # reads as recording refuses its own next start, so the
                 # failure would outlive the call that caused it.
-                self._recording = False
-                self._selection_closed = True
+                self._selection_closed.set()
                 self._release_claim_locked()
                 self._drained.set()
                 raise
@@ -579,7 +583,7 @@ class VideoRecordingEngine:
             ),
             self._lock,
         ):
-            if not self._recording:
+            if not self.is_recording:
                 return
             # With no limit there is no budget, so the duration on the
             # frames' clock is the boundary. With a rate the boundary is the
@@ -626,7 +630,7 @@ class VideoRecordingEngine:
         manifest say how many the camera sent that way.
         """
         with self._lock:
-            if self._recording:
+            if self.is_recording:
                 self._frames_unstamped += 1
 
     def stop(self, reason: str, *, taken_for: ControlSession | None = None) -> bool:
@@ -719,13 +723,13 @@ class VideoRecordingEngine:
         First close names the end reason: a later stop or discard on an
         already-closed recording must not rewrite why it ended.
         """
-        if self._selection_closed:
+        if self._selection_closed.is_set():
             return
-        self._selection_closed = True
         self._selection_closed_ns = self._steady_clock()
         self._end_reason = reason
-        self._recording = False
         self._queue.put(_END_OF_RECORDING)
+        # Set once the end reason is written, so a waiter it wakes reads it.
+        self._selection_closed.set()
         # Live to draining, with the claim still held: no grant or release
         # marks it. Selection is open only while this engine holds its
         # taking, so the taking is here to announce through.
