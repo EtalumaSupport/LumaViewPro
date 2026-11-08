@@ -489,6 +489,49 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch, sim_s
     assert rows[0]['frame_count'] == len(added)
 
 
+def test_two_video_steps_of_one_name_each_keep_their_own_manifest(tmp_path, monkeypatch, sim_scope):
+    # Two MP4 recordings asking one name in one folder: the second video
+    # moves to the next free name, and each manifest is named for its own
+    # video and describes it -- not the requested name, which the second
+    # manifest would overwrite.
+    import json
+
+    import _lumascope.modules.protocol_recording as protocol_recording
+    from tests.video_step_drives import ElapsedClock, video_step_on
+
+    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    real_writer = protocol_recording.VideoWriter
+    frame_counts = {}
+    for _ in range(2):
+        elapsed = ElapsedClock()
+
+        class _EndsAtItsFirstFrame(real_writer):
+            def add_frame(self, *args, _elapsed=elapsed, **kwargs):
+                super().add_frame(*args, **kwargs)
+                _elapsed.pass_duration()
+
+            def close(self):
+                super().close()
+                frame_counts[self.output_path.name] = self.frame_count
+
+        monkeypatch.setattr(protocol_recording, 'VideoWriter', _EndsAtItsFirstFrame)
+        recorder = video_step_on(
+            sim_scope,
+            tmp_path,
+            step={'channel': 'BF'},
+            video_as_frames=False,
+            elapsed_clock=elapsed,
+        )
+        assert recorder.run_blocking() == protocol_recording.COMPLETED
+        assert recorder.wait_until_finished(timeout=10.0), 'the finish thread must complete'
+
+    videos = sorted(tmp_path.rglob('clip*.mp4'))
+    assert [video.name for video in videos] == ['clip.mp4', 'clip_001.mp4']
+    for video in videos:
+        manifest = json.loads(video.with_name(f'{video.stem}_manifest.json').read_text())
+        assert manifest['frames_written'] == frame_counts[video.name], video.name
+
+
 def test_video_builder_create_video_reports_actual_output_file(tmp_path):
     # _create_video reports where the file really landed so the base class
     # records the artifact that exists, not the requested name.

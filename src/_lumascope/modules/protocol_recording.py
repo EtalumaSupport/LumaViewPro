@@ -380,13 +380,12 @@ class ProtocolVideoStep:
                 },
             },
             # MP4 artifacts share the step's flat folder across steps and
-            # scans, so the manifest is named per recording; the frames
-            # leg owns a per-recording folder and keeps the default name.
-            manifest_filename=(
-                'recording_manifest.json'
-                if self._video_as_frames
-                else f'{self._name}_manifest.json'
-            ),
+            # scans, so the manifest is named per recording, from the file
+            # the writer wrote (None leaves it to the engine): a name taken
+            # moves the video, and a manifest named from the request would
+            # replace the earlier one's. The frames leg owns a per-recording
+            # folder and keeps the default name.
+            manifest_filename=('recording_manifest.json' if self._video_as_frames else None),
         )
 
         if not self._video_as_frames:
