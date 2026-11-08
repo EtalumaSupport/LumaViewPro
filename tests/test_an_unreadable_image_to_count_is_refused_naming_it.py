@@ -28,6 +28,7 @@ from _lumascope.modules.post_processing import (
     PostProcessing,
     read_cell_count_image,
 )
+from tests.installation_fixtures import shipped_grids
 
 
 def test_a_missing_file_is_refused_naming_it(tmp_path):
@@ -62,7 +63,9 @@ def test_the_folder_count_names_an_unreadable_image_in_the_same_words(tmp_path):
     with pytest.raises(PostProcessingRefusedError) as refused:
         read_cell_count_image(broken)
     with pytest.raises(PostProcessingFailedError) as failed:
-        PostProcessing().apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
+        PostProcessing().apply_cell_count_to_folder(
+            str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
+        )
     assert list(failed.value.errors) == [str(refused.value)]
 
 
@@ -71,7 +74,9 @@ def test_a_folder_named_like_an_image_is_not_counted_and_named(tmp_path):
     (tmp_path / 'stack.tif').mkdir()
 
     with pytest.raises(PostProcessingFailedError) as failed:
-        PostProcessing().apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
+        PostProcessing().apply_cell_count_to_folder(
+            str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
+        )
 
     assert len(failed.value.errors) == 1
     assert 'stack.tif is a folder, not a file' in failed.value.errors[0]

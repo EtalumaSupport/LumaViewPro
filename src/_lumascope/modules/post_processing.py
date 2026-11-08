@@ -7,6 +7,7 @@ import csv
 import datetime
 import json
 import os
+import pathlib
 import re
 import uuid
 from collections.abc import Mapping
@@ -16,6 +17,12 @@ import pandas as pd
 
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.path_utils as path_utils
+import _lumascope.modules.quick_enhance as quick_enhance
+from _lumascope.modules.protocol_post_processing_helper import (
+    ProtocolPostProcessingHelper,
+    RunRecord,
+)
+from _lumascope.modules.tiling_config import TilingGrids
 
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.cell_count import CellCount
@@ -24,6 +31,7 @@ from _lumascope.modules.common_utils import read_table
 from _lumascope.modules.python_values import python_values
 from _lumascope.modules.exceptions import (
     CellCountScaleDroppedNotice,
+    LeftOutReason,
     LiveFolderPathRefusedError,
     PostProcessingFailedError,
     PostProcessingOperation,
@@ -395,10 +403,26 @@ class PostProcessing:
         self,
         path: str | os.PathLike,
         method: CellCountMethod,
+        *,
+        tiling_grids: TilingGrids,
         on_progress: ProgressCallback | None = None,
     ) -> dict:
-        """Count the cells in every image in *path* and write ``results.csv`` there,
-        with the method counted by beside it as ``results_method.json``.
+        """Count the cells in the images directly in *path* and write
+        ``results.csv`` there, with the method counted by beside it as
+        ``results_method.json``.
+
+        In a run's folder (or a folder inside one) only the images the run's
+        record names are counted: its captures, by the run record, and what
+        builds made from them, by the post-processing record. The record is
+        read and never written: a count moves no record aside and starts
+        none. *tiling_grids* are the installation's, which the run's protocol
+        is read against. In a folder with no run record every image is
+        counted but a Quick Enhance copy, told by its recipe beside it. Each
+        image left out is named, with why, in ``left_out`` and the message.
+        Rows are in the order the images were taken (``frame_time``: the
+        image's own time, else its record row's), then by name; when the
+        times do not compare (one missing, or offsets mixed), the images with
+        a time come first, by name, then the rest, by name.
 
         The method file is the one ``save_cell_count_method`` writes, so
         ``load_cell_count_method`` reads it back. The two replace earlier
@@ -411,17 +435,20 @@ class PostProcessing:
         Each image is measured at ``cell_count_scale``'s answer for it: the
         method's override, else the scale the image states, else pixels. The
         results say each row's area unit (``um2`` or ``px2``), so a folder of
-        mixed images is one file. Each row's time is the one its image states
-        it was taken, with its UTC offset when the image states one, and is
-        blank for an image that states none.
+        mixed images is one file. Each row's time is ``frame_time``'s, with
+        its UTC offset when it states one, and is blank when there is none.
 
         Returns:
             ``results_path``; ``method_path``; ``counted``, how many images
-            were analysed; and ``message``, the outcome in words.
+            were analysed; ``left_out``, each image left out as its name and
+            its ``LeftOutReason``; and ``message``, the outcome in words.
 
         Raises:
-            PostProcessingRefusedError: No image in the folder could be
-                analysed -- none there, or none readable.
+            PostProcessingRefusedError: ``protocol_data_unreadable``, the
+                run's record, its protocol or its post-processing record
+                cannot be read, or the protocol is gone; ``no_data``, no
+                image in the folder could be analysed -- none there, none to
+                count, or none readable.
             PostProcessingFailedError: The results or the method could not
                 be written (with the results alone among its produced paths
                 when only the method could not take its place), or some
@@ -437,8 +464,29 @@ class PostProcessing:
             'total_object_area_um2',
             'total_object_intensity',
         ]
-        filenames = [f for f in os.listdir(path) if image_utils.is_image(f)]
+        listed = sorted(f for f in os.listdir(path) if image_utils.is_image(f))
+        try:
+            run = ProtocolPostProcessingHelper().read_run(pathlib.Path(path), tiling_grids)
+            post_rows = None if run is None else run.post_rows()
+        except ValueError as e:
+            raise PostProcessingRefusedError(
+                operation=CELL_COUNT_OPERATION,
+                reason='protocol_data_unreadable',
+                message=str(e),
+            ) from e
+        recorded, left_out = _images_to_count(pathlib.Path(path), listed, run, post_rows)
+        left_out_words = '; '.join(
+            f'{name} ({_LEFT_OUT_WORDS[reason]})' for name, reason in left_out
+        )
+        if listed and not recorded:
+            raise PostProcessingRefusedError(
+                operation=CELL_COUNT_OPERATION,
+                reason='no_data',
+                message=f'No image in the folder is one to count: {left_out_words}.',
+            )
+        filenames = list(recorded)
         results = []
+        taken_at = {}
         not_counted = []
 
         for done, filename in enumerate(filenames, start=1):
@@ -454,9 +502,14 @@ class PostProcessing:
                     ),
                     name=filename,
                 )
-                # The time the image states it was taken, never the file
-                # system's: a copied folder's files were all made at the copy.
-                taken = image_utils.stated_frame_time(image_utils.read_file_record(file_path))
+                # The time the image states it was taken, else its record
+                # row's, never the file system's: a copied folder's files
+                # were all made at the copy.
+                row = recorded[filename]
+                taken = image_utils.frame_time(
+                    image_utils.stated_frame_time(image_utils.read_file_record(file_path)),
+                    None if row is None else row['Timestamp'],
+                )
             except (PostProcessingRefusedError, LiveFolderPathRefusedError) as e:
                 # Not an image after all, a folder named like one, or gone
                 # since the folder was listed.
@@ -464,6 +517,7 @@ class PostProcessing:
                 not_counted.append(str(e))
                 continue
 
+            taken_at[filename] = taken
             results.append(
                 {
                     'filename': os.path.basename(filename),
@@ -486,6 +540,7 @@ class PostProcessing:
             raise PostProcessingRefusedError(
                 operation=CELL_COUNT_OPERATION, reason='no_data', message=message
             )
+        results = _in_taken_order(results, taken_at)
 
         results_file_path = os.path.join(path, 'results.csv')
         method_file_path = os.path.join(path, 'results_method.json')
@@ -556,10 +611,14 @@ class PostProcessing:
                 errors=not_counted,
             ) from e
 
+        left_out_sentence = f' Left out: {left_out_words}.' if left_out else ''
         if not_counted:
             raise PostProcessingFailedError(
                 operation=CELL_COUNT_OPERATION,
-                missing=f'{len(not_counted)} of {len(filenames)} image(s) could not be counted.',
+                missing=(
+                    f'{len(not_counted)} of {len(filenames)} image(s) could not be counted.'
+                    f'{left_out_sentence}'
+                ),
                 produced_paths=(results_file_path, method_file_path),
                 output_root=str(path),
                 errors=not_counted,
@@ -568,8 +627,66 @@ class PostProcessing:
             'results_path': results_file_path,
             'method_path': method_file_path,
             'counted': len(results),
+            'left_out': left_out,
             'message': (
-                f'Counted cells in {len(results)} image(s). Results: {results_file_path};'
-                f' method: {method_file_path}'
+                f'Counted cells in {len(results)} image(s).{left_out_sentence}'
+                f' Results: {results_file_path}; method: {method_file_path}'
             ),
         }
+
+
+# What the outcome calls each reason an image was left out.
+_LEFT_OUT_WORDS = {
+    LeftOutReason.NOT_IN_RECORD: "not in the run's record",
+    LeftOutReason.QUICK_ENHANCE_COPY: 'a Quick Enhance copy',
+}
+
+
+def _images_to_count(
+    folder: pathlib.Path,
+    listed: list[str],
+    run: RunRecord | None,
+    post_rows: pd.DataFrame | None,
+) -> tuple[dict[str, dict | None], list[tuple[str, LeftOutReason]]]:
+    """The images in *folder* to count, each with its record row, and the
+    rest with why each is left out.
+
+    With *run*, an image is counted when the run record names it (its row
+    is the capture's) or the post-processing record does (its row is the
+    build's); its name in either is relative to the run's root. With none,
+    each image is counted with no row, but a Quick Enhance copy.
+    """
+    recorded: dict[str, dict | None] = {}
+    left_out: list[tuple[str, LeftOutReason]] = []
+    if run is None:
+        for name in listed:
+            if quick_enhance.recipe_of(folder / name).is_file():
+                left_out.append((name, LeftOutReason.QUICK_ENHANCE_COPY))
+            else:
+                recorded[name] = None
+        return recorded, left_out
+    built = (
+        {}
+        if post_rows is None
+        else {pathlib.Path(row['Filepath']): row for row in post_rows.to_dict('records')}
+    )
+    for name in listed:
+        relative = pathlib.Path(os.path.relpath(folder / name, run.root))
+        row = run.raw_row(relative)
+        if row is None:
+            row = built.get(relative)
+        if row is None:
+            left_out.append((name, LeftOutReason.NOT_IN_RECORD))
+        else:
+            recorded[name] = row
+    return recorded, left_out
+
+
+def _in_taken_order(
+    rows: list[dict], taken_at: Mapping[str, datetime.datetime | None]
+) -> list[dict]:
+    """*rows* in the order their images were taken, then by name; when the
+    times do not compare, those with a time by name, then the rest by name."""
+    if image_utils.comparable_times(taken_at[row['filename']] for row in rows) is not None:
+        return sorted(rows, key=lambda row: (taken_at[row['filename']], row['filename']))
+    return sorted(rows, key=lambda row: (taken_at[row['filename']] is None, row['filename']))

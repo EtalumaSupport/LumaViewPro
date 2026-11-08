@@ -375,7 +375,32 @@ class ProtocolPostRecord:
         self._outfile_fp.flush()
 
     @classmethod
+    def read_rows(cls, file_path: pathlib.Path) -> pd.DataFrame:
+        """The record's rows, read: nothing is constructed, and the file is
+        neither opened to append to nor upgraded in place, so a reader that
+        only reads a run folder leaves it as it found it."""
+        return cls._parse(file_path)[0]
+
+    @classmethod
     def from_file(cls, file_path: pathlib.Path) -> 'ProtocolPostRecord':
+        df, file_version = cls._parse(file_path)
+        record = ProtocolPostRecord(
+            file_loc=file_path,
+            records=df,
+        )
+
+        if file_version < cls.CURRENT_VERSION:
+            # The instance appends rows in the current column order, so
+            # an older file must be upgraded in place; appending
+            # current-format rows under an old header would silently
+            # misalign every column after Name.
+            record._rewrite_outfile()
+
+        return record
+
+    @classmethod
+    def _parse(cls, file_path: pathlib.Path) -> tuple[pd.DataFrame, int]:
+        """The record's rows and the version its file was written in."""
         with open(file_path, encoding='utf-8') as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
@@ -472,19 +497,7 @@ class ProtocolPostRecord:
                     index=df.index,
                 )
 
-            record = ProtocolPostRecord(
-                file_loc=file_path,
-                records=df,
-            )
-
-            if file_version < cls.CURRENT_VERSION:
-                # The instance appends rows in the current column order, so
-                # an older file must be upgraded in place; appending
-                # current-format rows under an old header would silently
-                # misalign every column after Name.
-                record._rewrite_outfile()
-
-            return record
+            return df, file_version
 
     def _rewrite_outfile(self):
         """Rewrite the on-disk file in the current format, keeping all rows.

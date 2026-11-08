@@ -39,6 +39,23 @@ QUANTITATIVE_USE_WARNING = (
 MAX_IMAGE_PIXELS = 100_000_000
 
 
+def _name_base(path: pathlib.Path) -> str:
+    """*path*'s name without its format's suffix: ``.ome.tiff`` taken off
+    whole, else only the last suffix."""
+    if image_utils.is_ome_tiff(path):
+        return path.name[: -len(''.join(path.suffixes[-2:]))]
+    return path.stem
+
+
+def recipe_of(image_path: pathlib.Path) -> pathlib.Path:
+    """Where the recipe of *image_path* is, were it an enhance's copy.
+
+    An enhance names its copy and the copy's recipe from one stem, so the
+    recipe beside an image is what makes it a copy.
+    """
+    return image_path.with_name(f'{_name_base(image_path)}.recipe.json')
+
+
 @dataclass(frozen=True)
 class QuickEnhanceSettings:
     """Fixed, non-AI recipe for deterministic visual enhancement."""
@@ -539,11 +556,10 @@ class QuickEnhancer:
         name is taken while the image in either format or the recipe exists,
         so ``a.tiff`` and ``a.ome.tiff`` in one folder never share a recipe.
         """
+        base = _name_base(source_path)
         if image_utils.is_ome_tiff(source_path):
-            base = source_path.name[: -len(''.join(source_path.suffixes[-2:]))]
             output_format = image_mode.OutputFormat.OME_TIFF
         else:
-            base = source_path.stem
             output_format = image_mode.OutputFormat.TIFF
         suffix = image_utils.derived_file_suffix(output_format)
         for index in range(1, 10_002):

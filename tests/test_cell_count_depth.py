@@ -18,6 +18,7 @@ from _lumascope.modules import image_utils
 from _lumascope.modules.post_processing import PostProcessing
 from _lumascope.modules.channel_record import release_color
 from tests.stock_channels import LED1
+from tests.installation_fixtures import shipped_grids
 
 
 def _meta(significant_bits):
@@ -79,7 +80,11 @@ def test_folder_walk_threads_12bit_depth(tmp_path):
     post = PostProcessing()
     captured = _capture_depth(post)
 
-    list(post.apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod()))
+    list(
+        post.apply_cell_count_to_folder(
+            path=str(tmp_path), method=CellCountMethod(), tiling_grids=shipped_grids()
+        )
+    )
 
     assert captured['significant_bits'] == 12
 
@@ -90,6 +95,10 @@ def test_folder_walk_legacy_file_defaults_to_container_width(tmp_path):
     post = PostProcessing()
     captured = _capture_depth(post)
 
-    list(post.apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod()))
+    list(
+        post.apply_cell_count_to_folder(
+            path=str(tmp_path), method=CellCountMethod(), tiling_grids=shipped_grids()
+        )
+    )
 
     assert captured['significant_bits'] == 16

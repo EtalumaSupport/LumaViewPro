@@ -38,11 +38,12 @@ def test_a_build_logs_its_start_and_its_result(session, monkeypatch, tmp_path, c
     monkeypatch.setattr(
         PostProcessing,
         'apply_cell_count_to_folder',
-        lambda self, path, method, on_progress=None: {
+        lambda self, path, method, *, tiling_grids, on_progress=None: {
             'message': 'Counted cells in 3 image(s).',
             'results_path': str(path / 'results.csv'),
             'method_path': str(path / 'results_method.json'),
             'counted': 3,
+            'left_out': [],
         },
     )
     caplog.set_level(logging.DEBUG)
@@ -82,12 +83,13 @@ def test_a_build_keeps_the_slow_task_budget_it_declares(session, monkeypatch, tm
     from _lumascope.modules.sequential_io_executor import slow_task_budget
 
     @slow_task_budget(600.0)
-    def count(self, path, method, on_progress=None):
+    def count(self, path, method, *, tiling_grids, on_progress=None):
         return {
             'message': 'counted',
             'results_path': str(path / 'results.csv'),
             'method_path': str(path / 'results_method.json'),
             'counted': 3,
+            'left_out': [],
         }
 
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', count)

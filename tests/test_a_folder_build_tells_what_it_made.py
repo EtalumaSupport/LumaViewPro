@@ -90,6 +90,7 @@ def test_a_counted_folder_answers_with_its_results(counter, tmp_path):
     result = counter.apply_cell_count_to_folder(
         str(tmp_path),
         CellCountMethod(),
+        tiling_grids=shipped_grids(),
         on_progress=lambda percent, text: seen.append(percent),
     )
 
@@ -113,7 +114,9 @@ def _old_method(folder):
 def test_a_count_writes_the_method_it_counted_by_beside_its_results(counter, tmp_path):
     _write_tiff(tmp_path / 'a.tif')
 
-    result = counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+    result = counter.apply_cell_count_to_folder(
+        str(tmp_path), COUNTED_BY, tiling_grids=shipped_grids()
+    )
 
     method_path = os.path.join(str(tmp_path), 'results_method.json')
     assert result['method_path'] == method_path
@@ -148,7 +151,7 @@ def test_a_file_that_cannot_be_written_keeps_the_previous_results_and_method(
 
     monkeypatch.setattr(post_processing, 'open', refuse_one, raising=False)
     with pytest.raises(PostProcessingFailedError) as raised:
-        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY, tiling_grids=shipped_grids())
 
     assert f'could not be written to {tmp_path / named}' in str(raised.value)
     assert raised.value.produced_paths == ()
@@ -178,7 +181,7 @@ def test_a_method_that_cannot_take_its_place_leaves_no_method_beside_the_new_res
 
     monkeypatch.setattr(os, 'replace', refuse_the_method)
     with pytest.raises(PostProcessingFailedError) as raised:
-        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY, tiling_grids=shipped_grids())
 
     assert raised.value.reason == 'post_processing_incomplete'
     assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
@@ -210,7 +213,7 @@ def test_an_earlier_method_that_cannot_be_removed_is_named_as_not_the_results_me
     monkeypatch.setattr(os, 'replace', refuse_the_method)
     monkeypatch.setattr(os, 'remove', keep_the_earlier_method)
     with pytest.raises(PostProcessingFailedError) as raised:
-        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY)
+        counter.apply_cell_count_to_folder(str(tmp_path), COUNTED_BY, tiling_grids=shipped_grids())
 
     assert 'is not the method of these results' in str(raised.value)
     assert raised.value.produced_paths == (os.path.join(str(tmp_path), 'results.csv'),)
@@ -219,7 +222,9 @@ def test_an_earlier_method_that_cannot_be_removed_is_named_as_not_the_results_me
 def test_an_empty_folder_is_refused_and_keeps_the_previous_results(counter, tmp_path):
     _old_results(tmp_path)
     with pytest.raises(PostProcessingRefusedError):
-        counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
+        counter.apply_cell_count_to_folder(
+            str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
+        )
     assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
 
 
@@ -227,7 +232,9 @@ def test_a_folder_of_unreadable_images_is_refused_and_keeps_the_previous_results
     _old_results(tmp_path)
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingRefusedError):
-        counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
+        counter.apply_cell_count_to_folder(
+            str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
+        )
     assert (tmp_path / 'results.csv').read_text() == OLD_RESULTS
 
 
@@ -235,7 +242,9 @@ def test_some_unreadable_images_make_the_count_incomplete_with_its_results(count
     _write_tiff(tmp_path / 'good.tif')
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingFailedError) as raised:
-        counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
+        counter.apply_cell_count_to_folder(
+            str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
+        )
     assert raised.value.produced_paths == (
         os.path.join(str(tmp_path), 'results.csv'),
         os.path.join(str(tmp_path), 'results_method.json'),
@@ -254,7 +263,9 @@ def test_a_failed_results_write_raises_and_keeps_the_previous_results(
 
     monkeypatch.setattr(os, 'replace', refuse)
     with pytest.raises(PostProcessingFailedError) as raised:
-        counter.apply_cell_count_to_folder(str(tmp_path), CellCountMethod())
+        counter.apply_cell_count_to_folder(
+            str(tmp_path), CellCountMethod(), tiling_grids=shipped_grids()
+        )
     # Why, in the system's words, not Python's rendering of the error.
     assert os.strerror(errno.ENOSPC) in str(raised.value)
     assert '[Errno' not in str(raised.value)

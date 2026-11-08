@@ -44,6 +44,7 @@ def session(monkeypatch):
         results_path=pathlib.Path('folder/results.csv'),
         method_path=pathlib.Path('folder/results_method.json'),
         counted=0,
+        left_out=(),
     )
     monkeypatch.setattr(post_processing._app_ctx, 'ctx', ctx)
 

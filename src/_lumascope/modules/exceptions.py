@@ -2623,6 +2623,19 @@ class ExcludedInput:
     count: int
 
 
+class LeftOutReason(StrEnum):
+    """Why a cell count left out an image in the folder it counted.
+
+    ``NOT_IN_RECORD``: the folder is a run's, and its record names no
+    capture or build that wrote the image. ``QUICK_ENHANCE_COPY``: the
+    image is a Quick Enhance copy, told by its recipe beside it, in a folder
+    with no run record.
+    """
+
+    NOT_IN_RECORD = 'not_in_record'
+    QUICK_ENHANCE_COPY = 'quick_enhance_copy'
+
+
 @api_fields('excluded_inputs')
 class PostProcessingFailedError(Fault, CaptureError):
     """A post-processing build did not produce everything it was asked for.

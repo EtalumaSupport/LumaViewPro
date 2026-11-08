@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import dataclasses
 import os
 import pathlib
 
@@ -51,6 +52,63 @@ def _raw_row(
         'Missing': missing,
         'Frames': frames,
     }
+
+
+@dataclasses.dataclass(frozen=True)
+class RunRecord:
+    """A run folder's record, read and never written to.
+
+    Attributes:
+        root: The run folder, which holds the run record.
+        protocol: The run's protocol, read for its steps.
+        execution_record: The run record: each capture's file, step, scan
+            and time.
+        protocol_file: The protocol's file.
+        execution_record_file: The run record's file.
+        post_record_file: The post-processing record's file, None when no
+            build has written one.
+    """
+
+    root: pathlib.Path
+    protocol: Protocol
+    execution_record: ProtocolExecutionRecord
+    protocol_file: pathlib.Path
+    execution_record_file: pathlib.Path
+    post_record_file: pathlib.Path | None
+
+    def raw_row(self, image_name: pathlib.Path) -> dict | None:
+        """The run's row for a frame it captured, by the frame's name
+        relative to the root; None when the run recorded no such frame.
+
+        A recording's frame is recorded by its recording's folder, not by
+        the frame's file.
+        """
+        key = (
+            image_name.parent
+            if recording_frames.is_protocol_video_frame(image_name.name)
+            else image_name
+        )
+        recorded = self.execution_record.get_data_from_filename(file_path=key)
+        if recorded is None:
+            return None
+        return _raw_row(image_name, recorded, self.protocol, missing='', frames=1)
+
+    def post_rows(self) -> pd.DataFrame | None:
+        """The rows of the images builds made in the run folder; None when
+        no build has written a record.
+
+        Raises:
+            ValueError: the post-processing record cannot be read; the
+                message names it, for a person.
+        """
+        if self.post_record_file is None:
+            return None
+        try:
+            return ProtocolPostRecord.read_rows(self.post_record_file)
+        except Exception as e:
+            raise ValueError(
+                f'The post-processing record {self.post_record_file.name} could not be read ({e}).'
+            ) from e
 
 
 class ProtocolPostProcessingHelper:
@@ -123,12 +181,13 @@ class ProtocolPostProcessingHelper:
         return pathlib.Path('-'.join(used_functions))
 
     def _find_protocol_tsvs(self, path: pathlib.Path) -> dict | None:
-        """The run folder's files, or None when it holds no run record and protocol.
+        """The run folder's files, or None when neither *path* nor the
+        folder above it holds a run record.
 
         Raises:
             ValueError: the run record cannot be read, or names a protocol
-                outside the run folder -- the message says which, for a
-                person.
+                outside the run folder or one that is not there -- the
+                message says which, for a person.
         """
 
         # If provided a file, change to the parent folder
@@ -189,36 +248,61 @@ class ProtocolPostProcessingHelper:
                 f'which is outside the run folder {protocol_root_dir}.'
             )
         if not protocol_file_loc.is_file():
-            return None
+            raise ValueError(
+                f'The run record names its protocol as {str(protocol_file_relative_loc)!r}, '
+                f'which is not in the run folder {protocol_root_dir}.'
+            )
 
         loc_data['protocol'] = protocol_file_loc
 
         return loc_data
 
-    def _get_raw_images_df(
-        self,
-        image_names: list,
-        protocol: Protocol,
-        protocol_execution_record: ProtocolExecutionRecord,
-    ) -> pd.DataFrame:
+    def read_run(self, path: pathlib.Path, tiling_grids: TilingGrids) -> RunRecord | None:
+        """The record of the run *path* is, or is a folder of, read and
+        never written to; None when *path* is not a run folder.
+
+        A run folder holds its run record; a folder inside one (a channel's,
+        a build's) finds it one level up.
+
+        Raises:
+            ValueError: the run record cannot be read, its protocol is
+                outside the run folder, gone, or cannot be read -- the
+                message says which, for a person.
+        """
+        protocol_tsvs = self._find_protocol_tsvs(path=path)
+        if protocol_tsvs is None:
+            return None
+        try:
+            # The run's record, read for its steps in the names its files
+            # carry and never run or edited: a period saved before the floor,
+            # or a step cell a run would refuse, does not refuse it here.
+            protocol = Protocol.from_file(
+                file_path=protocol_tsvs['protocol'],
+                tiling_grids=tiling_grids,
+                unit=StoredNames.KEPT,
+            )
+        except Exception as e:
+            raise ValueError(f'Unable to load protocol file: {e}') from e
+        return RunRecord(
+            root=protocol_tsvs['protocol_root_dir'],
+            protocol=protocol,
+            execution_record=protocol_tsvs['execution_record'],
+            protocol_file=protocol_tsvs['protocol'],
+            execution_record_file=protocol_tsvs['protocol_execution_record'],
+            post_record_file=protocol_tsvs['protocol_post_record'],
+        )
+
+    def _get_raw_images_df(self, image_names: list, run: RunRecord) -> pd.DataFrame:
 
         image_data = []
 
         for image_name in image_names:
-            # A video frame's execution-record row is keyed by its
-            # recording folder, not the frame file.
-            if recording_frames.is_protocol_video_frame(image_name.name):
-                file_data = protocol_execution_record.get_data_from_filename(
-                    file_path=image_name.parent
-                )
-            else:
-                file_data = protocol_execution_record.get_data_from_filename(file_path=image_name)
-
-            if file_data is None:
+            row = run.raw_row(image_name)
+            if row is None:
                 logger.warning(f'No info found in protocol execution record for {image_name}')
                 continue
 
-            image_data.append(_raw_row(image_name, file_data, protocol, missing='', frames=1))
+            image_data.append(row)
 
         return pd.DataFrame(image_data)
 
@@ -324,52 +408,35 @@ class ProtocolPostProcessingHelper:
         # the caller raises as a refusal; the reporter logs it once, so none
         # is logged here.
         try:
-            protocol_tsvs = self._find_protocol_tsvs(path=selected_path)
+            run = self.read_run(selected_path, tiling_grids)
         except ValueError as e:
             return {
                 'status': False,
                 'message': str(e),
             }
-        if protocol_tsvs is None:
+        if run is None:
             return {
                 'status': False,
                 'message': 'Protocol and/or Protocol Record not found in folder',
             }
 
-        root_path = protocol_tsvs['protocol_root_dir']
+        root_path = run.root
 
         # Special handling for logging this since it may be None or a pathlib file
         protocol_post_record_str = (
-            'None'
-            if protocol_tsvs['protocol_post_record'] is None
-            else protocol_tsvs['protocol_post_record'].name
+            'None' if run.post_record_file is None else run.post_record_file.name
         )
 
         logger.info(f"""{self._name}: Found ->
             Selected dir:                      {selected_path}
             Protocol root dir:                 {root_path}
-            Protocol:                          {protocol_tsvs['protocol'].name}
-            Protocol execution record:         {protocol_tsvs['protocol_execution_record'].name}
+            Protocol:                          {run.protocol_file.name}
+            Protocol execution record:         {run.execution_record_file.name}
             Protocol post-processing metadata: {protocol_post_record_str}
         """)
 
-        try:
-            # The run's record, read for its steps in the names its files
-            # carry and never run or edited: a period saved before the floor,
-            # or a step cell a run would refuse, does not refuse it here.
-            protocol = Protocol.from_file(
-                file_path=protocol_tsvs['protocol'],
-                tiling_grids=tiling_grids,
-                unit=StoredNames.KEPT,
-            )
-        except Exception as e:
-            msg = f'Unable to load protocol file: {e}'
-            return {
-                'status': False,
-                'message': msg,
-            }
-
-        protocol_execution_record = protocol_tsvs['execution_record']
+        protocol = run.protocol
+        protocol_execution_record = run.execution_record
 
         if protocol_execution_record.num_records() == 0:
             msg = 'Protocol Execution Record has no records'
@@ -379,20 +446,18 @@ class ProtocolPostProcessingHelper:
             }
 
         protocol_post_record = None
-        if protocol_tsvs['protocol_post_record'] is not None:
+        if run.post_record_file is not None:
             try:
                 protocol_post_record = ProtocolPostRecord.from_file(
-                    file_path=protocol_tsvs['protocol_post_record'],
+                    file_path=run.post_record_file,
                 )
-                logger.info(
-                    f'Loaded existing protocol post record {protocol_tsvs["protocol_post_record"]}'
-                )
+                logger.info(f'Loaded existing protocol post record {run.post_record_file}')
             except Exception as e:
                 # An unreadable record must be moved aside, not appended to:
                 # constructing a fresh ProtocolPostRecord on it reopens it in
                 # append mode, and current-format rows under its old header
                 # would misalign every column on the next load.
-                record_loc = protocol_tsvs['protocol_post_record']
+                record_loc = run.post_record_file
                 try:
                     preserved_loc = path_utils.move_aside(record_loc, '.unreadable')
                 except OSError as move_error:
@@ -433,11 +498,9 @@ class ProtocolPostProcessingHelper:
                 path=root_path, exclude_subpaths=[], include_subpaths=include_subpaths
             )
 
-        raw_images = self._get_raw_images_df(
-            image_names=image_names['raw'],
-            protocol=protocol,
-            protocol_execution_record=protocol_execution_record,
-        ).to_dict('records')
+        raw_images = self._get_raw_images_df(image_names=image_names['raw'], run=run).to_dict(
+            'records'
+        )
         # A selected recording folder is its frames only; any other
         # selection also takes what the run recorded and the folder lacks.
         if not recording_frames.is_video_recording_dir(path):

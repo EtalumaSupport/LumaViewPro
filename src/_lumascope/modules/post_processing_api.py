@@ -45,6 +45,7 @@ from _lumascope.modules.finite_number import is_finite_number
 from _lumascope.modules.graph_analysis import Trendline
 from _lumascope.modules.exceptions import (
     ExcludedInput,
+    LeftOutReason,
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
@@ -144,23 +145,40 @@ class EnhanceResult:
     created: tuple[EnhancedFile, ...]
 
 
-@api_fields('message', 'results_path', 'method_path', 'counted')
+@api_fields('path', 'reason')
+@dataclasses.dataclass(frozen=True)
+class LeftOutImage:
+    """An image in a counted folder the count left out, and why.
+
+    Attributes:
+        path: The image, by its name in the folder.
+        reason: Why the count left it out.
+    """
+
+    path: pathlib.Path
+    reason: LeftOutReason
+
+
+@api_fields('message', 'results_path', 'method_path', 'counted', 'left_out')
 @dataclasses.dataclass(frozen=True)
 class CellCountResult:
     """What a cell count wrote.
 
     Attributes:
-        message: The outcome in words.
+        message: The outcome in words, naming each image left out.
         results_path: The results table it wrote.
         method_path: The method it counted by, written beside the results
             as a method file ``load_cell_count_method`` reads.
         counted: How many images it counted.
+        left_out: Each image in the folder it did not count, and why;
+            empty when none.
     """
 
     message: str
     results_path: pathlib.Path
     method_path: pathlib.Path
     counted: int
+    left_out: tuple[LeftOutImage, ...]
 
 
 @api_fields('num_cells', 'total_object_area_px2', 'total_object_area_um2', 'total_object_intensity')
@@ -418,6 +436,10 @@ def _cell_count_result(answer: dict) -> CellCountResult:
         results_path=pathlib.Path(answer['results_path']),
         method_path=pathlib.Path(answer['method_path']),
         counted=answer['counted'],
+        left_out=tuple(
+            LeftOutImage(path=pathlib.Path(path), reason=reason)
+            for path, reason in answer['left_out']
+        ),
     )
 
 
@@ -1328,9 +1350,15 @@ class PostProcessingAPI:
         method: CellCountMethod,
         on_progress: ProgressCallback | None = None,
     ) -> CellCountResult:
-        """Count the cells in every image in *folder* by *method*, writing
-        ``results.csv`` into the folder and *method* beside it as
+        """Count the cells in the images directly in *folder* by *method*,
+        writing ``results.csv`` into the folder and *method* beside it as
         ``results_method.json``.
+
+        In a run's folder (or a folder inside one) only the images the run's
+        record names are counted: its captures and what builds made from
+        them. In a folder with no run record every image is, but a Quick
+        Enhance copy. Rows are in the order the images were taken, then by
+        name.
 
         Args:
             folder: The folder of images to count; a ``results.csv`` and
@@ -1342,15 +1370,17 @@ class PostProcessingAPI:
 
         Returns:
             The results table, the method file, how many images were
-            counted, and the outcome in words.
+            counted, each image left out and why, and the outcome in words.
 
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
             PostProcessingRefusedError: reason ``method_invalid``, a
                 *method* sent as its fields holds what ``CellCountMethod``
-                refuses; or the folder has nothing to count (reason
-                ``no_data``).
+                refuses; ``'protocol_data_unreadable'``, the run's record,
+                its protocol or its post-processing record cannot be read,
+                or the protocol is gone; or the folder has nothing to count
+                (reason ``no_data``).
             PostProcessingFailedError: the results or the method could not
                 be written, or some images could not be counted; the results
                 hold every image that was, and the error names the rest.
@@ -1362,6 +1392,7 @@ class PostProcessingAPI:
             'count_cells',
             folder,
             method,
+            tiling_grids=self._tiling_grids,
             operation=PostProcessingOperation.CELL_COUNT,
             saved_in=lambda result: result.results_path.parent,
             on_progress=on_progress,

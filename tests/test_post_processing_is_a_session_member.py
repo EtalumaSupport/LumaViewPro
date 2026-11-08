@@ -12,12 +12,23 @@ with its result or raises the typed outcome. No ``ui`` import here.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 
 import _lumascope.modules.sequential_io_executor as sie
-from _lumascope.modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
-from _lumascope.modules.post_processing_api import CellCountResult, DegradedOutput, Stitch, ZProject
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    LeftOutReason,
+    PostProcessingRefusedError,
+)
+from _lumascope.modules.post_processing_api import (
+    CellCountResult,
+    DegradedOutput,
+    LeftOutImage,
+    Stitch,
+    ZProject,
+)
 from _lumascope.modules.stitch_mode import StitchAlgorithm, StitchMode
 from _lumascope.modules.zproject_method import ZProjectMethod
 
@@ -212,14 +223,15 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
 
     seen = {}
 
-    def record(self, path, method, on_progress=None):
-        seen.update(path=path, method=method, on_progress=on_progress)
+    def record(self, path, method, *, tiling_grids, on_progress=None):
+        seen.update(path=path, method=method, tiling_grids=tiling_grids, on_progress=on_progress)
         seen['lane'] = getattr(sie._lane_worker, 'executor', None)
         return {
             'message': 'counted',
             'results_path': str(path / 'results.csv'),
             'method_path': str(path / 'results_method.json'),
             'counted': 3,
+            'left_out': [('copy.tif', LeftOutReason.NOT_IN_RECORD)],
         }
 
     monkeypatch.setattr(PostProcessing, 'apply_cell_count_to_folder', record)
@@ -237,8 +249,11 @@ def test_a_cell_count_takes_the_callers_method_and_progress(session, monkeypatch
         results_path=tmp_path / 'results.csv',
         method_path=tmp_path / 'results_method.json',
         counted=3,
+        left_out=(LeftOutImage(path=Path('copy.tif'), reason=LeftOutReason.NOT_IN_RECORD),),
     )
     assert seen['method'] is method
+    # The run's protocol is read against the scope's own tiling grids.
+    assert seen['tiling_grids'] is session.scope.protocols.tiling_grids()
     # What the build is handed reaches the caller's own callback.
     seen['on_progress'](42, 'Image 42')
     assert told == [(42, 'Image 42')]

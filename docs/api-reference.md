@@ -83,6 +83,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`Labware`](#Labware)
 - [`LedBoardInfo`](#LedBoardInfo)
 - [`LedReading`](#LedReading)
+- [`LeftOutImage`](#LeftOutImage)
 - [`LiveFolderEntry`](#LiveFolderEntry)
 - [`LiveProcessingRegistry`](#LiveProcessingRegistry)
 - [`LiveWork`](#LiveWork)
@@ -4361,9 +4362,15 @@ def count_cells(
 
 Route: `POST /api/v1/post_processing/count_cells`.
 
-Count the cells in every image in *folder* by *method*, writing
-`results.csv` into the folder and *method* beside it as
+Count the cells in the images directly in *folder* by *method*,
+writing `results.csv` into the folder and *method* beside it as
 `results_method.json`.
+
+In a run's folder (or a folder inside one) only the images the run's
+record names are counted: its captures and what builds made from
+them. In a folder with no run record every image is, but a Quick
+Enhance copy. Rows are in the order the images were taken, then by
+name.
 
 **Args**
 
@@ -4373,17 +4380,17 @@ Count the cells in every image in *folder* by *method*, writing
 
 **Returns**
 
-The results table, the method file, how many images were counted, and the outcome in words.
+The results table, the method file, how many images were counted, each image left out and why, and the outcome in words.
 
 **Raises**
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *folder*; `'not_a_folder'`, a file is.
-- `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; or the folder has nothing to count (reason `no_data`).
+- `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; `'protocol_data_unreadable'`, the run's record, its protocol or its post-processing record cannot be read, or the protocol is gone; or the folder has nothing to count (reason `no_data`).
 - `PostProcessingFailedError`: the results or the method could not be written, or some images could not be counted; the results hold every image that was, and the error names the rest.
 
 **Refusals by REST status**
 
-- 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `method_invalid`, `no_data`
+- 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `method_invalid`, `protocol_data_unreadable`, `no_data`
 - 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
 <a id="PostProcessingAPI.default_cell_count_method"></a>
@@ -9673,7 +9680,8 @@ What a cell count wrote.
 **Fields**
 
 - <a id="CellCountResult.counted"></a>`counted`: `int` -- How many images it counted.
-- <a id="CellCountResult.message"></a>`message`: `str` -- The outcome in words.
+- <a id="CellCountResult.left_out"></a>`left_out`: `tuple[LeftOutImage, ...]` -- Each image in the folder it did not count, and why; empty when none.
+- <a id="CellCountResult.message"></a>`message`: `str` -- The outcome in words, naming each image left out.
 - <a id="CellCountResult.method_path"></a>`method_path`: `pathlib.Path` -- The method it counted by, written beside the results as a method file `load_cell_count_method` reads.
 - <a id="CellCountResult.results_path"></a>`results_path`: `pathlib.Path` -- The results table it wrote.
 
@@ -10608,6 +10616,19 @@ The answer of every LED read and the `led` event.
 - <a id="LedReading.illumination_ma"></a>`illumination_ma`: `float | None` -- The commanded current in mA when lit; None otherwise.
 - <a id="LedReading.name"></a>`name`: `str | None` -- The channel the unit's identity names for the address, read at the moment of the reading; None when the identity names none, which never hides the address.
 - <a id="LedReading.state"></a>`state`: `LedState` -- Lit, dark, or unknown.
+
+<a id="LeftOutImage"></a>
+## `lumascope.LeftOutImage`
+
+A record: it crosses the wire as its data.  
+Held in: [`CellCountResult.left_out`](#CellCountResult.left_out).
+
+An image in a counted folder the count left out, and why.
+
+**Fields**
+
+- <a id="LeftOutImage.path"></a>`path`: `pathlib.Path` -- The image, by its name in the folder.
+- <a id="LeftOutImage.reason"></a>`reason`: `LeftOutReason` -- Why the count left it out.
 
 <a id="LiveFolderEntry"></a>
 ## `lumascope.LiveFolderEntry`
@@ -13705,6 +13726,21 @@ What an LED address is doing, as far as the API can vouch for it.
 - `lit`
 - `dark`
 - `unknown`
+
+<a id="LeftOutReason"></a>
+### `lumascope.LeftOutReason`
+
+Held in: [`LeftOutImage.reason`](#LeftOutImage.reason).
+
+Why a cell count left out an image in the folder it counted.
+
+`NOT_IN_RECORD`: the folder is a run's, and its record names no
+capture or build that wrote the image. `QUICK_ENHANCE_COPY`: the
+image is a Quick Enhance copy, told by its recipe beside it, in a folder
+with no run record.
+
+- `not_in_record`
+- `quick_enhance_copy`
 
 <a id="LightTiming"></a>
 ### `lumascope.LightTiming`

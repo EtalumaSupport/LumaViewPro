@@ -26,6 +26,7 @@ from tests.test_post_processing_stays_inside_its_folder import _project, _run_fo
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from _lumascope.modules.protocol import StoredNames
 from tests.protocol_fixtures import protocol_from_file
+from tests.installation_fixtures import shipped_grids
 
 NA_WORDS = ['NA', 'None', 'nan', 'null', 'NaN', 'NULL', 'N/A', '#N/A', '']
 
@@ -145,7 +146,9 @@ def test_a_count_of_images_named_outside_ascii_reads_back(tmp_path):
     image = np.zeros((64, 64), dtype=np.uint8)
     image[10:30, 10:30] = 200
     cv2.imwrite(str(tmp_path / NON_ASCII_IMAGE), image)
-    PostProcessing().apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod())
+    PostProcessing().apply_cell_count_to_folder(
+        path=str(tmp_path), method=CellCountMethod(), tiling_grids=shipped_grids()
+    )
 
     assert (tmp_path / 'results.csv').read_bytes().decode('utf-8')
     assert read_cell_count_results(tmp_path / 'results.csv')['file'].tolist() == [NON_ASCII_IMAGE]

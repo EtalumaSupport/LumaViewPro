@@ -258,14 +258,23 @@ The controls:
   [Max Intensity]{.guilabel}: the limits on an object's darkest, mean and
   brightest pixel, in percent of full scale.
 
-The count covers every image directly in the folder chosen; folders inside
-it are not searched. It writes `results.csv` in that folder, one row for
-each image:
+The count looks at the images directly in the folder chosen; folders inside
+it are not searched. In a protocol run's folder, or a folder inside one such
+as `ZProject`, it counts only the images the run's records name: the run's
+captures and the images the post-processing tools made from them. Any other
+image, such as a [Quick Enhance]{.guilabel} copy or a file you put there, is
+left out. In a folder that holds no run, it counts every image except a
+[Quick Enhance]{.guilabel} copy. The count names each image it left out, and
+why. If the run's records cannot be read, or the run's protocol file is
+gone, the count says so and counts nothing.
+
+It writes `results.csv` in that folder, one row for each image counted, in
+the order the images were taken, and by name where that cannot be told:
 
 | Column | What it holds |
 |:---|:---|
 | `file` | The image. |
-| `time` | When the image was taken, as the image states it; blank if it states none. |
+| `time` | When the image was taken, as the image states it. An image a tool made, such as a Z-projection, states none; its time is its scan's, from the run's record. Blank if neither states one. |
 | `num_cells` | The number of objects counted. |
 | `total_object_area_px2` | Their total area, in pixels. |
 | `total_object_area_um2` | Their total area, in µm². |

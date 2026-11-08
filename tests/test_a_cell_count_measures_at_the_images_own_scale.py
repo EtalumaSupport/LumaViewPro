@@ -30,6 +30,7 @@ from _lumascope.modules.cell_count_method import (
 from _lumascope.modules.post_processing import PostProcessing, load_cell_count_method
 from _lumascope.modules.channel_record import release_color
 from tests.stock_channels import LED1
+from tests.installation_fixtures import shipped_grids
 
 _BLOB = np.zeros((64, 64), dtype=np.uint8)
 _BLOB[20:40, 20:40] = 255  # one bright square, 20 x 20 pixels
@@ -98,7 +99,9 @@ def test_a_folder_count_counts_an_image_whose_suffix_is_upper_case(tmp_path):
     _png(tmp_path / 'lower.png')
     _png(tmp_path / 'UPPER.PNG')
 
-    PostProcessing().apply_cell_count_to_folder(tmp_path, CellCountMethod())
+    PostProcessing().apply_cell_count_to_folder(
+        tmp_path, CellCountMethod(), tiling_grids=shipped_grids()
+    )
 
     assert set(_results(tmp_path)) == {'lower.png', 'UPPER.PNG'}
 
@@ -107,7 +110,9 @@ def test_a_folder_count_measures_each_image_at_its_own_scale(tmp_path):
     _capture(tmp_path / 'scaled.tiff', pixel_size_um=0.5)
     _png(tmp_path / 'unscaled.png')
 
-    PostProcessing().apply_cell_count_to_folder(tmp_path, CellCountMethod())
+    PostProcessing().apply_cell_count_to_folder(
+        tmp_path, CellCountMethod(), tiling_grids=shipped_grids()
+    )
 
     rows = _results(tmp_path)
     scaled, unscaled = rows['scaled.tiff'], rows['unscaled.png']
@@ -125,7 +130,7 @@ def test_an_override_scale_applies_to_every_image(tmp_path):
     _png(tmp_path / 'unscaled.png')
     method = CellCountMethod(pixels_per_um=2.0)
 
-    PostProcessing().apply_cell_count_to_folder(tmp_path, method)
+    PostProcessing().apply_cell_count_to_folder(tmp_path, method, tiling_grids=shipped_grids())
 
     row = _results(tmp_path)['unscaled.png']
     assert float(row['total_object_area_um2']) == pytest.approx(
@@ -139,7 +144,7 @@ def test_a_size_filter_is_refused_for_an_image_with_no_scale(tmp_path):
     method = CellCountMethod(filters=CellCountFilters(area_um2=FilterBounds(10, None)))
 
     with pytest.raises(PostProcessingFailedError) as failed:
-        PostProcessing().apply_cell_count_to_folder(tmp_path, method)
+        PostProcessing().apply_cell_count_to_folder(tmp_path, method, tiling_grids=shipped_grids())
 
     assert any('unscaled.png' in error for error in failed.value.errors)
     rows = _results(tmp_path)

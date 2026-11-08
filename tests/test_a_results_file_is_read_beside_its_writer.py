@@ -39,6 +39,7 @@ from _lumascope.modules.post_processing import (
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED1
+from tests.installation_fixtures import shipped_grids
 
 
 _PST = datetime.timezone(datetime.timedelta(hours=-8))
@@ -79,7 +80,9 @@ def _counted_folder(tmp_path):
     bare = np.zeros((64, 64), dtype=np.uint8)
     bare[10:30, 10:30] = 200
     Image.fromarray(bare).save(tmp_path / 'bare.png')
-    PostProcessing().apply_cell_count_to_folder(path=str(tmp_path), method=CellCountMethod())
+    PostProcessing().apply_cell_count_to_folder(
+        path=str(tmp_path), method=CellCountMethod(), tiling_grids=shipped_grids()
+    )
     return tmp_path / 'results.csv'
 
 
