@@ -198,6 +198,17 @@ def test_an_ids_stream_with_no_node_map_raises():
         cam.read_node('StreamDeliveredFrameCount', 'stream')
 
 
+def test_an_ids_stream_node_map_the_sdk_does_not_give_raises():
+    cam = bare_ids_camera()
+    lost = ids_peak.IOException('data stream closed')
+    cam.data_stream.NodeMaps.side_effect = lost
+
+    with pytest.raises(CameraReadFailedError) as raised:
+        cam.read_node('StreamDeliveredFrameCount', 'stream')
+
+    assert raised.value.__cause__ is lost
+
+
 # --- Pylon against Basler's camera emulator -----------------------------------
 
 _EMULATOR_READS = """
