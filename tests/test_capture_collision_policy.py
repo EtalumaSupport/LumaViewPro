@@ -228,13 +228,7 @@ class _FakePostProcessor(ProtocolPostProcessor):
 
     def _group_algorithm(self, path, df, **kwargs):
         self.algorithm_calls.append(df.iloc[0]['OutName'])
-        actual = df.iloc[0].get('ActualOutPath')
-        # A writer that relocated the output (collision suffix, container
-        # fallback) reports where the file really landed.
-        return PostProcResult.ok(
-            significant_bits=8,
-            actual_output_file_loc=actual if actual else None,
-        )
+        return PostProcResult.ok(significant_bits=8)
 
     def _add_record(self, protocol_post_record, alg_metadata, root_path, **kwargs):
         self.records_added.append(kwargs.get('file_path'))
@@ -312,27 +306,6 @@ def test_post_processor_mixed_collision_refuses_only_colliding_groups(tmp_path, 
     assert len(processor.records_added) == 1
     assert str(processor.records_added[0]).endswith(f'B2_{LED1}_zproj.tiff')
     post_record.complete.assert_called_once()
-
-
-def test_post_processor_records_writer_relocated_output(tmp_path, monkeypatch):
-    # When the group algorithm reports the output landed elsewhere
-    # (collision suffix / container fallback), the record must carry the
-    # ACTUAL path, not the requested one.
-    processor = _FakePostProcessor()
-    post_record = MagicMock()
-    post_record.file_exists_in_records.return_value = False
-    images_df = _fake_images_df(['A1_BF_video.mp4'])
-    actual = tmp_path / 'ZProject' / 'A1_BF_video_000001.avi'
-    images_df['ActualOutPath'] = str(actual)
-
-    result = _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
-
-    assert result['status'] is True
-    assert len(processor.records_added) == 1
-    recorded = pathlib.Path(str(processor.records_added[0]))
-    assert recorded == actual.relative_to(tmp_path), (
-        f'the record must point at the relocated file; got {recorded}'
-    )
 
 
 def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monkeypatch):
@@ -573,6 +546,76 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
         f'_create_video must report the relocated output; got {actual}'
     )
     assert actual.exists() and actual.stat().st_size > 0
+
+
+def _a_run_with_one_video_group(tmp_path, scans=2):
+    from tests.test_a_group_whose_frames_cannot_be_used_fails_alone import _run_folder
+
+    return _run_folder(
+        tmp_path,
+        [{'name': 'A1_BF', 'well': 'A1', 'x': 14.38, 'scan': scan} for scan in range(scans)],
+    )
+
+
+def _build_the_runs_video(folder):
+    from _lumascope.modules.channel_record import release_colors
+    from _lumascope.modules.video_builder import VideoBuilder
+    from tests.installation_fixtures import shipped_grids
+
+    return VideoBuilder(has_turret=False).load_folder(
+        path=folder,
+        tiling_grids=shipped_grids(),
+        frame_rate_fps=5,
+        enable_timestamp_overlay=False,
+        channel_colors=release_colors(),
+    )
+
+
+def test_a_run_groups_video_is_written_onto_its_planned_name(tmp_path):
+    # A group's video is named from what it was made from, so a rebuild
+    # over an unrecorded file at that name (its record set aside) replaces
+    # it, as every other build does, and the next build finds it recorded:
+    # no numbered copy the record never names.
+    folder = _a_run_with_one_video_group(tmp_path)
+    (planned,) = _build_the_runs_video(folder)['artifact_paths']
+    (folder / 'protocol_post_record.tsv').unlink()
+
+    rebuilt = _build_the_runs_video(folder)
+    again = _build_the_runs_video(folder)
+
+    assert rebuilt['artifact_paths'] == [planned]
+    assert [video.name for video in folder.rglob('*.mp4')] == [pathlib.Path(planned).name]
+    assert pathlib.Path(planned).name in (folder / 'protocol_post_record.tsv').read_text()
+    assert (again['new_count'], again['artifact_paths']) == (0, [])
+
+
+def test_a_run_groups_video_whose_encode_raises_leaves_no_file(tmp_path, monkeypatch):
+    from _lumascope.modules.video_builder import VideoBuilder
+
+    # The container's file appears at its first muxed packet, which the
+    # encoder holds back for its first frames, so the encode dies at the
+    # last of enough frames that a file is on disk when it does.
+    scans = 12
+    folder = _a_run_with_one_video_group(tmp_path, scans=scans)
+    real_add = VideoBuilder._add_source_frame
+    written = []
+
+    # a stand-in by design: an encode that dies part-way, which no simulated
+    # device produces
+    def _dies_at_the_last_frame(self, writer, image_path, **kwargs):
+        if len(written) == scans - 1:
+            written.append(writer.output_path.exists())
+            raise RuntimeError('the encode died part-way')
+        written.append(image_path)
+        return real_add(self, writer, image_path, **kwargs)
+
+    monkeypatch.setattr(VideoBuilder, '_add_source_frame', _dies_at_the_last_frame)
+
+    with pytest.raises(RuntimeError, match='part-way'):
+        _build_the_runs_video(folder)
+
+    assert written[-1] is True, 'the writer had a file on disk when the encode died'
+    assert list(folder.rglob('*.mp4')) == []
 
 
 # ---------------------------------------------------------------------------

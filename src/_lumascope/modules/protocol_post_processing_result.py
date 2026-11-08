@@ -10,7 +10,6 @@ a successful result cannot be constructed without its output depth, so the
 consumer reads a typed attribute that is guaranteed present.
 """
 
-import pathlib
 from dataclasses import dataclass, field
 
 
@@ -30,7 +29,6 @@ class PostProcResult:
     significant_bits: int | None = None
     error: str | None = None
     record_metadata: dict = field(default_factory=dict)
-    actual_output_file_loc: pathlib.Path | None = None
 
     @classmethod
     def ok(
@@ -38,7 +36,6 @@ class PostProcResult:
         *,
         significant_bits: int,
         record_metadata: dict | None = None,
-        actual_output_file_loc=None,
     ) -> 'PostProcResult':
         """Build a successful result. ``significant_bits`` is required so a
         depth-less success is unconstructible."""
@@ -48,7 +45,6 @@ class PostProcResult:
             status=True,
             significant_bits=int(significant_bits),
             record_metadata=record_metadata or {},
-            actual_output_file_loc=actual_output_file_loc,
         )
 
     @classmethod
@@ -72,5 +68,4 @@ class PostProcResult:
         return cls.ok(
             significant_bits=result['significant_bits'],
             record_metadata=result.get('metadata', {}),
-            actual_output_file_loc=result.get('actual_output_file_loc'),
         )

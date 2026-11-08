@@ -1,7 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import json
+import os
 import pathlib
+import uuid
 
 import pandas as pd
 
@@ -129,21 +131,38 @@ class VideoBuilder(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
-        # One group is one channel (_get_groups), so its first row's channel
-        # colours the whole video.
-        return PostProcResult.from_group_result(
-            self._create_video(
+        # A group's video is named from what it was made from, as every
+        # build's output is, so it is written whole onto its planned name:
+        # the writer's picker would move a rebuild over an unrecorded file at
+        # that name to a numbered copy the record never names, and a crash
+        # mid-encode would leave a truncated MP4 under the real name. The
+        # temporary ends in the planned suffix because the container is
+        # chosen by it (so image_utils._written_whole's '.tmp' cannot serve),
+        # and is unique, so the picker never moves it.
+        planned = pathlib.Path(kwargs['output_file_loc'])
+        temporary = planned.with_name(f'{planned.stem}.{uuid.uuid4().hex}.tmp{planned.suffix}')
+        try:
+            # One group is one channel (_get_groups), so its first row's
+            # channel colours the whole video.
+            result = self._create_video(
                 path=path,
                 df=df[['Filepath', 'Scan Count', 'Timestamp']],
                 frame_rate_fps=kwargs['frame_rate_fps'],
                 enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
-                output_file_loc=kwargs['output_file_loc'],
+                output_file_loc=temporary,
                 on_progress=kwargs['on_progress'],
                 total_groups=kwargs['total_groups'],
                 current_group=kwargs['current_group'],
                 color=channel_record.output_color(df.iloc[0]['channel'], kwargs['channel_colors']),
             )
-        )
+            if result['status']:
+                try:
+                    os.replace(path / temporary, path / planned)
+                except OSError as e:
+                    return PostProcResult.failed(f'The video could not take its name: {e}')
+            return PostProcResult.from_group_result(result)
+        finally:
+            (path / temporary).unlink(missing_ok=True)
 
     @staticmethod
     def _add_record(

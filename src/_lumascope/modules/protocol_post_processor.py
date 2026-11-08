@@ -804,13 +804,6 @@ class ProtocolPostProcessor(abc.ABC):
                     }
                 )
 
-            # A subclass whose writer relocated the output (collision suffix,
-            # container-format fallback) reports where the file really landed;
-            # the record must point at that file, not the request.
-            actual_output_file_loc = alg_results.actual_output_file_loc
-            if actual_output_file_loc is not None:
-                output_file_loc_rel = pathlib.Path(actual_output_file_loc).relative_to(root_path)
-
             # Each ProtocolPostProcessor subclass owns its own file write via
             # tifffile (RGB-native; auto-detects photometric). cv2.imwrite was
             # retired here -- cv2 is BGR-native and would silently swap channels
@@ -826,8 +819,6 @@ class ProtocolPostProcessor(abc.ABC):
                 derivation=derivation,
             )
 
-            # Recorded after the relocation resolve above, so the path names
-            # the file that actually exists rather than the one requested.
             artifact_paths.append(str(root_path / output_file_loc_rel))
             carried -= set(group['Filepath'])
             carried.add(output_file_loc_rel)
