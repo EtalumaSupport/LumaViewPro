@@ -289,7 +289,7 @@ def project_type_aliases() -> dict[str, typing.TypeAliasType]:
 def project_aliases() -> dict[str, str]:
     """Every ``type`` alias defined under ``src/_lumascope/modules/``, by name, as the text of its value."""
     return {
-        name: _annotation_text(alias.__value__) for name, alias in project_type_aliases().items()
+        name: annotation_text(alias.__value__) for name, alias in project_type_aliases().items()
     }
 
 
@@ -344,7 +344,8 @@ def class_form(cls: type) -> str | None:
 # --- The static half: every wire edge has a form -----------------------------
 
 
-def _annotation_text(annotation: object) -> str | None:
+def annotation_text(annotation: object) -> str | None:
+    """An annotation as the text ``inbound`` and ``outbound`` read; None for none declared."""
     if annotation is inspect.Parameter.empty:
         return None
     if isinstance(annotation, str):
@@ -387,12 +388,10 @@ def _edges(cls: type, name: str, member: object) -> list[tuple[str, str, str | N
     """``(edge, direction, annotation text)`` for one wire member."""
     if isinstance(member, property):
         function = member.fget
-        return [('return', 'out', _annotation_text(function.__annotations__.get('return')))]
+        return [('return', 'out', annotation_text(function.__annotations__.get('return')))]
     function = inspect.unwrap(getattr(member, '__func__', member))
     annotations = function.__annotations__
-    edges = [
-        ('return', 'out', _annotation_text(annotations.get('return', inspect.Parameter.empty)))
-    ]
+    edges = [('return', 'out', annotation_text(annotations.get('return', inspect.Parameter.empty)))]
     for parameter in inspect.signature(function).parameters.values():
         if parameter.name in ('self', 'cls'):
             continue
@@ -400,17 +399,18 @@ def _edges(cls: type, name: str, member: object) -> list[tuple[str, str, str | N
             (
                 f'parameter {parameter.name}',
                 'in',
-                _annotation_text(annotations.get(parameter.name, inspect.Parameter.empty)),
+                annotation_text(annotations.get(parameter.name, inspect.Parameter.empty)),
             )
         )
     return edges
 
 
-def _field_text(cls: type, name: str) -> str | None:
+def field_text(cls: type, name: str) -> str | None:
+    """The declared type of ``cls``'s field ``name`` as ``annotation_text``; None when undeclared."""
     for klass in cls.__mro__:
         annotations = vars(klass).get('__annotations__', {})
         if name in annotations:
-            return _annotation_text(annotations[name])
+            return annotation_text(annotations[name])
     return None
 
 
@@ -440,7 +440,7 @@ def wire_gaps(root: type, classes: dict[str, type], aliases: dict[str, str]) -> 
             if form == RECORD and not isinstance(member, property):
                 continue
             edges += [(f'{cls.__name__}.{name} {e}', d, t) for e, d, t in _edges(cls, name, member)]
-        edges += [(f'{cls.__name__}.{f} field', 'out', _field_text(cls, f)) for f in _fields(cls)]
+        edges += [(f'{cls.__name__}.{f} field', 'out', field_text(cls, f)) for f in _fields(cls)]
         for where, direction, text in edges:
             if text is None:
                 gaps.append(f'{where}: no annotation')
@@ -485,7 +485,7 @@ def handed_out(root: type, classes: dict[str, type], aliases: dict[str, str]) ->
         if cls in seen:
             continue
         seen.add(cls)
-        texts = [(_field_text(cls, f), True) for f in _fields(cls)]
+        texts = [(field_text(cls, f), True) for f in _fields(cls)]
         for name, member in _marked(cls).items():
             if mark_of(member) != API:
                 continue
@@ -886,7 +886,7 @@ def inbound(
                 (
                     f,
                     inbound(
-                        _field_text(cls, f) or 'object', classes, aliases, handed_out=handed_out
+                        field_text(cls, f) or 'object', classes, aliases, handed_out=handed_out
                     ),
                 )
                 for f in _fields(cls)
@@ -969,9 +969,9 @@ def outbound(
         if form in (ARRAY, OBJECT):
             found.append(_outbound_items(node, form, name, classes, aliases))
         elif form == RECORD:
-            keys = [(f, _field_text(cls, f)) for f in _fields(cls)]
+            keys = [(f, field_text(cls, f)) for f in _fields(cls)]
             keys += [
-                (p, _annotation_text(_marked(cls)[p].fget.__annotations__.get('return')))
+                (p, annotation_text(_marked(cls)[p].fget.__annotations__.get('return')))
                 for p in _wire_properties(cls)
             ]
             fields = tuple((k, outbound(t, classes, aliases)) for k, t in keys)
@@ -1024,7 +1024,7 @@ def wire_members(
             continue
         if isinstance(member, property):
             fget = member.fget
-            text = _annotation_text(fget.__annotations__.get('return', inspect.Parameter.empty))
+            text = annotation_text(fget.__annotations__.get('return', inspect.Parameter.empty))
             members.append(
                 _read(name, text, fget, fget.__doc__ or '', classes, aliases, handed_out)
             )
@@ -1041,7 +1041,7 @@ def wire_members(
                 raise TypeError(
                     f'{cls.__name__}.{name} takes *{p.name}, which a client cannot name'
                 )
-            text = _annotation_text(function.__annotations__.get(p.name, p.empty))
+            text = annotation_text(function.__annotations__.get(p.name, p.empty))
             required = p.default is p.empty
             try:
                 alternatives = inbound(text, classes, aliases, handed_out=handed_out)
@@ -1058,7 +1058,7 @@ def wire_members(
             parameters.append(
                 WireParameter(p.name, alternatives, required, None if required else p.default)
             )
-        returns = _annotation_text(function.__annotations__.get('return', inspect.Parameter.empty))
+        returns = annotation_text(function.__annotations__.get('return', inspect.Parameter.empty))
         members.append(
             WireMember(
                 name,
@@ -1077,7 +1077,7 @@ def wire_members(
         )
     described = field_descriptions(cls)
     members += [
-        _read(f, _field_text(cls, f), None, described.get(f, ''), classes, aliases, handed_out)
+        _read(f, field_text(cls, f), None, described.get(f, ''), classes, aliases, handed_out)
         for f in _fields(cls)
     ]
     return sorted(members, key=lambda m: m.name)

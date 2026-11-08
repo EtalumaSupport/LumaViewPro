@@ -376,9 +376,7 @@ def _sent_fields(
     aliases = wire_encoding.project_aliases()
     found = {}
     for f in _fields(record):
-        alternatives = wire_encoding.outbound(
-            wire_encoding._field_text(record, f), classes, aliases
-        )
+        alternatives = wire_encoding.outbound(wire_encoding.field_text(record, f), classes, aliases)
         if not any(a.form == wire_encoding.HANDLE and a.cls in handed_out for a in alternatives):
             found[f] = alternatives
     return types.MappingProxyType(found)
@@ -427,7 +425,7 @@ def published(
     """
     classes = wire_encoding.project_classes()
     aliases = wire_encoding.project_aliases()
-    status = wire_encoding._annotation_text(ScopeSession.status.fget.__annotations__['return'])
+    status = wire_encoding.annotation_text(ScopeSession.status.fget.__annotations__['return'])
     found: dict[str, type[pydantic.BaseModel]] = {
         'status': routes.answer_type(wire_encoding.outbound(status, classes, aliases))
     }
