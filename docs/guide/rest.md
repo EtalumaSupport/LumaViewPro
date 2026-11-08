@@ -148,7 +148,10 @@ job:
 
 ```json
 {"id": "3", "member": "handles/ProtocolRunner/2/start_single_scan", "status": "running",
- "requested": "2026-10-29T11:47:56.043-07:00", "ended": null, "progress": null}
+ "requested": "2026-10-29T11:47:56.043-07:00", "ended": null, "progress": null,
+ "files": {"id": "4", "member": "handles/ProtocolRunner/2/start_single_scan/files",
+           "status": "running", "requested": "2026-10-29T11:47:56.043-07:00",
+           "ended": null, "progress": null}}
 ```
 
 A member that returns an operation -- a run's start, `start_move_to_well`,

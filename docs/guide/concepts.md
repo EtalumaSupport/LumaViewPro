@@ -174,8 +174,9 @@ is refused `ScopeInUseError` (`'scope_in_use'`) with nothing opened. A
 simulated scope takes no such lock. LumaViewPro and the REST server also run
 one at a time on a computer, simulated or not: a second one says another is
 already running and does not start. The lock is a port on this computer,
-`lvp_lock_port` in the installation's settings (shipped `43101`), so two
-installations on one computer share it unless one's port is changed.
+`lvp_lock_port` in the installation's settings, its `data/current.json`
+(shipped `43101`), so two installations on one computer share it unless one's
+port is changed there.
 
 ## Who may act
 
