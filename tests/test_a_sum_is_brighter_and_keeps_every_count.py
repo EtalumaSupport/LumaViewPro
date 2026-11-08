@@ -467,7 +467,8 @@ def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
         _write(
             tmp_path / name, np.full((24, 32), 4096, np.uint16), 14, 'right_aligned', 'BF', white=12
         )
-        rows.append({'Filepath': name, 'Scan Count': scan})
+        # Every record row carries its time; these state none.
+        rows.append({'Filepath': name, 'Scan Count': scan, 'Timestamp': ''})
 
     VideoBuilder(has_turret=False)._create_video(
         path=tmp_path,
