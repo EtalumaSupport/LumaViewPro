@@ -100,12 +100,9 @@ def _record_led_commands(monkeypatch, session):
 
         monkeypatch.setattr(driver, name, recorded)
 
-    for name in ('led_on', 'led_on_fast'):
-        _wrap_on(name)
-    for name in ('led_off', 'led_off_fast'):
-        _wrap_off(name)
-    for name in ('leds_off', 'leds_off_fast'):
-        _wrap_all_off(name)
+    _wrap_on('led_on')
+    _wrap_off('led_off')
+    _wrap_all_off('leds_off')
     return events
 
 

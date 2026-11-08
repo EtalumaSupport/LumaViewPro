@@ -34,7 +34,6 @@ from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedErro
 from _lumascope.drivers.ledboard import LEDBoard
 from _lumascope.drivers.serialboard import SerialBoard
 from _lumascope.drivers.sim_wire.mp.tmc5072 import XACTUAL, XTARGET
-from tests.log_capture import messages, records_of
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.scripted_port import LED_PID, LED_VID, ScriptedBackend, ScriptedLink
 from tests.wire_boards import led_on_the_wire, motor_on_the_wire
@@ -118,17 +117,6 @@ class TestTheLedExchange:
         board, _sim = led
         assert board.exchange_command('LED0_100') == 'LED 0 set to 100 mA.'
 
-    def test_a_write_only_command_waits_for_an_exchange_in_flight(self, led):
-        board, sim = led
-        port = board.driver
-        thread, answers, landed = _exchange_in_flight(board, sim, 'LED0_100')
-        board.led_on_fast(channel=1, mA=50)
-        # The fast write had the lock only once the exchange had its reply.
-        assert port.lines_landed() >= landed + 2
-        thread.join(5)
-        assert answers == ['LED 0 set to 100 mA.']
-        assert port.wait_for_lines(landed + 4), "the fast write's reply never landed"
-
     def test_concurrent_exchanges_each_get_their_own_answer(self, led):
         board, _sim = led
         answers = {}
@@ -179,47 +167,8 @@ class TestTheMotorExchange:
 # ---------------------------------------------------------------------------
 
 
-def _fast(board, call, lines=2):
-    """Make a write-only *call* and wait for the board's *lines* of answer to
-    land, its echo among them: the DAC's state is reported before each line
-    of the answer is."""
-    port = board.driver
-    landed = port.lines_landed()
-    call()
-    assert port.wait_for_lines(landed + lines), "the fast write's reply never landed"
-
-
 @pytest.mark.firmware_tier
 class TestTheLedWrites:
-    def test_led_on_fast_drives_what_led_on_drives(self, led):
-        board, sim = led
-        board.led_on(channel=1, mA=50)
-        answered = sim.state('DAC')[1]
-        board.led_off(channel=1)
-        _fast(board, lambda: board.led_on_fast(channel=1, mA=50))
-        assert sim.state('DAC')[1] == answered
-
-    def test_led_off_fast_drives_what_led_off_drives(self, led):
-        board, sim = led
-        board.led_on(channel=4, mA=50)
-        board.led_off(channel=4)
-        answered = sim.state('DAC')[4]
-        board.led_on(channel=4, mA=50)
-        _fast(board, lambda: board.led_off_fast(channel=4))
-        assert sim.state('DAC')[4] == answered
-
-    def test_leds_off_fast_drives_what_leds_off_drives(self, led):
-        board, sim = led
-        board.led_on(channel=1, mA=50)
-        board.led_on(channel=3, mA=20)
-        board.leds_off()
-        answered = sim.state('DAC')
-        board.led_on(channel=1, mA=50)
-        board.led_on(channel=3, mA=20)
-        # The field firmware answers LEDS_OFF a line a channel, 0 to 5.
-        _fast(board, board.leds_off_fast, lines=7)
-        assert sim.state('DAC') == answered
-
     def test_get_status_is_none_and_asks_the_board_nothing(self, led):
         # The LED firmware has no STATUS command.
         board, _sim = led
@@ -578,23 +527,6 @@ class TestAPortThatFails:
                 board.connect()
         assert len(_lines(caplog, '-> EXCEPTION')) == 1
 
-    def test_a_fast_write_failing_again_inside_the_log_window_is_not_logged_again(self, caplog):
-        caplog.set_level(logging.DEBUG)
-        link = ScriptedLink(_ANSWERING)
-        board = _connected(link, LEDBoard)
-        for _ in range(2):
-            link.write_fault = _PORT_LOST
-            with pytest.raises(BoardPortFailedError):
-                board.leds_off_fast()
-            link.write_fault = None
-            board.connect()
-        failed = [
-            m
-            for m in messages(records_of(caplog, serialboard))
-            if '_write_command_fast(LEDS_OFF) failed' in m
-        ]
-        assert len(failed) == 1
-
 
 class TestABoardThatSendsNothing:
     """#619: a board that sends no byte through the whole connect is hung
@@ -685,14 +617,12 @@ class TestTheDurationsSerialLogStates:
             board = _connected(link, LEDBoard)
             board.exchange_command('PING')
             board.exchange_multiline('FULLINFO', timeout=1)
-            board.leds_off_fast()
         lines = {
             'a raw write': _ms(caplog, r'WRITE .* in (\d+)ms'),
             'the detect step': _ms(caplog, r'RESET step3 detect result: .* in (\d+)ms'),
             'the reset total': _ms(caplog, r'RESET done .*total=(\d+)ms'),
             'an exchange': _ms(caplog, r"PING -> 'PONG' \(([\d.]+)ms\)"),
             'a multi-line exchange': _ms(caplog, r'FULLINFO -> 2 lines: .* \(([\d.]+)ms\)'),
-            'a fast write': _ms(caplog, r'FAST LEDS_OFF: .* write=([\d.]+)ms'),
         }
         # Each line spans at least one 2 ms write; a second is the coarse
         # clock's step, never a real duration here.

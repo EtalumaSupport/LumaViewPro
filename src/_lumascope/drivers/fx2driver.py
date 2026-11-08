@@ -3116,12 +3116,6 @@ class FX2LEDController:
     ('C'/'B'/'A'/'D') which the FX2 peripheral controller uses on the
     wire. Never leak the ASCII form above the driver -- that's a
     project-memory directive.
-
-    **Fast variants.** The LED protocol requires ``led_on_fast`` /
-    ``led_off_fast`` / ``leds_off_fast`` for time-critical toggling.
-    These FX2 variants are IDENTICAL to the normal versions -- the I2C
-    writes have no serial-handshake latency to skip, so "fast" is the
-    same as "normal".
     """
 
     # The LEDs are driven over I2C, not text: the diagnostic door sends nothing.
@@ -3341,17 +3335,6 @@ class FX2LEDController:
     def leds_disable(self):
         self.leds_off()
         self._enabled = False
-
-    # -- Fast variants (same as normal -- I2C has no serial handshake) -----
-
-    def led_on_fast(self, channel: int, mA: int):
-        self.led_on(channel, mA)
-
-    def led_off_fast(self, channel: int):
-        self.led_off(channel)
-
-    def leds_off_fast(self):
-        self.leds_off()
 
     # -- Connection no-ops (USB owned by _FX2Connection) ------------------
 

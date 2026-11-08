@@ -83,21 +83,6 @@ class TestLEDSerialBenchmark:
         print(f'    Median: {median:.2f} ms per cycle')
         print(f'    Max:    {max(times):.2f} ms')
 
-    def test_led_on_off_fast_cycle_speed(self, led):
-        """Measure fast path LED toggling speed."""
-        times = []
-        for _ in range(50):
-            start = time.perf_counter()
-            led.led_on_fast(channel=3, mA=10)
-            led.led_off_fast(channel=3)
-            elapsed = time.perf_counter() - start
-            times.append(elapsed * 1000)
-
-        median = statistics.median(times)
-        print('\n  LED fast on+off cycle (50 cycles):')
-        print(f'    Median: {median:.2f} ms per cycle')
-        print(f'    Max:    {max(times):.2f} ms')
-
     def test_rapid_fire_no_errors(self, led):
         """Send 200 rapid commands and verify no errors."""
         errors = []

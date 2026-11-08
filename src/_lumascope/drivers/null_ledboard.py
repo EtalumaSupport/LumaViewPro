@@ -65,19 +65,7 @@ class NullLEDBoard:
         """Null implementation: no-op."""
         pass
 
-    def led_on_fast(self, channel, mA) -> None:
-        """Null implementation: no-op."""
-        pass
-
-    def led_off_fast(self, channel) -> None:
-        """Null implementation: no-op."""
-        pass
-
     def leds_off(self) -> None:
-        """Null implementation: no-op."""
-        pass
-
-    def leds_off_fast(self) -> None:
         """Null implementation: no-op."""
         pass
 
@@ -152,9 +140,6 @@ class NullLEDBoard:
     # ------------------------------------------------------------------
     # Write-only (no-ops)
     # ------------------------------------------------------------------
-    def _write_command_fast(self, command):
-        pass
-
     def _safety_leds_off(self):
         pass
 

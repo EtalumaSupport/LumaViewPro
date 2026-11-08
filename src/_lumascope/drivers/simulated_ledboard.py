@@ -242,18 +242,6 @@ class SimulatedLEDBoard:
         """
         return self.exchange_command(command)
 
-    def _write_command_fast(self, command: str):
-        with self._lock:
-            t_start = host_clock.steady_ns()
-            if self.driver is None:
-                raise BoardPortFailedError(f'{command}: the port is closed')
-
-            # No delay on fast path
-            elapsed_ms = (host_clock.steady_ns() - t_start) / 1e6
-            logger.debug(f'[LED Sim   ] _write_command_fast({command})')
-            # SIM-SERIAL-LOG: write-only path -> mark as TX with no response
-            _serial_log.log(VERBOSE, f'[LED Sim] {command} -> TX (write_fast, {elapsed_ms:.1f}ms)')
-
     def _close_driver(self):
         self.driver = None
 
@@ -371,36 +359,11 @@ class SimulatedLEDBoard:
         self._channel_states[channel] = 0
         self.exchange_command(f'LED{int(channel)}_OFF')
 
-    def led_on_fast(self, channel: int, mA: int) -> None:
-        """Fast write-only version of led_on for time-critical toggling.
-
-        Args:
-            channel: LED address (0-7).
-            mA: Drive current in milliamps.
-        """
-        self._channel_states[channel] = mA
-        self._write_command_fast(f'LED{int(channel)}_{int(mA)}')
-
-    def led_off_fast(self, channel: int) -> None:
-        """Fast write-only version of led_off for time-critical toggling.
-
-        Args:
-            channel: LED address (0-7).
-        """
-        self._channel_states[channel] = 0
-        self._write_command_fast(f'LED{int(channel)}_OFF')
-
     def leds_off(self) -> None:
         """Turn off every LED channel. Clears the cached per-channel state."""
         for ch in self._channel_states:
             self._channel_states[ch] = 0
         self.exchange_command('LEDS_OFF')
-
-    def leds_off_fast(self) -> None:
-        """Fast write-only version of leds_off."""
-        for ch in self._channel_states:
-            self._channel_states[ch] = 0
-        self._write_command_fast('LEDS_OFF')
 
     # ------------------------------------------------------------------
     # Engineering mode and diagnostics (match LEDBoard API)

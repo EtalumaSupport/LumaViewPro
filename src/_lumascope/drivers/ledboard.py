@@ -359,32 +359,6 @@ class LEDBoard(SerialBoard):
         command = 'LED' + str(int(channel)) + '_OFF'
         self.exchange_command(command)
 
-    def led_on_fast(self, channel: int, mA: int) -> None:
-        """Fast write-only version of led_on for time-critical toggling.
-
-        Dispatches the command without waiting for a response.
-
-        Args:
-            channel: LED address (0-7).
-            mA: Drive current in milliamps (0-1000).
-
-        Raises:
-            HardwareError: the write timed out, or the port failed.
-        """
-        self._write_command_fast(self._build_led_cmd(channel, mA))
-
-    def led_off_fast(self, channel: int) -> None:
-        """Fast write-only version of led_off for time-critical toggling.
-
-        Args:
-            channel: LED address (0-7).
-
-        Raises:
-            HardwareError: the write timed out, or the port failed.
-        """
-        command = 'LED' + str(int(channel)) + '_OFF'
-        self._write_command_fast(command)
-
     def leds_off(self) -> None:
         """Turn off every LED channel.
 
@@ -392,17 +366,6 @@ class LEDBoard(SerialBoard):
             HardwareError: the board did not answer, or its port failed.
         """
         self.exchange_command('LEDS_OFF')
-
-    def leds_off_fast(self) -> None:
-        """Fast write-only version of leds_off.
-
-        Dispatches LEDS_OFF without waiting for a response.
-
-        Raises:
-            HardwareError: the write timed out, or the port failed.
-        """
-        command = 'LEDS_OFF'
-        self._write_command_fast(command)
 
     # ------------------------------------------------------------------
     # Engineering mode and diagnostics

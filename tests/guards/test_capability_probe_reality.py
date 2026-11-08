@@ -9,7 +9,7 @@ Two such families were confirmed by the 2026-08 census:
     src/_lumascope/modules/video_capture.py    hasattr(self._scope, 'led_on_fast')
     src/_lumascope/modules/metrics_logger.py   getattr(self._scope, 'camera', None)
 
-Neither name exists on `Lumascope`. `led_on_fast` lives on the
+Neither name exists on `Lumascope`. `led_on_fast` then lived on the
 `illumination` sub-API (the guard probes the parent and then calls
 through the child, so it is False in production and the else-branch is
 what runs); `camera` was never assigned at all, which left the frame-
@@ -30,7 +30,7 @@ design:
   oracle sees none of them -- it would miss Family 2 and false-positive
   on every legitimate instance-attribute probe.
 - RECEIVER-SPECIFIC, not the union of scope + sub-APIs. A union oracle
-  accepts `led_on_fast` because `IlluminationAPI` has it, so it would
+  accepted `led_on_fast` because `IlluminationAPI` had it, so it would
   have PASSED Family 1 -- the exact bug this guard exists to catch.
 
 Coverage, stated honestly (Rule 39 -- this guard is not a probe-site
@@ -205,8 +205,8 @@ def test_oracle_catches_the_known_wrong_world_families(scope_surface):
     'camera_driver', None)`, since `camera` is the camera sub-API -- and runs
     it through the same scan and oracle as production code.
 
-    The second half is the part that matters most. `led_on_fast` DOES
-    exist on the `illumination` sub-API, so an oracle built from the
+    The second half is the part that matters most. `led_on_fast` then
+    existed on the `illumination` sub-API (as `led_on` does now), so an oracle built from the
     union of the scope and its sub-APIs would accept the probe and this
     whole guard would be decorative. Asserting the union would have been
     fooled locks the receiver-specific design in place: if someone

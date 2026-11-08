@@ -1125,58 +1125,6 @@ class SerialBoard:
                 if self.driver is not None:
                     self.driver.timeout = saved_timeout
 
-    def _write_command_fast(self, command: str):
-        """Write-only fast path: send command without reading a response.
-
-        Emits a FAST entry to serial.log with lock-wait, write, and total
-        timing -- the exchange_command path logs end-to-end duration, but the
-        fast path is exactly what stim uses and without this line every stim
-        write is invisible in serial.log. Also reports in_waiting at entry so
-        response backlog from prior fast-path writes shows up in the trace.
-
-        Raises:
-            BoardNoReplyError: the write timed out; the port stays open.
-            BoardPortFailedError: the port is closed, or the write failed,
-                which closes it.
-        """
-        t_enter = host_clock.steady_ns()
-        with self._lock:
-            t_lock = host_clock.steady_ns()
-            if self.driver is None:
-                raise BoardPortFailedError(f'{command}: the port is closed')
-
-            try:
-                in_waiting = self.driver.in_waiting
-            except Exception:
-                in_waiting = -1
-
-            stream = command.encode('utf-8') + b'\n'
-            t_before_write = host_clock.steady_ns()
-            try:
-                self.driver.write(stream)
-            except serial.SerialTimeoutException as e:
-                logger.error(f'{self._label} _write_command_fast({command}) timed out')
-                raise BoardNoReplyError(f'{command}: the write to the board timed out') from e
-            except (serial.SerialException, OSError) as e:
-                now = time.monotonic()
-                last = getattr(self, '_last_error_log_time', 0.0)
-                interval = getattr(self, '_error_log_interval', 2.0)
-                if now - last >= interval:
-                    logger.error(f'{self._label} _write_command_fast({command}) failed: {e}')
-                    self._last_error_log_time = now
-                self._close_driver()
-                raise BoardPortFailedError(f'{command}: the port failed: {e}') from e
-
-            t_after_write = host_clock.steady_ns()
-            lock_wait_ms = (t_lock - t_enter) / 1e6
-            write_ms = (t_after_write - t_before_write) / 1e6
-            total_ms = (t_after_write - t_enter) / 1e6
-            _serial_log.info(
-                f'{self._label} FAST {command}: {len(stream)}B '
-                f'in_waiting={in_waiting}B lock_wait={lock_wait_ms:.2f}ms '
-                f'write={write_ms:.2f}ms total={total_ms:.2f}ms'
-            )
-
     # ------------------------------------------------------------------
     # Raw REPL -- file operations on board filesystem
     # ------------------------------------------------------------------

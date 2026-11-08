@@ -102,14 +102,13 @@ def _record_led_calls(monkeypatch, led):
     """
     calls = []
 
-    for name in ('led_on', 'led_on_fast'):
-        real = getattr(led, name)
+    real = led.led_on
 
-        def _observed(*args, _real=real, _name=name, **kwargs):
-            calls.append((_name, args, kwargs))
-            return _real(*args, **kwargs)
+    def _observed(*args, **kwargs):
+        calls.append(('led_on', args, kwargs))
+        return real(*args, **kwargs)
 
-        monkeypatch.setattr(led, name, _observed)
+    monkeypatch.setattr(led, 'led_on', _observed)
 
     return calls
 
