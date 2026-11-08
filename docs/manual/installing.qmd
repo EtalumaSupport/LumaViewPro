@@ -37,6 +37,13 @@ to the taskbar.
 
 LumaViewPro keeps your settings, protocols and logs in a folder of your
 Documents named for the version, for example `Documents\LumaViewPro 4.0.0`.
+A new version starts with a new folder, and nothing in the older one is
+carried over. To keep your settings, start the new version once so that
+it makes its folder, close it, and copy
+`data\current.json` from the older folder into the new folder's `data`;
+settings added by the new version are filled in at the next start. Add
+your own labware to the new `labware.json` (@sec-custom-labware) instead
+of copying the old file, which lacks any labware the new version added.
 
 ## Connecting the microscope {#sec-connecting}
 
