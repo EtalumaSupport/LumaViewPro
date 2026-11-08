@@ -162,5 +162,8 @@ def build_composite(
         )
 
     if transmitted_image is not None:
-        img[~reached_any] = transmitted_image[~reached_any, None]
+        # Where no channel reached its cutoff, the grey base in all three
+        # planes; written in place by mask, the same pixels as gathering and
+        # scattering the unreached ones at well under half the cost.
+        np.copyto(img, transmitted_image[..., None], where=~reached_any[..., None])
     return img
