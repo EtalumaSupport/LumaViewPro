@@ -2780,7 +2780,9 @@ class SequencedCaptureRunner:
         before its first move: any other made no move, and a move in flight
         then is someone else's. A STOP with nothing moving is a no-op on the
         board, so none is read first. A STOP sent while an autofocus sweep is live
-        ends the sweep's own Z move, which its unwind then puts back.
+        ends the sweep's own Z move, which its unwind then puts back unless
+        the ending is a person's stop, which leaves Z where it stopped. The
+        stage is waited out later in cleanup, after the sweep has unwound.
         """
         recorded = self._ending.get() or ending
         if (

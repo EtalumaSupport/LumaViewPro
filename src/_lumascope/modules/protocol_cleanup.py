@@ -18,6 +18,8 @@ from _lumascope.lvp_logger import logger
 
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.exceptions import (
+    MoveFaultError,
+    MoveStoppedError,
     RecordingSavedLateNotice,
     RunCleanupFailedError,
     SlowFileWritesNotice,
@@ -101,6 +103,12 @@ def send_files_written(
 # autofocus_unwind_after_stop_s.
 _AF_UNWIND_WAIT_S = WRITE_STALL_FATAL_S
 
+# How long cleanup waits for the stage to read stopped before the run ends:
+# the same wedged threshold. A stalled move is already given up by the
+# motion monitor's own stall window, so only a wedged monitor reaches it.
+# Per PERFORMANCE_BUDGETS.md row run_end_stage_settle_wait_s.
+_STAGE_SETTLE_WAIT_S = WRITE_STALL_FATAL_S
+
 
 def run_cleanup(
     *,
@@ -158,7 +166,8 @@ def run_cleanup(
     the caller closes on every path out, and which writes every image the
     run captured however the run ended. Nor is run_ended sent here: the
     run sends it once it has let go of the scope, so a subscriber can act
-    on the scope when told.
+    on the scope when told; for the same reason it returns with the stage
+    at rest, every move the run left in flight waited out.
 
     Returns True when the RUN_END LED transition actually applied -- the
     run's LED end-state is decided. False (or a raise anywhere in here)
@@ -319,6 +328,28 @@ def run_cleanup(
             logger.info(f'[{logger_name}] Cleanup: return-to-position move issued')
     except Exception as ex:
         cleanup_errors.append(('Return to position', f'{type(ex).__name__}: {ex}'))
+
+    # --- Wait for the stage to stop ---
+    # The run's end is the stage at rest, so a caller told the run is over
+    # can start the next at once. Every move the run left in flight is
+    # waited out here: the halt's STOP, which an axis reads as moving until
+    # the motion monitor next finds it at rest; a return-to-position, which
+    # is started, not waited. After the autofocus unwind above, so no sweep
+    # move follows the wait. Only a run that took the camera, which its loop
+    # does before its first move: a move in flight for any other is
+    # someone else's.
+    if original_led_states is not None:
+        try:
+            scope.motion.wait_until_finished_moving(timeout_s=_STAGE_SETTLE_WAIT_S)
+        except (MoveFaultError, MoveStoppedError) as ex:
+            # Stopped with no known position: told where the motion monitor
+            # found it, and the next run's position check refuses on it.
+            logger.info(f'[{logger_name}] Cleanup: the stage stopped, position unknown ({ex})')
+        except Exception as ex:
+            # A stage still moving at the bound, or a wait refused (a
+            # shutdown unwinding the run on the UI thread): told in the
+            # summary, and the steps below still run, as for every step.
+            cleanup_errors.append(('Wait for the stage to stop', f'{type(ex).__name__}: {ex}'))
 
     # --- End executors ---
     scan_in_progress.clear()

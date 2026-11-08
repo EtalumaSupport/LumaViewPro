@@ -72,6 +72,11 @@ def test_a_stopped_run_halts_its_move(session, tmp_path):
     assert _where_the_board_drives_x(session) < target - 1000.0, (
         'the stopped run left its move driving'
     )
+    # The run's end is the stage at rest: a client that starts its next
+    # run at once is not refused on an axis the halt has not yet settled.
+    assert not session.scope.motion.is_any_axis_moving(), (
+        'the stopped run ended while the stage it halted still read moving'
+    )
 
 
 def test_a_run_ended_by_its_moves_fault_halts_the_move(
