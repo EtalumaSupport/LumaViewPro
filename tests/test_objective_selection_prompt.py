@@ -461,7 +461,10 @@ class TestAnUnknownSlotSaysWhatHappensNext:
         from tests.settings_fixtures import complete_settings
 
         session = ScopeSession.create(
-            complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
+            complete_settings(
+                live_folder=str(tmp_path), microscope='LS850T', objective_confirmed=None
+            ),
+            simulate=True,
         )
         try:
             # Bring-up alone leaves the slot unknown, and nothing is confirmed.

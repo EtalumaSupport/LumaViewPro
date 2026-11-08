@@ -8,6 +8,9 @@ template's values with a few of its own laid over, said by name, and the
 fast simulator tier the suite runs on. Its live folder is a fresh
 temporary one unless the test names its own: the template's is relative
 to the installation, and the door would create it under the checkout.
+Its objective is confirmed, as on an installed scope, unless the test
+names ``objective_confirmed`` itself: a test of a new install, which
+the template is, hands ``objective_confirmed=None``.
 
 The template is read through ``settings_init.load_template``, the one
 read of it, so what the application sees of the template the fixtures
@@ -61,14 +64,27 @@ def _fresh_live_folder() -> str:
     return tempfile.mkdtemp(prefix='live_', dir=root)
 
 
+def _installed_confirmation(model: str) -> str:
+    # What an installed scope of ``model`` holds once a person has answered
+    # the objective question for its light path.
+    from _lumascope.modules.channel_record import load_scope_models
+
+    entry = load_scope_models(str(_REPO_ROOT / 'data' / 'scopes.json')).get(model)
+    return 'turret' if entry is not None and entry.has_turret else 'turretless'
+
+
 def complete_settings(**overrides) -> dict:
-    """The shipped template with ``overrides`` laid over it.
+    """The shipped template with ``overrides`` laid over it, as an installed scope.
 
     Overrides win at every depth; keys the overrides lack come from the
-    template. Turret slot keys are normalized to ints on both sides
-    BEFORE the merge -- merged afterwards, the template's string keys
-    would sit beside an int-keyed override and the later normalization
-    would let the template's ``None`` win.
+    template, except ``objective_confirmed``: without an override it is
+    the confirmation an installed scope of the settings' model holds, so
+    the scope comes up on the settings' objective. A test of a new
+    install hands ``objective_confirmed=None``, the template's. Turret
+    slot keys are normalized to ints on both sides BEFORE the merge --
+    merged afterwards, the template's string keys would sit beside an
+    int-keyed override and the later normalization would let the
+    template's ``None`` win.
     """
     merged = copy.deepcopy(overrides)
     template = shipped_template()
@@ -82,6 +98,8 @@ def complete_settings(**overrides) -> dict:
     settings_init._normalize_turret_slot_keys(merged)
     settings_init._normalize_turret_slot_keys(template)
     settings_init._deep_merge_defaults(merged, template)
+    if 'objective_confirmed' not in overrides:
+        merged['objective_confirmed'] = _installed_confirmation(merged['microscope'])
     return merged
 
 
