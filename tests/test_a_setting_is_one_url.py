@@ -162,6 +162,11 @@ def test_a_put_that_outlives_its_wait_is_a_job_whose_result_is_the_read(tmp_path
 class _NoSuchRead:
     @api(sets='level')
     def set_level(self, value: int) -> None:
+        """A fixture member.
+
+        Args:
+            value: The value set.
+        """
         pass
 
 
@@ -172,6 +177,11 @@ class _NotARead:
 
     @api(sets='level')
     def set_level(self, value: int) -> None:
+        """A fixture member.
+
+        Args:
+            value: The value set.
+        """
         pass
 
 
@@ -183,16 +193,32 @@ class _AnotherKind:
 
     @api(sets='level')
     def set_level(self, value: str) -> None:
+        """A fixture member.
+
+        Args:
+            value: The value set.
+        """
         pass
 
 
 class _AnotherKey:
     @api(reads=True)
     def level(self, channel: str) -> int:
+        """A fixture member.
+
+        Args:
+            channel: The channel read or set.
+        """
         return 0
 
     @api(sets='level')
     def set_level(self, layer: str, value: int) -> None:
+        """A fixture member.
+
+        Args:
+            layer: The channel set, under another key.
+            value: The value set.
+        """
         pass
 
 
@@ -204,6 +230,12 @@ class _NotTheRecordsFields:
 
     @api(sets='frame')
     def set_frame(self, height: int, width: int) -> None:
+        """A fixture member.
+
+        Args:
+            height: The frame height, in pixels.
+            width: The frame width, in pixels.
+        """
         pass
 
 
@@ -215,16 +247,33 @@ class _TwoRecords:
 
     @api(sets='frame')
     def set_frame(self, width: int, height: int) -> None:
+        """A fixture member.
+
+        Args:
+            width: The frame width, in pixels.
+            height: The frame height, in pixels.
+        """
         pass
 
 
 class _Pairs:
     @api(reads=True)
     def level(self, channel: str) -> int | None:
+        """A fixture member.
+
+        Args:
+            channel: The channel read or set.
+        """
         return 0
 
     @api(sets='level')
     def set_level(self, channel: str, value: int) -> None:
+        """A fixture member.
+
+        Args:
+            channel: The channel read or set.
+            value: The value set.
+        """
         pass
 
     @api
@@ -234,6 +283,12 @@ class _Pairs:
 
     @api(sets='frame')
     def set_frame(self, width: int, height: int) -> None:
+        """A fixture member.
+
+        Args:
+            width: The frame width, in pixels.
+            height: The frame height, in pixels.
+        """
         pass
 
 

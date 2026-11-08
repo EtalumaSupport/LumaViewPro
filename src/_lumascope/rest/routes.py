@@ -290,7 +290,8 @@ def _kinds(alternatives: typing.Iterable[object]) -> set[tuple[str, str, type | 
 def _body(
     owner: type, member: WireMember, records: dict[type, type[pydantic.BaseModel]]
 ) -> type[pydantic.BaseModel]:
-    fields = {p.name: _field(p, records) for p in member.parameters}
+    words = parameter_words(member)
+    fields = {p.name: _field(p, records, words[p.name]) for p in member.parameters}
     return pydantic.create_model(
         f'{owner.__name__}_{member.name}', __config__=_MODEL_CONFIG, **fields
     )
@@ -313,6 +314,7 @@ def query_model(owner: type, member: WireMember) -> type[pydantic.BaseModel]:
             text carries no type to tell them apart.
     """
     where = f'{owner.__name__}.{member.name}'
+    words = parameter_words(member)
     fields: dict[str, tuple[object, object]] = {}
     for p in member.parameters:
         present = [a for a in p.alternatives if not _is_none(a)]
@@ -340,10 +342,16 @@ def query_model(owner: type, member: WireMember) -> type[pydantic.BaseModel]:
                 )
             continue
         _refuse_no_query_form(where, p.name, present)
-        fields[p.name] = _field(p, {})
+        fields[p.name] = _field(p, {}, words[p.name])
     return pydantic.create_model(
         f'{owner.__name__}_{member.name}_query', __config__=_QUERY_CONFIG, **fields
     )
+
+
+def parameter_words(member: WireMember) -> dict[str, str]:
+    """Each parameter's words of *member*, as Markdown: its docstring's ``Args:`` entry, as the reference renders it."""
+    entries = api_surface.entries_of(inspect.cleandoc(member.doc), 'Args')
+    return {name.lstrip('*'): api_surface.markdown_of(w) for name, w in entries.items()}
 
 
 def field_words(cls: type, name: str) -> str:
@@ -403,18 +411,21 @@ def sent_of_query(query: pydantic.BaseModel) -> dict[str, object]:
 
 
 def _field(
-    parameter: WireParameter, records: dict[type, type[pydantic.BaseModel]]
+    parameter: WireParameter, records: dict[type, type[pydantic.BaseModel]], words: str
 ) -> tuple[object, object]:
+    """*parameter* as a property of the model its call is read by, described in *words*."""
     kind = _type(parameter.alternatives, records)
     if parameter.required:
-        return kind, ...
+        return kind, pydantic.Field(description=words)
     # A parameter the client leaves out takes the member's own default: only
     # what the client sent is passed. The default here only describes it.
     try:
         described = json.loads(json.dumps(wire_form(parameter.default)))
     except (wire_encoding.NoWireFormError, TypeError, ValueError):
-        return kind, pydantic.Field(default=None, json_schema_extra=_no_default)
-    return kind, pydantic.Field(default=None, json_schema_extra={'default': described})
+        return kind, pydantic.Field(default=None, description=words, json_schema_extra=_no_default)
+    return kind, pydantic.Field(
+        default=None, description=words, json_schema_extra={'default': described}
+    )
 
 
 def wire_form(value: object) -> object:

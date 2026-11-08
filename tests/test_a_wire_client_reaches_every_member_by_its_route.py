@@ -259,18 +259,33 @@ def test_a_read_method_is_a_get_its_arguments_converted_from_the_query(client, s
 class _NameOrNumber:
     @api(reads=True)
     def read(self, channel: int | str) -> int:
+        """A fixture member.
+
+        Args:
+            channel: The channel read or set.
+        """
         return 0
 
 
 class _TextOrBool:
     @api(reads=True)
     def read(self, flag: bool | str = False) -> int:
+        """A fixture member.
+
+        Args:
+            flag: A flag sent as text or a bool.
+        """
         return 0
 
 
 class _RequiredNone:
     @api(reads=True)
     def read(self, run: int | None) -> int:
+        """A fixture member.
+
+        Args:
+            run: A run, or None.
+        """
         return 0
 
 

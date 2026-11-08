@@ -40,7 +40,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from _lumascope.modules import image_utils, wall_time, wire_encoding
-from _lumascope.modules.api_surface import api
+from _lumascope.modules.api_surface import api, markdown_of
 from _lumascope.modules.exceptions import (
     ConfigurationDefectError,
     ServerRefusedError,
@@ -876,7 +876,9 @@ def _add(
         'name': name,
         'operation_id': name.replace('/', '.'),
         'summary': doc.split('\n', 1)[0] or None,
-        'description': doc or None,
+        # Each parameter's words are on its property, so the description
+        # leaves the Args: section out rather than say them twice.
+        'description': markdown_of(doc, leave_out=('Args',)) or None,
         'tags': [tag],
         # The answer is encoded from the value (``wire_encoding.encode``) and
         # sent as it is; the models only describe it, from the member's

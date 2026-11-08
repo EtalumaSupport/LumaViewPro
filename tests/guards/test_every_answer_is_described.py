@@ -29,6 +29,7 @@ over a simulated session builds:
 from __future__ import annotations
 
 import enum
+import inspect
 import json
 import pathlib
 import re
@@ -252,6 +253,38 @@ def test_a_record_s_properties_say_its_fields_words(built):
         if re.search(r'^Attributes:|\*\*Attributes\*\*', schema.get('description') or '', re.M)
     )
     assert not twice, f"an answer's description says its fields' words again: {twice}"
+
+
+def test_a_call_s_properties_say_its_parameters_words(built):
+    """Each property a call is read by says its parameter's words, the reference's.
+
+    A parameter's words are its member's ``Args:`` entry; a body's
+    property and a query string's key read them there, sampled once each.
+    Every parameter has its words where they are written
+    (``test_every_parameter_is_described``). An operation's description
+    leaves its ``Args:`` section out, so a parameter's words are said once.
+    """
+    from _lumascope.modules.api_surface import entries_of, markdown_of
+    from _lumascope.modules.lumascope_api.camera import CameraAPI
+    from _lumascope.modules.lumascope_api.motion import MotionAPI
+
+    described, _routes, _events, _records = built
+
+    def words(member: object, parameter: str) -> str:
+        return markdown_of(entries_of(inspect.getdoc(member) or '', 'Args')[parameter])
+
+    body = described['components']['schemas']['MotionAPI_move_z']['properties']['z_um']
+    assert body.get('description') == words(MotionAPI.move_z, 'z_um'), body
+    read = described['paths']['/api/v1/scope/camera/applied_gain_db_for']['get']
+    query = [p.get('description') for p in read['parameters'] if p['name'] == 'stored_gain_db']
+    assert query == [words(CameraAPI.applied_gain_db_for, 'stored_gain_db')], query
+    twice = sorted(
+        f'{method.upper()} {path}'
+        for path, operations in described['paths'].items()
+        for method, operation in operations.items()
+        if re.search(r'^Args:|\*\*Args\*\*', operation.get('description') or '', re.M)
+    )
+    assert not twice, f"an operation's description says its parameters' words again: {twice}"
 
 
 def test_the_description_names_no_private_path(built):
