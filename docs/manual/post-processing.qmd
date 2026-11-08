@@ -215,7 +215,7 @@ the images as taken.
 Each copy is saved beside its source, named for it, in TIFF (OME-TIFF for an
 OME-TIFF source): `ZStack_Ex405_Z0_0000_enhanced.tiff`. Beside it, a
 `.recipe.json` file of the same name records each step and its settings.
-Enhancing an image again saves a new copy, `_enhanced_2`, and so on. Each
+Enhancing an image again saves a new copy, `_enhanced_001`, and so on. Each
 copy is shown for a moment in the image view as it is saved.
 
 ## Object Analysis {#sec-pp-objects}

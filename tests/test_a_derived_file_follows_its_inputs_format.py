@@ -247,12 +247,12 @@ def test_an_enhance_is_written_in_its_sources_format_beside_its_own_recipe(sessi
         'a_enhanced.recipe.json',
     )
     assert _is_ome(first.output_path)
-    assert second.output_path.name == 'a_enhanced_2.ome.tiff'
+    assert second.output_path.name == 'a_enhanced_001.ome.tiff'
     # a.tiff's base is a's too: it takes the next name free in both
     # formats, never a.ome.tiff's recipe.
     assert (plain.output_path.name, plain.recipe_path.name) == (
-        'a_enhanced_3.tiff',
-        'a_enhanced_3.recipe.json',
+        'a_enhanced_002.tiff',
+        'a_enhanced_002.recipe.json',
     )
     assert not _is_ome(plain.output_path)
 

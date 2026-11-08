@@ -269,13 +269,30 @@ def test_export_preserves_tiff_depth_writes_recipe_and_never_overwrites(tmp_path
 
     assert source.read_bytes() == original_bytes
     assert first['output_path'].name == 'original_enhanced.tiff'
-    assert second['output_path'].name == 'original_enhanced_2.tiff'
+    assert second['output_path'].name == 'original_enhanced_001.tiff'
     out, significant_bits, _ = image_utils.load_pixels(first['output_path'])
     assert out.dtype == np.uint16
     assert significant_bits == 12
     recipe_path = first['output_path'].with_suffix('.recipe.json')
     assert recipe_path.exists()
     assert json.loads(recipe_path.read_text())['source_filename'] == 'original.tif'
+    assert (tmp_path / 'original_enhanced_001.recipe.json').exists()
+
+
+def test_a_recipe_alone_at_a_name_still_takes_it(tmp_path):
+    # An enhanced copy and its recipe are one name: a recipe left behind
+    # by itself keeps the next enhance off its name, so that recipe never
+    # describes a copy it was not written for.
+    source = tmp_path / 'original.tif'
+    _write_source(source, np.linspace(0, 4095, 64, dtype=np.uint16).reshape(8, 8), 12)
+    (tmp_path / 'original_enhanced.recipe.json').write_text('{"left": "behind"}')
+
+    exported = QuickEnhancer().export_file(
+        source, QuickEnhanceSettings(), channel_colors=release_colors()
+    )
+
+    assert exported['output_path'].name == 'original_enhanced_001.tiff'
+    assert (tmp_path / 'original_enhanced.recipe.json').read_text() == '{"left": "behind"}'
 
 
 def test_brightfield_tiff_stays_monochrome_and_preserves_payload_depth(tmp_path):
@@ -526,7 +543,7 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
     assert (tmp_path / 'bf_enhanced.tiff').exists()
     assert (tmp_path / 'composite_enhanced.tiff').exists()
     assert (tmp_path / 'share_enhanced.tiff').exists()
-    assert (tmp_path / 'share_enhanced_2.tiff').exists()
+    assert (tmp_path / 'share_enhanced_001.tiff').exists()
     assert len(displayed) == 4
 
 

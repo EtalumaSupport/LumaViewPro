@@ -57,7 +57,7 @@ def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
     assert first.name == 'step_BF.tiff', 'no collision -> the plain filename, unchanged'
     first.touch()
     second = image_save.generate_image_save_path(**kwargs)
-    assert second.name == 'step_BF_000001.tiff', (
+    assert second.name == 'step_BF_001.tiff', (
         'an existing file must produce a suffixed name, never an overwrite'
     )
 
@@ -313,11 +313,10 @@ def _image_save_lines(caplog) -> list:
 
 
 def test_if_collision_emits_warning_on_rename(tmp_path, caplog):
-    """When a filename collides under if_collision mode, the user must
-    be told via a WARNING log. The duplicate-key class (#636 customer
-    case where TGIDs collide on filename) is silently data-preserving
-    via the rename suffix; without the warning the user has no signal
-    that their protocol Name format is producing collisions.
+    """When a filename collides under if_collision mode, a WARNING names
+    the file that was there and the name the new one took. The rename
+    keeps both files, so without the line nothing says the saved name is
+    not the one asked for.
     """
     from _lumascope.modules.image_save import generate_image_save_path
 
@@ -334,19 +333,13 @@ def test_if_collision_emits_warning_on_rename(tmp_path, caplog):
         )
     captured = _image_save_lines(caplog)
 
-    assert path.name == '_PC_TA1_000001.tiff', (
-        f'if_collision should append _000001 on first collision; got {path.name}'
+    assert path.name == '_PC_TA1_001.tiff', (
+        f'if_collision should move to _001 on first collision; got {path.name}'
     )
     assert any(
-        level == 'WARNING'
-        and 'filename collision' in msg
-        and ('fresh folder' in msg or 'rename' in msg)
+        level == 'WARNING' and '_PC_TA1.tiff' in msg and '_PC_TA1_001.tiff' in msg
         for level, msg in captured
-    ), (
-        'if_collision must emit a WARNING naming the rename and giving the '
-        'actionable remedies (fresh capture folder / rename the steps). '
-        f'Captured: {captured}'
-    )
+    ), f'if_collision must emit a WARNING naming both files. Captured: {captured}'
 
 
 def test_if_collision_no_warning_when_no_collision(tmp_path, caplog):

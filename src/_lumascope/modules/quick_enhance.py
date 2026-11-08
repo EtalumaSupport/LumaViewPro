@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 
 from _lumascope.lvp_logger import logger
-from _lumascope.modules import image_mode, image_utils, wall_time
+from _lumascope.modules import image_mode, image_utils, path_utils, wall_time
 from _lumascope.modules.channel_record import GREY, ChannelColors, Color, stored_key
 from _lumascope.modules.exceptions import (
     PostProcessingFailedError,
@@ -555,6 +555,13 @@ class QuickEnhancer:
         only the last suffix, so ``exp1.5uM_BF.tiff`` keeps its ``.5uM``. A
         name is taken while the image in either format or the recipe exists,
         so ``a.tiff`` and ``a.ome.tiff`` in one folder never share a recipe.
+        A taken name moves to ``<name>_enhanced_001`` and on
+        (``path_utils.free_stem``).
+
+        Raises:
+            FileExistsError: ``<name>_enhanced`` and its first
+                ``path_utils.MAX_COLLISION_SUFFIX`` numbered variants are all
+                taken.
         """
         base = _name_base(source_path)
         if image_utils.is_ome_tiff(source_path):
@@ -562,14 +569,10 @@ class QuickEnhancer:
         else:
             output_format = image_mode.OutputFormat.TIFF
         suffix = image_utils.derived_file_suffix(output_format)
-        for index in range(1, 10_002):
-            stem = f'{base}_enhanced' if index == 1 else f'{base}_enhanced_{index}'
-            taken = (f'{stem}.ome.tiff', f'{stem}.tiff', f'{stem}.recipe.json')
-            if not any(source_path.with_name(name).exists() for name in taken):
-                return (
-                    source_path.with_name(f'{stem}{suffix}'),
-                    source_path.with_name(f'{stem}.recipe.json'),
-                )
-        raise FileExistsError(
-            f'Could not choose a derived filename for {source_path.name}: too many existing exports.'
+        stem = path_utils.free_stem(
+            source_path.parent, f'{base}_enhanced', ('.ome.tiff', '.tiff', '.recipe.json')
+        )
+        return (
+            source_path.with_name(f'{stem}{suffix}'),
+            source_path.with_name(f'{stem}.recipe.json'),
         )

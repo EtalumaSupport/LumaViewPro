@@ -29,6 +29,7 @@ import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.channel_record as channel_record
+import _lumascope.modules.path_utils as path_utils
 from _lumascope.lib.handle_trace import tick as _h_tick
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.exceptions import (
@@ -200,6 +201,9 @@ def generate_image_save_path(
 
     Raises:
         ConfigError: If ``tail_id_mode`` is not implemented.
+        FileExistsError: ``"if_collision"``, and the name and its first
+            ``path_utils.MAX_COLLISION_SUFFIX`` numbered variants are all
+            taken (``path_utils.free_stem``).
     """
     if isinstance(save_folder, str):
         save_folder = pathlib.Path(save_folder)
@@ -228,22 +232,13 @@ def generate_image_save_path(
         # plain filename when no file exists; only add a numeric
         # suffix on actual collision. Keeps happy-path filenames
         # unchanged for well-formed protocols.
-        base_path = save_folder / f'{file_root}{append}{file_extension}'
-        if not os.path.exists(base_path):
-            path = base_path
-        else:
-            n = 1
-            while True:
-                path = save_folder / f'{file_root}{append}_{n:06d}{file_extension}'
-                if not os.path.exists(path):
-                    break
-                n += 1
+        stem = f'{file_root}{append}'
+        free = path_utils.free_stem(save_folder, stem, (file_extension,))
+        path = save_folder / f'{free}{file_extension}'
+        if free != stem:
             logger.warning(
-                f'Protocol filename collision: {base_path.name} already '
-                f'exists; saving as {path.name} instead. This usually means '
-                f'the output folder already holds files from a previous run '
-                f'-- capture into a fresh folder, or rename the protocol '
-                f'steps so each produces a unique filename.'
+                f'Image filename collision: {stem}{file_extension} already '
+                f'exists; saving as {path.name} instead.'
             )
 
     elif tail_id_mode is None:
