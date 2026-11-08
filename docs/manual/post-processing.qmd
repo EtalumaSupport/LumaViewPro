@@ -274,6 +274,11 @@ the order the images were taken, and by name where that cannot be told:
 | Column | What it holds |
 |:---|:---|
 | `file` | The image. |
+| `well` | The well the image was taken in, as the image states it; blank if it states none. |
+| `channel` | The channel the image was taken in, as the image states it, else as the run's record does. |
+| `scan` | The scan of the run the image was taken in, counted from 0 as the file names count it; blank in a folder with no run. |
+| `tile` | The image's tile, from the run's record; blank for a stitched image and in a folder with no run. |
+| `z` | The focus position the image was taken at, in µm, as the image states it; blank for a Z-projection, which states none. |
 | `time` | When the image was taken, as the image states it. An image a tool made, such as a Z-projection, states none; its time is its scan's, from the run's record. Blank if neither states one. |
 | `num_cells` | The number of objects counted. |
 | `total_object_area_px2` | Their total area, in pixels. |

@@ -57,6 +57,22 @@ RESULTS_TIME_FORMAT = '%a %b %d %H:%M:%S %Y'
 _WHOLE_NUMBER = re.compile(r'[+-]?\d+')
 _NUMBER = re.compile(r'[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?')
 
+# The columns of results.csv, in order: which image, where and when it was
+# taken, then what was measured. The header and every row are built from it.
+RESULTS_COLUMNS = (
+    'file',
+    'well',
+    'channel',
+    'scan',
+    'tile',
+    'z',
+    'time',
+    'num_cells',
+    'total_object_area_px2',
+    'total_object_area_um2',
+    'total_object_intensity',
+)
+
 # What marks a JSON file as a saved cell-count method.
 # Version 2: context.pixels_per_um is an optional override. Every version-1 file
 # carries the old fixed default of 1.0, which the load drops.
@@ -437,6 +453,10 @@ class PostProcessing:
         results say each row's area unit (``um2`` or ``px2``), so a folder of
         mixed images is one file. Each row's time is ``frame_time``'s, with
         its UTC offset when it states one, and is blank when there is none.
+        Each row says where its image was taken (``_where_taken``): the
+        well, channel and Z the image states, its channel else the record's,
+        and its scan and tile from the record. The columns are
+        ``RESULTS_COLUMNS``.
 
         Returns:
             ``results_path``; ``method_path``; ``counted``, how many images
@@ -456,14 +476,6 @@ class PostProcessing:
                 an image with no scale); the results hold every image that
                 was, and the error names the rest.
         """
-        fields = [
-            'file',
-            'time',
-            'num_cells',
-            'total_object_area_px2',
-            'total_object_area_um2',
-            'total_object_intensity',
-        ]
         listed = sorted(f for f in os.listdir(path) if image_utils.is_image(f))
         try:
             run = ProtocolPostProcessingHelper().read_run(pathlib.Path(path), tiling_grids)
@@ -502,12 +514,13 @@ class PostProcessing:
                     ),
                     name=filename,
                 )
+                row = recorded[filename]
+                facts = image_utils.read_file_record(file_path)
                 # The time the image states it was taken, else its record
                 # row's, never the file system's: a copied folder's files
                 # were all made at the copy.
-                row = recorded[filename]
                 taken = image_utils.frame_time(
-                    image_utils.stated_frame_time(image_utils.read_file_record(file_path)),
+                    image_utils.stated_frame_time(facts),
                     None if row is None else row['Timestamp'],
                 )
             except (PostProcessingRefusedError, LiveFolderPathRefusedError) as e:
@@ -520,7 +533,8 @@ class PostProcessing:
             taken_at[filename] = taken
             results.append(
                 {
-                    'filename': os.path.basename(filename),
+                    'file': os.path.basename(filename),
+                    **_where_taken(facts, row),
                     'time': taken.isoformat() if taken is not None else '',
                     'num_cells': region_info['summary']['num_regions'],
                     'total_object_area_px2': region_info['summary']['total_object_area_px2'],
@@ -557,9 +571,9 @@ class PostProcessing:
         try:
             with open(results_temp, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(fields)
+                writer.writerow(RESULTS_COLUMNS)
                 for record in results:
-                    writer.writerow(record.values())
+                    writer.writerow(record[column] for column in RESULTS_COLUMNS)
         except OSError as e:
             discard_temps()
             raise PostProcessingFailedError(
@@ -687,6 +701,34 @@ def _in_taken_order(
 ) -> list[dict]:
     """*rows* in the order their images were taken, then by name; when the
     times do not compare, those with a time by name, then the rest by name."""
-    if image_utils.comparable_times(taken_at[row['filename']] for row in rows) is not None:
-        return sorted(rows, key=lambda row: (taken_at[row['filename']], row['filename']))
-    return sorted(rows, key=lambda row: (taken_at[row['filename']] is None, row['filename']))
+    if image_utils.comparable_times(taken_at[row['file']] for row in rows) is not None:
+        return sorted(rows, key=lambda row: (taken_at[row['file']], row['file']))
+    return sorted(rows, key=lambda row: (taken_at[row['file']] is None, row['file']))
+
+
+def _where_taken(facts: dict | None, row: dict | None) -> dict:
+    """Where an image was taken, as ``results.csv`` writes it.
+
+    *facts* is the image's file record, None for a file that carries none
+    (a JPG), which states nothing. ``well``, ``channel`` and ``z`` are what
+    the image states it was captured at; an image that states no channel
+    takes its record row's, which a step's capture never moves. The
+    record's well and Z are the step's plan, which an inserted or moved step
+    leaves empty or stale and autofocus moves from, so an image that states
+    neither leaves them blank. ``scan`` (counted from 0, as the file names
+    are) and ``tile`` are the record row's; both are blank with no record.
+    """
+    stated = facts if facts is not None else {}
+    plate = stated.get('plate')
+    well = plate.get('well_label') if plate is not None else None
+    channel = stated.get('channel')
+    if channel is None and row is not None:
+        channel = row['channel']
+    z = stated.get('z_pos_um')
+    return {
+        'well': '' if well is None else well,
+        'channel': '' if channel is None else channel,
+        'scan': '' if row is None else row['Scan Count'],
+        'tile': '' if row is None else row['Tile'],
+        'z': '' if z is None else z,
+    }
