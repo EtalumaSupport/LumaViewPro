@@ -74,7 +74,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 74
+PLUGIN_API_LEVEL = 75
 # Published: ``from lumascope import PLUGIN_API_LEVEL`` (api_surface.CONSTANTS_ATTRIBUTE).
 _lvp_api_constants = ('PLUGIN_API_LEVEL',)
 
@@ -200,7 +200,7 @@ class PluginRuntimeFailure:
     Distinct from a load failure: the plugin loaded fine, but failed
     while servicing a callback (e.g. auto_run_on_protocol_complete). Reported by
     PluginRegistry.record_runtime_error and kept in
-    NamespaceHealth.last_runtime_failures so diagnostic probes can
+    NamespaceHealth.runtime_failures so diagnostic probes can
     attribute fault to the right plugin.
     """
 
@@ -211,14 +211,19 @@ class PluginRuntimeFailure:
     message: str
 
 
-@api_fields('namespace', 'loaded', 'last_runtime_failures')
+@api_fields('namespace', 'loaded', 'runtime_failures')
 @dataclass(frozen=True)
 class NamespaceHealth:
-    """Per-namespace snapshot for tech-support + diagnostic probes."""
+    """Per-namespace snapshot for tech-support + diagnostic probes.
+
+    Attributes:
+        runtime_failures: Every exception caught from a plugin handler in
+            this namespace since it was created, oldest first; never trimmed.
+    """
 
     namespace: str
     loaded: tuple[PluginStatus, ...]
-    last_runtime_failures: tuple[PluginRuntimeFailure, ...]
+    runtime_failures: tuple[PluginRuntimeFailure, ...]
 
 
 @api_fields('namespaces', 'not_loaded')
@@ -289,7 +294,7 @@ class _BaseNamespace:
                     PluginStatus(name=spec.name, version=spec.version, namespace=self.NAMESPACE)
                     for spec, _registered in self._entries.values()
                 ),
-                last_runtime_failures=tuple(self._runtime_failures),
+                runtime_failures=tuple(self._runtime_failures),
             )
 
     def _assert_unique(self, spec: PluginSpec) -> None:

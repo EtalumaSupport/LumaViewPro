@@ -10824,9 +10824,9 @@ Per-namespace snapshot for tech-support + diagnostic probes.
 
 **Fields**
 
-- <a id="NamespaceHealth.last_runtime_failures"></a>`last_runtime_failures`: `tuple[PluginRuntimeFailure, ...]` -- (no description)
 - <a id="NamespaceHealth.loaded"></a>`loaded`: `tuple[PluginStatus, ...]` -- (no description)
 - <a id="NamespaceHealth.namespace"></a>`namespace`: `str` -- (no description)
+- <a id="NamespaceHealth.runtime_failures"></a>`runtime_failures`: `tuple[PluginRuntimeFailure, ...]` -- Every exception caught from a plugin handler in this namespace since it was created, oldest first; never trimmed.
 
 <a id="Notification"></a>
 ## `lumascope.Notification`
@@ -11223,14 +11223,14 @@ Lifecycle:
 ## `lumascope.PluginRuntimeFailure`
 
 A record: it crosses the wire as its data.  
-Held in: [`NamespaceHealth.last_runtime_failures`](#NamespaceHealth.last_runtime_failures).
+Held in: [`NamespaceHealth.runtime_failures`](#NamespaceHealth.runtime_failures).
 
 The record of an exception caught from a plugin handler; a record, never raised.
 
 Distinct from a load failure: the plugin loaded fine, but failed
 while servicing a callback (e.g. auto_run_on_protocol_complete). Reported by
 PluginRegistry.record_runtime_error and kept in
-NamespaceHealth.last_runtime_failures so diagnostic probes can
+NamespaceHealth.runtime_failures so diagnostic probes can
 attribute fault to the right plugin.
 
 **Fields**

@@ -207,7 +207,7 @@ def test_a_ui_crash_or_a_failed_mount_is_reported(harness_ctx, centre_posts, out
     harness_ctx.plugins.record_runtime_error('crashy', hook, boom)
 
     _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'crashy', cause=boom)
-    failures = harness_ctx.plugins.post_processing.health().last_runtime_failures
+    failures = harness_ctx.plugins.post_processing.health().runtime_failures
     assert [(f.plugin_name, f.hook, f.exc_type) for f in failures] == [
         ('crashy', hook, 'ValueError')
     ]
