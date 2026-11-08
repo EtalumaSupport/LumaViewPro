@@ -12,7 +12,7 @@ import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.post_derivation as post_derivation
 
 from _lumascope.modules.common_utils import PostFunction
-from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
+from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor, raw_rows
 from _lumascope.modules.protocol_post_processing_result import PostProcResult
 from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 
@@ -102,14 +102,11 @@ class ZProjector(ProtocolPostProcessor):
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
-        # Skip already composited outputs
-        df = df[df[self._post_function.value] == False]  # noqa: E712 -- pandas mask
-
-        # Skip videos
-        df = df[df[PostFunction.VIDEO.value] == False]  # noqa: E712 -- pandas mask
-
-        # Skip stacks
-        df = df[df[PostFunction.HYPERSTACK.value] == False]  # noqa: E712 -- pandas mask
+        # A projection is made from the raw slices, as the build chain's is:
+        # a stitched mosaic of slices, a composite, a video or a stack is
+        # left out (each named by its kind), and a projection already made,
+        # stitched or composited after, is counted as made by its own flag.
+        df = df[raw_rows(df)]
 
         # A recording's frames are a time series, not Z-slices; projecting
         # them would emit a mislabeled artifact.

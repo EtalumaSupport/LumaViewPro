@@ -32,6 +32,8 @@ def _mixed_df():
     data = {
         'Filepath': [pathlib.Path(p) for p in paths],
         'Raw': [True] * n,
+        # A raw capture's derivation is empty, as the loader gives it.
+        'Derivation': [''] * n,
     }
     for column in PostFunction.list_values():
         data[column] = [False] * n

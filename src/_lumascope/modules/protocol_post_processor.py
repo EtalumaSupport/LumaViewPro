@@ -48,6 +48,14 @@ _EXCLUDED_REMEDY = {
     (PostFunction.STITCHED, PostFunction.COMPOSITE): (
         ' Composites are not stitched; Composite builds them from the stitched channels.'
     ),
+    (PostFunction.ZPROJECT, PostFunction.STITCHED): (
+        ' Stitched images are not projected; a projection is made from the slices, and'
+        ' Stitch then stitches the projections.'
+    ),
+    (PostFunction.ZPROJECT, PostFunction.COMPOSITE): (
+        ' Composites are not projected; a projection is made from the slices, and'
+        ' Composite then composites the projections.'
+    ),
 }
 
 # Each operation's name as a person reads it, for the titles and words of
@@ -115,20 +123,21 @@ def _recording_frames(df: pd.DataFrame) -> pd.Series:
     # 'ZProject/') has no Acquire column at all.
     missing = _missing(df)
     if missing.any():
-        missing_raw = missing & ~_derived(df)
+        missing_raw = missing & ~derived_rows(df)
         if missing_raw.any():
             frames = frames | (missing_raw & (df['Acquire'] == AcquireMode.VIDEO))
     return frames
 
 
-def _derived(df: pd.DataFrame) -> pd.Series:
-    """Which rows are derived images: a raw capture's derivation is empty.
-
-    Asked only of a table holding a missing row: what a gone image is
-    decides how it is answered, and a table the loader marked carries
-    every row's derivation.
-    """
+def derived_rows(df: pd.DataFrame) -> pd.Series:
+    """Which rows are derived images, the one test: a raw capture's
+    derivation is empty, and every row the loader gives carries one."""
     return df['Derivation'].astype(str) != ''
+
+
+def raw_rows(df: pd.DataFrame) -> pd.Series:
+    """Which rows are raw captures: those that are not derived."""
+    return ~derived_rows(df)
 
 
 def _made_by(derivation: str) -> PostProcessingOperation:
@@ -145,12 +154,12 @@ def _removed(group: pd.DataFrame) -> bool:
     images (every build groups by Derivation), and a raw frame gone is
     always a failure: nothing builds it again.
     """
-    return bool(_missing(group).all() and _derived(group).all())
+    return bool(_missing(group).all() and derived_rows(group).all())
 
 
 def _missing_frames_error(missing: pd.DataFrame) -> str:
     """Why a group was not built: each recorded image it lacks, and why."""
-    if _derived(missing).all():
+    if derived_rows(missing).all():
         named = [
             f'{row["Filepath"]} (not in the folder; build '
             f'{_made_by(row["Derivation"])} again to restore it)'
@@ -547,7 +556,7 @@ class ProtocolPostProcessor(abc.ABC):
         # an output already made nor an input left out.
         gone = _missing(dropped_rows)
         if gone.any():
-            dropped_rows = dropped_rows[~(gone & _derived(dropped_rows))]
+            dropped_rows = dropped_rows[~(gone & derived_rows(dropped_rows))]
         # A recording's frames are no stills build's input, and nobody looks
         # for them in one: only Video takes them, so they are not left out.
         dropped_rows = dropped_rows[~_recording_frames(dropped_rows)]

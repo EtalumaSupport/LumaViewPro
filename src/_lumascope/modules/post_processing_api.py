@@ -398,11 +398,6 @@ class BuildsResult:
     skipped: tuple[SkippedBuild, ...]
 
 
-def _raw_rows(images: pd.DataFrame) -> pd.Series:
-    """The raw captures among a folder's images: a raw capture's derivation is empty."""
-    return images['Derivation'].astype(str) == ''
-
-
 def _rows_among(files: frozenset[pathlib.Path], images: pd.DataFrame) -> pd.Series:
     """The images among *files*: what the build before carried forward."""
     return images['Filepath'].isin(files)
@@ -916,11 +911,13 @@ class PostProcessingAPI:
         on_progress: ProgressCallback,
     ) -> BuildsResult:
         """The chosen builds, in order, on the lane task ``build`` submitted."""
+        from _lumascope.modules.protocol_post_processor import raw_rows
+
         built: list[BuildStep] = []
         skipped: list[SkippedBuild] = []
         # The first build takes the raw captures: a derived image already in
         # the folder is no input of this chain's.
-        takes: Callable = _raw_rows
+        takes: Callable = raw_rows
         for index, (operation, run) in enumerate(chosen):
             stage = f'Building {index + 1} of {len(chosen)}: {operation}'
             self._name_running_build(f'{stage}, of {folder}')

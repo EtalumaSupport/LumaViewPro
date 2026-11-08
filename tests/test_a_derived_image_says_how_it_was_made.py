@@ -24,7 +24,11 @@ import pytest
 import tifffile
 
 from _lumascope.modules import image_utils
-from _lumascope.modules.exceptions import PostProcessingFailedError
+from _lumascope.modules.exceptions import (
+    PostProcessingFailedError,
+    PostProcessingOperation,
+    PostProcessingRefusedError,
+)
 from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 from _lumascope.modules.channel_record import release_color, stored_key
 from tests.stock_channels import LED0
@@ -192,36 +196,62 @@ def test_a_stitch_of_two_projections_makes_a_mosaic_of_each(session, run_folder,
         assert np.array_equal(mosaic, mosaic_alone)
 
 
-def test_a_projection_of_two_stitches_makes_a_projection_of_each(session, run_folder):
-    """Quality and Fast Preview mosaics of one scan are named for their mode,
-    and, projected, are two projections a channel, each the sum of its own
-    mode's slices."""
+def test_a_projection_takes_the_slices_and_names_the_stitched_mosaics_with_the_remedy(
+    session, run_folder
+):
+    """Z-Projection takes the raw slices, as the build chain does: Quality
+    and Fast Preview mosaics of the slices are left out and named, with the
+    route to a stitched projection, and each tile's projection is the sum of
+    its own slices."""
     quality = session.post_processing.stitch(run_folder, mode='quality')
     fast = session.post_processing.stitch(run_folder, mode='fast_preview')
+    mosaics = len(quality.artifact_paths) + len(fast.artifact_paths)
 
-    assert 'custom0000_BF_Z0_0000_stitched.tiff' in _names(quality.artifact_paths, 'Stitched')
-    assert 'custom0000_BF_Z0_0000_stitched_FastPreview.tiff' in _names(
-        fast.artifact_paths, 'Stitched'
-    )
     projected = session.post_processing.zproject(run_folder, method='Sum')
 
-    projections = _names(projected.artifact_paths, 'Stitched-ZProject')
-    assert projections == [
-        'custom0000_BF_0000_stitched_FastPreview_zproj_sum.tiff',
-        'custom0000_BF_0000_stitched_zproj_sum.tiff',
-        f'custom0001_{LED0}_0000_stitched_FastPreview_zproj_sum.tiff',
-        f'custom0001_{LED0}_0000_stitched_zproj_sum.tiff',
+    assert _names(projected.artifact_paths, 'Stitched-ZProject') == []
+    assert len(_names(projected.artifact_paths, 'ZProject')) == len(_TILES) * 2
+    assert [(left.kind, left.count) for left in projected.excluded_inputs] == [
+        (PostProcessingOperation.STITCH, mosaics)
     ]
-    quality_slices = [
-        tifffile.imread(run_folder / 'Stitched' / f'custom0000_BF_Z{z}_0000_stitched.tiff')
+    assert 'Stitch then stitches the projections' in projected.message
+    slices = [
+        tifffile.imread(run_folder / f'custom0000_BF_TA1_Z{z}_0000.tiff').astype(np.int64)
         for z in _SLICES
     ]
     projection = tifffile.imread(
-        run_folder / 'Stitched-ZProject' / 'custom0000_BF_0000_stitched_zproj_sum.tiff'
-    )
-    assert np.array_equal(
-        projection.astype(np.int64), np.sum([s.astype(np.int64) for s in quality_slices], axis=0)
-    )
+        run_folder / 'ZProject' / 'custom0000_BF_TA1_0000_zproj_sum.tiff'
+    ).astype(np.int64)
+    assert np.array_equal(projection, np.sum(slices, axis=0))
+
+
+def test_a_folder_of_mosaics_alone_is_refused_for_what_it_holds(session, run_folder):
+    """A folder holding only stitched mosaics of the slices holds nothing a
+    projection takes: it is refused, naming the mosaics and the remedy."""
+    session.post_processing.stitch(run_folder)
+
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        session.post_processing.zproject(run_folder / 'Stitched', method='Sum')
+
+    assert refused.value.reason == 'excluded_inputs'
+    assert 'Stitch then stitches the projections' in str(refused.value)
+
+
+def test_a_stitched_projection_is_a_projection_already_made(session, run_folder):
+    """Projected, stitched, then projected again: the stitched projections
+    are the projection's own, already made; only the mosaics of the slices
+    are left out."""
+    session.post_processing.zproject(run_folder, method='Sum')
+    stitched = session.post_processing.stitch(run_folder)
+    slice_mosaics = _names(stitched.artifact_paths, 'Stitched')
+    assert slice_mosaics and _names(stitched.artifact_paths, 'Stitched-ZProject')
+
+    again = session.post_processing.zproject(run_folder, method='Sum')
+
+    assert again.new_count == 0
+    assert [(left.kind, left.count) for left in again.excluded_inputs] == [
+        (PostProcessingOperation.STITCH, len(slice_mosaics))
+    ]
 
 
 def test_a_composite_rebuilt_with_a_new_threshold_is_built_and_one_with_the_same_is_not(
@@ -327,21 +357,25 @@ def test_two_projections_an_earlier_release_made_are_not_stitched_into_one(sessi
     assert sorted(path.split('/')[-2] for path in failed.value.produced_paths) == ['Stitched'] * 6
 
 
-def test_two_stitches_an_earlier_release_made_are_not_projected_into_one(session, run_folder):
-    """Quality and Fast Preview mosaics an earlier release made, with no
-    record of which mode made which, fill each slice twice: the projection
-    of them is not built, and names the files."""
-    session.post_processing.stitch(run_folder, mode='quality')
-    session.post_processing.stitch(run_folder, mode='fast_preview')
-    _as_written_by_release_3(run_folder)
+def test_a_slice_the_run_recorded_twice_is_not_projected_into_one(session, run_folder):
+    """Two raw images the run recorded for one slice fill it twice: that
+    tile's projection is not built, and names the files; the other tiles'
+    are."""
+    twice = 'custom0000_BF_TA1_Z0_0000_again.tiff'
+    shutil.copy(run_folder / 'custom0000_BF_TA1_Z0_0000.tiff', run_folder / twice)
+    record = run_folder / 'protocol_record.tsv'
+    first = next(
+        line for line in record.read_text().splitlines() if line.startswith('custom0000_BF_TA1_Z0')
+    )
+    record.write_text(record.read_text() + twice + first[first.index('\t') :] + '\n')
 
     with pytest.raises(PostProcessingFailedError) as failed:
         session.post_processing.zproject(run_folder, method='Sum')
 
     message = str(failed.value)
     assert 'more than one image for one slice' in message
-    assert 'custom0000_BF_Z0_0000_stitched_FastPreview.tiff' in message
-    assert all('Stitched-ZProject' not in path for path in failed.value.produced_paths)
+    assert twice in message
+    assert len(failed.value.produced_paths) == len(_TILES) * 2 - 1
 
 
 def test_steps_inserted_without_a_tile_name_are_stitched_by_their_position(session, run_folder):

@@ -40,7 +40,7 @@ class TestTheRemedyFitsTheRefusal:
         assert remedy.count('Composites are not stitched') == 1
 
     def test_another_function_refusing_composites_offers_nothing(self):
-        assert _remedy_for(PostFunction.ZPROJECT, {PostFunction.COMPOSITE}) == ''
+        assert _remedy_for(PostFunction.VIDEO, {PostFunction.COMPOSITE}) == ''
 
     def test_nothing_excluded_adds_nothing(self):
         assert _remedy_for(PostFunction.STITCHED, set()) == ''

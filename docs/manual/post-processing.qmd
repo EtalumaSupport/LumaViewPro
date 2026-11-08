@@ -67,8 +67,9 @@ was done:
 
 : The folders the post-processing tools write {#tbl-pp-folders tbl-colwidths="[40,60]"}
 
-A tool works on the images as taken and on every image the other tools
-have already made in the folder. The order in which you run them decides
+A tool works on the images as taken and on the images the other tools
+have already made in the folder, except [Z-Projection]{.guilabel}, which
+projects only the slices as taken. The order in which you run them decides
 what you get. For a tiled run with Z-stacks in several channels, run:
 
 1. [Z-Projection]{.guilabel}, to project each tile's stack;
@@ -163,6 +164,11 @@ Composite button instead (@sec-image-composite).
 [Z-Project Folder...]{.guilabel} makes one image from each Z-stack in the
 folder: one for each position, channel, tile and scan. Choose the
 projection in [Method]{.guilabel} first. Default: Max.
+
+It projects the slices as taken. A stitched image or a composite of the
+slices is left out and named: project the slices first, then stitch or
+composite the projections. A folder that holds only such images is
+refused.
 
 | Method | Each pixel of the projection is |
 |:---|:---|
