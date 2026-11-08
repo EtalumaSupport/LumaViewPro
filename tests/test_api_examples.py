@@ -67,11 +67,17 @@ def prepared_settings(tmp_path):
     test's own directory. A shipped script carries no test-only parameter,
     and what it saves is the test's to read. The suite's later simulated
     scopes read the same globals for their model, so they are restored.
+
+    They are a new install's, as the reader's first run is: nobody has told
+    the scope which objective is mounted, so each example, and each twin
+    through ``served``, answers that itself or is refused.
     """
     from _lumascope.modules import settings_init
 
     saved = {name: getattr(settings_init, name) for name in ('settings', 'rejected_current_json')}
-    settings_init.settings = complete_settings(live_folder=str(tmp_path / 'live'))
+    settings_init.settings = complete_settings(
+        live_folder=str(tmp_path / 'live'), objective_confirmed=None
+    )
     yield settings_init.settings
     for name, value in saved.items():
         setattr(settings_init, name, value)

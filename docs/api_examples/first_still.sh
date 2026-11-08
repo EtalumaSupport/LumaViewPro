@@ -7,9 +7,13 @@
 
 API=http://127.0.0.1:8000/api/v1
 
-# A new install has not been told which objective is mounted, and a still is
-# refused until it has (GET $API/objective_question asks); say which it is.
-curl -s -w '\n' --json '{"objective_id": "20x w/collar"}' $API/confirm_objective   # 200
+# A new install has not been told which objective is mounted, and a saved
+# still and a run are refused until it has. Confirm the objective the question
+# proposes for the slot in the light path (null without a turret); once the
+# scope has been told, it proposes what it was told, and this changes nothing.
+OBJECTIVE=$(curl -s $API/current_slot_objective_question | jq -r .proposed)   # 200
+SLOT=$(curl -s $API/current_slot_objective_question | jq -r .turret_slot)    # 200: null without a turret
+curl -s -w '\n' --json "{\"objective_id\": \"$OBJECTIVE\", \"slot\": $SLOT}" $API/confirm_objective   # 200
 
 curl -s -w '\n' -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200
 curl -s -w '\n' --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0

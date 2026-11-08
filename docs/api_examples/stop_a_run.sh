@@ -7,6 +7,14 @@
 
 API=http://127.0.0.1:8000/api/v1
 
+# A new install has not been told which objective is mounted, and a saved
+# still and a run are refused until it has. Confirm the objective the question
+# proposes for the slot in the light path (null without a turret); once the
+# scope has been told, it proposes what it was told, and this changes nothing.
+OBJECTIVE=$(curl -s $API/current_slot_objective_question | jq -r .proposed)   # 200
+SLOT=$(curl -s $API/current_slot_objective_question | jq -r .turret_slot)    # 200: null without a turret
+curl -s -w '\n' --json "{\"objective_id\": \"$OBJECTIVE\", \"slot\": $SLOT}" $API/confirm_objective   # 200
+
 # A brightfield step at each of three wells, a scan every 60 s for an hour.
 curl -s -w '\n' -X PUT --json '{"channel": "BF", "mode": "image"}' $API/channel_acquire   # 200: "image"
 curl -s -w '\n' --json '{"path": "BF.illumination_ma", "value": 5}' $API/update_settings  # 200

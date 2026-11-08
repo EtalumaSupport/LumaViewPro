@@ -7,6 +7,14 @@
 
 API=http://127.0.0.1:8000/api/v1
 
+# A new install has not been told which objective is mounted, and a saved
+# still and a run are refused until it has. Confirm the objective the question
+# proposes for the slot in the light path (null without a turret); once the
+# scope has been told, it proposes what it was told, and this changes nothing.
+OBJECTIVE=$(curl -s $API/current_slot_objective_question | jq -r .proposed)   # 200
+SLOT=$(curl -s $API/current_slot_objective_question | jq -r .turret_slot)    # 200: null without a turret
+curl -s -w '\n' --json "{\"objective_id\": \"$OBJECTIVE\", \"slot\": $SLOT}" $API/confirm_objective   # 200
+
 CONTROL=$(curl -s --json '{"name": "plate reader"}' $API/take_control | jq -r .)   # 200: the id, for this client alone
 curl -s -w '\n' $API/control                                        # 200: who holds it, and since when
 

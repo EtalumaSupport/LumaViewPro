@@ -25,6 +25,12 @@ def main():
     session = ScopeSession.create(ScopeSession.load_user_settings('.'), simulate=True)
     try:
         session.run_application_session()
+        # A new install has not been told which objective is mounted, and a
+        # saved still and a run are refused until it has. Answer with the
+        # objective in the light path (on the simulator, the one it proposes).
+        question = session.objective_question()
+        if question is not None:
+            session.confirm_objective(question.proposed, slot=question.turret_slot)
         scope = session.scope
 
         # A brightfield step at each well, a scan every 60 s for an hour.
