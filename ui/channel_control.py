@@ -80,6 +80,10 @@ class ChannelControl(BoxLayout):
     # Drives the 8-bit summing depth-loss hint row; the row height follows the
     # label's wrapped texture so the multi-line warning is not clipped.
     sum_depth_hint_active = BooleanProperty(False)
+    # The False Color box and the CBT row: shown on a channel with a colour to
+    # tint or composite, hidden on a transmitted one; set from the channel's
+    # record when the drawers are drawn.
+    false_color_support = BooleanProperty(True)
     show_cbt = BooleanProperty(True)
 
     def __init__(self, **kwargs):

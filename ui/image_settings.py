@@ -152,6 +152,10 @@ class ImageSettings(BoxLayout):
             luminescence = record.modality == channel_record.Modality.LUMINESCENCE
             control.exposure_summing_support = luminescence
             control.autogain_support = not luminescence
+            # Transmitted light has no colour to tint or composite.
+            coloured = record.modality != channel_record.Modality.TRANSMITTED
+            control.false_color_support = coloured
+            control.show_cbt = coloured
         self._shown_channels = frozenset(records)
         self._resort_accordion()
 
@@ -393,8 +397,6 @@ class ImageSettings(BoxLayout):
 
     def place_settings(self):
         """Place the panel where its tab says: open beside the view, or folded to the side."""
-        if _app_ctx.ctx.session.controls_lock.run_named is None:
-            self.update_transmitted()
         logger.info('[LVP Main  ] ImageSettings.place_settings()')
         ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
@@ -407,35 +409,6 @@ class ImageSettings(BoxLayout):
             self.x = lumaview.width - self.tab_width
         else:
             self.x = lumaview.width - self.settings_width
-
-    def update_transmitted(self):
-        for channel in common_utils.get_transmitted_channels():
-            channel_control = self.channel_control_lookup(channel=channel)
-
-            # Remove 'Colorize' option in transmitted channels control
-            # -----------------------------------------------------
-            # Remove CBT from transmitted channel control
-            channel_control.show_cbt = False
-            label = channel_control.ids['composite_threshold_label']
-            slider = channel_control.ids['composite_threshold_slider']
-            text = channel_control.ids['composite_threshold_text']
-            label.text = ''
-            label.visible = False
-            label.opacity = 0
-            slider.disabled = True
-            slider.visible = False
-            slider.cursor_size = '0dp', '0dp'
-            slider.opacity = 0
-            slider.value_track_color = (0.0,) * 4
-            text.disabled = True
-            text.visible = False
-            text.width = '0dp'
-            text.text = ''
-            text.opacity = 0
-            channel_control.ids['false_color_label'].text = ''
-            channel_control.ids['false_color'].color = (0.0,) * 4
-
-            channel_control.ids['ill_slider'].step = 1
 
     def check_settings(self, *args):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')

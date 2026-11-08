@@ -144,6 +144,9 @@ def test_each_layer_the_unit_has_is_shown_from_its_record(panel, model):
         assert control.illumination_support == bool(record.led_addresses)
         assert control.exposure_summing_support == (record.modality == 'luminescence')
         assert control.autogain_support == (record.modality != 'luminescence')
+        # A transmitted drawer has no False Color box or CBT row to click.
+        assert control.false_color_support == (record.modality != 'transmitted')
+        assert control.show_cbt == (record.modality != 'transmitted')
     present = {r.key_name for r in identity.channels}
     absent = [layer for layer in channel_record.release_catalogue() if layer not in present]
     assert panel.acquire == []

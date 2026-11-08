@@ -155,7 +155,6 @@ def test_the_shown_histogram_draws_again_after_the_panel_folds_and_unfolds(monke
         tab_width=20,
         settings_width=300,
         channel_control_lookup=lambda channel: controls[channel],
-        update_transmitted=lambda: None,
     )
     monkeypatch.setattr(
         _app_ctx,

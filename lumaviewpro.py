@@ -1235,17 +1235,6 @@ class LumaViewProApp(TooltipMixin, App):
                         f'af={ls["autofocus"]}, acquire={ls["acquire"]}'
                     )
 
-            # Hide the composite-threshold and false-colour controls on the
-            # transmitted channels, which have no colour to composite.
-            #
-            # This does NOT bound illumination, whatever its name suggests:
-            # the transmitted slider cap is applied by the capability sync,
-            # which the settings panel already runs at startup.
-            try:
-                ctx.image_settings.update_transmitted()
-            except Exception as e:  # grain: ignore NAKED_EXCEPT
-                logger.warning(f'[INIT      ] update_transmitted skipped: {e}')
-
             # On startup stay where homing left the stage -- do NOT drive to
             # protocol step 1. A loaded protocol's steps stay available (the
             # steps table is rendered by load_protocol) and the user navigates

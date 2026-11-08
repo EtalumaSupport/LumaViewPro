@@ -3781,7 +3781,9 @@
 
 				CheckBox:
 					id: false_color
-					disabled: app.lock.run_lockout
+					disabled: app.lock.run_lockout or not self.visible
+					opacity: 1 if self.visible else 0
+					visible: True if root.show_camera_controls and root.false_color_support else False
 					size_hint_x: None
 					width: '30dp'
 					active: True
@@ -3795,6 +3797,9 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
+					disabled: False if self.visible else True
+					opacity: 1 if self.visible else 0
+					visible: True if root.show_camera_controls and root.false_color_support else False
 				CheckBox:
 					id: logHistogram_id
 					on_release: root.log_histogram_scale()
