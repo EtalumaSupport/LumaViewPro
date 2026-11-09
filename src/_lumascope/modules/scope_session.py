@@ -1743,6 +1743,13 @@ class ScopeSession:
                 to stand in its place (a simulated scope is built as the
                 stored model unless ``simulated.model`` names another).
                 Nothing it started is left running.
+            InstallationFileError: an installation data file the scope is
+                built from is missing, unreadable, or not the shape its
+                reader needs; ``file_path`` names it. The installation is at
+                fault, not ``settings``. Nothing it started is left running.
+            DriverNotLiveError: with ``simulate``, a simulated board that
+                never answered as the scope came up. Nothing it started is
+                left running.
         """
         from _lumascope.lvp_logger import log_environment_banner, start_session_logging, version
         from _lumascope.modules.app_environment import camera_sdk_probe

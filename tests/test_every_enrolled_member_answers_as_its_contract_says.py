@@ -5,7 +5,8 @@ A member's contract is its docstring's ``Raises:`` section (W0-R25). This is
 the walk that holds a member to it, on the simulated scope, for the members
 W0 changed the answers of: the path members, the motion members W0 gave
 their stops and waits, ``frame_at_binning`` and
-``apply``. For each:
+``apply``; and ``ScopeSession.create``, whose faults are an installation
+file it cannot use and a simulated board that never answers. For each:
 
 - **A valid call** answers, and its read-back shows what it did.
 - **A bad argument** answers the refusal its contract names, with the
@@ -33,12 +34,16 @@ import math
 import pathlib
 import shutil
 from collections.abc import Callable
+from unittest import mock
 
 import numpy as np
 import pytest
 import tifffile
 from fastapi.testclient import TestClient
 
+from _lumascope.drivers.registry import DriverNotLiveError
+from _lumascope.drivers.sim_wire.backend import SimWireBackend
+from _lumascope.drivers.simulated_tmcm6110 import SimulatedTmcm6110Backend
 from _lumascope.modules import wire_encoding
 from _lumascope.modules.api_surface import _function_of
 from _lumascope.modules.exceptions import (
@@ -47,6 +52,7 @@ from _lumascope.modules.exceptions import (
     CameraSettingUnsupportedError,
     HardwareCommandRefusedError,
     HomingFaultError,
+    InstallationFileError,
     LiveFolderPathRefusedError,
     MoveWaitExpiredError,
     PositionOutOfRangeError,
@@ -64,7 +70,7 @@ from tests.guards.test_every_member_states_its_contract import (
     _multi_reason,
 )
 from tests.scope_fakes import home_sim_scope
-from tests.settings_fixtures import complete_settings
+from tests.settings_fixtures import complete_settings, installation_of_its_own
 from tests.stock_channels import LED0
 
 # The members whose valid call waits on a fixture this walk does not yet have.
@@ -93,6 +99,7 @@ ENROLLED = (
     'CameraAPI.frame_at_binning',
     'CameraAPI.apply',
     'ScopeSession.tiling_config',
+    'ScopeSession.create',
 )
 
 
@@ -365,9 +372,45 @@ def _made(result, count: int) -> str | None:
 _AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
 
 
+def _create(settings: dict, **kwargs) -> None:
+    """``create`` as its fault rows call it: a session that comes up is shut down at once."""
+    ScopeSession.create(settings, simulate=True, warn_pre_release=False, **kwargs).shutdown()
+
+
+def _broken_installation(name: str, content: str) -> str:
+    """An installation of its own whose ``data/<name>`` holds ``content``."""
+    root = installation_of_its_own()
+    (root / 'data' / name).write_text(content)
+    return str(root)
+
+
+def _silent(backend: type, settings: dict) -> None:
+    """``create`` with the simulated board ``backend`` finding no port to answer on."""
+    # a stand-in by design: a fault the simulator cannot yet produce; no
+    # SimulatedScope field makes a simulated board silent at bring-up
+    with mock.patch.object(backend, 'comports', lambda self: []):
+        _create(settings)
+
+
+def _came_up(session: ScopeSession, model: str) -> str | None:
+    """Why ``session`` is not a scope up as ``model``, or None; it is shut down either way."""
+    try:
+        return None if session.model == model else f'came up as {session.model}'
+    finally:
+        session.shutdown()
+
+
 def _valid_rows() -> list[Valid]:
     method = CellCountMethod()
     return [
+        Valid(
+            'create, a simulated LS850',
+            'ScopeSession.create',
+            lambda s: ScopeSession.create(
+                complete_settings(microscope='LS850'), simulate=True, warn_pre_release=False
+            ),
+            lambda s, session: _came_up(session, 'LS850'),
+        ),
         Valid(
             'frame_at_binning 2',
             'CameraAPI.frame_at_binning',
@@ -895,6 +938,49 @@ def _bad_rows() -> list[Bad]:
 
 def _fault_rows() -> list[Fault]:
     return [
+        # create's faults are met as it builds its own scope; the row's
+        # fixture scope takes no part.
+        Fault(
+            'create on an installation whose objectives file holds no objective',
+            'ScopeSession.create',
+            'LS850',
+            lambda s: None,
+            lambda s: _create(
+                complete_settings(),
+                source_path=_broken_installation('objectives.json', '{"not": "objectives"}'),
+            ),
+            InstallationFileError,
+            None,
+        ),
+        Fault(
+            'create on an installation whose labware file is a list',
+            'ScopeSession.create',
+            'LS850',
+            lambda s: None,
+            lambda s: _create(
+                complete_settings(), source_path=_broken_installation('labware.json', '[]')
+            ),
+            InstallationFileError,
+            None,
+        ),
+        Fault(
+            'create of an LS720 whose simulated TMCM-6110 never answers',
+            'ScopeSession.create',
+            'LS850',
+            lambda s: None,
+            lambda s: _silent(SimulatedTmcm6110Backend, complete_settings(microscope='LS720')),
+            DriverNotLiveError,
+            None,
+        ),
+        Fault(
+            'create on the firmware tier whose simulated motor board never answers',
+            'ScopeSession.create',
+            'LS850',
+            lambda s: None,
+            lambda s: _silent(SimWireBackend, complete_settings(simulator_tier='firmware')),
+            DriverNotLiveError,
+            None,
+        ),
         Fault(
             'frame_at_binning with the camera removed',
             'CameraAPI.frame_at_binning',

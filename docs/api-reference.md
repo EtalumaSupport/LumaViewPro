@@ -1110,6 +1110,8 @@ then the camera start gate released) and is torn down by
 - `SettingRefusedError`: `'wrong_kind'` or `'out_of_range'`, a value in `settings` the writer refuses: a dict handed to a session is a write of every key at once, held to the same ranges.
 - `ScopeInUseError`: `'scope_in_use'`, a session with `simulate=False` asked for while another LumaViewPro, REST server or script drives the microscope, or while another real scope in this process is open. Nothing was opened.
 - `ScopeModelUnknownError`: the stored `microscope` is a model the catalogue does not list, and no motor board reports a model to stand in its place (a simulated scope is built as the stored model unless `simulated.model` names another). Nothing it started is left running.
+- `InstallationFileError`: an installation data file the scope is built from is missing, unreadable, or not the shape its reader needs; `file_path` names it. The installation is at fault, not `settings`. Nothing it started is left running.
+- `DriverNotLiveError`: with `simulate`, a simulated board that never answered as the scope came up. Nothing it started is left running.
 
 **Refusals**
 
@@ -1117,6 +1119,8 @@ then the camera start gate released) and is torn down by
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `needs_simulated_camera`, `not_injectable_on_board`, `fault_unknown`, `fault_bound`, `not_offered`, `wrong_kind`, `needs_simulated_firmware`, `missing_key`
 - [`SettingRefusedError`](#SettingRefusedError): `wrong_kind`, `out_of_range`
 - [`ScopeModelUnknownError`](#ScopeModelUnknownError): `model_unknown`
+- [`InstallationFileError`](#InstallationFileError): `installation_file_unusable`
+- [`DriverNotLiveError`](#DriverNotLiveError): `driver_not_live`
 
 <a id="ScopeSession.create_empty_protocol"></a>
 ### `ScopeSession.create_empty_protocol`
