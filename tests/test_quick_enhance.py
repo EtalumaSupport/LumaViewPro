@@ -176,7 +176,9 @@ def test_each_fixed_step_number_out_of_its_range_is_refused():
     assert not unrefused, unrefused
 
 
-def test_quick_enhance_uses_one_fixed_non_ai_recipe():
+def test_the_shipped_switches_and_numbers_are_the_recipe_quick_enhance_has_shipped():
+    """The template's switches and the fixed numbers are the recipe Quick
+    Enhance has shipped: illumination correction on, denoise off, gamma 0.9."""
     settings = quick_enhance_settings()
 
     assert settings.illumination_correction_enabled is True
