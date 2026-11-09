@@ -171,7 +171,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 91
+ALLOWED_ENTRIES = 89
 ALLOWED = frozenset(
     {
         'tests/camera_fakes.py::bare_ids_camera',
@@ -200,12 +200,10 @@ ALLOWED = frozenset(
         'tests/test_audit_fixes.py::TestGigeSetters.test_no_camera_returns_false_for_all',
         'tests/test_audit_fixes.py::TestPIW3_FalseColor16bitCachedAtRunStart.test_save_image_threads_param_to_write_tiff',
         'tests/test_audit_fixes.py::TestProtocolCleanupLedRestoreKey.test_restore_uses_illumination_ma_key',
-        'tests/test_audit_fixes.py::TestPylonAcquisitionIdleWait.test_idle_wait_returns_false_when_node_absent',
         'tests/test_audit_fixes.py::TestPylonAcquisitionIdleWait.test_idle_wait_returns_true_when_already_idle',
         'tests/test_audit_fixes.py::TestPylonAcquisitionIdleWait.test_idle_wait_returns_true_when_inactive',
         'tests/test_audit_fixes.py::TestPylonAcquisitionIdleWait.test_idle_wait_times_out_when_stuck_active',
         'tests/test_audit_fixes.py::TestPylonDiagnosticProbe._make_scope_with_fake_camera',
-        'tests/test_audit_fixes.py::TestPylonStreamGrabberStatusLog.test_log_helper_handles_missing_node_gracefully',
         'tests/test_audit_fixes.py::TestPylonStreamGrabberStatusLog.test_log_helper_handles_runtime_exception',
         'tests/test_audit_fixes.py::TestPylonStreamGrabberStatusLog.test_log_helper_no_op_when_active_none',
         'tests/test_audit_fixes.py::TestSequencedCaptureRunnerRunDirCollision._make_executor',

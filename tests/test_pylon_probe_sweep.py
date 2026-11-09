@@ -266,8 +266,8 @@ def test_a_knob_the_camera_refuses_is_the_cells_record_and_the_cell_goes_on():
 
         return set_knob
 
-    # a stand-in by design: the subject is the tool's catch around the
-    # API's bench-knob setters, which a Pylon camera answers.
+    # The API's bench-knob setters answer for a Pylon camera only.
+    # a stand-in by design: the subject is the tool's catch around those setters.
     scope = SimpleNamespace(
         camera=SimpleNamespace(update_camera_config=nullcontext),
         imaging=SimpleNamespace(
