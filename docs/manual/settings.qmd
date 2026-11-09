@@ -72,8 +72,8 @@ and composites.
 - TIFF and OME-TIFF: as for [Live Image Format]{.guilabel}.
 - Hyperstack: at the end of the run, the images of each well are combined
   into one OME-TIFF stack, which ImageJ and Fiji open through Bio-Formats.
-- JPG: as for [Live Image Format]{.guilabel}. JPG images cannot be stitched
-  or combined into a composite.
+- JPG: as for [Live Image Format]{.guilabel}. A run saved as JPG cannot be
+  Z-projected, stitched, combined into a composite or made into a video.
 
 Composites are saved as TIFF or OME-TIFF only. When Hyperstack or JPG is
 selected, composites are saved as OME-TIFF.

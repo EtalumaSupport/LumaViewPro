@@ -38,8 +38,9 @@ the record of every image taken and where; a recording saved as frames
 holds none, and [Create Video]{.guilabel} reads its frames instead. A tool reads the record, not the file names: it finds each
 image's channel, position, tile, Z-slice and time there. A folder without a
 record is refused ("Protocol and/or Protocol Record not found in folder").
-The images must be TIFF or OME-TIFF; a run saved as JPG or PNG is refused
-before anything is built.
+The images must be TIFF or OME-TIFF; a run saved as JPG is refused by
+every tool before anything is built, since a JPG holds what the screen
+showed and none of the capture's facts.
 
 Click the tool's button and choose the folder. The folder picker starts in
 `ProtocolData`. On Windows and Linux it shows folders only, not the files
