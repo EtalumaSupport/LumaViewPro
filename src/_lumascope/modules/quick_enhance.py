@@ -56,21 +56,30 @@ def recipe_of(image_path: pathlib.Path) -> pathlib.Path:
     return image_path.with_name(f'{_name_base(image_path)}.recipe.json')
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class QuickEnhanceSettings:
-    """Fixed, non-AI recipe for deterministic visual enhancement."""
+    """Fixed, non-AI recipe for deterministic visual enhancement.
 
+    Each step runs on its own switch. The switches are the user's, stored in
+    the live settings under ``quick_enhance``, and have no default here: the
+    settings template is their one home, so every construction names them.
+    The numbers are the recipe's own and are fixed.
+    """
+
+    auto_levels_enabled: bool
+    gamma_enabled: bool
+    illumination_correction_enabled: bool
+    denoise_enabled: bool
+    sharpen_enabled: bool
     low_percentile: float = 1.0
     high_percentile: float = 99.0
     gamma: float = 0.9
-    illumination_correction_enabled: bool = True
     # The upper share of the sampled brightness left out of the plane's fit,
     # so the objects themselves do not pull the plane toward them.
     illumination_fit_excludes_upper_percentile: float = 10.0
     # The fit samples the image on a stride of ceil(sqrt(size / target)), so
     # its sample count is near this number, not capped by it.
     illumination_fit_sample_target: int = 100_000
-    denoise_enabled: bool = False
     denoise_kernel_size: int = 3
     sharpen_sigma_px: float = 1.0
     sharpen_gain: float = 0.65
@@ -293,18 +302,25 @@ class QuickEnhancer:
         if settings.denoise_enabled and min(image.shape[:2]) >= settings.denoise_kernel_size:
             channels = cv2.medianBlur(channels, int(settings.denoise_kernel_size))
 
-        levels_source = channels if is_mono else channels.mean(axis=2)
-        finite = levels_source[np.isfinite(levels_source)]
-        if finite.size == 0:
-            return image.copy()
-        black, white = np.percentile(
-            finite, (float(settings.low_percentile), float(settings.high_percentile))
-        )
-        if white > black:
-            channels = np.clip((channels - black) / (white - black), 0.0, 1.0)
-            if settings.gamma != 1.0:
-                channels = np.power(channels, float(settings.gamma), dtype=np.float32)
-        channels = self._apply_guarded_unsharp(channels, is_mono, settings)
+        # Gamma follows the stretch: a flat image, which auto-levels leaves as
+        # it is, gamma leaves as it is too. With auto-levels off, gamma runs
+        # on the image's own values.
+        levels_found_a_range = True
+        if settings.auto_levels_enabled:
+            levels_source = channels if is_mono else channels.mean(axis=2)
+            finite = levels_source[np.isfinite(levels_source)]
+            if finite.size == 0:
+                return image.copy()
+            black, white = np.percentile(
+                finite, (float(settings.low_percentile), float(settings.high_percentile))
+            )
+            levels_found_a_range = white > black
+            if levels_found_a_range:
+                channels = np.clip((channels - black) / (white - black), 0.0, 1.0)
+        if settings.gamma_enabled and levels_found_a_range and settings.gamma != 1.0:
+            channels = np.power(channels, float(settings.gamma), dtype=np.float32)
+        if settings.sharpen_enabled:
+            channels = self._apply_guarded_unsharp(channels, is_mono, settings)
 
         restored = image.copy()
         enhanced_channels = np.rint(np.clip(channels, 0.0, 1.0) * source_max).astype(
@@ -372,11 +388,11 @@ class QuickEnhancer:
             'significant_bits': int(significant_bits),
             'operations': {
                 'auto_levels': {
-                    'enabled': True,
+                    'enabled': settings.auto_levels_enabled,
                     'low_percentile': settings.low_percentile,
                     'high_percentile': settings.high_percentile,
                 },
-                'gamma': {'enabled': settings.gamma != 1.0, 'value': settings.gamma},
+                'gamma': {'enabled': settings.gamma_enabled, 'value': settings.gamma},
                 'illumination_correction': {
                     'enabled': settings.illumination_correction_enabled,
                     'method': 'global_plane_normalization',
@@ -390,7 +406,7 @@ class QuickEnhancer:
                     'kernel_size': settings.denoise_kernel_size,
                 },
                 'sharpen': {
-                    'enabled': True,
+                    'enabled': settings.sharpen_enabled,
                     'method': 'signal_gated_unsharp_mask',
                     'sigma_px': settings.sharpen_sigma_px,
                     'gain': settings.sharpen_gain,

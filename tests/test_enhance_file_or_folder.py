@@ -5,6 +5,7 @@ import ast
 from pathlib import Path
 from _lumascope.modules.channel_record import release_color
 from _lumascope.modules.channel_record import release_colors
+from tests.settings_fixtures import quick_enhance_settings
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -97,6 +98,7 @@ def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewe
         lambda percent, text: texts.append(text),
         lambda image, significant_bits: shown.append(significant_bits),
         channel_colors=release_colors(),
+        settings=quick_enhance_settings(),
     )
 
     assert texts == ['Image 1 of 2', 'Image 2 of 2']
@@ -116,10 +118,43 @@ def test_enhance_completion_hides_the_derived_output_path(tmp_path):
     source = tmp_path / 'source.tif'
     _write_source(source)
 
-    result = PostProcessingAPI._enhance(source, None, None, channel_colors=release_colors())
+    result = PostProcessingAPI._enhance(
+        source, None, None, channel_colors=release_colors(), settings=quick_enhance_settings()
+    )
 
     assert result.message == 'Enhance complete.'
     assert str(tmp_path) not in result.message
+
+
+def test_an_enhance_runs_its_steps_as_the_stored_switches_say(tmp_path):
+    """Every client turns a step off the one way, the settings write, and an
+    enhance reads the stored switches: sharpening written off, the copy's
+    recipe states it off. A switch that is not true or false is refused."""
+    import json
+
+    import pytest
+
+    from _lumascope.modules.exceptions import SettingRefusedError
+    from _lumascope.modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    source = tmp_path / 'source.tif'
+    _write_source(source)
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path / 'live')), simulate=True
+    )
+    try:
+        session.update_settings('quick_enhance.sharpen_enabled', False)
+        with pytest.raises(SettingRefusedError) as caught:
+            session.update_settings('quick_enhance.denoise_enabled', 'yes')
+        made = session.post_processing.enhance(source).created[0]
+    finally:
+        session.shutdown()
+
+    assert caught.value.reason == 'wrong_kind'
+    operations = json.loads(made.recipe_path.read_text())['operations']
+    assert operations['sharpen']['enabled'] is False
+    assert operations['illumination_correction']['enabled'] is True
 
 
 def test_the_mode_router_keeps_a_stitcher_for_every_mode():

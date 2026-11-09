@@ -164,6 +164,13 @@
     "scale_bar": {
         "enabled": false
     },
+    "quick_enhance": {
+        "auto_levels_enabled": true,
+        "gamma_enabled": true,
+        "illumination_correction_enabled": true,
+        "denoise_enabled": false,
+        "sharpen_enabled": true
+    },
     "video_as_frames": false,
     "motion": {
         "acceleration_max_pct": 100

@@ -178,6 +178,7 @@ NOT_SHOWN: frozenset[str] = frozenset(
         'lvp_lock_port',
         'rest_api',
         'step_channel_order',
+        'quick_enhance',
     }
 )
 

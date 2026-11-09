@@ -4499,6 +4499,12 @@ Route: `POST /api/v1/post_processing/enhance`.
 Quick Enhance *target* -- one image, or every image in a folder --
 each to its own derived file beside its source.
 
+Each step -- auto-levels, gamma, illumination correction, denoise,
+sharpening -- runs as its switch in the `quick_enhance` settings
+says, read when the enhance is asked, so a folder is enhanced one way
+throughout. A switch is changed through `update_settings`:
+`update_settings('quick_enhance.sharpen_enabled', False)`.
+
 **Args**
 
 - `target`: The image file, or the folder of images, to enhance.

@@ -41,6 +41,17 @@ def shipped_template() -> dict:
     return settings_init.load_template(_LOGGER, str(_TEMPLATE))
 
 
+def quick_enhance_settings(**changes):
+    """Quick Enhance's settings with the template's switches, under a test's changes said by name.
+
+    The switches have no default of their own: the template is their one
+    home, so a test reads them from it as the application does.
+    """
+    from _lumascope.modules.quick_enhance import QuickEnhanceSettings
+
+    return QuickEnhanceSettings(**{**shipped_template()['quick_enhance'], **changes})
+
+
 def installation_of_its_own() -> pathlib.Path:
     """A folder holding a copy of the repo's ``data/``, for a real scope a test builds.
 

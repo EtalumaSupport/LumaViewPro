@@ -61,6 +61,7 @@ if TYPE_CHECKING:
 
     from _lumascope.modules.api_surface import ProgressCallback
     from _lumascope.modules.channel_record import ChannelColors
+    from _lumascope.modules.quick_enhance import QuickEnhanceSettings
     from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
     from _lumascope.modules.tiling_config import TilingGrids
 
@@ -1142,6 +1143,12 @@ class PostProcessingAPI:
         """Quick Enhance *target* -- one image, or every image in a folder --
         each to its own derived file beside its source.
 
+        Each step -- auto-levels, gamma, illumination correction, denoise,
+        sharpening -- runs as its switch in the ``quick_enhance`` settings
+        says, read when the enhance is asked, so a folder is enhanced one way
+        throughout. A switch is changed through ``update_settings``:
+        ``update_settings('quick_enhance.sharpen_enabled', False)``.
+
         Args:
             target: The image file, or the folder of images, to enhance.
             on_progress: Called with a percentage and what the enhance is
@@ -1161,6 +1168,8 @@ class PostProcessingAPI:
                 ``no_data``, a folder that holds none.
             PostProcessingFailedError: a file could not be enhanced.
         """
+        from _lumascope.modules.quick_enhance import QuickEnhanceSettings
+
         return self._run(
             self._enhance,
             'enhance',
@@ -1171,6 +1180,7 @@ class PostProcessingAPI:
             on_progress=on_progress,
             on_derived_image=on_derived_image,
             channel_colors=self._channel_colors(),
+            settings=QuickEnhanceSettings(**self._settings_snapshot()['quick_enhance']),
         )
 
     @api(reads=True)
@@ -1739,18 +1749,14 @@ class PostProcessingAPI:
         on_progress: ProgressCallback | None,
         on_derived_image: Callable[[np.ndarray, int], None] | None,
         channel_colors: ChannelColors,
+        settings: QuickEnhanceSettings,
     ) -> EnhanceResult:
         import cv2
 
         from _lumascope.modules import image_utils
-        from _lumascope.modules.quick_enhance import (
-            QUICK_ENHANCE_OPERATION,
-            QuickEnhancer,
-            QuickEnhanceSettings,
-        )
+        from _lumascope.modules.quick_enhance import QUICK_ENHANCE_OPERATION, QuickEnhancer
 
         enhancer = QuickEnhancer()
-        settings = QuickEnhanceSettings()
         if target.is_dir():
 
             def _progress(done: int, total: int, path: pathlib.Path) -> None:

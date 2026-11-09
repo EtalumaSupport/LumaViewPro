@@ -27,7 +27,8 @@ from _lumascope.modules import image_utils
 from _lumascope.modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from _lumascope.modules import path_utils, post_processing
 from _lumascope.modules.post_processing import PostProcessing
-from _lumascope.modules.quick_enhance import QuickEnhancer, QuickEnhanceSettings
+from _lumascope.modules.quick_enhance import QuickEnhancer
+from tests.settings_fixtures import quick_enhance_settings
 from _lumascope.modules.channel_record import release_color
 from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED1
@@ -306,7 +307,7 @@ def test_a_failed_results_write_raises_and_keeps_the_previous_results(
 def test_an_enhance_of_a_folder_with_no_images_is_refused(tmp_path):
     with pytest.raises(PostProcessingRefusedError):
         QuickEnhancer().export_folder(
-            tmp_path, QuickEnhanceSettings(), channel_colors=release_colors()
+            tmp_path, quick_enhance_settings(), channel_colors=release_colors()
         )
 
 
@@ -315,7 +316,7 @@ def test_an_enhance_that_skips_an_image_is_incomplete_with_what_it_saved(tmp_pat
     (tmp_path / 'broken.tif').write_bytes(b'not a tiff')
     with pytest.raises(PostProcessingFailedError) as raised:
         QuickEnhancer().export_folder(
-            tmp_path, QuickEnhanceSettings(), channel_colors=release_colors()
+            tmp_path, quick_enhance_settings(), channel_colors=release_colors()
         )
     assert len(raised.value.produced_paths) == 1
     assert 'good_enhanced' in raised.value.produced_paths[0]
@@ -333,6 +334,7 @@ def test_an_enhance_of_one_image_answers_with_its_folder_progress_and_display(tm
         lambda percent, text: texts.append((percent, text)),
         lambda image, significant_bits: shown.append(significant_bits),
         channel_colors=release_colors(),
+        settings=quick_enhance_settings(),
     )
 
     assert result.output_folder == tmp_path
@@ -358,7 +360,9 @@ def test_an_enhance_of_one_image_that_fails_is_typed(tmp_path, monkeypatch):
     monkeypatch.setattr(QuickEnhancer, 'export_file', fail)
 
     with pytest.raises(PostProcessingFailedError) as failure:
-        PostProcessingAPI._enhance(source, None, None, channel_colors=release_colors())
+        PostProcessingAPI._enhance(
+            source, None, None, channel_colors=release_colors(), settings=quick_enhance_settings()
+        )
     assert failure.value.produced_paths == ()
 
 
@@ -372,7 +376,9 @@ def test_an_enhance_of_one_file_that_cannot_be_decoded_is_refused_as_the_count_r
     source.write_bytes(b'not a tiff')
 
     with pytest.raises(PostProcessingRefusedError) as enhance:
-        PostProcessingAPI._enhance(source, None, None, channel_colors=release_colors())
+        PostProcessingAPI._enhance(
+            source, None, None, channel_colors=release_colors(), settings=quick_enhance_settings()
+        )
     with pytest.raises(PostProcessingRefusedError) as count:
         read_cell_count_image(source)
 

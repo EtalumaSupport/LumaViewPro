@@ -179,6 +179,7 @@ KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
         'protocol_led_on',
         'keep_led_between_steps',
         'stimulation_enabled',
+        'quick_enhance.*',
     }
 )
 

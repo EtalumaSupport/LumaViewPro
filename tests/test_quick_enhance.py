@@ -19,6 +19,7 @@ from _lumascope.modules.quick_enhance import (
 )
 from _lumascope.modules.channel_record import GREY, release_color
 from _lumascope.modules.channel_record import release_colors
+from tests.settings_fixtures import quick_enhance_settings, shipped_template
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -61,7 +62,7 @@ def _write_source(path, data: np.ndarray, significant_bits: int, channel: str = 
 )
 def test_apply_preserves_source_dtype_range_and_input(image, significant_bits, maximum):
     source = image.copy()
-    result = QuickEnhancer().apply(image, QuickEnhanceSettings(), significant_bits)
+    result = QuickEnhancer().apply(image, quick_enhance_settings(), significant_bits)
 
     assert np.array_equal(image, source)
     assert result.dtype == image.dtype
@@ -72,7 +73,7 @@ def test_apply_preserves_source_dtype_range_and_input(image, significant_bits, m
 
 def test_uniform_image_is_stable_and_does_not_divide_by_zero():
     image = np.full((12, 12), 1000, dtype=np.uint16)
-    result = QuickEnhancer().apply(image, QuickEnhanceSettings(), 12)
+    result = QuickEnhancer().apply(image, quick_enhance_settings(), 12)
 
     assert np.array_equal(result, image)
 
@@ -84,7 +85,7 @@ def test_rgb_images_use_one_shared_tone_curve_without_changing_shape_or_dtype():
     image[..., 2] = 200
     source = image.copy()
 
-    result = QuickEnhancer().apply(image, QuickEnhanceSettings(), 8)
+    result = QuickEnhancer().apply(image, quick_enhance_settings(), 8)
 
     assert np.array_equal(image, source)
     assert result.shape == image.shape
@@ -110,7 +111,7 @@ def test_representative_bf_fluorescence_and_composite_exports_preserve_sources(t
         _write_source(source, pixels, 12, channel=channel)
         original = source.read_bytes()
         exported = enhancer.export_file(
-            source, QuickEnhanceSettings(), channel_colors=release_colors()
+            source, quick_enhance_settings(), channel_colors=release_colors()
         )
         output, bits, _ = image_utils.load_pixels(
             exported['output_path'], collapse_legacy_false_color=False
@@ -132,7 +133,7 @@ def test_png_and_jpeg_export_as_derived_tiff(tmp_path, suffix):
     assert cv2.imwrite(str(source), image)
 
     exported = QuickEnhancer().export_file(
-        source, QuickEnhanceSettings(), channel_colors=release_colors()
+        source, quick_enhance_settings(), channel_colors=release_colors()
     )
 
     assert exported['output_path'].suffix == '.tiff'
@@ -143,7 +144,7 @@ def test_png_and_jpeg_export_as_derived_tiff(tmp_path, suffix):
 
 
 def test_invalid_settings_are_rejected_before_processing():
-    settings = QuickEnhanceSettings(low_percentile=99, high_percentile=1, gamma=3.0)
+    settings = quick_enhance_settings(low_percentile=99, high_percentile=1, gamma=3.0)
     errors = QuickEnhancer().validate(settings, np.dtype(np.uint16), 12)
 
     assert any('percentile' in error.lower() for error in errors)
@@ -167,7 +168,7 @@ def test_each_fixed_step_number_out_of_its_range_is_refused():
     unrefused = []
     for field, (value, words) in out_of_range.items():
         errors = QuickEnhancer().validate(
-            QuickEnhanceSettings(**{field: value}), np.dtype(np.uint16), 12
+            quick_enhance_settings(**{field: value}), np.dtype(np.uint16), 12
         )
         if not any(words in error.lower() for error in errors):
             unrefused.append(f'{field}={value!r}: {errors}')
@@ -176,7 +177,7 @@ def test_each_fixed_step_number_out_of_its_range_is_refused():
 
 
 def test_quick_enhance_uses_one_fixed_non_ai_recipe():
-    settings = QuickEnhanceSettings()
+    settings = quick_enhance_settings()
 
     assert settings.illumination_correction_enabled is True
     assert settings.denoise_enabled is False
@@ -187,7 +188,7 @@ def test_broad_illumination_correction_improves_dim_feature_visibility_without_d
     image = np.full((128, 128), 500, dtype=np.uint16)
     image[48:80, 48:80] = 560
 
-    result = QuickEnhancer().apply(image, QuickEnhanceSettings(), 12)
+    result = QuickEnhancer().apply(image, quick_enhance_settings(), 12)
 
     assert np.ptp(result) > np.ptp(image)
     assert int(result[32, 64]) >= int(result[8, 8])
@@ -197,7 +198,7 @@ def test_illumination_correction_never_wraps_unsigned_values():
     image = np.zeros((64, 64), dtype=np.uint16)
     image[:, 32:] = 100
     image[20:30, 20:30] = 1000
-    settings = QuickEnhanceSettings(illumination_correction_enabled=True)
+    settings = quick_enhance_settings(illumination_correction_enabled=True)
 
     result = QuickEnhancer().apply(image, settings, 12)
 
@@ -218,7 +219,7 @@ def test_illumination_plane_avoids_full_resolution_coordinate_grids(monkeypatch)
 
     monkeypatch.setattr('_lumascope.modules.quick_enhance.np.mgrid', RejectFullResolutionGrid())
     plane = QuickEnhancer()._global_illumination_plane(
-        np.ones((1000, 1000), dtype=np.float32), QuickEnhanceSettings()
+        np.ones((1000, 1000), dtype=np.float32), quick_enhance_settings()
     )
 
     assert plane.shape == (1000, 1000)
@@ -232,14 +233,14 @@ def test_color_algorithm_sanitizes_non_finite_channels_before_reconstruction(mon
     image[0, 0, 0] = np.nan
     image[1, 1, 1] = np.inf
 
-    result = enhancer.apply(image, QuickEnhanceSettings(), 8)
+    result = enhancer.apply(image, quick_enhance_settings(), 8)
 
     assert np.isfinite(result).all()
 
 
 def test_tiny_images_with_denoise_are_safe():
     image = np.array([[1]], dtype=np.uint8)
-    settings = QuickEnhanceSettings(denoise_enabled=True, denoise_kernel_size=3)
+    settings = quick_enhance_settings(denoise_enabled=True, denoise_kernel_size=3)
 
     result = QuickEnhancer().apply(image, settings, 8)
 
@@ -254,11 +255,11 @@ def test_denoise_runs_on_a_colour_image_at_every_kernel_its_recipe_can_state():
     skipped = []
     for channels in (3, 4):
         image = (rng.random((64, 64, channels)) * 4095).astype(np.uint16)
-        undenoised = QuickEnhancer().apply(image, QuickEnhanceSettings(), 12)
+        undenoised = QuickEnhancer().apply(image, quick_enhance_settings(), 12)
         for kernel in (3, 5, 7):
             denoised = QuickEnhancer().apply(
                 image,
-                QuickEnhanceSettings(denoise_enabled=True, denoise_kernel_size=kernel),
+                quick_enhance_settings(denoise_enabled=True, denoise_kernel_size=kernel),
                 12,
             )
             if np.array_equal(denoised, undenoised):
@@ -313,10 +314,10 @@ def test_each_number_a_step_reads_changes_the_copy_and_is_stated_in_its_recipe(t
         )
         return pixels, json.loads(made['recipe_path'].read_text())
 
-    default_pixels, _ = enhance(QuickEnhanceSettings())
+    default_pixels, _ = enhance(quick_enhance_settings())
     offenders = []
     for field, moved, operation, key in _STEP_NUMBERS:
-        pixels, recipe = enhance(QuickEnhanceSettings(**{field: moved}))
+        pixels, recipe = enhance(quick_enhance_settings(**{field: moved}))
         if np.array_equal(pixels, default_pixels):
             offenders.append(f'{field}={moved!r} left the copy unchanged')
         stated = recipe['operations'][operation].get(key)
@@ -326,6 +327,105 @@ def test_each_number_a_step_reads_changes_the_copy_and_is_stated_in_its_recipe(t
     assert not offenders, offenders
 
 
+# Each step's switch and the recipe operation that states it.
+_STEP_SWITCHES = {
+    'auto_levels_enabled': 'auto_levels',
+    'gamma_enabled': 'gamma',
+    'illumination_correction_enabled': 'illumination_correction',
+    'denoise_enabled': 'denoise',
+    'sharpen_enabled': 'sharpen',
+}
+
+
+def test_each_step_switch_moved_from_its_shipped_value_changes_the_copy_and_is_stated(tmp_path):
+    """Every step has one switch, the template's: flipping one alone from its
+    shipped value changes the enhanced copy, and the copy's recipe states
+    the step enabled as the switch says. A step that ignored its switch
+    leaves the copy unchanged and fails here."""
+    shipped = shipped_template()['quick_enhance']
+    assert set(shipped) == set(_STEP_SWITCHES)
+    source = tmp_path / 'specimen.tif'
+    _write_source(source, _specimen_12_bit(), 12)
+    enhancer = QuickEnhancer()
+
+    def enhance(settings):
+        made = enhancer.export_file(source, settings, channel_colors=release_colors())
+        pixels, _bits, _white = image_utils.load_pixels(
+            made['output_path'], collapse_legacy_false_color=False
+        )
+        return pixels, json.loads(made['recipe_path'].read_text())
+
+    shipped_pixels, _ = enhance(quick_enhance_settings())
+    offenders = []
+    for switch, operation in _STEP_SWITCHES.items():
+        flipped = not shipped[switch]
+        pixels, recipe = enhance(quick_enhance_settings(**{switch: flipped}))
+        if np.array_equal(pixels, shipped_pixels):
+            offenders.append(f'{switch}={flipped} left the copy unchanged')
+        stated = recipe['operations'][operation]['enabled']
+        if stated is not flipped:
+            offenders.append(
+                f'{switch}={flipped}: the recipe states {operation} enabled={stated!r}'
+            )
+
+    assert not offenders, offenders
+
+
+def test_with_every_step_off_the_steps_change_no_pixel_and_the_recipe_says_so(tmp_path):
+    """All five switches off is allowed: no step changes a pixel, at any
+    depth or in colour, and the recipe states every step off."""
+    all_off = quick_enhance_settings(**dict.fromkeys(_STEP_SWITCHES, False))
+    rng = np.random.default_rng(7)
+    sources = {
+        'mono 8-bit': (rng.integers(0, 256, (48, 64)).astype(np.uint8), 8),
+        'mono 12-bit': (rng.integers(0, 4096, (48, 64)).astype(np.uint16), 12),
+        'mono 16-bit': (rng.integers(0, 65536, (48, 64)).astype(np.uint16), 16),
+        'RGB 8-bit': (rng.integers(0, 256, (48, 64, 3)).astype(np.uint8), 8),
+    }
+    changed = [
+        name
+        for name, (image, bits) in sources.items()
+        if not np.array_equal(QuickEnhancer().apply(image, all_off, bits), image)
+    ]
+    assert not changed, f'every step off still changed: {changed}'
+
+    recipe = QuickEnhancer().recipe_dict(
+        source_path=tmp_path / 'source.tif',
+        output_path=tmp_path / 'source_enhanced.tiff',
+        settings=all_off,
+        input_dtype=np.dtype(np.uint16),
+        output_dtype=np.dtype(np.uint16),
+        significant_bits=12,
+    )
+    stated_on = [op for op, step in recipe['operations'].items() if step['enabled'] is not False]
+    assert not stated_on, f'the recipe states on: {stated_on}'
+
+
+def test_gamma_runs_on_its_own_switch_and_follows_the_stretch_when_levels_run():
+    """Gamma runs on its switch alone: with auto-levels off it runs on the
+    image's own values. With auto-levels on it follows the stretch, so a
+    flat image, which the stretch leaves as it is, gamma leaves too."""
+    only = dict.fromkeys(_STEP_SWITCHES, False)
+    image = _specimen_12_bit()
+    gamma_alone = QuickEnhancer().apply(
+        image, quick_enhance_settings(**{**only, 'gamma_enabled': True}), 12
+    )
+    assert not np.array_equal(gamma_alone, image), 'gamma on, auto-levels off, changed nothing'
+
+    flat = np.full((64, 64), 1000, dtype=np.uint16)
+    levels_and_gamma = quick_enhance_settings(
+        **{**only, 'auto_levels_enabled': True, 'gamma_enabled': True}
+    )
+    assert np.array_equal(QuickEnhancer().apply(flat, levels_and_gamma, 12), flat)
+
+
+def test_a_settings_without_its_switches_is_refused_at_construction():
+    """The template is the switches' one home: Quick Enhance's settings
+    have no default switch, so a construction that names none fails."""
+    with pytest.raises(TypeError, match='sharpen_enabled'):
+        QuickEnhanceSettings()
+
+
 def test_recipe_has_required_provenance_and_quantitative_warning(tmp_path):
     source = tmp_path / 'source.tif'
     _write_source(source, np.arange(64, dtype=np.uint16).reshape(8, 8), 12)
@@ -333,7 +433,7 @@ def test_recipe_has_required_provenance_and_quantitative_warning(tmp_path):
     recipe = QuickEnhancer().recipe_dict(
         source_path=source,
         output_path=tmp_path / 'source_enhanced.tiff',
-        settings=QuickEnhanceSettings(),
+        settings=quick_enhance_settings(),
         input_dtype=np.dtype(np.uint16),
         output_dtype=np.dtype(np.uint16),
         significant_bits=12,
@@ -377,8 +477,8 @@ def test_export_preserves_tiff_depth_writes_recipe_and_never_overwrites(tmp_path
     original_bytes = source.read_bytes()
     enhancer = QuickEnhancer()
 
-    first = enhancer.export_file(source, QuickEnhanceSettings(), channel_colors=release_colors())
-    second = enhancer.export_file(source, QuickEnhanceSettings(), channel_colors=release_colors())
+    first = enhancer.export_file(source, quick_enhance_settings(), channel_colors=release_colors())
+    second = enhancer.export_file(source, quick_enhance_settings(), channel_colors=release_colors())
 
     assert source.read_bytes() == original_bytes
     assert first['output_path'].name == 'original_enhanced.tiff'
@@ -401,7 +501,7 @@ def test_a_recipe_alone_at_a_name_still_takes_it(tmp_path):
     (tmp_path / 'original_enhanced.recipe.json').write_text('{"left": "behind"}')
 
     exported = QuickEnhancer().export_file(
-        source, QuickEnhanceSettings(), channel_colors=release_colors()
+        source, quick_enhance_settings(), channel_colors=release_colors()
     )
 
     assert exported['output_path'].name == 'original_enhanced_001.tiff'
@@ -414,7 +514,7 @@ def test_brightfield_tiff_stays_monochrome_and_preserves_payload_depth(tmp_path)
     _write_source(source, source_data, 12, channel='BF')
 
     exported = QuickEnhancer().export_file(
-        source, QuickEnhanceSettings(), channel_colors=release_colors()
+        source, quick_enhance_settings(), channel_colors=release_colors()
     )
     output, significant_bits, _ = image_utils.load_pixels(exported['output_path'])
 
@@ -432,7 +532,7 @@ def test_composite_tiff_stays_rgb_and_retains_composite_channel_metadata(tmp_pat
     _write_source(source, source_data, 12, channel='Composite')
 
     exported = QuickEnhancer().export_file(
-        source, QuickEnhanceSettings(), channel_colors=release_colors()
+        source, quick_enhance_settings(), channel_colors=release_colors()
     )
     output, significant_bits, _ = image_utils.load_pixels(exported['output_path'])
     metadata = image_utils.read_file_record(exported['output_path'])
@@ -452,7 +552,7 @@ def test_rgba_composite_exports_as_rgb_without_rejecting_composite_metadata(tmp_
     tf.imwrite(source, source_data, photometric='rgb')
 
     exported = QuickEnhancer().export_file(
-        source, QuickEnhanceSettings(), channel_colors=release_colors()
+        source, quick_enhance_settings(), channel_colors=release_colors()
     )
     output, significant_bits, _ = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
@@ -471,7 +571,7 @@ def test_rgba_composite_png_drops_alpha_before_rgb_tiff_export(tmp_path):
     assert cv2.imwrite(str(source), source_data)
 
     exported = QuickEnhancer().export_file(
-        source, QuickEnhanceSettings(), channel_colors=release_colors()
+        source, quick_enhance_settings(), channel_colors=release_colors()
     )
     output, significant_bits, _ = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
@@ -509,7 +609,7 @@ def test_green_export_is_rgb_and_a_second_run_keeps_green_metadata(tmp_path):
     _write_source(source, source_data, 12, channel=LED1)
     enhancer = QuickEnhancer()
 
-    first = enhancer.export_file(source, QuickEnhanceSettings(), channel_colors=release_colors())
+    first = enhancer.export_file(source, quick_enhance_settings(), channel_colors=release_colors())
     output, significant_bits, _ = image_utils.load_pixels(
         first['output_path'], collapse_legacy_false_color=False
     )
@@ -532,7 +632,7 @@ def test_metadata_less_legacy_green_rgb_with_numeric_prefix_exports_green(tmp_pa
     original = source.read_bytes()
 
     exported = QuickEnhancer().export_file(
-        source, QuickEnhanceSettings(), channel_colors=release_colors()
+        source, quick_enhance_settings(), channel_colors=release_colors()
     )
     output, significant_bits, _ = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
@@ -558,7 +658,7 @@ def test_fixed_recipe_deepens_a_close_bead_pair_saddle_without_lifting_backgroun
         0,
         255,
     ).astype(np.uint8)
-    result = QuickEnhancer().apply(image, QuickEnhanceSettings(), 8)
+    result = QuickEnhancer().apply(image, quick_enhance_settings(), 8)
 
     def saddle_to_peak(array):
         centerline = array[128, 124:133].astype(np.float32)
@@ -573,7 +673,7 @@ def test_a_folder_of_only_undecodable_images_is_refused_as_the_count_refuses_it(
 
     with pytest.raises(PostProcessingRefusedError) as refused:
         QuickEnhancer().export_folder(
-            tmp_path, QuickEnhanceSettings(), channel_colors=release_colors()
+            tmp_path, quick_enhance_settings(), channel_colors=release_colors()
         )
 
     assert refused.value.reason == 'no_data'
@@ -593,7 +693,7 @@ def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
     with pytest.raises(PostProcessingFailedError) as raised:
         QuickEnhancer().export_folder(
             tmp_path,
-            QuickEnhanceSettings(),
+            quick_enhance_settings(),
             progress_callback=lambda completed, total, path: progress.append(
                 (completed, total, path.name)
             ),
@@ -633,7 +733,7 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
     with pytest.raises(PostProcessingFailedError) as raised:
         QuickEnhancer().export_folder(
             tmp_path,
-            QuickEnhanceSettings(),
+            quick_enhance_settings(),
             progress_callback=lambda completed, total, path: progress.append(
                 (completed, total, path.name)
             ),
