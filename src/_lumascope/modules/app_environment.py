@@ -33,19 +33,13 @@ def init_environment() -> AppEnvironment:
     """
     windows_machine = os.name == 'nt'
 
-    from _lumascope.lib.build_files import build_root
-    from _lumascope.modules.path_utils import AppRuntime, app_runtime, get_source_root, read_version
+    from _lumascope.modules.path_utils import get_source_root, read_version
 
     version, build_timestamp = read_version()
 
-    # The data root is path_utils'. An installed build's is in Documents and
-    # starts empty, so the shipped data is copied into it on first launch;
-    # this runs before the logger is imported, which reads debug_mode there.
+    # The data root is path_utils'; an installed build's is seeded by the
+    # program's logging start, which runs before this.
     source_path = str(get_source_root())
-    if app_runtime() == AppRuntime.INSTALLED:
-        os.makedirs(source_path, exist_ok=True)
-        if not os.path.exists(os.path.join(source_path, 'data')):
-            shutil.copytree(build_root() / 'data', os.path.join(source_path, 'data'))
 
     num_cores = os.cpu_count()
 

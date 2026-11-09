@@ -203,3 +203,138 @@ def test_the_gui_runs_the_checkouts_kv_file_whatever_folder_it_starts_in(farm):
     )
 
     assert child.stdout.splitlines()[-1] == str(REPO / 'ui' / 'lumaviewpro.kv')
+
+
+_INSTALLED_START_IN_CHILD = """
+import json, os, shutil, sys
+repo, bundle, exe_folder, documents, cut = sys.argv[1:6]
+sys.path.insert(0, os.path.join(repo, 'src'))
+# The process as an installed build, before the logger's import fixes its
+# data root: frozen, its bundle the build's files, the marker beside its exe.
+sys.frozen = True
+sys._MEIPASS = bundle
+sys.executable = os.path.join(exe_folder, 'LumaViewPro.exe')
+import platformdirs
+platformdirs.user_documents_dir = lambda: documents
+if cut:
+    # A stand-in by design: a disk that fills partway through one file is a
+    # fault no simulator produces. The copy of `cut` writes half its bytes
+    # in place, as a copy stopped mid-file leaves them, then fails.
+    _copy = shutil.copyfile
+
+    def _cut_short(src, dst, *args, **kwargs):
+        if os.path.basename(src) != cut:
+            return _copy(src, dst, *args, **kwargs)
+        with open(src, 'rb') as whole, open(dst, 'wb') as part:
+            part.write(whole.read()[: os.path.getsize(src) // 2])
+        raise OSError(28, 'No space left on device')
+
+    shutil.copyfile = _cut_short
+from _lumascope.lvp_logger import start_program_logging
+try:
+    start_program_logging()
+except Exception as e:
+    print(json.dumps({'started': False, 'error': f'{type(e).__name__}: {e}'}))
+else:
+    print(json.dumps({'started': True, 'error': None}))
+"""
+
+
+@pytest.fixture
+def installed(tmp_path):
+    """An installed build's folders: its exe's, with the marker; its bundle,
+    holding the shipped data and a version; and an empty Documents.
+
+    The bundle's data is the checkout's tracked files, as the build ships
+    them from a fresh clone, so no checkout's own current.json is in it."""
+    exe_folder = tmp_path / 'LumaViewPro'
+    exe_folder.mkdir()
+    (exe_folder / INSTALLED_MARKER).write_text('')
+    bundle = tmp_path / 'bundle'
+    for item in subprocess.run(
+        ['git', 'ls-files', 'data/'],
+        cwd=str(REPO),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines():
+        (bundle / item).parent.mkdir(parents=True, exist_ok=True)
+        (bundle / item).write_bytes((REPO / item).read_bytes())
+    (bundle / 'version.txt').write_text('9.9.9-installed\n2026-11-09 00:00\n', encoding='utf-8')
+    documents = tmp_path / 'Documents'
+    documents.mkdir()
+    return exe_folder, bundle, documents
+
+
+def _start_installed(installed, *, cut=''):
+    exe_folder, bundle, documents = installed
+    child = subprocess.run(
+        [
+            sys.executable,
+            '-c',
+            _INSTALLED_START_IN_CHILD,
+            *(str(REPO), str(bundle), str(exe_folder), str(documents), cut),
+        ],
+        cwd=str(exe_folder),
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    return json.loads(child.stdout.splitlines()[-1])
+
+
+def _files(folder):
+    return {
+        path.relative_to(folder): path.read_bytes() for path in folder.rglob('*') if path.is_file()
+    }
+
+
+def test_an_installed_builds_first_launch_seeds_its_data_before_the_logging_start_reads_it(
+    installed,
+):
+    # The start reads debug_mode from the data folder's settings.json, so a
+    # data folder that does not exist yet is filled first, every shipped file.
+    _exe_folder, bundle, documents = installed
+
+    answer = _start_installed(installed)
+
+    assert answer == {'started': True, 'error': None}
+    data = documents / 'LumaViewPro 9.9.9-installed' / 'data'
+    assert _files(data) == _files(bundle / 'data')
+
+
+def test_an_installed_launch_puts_back_a_missing_shipped_file_and_keeps_the_users(installed):
+    # A data folder missing a shipped file gets it back at the next launch;
+    # a file already there, here the user's own plates, is never overwritten.
+    _exe_folder, bundle, documents = installed
+    data = documents / 'LumaViewPro 9.9.9-installed' / 'data'
+    data.mkdir(parents=True)
+    (data / 'labware.json').write_text('{"my plate": {}}', encoding='utf-8')
+
+    answer = _start_installed(installed)
+
+    assert answer == {'started': True, 'error': None}
+    assert (data / 'settings.json').read_bytes() == (bundle / 'data' / 'settings.json').read_bytes()
+    assert (data / 'labware.json').read_text(encoding='utf-8') == '{"my plate": {}}'
+
+
+def test_a_seeding_cut_short_leaves_no_part_of_a_file_and_the_next_launch_completes_it(
+    installed,
+):
+    # A copy stopped partway through settings.json fails that launch with its
+    # reason and leaves nothing at the file's name, so the next launch copies
+    # it whole instead of keeping a truncated file it would refuse forever.
+    _exe_folder, bundle, documents = installed
+    data = documents / 'LumaViewPro 9.9.9-installed' / 'data'
+
+    first = _start_installed(installed, cut='settings.json')
+
+    assert first['started'] is False
+    assert 'No space left on device' in first['error']
+    assert not (data / 'settings.json').exists()
+
+    second = _start_installed(installed)
+
+    assert second == {'started': True, 'error': None}
+    assert (data / 'settings.json').read_bytes() == (bundle / 'data' / 'settings.json').read_bytes()

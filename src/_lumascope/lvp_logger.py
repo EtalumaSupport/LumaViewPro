@@ -47,6 +47,7 @@ from _lumascope.modules.path_utils import (
     get_source_root,
     launch_root,
     read_version,
+    seed_installed_data_root,
 )
 
 from _lumascope.modules.api_surface import api
@@ -510,12 +511,16 @@ def _open_the_files(*, take_root: bool) -> None:
             bundle_owner.addHandler(file_handler)
             bundle_owner.addHandler(error_file_handler)
 
-    # debug_mode is read once the log files are open. A shipped settings file
-    # that cannot answer stops the start (InstallationFileError, naming the
-    # file), and the main log records it once as the crash it is: the crash
-    # hook is not installed until after the start, and a debug flag read as
-    # off would hide the broken installation behind a quieter log.
+    # debug_mode is read once the log files are open, from the data folder an
+    # installed build's first launch has not filled yet, so the shipped data
+    # is seeded just before the read. A seeding that fails, or a shipped
+    # settings file that cannot answer, stops the start (an OSError, or
+    # InstallationFileError naming the file), and the main log records it
+    # once as the crash it is: the crash hook is not installed until after
+    # the start, and a debug flag read as off would hide the broken
+    # installation behind a quieter log.
     try:
+        seed_installed_data_root()
         debug = load_debug_setting(lvp_appdata)
     except Exception:
         custom_except_hook(*sys.exc_info())

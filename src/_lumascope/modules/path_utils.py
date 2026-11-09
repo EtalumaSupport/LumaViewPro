@@ -7,7 +7,9 @@ import logging
 import math
 import os
 import pathlib
+import shutil
 import sys
+import tempfile
 from enum import StrEnum
 from typing import ClassVar
 
@@ -466,9 +468,9 @@ def data_folder_name(version: str) -> str:
     """The name of an installed build's per-user data folder, in Documents.
 
     Named here and placed by ``get_source_root``, which every reader of
-    the folder takes it from: the logger, which writes the logs there, the
-    GUI's environment, which copies the shipped data into it on first
-    launch, and every reader of an installation file.
+    the folder takes it from: the logger, which writes the logs there and
+    seeds the shipped data into it (``seed_installed_data_root``), and
+    every reader of an installation file.
     """
     return f'LumaViewPro {version}'
 
@@ -500,6 +502,43 @@ def get_source_root(
 
     documents_dir = pathlib.Path(platformdirs.user_documents_dir())
     return documents_dir / data_folder_name(version)
+
+
+def seed_installed_data_root() -> None:
+    """Copy into an installed build's data folder every file the build ships that it lacks.
+
+    An installed build's data folder is in Documents and starts empty, and
+    its ``data/settings.json`` is read before anything else (the logging
+    start's ``debug_mode``), so the program's logging start seeds it first.
+    A file already there, the user's or shipped, is never overwritten; a
+    shipped file the folder lacks, at its first launch or after a removal,
+    is copied. Each file is copied under a temporary name beside its own
+    and moved to its name in one ``os.replace``, so a file at its name is
+    always the whole shipped file: a copy stopped partway (the disk full,
+    the process killed) leaves only the temporary file, which no reader
+    names, and the next launch copies it again; two launches at once each
+    move a whole copy of the same bytes. Any other run's data root is the
+    folder it was launched from, holding the build's own data, and is left
+    as it is.
+
+    Raises:
+        OSError: a file could not be copied; the files moved before it stay.
+    """
+    if app_runtime() != AppRuntime.INSTALLED:
+        return
+    shipped = build_root() / 'data'
+    data = get_source_root() / 'data'
+    for source in sorted(shipped.rglob('*')):
+        target = data / source.relative_to(shipped)
+        if not source.is_file() or target.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        handle, partial = tempfile.mkstemp(
+            dir=target.parent, prefix=f'.{target.name}.', suffix='.seeding'
+        )
+        os.close(handle)
+        shutil.copy2(source, partial)
+        os.replace(partial, target)
 
 
 def get_log_dir(source_path: str | pathlib.Path | None = None) -> pathlib.Path:
