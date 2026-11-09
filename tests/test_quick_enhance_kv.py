@@ -58,8 +58,10 @@ def test_quick_enhance_kv_offers_an_image_and_a_folder_button_without_panel_pros
     assert "self.choose('apply_quick_enhance_to_folder')" in quick_enhance_rule
     assert 'FileOrFolderChooseBTN' not in quick_enhance_rule
     # The build popup reports the progress and the outcome; a line under the
-    # button kept the last outcome on screen after it stopped being news.
-    assert 'Label:' not in quick_enhance_rule
+    # button kept the last outcome on screen after it stopped being news. The
+    # panel's labels name the step switches, each a fixed word, never a value.
+    label_texts = re.findall(r'Label:\s*\n\s*text: (.+)', quick_enhance_rule)
+    assert label_texts and all(text.startswith("'") for text in label_texts), label_texts
     for removed in (
         "text: 'Choose Image'",
         "text: 'Choose Folder'",

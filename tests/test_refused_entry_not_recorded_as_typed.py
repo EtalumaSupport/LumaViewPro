@@ -245,6 +245,7 @@ def cold_start(tmp_path, monkeypatch, caplog):
             set_channel_exposure_ranges=lambda: None,
             reconcile_channels_to_camera_caps=lambda: None,
         ),
+        quick_enhance_controls=SimpleNamespace(show_switches=lambda: None),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     microscope = _Microscope()
