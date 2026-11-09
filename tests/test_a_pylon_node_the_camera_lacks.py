@@ -18,6 +18,9 @@ node, and a read or write that fails is a failure, not an absence:
   without ``ExposureActive``, and cannot poll one without
   ``AcquisitionActive``;
 - the stream grabber's status line names a missing node;
+- the range query at connect tells a camera without ``Gain``,
+  ``ExposureTime`` or ``SensorPixelWidth`` at INFO and leaves the profile's
+  range unset; a failed pixel pitch read is told at WARNING;
 - a failed read of a tick-rate node is told at WARNING.
 
 Connect and the diagnostic snapshot are read against Basler's own emulator,
@@ -32,6 +35,7 @@ import os
 import pathlib
 import subprocess
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -293,3 +297,51 @@ def test_the_emulator_connects_and_snapshots_without_a_failure_for_a_node_it_lac
     assert answer['firmware']
     assert any('Pixel format:' in message for _, message in answer['said'])
     assert answer['errors'] == []
+
+
+def _profile():
+    # a stand-in by design: the camera profile the driver loads at connect;
+    # the subject is what the range query writes into it.
+    return SimpleNamespace(
+        gain=SimpleNamespace(total_min_db=None, total_max_db=None),
+        exposure_min_us=None,
+        exposure_max_us=None,
+        pixel_formats=['Mono8'],
+        pixel_size_um=0.0,
+    )
+
+
+_RANGE_NODES = ('Gain', 'ExposureTime', 'SensorPixelWidth')
+
+
+def test_a_camera_without_the_range_nodes_is_told_so_and_its_profile_is_left_unset(caplog):
+    cam = _camera()
+    cam.profile = _profile()
+    with caplog.at_level(logging.INFO):
+        cam._query_dynamic_capabilities()
+    said = [(r.levelno, r.getMessage()) for r in caplog.records]
+    for name in _RANGE_NODES:
+        assert (logging.INFO, f'[CAM Class ] {name} not offered by this camera') in [
+            (level, message.split(';')[0]) for level, message in said
+        ], said
+    assert not [
+        m for level, m in said if level >= logging.WARNING and any(n in m for n in _RANGE_NODES)
+    ]
+    assert (cam.profile.gain.total_max_db, cam.profile.exposure_max_us) == (None, None)
+    assert cam.profile.pixel_size_um == 0.0
+
+
+def test_a_failed_pixel_pitch_read_is_told_at_warning(caplog):
+    failing = MagicMock()
+    failing.GetValue.side_effect = genicam.RuntimeException('usb gone')
+    cam = _camera(device={'SensorPixelWidth': failing})
+    cam.profile = _profile()
+    with caplog.at_level(logging.WARNING):
+        cam._query_dynamic_capabilities()
+    assert any(
+        r.levelno == logging.WARNING
+        and 'SensorPixelWidth' in r.getMessage()
+        and 'usb gone' in r.getMessage()
+        for r in caplog.records
+    )
+    assert cam.profile.pixel_size_um == 0.0
