@@ -73,11 +73,22 @@ def require_capture_location(live_folder: str | pathlib.Path) -> pathlib.Path:
     creating it would put the capture in a new empty directory on whatever
     is mounted there, where the user will not look for it.
 
+    A folder this process cannot list or write into is not there to capture
+    into either. The look itself can fail: a folder under one this process
+    may not read raises ``PermissionError`` from ``is_dir``, and that is the
+    same fact. ``os.access`` reads the permission bits, so a Windows ACL
+    that refuses writing is met at the write instead.
+
     Raises:
-        CaptureLocationError: the folder does not exist or is not a folder.
+        CaptureLocationError: the folder does not exist, is not a folder, or
+            cannot be reached, listed or written into.
     """
     folder = pathlib.Path(live_folder)
-    if not folder.is_dir():
+    try:
+        usable = folder.is_dir() and os.access(folder, os.R_OK | os.W_OK | os.X_OK)
+    except OSError as exc:
+        raise _inaccessible(folder) from exc
+    if not usable:
         raise _inaccessible(folder)
     return folder
 
