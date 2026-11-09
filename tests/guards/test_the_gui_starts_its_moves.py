@@ -63,6 +63,7 @@ def test_the_scan_sees_the_gesture_moves_it_was_written_for():
                     'start_move_z',
                     'start_move_z_by',
                     'start_move_to_plate',
+                    'start_center_on',
                 }
                 and ast.unparse(node.func.value).split('.')[-1] == 'motion'
             ):

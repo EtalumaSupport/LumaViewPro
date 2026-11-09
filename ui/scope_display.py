@@ -380,65 +380,31 @@ class ScopeDisplay(Image):
                     'SCOPE_CLICK_TO_CENTER', 'unavailable: no XY stage or controls locked'
                 )
                 return
-            norm_texture_width, norm_texture_height = self.norm_image_size
-            norm_texture_x_min = self.center_x - norm_texture_width / 2
-            norm_texture_x_max = self.center_x + norm_texture_width / 2
-            norm_texture_y_min = self.center_y - norm_texture_height / 2
-            norm_texture_y_max = self.center_y + norm_texture_height / 2
+            width, height = self.norm_image_size
+            # No image has area before its first frame: nothing was clicked on it.
+            if width <= 0 or height <= 0:
+                return
+            # The click as fractions of the shown image, and the hit test on
+            # those same numbers, so a click the test passes is a point the
+            # API takes. Kivy's y is bottom-up, the camera's row order as the
+            # live view blits it unflipped, so the API's frame convention
+            # holds as is.
+            x_fraction = (event.pos[0] - (self.center_x - width / 2)) / width
+            y_fraction = (event.pos[1] - (self.center_y - height / 2)) / height
 
-            click_pos_x = event.pos[0]
-            click_pos_y = event.pos[1]
-
-            # Check if click occurred within texture
-            if (
-                (click_pos_x >= norm_texture_x_min)
-                and (click_pos_x <= norm_texture_x_max)
-                and (click_pos_y >= norm_texture_y_min)
-                and (click_pos_y <= norm_texture_y_max)
-            ):
-                norm_texture_click_pos_x = click_pos_x - norm_texture_x_min
-                norm_texture_click_pos_y = click_pos_y - norm_texture_y_min
-                # Convert against the full-resolution sensor frame, not the
-                # downscaled preview texture (self.texture_size): pixel_size_um
-                # is the size of one sensor pixel, so the downscaled texture
-                # would under-move the stage by the downscale factor.
-                frame_width, frame_height = self.full_resolution_frame_size()
-
-                from ui.ui_helpers import submit_gesture
-
-                pixel_size_um = _app_ctx.ctx.scope.runtime_state.get_pixel_size_um()
-                if pixel_size_um is None:
-                    # Click-to-center converts the click offset into a stage
-                    # move in um; without a known pixel size (no known
-                    # objective among the reasons) there is no conversion. Do
-                    # nothing rather than move the stage by a guessed distance.
-                    gui_logger.button(
-                        'SCOPE_CLICK_TO_CENTER', 'unavailable: scope pixel size unknown'
-                    )
-                    return
-
-                # Positive x_dist_um -> click right of center; positive y_dist_um
-                # -> click above center.
-                x_dist_um = image_utils.click_offset_to_um(
-                    norm_texture_click_pos_x, norm_texture_width, frame_width, pixel_size_um
-                )
-                y_dist_um = image_utils.click_offset_to_um(
-                    norm_texture_click_pos_y, norm_texture_height, frame_height, pixel_size_um
-                )
+            if 0.0 <= x_fraction <= 1.0 and 0.0 <= y_fraction <= 1.0:
+                from ui.ui_helpers import submit_move
 
                 gui_logger.button(
                     'SCOPE_CLICK_TO_CENTER',
-                    f'dx_um={x_dist_um:.1f} dy_um={y_dist_um:.1f} pixel_um={pixel_size_um:.3f}',
+                    f'x_fraction={x_fraction:.4f} y_fraction={y_fraction:.4f}',
                 )
-                # One click, one lane task: both axes asked about once, then
-                # one XY request, refused whole or driven whole.
                 motion = _app_ctx.ctx.scope.motion
-
-                def moves():
-                    motion.start_move_xy_by(x_dist_um, y_dist_um)
-
-                submit_gesture(
-                    'SCOPE_CLICK_TO_CENTER', axes=('X', 'Y'), then='move the stage', moves=moves
+                submit_move(
+                    'SCOPE_CLICK_TO_CENTER',
+                    axes=('X', 'Y'),
+                    call=lambda: motion.start_center_on(x_fraction, y_fraction),
+                    lane=_app_ctx.ctx.io_executor,
                 )
 
     # The saved overlay copy is rendered below the GUI, where a headless

@@ -147,6 +147,7 @@ _api_log = _logging.getLogger('LVP.api')
 
 from _lumascope.lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
 from _lumascope.modules.axes import Axis, StageAxis
+from _lumascope.modules.lumascope_api.runtime_state import refuse_unless_frame_point
 from _lumascope.modules.lumascope_api._constants import (
     AxisPosition,
     AxisState,
@@ -3529,6 +3530,72 @@ class MotionAPI:
         if axis == StageAxis.X:
             return self._move_xy_by_impl(distance, None)
         return self._move_xy_by_impl(None, distance)
+
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    def start_center_on(self, x_fraction: float, y_fraction: float) -> Operation[None]:
+        """Start X and Y moving so a point of the camera's frame comes to its centre; return the started moves.
+
+        The point is ``x_fraction`` of the frame's width from its column 0
+        and ``y_fraction`` of its height from its row 0, in the frame as the
+        API returns it (``capture_still().image``): row 0 is the bottom of
+        the live view, the opposite of a saved file. The stage moves by
+        ``RuntimeStateAPI.frame_point_distance`` for that point. Its
+        refusals come in the order a jog's do: the arguments, the lane's,
+        the motion gate's, then the objective's and the scale's. X and Y
+        are asked once whether they know their position and started on one
+        task of the IO lane (``one_command``), so a capture asked meanwhile
+        never takes the new X at the old Y.
+
+        Args:
+            x_fraction: How far across the frame's width, from 0 to 1.
+            y_fraction: How far up the frame's height, from 0 to 1.
+
+        Returns:
+            One ``Operation`` for the moves started, as ``start_move_xy_by``'s.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                a fraction that is not a number from 0 to 1. Nothing was
+                driven.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no X or Y;
+                ``'not_connected'`` naming the camera, no camera is
+                connected; ``'position_unread'``, ``'monitor_ended'`` or
+                ``'lid_open_before_motion'``, as ``start_move_xy_by``.
+                Nothing was driven.
+            AxisStateUnknownError: An axis of the scope does not know its
+                position. Nothing was driven.
+            ObjectiveUnknownError: The active objective is unknown, so no
+                distance can be measured: ``'slot_unknown'``,
+                ``'slot_unassigned'``, ``'not_in_catalogue'`` or
+                ``'none_selected'``. Nothing was driven.
+            PixelSizeUnknownError: ``'optics_undeclared'``,
+                ``'binning_unread'`` or ``'frame_size_unread'``, the
+                objective is known but no distance can be measured.
+                Nothing was driven.
+            PositionOutOfRangeError: ``'position_out_of_range'``, a target
+                is outside the axis's travel. Nothing was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command; ``'board_lost'``, the board is no longer connected.
+        """
+        return self._dispatch_motion(
+            self._center_on_impl,
+            'start_center_on',
+            args=(x_fraction, y_fraction),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    def _center_on_impl(self, x_fraction: float, y_fraction: float) -> Operation:
+        """Center on the lane: the argument checks, X and Y asked once, the distance, the moves."""
+        refuse_unless_frame_point(x_fraction, y_fraction)
+        self.refuse_absent('start_center_on', 'X')
+        self.refuse_absent('start_center_on', 'Y')
+        with self.one_command(('X', 'Y'), then='center on the point'):
+            self._pre_drive('start_center_on')
+            distance = self._scope.runtime_state.resolve_frame_point_distance(
+                'start_center_on', x_fraction, y_fraction
+            )
+            return self._move_xy_by_impl(distance.dx_um, distance.dy_um)
 
     @api(admitted_by=(Admission.LANE_CALL,))
     def home(self, axis: HomeTarget = HomeTarget.ALL, put_back: bool | None = None) -> None:

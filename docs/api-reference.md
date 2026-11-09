@@ -133,6 +133,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`SimulatedStall`](#SimulatedStall)
 - [`SizeSliderStops`](#SizeSliderStops)
 - [`SkippedBuild`](#SkippedBuild)
+- [`StageDistance`](#StageDistance)
 - [`StageOffset`](#StageOffset)
 - [`StagePosition`](#StagePosition)
 - [`Status`](#Status)
@@ -7936,6 +7937,55 @@ other axes keep the threshold their controller gives them.
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
+<a id="MotionAPI.start_center_on"></a>
+### `MotionAPI.start_center_on`
+
+```python
+def start_center_on(self, x_fraction: float, y_fraction: float) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/start_center_on`.
+
+Start X and Y moving so a point of the camera's frame comes to its centre; return the started moves.
+
+The point is `x_fraction` of the frame's width from its column 0
+and `y_fraction` of its height from its row 0, in the frame as the
+API returns it (`capture_still().image`): row 0 is the bottom of
+the live view, the opposite of a saved file. The stage moves by
+`RuntimeStateAPI.frame_point_distance` for that point. Its
+refusals come in the order a jog's do: the arguments, the lane's,
+the motion gate's, then the objective's and the scale's. X and Y
+are asked once whether they know their position and started on one
+task of the IO lane (`one_command`), so a capture asked meanwhile
+never takes the new X at the old Y.
+
+**Args**
+
+- `x_fraction`: How far across the frame's width, from 0 to 1.
+- `y_fraction`: How far up the frame's height, from 0 to 1.
+
+**Returns**
+
+One `Operation` for the moves started, as `start_move_xy_by`'s.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a fraction that is not a number from 0 to 1. Nothing was driven.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no X or Y; `'not_connected'` naming the camera, no camera is connected; `'position_unread'`, `'monitor_ended'` or `'lid_open_before_motion'`, as `start_move_xy_by`. Nothing was driven.
+- `AxisStateUnknownError`: An axis of the scope does not know its position. Nothing was driven.
+- `ObjectiveUnknownError`: The active objective is unknown, so no distance can be measured: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`. Nothing was driven.
+- `PixelSizeUnknownError`: `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`, the objective is known but no distance can be measured. Nothing was driven.
+- `PositionOutOfRangeError`: `'position_out_of_range'`, a target is outside the axis's travel. Nothing was driven.
+- `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`, `frame_size_unread`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+
 <a id="MotionAPI.start_home"></a>
 ### `MotionAPI.start_home`
 
@@ -8399,6 +8449,49 @@ Held in: [`Lumascope.runtime_state`](#Lumascope.runtime_state).
 
 The answers for the user configuration a Lumascope acts on
 (labware / objective / turret / stage), read from the session's settings.
+
+<a id="RuntimeState.frame_point_distance"></a>
+### `RuntimeState.frame_point_distance`
+
+```python
+def frame_point_distance(
+    self,
+    x_fraction: float,
+    y_fraction: float,
+) -> StageDistance | None
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/runtime_state/frame_point_distance`.
+
+The stage distance from the centre of the camera's frame to a point of it.
+
+The point is `x_fraction` of the frame's width from its column 0
+and `y_fraction` of its height from its row 0, in the frame as the
+API returns it (`capture_still().image`): row 0 is the bottom of
+the live view, the opposite of a saved file. A fraction is the same
+place on the sample at every binning and frame size. The distance is
+at the current objective and binning; moving the stage by it brings
+the point to the centre (`MotionAPI.start_center_on`).
+
+**Args**
+
+- `x_fraction`: How far across the frame's width, from 0 to 1.
+- `y_fraction`: How far up the frame's height, from 0 to 1.
+
+**Returns**
+
+StageDistance | None: Positive `dx_um` for a point right of centre, positive `dy_um` for one above it; (0.5, 0.5) is the centre. None when the field of view cannot be known (`get_field_of_view`).
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a fraction that is not a number from 0 to 1.
+- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
+
+**Refusals by REST status**
+
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
 <a id="RuntimeState.get_field_of_view"></a>
 ### `RuntimeState.get_field_of_view`
@@ -10910,7 +11003,7 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 <a id="Operation"></a>
 ## `lumascope.Operation`
 
-Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
+Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
 Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
 
 One operation in flight: its outcome, its done-callbacks, its stop and its progress.
@@ -12842,6 +12935,19 @@ A build `build` was asked for that had nothing to do in the folder.
 
 - <a id="SkippedBuild.message"></a>`message`: `str` -- Why, in the build's own words.
 - <a id="SkippedBuild.operation"></a>`operation`: `PostProcessingOperation` -- The build.
+
+<a id="StageDistance"></a>
+## `lumascope.StageDistance`
+
+A record: it crosses the wire as its data.  
+Returned by: [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance).
+
+A distance the stage moves on X and Y, in micrometres.
+
+**Fields**
+
+- <a id="StageDistance.dx_um"></a>`dx_um`: `float` -- The distance on X, in micrometres; positive is +X.
+- <a id="StageDistance.dy_um"></a>`dy_um`: `float` -- The distance on Y, in micrometres; positive is +Y.
 
 <a id="StageOffset"></a>
 ## `lumascope.StageOffset`
@@ -16484,6 +16590,30 @@ lacks before the driver is asked (`axis_absent`, `not_on_this_scope`,
 |---|---|---|
 | `part_absent` | -- | 500 |
 
+<a id="PixelSizeUnknownError"></a>
+### `lumascope.PixelSizeUnknownError`
+
+A refusal; bases `Refusal`, `Exception`.
+
+The objective is known and a camera is connected, but no distance on the sample can be measured.
+
+A distance on the sample is a number of the camera's pixels times the
+size of one: the objective's focal length, the scope's tube lens and
+sensor pixel (its declared optics) and the camera's binning, over the
+frame the camera delivers. Raised instead of moving or measuring by a
+guessed scale. An unknown objective is `ObjectiveUnknownError` and
+no camera the camera's `'not_connected'`; this is what is left.
+
+**Attributes**
+
+- `reason`: `'optics_undeclared'` -- the scope does not declare its tube lens or its sensor's pixel size, so no scale can be derived on it. `'binning_unread'` -- the camera has not reported its binning. `'frame_size_unread'` -- the camera has not reported the size of its frames.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `binning_unread` | state | 409 |
+| `frame_size_unread` | state | 409 |
+| `optics_undeclared` | request | 422 |
+
 <a id="PluginError"></a>
 ### `lumascope.PluginError`
 
@@ -18097,6 +18227,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/motion/move_z_by` | [`MotionAPI.move_z_by`](#MotionAPI.move_z_by) |
 | `GET` | `/api/v1/scope/motion/positions_to_keep` | [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep) |
 | `POST` | `/api/v1/scope/motion/set_precision_mode` | [`MotionAPI.set_precision_mode`](#MotionAPI.set_precision_mode) |
+| `POST` | `/api/v1/scope/motion/start_center_on` | [`MotionAPI.start_center_on`](#MotionAPI.start_center_on) |
 | `POST` | `/api/v1/scope/motion/start_home` | [`MotionAPI.start_home`](#MotionAPI.start_home) |
 | `POST` | `/api/v1/scope/motion/start_jog` | [`MotionAPI.start_jog`](#MotionAPI.start_jog) |
 | `POST` | `/api/v1/scope/motion/start_move_to_plate` | [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate) |
@@ -18111,6 +18242,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/motion_expected` | [`Lumascope.motion_expected`](#Lumascope.motion_expected) |
 | `GET` | `/api/v1/scope/no_hardware` | [`Lumascope.no_hardware`](#Lumascope.no_hardware) |
 | `GET` | `/api/v1/scope/objectives` | [`Lumascope.objectives`](#Lumascope.objectives) |
+| `GET` | `/api/v1/scope/runtime_state/frame_point_distance` | [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance) |
 | `GET` | `/api/v1/scope/runtime_state/get_field_of_view` | [`RuntimeState.get_field_of_view`](#RuntimeState.get_field_of_view) |
 | `GET` | `/api/v1/scope/runtime_state/get_pixel_size_um` | [`RuntimeState.get_pixel_size_um`](#RuntimeState.get_pixel_size_um) |
 | `GET` | `/api/v1/scope/runtime_state/get_stage_offset` | [`RuntimeState.get_stage_offset`](#RuntimeState.get_stage_offset) |

@@ -207,6 +207,20 @@ class FieldOfView:
     height_um: float
 
 
+@api_fields('dx_um', 'dy_um')
+@dataclass(frozen=True)
+class StageDistance:
+    """A distance the stage moves on X and Y, in micrometres.
+
+    Attributes:
+        dx_um: The distance on X, in micrometres; positive is +X.
+        dy_um: The distance on Y, in micrometres; positive is +Y.
+    """
+
+    dx_um: float
+    dy_um: float
+
+
 @api_fields(
     'gain_min_db',
     'gain_max_db',

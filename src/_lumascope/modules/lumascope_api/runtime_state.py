@@ -26,15 +26,36 @@ from typing import TYPE_CHECKING
 
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.coord_transformations as coord_transformations
-from _lumascope.modules.exceptions import ObjectiveUnknownError
+from _lumascope.modules.exceptions import ObjectiveUnknownError, PixelSizeUnknownError
 from _lumascope.modules.api_surface import api
+from _lumascope.modules.finite_number import refuse_outside
 from _lumascope.modules.objectives_loader import OBJECTIVE_CONFIRMED_ON_A_TURRET
-from _lumascope.modules.scope_capabilities import FieldOfView
+from _lumascope.modules.scope_capabilities import FieldOfView, StageDistance
 
 if TYPE_CHECKING:
     from _lumascope.modules.labware import Labware
     from _lumascope.modules.lumascope_api._lumascope import Lumascope
     from _lumascope.modules.objectives_loader import Objective
+
+
+def refuse_unless_frame_point(x_fraction: object, y_fraction: object) -> None:
+    """Refuse a point of the frame unless each fraction is a number from 0 to 1.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+            naming the fraction.
+    """
+    refuse_outside(x_fraction, 'x_fraction', (0.0, 1.0))
+    refuse_outside(y_fraction, 'y_fraction', (0.0, 1.0))
+
+
+def _distance_to(extent: FieldOfView, x_fraction: float, y_fraction: float) -> StageDistance:
+    # From the frame's centre to the point: half the frame each way. Camera
+    # row up is stage +Y, so the fractions carry their sign straight over.
+    return StageDistance(
+        dx_um=(x_fraction - 0.5) * extent.width_um,
+        dy_um=(y_fraction - 0.5) * extent.height_um,
+    )
 
 
 def slots_holding(objective_id: object, turret_config: dict) -> tuple[int, ...]:
@@ -231,18 +252,106 @@ class RuntimeState:
                 this scope.
         """
         objective = self.get_current_objective()
-        frame = self._scope.camera.frame_size
-        if objective is None or frame is None:
+        if objective is None or not self._scope.camera.active:
             return None
+        extent = self._field_of_view_at(objective)
+        return extent if isinstance(extent, FieldOfView) else None
+
+    def resolve_field_of_view(self, member: str) -> FieldOfView:
+        """The area the camera's frame covers on the sample, or why it is unknown.
+
+        ``get_field_of_view``'s answer, raised where that read answers
+        None, so a member that acts on the extent is refused with the cause.
+        A seam for the API's own members, not part of the L2 API surface, as
+        ``resolve_current_objective`` is not.
+
+        Args:
+            member: The member asking, named by a refusal for want of a camera.
+
+        Raises:
+            ObjectiveUnknownError: As ``resolve_current_objective``.
+            HardwareCommandRefusedError: ``'not_connected'``, no camera is
+                connected; ``'scope_disconnected'``, after ``disconnect()``.
+            PixelSizeUnknownError: ``'optics_undeclared'``,
+                ``'binning_unread'`` or ``'frame_size_unread'``.
+        """
+        _, objective = self.resolve_current_objective()
+        self._scope.camera.refuse_camera_not_connected(member)
+        extent = self._field_of_view_at(objective)
+        if isinstance(extent, PixelSizeUnknownError):
+            raise extent
+        return extent
+
+    def _field_of_view_at(self, objective: Objective) -> FieldOfView | PixelSizeUnknownError:
+        """The one derivation of the frame's extent under ``objective``: the extent, or why not."""
+        capabilities = self._scope.capabilities
+        if capabilities.lens_focal_length_mm is None or capabilities.pixel_size_um is None:
+            return PixelSizeUnknownError('optics_undeclared')
+        binning = self._scope.camera.binning
+        if binning is None:
+            return PixelSizeUnknownError('binning_unread')
+        frame = self._scope.camera.frame_size
+        if frame is None:
+            return PixelSizeUnknownError('frame_size_unread')
         extent = common_utils.get_field_of_view(
             focal_length=objective.focal_length_mm,
             frame_size={'width': frame.width, 'height': frame.height},
-            binning_size=self._scope.camera.binning,
-            capabilities=self._scope.capabilities,
+            binning_size=binning,
+            capabilities=capabilities,
         )
-        if extent is None:
-            return None
         return FieldOfView(width_um=extent['width'], height_um=extent['height'])
+
+    @api(reads=True)
+    def frame_point_distance(self, x_fraction: float, y_fraction: float) -> StageDistance | None:
+        """The stage distance from the centre of the camera's frame to a point of it.
+
+        The point is ``x_fraction`` of the frame's width from its column 0
+        and ``y_fraction`` of its height from its row 0, in the frame as the
+        API returns it (``capture_still().image``): row 0 is the bottom of
+        the live view, the opposite of a saved file. A fraction is the same
+        place on the sample at every binning and frame size. The distance is
+        at the current objective and binning; moving the stage by it brings
+        the point to the centre (``MotionAPI.start_center_on``).
+
+        Args:
+            x_fraction: How far across the frame's width, from 0 to 1.
+            y_fraction: How far up the frame's height, from 0 to 1.
+
+        Returns:
+            StageDistance | None: Positive ``dx_um`` for a point right of
+                centre, positive ``dy_um`` for one above it; (0.5, 0.5) is
+                the centre. None when the field of view cannot be known
+                (``get_field_of_view``).
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                a fraction that is not a number from 0 to 1.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
+        """
+        refuse_unless_frame_point(x_fraction, y_fraction)
+        extent = self.get_field_of_view()
+        return None if extent is None else _distance_to(extent, x_fraction, y_fraction)
+
+    def resolve_frame_point_distance(
+        self, member: str, x_fraction: float, y_fraction: float
+    ) -> StageDistance:
+        """``frame_point_distance`` for fractions already refused, or why it is unknown.
+
+        A seam for the API's own members, not part of the L2 API surface.
+
+        Args:
+            member: The member asking, named by a refusal for want of a camera.
+            x_fraction: As ``frame_point_distance``, already checked
+                (``refuse_unless_frame_point``).
+            y_fraction: As ``frame_point_distance``, already checked.
+
+        Raises:
+            ObjectiveUnknownError: As ``resolve_field_of_view``.
+            HardwareCommandRefusedError: As ``resolve_field_of_view``.
+            PixelSizeUnknownError: As ``resolve_field_of_view``.
+        """
+        return _distance_to(self.resolve_field_of_view(member), x_fraction, y_fraction)
 
     @api(reads=True)
     def get_turret_config(self) -> dict[int, str | None]:

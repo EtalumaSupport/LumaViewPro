@@ -76,7 +76,6 @@ _PINNED: dict[str, int] = {
     'LiveWork.has': 2,
     'Lumascope.camera_connected': 2,
     'MotionAPI.get_current_position': 2,
-    'MotionAPI.one_command': 1,
     'PostProcessingAPI.composite': 1,
     'PostProcessingAPI.stitch': 1,
     'PostProcessingAPI.video': 1,

@@ -141,6 +141,17 @@ def test_a_two_axis_command_returns_no_frame_from_between_its_moves(scope, monke
     assert between == []
 
 
+def test_centering_on_a_point_returns_no_frame_from_between_its_moves(scope, monkeypatch):
+    _load_the_host(monkeypatch, scope.motion)
+
+    moves, between = _between(
+        scope, monkeypatch, lambda: scope.motion.start_center_on(0.6, 0.4).result(timeout=_WAIT_S)
+    )
+
+    assert moves == 2
+    assert between == []
+
+
 def test_a_command_gives_an_in_force_time_only_to_the_changes_it_held(scope):
     """A turret change's turret change, held while Z was put back, is given
     the close's time; the X and Y move before it keeps its own."""

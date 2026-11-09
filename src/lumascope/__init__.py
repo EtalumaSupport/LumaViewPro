@@ -184,6 +184,7 @@ from _lumascope.modules.exceptions import (
     Notice,
     ObjectiveUnknownError,
     OperationSettleRefusedError,
+    PixelSizeUnknownError,
     PluginError,
     PluginFailedError,
     PluginNotLoadedError,
@@ -451,6 +452,7 @@ from _lumascope.modules.scope_capabilities import (
     FieldOfView,
     FrameSize,
     ScopeCapabilities,
+    StageDistance,
 )
 from _lumascope.modules.scope_session import (
     ControlsLock,
@@ -732,6 +734,7 @@ __all__ = [
     'Part',
     'PartAbsentError',
     'PartStatus',
+    'PixelSizeUnknownError',
     'PlateLocation',
     'PlatePosition',
     'PluginError',
@@ -833,6 +836,7 @@ __all__ = [
     'Slide',
     'SlowFileWritesNotice',
     'StageAxis',
+    'StageDistance',
     'StageOffset',
     'StagePosition',
     'Status',

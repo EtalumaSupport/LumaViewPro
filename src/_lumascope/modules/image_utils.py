@@ -314,28 +314,6 @@ def scaled_preview_target(base_wh: tuple[int, int] | None, scale: float) -> tupl
     return (round(base_wh[0] * s), round(base_wh[1] * s))
 
 
-def click_offset_to_um(
-    norm_offset: float, norm_extent: float, frame_extent: float, pixel_size_um: float
-) -> float:
-    """Physical (micron) distance from the frame center for a click landing
-    ``norm_offset`` widget-pixels from the displayed image's edge, where the
-    displayed image spans ``norm_extent`` widget-pixels and the full-resolution
-    sensor frame is ``frame_extent`` pixels. Used by click-to-center to drive
-    the stage so the clicked feature moves to the optical axis.
-
-    ``frame_extent`` MUST be the full-resolution sensor frame, never the
-    preview-display texture: the live preview is downscaled to ~widget size
-    before the blit, but ``pixel_size_um`` is the size of one SENSOR pixel, so
-    feeding the downscaled texture size under-reports the distance by the
-    downscale factor and the stage stops short of the clicked point. Returns
-    0.0 when the displayed extent is degenerate (no division possible).
-    """
-    if norm_extent <= 0:
-        return 0.0
-    frame_pos = norm_offset * frame_extent / norm_extent
-    return (frame_pos - frame_extent / 2.0) * pixel_size_um
-
-
 # The caller resolves a colour (``channel_record.Color``); nothing here maps a
 # channel to one. A writer keeps a ``GREY`` frame mono rather than storing
 # three equal planes.

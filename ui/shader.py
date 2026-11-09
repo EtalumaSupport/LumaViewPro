@@ -99,25 +99,24 @@ def cursor_title(pixel: tuple[int, int] | None, plate: PlatePosition | None) -> 
     return text
 
 
-def cursor_plate(
-    scope, pixel: tuple[int, int], frame_size: tuple[int, int]
-) -> PlatePosition | None:
-    """The plate position, in mm, of the sensor pixel under the cursor; None when it is not known.
+def cursor_plate(scope, fraction: tuple[float, float]) -> PlatePosition | None:
+    """The plate position, in mm, of the point under the cursor; None when it is not known.
 
-    The cursor's offset from the frame's centre is converted into a stage
-    distance from where the stage is, so it needs an XY stage whose X and Y
-    the API knows, and a known pixel size (which needs a known objective).
-    Without one, the pixel readout stands alone -- never a position
-    converted from a number nobody established, or an invented distance.
-    X and Y are read from ``axis_positions`` because it answers no position
-    for an axis that homes or has lost its reference (a lost motor board
-    included), where the other position reads still answer its last number.
+    The API converts the cursor's point of the frame into a stage distance
+    from where the stage is (``RuntimeStateAPI.frame_point_distance``, the
+    one conversion click-to-center moves by), so it needs an XY stage whose
+    X and Y the API knows, and a known field of view (which needs a known
+    objective). Without one, the pixel readout stands alone -- never a
+    position converted from a number nobody established, or an invented
+    distance. X and Y are read from ``axis_positions`` because it answers
+    no position for an axis that homes or has lost its reference (a lost
+    motor board included), where the other position reads still answer its
+    last number.
 
     Args:
         scope: The scope the cursor's image is from.
-        pixel: The sensor pixel under the cursor, full-frame coordinates.
-        frame_size: The full-resolution frame's width and height, in
-            pixels: the offset is from its centre, not the preview's.
+        fraction: The cursor as fractions of the shown frame's width and
+            height, row 0 at the bottom, as ``frame_point_distance`` takes.
     """
     if not scope.capabilities.has_xy_stage:
         return None
@@ -125,14 +124,10 @@ def cursor_plate(
     x_um, y_um = stage['X'].position_um, stage['Y'].position_um
     if x_um is None or y_um is None:
         return None
-    pixel_size_um = scope.runtime_state.get_pixel_size_um()
-    if pixel_size_um is None:
+    distance = scope.runtime_state.frame_point_distance(*fraction)
+    if distance is None:
         return None
-    frame_w, frame_h = frame_size
-    px, py = pixel
-    dx_um = (px - frame_w / 2) * pixel_size_um
-    dy_um = (py - frame_h / 2) * pixel_size_um
-    return scope.runtime_state.stage_to_plate(x_um + dx_um, y_um - dy_um)
+    return scope.runtime_state.stage_to_plate(x_um + distance.dx_um, y_um + distance.dy_um)
 
 
 # ============================================================================
@@ -195,6 +190,9 @@ void main (void) {
         self._status_bar_trigger()
         self._mouse_pixel_x = -1
         self._mouse_pixel_y = -1
+        # The cursor as fractions of the shown frame, in the API's frame
+        # convention (row 0 at the bottom), for the plate readout.
+        self._mouse_fraction = (0.5, 0.5)
         self._mouse_over_image = False
         Window.bind(mouse_pos=self._on_mouse_pos)
         # The window sends no mouse position once the pointer has left it, so
@@ -317,20 +315,22 @@ void main (void) {
 
         # Get the ScopeDisplay's rendered image bounds within the widget
         norm_w, norm_h = scope_display.norm_image_size
-        img_x_min = scope_display.center_x - norm_w / 2
-        img_y_min = scope_display.center_y - norm_h / 2
-        img_x_max = scope_display.center_x + norm_w / 2
-        img_y_max = scope_display.center_y + norm_h / 2
+        # The cursor as fractions of the shown image, and the hit test on
+        # those same numbers, so a point the test passes is one the API's
+        # conversion takes (fractions from 0 to 1).
+        x_fraction = (local_x - (scope_display.center_x - norm_w / 2)) / norm_w
+        y_fraction = (local_y - (scope_display.center_y - norm_h / 2)) / norm_h
 
-        if img_x_min <= local_x <= img_x_max and img_y_min <= local_y <= img_y_max:
+        if 0.0 <= x_fraction <= 1.0 and 0.0 <= y_fraction <= 1.0:
             # Full-resolution sensor frame, not the downscaled preview texture,
             # so the reported pixel coordinate is in sensor pixels.
             frame_w, frame_h = scope_display.full_resolution_frame_size()
-            self._mouse_pixel_x = int((local_x - img_x_min) * frame_w / norm_w)
+            self._mouse_pixel_x = int(x_fraction * frame_w)
             # Kivy Y is bottom-up, image Y is top-down
-            self._mouse_pixel_y = frame_h - 1 - int((local_y - img_y_min) * frame_h / norm_h)
+            self._mouse_pixel_y = frame_h - 1 - int(y_fraction * frame_h)
             self._mouse_pixel_x = max(0, min(self._mouse_pixel_x, frame_w - 1))
             self._mouse_pixel_y = max(0, min(self._mouse_pixel_y, frame_h - 1))
+            self._mouse_fraction = (x_fraction, y_fraction)
             self._mouse_over_image = True
         else:
             self._mouse_over_image = False
@@ -372,9 +372,7 @@ void main (void) {
                 pixel = (self._mouse_pixel_x, self._mouse_pixel_y)
                 # Anything that fails beyond what cursor_plate answers None
                 # for is a fault, and is not hidden here.
-                plate = cursor_plate(
-                    ctx.lumaview.scope, pixel, scope_display.full_resolution_frame_size()
-                )
+                plate = cursor_plate(ctx.lumaview.scope, self._mouse_fraction)
             self.status_text = status + cursor_title(pixel, plate)
 
             title = f'LumaViewPro {ctx.version}'

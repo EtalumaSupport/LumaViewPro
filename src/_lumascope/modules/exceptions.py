@@ -1626,6 +1626,45 @@ class ObjectiveUnknownError(Refusal, ConfigError):
         self.slot = slot
 
 
+class PixelSizeUnknownError(Refusal, Exception):
+    """The objective is known and a camera is connected, but no distance on the sample can be measured.
+
+    A distance on the sample is a number of the camera's pixels times the
+    size of one: the objective's focal length, the scope's tube lens and
+    sensor pixel (its declared optics) and the camera's binning, over the
+    frame the camera delivers. Raised instead of moving or measuring by a
+    guessed scale. An unknown objective is ``ObjectiveUnknownError`` and
+    no camera the camera's ``'not_connected'``; this is what is left.
+
+    Attributes:
+        reason: ``'optics_undeclared'`` -- the scope does not declare its
+            tube lens or its sensor's pixel size, so no scale can be
+            derived on it. ``'binning_unread'`` -- the camera has not
+            reported its binning. ``'frame_size_unread'`` -- the camera has
+            not reported the size of its frames.
+    """
+
+    title = 'Pixel Size Unknown'
+
+    _SENTENCES: ClassVar[dict[str, str]] = {
+        'optics_undeclared': (
+            'this scope does not declare its optics, so no distance on the sample can be'
+            ' measured -- contact Etaluma support'
+        ),
+        'binning_unread': 'the camera has not reported its binning -- wait for the camera',
+        'frame_size_unread': 'the camera has not reported its frame size -- wait for the camera',
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'optics_undeclared': RefusalCause.REQUEST,
+        'binning_unread': RefusalCause.STATE,
+        'frame_size_unread': RefusalCause.STATE,
+    }
+
+    def __init__(self, reason: str):
+        super().__init__('The size of a pixel on the sample is unknown: ' + self._SENTENCES[reason])
+        self.reason = reason
+
+
 def _offered_words(offered: Iterable[object]) -> str:
     # What a refusal offers, in its words. An empty offer is said, as
     # "nothing": joined, it left a sentence with a hole where the list goes.

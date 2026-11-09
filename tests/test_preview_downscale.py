@@ -16,7 +16,6 @@ import pytest
 
 from _lumascope.modules.exceptions import FrameDepthError
 from _lumascope.modules.image_utils import (
-    click_offset_to_um,
     decimate_for_preview,
     preview_jpeg,
     scaled_preview_target,
@@ -197,42 +196,6 @@ class TestZoomPreservesFullResolution:
         target = scaled_preview_target((700, 700), 1.0)  # (700, 700)
         out = decimate_for_preview(img, target)
         assert out.shape == (700, 700)
-
-
-class TestClickOffsetToUm:
-    """Click-to-center / cursor-readout geometry must scale by the full-resolution
-    sensor frame, never the (preview-downscaled) display texture -- using the
-    downscaled size under-moves the stage by the downscale factor."""
-
-    def test_center_click_is_zero_offset(self):
-        assert click_offset_to_um(950, 1900, 1900, 0.5) == 0.0
-
-    def test_right_edge_is_half_sensor_width(self):
-        # Clicking the displayed image's right edge moves the stage half the
-        # field of view: (frame_extent / 2) * pixel_size_um, in SENSOR microns.
-        assert click_offset_to_um(1900, 1900, 1900, 0.5) == 950 * 0.5
-
-    def test_left_edge_is_negative_half_sensor_width(self):
-        assert click_offset_to_um(0, 1900, 1900, 0.5) == -950 * 0.5
-
-    def test_invariant_to_display_size(self):
-        # Same physical click fraction (0.75) on the same 1900-px frame must give
-        # the same micron distance whether the widget is large or small -- the
-        # result depends on the full-resolution frame, not the on-screen size.
-        big = click_offset_to_um(0.75 * 1000, 1000, 1900, 0.5)
-        small = click_offset_to_um(0.75 * 500, 500, 1900, 0.5)
-        assert big == small
-
-    def test_downscaled_extent_would_under_report(self):
-        # The regression guard: feeding the downscaled texture extent (700)
-        # instead of the full-resolution frame (1900) shrinks the distance.
-        full = click_offset_to_um(700, 700, 1900, 0.5)  # right edge, full-res
-        downscaled = click_offset_to_um(700, 700, 700, 0.5)  # the old bug
-        assert abs(downscaled) < abs(full)
-
-    def test_degenerate_extent_returns_zero(self):
-        assert click_offset_to_um(0, 0, 1900, 0.5) == 0.0
-        assert click_offset_to_um(10, -5, 1900, 0.5) == 0.0
 
 
 class TestPreviewJpeg:

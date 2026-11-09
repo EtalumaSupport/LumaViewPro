@@ -559,51 +559,6 @@ def jog(axis: str, steps: float, coarse: bool):
     )
 
 
-def submit_gesture(
-    label: str,
-    *,
-    axes: typing.Iterable[str],
-    then: str,
-    moves: typing.Callable[[], None],
-    on_moved: typing.Callable[[], None] | None = None,
-) -> None:
-    """Run a person's several-axis gesture as one task on the IO lane.
-
-    The lane asks the motion API once whether every axis the gesture needs
-    knows where it is, then runs *moves*, whose members run inline there,
-    as one command (``motion.one_command``): a capture asked during the
-    gesture waits for all its moves, never taking the new X at the old Y.
-    A home or a stop can no longer land between the question and the moves,
-    and a refusal is shown once by the reporter instead of once per axis.
-    A move refused part way leaves the axes that already moved where they
-    went.
-
-    Submits and returns; nothing here waits on the lane, so a caller that
-    is itself running inline on a lane may start a gesture.
-
-    Args:
-        label: The gesture, as the reporter and the executor name it.
-        axes: The axes the gesture moves. They are asked about, and redrawn
-            once the task has ended whatever its outcome. Empty when the
-            gesture moves nothing (the scope has no motor board).
-        then: What the user does once the scope knows its position, ending
-            the refusal the API shows.
-        moves: The API calls, all on the IO lane.
-        on_moved: GUI work that belongs to a gesture that happened, run on
-            the GUI thread after the redraw and only when *moves* returned.
-    """
-    axes = tuple(axes)
-
-    def call() -> None:
-        if not axes:
-            moves()
-            return
-        with _app_ctx.ctx.scope.motion.one_command(axes, then=then):
-            moves()
-
-    submit_move(label, axes=axes, call=call, lane=_app_ctx.ctx.io_executor, on_moved=on_moved)
-
-
 def submit_move(
     label: str,
     *,
@@ -614,8 +569,8 @@ def submit_move(
 ) -> None:
     """Run a person's move, redraw its axes, then its GUI work.
 
-    The lane half of ``submit_gesture``, for a move an API member composes
-    itself (asking about its axes included): the control-surface lock is
+    For a move an API member composes itself (a several-axis one asking
+    about its axes once, ``MotionAPI.one_command``): the control-surface lock is
     enforced here, *call* runs as one task on *lane* (``submit_reported``'s:
     the IO lane for a call of motion members alone, None for the worker pool
     when the call also waits on another lane), the axes are redrawn once the
