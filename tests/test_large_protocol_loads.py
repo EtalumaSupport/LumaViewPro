@@ -5,18 +5,24 @@ writer produces, so a protocol LumaViewPro had saved could not be reopened.
 It also made the size advisory unreachable: the advisory and the refusal shared
 the same 10,000-step threshold, and the refusal ran first, so the sentence that
 exists to describe a large protocol could never be said about one.
+
+The file ceiling stays, a bound on a load's memory, sized so that a protocol
+of the size a customer asked for (a 96-well plate, 4 channels, 200 Z slices:
+76,800 steps) is saved and reopened.
 """
 
 import pathlib
 
 import pytest
 
-from _lumascope.modules.protocol import Protocol, ProtocolFormatError
+from _lumascope.modules import common_utils
+from _lumascope.modules.protocol import PROTOCOL_FILE_CEILING_BYTES, Protocol, ProtocolFormatError
+from tests.protocol_fixtures import protocol_from_file
+from tests.scope_fakes import home_sim_scope
 from tests.test_protocol_roundtrip import (
     _build_protocol,
     _make_step,
 )
-from tests.protocol_fixtures import protocol_from_file
 
 # Above the advisory threshold (PROTOCOL_SIZE_ADVISORY_STEPS, 10,000) and above
 # the step ceiling this suite exists to keep deleted.
@@ -56,6 +62,36 @@ def test_the_size_advisory_is_reachable_on_a_loaded_protocol(tmp_path):
     assert advisory is not None
 
 
+_STACKED_CHANNELS = ('BF', 'Ex405', 'Ex488', 'Ex589')
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    'sim_session',
+    [{'zstack': {'step_size': 1.0, 'range': 199.0, 'position': 'center'}}],
+    indirect=True,
+)
+def test_a_protocol_of_the_size_a_customer_asked_for_is_saved_and_reopened(sim_session, tmp_path):
+    """96 wells x 4 channels x 200 Z slices, built, saved and loaded through the Session.
+
+    Its file is past the 10 MiB the ceiling once was, so this pins the
+    ceiling's size, not only its existence.
+    """
+    home_sim_scope(sim_session.scope)
+    for channel in common_utils.get_channels():
+        sim_session.set_channel_acquire(channel, 'image' if channel in _STACKED_CHANNELS else None)
+    sim_session.select_labware('96 well microplate')
+    built = sim_session.new_protocol(use_zstacking=True)
+    assert built.num_steps() == 96 * 4 * 200
+    path = tmp_path / 'stacked.tsv'
+
+    sim_session.save_protocol(built, path)
+    reloaded = sim_session.load_protocol(path)
+
+    assert path.stat().st_size > 10 * 1024 * 1024
+    assert reloaded.num_steps() == 96 * 4 * 200
+
+
 def test_the_file_ceiling_still_refuses_and_blames_memory_not_corruption(tmp_path):
     """The resource control stays; only its diagnosis changes.
 
@@ -63,7 +99,7 @@ def test_the_file_ceiling_still_refuses_and_blames_memory_not_corruption(tmp_pat
     told it is damaged.
     """
     huge = tmp_path / 'huge_protocol.tsv'
-    huge.write_bytes(b'x' * (10 * 1024 * 1024 + 1))
+    huge.write_bytes(b'x' * (PROTOCOL_FILE_CEILING_BYTES + 1))
 
     with pytest.raises(ProtocolFormatError, match='exhausting memory') as exc_info:
         protocol_from_file(

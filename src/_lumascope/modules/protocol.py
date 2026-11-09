@@ -608,6 +608,19 @@ def _refuse_asked_stimulation(
             )
 
 
+# The largest protocol file a load reads. A bound on how much memory one file
+# may ask for, not a judgement about the file: the whole file is read into
+# memory, several times over, before any of it is parsed. Step COUNT is
+# deliberately not bounded: the count is known only after the parse has spent
+# the memory, and a ceiling on it sized below what this app's own writer
+# produces made saved protocols unreadable. Bytes bound the memory across file
+# versions where they do not bound the steps: a load holds about 33 times the
+# file's bytes for a v12 file (~150 B and ~5 KB a step) and about 43 times for
+# a v2 file (~80 B and ~3.4 KB a step). 16 MiB holds about 109,000 steps of
+# the current shape, a 96-well plate of 4 channels and 200 Z slices (76,800
+# steps, 10.6 MiB) with room, for about 0.7 GB held at the ceiling.
+PROTOCOL_FILE_CEILING_BYTES = 16 * 1024 * 1024
+
 # Below a second, a period is a schedule the run loop cannot keep: it would
 # start each scan before the last one's captures are taken.
 _MIN_PERIOD = datetime.timedelta(seconds=1)
@@ -3904,15 +3917,6 @@ class Protocol:
         """
         runnable = unit is not StoredNames.KEPT
 
-        # A bound on how much memory one file may ask for, not a judgement
-        # about the file. The whole file is read into memory here, several
-        # times over, so a large enough protocol exhausts the process before
-        # any of it is parsed. Step COUNT is deliberately not bounded: the
-        # count is known only after the parse has already spent that memory,
-        # so a ceiling on it protects nothing, and one sized below what this
-        # app's own writer produces made saved protocols unreadable.
-        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-
         config = {}
 
         # Filter out blank lines
@@ -3921,9 +3925,9 @@ class Protocol:
 
         try:
             file_size = os.path.getsize(file_path)
-            if file_size > MAX_FILE_SIZE:
+            if file_size > PROTOCOL_FILE_CEILING_BYTES:
                 raise ProtocolFormatError(
-                    f'it is larger than the {MAX_FILE_SIZE // (1024 * 1024)} MB a protocol '
+                    f'it is larger than the {PROTOCOL_FILE_CEILING_BYTES // (1024 * 1024)} MB a protocol '
                     f'may be ({file_size:,} bytes) and cannot be loaded without exhausting memory.',
                     file=file_path,
                 )

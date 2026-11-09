@@ -47,7 +47,6 @@ from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.run_outcome import EndingLatch, PendingRunOutcome, RunEnding
 from _lumascope.modules.sequenced_capture_runner import EngineRun
 from tests.protocol_drives import run_identity
-from tests.protocol_fixtures import protocol_from_file
 
 
 def _posted(centre_posts, *severities):
@@ -126,40 +125,6 @@ class TestLedOnValidation:
 
     def test_accepts_valid_input(self, sim_scope):
         sim_scope.illumination.led_on_by_address(0, 50)
-
-
-# ===========================================================================
-# 3. Protocol file limits (needs mocks for heavy deps)
-# ===========================================================================
-
-
-class TestProtocolFileLimits:
-    """Verify Protocol.from_file(, unit=stock_unit()) enforces size and step count limits."""
-
-    def test_rejects_oversized_file(self, tmp_path):
-        """A file > 10 MB should be rejected before parsing."""
-        from _lumascope.modules.protocol import ProtocolFormatError
-
-        big_file = tmp_path / 'huge_protocol.tsv'
-        big_file.write_bytes(b'x' * (10 * 1024 * 1024 + 1))
-
-        with pytest.raises(ProtocolFormatError, match='exhausting memory'):
-            protocol_from_file(
-                file_path=big_file,
-            )
-
-    def test_accepts_file_under_limit(self, tmp_path):
-        """A small file should pass the size check (may fail later on format,
-        but should NOT be refused for its size)."""
-
-        small_file = tmp_path / 'small.tsv'
-        small_file.write_text('LumaViewPro Protocol\n')
-
-        with pytest.raises(Exception) as exc_info:
-            protocol_from_file(
-                file_path=small_file,
-            )
-        assert 'exhausting memory' not in str(exc_info.value)
 
 
 # ===========================================================================

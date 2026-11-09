@@ -17,7 +17,7 @@ import pytest
 
 from _lumascope.modules.exceptions import ProtocolNotLoadedError, Refusal
 from _lumascope.modules.notification_center import NotificationCenter, Severity
-from _lumascope.modules.protocol import ProtocolFormatError
+from _lumascope.modules.protocol import PROTOCOL_FILE_CEILING_BYTES, ProtocolFormatError
 from tests.protocol_fixtures import protocol_from_file
 
 
@@ -67,7 +67,7 @@ class TestAFileThatIsNotAProtocol:
 
     def test_a_file_too_large_to_load_is_refused_without_calling_it_damaged(self, tmp_path):
         huge = tmp_path / 'huge.tsv'
-        huge.write_bytes(b'x' * (10 * 1024 * 1024 + 1))
+        huge.write_bytes(b'x' * (PROTOCOL_FILE_CEILING_BYTES + 1))
 
         with pytest.raises(ProtocolFormatError, match='exhausting memory') as refused:
             _load(huge)
