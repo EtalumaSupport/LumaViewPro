@@ -15,7 +15,7 @@ import contextlib
 import copy
 import enum
 import hashlib
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from _lumascope.lvp_logger import logger
@@ -1157,6 +1157,23 @@ def refuse_values_out_of_range(refused: list[tuple[str, SettingRefusedError]], w
             + '; '.join(f'{where}: {r.detail}' for where, r in refused)
             + '.',
         )
+
+
+def _header_rows(fp: io.StringIO, file_path: object) -> Iterator[list[str]]:
+    """The rows of a protocol file's header block, read one at a time.
+
+    Read as ``common_utils.read_table`` reads the step table, strictly, so
+    a row the csv module cannot read (a cell over its field limit, text
+    after a closing quote) is refused naming the file instead of escaping
+    as a raw ``csv.Error``. Lazy, so ``fp`` stands at the step table once the
+    'Steps' row is taken.
+    """
+    try:
+        yield from csv.reader(fp, delimiter='\t', strict=True)
+    except csv.Error as e:
+        raise ProtocolFormatError(
+            f'its header block is not well-formed ({e}).', file=file_path
+        ) from None
 
 
 def _refuse_a_header_row_with_no_value(row: list[str], file_path: object) -> None:
@@ -3940,7 +3957,7 @@ class Protocol:
         except UnicodeDecodeError as e:
             raise ProtocolFormatError('it is not a text file.', file=file_path) from e
 
-        csvreader = csv.reader(fp, delimiter='\t')
+        csvreader = _header_rows(fp, file_path)
 
         try:
             verify = next(csvreader)
