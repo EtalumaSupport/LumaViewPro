@@ -470,13 +470,24 @@ def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
     refuse_inverted_gain_range(settings, argument)
 
 
+# A combined refusal's reason: the first of these any part carries. A value
+# now not known (no answer) outranks a write not sent (a read it needed
+# failed), which outranks a write the camera refused.
+_COMBINED_REASONS = ('camera_no_answer', 'camera_read_failed', 'camera_rejected')
+
+
+def _setting_noun(setting: str) -> str:
+    """A camera setting's name as its refusal's words say it."""
+    return setting.removesuffix('_db').removesuffix('_ms').replace('_', ' ')
+
+
 def _no_answer_rejection(rejected: CameraSettingRejected) -> CameraSettingRejected:
     """The same setting's rejection when the camera answered neither try.
 
     Its own words, not the refusal's: a refusal leaves the camera at its
     previous value, but a write nobody answered may have been taken.
     """
-    noun = rejected.setting.removesuffix('_db').removesuffix('_ms').replace('_', ' ')
+    noun = _setting_noun(rejected.setting)
     return CameraSettingRejected(
         rejected.setting,
         rejected.requested,
@@ -485,6 +496,25 @@ def _no_answer_rejection(rejected: CameraSettingRejected) -> CameraSettingReject
             'it took it is not known. Check the USB connection if this repeats.'
         ),
         reason='camera_no_answer',
+    )
+
+
+def _read_failed_rejection(setting: str, requested: object) -> CameraSettingRejected:
+    """The refusal of a write not sent because a read it needs failed.
+
+    Its own words, not the camera's refusal: nothing reached the camera, so
+    it keeps its previous value, and the change may simply be asked again.
+    """
+    noun = _setting_noun(setting)
+    return CameraSettingRejected(
+        setting,
+        requested,
+        message=(
+            f'The {noun} change was not sent: a read of the camera the change needs '
+            f'first failed, so it keeps its previous {noun}. Check the USB '
+            'connection if this repeats.'
+        ),
+        reason='camera_read_failed',
     )
 
 
@@ -519,7 +549,8 @@ def _has_settable_feature(published: bool | None, probe: Callable[[], bool]) -> 
     its own call.
 
     Raises:
-        CameraReadFailedError: The live probe failed; nothing was written.
+        What ``probe`` raises: each setter's probe refuses a failed read as
+        a write not sent (``CameraAPI._read_a_write_needs``).
     """
     if published is None:
         return bool(probe())
@@ -628,9 +659,9 @@ _STORED_GEOMETRY = (
 )
 
 # Each fresh-read setting's noun, driver read, validity check and coercion,
-# keyed by its camera-cache key. The check rejects each driver's failed-read
-# value (-1, None, {}), so a read the camera did not answer is never taken
-# for one it did.
+# keyed by its camera-cache key. A read the camera did not answer raises in
+# the driver; the check rejects a value the camera itself answered out of
+# range (a negative gain, a zero frame), a failure too, never held.
 _LIVE_SETTING_READS = {
     'gain_db': (
         'gain',
@@ -773,9 +804,10 @@ class CameraAPI:
 
         Every key refreshes through the one fresh read (``_refresh_held``),
         so a failed read never overwrites a value held, and one key the
-        camera did not answer cannot stop the rest of the round. The
-        camera's limits are not here: they are ``capabilities.camera_limits``,
-        read once at connect.
+        camera did not answer cannot stop the rest of the round. A black
+        level the camera did not answer stays unknown, the failure reported
+        (``_report_unread``). The camera's limits are not here: they are
+        ``capabilities.camera_limits``, read once at connect.
         """
         if not self._scope.camera_connected:
             return
@@ -784,7 +816,7 @@ class CameraAPI:
         try:
             self._read_black_level_impl()
         except CameraReadFailedError as failed:
-            logger.warning(f'[SCOPE API ] {failed}; the black level held stays unknown')
+            self._report_unread(failed)
         logger.info('[SCOPE API ] Camera cache populated')
 
     def _refresh_cache_from_hardware_after_auto(self) -> None:
@@ -800,16 +832,19 @@ class CameraAPI:
         run capturing at an unintended exposure inherited from a
         pre-scan live-mode AG cycle.
 
-        A read that fails leaves its value unknown (None): the camera holds
-        values the auto cycle chose, and the pre-auto ones are known-stale.
+        A read that fails leaves its value unknown (None), the failure
+        reported (``_report_unread``) and the other read still made: the
+        camera holds values the auto cycle chose, and the pre-auto ones are
+        known-stale. The auto write before it took, so its caller is not
+        told it failed.
         """
         if not self._driver or not self._driver.active:
             return
-        gain = self._driver.get_gain()
-        exp = self._driver.get_exposure_t()
-        # A non-physical reading (the drivers' negative failed-read
-        # sentinel) is unknown -- NOT keep-prior: the pre-auto cached value
-        # is known-stale here (hardware moved during the auto cycle).
+        gain = self._read_after_auto(self._driver.get_gain)
+        exp = self._read_after_auto(self._driver.get_exposure_t)
+        # A reading the camera answered out of range is unknown too -- NOT
+        # keep-prior: the pre-auto cached value is known-stale here (hardware
+        # moved during the auto cycle).
         self._commit_camera_writes(
             {
                 'gain_db': float(gain) if common_utils.is_valid_gain_db(gain) else None,
@@ -821,9 +856,30 @@ class CameraAPI:
         # the floor on a dim scene means the settle window ended before AG
         # ramped (under-converged -> dark capture); a gain at the ceiling
         # means the scene needs more light, not more settle frames.
+        gain_said = 'unread' if gain is None else f'{gain} dB'
+        exp_said = 'unread' if exp is None else f'{exp} ms'
         logger.debug(
-            f'[AG CONVERGE] auto cycle ended; camera converged to gain={gain} dB exposure={exp} ms'
+            f'[AG CONVERGE] auto cycle ended; camera converged to gain={gain_said} '
+            f'exposure={exp_said}'
         )
+
+    def _read_after_auto(self, read: Callable[[], float]) -> float | None:
+        """``read()``'s answer, or None, reported, when the read fails."""
+        try:
+            return read()
+        except HardwareError as failed:
+            self._report_unread(failed)
+            return None
+
+    def _report_unread(self, failed: HardwareError) -> None:
+        """Report a camera read the API made for itself, with no caller to raise to.
+
+        Bring-up's populate, the frame a binning write leaves and the refresh
+        after an auto cycle are no person's ask: the failure is logged once,
+        by the one reporter, and shown to no one. What the API holds instead
+        is each caller's contract.
+        """
+        notifications.report_outcome(failed, solicited=False, category='Camera', log_only=True)
 
     def _invalidate_camera_cache(self) -> None:
         """Return the camera cache to the no-camera state, on disconnect.
@@ -934,7 +990,11 @@ class CameraAPI:
         chunk target of each source it would have recorded is cleared (the
         next captures settle by frame count), each value it would have held
         is held as None, its applied-only invalidations fire, and the
-        refusal is raised as ``'camera_no_answer'``. A write
+        refusal is raised as ``'camera_no_answer'``. A first try whose
+        driver could not read what the write needs (``CameraReadFailedError``)
+        sent nothing: it is refused as ``'camera_read_failed'``, not resent,
+        and nothing held changes; the same failure on the resend follows a
+        try that may have been taken, so it is the unanswered case. A write
         whose driver raises any other hardware fault (``HardwareError``) is
         refused as ``refusal()``; each raise carries the driver's exception
         as its cause, so no setter lets a driver's own fault out of the API.
@@ -1000,12 +1060,15 @@ class CameraAPI:
                 returned. Chained to the driver's exception when it raised.
             CameraSettingRejected: The camera still present, the driver
                 refused the write (``'camera_rejected'``), raised a hardware
-                fault from it (``'camera_rejected'``, chained), or answered
-                neither try (``'camera_no_answer'``, chained).
+                fault from it (``'camera_rejected'``, chained), answered
+                neither try (``'camera_no_answer'``, chained), or could not
+                read what the write needs, so nothing was sent
+                (``'camera_read_failed'``, chained).
         """
         # The register may change anywhere from the first try's start: a
         # try the camera did not answer may still have taken it.
         began_ns = host_clock.steady_ns()
+        sent_again = False
         try:
             try:
                 result = write_fn()
@@ -1013,10 +1076,16 @@ class CameraAPI:
                 if refusal is None:
                     raise
                 _api_log.info(f'{member}: the camera did not answer ({unanswered}); sent again')
+                sent_again = True
                 result = write_fn()
-        except CameraNoAnswerError as ex:
+        except (CameraNoAnswerError, CameraReadFailedError) as ex:
             if refusal is None:
                 raise
+            if isinstance(ex, CameraReadFailedError) and not sent_again:
+                # Every driver reads what a write needs before its first
+                # write, so a first try's failed read sent nothing.
+                refused = refusal()
+                raise self._read_failed(member, refused.setting, refused.requested) from ex
             for source, _value in targets:
                 self.frame_validity.set_target(source, None)
             for source in invalidates:
@@ -1059,6 +1128,33 @@ class CameraAPI:
         if cache_update:
             self._commit_camera_writes(cache_update)
         return result
+
+    def _read_a_write_needs(
+        self, member: str, setting: str, requested: object, read: Callable[[], object]
+    ) -> object:
+        """``read()``'s answer, for a write of ``setting`` that needs it first.
+
+        A read that fails sends nothing, so the write is refused as one not
+        sent, in the one shape ``_camera_write`` gives the same fact.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the camera was
+                declared removed by the time the read failed.
+            CameraSettingRejected: ``'camera_read_failed'``, chained to the
+                read.
+        """
+        try:
+            return read()
+        except CameraReadFailedError as failed:
+            raise self._read_failed(member, setting, requested) from failed
+
+    def _read_failed(
+        self, member: str, setting: str, requested: object
+    ) -> HardwareCommandRefusedError | CameraSettingRejected:
+        """What a write of ``setting`` not sent for a failed read raises."""
+        if self.camera_removed:
+            return _camera_not_connected(member)
+        return _read_failed_rejection(setting, requested)
 
     def _commit_camera_writes(self, updates: dict) -> None:
         """Cache write-through for authoritative values.
@@ -1124,6 +1220,11 @@ class CameraAPI:
                 (``_camera_write``); the gain is not recorded, since frames
                 keep streaming at the old one and IDS has no chunk backstop
                 to catch the mismatch downstream.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, when it was removed during the write
                 (``_camera_write``).
@@ -1180,6 +1281,11 @@ class CameraAPI:
         Raises:
             CameraSettingRejected: The write did not apply
                 (``_camera_write``); the exposure is not recorded.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, when it was removed during the write
                 (``_camera_write``).
@@ -1489,6 +1595,11 @@ class CameraAPI:
             CameraSettingRejected: A live driver refused the gain or raised
                 from the write (chained). It carries the words its reporter
                 shows; nothing is shown here.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
         """
@@ -1540,6 +1651,11 @@ class CameraAPI:
             CameraSettingRejected: A live driver refused the exposure or
                 raised from the write (chained). It carries the words its
                 reporter shows; nothing is shown here.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
         """
@@ -1594,6 +1710,11 @@ class CameraAPI:
         Raises:
             CameraSettingRejected: The camera refused the change. Nothing
                 was recorded, and nothing is shown here.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
             CameraSettingUnsupportedError: Turning auto-gain on for a camera
                 without it.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -1647,6 +1768,11 @@ class CameraAPI:
             CameraSettingUnsupportedError: Turning auto-gain on for a camera
                 without it. Nothing reaches the camera.
             CameraSettingRejected: The write did not apply (``_camera_write``).
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
 
         if not self._driver or not self._driver.active:
@@ -1949,6 +2075,11 @@ class CameraAPI:
                 ``mode``: a one-shot is ``auto_gain_once``'s. Nothing is sent.
             CameraSettingRejected: The camera refused the change; nothing is
                 shown here.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
             CameraSettingUnsupportedError: Turning auto-exposure on for a
                 camera without it.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -1982,6 +2113,11 @@ class CameraAPI:
                 camera without it. Nothing reaches the camera.
             CameraSettingRejected: The write did not apply
                 (``_camera_write``); the cache is not resynced.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
 
         if not self._driver or not self._driver.active:
@@ -2072,10 +2208,11 @@ class CameraAPI:
                 is saved.
             CameraSettingRejected: The camera refused it or raised from it
                 (chained). Nothing is saved.
-            CameraReadFailedError: ``'camera_read_failed'``, the camera's
-                probe of the mode failed, here and when it came up
-                (``capabilities.camera_supports_conversion_gain_mode`` is
-                None). Nothing was written or saved.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         self._dispatch_camera(
             self._saved_after(
@@ -2108,10 +2245,11 @@ class CameraAPI:
                 or is saved.
             CameraSettingRejected: The camera refused it or raised from it
                 (chained). Nothing is saved.
-            CameraReadFailedError: ``'camera_read_failed'``, the camera's
-                probe of the filter failed, here and when it came up
-                (``capabilities.camera_supports_line_noise_reduction`` is
-                None). Nothing was written or saved.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         self._dispatch_camera(
             self._saved_after(
@@ -2149,6 +2287,11 @@ class CameraAPI:
             CameraSettingRejected: The camera refused the format. Nothing is
                 saved, so captures are never tagged with a depth the camera
                 is not delivering.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
         target = image_mode.select_capture_pixel_format(
@@ -2197,6 +2340,11 @@ class CameraAPI:
                 saved) or the frame after it (the binning is saved, with the
                 frame the camera reports holding at it, and no frame when it
                 has never reported one).
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         self._refuse_unusable_binning(size, 'set_binning')
         # One lane task restarts the grab twice: the binning, then the frame.
@@ -2255,6 +2403,11 @@ class CameraAPI:
                 not checked.
             CameraSettingRejected: The camera refused the frame. Nothing is
                 saved.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         return self._dispatch_camera(
             self._frame_and_save_impl,
@@ -2266,7 +2419,12 @@ class CameraAPI:
 
     def _frame_and_save_impl(self, width: int, height: int) -> FrameSize | None:
         """On the camera lane: frame at ``width`` x ``height`` at the binning held, and save it."""
-        factor = self._held_or_read('binning')
+        factor = self._read_a_write_needs(
+            'set_frame_size',
+            'frame_size',
+            {'width': width, 'height': height},
+            lambda: self._held_or_read('binning'),
+        )
         asked = {'width': width * factor, 'height': height * factor}
         # The frame is worked out, and refused out of range, from the region
         # as asked; the region saved is capped at what the scope delivers, so
@@ -2371,6 +2529,8 @@ class CameraAPI:
             CameraSettingOutOfRangeError: A width or height below the
                 camera's minimum frame, or above the scope's maximum at the
                 current binning.
+            CameraSettingRejected: ``'camera_read_failed'``, the binning is
+                not held and its read failed; nothing was sent.
         """
         # The range is the connected camera's: with none, or the scope
         # disconnected, that is the answer, not a range it no longer has.
@@ -2378,7 +2538,9 @@ class CameraAPI:
         limits = self._scope.capabilities.camera_limits
         minimum = limits.frame_min if limits else None
         maximum = limits.frame_max if limits else None
-        factor = self._held_or_read('binning')
+        factor = self._read_a_write_needs(
+            'set_frame_size', 'frame_size', target, lambda: self._held_or_read('binning')
+        )
         for axis in ('width', 'height'):
             self._refuse_out_of_range(
                 f'frame_{axis}',
@@ -2417,8 +2579,10 @@ class CameraAPI:
     def _held_or_read(self, key: str) -> object:
         """The value held for ``key``, read fresh from the camera when it is unknown.
 
-        For a write that needs the camera's geometry: an unknown one is asked
-        for rather than assumed.
+        For a write or a frame's record that needs the camera's geometry: an
+        unknown one is asked for rather than assumed. A write that needs it
+        reads it through ``_read_a_write_needs``, so a failed read is that
+        write not sent.
 
         Raises:
             CameraReadFailedError: It is unknown and the camera does not answer.
@@ -2526,6 +2690,11 @@ class CameraAPI:
         Raises:
             CameraSettingRejected: A live driver rejected the apply. It
                 carries the words its reporter shows; nothing is shown here.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
 
         if not self._driver or not self._driver.active:
@@ -2581,6 +2750,11 @@ class CameraAPI:
                 recorded as current by a caller that drops the return --
                 a rejected binning silently poisons every native-ROI /
                 FOV / stitch derivation built on the recorded factor.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         if not self._driver or not self._driver.active:
             return False
@@ -2636,6 +2810,11 @@ class CameraAPI:
                 return cannot record a rejected format as current --
                 capture depth, saved-file tagging, and data-rate math all
                 key off the recorded format.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         if not self._driver or not self._driver.active:
             return False
@@ -2683,12 +2862,23 @@ class CameraAPI:
                 Nothing reaches the camera.
             CameraSettingRejected: The driver refused the change or raised
                 from it (chained).
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         if not self._driver or not self._driver.active:
             return False
+        driver = self._driver
         if not _has_settable_feature(
             self._scope.capabilities.camera_supports_conversion_gain_mode,
-            self._driver.supports_conversion_gain_mode,
+            lambda: self._read_a_write_needs(
+                'set_conversion_gain_mode',
+                'conversion_gain_mode',
+                mode,
+                driver.supports_conversion_gain_mode,
+            ),
         ):
             if mode == 'Low':
                 self._commit_camera_writes({'high_conversion_gain': False})
@@ -2737,12 +2927,23 @@ class CameraAPI:
                 without it. Nothing reaches the camera.
             CameraSettingRejected: The driver refused the change or raised
                 from it (chained).
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         if not self._driver or not self._driver.active:
             return False
+        driver = self._driver
         if not _has_settable_feature(
             self._scope.capabilities.camera_supports_line_noise_reduction,
-            self._driver.supports_line_noise_reduction,
+            lambda: self._read_a_write_needs(
+                'set_line_noise_reduction',
+                'line_noise_reduction',
+                enabled,
+                driver.supports_line_noise_reduction,
+            ),
         ):
             if not enabled:
                 self._commit_camera_writes({'line_noise_reduction': False})
@@ -2896,9 +3097,11 @@ class CameraAPI:
             CameraSettingRejected: The camera refused it, as a camera holding
                 its black level automatically does, or raised from the write
                 (chained).
-            CameraReadFailedError: ``'camera_read_failed'``, the camera's
-                probe of its black level setting or the read of its range
-                failed. Nothing was sent.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         return self._dispatch_camera(
             self._set_black_level_impl,
@@ -2917,7 +3120,10 @@ class CameraAPI:
         if not driver or not driver.active:
             return None
         if not _has_settable_feature(
-            self._scope.capabilities.camera_supports_black_level, driver.supports_black_level
+            self._scope.capabilities.camera_supports_black_level,
+            lambda: self._read_a_write_needs(
+                'set_black_level', 'black_level', value, driver.supports_black_level
+            ),
         ):
             raise _absent_mode_refusal(
                 'black_level',
@@ -2926,7 +3132,9 @@ class CameraAPI:
                 offered=(),
                 consequence='The black level stays as it is.',
             )
-        low, high = driver.get_black_level_range()
+        low, high = self._read_a_write_needs(
+            'set_black_level', 'black_level', value, driver.get_black_level_range
+        )
         self._refuse_out_of_range('black_level', value, low, high, noun='black level', unit='units')
 
         def _write_black_level():
@@ -2956,8 +3164,8 @@ class CameraAPI:
                 camera, with none connected; ``'scope_disconnected'`` after
                 ``disconnect()``.
             CameraReadFailedError: The driver raised a hardware fault, or
-                answered its failed-read value; the value held is left as it
-                was.
+                answered a value out of the setting's range; the value held
+                is left as it was.
         """
         self.refuse_camera_not_connected(f'read_{key}')
         driver = self._driver
@@ -2994,16 +3202,16 @@ class CameraAPI:
         return value
 
     def _refresh_held(self, key: str) -> None:
-        """Read ``key`` fresh into the value held; a read the camera did not answer is logged.
+        """Read ``key`` fresh into the value held; a read the camera did not answer is reported.
 
         For the API's own refreshes, which have no caller to raise to:
-        bring-up's populate, and the frame a binning write leaves. The value
-        held stays as it was.
+        bring-up's populate, and the frame a binning write leaves. A failed
+        read leaves the value held as it was (``_report_unread``).
         """
         try:
             self._read_fresh(key)
         except CameraReadFailedError as failed:
-            logger.warning(f'[SCOPE API ] {failed}; the value held is left as it was')
+            self._report_unread(failed)
 
     def _read_unheld(
         self, member: str, noun: str, reader: Callable[[Camera], object]
@@ -3704,11 +3912,9 @@ class CameraAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera: none is connected and the snapshot holds a setting
                 to restore, or the restore found it removed.
-            CameraReadFailedError: a setting could not be read to compare;
-                what the camera holds is saved first.
             CameraSettingRejected: the camera refused binning, frame size or
-                format; the restore stops there, with what the camera holds
-                saved.
+                format, or its compare read failed (``'camera_read_failed'``);
+                the restore stops there, with what the camera holds saved.
         """
         return self._dispatch_camera(
             self._restore_camera_state_impl,
@@ -3847,11 +4053,10 @@ class CameraAPI:
         changed nothing saves nothing.
 
         Raises:
-            CameraReadFailedError: A setting could not be read to compare;
-                what the camera holds is saved first.
             CameraSettingRejected: The camera refused binning, frame size or
-                format; the restore stops there, as a setter's raise does,
-                with what the camera holds saved.
+                format, or its compare read failed (``'camera_read_failed'``);
+                the restore stops there, as a setter's raise does, with what
+                the camera holds saved.
         """
         stored = snapshot.get('stored')
         try:
@@ -3876,41 +4081,53 @@ class CameraAPI:
         """Write back each of the snapshot's settings beyond gain and exposure
         that differs from the camera's value now, in ``_GEOMETRY_ORDER``.
 
+        A compare read that fails sends nothing for its key, and is that
+        key's refusal (``'camera_read_failed'``): binning, frame size and
+        format stop the restore as their refused write would; the black
+        level is reported and the rest go on, as its refused write is.
+
         Raises:
-            CameraReadFailedError: A setting could not be read to compare.
             CameraSettingRejected: The camera refused binning, frame size or
-                format; the restore stops there, as a setter's raise does.
+                format, or its compare read failed (``'camera_read_failed'``);
+                the restore stops there, as a setter's raise does.
         """
         for key in _GEOMETRY_ORDER:
             wanted = snapshot.get(key)
             if wanted is None:
                 continue
-            if key == 'black_level':
-                now = self._read_black_level_impl()
-            elif key in _HELD_TOGGLES:
-                now = self._held(key)
-            else:
-                now = self._read_fresh(key)
-            if now == wanted:
+            if key in ('binning', 'frame_size', 'pixel_format'):
+                now = self._read_a_write_needs(
+                    'restore_camera_state', key, wanted, lambda key=key: self._read_fresh(key)
+                )
+                if now == wanted:
+                    continue
+                if key == 'binning':
+                    self._set_binning_impl(wanted)
+                elif key == 'frame_size':
+                    self._set_frame_size_impl(wanted['width'], wanted['height'])
+                else:
+                    self._set_pixel_format_impl(wanted)
                 continue
-            if key == 'binning':
-                self._set_binning_impl(wanted)
-            elif key == 'frame_size':
-                self._set_frame_size_impl(wanted['width'], wanted['height'])
-            elif key == 'pixel_format':
-                self._set_pixel_format_impl(wanted)
-            else:
-                # A value the camera refuses is reported and the rest go on,
-                # as one setting's refusal leaves no other unrestored.
-                try:
-                    if key == 'high_conversion_gain':
-                        self._set_conversion_gain_mode_impl('High' if wanted else 'Low')
-                    elif key == 'line_noise_reduction':
-                        self._set_line_noise_reduction_impl(wanted)
-                    else:
-                        self._set_black_level_impl(wanted)
-                except CameraSettingRejected as rejected:
-                    self._report_refused_write(rejected)
+            # A value the camera refuses, or one it cannot be read to compare,
+            # is reported and the rest go on, as one setting's refusal leaves
+            # no other unrestored.
+            try:
+                if key == 'black_level':
+                    now = self._read_a_write_needs(
+                        'restore_camera_state', key, wanted, self._read_black_level_impl
+                    )
+                else:
+                    now = self._held(key)
+                if now == wanted:
+                    continue
+                if key == 'high_conversion_gain':
+                    self._set_conversion_gain_mode_impl('High' if wanted else 'Low')
+                elif key == 'line_noise_reduction':
+                    self._set_line_noise_reduction_impl(wanted)
+                else:
+                    self._set_black_level_impl(wanted)
+            except CameraSettingRejected as rejected:
+                self._report_refused_write(rejected)
 
     # --- Camera config orchestration ---
     def hold_channel(self, channel: str, request: ChannelCameraRequest) -> dict | None:
@@ -4123,8 +4340,9 @@ class CameraAPI:
                 exposure or the auto-gain change. When more than one,
                 ``setting`` names each, comma-separated, ``requested`` holds
                 their values in that order, the message carries each
-                sentence, and the reason is ``'camera_no_answer'`` when any
-                of them got no answer.
+                sentence, and the reason is the first any of them carries of
+                ``'camera_no_answer'``, ``'camera_read_failed'`` and
+                ``'camera_rejected'``.
         """
         if auto_gain:
             if auto_gain_settings is None:
@@ -4213,7 +4431,8 @@ class CameraAPI:
                 exposure or the auto-gain change. When more than one, ``setting``
                 names each, comma-separated, ``requested`` holds their values in
                 that order, the message carries each sentence, and the reason is
-                ``'camera_no_answer'`` when any of them got no answer.
+                the first any of them carries of ``'camera_no_answer'``,
+                ``'camera_read_failed'`` and ``'camera_rejected'``.
         """
         if not self._driver or not self._driver.active:
             return None
@@ -4283,17 +4502,15 @@ class CameraAPI:
         if len(refused) == 1:
             raise refused[0]
         if refused:
-            # Not answered when any part got no answer: what the camera holds
-            # is then not known, whatever the other parts said.
+            # The first reason any part carries, in _COMBINED_REASONS' order:
+            # a value now not known outranks a write not sent, which outranks
+            # a write the camera refused.
+            reasons = {r.reason for r in refused}
             raise CameraSettingRejected(
                 ','.join(r.setting for r in refused),
                 tuple(r.requested for r in refused),
                 message=' '.join(str(r) for r in refused),
-                reason=(
-                    'camera_no_answer'
-                    if any(r.reason == 'camera_no_answer' for r in refused)
-                    else 'camera_rejected'
-                ),
+                reason=next(reason for reason in _COMBINED_REASONS if reason in reasons),
             ) from refused[0]
         return {'gain_db': gain_result, 'exposure_ms': exposure_result}
 
@@ -4313,6 +4530,11 @@ class CameraAPI:
         Raises:
             CameraSettingRejected: The camera refused the one-shot; nothing
                 is shown here.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
             CameraSettingUnsupportedError: The camera has no hardware
                 auto-gain.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -4348,6 +4570,11 @@ class CameraAPI:
             CameraSettingRejected: The write did not apply
                 (``_camera_write``); the arm and the cache are left as they
                 were.
+                Its reason is ``'camera_rejected'`` for a refusal,
+                ``'camera_no_answer'`` for a write the camera answered
+                neither time, and ``'camera_read_failed'`` for one not sent
+                because a read it needs failed, the camera keeping its
+                previous value.
         """
         if not self._driver or not self._driver.active:
             return

@@ -395,38 +395,38 @@ def first_few(items: list[str], *, separator: str, limit: int = 5) -> str:
     return f'{shown}{separator}and {remaining} more' if remaining > 0 else shown
 
 
-def is_valid_gain_db(value) -> bool:
+def is_valid_gain_db(value: object) -> bool:
     """True when a camera gain reading is usable (a number >= 0 dB).
 
-    Negative is the drivers' failed-read / inactive sentinel; 0 dB is a
-    legal gain. A non-number (e.g. a stringified value from a hand-built
-    snapshot) is invalid rather than a comparison TypeError, so every
-    consumer can branch on the predicate without its own type guard.
-    One shared predicate so every consumer of the sentinel contract
-    validates the same way.
+    Negative is the drivers' not-connected answer (a read that fails
+    raises); 0 dB is a legal gain. A non-number (e.g. a stringified value
+    from a hand-built snapshot) is invalid rather than a comparison
+    TypeError, so every consumer can branch on the predicate without its
+    own type guard. One shared predicate so every consumer validates the
+    same way.
     """
     return isinstance(value, numbers.Real) and value >= 0
 
 
-def is_valid_exposure_ms(value) -> bool:
+def is_valid_exposure_ms(value: object) -> bool:
     """True when a camera exposure reading is usable (a positive number).
 
-    Negative is the drivers' failed-read sentinel and 0 is the API's
-    inactive-camera return -- neither is a physical exposure. A
-    non-number is invalid rather than a comparison TypeError. One shared
-    predicate so every consumer of the sentinel contract validates the
-    same way.
+    Negative is the drivers' not-connected answer (a read that fails
+    raises) and 0 is the API's inactive-camera return -- neither is a
+    physical exposure. A non-number is invalid rather than a comparison
+    TypeError. One shared predicate so every consumer validates the same
+    way.
     """
     return isinstance(value, numbers.Real) and value > 0
 
 
-def is_valid_frame_size(value) -> bool:
+def is_valid_frame_size(value: object) -> bool:
     """True when a frame-size reading is usable (positive width and height).
 
-    The drivers return None (or an empty dict for the max/min variants) as
-    the failed-read / inactive sentinel, and a zero dimension is never a
-    deliverable frame. One shared predicate so every consumer of the
-    sentinel contract validates the same way.
+    The drivers answer None (or an empty dict for the max/min variants)
+    when the camera is not connected (a read that fails raises), and a
+    zero dimension is never a deliverable frame. One shared predicate so
+    every consumer validates the same way.
     """
     if not isinstance(value, dict):
         return False
@@ -440,20 +440,21 @@ def is_valid_frame_size(value) -> bool:
     )
 
 
-def is_valid_pixel_format(value) -> bool:
+def is_valid_pixel_format(value: object) -> bool:
     """True when a pixel-format reading is usable (a non-empty string).
 
-    None is the drivers' shared failed-read / inactive sentinel -- distinct
-    from every real format name so it cannot be mistaken for one.
+    None is the drivers' not-connected answer (a read that fails raises)
+    -- distinct from every real format name so it cannot be mistaken for
+    one.
     """
     return isinstance(value, str) and value != ''
 
 
-def is_valid_binning_size(value) -> bool:
+def is_valid_binning_size(value: object) -> bool:
     """True when a binning reading is usable (a whole factor >= 1).
 
-    Negative is the drivers' failed-read sentinel; binning is always at
-    least 1x1 on real hardware.
+    Below 1 is never a binning a camera holds (a read that fails raises);
+    binning is always at least 1x1 on real hardware.
     """
     return isinstance(value, numbers.Real) and value >= 1
 

@@ -1198,7 +1198,7 @@ class TestSetBinningSizeAnswersByRaising:
         )
 
         cam = _bare_ids_camera()
-        cam._resolve_logical_format = lambda fmt: 'Mono8'
+        cam._read_supported_pixel_formats = lambda: ('Mono8',)
         cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.side_effect = RuntimeError('sdk')
         with pytest.raises(HardwareError):
             cam.set_pixel_format('Mono8')

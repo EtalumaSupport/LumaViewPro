@@ -5365,7 +5365,9 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
         reason: ``'camera_rejected'`` -- the camera refused the write, or
             its driver raised from it. ``'camera_no_answer'`` -- the camera
             did not answer the write, sent twice, so whether it took it is
-            not known. The setting is in ``setting`` and in the words.
+            not known. ``'camera_read_failed'`` -- a read the write needs
+            first failed, so nothing was sent and the camera keeps its
+            previous value. The setting is in ``setting`` and in the words.
         setting: Machine-readable setting name (e.g. 'frame_size').
         requested: The value the caller asked for.
     """
@@ -5374,9 +5376,10 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
     _TITLES: ClassVar[dict[str, str]] = {
         'camera_rejected': 'Camera Setting Not Applied',
         'camera_no_answer': 'Camera Did Not Answer',
+        'camera_read_failed': CameraReadFailedError.title,
     }
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
-    same_fact_as = (CameraNoAnswerError,)
+    same_fact_as = (CameraNoAnswerError, CameraReadFailedError)
 
     def __init__(self, setting: str, requested, *, message: str, reason: str = 'camera_rejected'):
         if reason not in self._TITLES:

@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, call, patch
 import ids_peak_ipl
 import numpy as np
 import pytest
+from ids_peak import ids_peak
 
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import HandOver
@@ -34,7 +35,7 @@ from _lumascope.drivers.idscamera import (
     _ids_ipl_target,
     ids_significant_bits,
 )
-from _lumascope.drivers.exceptions import CameraUsbOpenFailedError
+from _lumascope.drivers.exceptions import CameraReadFailedError, CameraUsbOpenFailedError
 from tests.camera_fakes import bare_ids_camera
 from tests.log_capture import records_of
 
@@ -132,7 +133,7 @@ class TestSignificantBitsFromFormat:
         assert _cam_lines(caplog, logging.WARNING) == []
 
     def test_empty_format_defaults_8_quietly(self, caplog):
-        # An empty/None format is a failed-read sentinel, not a color camera --
+        # An empty/None format is no format read, not a color camera --
         # default to 8 without the misleading "unrecognized color format" warning.
         with caplog.at_level(logging.WARNING):
             assert ids_significant_bits('') == 8
@@ -1377,14 +1378,14 @@ def _descriptor(serial, key='KEY-NEW'):
 
 
 class TestBinningReadSentinel:
-    def test_get_binning_size_returns_minus_one_on_read_failure(self):
-        # 1 is a LEGAL binning factor, so it cannot double as the failure
-        # sentinel: an active read that throws must return the out-of-band -1
-        # (a value-validating caller rejects it), not 1 (which would read as a
-        # real 1x camera and silently de-bin a 2x body downstream).
+    def test_a_failed_binning_read_raises_and_keeps_the_camera(self):
+        # 1 is a LEGAL binning factor, so no value can tell a failed read: it
+        # raises, and the camera is kept (removal is the DeviceLost callback's).
         cam = bare_ids_camera()
-        cam.remote_nodemap.FindNode.side_effect = Exception('node read failed')
-        assert cam.get_binning_size() == -1
+        cam.remote_nodemap.FindNode.side_effect = ids_peak.Exception('node read failed')
+        with pytest.raises(CameraReadFailedError, match='node read failed'):
+            cam.get_binning_size()
+        cam._mark_disconnected.assert_not_called()
 
 
 class TestDeviceLostCallback:
@@ -2066,14 +2067,15 @@ class TestLiveExposureMinimum:
             cam.get_min_exposure()
 
 
-def _unanswered() -> RuntimeError:
-    """What the driver's classifier reads as the camera not answering.
+def _unanswered() -> Exception:
+    """The SDK's timeout, as the camera not answering raises it.
 
-    ``ids_peak`` is a MagicMock under test, so ``_exc_is`` classifies by the
-    message's text, the path an SDK build without the typed name takes.
+    The suite's ``ids_peak`` stand-in carries the SDK's exception classes, so
+    this is the type a real body raises: a getter turns it into
+    ``CameraReadFailedError``, and a writer's classifier reads it as no answer.
     """
     # The node is not named, so a writer's words must name its setting themselves.
-    return RuntimeError('GC_ERR_TIMEOUT: timeout waiting for the device')
+    return ids_peak.TimeoutException('GC_ERR_TIMEOUT: timeout waiting for the device')
 
 
 class _SdkNode:
@@ -2269,37 +2271,46 @@ class TestASettingWriteTheCameraDoesNotAnswer:
             cam.set_frame_size(1900, 1900)
         assert cam._frame_window is None
 
-    def test_an_unanswered_read_the_write_needs_is_a_no_answer_and_writes_nothing(self):
+    def test_an_unanswered_read_the_write_needs_writes_nothing(self):
+        """A read inside the write's own body is a no-answer (sent again by the
+        API); a getter the write reads first (the frame grid, the format list,
+        the gain selector) raises its read failure, refused by the API as a
+        write not sent. Either way nothing is written."""
         from _lumascope.drivers.exceptions import CameraNoAnswerError
 
         # writer: (the node read ahead of the write, that read, the call, the
-        # setting's own node). Gain's selector is written before its range is
-        # read, since the range is the selected amplifier's; Gain is not.
+        # setting's own node, what it raises). Gain's selector is written before
+        # its range is read, since the range is the selected amplifier's; Gain
+        # is not.
         reads = {
             'exposure_t': (
                 'ExposureTime',
                 'Minimum',
                 lambda cam: cam.exposure_t(10.0),
                 'ExposureTime',
+                CameraNoAnswerError,
             ),
-            'gain': ('Gain', 'Maximum', lambda cam: cam.gain(6.0), 'Gain'),
+            'gain': ('Gain', 'Maximum', lambda cam: cam.gain(6.0), 'Gain', CameraNoAnswerError),
             'set_frame_size': (
                 'Width',
                 'Increment',
                 lambda cam: cam.set_frame_size(1900, 1900),
                 'Width',
+                CameraReadFailedError,
             ),
             'set_black_level': (
                 'BlackLevelAuto',
                 'CurrentEntry',
                 lambda cam: cam.set_black_level(3.0),
                 'BlackLevel',
+                CameraNoAnswerError,
             ),
             'set_pixel_format': (
                 'PixelFormat',
                 'AvailableEntries',
                 lambda cam: cam.set_pixel_format('Mono12'),
                 'PixelFormat',
+                CameraReadFailedError,
             ),
             # The selector left unresolved at connect is resolved by the write.
             'gain (its selector)': (
@@ -2307,17 +2318,22 @@ class TestASettingWriteTheCameraDoesNotAnswer:
                 'AvailableEntries',
                 lambda cam: (setattr(cam, '_gain_selector', None), cam.gain(6.0))[1],
                 'Gain',
+                CameraReadFailedError,
             ),
         }
         offenders = []
-        for writer, (node_name, method, write, setting_node) in reads.items():
+        for writer, (node_name, method, write, setting_node, raises) in reads.items():
             cam = _camera_answering_except()
             cam.remote_nodemap.nodes[node_name].unanswered.add(method)
             try:
                 result = write(cam)
-            except CameraNoAnswerError as e:
-                if 'not written' not in str(e):
+            except (CameraNoAnswerError, CameraReadFailedError) as e:
+                if type(e) is not raises:
+                    offenders.append(f'{writer}: raised {type(e).__name__}, not {raises.__name__}')
+                elif raises is CameraNoAnswerError and 'not written' not in str(e):
                     offenders.append(f'{writer}: words {str(e)!r} do not say nothing was written')
+                elif 'GC_ERR_TIMEOUT' not in str(e):
+                    offenders.append(f"{writer}: words {str(e)!r} drop the SDK's text")
             except Exception as e:
                 offenders.append(f'{writer}: raised {type(e).__name__}({e})')
             else:
@@ -2326,14 +2342,15 @@ class TestASettingWriteTheCameraDoesNotAnswer:
                 offenders.append(f'{writer}: wrote {setting_node} after the read failed')
         assert offenders == []
 
-    def test_a_short_cut_read_the_camera_does_not_answer_still_writes(self):
-        # Binning reads the current factor ahead of its write; a timeout there
-        # is tolerated and the write goes ahead.
+    def test_a_binning_write_whose_binning_read_is_not_answered_writes_nothing(self):
+        # Binning reads the current factor ahead of its write, to know whether
+        # the window still fits; a read that fails sends nothing.
         cam = _camera_answering_except(
             _SdkNode('BinningVertical', value=1, maximum=2, unanswered_reads='before')
         )
-        assert cam.set_binning_size(2) is True
-        assert cam.remote_nodemap.nodes['BinningVertical'].writes == [2]
+        with pytest.raises(CameraReadFailedError, match='GC_ERR_TIMEOUT'):
+            cam.set_binning_size(2)
+        assert cam.remote_nodemap.nodes['BinningVertical'].writes == []
 
     def test_a_read_back_the_camera_does_not_answer_is_the_write_applied(self):
         cam = _camera_answering_except(

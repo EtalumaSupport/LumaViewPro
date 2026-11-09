@@ -18,6 +18,8 @@ import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
 
+from _lumascope.drivers.exceptions import HardwareError
+
 
 def _read(session):
     scope = session.scope
@@ -35,8 +37,12 @@ def _read(session):
     figure('largest frame (unbinned)', caps.camera_limits.frame_max)
     check("the capabilities publish the camera's formats", bool(published))
 
-    grid = scope.imaging._driver._frame_grid()
-    check('the camera reports its frame grid', grid is not None)
+    try:
+        grid = scope.imaging._driver._frame_grid()
+    except HardwareError as failed:
+        check('the camera reports its frame grid', False, str(failed))
+        return
+    check('the camera reports its frame grid', grid is not None, 'no camera connected')
     if grid is None:
         return
     figure('frame grid step (width, height)', grid.step)

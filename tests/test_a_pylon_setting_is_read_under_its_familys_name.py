@@ -23,9 +23,11 @@ import logging
 from unittest import mock
 from unittest.mock import MagicMock
 
+import pytest
 from pypylon import genicam
 
 from _lumascope.drivers import pyloncamera
+from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.drivers.pyloncamera import PylonCamera
 from tests.camera_fakes import (
     RecordingNodeMap,
@@ -116,21 +118,14 @@ def test_get_exposure_t_falls_back_to_set_value():
     assert cam.get_exposure_t() == 4.0
 
 
-def test_a_failed_effective_exposure_read_is_not_answered_by_the_set_value(caplog):
-    """A failed read of the effective exposure is the read's failure, told
-    at ERROR without a traceback: never the set value in its place."""
+def test_a_failed_effective_exposure_read_is_not_answered_by_the_set_value():
+    """A failed read of the effective exposure is the read's failure, raised
+    with the SDK's words: never the set value in its place."""
     cam = nodemaps_answer_attributes(bare_pylon_camera())
     cam.active.BslEffectiveExposureTime.GetValue.side_effect = genicam.RuntimeException('usb gone')
     cam.active.ExposureTime.GetValue.return_value = 4000.0
-    with caplog.at_level(logging.ERROR):
-        assert cam.get_exposure_t() == -1
-    errors = [r for r in records_of(caplog, pyloncamera) if r.levelno >= logging.ERROR]
-    assert errors
-    assert all(
-        r.getMessage().startswith('[CAM Class ] Failed to read exposure time') for r in errors
-    )
-    assert all(r.exc_info is None for r in errors)
-    assert any('usb gone' in r.getMessage() for r in errors)
+    with pytest.raises(CameraReadFailedError, match='usb gone'):
+        cam.get_exposure_t()
 
 
 def test_diag_snapshot_prefers_bsl_nodes():

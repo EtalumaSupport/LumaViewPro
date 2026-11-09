@@ -86,7 +86,7 @@ def test_a_defect_in_any_fresh_read_leaves_as_itself(sim_scope, monkeypatch):
     camera = sim_scope.camera
     relabelled = {}
     for read, node in _READS:
-        getter, _failure = SimulatedCamera.FAILED_READS[node]
+        getter = SimulatedCamera.FAILED_READS[node]
 
         def defect(*_a, **_kw):
             # a stand-in by design: our own defect inside a driver's read,

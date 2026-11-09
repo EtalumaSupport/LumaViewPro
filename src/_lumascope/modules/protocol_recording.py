@@ -495,8 +495,9 @@ class ProtocolVideoStep:
             CameraReadFailedError: The camera did not answer the latch of
                 its clock.
             CameraSettingRejected: The camera did not take the disarm or
-                the one-shot auto-gain; it leaves the video step, which the
-                writer counts a failed capture.
+                the one-shot auto-gain (its ``reason`` says how: refused,
+                unanswered, or not sent for a failed read); it leaves the
+                video step, which the writer counts a failed capture.
         """
         scope = self._scope
         # A camera without hardware auto-gain records the step manual, as

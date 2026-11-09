@@ -10,15 +10,21 @@ does; a list the camera cannot report keeps the documented one.
 
 from __future__ import annotations
 
+from pypylon import genicam
+
 from _lumascope.drivers.camera_profiles import lookup_profile
 from tests.camera_fakes import bare_pylon_camera
 from tests.scope_fakes import capabilities_of
 
 
 def _connected_dart(offered):
+    """A dart whose format list answers ``offered``, or raises it when it is an exception."""
     cam = bare_pylon_camera()
     cam.profile = lookup_profile('daA3840-45um')
-    cam.active.PixelFormat.GetSymbolics.return_value = offered
+    if isinstance(offered, Exception):
+        cam.active.PixelFormat.GetSymbolics.side_effect = offered
+    else:
+        cam.active.PixelFormat.GetSymbolics.return_value = offered
     cam._query_dynamic_capabilities()
     return cam
 
@@ -30,5 +36,5 @@ def test_the_profile_and_capabilities_list_what_the_camera_offers():
 
 
 def test_an_unreadable_list_keeps_the_documented_formats():
-    cam = _connected_dart(())
+    cam = _connected_dart(genicam.RuntimeException('PixelFormat entries unreadable'))
     assert cam.profile.pixel_formats == ['Mono8', 'Mono12', 'Mono12p']

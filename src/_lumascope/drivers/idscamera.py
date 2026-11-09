@@ -37,6 +37,7 @@ from _lumascope.drivers.exceptions import (
     CameraReadFailedError,
     CameraUsbOpenFailedError,
     CameraWriteFailedError,
+    HardwareError,
     PartAbsentError,
 )
 from _lumascope.drivers.registry import camera_registry
@@ -173,9 +174,9 @@ def ids_significant_bits(wire_format_name: str) -> int:
     unpack benchmark oracle); use the delivery helper for the depth stamp on a
     live/still frame.
     """
-    # Empty/None is a failed-read sentinel from get_pixel_format(), not a format:
-    # default to 8 QUIETLY (a warning here would misreport a transient read glitch
-    # as a color/packed camera). Also keeps the startswith calls below None-safe.
+    # Empty/None is a format not known (the API's held format before it is
+    # read), not a format: default to 8 QUIETLY (a warning here would misreport
+    # it as a color/packed camera). Also keeps the startswith calls below None-safe.
     if not wire_format_name:
         return 8
     if wire_format_name.startswith('Mono12'):
@@ -1262,28 +1263,29 @@ class IDSCamera(Camera):
 
     def _resolve_gain_selector(self):
         """Resolve the analog GainSelector entry from the live nodemap enum, or
-        None if the body has no GainSelector / the read fails.
+        None if the body has no GainSelector.
 
         Raises:
-            The SDK's exception when the camera did not answer the read
-            (``_exc_is`` timeout): a gain write that needs the selector
-            answers it as no answer, not as a body without one.
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included: a gain write that needs the selector is
+                refused for it, not told the body has none.
         """
         try:
+            nodemap = self.remote_nodemap
+            if not nodemap.HasNode('GainSelector'):
+                return None
             entries = tuple(
-                e.SymbolicValue()
-                for e in self.remote_nodemap.FindNode('GainSelector').AvailableEntries()
+                e.SymbolicValue() for e in nodemap.FindNode('GainSelector').AvailableEntries()
             )
-            preferred = 'AnalogAll'
-            gain = getattr(self.profile, 'gain', None)
-            if gain and getattr(gain, 'gain_selector', None):
-                preferred = gain.gain_selector
-            return self._select_gain_selector_name(entries, preferred)
-        except Exception as e:
-            if _exc_is(e, 'TimeoutException', 'timeout'):
-                raise
-            _cam_log.info(f'[CAM Class ] Could not resolve GainSelector: {e}')
-            return None
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of GainSelector entries: {e}'
+            ) from e
+        preferred = 'AnalogAll'
+        gain = getattr(self.profile, 'gain', None)
+        if gain and getattr(gain, 'gain_selector', None):
+            preferred = gain.gain_selector
+        return self._select_gain_selector_name(entries, preferred)
 
     def _query_dynamic_capabilities(self):
         """Query IDS SDK for gain/exposure ranges and merge into profile."""
@@ -1435,27 +1437,28 @@ class IDSCamera(Camera):
             # Mono10g40IDS / Mono12g24IDS, and not all sensors expose
             # Mono8). Operators need this in the log to diagnose any future
             # logical-to-camera mismatch.
-            supported = self.get_supported_pixel_formats()
-            logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
             # Couple to the live nodemap, not a model-keyed static profile:
             # any IDS body is driven by what its PixelFormat node actually
             # advertises, the same way gain / exposure / AOI are read live.
             # Record the real formats on the profile so a body whose model
             # string matched no static profile entry still reports hardware
             # truth downstream and selects a valid format here.
-            if supported:
-                self.profile.pixel_formats = list(supported)
-                preferred = self._select_default_pixel_format(supported)
-            else:
-                # The live AvailableEntries read returned nothing (transient
-                # SDK error). Fall back to the curated profile's formats
-                # rather than leaving the format unset -- an unset format
-                # streams at the UserSet default depth and would feed the
-                # unpack pipeline the wrong bit depth.
+            try:
+                supported = self.get_supported_pixel_formats()
+            except HardwareError as e:
+                # The live AvailableEntries read failed. Fall back to the
+                # curated profile's formats rather than leaving the format
+                # unset -- an unset format streams at the UserSet default depth
+                # and would feed the unpack pipeline the wrong bit depth.
                 _cam_log.warning(
-                    '[CAM Class ] Live PixelFormat read empty; falling back to the profile formats'
+                    f'[CAM Class ] PixelFormat entries unreadable ({e}); falling back to '
+                    f'the profile formats {self.profile.pixel_formats}'
                 )
                 preferred = self._select_default_pixel_format(self.profile.pixel_formats)
+            else:
+                logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
+                self.profile.pixel_formats = list(supported)
+                preferred = self._select_default_pixel_format(supported)
             if not preferred:
                 _cam_log.error(
                     '[CAM Class ] No usable mono PixelFormat available; leaving the format unset'
@@ -1836,8 +1839,8 @@ class IDSCamera(Camera):
         Unbinned, the free-run rate is the current maximum (no software cap).
         Binned, it is the maximum's period plus ``_BINNED_FRAME_TIME_MARGIN_S``:
         at the exact binned maximum the camera skips sensor slots. A failed
-        binning read (-1, logged by ``get_binning_size``) takes the maximum on
-        purpose: 1x1 is nearly every image, and the margin would cost it frames.
+        binning read leaves the rate where it was, said at WARNING, as a
+        refused rate does: the margin cannot be chosen without the binning.
 
         The maximum is EXPOSURE-COUPLED: a long exposure lowers it and the camera
         clamps the current rate down to it, while a later shorter exposure raises
@@ -1895,7 +1898,7 @@ class IDSCamera(Camera):
 
         dltl, dltl_max = _value_and_max('DeviceLinkThroughputLimit')
         rate, rate_max = _value_and_max('AcquisitionFrameRate')
-        frame = self.get_acquired_aoi() or {}
+        frame = self.get_acquired_aoi()
         # State the DELIVERED depth, not just the wire format: the Mono10 wire is
         # delivered as 8-bit (8-bit mode), Mono12 as native uint16. Logging only
         # the wire format left a bundle unable to say whether a frame arrived as
@@ -2098,11 +2101,6 @@ class IDSCamera(Camera):
 
             wire = self.get_pixel_format()
             result['wire_format'] = wire
-            if wire is None:
-                # get_pixel_format() returns None on a nodemap read failure;
-                # _ids_ipl_target(None) would raise. Degrade to a recorded error.
-                result['error'] = 'could not read pixel format'
-                return result
             target = _ids_ipl_target(wire)
 
             # Probe only the FIRST complete frame (processing more frames would
@@ -2228,12 +2226,9 @@ class IDSCamera(Camera):
                 results['icv'] = {'importable': False, 'error': f'{type(e).__name__}: {e}'}
 
         wire = self.get_pixel_format()
-        frame = self.get_acquired_aoi() or {}
-        width, height = frame.get('width'), frame.get('height')
+        frame = self.get_acquired_aoi()
+        width, height = frame['width'], frame['height']
         results.update(wire_format=wire, width=width, height=height)
-        if not width or not height:
-            results['error'] = 'could not read frame size'
-            return results
         target = _ids_ipl_target(wire)
 
         convert_ms, numpy_ms = [], []
@@ -2366,7 +2361,7 @@ class IDSCamera(Camera):
         return results
 
     def _frame_grid(self) -> FrameGrid | None:
-        """The AOI nodes' grid at the current binning; None when inactive or unreadable.
+        """The AOI nodes' grid at the current binning; None when not connected.
 
         The IMX676 AOI snaps to a coarse grid (48 px wide, 4 px tall), so the
         base acquires the next legal AOI up, centred on the optical axis, and
@@ -2377,6 +2372,11 @@ class IDSCamera(Camera):
         nodemap, not the profile: the hardware increment is authoritative, and
         an unrecognized model falls back to a default profile whose alignment
         (4) the SDK rejects.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer a read of the
+                AOI nodes, a timeout included; the frame size cannot be
+                planned without the grid, so no write is sent.
         """
         if not self.active:
             # Expected during disconnect/teardown; log so a dropped resize is
@@ -2398,11 +2398,11 @@ class IDSCamera(Camera):
             step = (width_node.Increment(), height_node.Increment())
             size_min = (width_node.Minimum(), height_node.Minimum())
             offset_step = (offset_x_node.Increment(), offset_y_node.Increment())
-            bias = self._optical_center_bias()
-        except Exception as e:
-            _raise_if_unanswered(e, 'read', 'Frame size (the Width/Height/Offset grid)')
-            _cam_log.error(f'[CAM Class ] set_frame_size could not read the AOI nodes: {e}')
-            return None
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of the Width/Height/Offset grid: {e}'
+            ) from e
+        bias = self._optical_center_bias()
         # The live Width/Height node bounds: min is the grid phase, inc the
         # alignment step, max the offset-zeroed sensor max. The 1x minimum is
         # otherwise only inferred from the delivered size -- logging it makes
@@ -2427,6 +2427,8 @@ class IDSCamera(Camera):
         Returns False when the camera is inactive or the apply fails.
 
         Raises:
+            CameraReadFailedError: The grab-state read the config guard needs
+                failed; nothing was written.
             CameraNoAnswerError: the camera did not answer one of the writes.
         """
         if not self.active:
@@ -2447,6 +2449,8 @@ class IDSCamera(Camera):
                 f'off=({plan.offset_x},{plan.offset_y})'
             )
             return True
+        except HardwareError:
+            raise
         except Exception as e:
             _raise_if_unanswered(
                 e,
@@ -2467,9 +2471,8 @@ class IDSCamera(Camera):
         (motorconfig ImageCenter, sensor pixels), reorient it into the delivered
         array frame (aoi_geometry.reorient_image_center, with the sensor's
         mounted orientation pinned by a one-time bench collimator calibration),
-        and divide by the active binning. It must return without raising:
-        _frame_grid catches exceptions, so a raise would swallow into a silent
-        failure to resize.
+        and divide by the active binning. A raise here is a defect of ours
+        and leaves _frame_grid as itself, failing the resize.
         """
         return (0, 0)
 
@@ -2487,6 +2490,12 @@ class IDSCamera(Camera):
         return dict(self.profile.alignment)
 
     def get_max_frame_size(self) -> dict:
+        """The sensor's maximum frame; {} when not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
+        """
         if not self.active:
             return {}
 
@@ -2506,28 +2515,36 @@ class IDSCamera(Camera):
                 'width': self.remote_nodemap.FindNode('Width').Maximum(),
                 'height': self.remote_nodemap.FindNode('Height').Maximum(),
             }
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] get_max_frame_size failed: {e}')
-            return {}
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of the Width/Height maximum: {e}'
+            ) from e
 
     def _hardware_frame_size(self):
         return self.get_acquired_aoi()
 
-    def get_acquired_aoi(self):
+    def get_acquired_aoi(self) -> dict | None:
         """The hardware AOI actually set on the sensor (the oversized
-        acquisition before the software crop). Diagnostic only -- the public
-        frame size is the cropped target from get_frame_size()."""
+        acquisition before the software crop); None when not connected.
+        Diagnostic only -- the public frame size is the cropped target from
+        get_frame_size().
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
+        """
         if not self.active:
-            return
+            return None
 
         try:
             return {
                 'width': self.remote_nodemap.FindNode('Width').Value(),
                 'height': self.remote_nodemap.FindNode('Height').Value(),
             }
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] get_acquired_aoi failed: {e}')
-            return None
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of Width/Height: {e}'
+            ) from e
 
     @staticmethod
     def _select_default_pixel_format(supported) -> str | None:
@@ -2569,10 +2586,15 @@ class IDSCamera(Camera):
         """Pure-logic resolver: map a logical PixelFormat name to a camera-native
         SymbolicValue from the given supported list.
 
-        Factored out from _resolve_logical_format for unit-testability without
-        an SDK connection. Caller passes the camera's actual supported tuple
-        (from get_supported_pixel_formats); this returns the chosen name or
-        None.
+        IDS Peak cameras don't expose a literal "Mono8" entry on every model:
+        they use sensor-specific suffixed names like "Mono10g40IDS" /
+        "Mono12g24IDS". Pylon accepts "Mono8" / "Mono12" as wire names
+        directly. To keep callers (UI, characterization tool) driver-agnostic
+        we accept the same logical names on both and map per-driver here.
+
+        Pure logic, for unit-testability without an SDK connection. Caller
+        passes the camera's actual supported tuple (from
+        get_supported_pixel_formats); this returns the chosen name or None.
 
         Mapping rules:
           'Mono8'  -> first entry whose SymbolicValue starts with 'Mono8'
@@ -2595,21 +2617,6 @@ class IDSCamera(Camera):
                     return entry
         return None
 
-    def _resolve_logical_format(self, logical: str) -> str | None:
-        """Map a logical PixelFormat name to the camera's actual SymbolicValue.
-
-        IDS Peak cameras don't expose a literal "Mono8" entry on every model:
-        they use sensor-specific suffixed names like "Mono10g40IDS" /
-        "Mono12g24IDS". Pylon accepts "Mono8" / "Mono12" as wire names
-        directly. To keep callers (UI, characterization tool) driver-agnostic
-        we accept the same logical names on both and map per-driver here.
-
-        Raises:
-            The SDK's exception when the camera did not answer the read of the
-            supported formats (``_read_supported_pixel_formats``).
-        """
-        return self._resolve_logical_format_name(logical, self._read_supported_pixel_formats())
-
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
 
@@ -2623,22 +2630,19 @@ class IDSCamera(Camera):
                 guards). Hardware-level failure raises HardwareError.
 
         Raises:
+            CameraReadFailedError: The read of the supported formats, or the
+                grab state the write needs, failed; nothing was written.
             HardwareError: SDK call failed (CameraWriteFailedError). The
                 camera is not marked disconnected: removal is the DeviceLost
                 callback's.
-            CameraNoAnswerError: the camera did not answer the write, or the
-                read of the supported formats it needs.
+            CameraNoAnswerError: the camera did not answer the write.
         """
         if not self.active:
             return False
 
-        try:
-            resolved = self._resolve_logical_format(pixel_format)
-        except Exception as e:
-            _raise_if_unanswered(e, 'read', f'PixelFormat {pixel_format}')
-            raise
+        supported = self._read_supported_pixel_formats()
+        resolved = self._resolve_logical_format_name(pixel_format, supported)
         if resolved is None:
-            supported = self.get_supported_pixel_formats()
             # Caller-correctable (returns False; callers fall back to a
             # supported format), so WARNING not ERROR -- e.g. an 8-bit image
             # mode asks for Mono8 on the IMX676, which exposes only Mono10/12.
@@ -2669,6 +2673,8 @@ class IDSCamera(Camera):
                 # get_camera_info() still report the old cached value.
                 self._pixel_format_cache = resolved
             return True
+        except HardwareError:
+            raise
         except Exception as e:
             # A transient PixelFormat write failure is not a removal: raise
             # HardwareError so it propagates, but do NOT _mark_disconnected --
@@ -2690,38 +2696,46 @@ class IDSCamera(Camera):
         """
         return _ids_delivery_significant_bits(pixel_format or '')
 
-    def get_pixel_format(self):
-        # Served from the cache populated on first read and on every
-        # set_pixel_format(); PixelFormat only changes through that setter.
-        # get_camera_info() reads this once per saved frame, so a live
-        # node-map read here would touch the SDK on every capture.
+    def get_pixel_format(self) -> str | None:
+        """The active PixelFormat; None when not connected.
+
+        Served from the cache populated on first read and on every
+        set_pixel_format(); PixelFormat only changes through that setter.
+        The format is read once per saved frame, so a live node-map read
+        here would touch the SDK on every capture.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
+        """
+        if not self.active:
+            return None
         if self._pixel_format_cache is not None:
             return self._pixel_format_cache
         try:
             value = self.remote_nodemap.FindNode('PixelFormat').CurrentEntry().SymbolicValue()
-            self._pixel_format_cache = value
-            return value
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] get_pixel_format failed: {e}')
-            return None
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of PixelFormat: {e}'
+            ) from e
+        self._pixel_format_cache = value
+        return value
 
     def get_supported_pixel_formats(self) -> tuple:
-        """Every PixelFormat the camera advertises; () on inactive / read failure."""
-        try:
-            return self._read_supported_pixel_formats()
-        except Exception as e:
-            _cam_log.error(
-                f'[CAM Class ] get_supported_pixel_formats: the camera did not answer ({e})'
-            )
-            return ()
-
-    def _read_supported_pixel_formats(self) -> tuple:
-        """Every PixelFormat the camera advertises; () on a failed read.
+        """Every PixelFormat the camera advertises; () when not connected.
 
         Raises:
-            The SDK's exception when the camera did not answer the read
-            (``_exc_is`` timeout). A write that needs the list answers it as no
-            answer; a reader that only lists the formats answers ().
+            CameraReadFailedError: The camera did not answer the read.
+        """
+        return self._read_supported_pixel_formats()
+
+    def _read_supported_pixel_formats(self) -> tuple:
+        """Every PixelFormat the camera advertises; () when not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. A write that needs the list is refused for
+                it, nothing sent.
         """
         # Guard on _device_removed, not just active: _mark_disconnected() sets the
         # removed flag but deliberately leaves active set (the handle release is
@@ -2735,23 +2749,13 @@ class IDSCamera(Camera):
                 pf.SymbolicValue()
                 for pf in self.remote_nodemap.FindNode('PixelFormat').AvailableEntries()
             )
-        except Exception as e:
-            if _exc_is(e, 'TimeoutException', 'timeout'):
-                raise
-            # An empty tuple is indistinguishable from "no formats" at the call
-            # site -- a caller doing formats[0] then raises IndexError far from the
-            # real cause. Name a removal or a wedged nodemap distinctly so the log
-            # carries the reason, but still return () (removal stays owned by the
-            # DeviceLost callback, so this query never marks disconnected itself).
-            if _exc_is(e, 'DeviceLostException', 'removed'):
-                _cam_log.error(f'[CAM Class ] get_supported_pixel_formats: device removed ({e})')
-            elif _exc_is(e, 'InvalidInstanceException', 'invalid', 'nodemap', 'bufferhandle'):
-                _cam_log.error(
-                    f'[CAM Class ] get_supported_pixel_formats: nodemap/stream wedged ({e})'
-                )
-            else:
-                _cam_log.error(f'[CAM Class ] get_supported_pixel_formats failed: {e}')
-            return ()
+        except ids_peak.Exception as e:
+            # Removal stays owned by the DeviceLost callback, so this query
+            # never marks disconnected itself; the SDK's words name a removal
+            # or a wedged nodemap.
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of PixelFormat entries: {e}'
+            ) from e
 
     def exposure_t(self, exposure_ms: float) -> float | bool:
         """Set exposure. Returns the microseconds actually in effect, or
@@ -2843,18 +2847,24 @@ class IDSCamera(Camera):
                 f'Minimum exposure read failed: {type(e).__name__}: {e}'
             ) from e
 
-    def get_exposure_t(self):
+    def get_exposure_t(self) -> float:
+        """The exposure time in ms; -1 when not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
+        """
         if not self.active:
             _cam_log.warning('[CAM Class ] Cannot read exposure: camera inactive')
             return -1
 
         try:
             microsec = self.remote_nodemap.FindNode('ExposureTime').Value()
-            millisec = microsec / 1000
-            return millisec
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] get_exposure_t failed: {e}')
-            return -1
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of ExposureTime: {e}'
+            ) from e
+        return microsec / 1000
 
     def auto_exposure_t(self, state: bool = True) -> NoReturn:
         raise no_hardware_auto_mode('IDS', 'auto_exposure_t', 'auto-exposure')
@@ -3100,6 +3110,8 @@ class IDSCamera(Camera):
                 Hardware-level failure raises HardwareError.
 
         Raises:
+            CameraReadFailedError: The grab-state read the config guard needs
+                failed; nothing was written.
             HardwareError: SDK call failed.
             CameraNoAnswerError: the camera did not answer one of the writes.
         """
@@ -3127,6 +3139,8 @@ class IDSCamera(Camera):
 
             logger.debug(f'[CAM Class ] Binning set to {size}')
             return True
+        except HardwareError:
+            raise
         except Exception as e:
             _raise_if_unanswered(e, 'write', f'Binning {size}')
             _cam_log.error(f'[CAM Class ] set_binning_size failed: {e}')
@@ -3135,29 +3149,29 @@ class IDSCamera(Camera):
             ) from e
 
     def get_binning_size(self) -> int:
-        # READ-FAILURE sentinel is -1, not 1: 1 is a legal binning factor (1x =
-        # no binning), so returning 1 on a failed read would be indistinguishable
-        # from a real 1x camera -- any caller that validates getters by value
-        # would accept the in-band 1 and silently de-bin a 2x camera, whereas
-        # -1 is rejected (binning must be >= 1). The INACTIVE case stays 1: no
-        # camera means no binning, and callers already treat inactive as the
-        # 1x default.
+        """The binning factor; 1 when not connected (no camera means no binning).
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
+        """
         if not self.active:
             return 1
 
         try:
             vert_bin = self.remote_nodemap.FindNode('BinningVertical').Value()
             horiz_bin = self.remote_nodemap.FindNode('BinningHorizontal').Value()
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of BinningVertical/BinningHorizontal: {e}'
+            ) from e
 
-            if horiz_bin != vert_bin:
-                _cam_log.error(
-                    f'[CAM Class ] Binning mismatch detected between horizontal ({horiz_bin}) and vertical ({vert_bin})'
-                )
+        if horiz_bin != vert_bin:
+            _cam_log.error(
+                f'[CAM Class ] Binning mismatch detected between horizontal ({horiz_bin}) and vertical ({vert_bin})'
+            )
 
-            return vert_bin
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] get_binning_size failed: {e}')
-            return -1
+        return vert_bin
 
     # grab() and grab_new_capture() inherited from Camera base class
 
@@ -3169,20 +3183,29 @@ class IDSCamera(Camera):
     ) -> NoReturn:
         raise no_hardware_auto_mode('IDS', 'update_auto_gain_min_max', 'auto-gain')
 
-    def get_gain(self):
-        """Return gain in dB. The IDS Gain node is a linear factor; convert via
-        dB = 20 * log10(factor) (factor >= 1.0 on this body, so dB >= 0) to
-        match LVP's dB gain model."""
+    def get_gain(self) -> float:
+        """Return gain in dB; -1 when not connected. The IDS Gain node is a
+        linear factor; convert via dB = 20 * log10(factor) (factor >= 1.0 on
+        this body, so dB >= 0) to match LVP's dB gain model.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included, or answered a factor no camera holds
+                (``<= 0``), which has no gain in dB. The camera is kept.
+        """
         if not self.active:
             _cam_log.warning('[CAM Class ] Cannot read gain: camera inactive')
             return -1
 
         try:
             factor = self.remote_nodemap.FindNode('Gain').Value()
-            return 20.0 * math.log10(factor) if factor > 0 else 0.0
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] Read gain failed: {e}')
-            return -1
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(f'The camera did not answer a read of Gain: {e}') from e
+        if factor <= 0:
+            raise CameraReadFailedError(
+                f'The camera answered a Gain factor of {factor}, which has no gain in dB'
+            )
+        return 20.0 * math.log10(factor)
 
     def gain(self, value: float) -> float | bool:
         """Set gain. `value` is in dB (LVP's gain unit, shared with the Pylon
@@ -3205,6 +3228,8 @@ class IDSCamera(Camera):
         signal.
 
         Raises:
+            CameraReadFailedError: the GainSelector read the write needs
+                failed; nothing was written.
             CameraNoAnswerError: the camera did not answer the GainSelector or
                 Gain write, so whether the gain was applied is not known; or
                 did not answer the read of the Gain range the factor is
@@ -3247,6 +3272,8 @@ class IDSCamera(Camera):
             gain_node.SetValue(factor)
             logger.debug(f'[CAM Class ] Gain set to {value} dB ({factor:.3f}x)')
             return 20.0 * math.log10(factor)
+        except HardwareError:
+            raise
         except Exception as e:
             _raise_if_unanswered(e, access, f'Gain {value} dB')
             _cam_log.error(f'ids Gain.SetValue({value} dB) FAILED: {e}')

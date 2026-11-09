@@ -35,6 +35,7 @@ from fastapi.testclient import TestClient
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules import scope_capabilities
 from _lumascope.modules.lumascope_api.bring_up import Part
 from _lumascope.modules.notification_center import notifications
@@ -144,8 +145,10 @@ def test_a_failed_toggle_probe_is_told_once_in_the_log_and_never_reported(monkey
 def test_a_write_on_a_failed_probe_probes_the_camera_live(toggles):
     camera = toggles.session.scope.camera
     for enabled in (True, False):
-        with pytest.raises(CameraReadFailedError, match='usb gone'):
+        with pytest.raises(CameraSettingRejected) as refused:
             camera.set_high_conversion_gain(enabled)
+        assert refused.value.reason == 'camera_read_failed'
+        assert 'usb gone' in str(refused.value.__cause__)
     assert toggles.written == []
     assert toggles.session.scope.read_setting('camera.high_conversion_gain') is True
 
@@ -191,16 +194,26 @@ def test_the_black_level_on_a_failed_probe_is_set_and_saved_live(black_level):
     assert scope.camera.read_black_level() == 3.0
 
 
-def test_a_restore_whose_live_black_level_probe_fails_raises(black_level):
+def test_a_restore_whose_live_black_level_probe_fails_reports_it_and_goes_on(
+    black_level, monkeypatch
+):
+    """The black level is not sent when its probe fails: that refusal is
+    reported once, as a refused black level write is, and the restore goes on."""
     scope = black_level.session.scope
     black_level.probe.answer = True
     scope.camera.set_black_level(3.0)
     snapshot = scope.camera.save_camera_state('test')
     scope.camera.set_black_level(5.0)
+    reported = []
+    monkeypatch.setattr(
+        '_lumascope.modules.notification_center.notifications.report_outcome',
+        lambda exc, **kw: reported.append(exc),
+    )
 
     black_level.probe.answer = CameraReadFailedError('BlackLevel probe failed: usb gone')
-    with pytest.raises(CameraReadFailedError, match='usb gone'):
-        scope.camera.restore_camera_state(snapshot)
+    scope.camera.restore_camera_state(snapshot)
+
+    assert [(r.reason, r.setting) for r in reported] == [('camera_read_failed', 'black_level')]
     assert scope.camera.read_black_level() == 5.0
 
 

@@ -280,8 +280,8 @@ def _unbinned(reported: tuple[int, int] | None, binning: object) -> tuple[int, i
     """The maximum a camera reported at ``binning``, as the sensor frame it bins.
 
     A camera reports its maximum at the binning it holds. Without a binning
-    read to multiply it back by (a driver's read failure answers -1), the
-    report is left out rather than taken as the sensor's.
+    read to multiply it back by, the report is left out rather than taken
+    as the sensor's.
     """
     if reported is None:
         return None

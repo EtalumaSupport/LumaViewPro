@@ -375,27 +375,25 @@ class SimulatedCamera(Camera):
     _ANSWERS_NO_DRIVER_GIVES: ClassVar[dict[str, frozenset[str]]] = {
         'frame_size': frozenset({'true'}),
     }
-    # The nodes a read can be failed on (refuse_read): each by the getter
-    # the API reads it through, and what the real driver that reads the
-    # node answers when the read fails. The Pylon and IDS gain, exposure,
-    # binning, frame-size and pixel-format getters catch every failure and
-    # answer their failed-read value; the black-level and frame-rate
-    # getters, IDS's live minimum exposure and Pylon's auto modes raise
-    # CameraReadFailedError. The FX2 reads no node.
-    FAILED_READS: ClassVar[dict[str, tuple[str, object]]] = {
-        'gain': ('get_gain', -1),
-        'exposure': ('get_exposure_t', -1),
-        'frame_size': ('get_frame_size', None),
-        'binning': ('get_binning_size', -1),
-        'pixel_format': ('get_pixel_format', None),
-        'black_level': ('get_black_level', CameraReadFailedError),
-        'frame_rate': ('get_resulting_frame_rate', CameraReadFailedError),
-        'minimum_exposure': ('get_min_exposure', CameraReadFailedError),
-        'auto_gain': ('get_auto_gain_mode', CameraReadFailedError),
-        'auto_exposure': ('get_auto_exposure_mode', CameraReadFailedError),
+    # The nodes a read can be failed on (refuse_read), each by the member
+    # the real drivers read it through. A failed read raises
+    # CameraReadFailedError on Pylon and IDS alike; the FX2 reads no node.
+    FAILED_READS: ClassVar[dict[str, str]] = {
+        'gain': 'get_gain',
+        'exposure': 'get_exposure_t',
+        'frame_size': '_hardware_frame_size',
+        'frame_grid': '_frame_grid',
+        'binning': 'get_binning_size',
+        'pixel_format': 'get_pixel_format',
+        'pixel_formats': 'get_supported_pixel_formats',
+        'black_level': 'get_black_level',
+        'frame_rate': 'get_resulting_frame_rate',
+        'minimum_exposure': 'get_min_exposure',
+        'auto_gain': 'get_auto_gain_mode',
+        'auto_exposure': 'get_auto_exposure_mode',
     }
-    # How a read fails: the node's answer above, or that answer with the
-    # camera gone from the bus during the read.
+    # How a read fails: the read's raise, or that raise with the camera gone
+    # from the bus during the read.
     FAILED_READ_ANSWERS: ClassVar[tuple[str, ...]] = ('failed', 'removed')
 
     def __init__(
@@ -783,15 +781,17 @@ class SimulatedCamera(Camera):
         vars(self).pop(self.WRITABLE_NODES[node], None)
 
     def refuse_read(self, node: str, answer: str, count: int = 1) -> None:
-        """The next ``count`` reads of ``node`` fail, answering as the
-        node's real driver does (``FAILED_READS``).
+        """The next ``count`` reads of ``node`` raise ``CameraReadFailedError``,
+        as the node's real driver does (``FAILED_READS``).
+
+        The read logs nothing: a real driver's failed read is logged once,
+        by the reporter where its flight stops.
 
         Args:
             node: One of ``FAILED_READS``.
-            answer: One of ``FAILED_READ_ANSWERS``: ``'failed'``, the
-                node's answer; ``'removed'``, the camera taken off the bus
-                first, as a camera pulled during the read is, then the
-                node's answer.
+            answer: One of ``FAILED_READ_ANSWERS``: ``'failed'``, the read
+                raises; ``'removed'``, the camera taken off the bus first, as
+                a camera pulled during the read is, then the read raises.
             count: How many reads in a row meet it, 1 or more.
 
         Raises:
@@ -801,25 +801,22 @@ class SimulatedCamera(Camera):
             raise ValueError(f'{node!r} is not one of {tuple(self.FAILED_READS)}')
         if answer not in self.FAILED_READ_ANSWERS:
             raise ValueError(f'{answer!r} is not one of {self.FAILED_READ_ANSWERS}')
-        getter, failure = self.FAILED_READS[node]
+        getter = self.FAILED_READS[node]
         left = [count]
 
         def refused(*args, **kwargs):
             left[0] -= 1
             if left[0] <= 0:
                 vars(self).pop(getter, None)
-            logger.warning(f'[CAM Sim   ] {node} read failed ({answer}, simulated)')
             if answer == 'removed':
                 self.leave_bus()
-            if failure is CameraReadFailedError:
-                raise CameraReadFailedError(f'simulated {node} node read failed')
-            return failure
+            raise CameraReadFailedError(f'simulated {node} node read failed')
 
         vars(self)[getter] = refused
 
     def allow_read(self, node: str) -> None:
         """Take back a ``refuse_read`` on ``node`` that no read has met yet."""
-        vars(self).pop(self.FAILED_READS[node][0], None)
+        vars(self).pop(self.FAILED_READS[node], None)
 
     def hold_frames(self, stall: SimulatedStall) -> None:
         """Stall the stream as ``stall`` says, starting its clock now.
@@ -1151,8 +1148,14 @@ class SimulatedCamera(Camera):
 
         Returns:
             bool: True on success, False when the format is not supported.
+
+        Raises:
+            CameraReadFailedError: The supported formats' read failed
+                (``refuse_read('pixel_formats', ...)``); nothing was set.
         """
-        if pixel_format not in self.profile.pixel_formats:
+        # Through the list's reader, as the real drivers read it, so a failed
+        # list read fails the write.
+        if pixel_format not in self.get_supported_pixel_formats():
             _cam_log.error(f'sim set_pixel_format({pixel_format}) UNSUPPORTED')
             logger.error(f'[CAM Sim   ] Unsupported pixel format: {pixel_format}')
             return False

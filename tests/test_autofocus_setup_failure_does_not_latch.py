@@ -31,6 +31,7 @@ import pytest
 from _lumascope.modules.exceptions import (
     AutofocusAborted,
     CameraReadFailedError,
+    CameraSettingRejected,
     CaptureError,
     CatalogueNameRefusedError,
 )
@@ -313,12 +314,16 @@ def test_every_setup_statement_sits_inside_the_bracket():
 
 def _camera_restore_refused(scope):
     # The restore reads the frame size to compare with the snapshot's: a
-    # read the camera fails raises from the restore.
+    # read the camera fails refuses the frame's write, and the restore stops.
     scope.simulation.refuse_camera_read('frame_size', 'failed')
 
 
 def _the_restore_raised(restores) -> bool:
-    return bool(restores) and isinstance(restores[-1], CameraReadFailedError)
+    return (
+        bool(restores)
+        and isinstance(restores[-1], CameraSettingRejected)
+        and restores[-1].reason == 'camera_read_failed'
+    )
 
 
 def _af_end_light_refused(monkeypatch):

@@ -1,13 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression net: a driver's failed-read value never becomes a value the camera holds.
+"""Regression net: a driver's failed read never becomes a value the camera holds.
 
-The drivers answer a failed or transient read with a sentinel (-1 for gain /
-exposure / binning, None for frame_size / pixel_format, {} for the max/min
-frame-size variants) or by raising. The values the camera holds (its cache:
-what it last reported or took) are never overwritten by one: a fresh read
-that fails raises ``CameraReadFailedError`` and leaves the value held as it
-was, and the API's own refreshes (bring-up's populate, the frame after a
-binning write) log the failure and keep it. The fresh reads' raise is pinned
+The drivers raise ``CameraReadFailedError`` for a read that fails; a sentinel
+(-1 for gain / exposure, None for frame_size / pixel_format, {} for the
+max/min frame-size variants) is only a camera not connected. The values the
+camera holds (its cache: what it last reported or took) are never
+overwritten by a failed read: a fresh read that fails raises
+``CameraReadFailedError`` and leaves the value held as it was, and the
+API's own refreshes (bring-up's populate, the frame after a binning write)
+log the failure and keep it. The fresh reads' raise is pinned
 on the simulator in tests/test_a_fresh_camera_read_raises.py.
 
 The old behavior passed the driver sentinel straight through, so a single
@@ -187,8 +188,7 @@ def _build_imaging(cam) -> ImagingAPI:
 
 
 def test_pixel_format_none_read_does_not_clobber_known_mono8(sim_scope):
-    # A repopulate whose format read returns the None sentinel must keep the
-    # known format. The old behavior cached None, and every reader of the
+    # A repopulate whose format read fails must keep the known format. The old behavior cached None, and every reader of the
     # format then saw no format at all.
     camera = sim_scope.camera
     known = camera.pixel_format
@@ -213,8 +213,8 @@ def test_save_camera_state_snapshot_not_poisoned_by_failing_reads(sim_scope):
 
 
 def test_populate_none_frame_size_read_keeps_cached_geometry(sim_scope):
-    # Populate clobber guard: a repopulate whose frame-size read returns the
-    # None sentinel must leave the previously cached geometry intact. The old
+    # Populate clobber guard: a repopulate whose frame-size read fails must
+    # leave the previously cached geometry intact. The old
     # behavior stored zero dims over the known-good size.
     camera = sim_scope.camera
     known = camera.frame_size.to_dict()

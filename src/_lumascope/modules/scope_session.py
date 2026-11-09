@@ -2818,8 +2818,9 @@ class ScopeSession:
             HardwareCommandRefusedError: a run, a diagnostic or a home holds the
                 scope (an autofocus is a run), or ``'not_connected'``, naming
                 the camera, when it leaves during the call; nothing is applied.
-            CameraSettingRejected: the camera refused a setting; the others
-                were applied.
+            CameraSettingRejected: the camera did not take a setting --
+                refused it, did not answer it, or a read it needed failed so
+                it was not sent (its ``reason``); the others were applied.
         """
         if not self.scope.camera_connected:
             return None
@@ -2914,8 +2915,9 @@ class ScopeSession:
                 none at the ``setting`` asked; ``'record_read_failed'``, a
                 frame came but the camera did not answer a read of the gain,
                 exposure or black level its record needs, so it was not kept.
-            CameraSettingRejected: given ``channel``, the camera refused one
-                of its settings; nothing was captured.
+            CameraSettingRejected: given ``channel``, the camera did not take
+                one of its settings (its ``reason`` says how); nothing was
+                captured.
         """
         for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
             refuse_unless_wait_s(value, name)
@@ -3806,8 +3808,9 @@ class ScopeSession:
             MoveStoppedError: ``'stopped'``, a stop ended a move;
                 ``'superseded'``, another move or a home took an axis first.
                 The channel and the preview are the step's.
-            CameraSettingRejected: the camera refused a setting of the
-                step's channel, raised once the stage has arrived; see
+            CameraSettingRejected: the camera did not take a setting of the
+                step's channel (its ``reason`` says how), raised once the
+                stage has arrived; see
                 ``apply_channel_camera``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_go_to_step``. Nothing
@@ -3897,9 +3900,9 @@ class ScopeSession:
                 not arrive; see ``MotionAPI.start_move_z``.
             MoveStoppedError: ``'stopped'`` or ``'superseded'``, the turret's
                 move to the step's slot was ended.
-            CameraSettingRejected: the camera refused a setting of the
-                step's channel; the moves are under way, and the channel and the
-                preview are the step's.
+            CameraSettingRejected: the camera did not take a setting of the
+                step's channel (its ``reason`` says how); the moves are under
+                way, and the channel and the preview are the step's.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread. Nothing was started.
         """
@@ -4186,8 +4189,8 @@ class ScopeSession:
                 light it started under; nothing is changed).
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
                 channels could not be resolved.
-            CameraSettingRejected: the camera refused a setting of the
-                channel; its LEDs are already shown.
+            CameraSettingRejected: the camera did not take a setting of the
+                channel (its ``reason`` says how); its LEDs are already shown.
         """
         self.scope.channel_identity.refuse_unless_on_scope(channel, 'show_channel', then='be shown')
         with self._a_channel_change(channel, 'show_channel'):
@@ -4272,8 +4275,9 @@ class ScopeSession:
                 changed). One lit above 0 mA is put at the stored current.
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
                 channels could not be resolved.
-            CameraSettingRejected: the camera refused a setting of the
-                channel; its LED is already lit or dark.
+            CameraSettingRejected: the camera did not take a setting of the
+                channel (its ``reason`` says how); its LED is already lit or
+                dark.
         """
         channel = self._shown_channel
         self.scope.channel_identity.refuse_unless_on_scope(

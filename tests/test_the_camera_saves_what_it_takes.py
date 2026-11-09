@@ -18,7 +18,6 @@ from __future__ import annotations
 import pytest
 
 from _lumascope.modules import image_mode, sequential_io_executor
-from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.exceptions import (
     CameraSettingRejected,
     ConfigurationDefectError,
@@ -364,9 +363,10 @@ def test_a_restore_whose_compare_read_fails_saves_the_binning_the_camera_took(se
     camera.set_binning(2)
     session.scope.simulation.refuse_camera_read('frame_size', 'failed', count=5)
 
-    with pytest.raises(CameraReadFailedError):
+    with pytest.raises(CameraSettingRejected) as refused:
         camera.restore_camera_state(snapshot)
 
+    assert (refused.value.reason, refused.value.setting) == ('camera_read_failed', 'frame_size')
     assert camera.frame_size is None
     factor = camera.read_binning()
     assert factor == 1

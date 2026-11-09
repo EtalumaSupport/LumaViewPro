@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import pytest
 
-from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -49,11 +48,12 @@ def test_a_frame_written_with_the_binning_unknown_and_unreadable_is_refused_and_
     saved = dict(session.settings['frame'])
     session.scope.simulation.refuse_camera_read('binning', 'failed')
 
-    with pytest.raises(CameraReadFailedError) as refused:
+    with pytest.raises(CameraSettingRejected) as refused:
         session.scope.camera.set_frame_size(400, 300)
 
     assert refused.value.reason == 'camera_read_failed'
-    assert 'binning' in str(refused.value)
+    assert refused.value.setting == 'frame_size'
+    assert 'binning' in str(refused.value.__cause__)
     assert session.settings['frame'] == saved
 
 

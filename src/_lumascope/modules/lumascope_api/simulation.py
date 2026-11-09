@@ -812,24 +812,26 @@ class SimulationAPI:
         self, node: CameraReadNode, answer: CameraReadAnswer, count: int = 1
     ) -> None:
         """The camera's next ``count`` reads of ``node`` fail as the real
-        driver that reads the node fails (``SimulatedCamera.FAILED_READS``).
+        driver that reads the node fails (``SimulatedCamera.FAILED_READS``):
+        each raises ``CameraReadFailedError``.
 
-        The gain, the exposure and the binning answer -1, the frame size
-        and the pixel format None; the black level, the frame rate, the
-        minimum exposure and the auto modes raise ``CameraReadFailedError``.
-        The minimum exposure's is IDS's answer, the one driver that reads it
+        The minimum exposure's is IDS's read, the one driver that reads it
         live, offered here so the live-floor read is proven without an IDS
         body. A real driver fails the pixel-format read only before its
         first good read after a connect, since it keeps the format it read.
 
         Args:
             node: The setting read: ``'gain'``, ``'exposure'``,
-                ``'frame_size'``, ``'binning'``, ``'pixel_format'``,
-                ``'black_level'``, ``'frame_rate'``, ``'minimum_exposure'``
+                ``'frame_size'`` (the window the camera acquires),
+                ``'frame_grid'`` (the windows it can acquire, which a frame
+                size write reads first), ``'binning'``, ``'pixel_format'``,
+                ``'pixel_formats'`` (the formats offered, which a pixel
+                format write reads first), ``'black_level'``,
+                ``'frame_rate'``, ``'minimum_exposure'``
                 (``camera.read_exposure_min_ms``), ``'auto_gain'`` or
                 ``'auto_exposure'``.
-            answer: ``'failed'``, the node's answer; or ``'removed'``, the
-                same answer with the camera gone from the bus during the
+            answer: ``'failed'``, the read raises; or ``'removed'``, the
+                same raise with the camera gone from the bus during the
                 read (it stays removed for the session, as after
                 ``remove_camera``).
             count: How many reads in a row meet it, 1 or more.

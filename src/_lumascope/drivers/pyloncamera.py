@@ -360,16 +360,17 @@ class PylonCamera(Camera):
             # The formats this body offers, as the IDS driver records them: the
             # profile's list is what capabilities publish, so it is the camera's
             # answer, not the static entry's. An unreadable list keeps the
-            # documented one, said here.
-            supported = self.get_supported_pixel_formats()
-            if supported:
-                self.profile.pixel_formats = list(supported)
-                logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
-            else:
+            # documented one, said here, and the pixel pitch is still read.
+            try:
+                supported = self.get_supported_pixel_formats()
+            except HardwareError as e:
                 _cam_log.warning(
-                    '[CAM Class ] PixelFormat entries unreadable; the profile keeps '
+                    f'[CAM Class ] PixelFormat entries unreadable ({e}); the profile keeps '
                     f'its documented formats {self.profile.pixel_formats}'
                 )
+            else:
+                self.profile.pixel_formats = list(supported)
+                logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
 
             # Sensor pixel pitch (micrometers). Read live so the micron scale
             # bar and click-to-center distance are correct for ANY Basler body,
@@ -1092,10 +1093,13 @@ class PylonCamera(Camera):
             # either camera prints the same "delivers=" fact: Pylon Mono8 is
             # delivered as uint8, Mono10/Mono12 as uint16 (the GetArray dtype).
             # A bundle then states the delivered dtype, not just the wire format.
-            _fmt = self.get_pixel_format()
+            # The cache is what get_pixel_format answers after any good read or
+            # set; a log line asks the camera nothing, so a format read cannot
+            # fail a grab that started.
+            _fmt = self._pixel_format_cache
             if _fmt is None:
-                _cam_log.warning(
-                    '[CAM Class ] Grabbing: pixel format unreadable; delivered depth unknown'
+                _cam_log.info(
+                    '[CAM Class ] Grabbing: pixel format unknown; delivered depth unknown'
                 )
             else:
                 if _fmt.startswith('Mono8'):
@@ -2259,9 +2263,10 @@ class PylonCamera(Camera):
                 guards). Hardware-level failure raises HardwareError.
 
         Raises:
-            CameraNoAnswerError: The PixelFormat write, or the read of the
-                supported formats it needs, timed out; the camera is not
-                marked disconnected, and the caller may send it again.
+            CameraReadFailedError: The read of the supported formats, or the
+                grab state the write needs, failed; nothing was written.
+            CameraNoAnswerError: The PixelFormat write timed out; the camera
+                is not marked disconnected, and the caller may send it again.
             HardwareError: Any other SDK failure (CameraWriteFailedError).
                 The camera is not marked removed: one failed write is not
                 evidence it is gone.
@@ -2269,12 +2274,7 @@ class PylonCamera(Camera):
         if not self.active:
             return False
 
-        try:
-            supported = self._read_supported_pixel_formats()
-        except genicam.TimeoutException as e:
-            raise _no_answer(
-                f'set_pixel_format({pixel_format})', e, read='the supported pixel formats'
-            ) from e
+        supported = self._read_supported_pixel_formats()
         if pixel_format not in supported:
             _cam_log.error(f'[CAM Class ] Unsupported pixel format: {pixel_format}')
             return False
@@ -2304,6 +2304,8 @@ class PylonCamera(Camera):
                 # from this cache, which would otherwise still name the old one.
                 self._pixel_format_cache = pixel_format
             return True
+        except HardwareError:
+            raise
         except genicam.RuntimeException as e:
             _cam_log.error(f'pylon PixelFormat.SetValue({pixel_format!r}) FAILED: {e}')
             _cam_log.error(
@@ -2323,16 +2325,16 @@ class PylonCamera(Camera):
             ) from e
 
     def get_pixel_format(self) -> str | None:
-        """Return active PixelFormat (e.g. 'Mono8'); None on inactive / read failure.
+        """Return active PixelFormat (e.g. 'Mono8'); None when not connected.
 
-        None is the failed-read sentinel shared by all camera drivers --
-        distinct from every real format name, so a consumer that forgets to
-        handle it fails loudly instead of silently treating the failure as
-        a legal format. Served from the cache populated on first read and
-        on every set_pixel_format(); PixelFormat only changes through that
-        setter, so the cache stays valid. get_camera_info() reads this once
-        per saved frame, so a live GenICam node read here would touch the
-        SDK on every capture.
+        Served from the cache populated on first read and on every
+        set_pixel_format(); PixelFormat only changes through that setter, so
+        the cache stays valid. The format is read once per saved frame, so a
+        live GenICam node read here would touch the SDK on every capture.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         if not self.active:
             return None
@@ -2342,50 +2344,46 @@ class PylonCamera(Camera):
 
         try:
             value = self.active.PixelFormat.GetValue()
-            self._pixel_format_cache = value
-            return value
-        except genicam.RuntimeException as e:
+        except genicam.GenericException as e:
             # Intentionally NO disconnect teardown: latching device-removed
             # from a possibly-transient node read silently killed the live
             # stream until a manual reconnect. Removal stays owned by the SDK
             # removal callback + the grab loop's definitive paths (still fire
             # on a real unplug); this failure only means the format is
-            # unreadable right now, which the None sentinel already says.
-            _cam_log.error(f'[CAM Class ] Failed to read pixel format: {e}')
-            return None
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error reading pixel format: {e}')
-            return None
+            # unreadable right now.
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of PixelFormat: {e}'
+            ) from e
+        self._pixel_format_cache = value
+        return value
 
     def get_supported_pixel_formats(self) -> tuple:
-        """Return every PixelFormat the camera advertises; () on inactive / read failure."""
-        try:
-            return self._read_supported_pixel_formats()
-        except genicam.TimeoutException as e:
-            _cam_log.error(f'[CAM Class ] The camera did not answer the pixel formats read: {e}')
-            return ()
-
-    def _read_supported_pixel_formats(self) -> tuple:
-        """Every PixelFormat the camera advertises; () on a failed read.
+        """Return every PixelFormat the camera advertises; () when not connected.
 
         Raises:
-            genicam.TimeoutException: The camera did not answer the read. A
-                write that needs the list answers it as no answer; a reader
-                that only lists the formats answers ().
+            CameraReadFailedError: The camera did not answer the read.
+        """
+        if not self.active:
+            return ()
+        return self._read_supported_pixel_formats()
+
+    def _read_supported_pixel_formats(self) -> tuple:
+        """Every PixelFormat the camera advertises.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. A write that needs the list is refused
+                for it, nothing sent.
         """
         try:
             return self.active.PixelFormat.GetSymbolics()
-        except genicam.TimeoutException:
-            raise
-        except genicam.RuntimeException as e:
+        except genicam.GenericException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
             # a transient node read killed the stream); removal is owned by
             # the SDK removal callback + the grab loop's definitive paths.
-            _cam_log.error(f'[CAM Class ] Failed to read pixel formats: {e}')
-            return ()
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error reading pixel formats: {e}')
-            return ()
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of PixelFormat entries: {e}'
+            ) from e
 
     def _set_hardware_binning(self, size: int) -> bool:
         """Set camera pixel binning size.
@@ -2399,6 +2397,8 @@ class PylonCamera(Camera):
                 Hardware-level failure raises HardwareError.
 
         Raises:
+            CameraReadFailedError: The grab-state read the config guard needs
+                failed; nothing was written.
             CameraNoAnswerError: A binning write timed out. Transient: the
                 camera is not marked disconnected, and the caller may send
                 it again.
@@ -2427,6 +2427,8 @@ class PylonCamera(Camera):
             logger.debug(f'[CAM Class ] Binning set to {size}')
 
             return True
+        except HardwareError:
+            raise
         except genicam.TimeoutException as e:
             # USB roundtrip timed out. Transient -- do NOT mark disconnected,
             # single timeouts can recover. Caller can choose to retry.
@@ -2445,15 +2447,14 @@ class PylonCamera(Camera):
             ) from e
 
     def get_binning_size(self) -> int:
-        """Return current binning factor; 1 on inactive, -1 on read failure.
+        """Return current binning factor; 1 when not connected.
 
-        The read-failure sentinel is -1, not 1: 1 is a legal binning factor
-        (1x = no binning), so returning 1 on a failed read would be
-        indistinguishable from a real 1x camera -- a value-validating caller
-        would accept the in-band 1 and silently de-bin a 2x camera, whereas
-        -1 is rejected (binning must be >= 1). Inactive stays 1: no camera
-        means no binning, and callers treat inactive as the 1x default.
-        Vertical wins on asymmetric mismatch (operator misconfig).
+        No camera means no binning, and callers treat not connected as the
+        1x default. Vertical wins on asymmetric mismatch (operator misconfig).
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         if not self.active:
             return 1
@@ -2461,27 +2462,21 @@ class PylonCamera(Camera):
         try:
             vert_bin = self.active.BinningVertical.GetValue()
             horiz_bin = self.active.BinningHorizontal.GetValue()
-
-            if horiz_bin != vert_bin:
-                _cam_log.warning(
-                    '[CAM Class ] Binning mismatch detected between '
-                    f'horizontal ({horiz_bin}) and vertical ({vert_bin})'
-                )
-
-            return vert_bin
-        except genicam.RuntimeException as e:
+        except genicam.GenericException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
             # a transient node read killed the stream); removal is owned by
             # the SDK removal callback + the grab loop's definitive paths.
-            # -1 is out-of-band (binning must be >= 1) so validate-before-store
-            # callers REJECT a failed read instead of committing an in-band 1
-            # that silently de-bins a 2x camera. Same contract as the IDS
-            # driver.
-            _cam_log.error(f'[CAM Class ] Failed to read binning size: {e}')
-            return -1
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error reading binning size: {e}')
-            return -1
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of BinningVertical/BinningHorizontal: {e}'
+            ) from e
+
+        if horiz_bin != vert_bin:
+            _cam_log.warning(
+                '[CAM Class ] Binning mismatch detected between '
+                f'horizontal ({horiz_bin}) and vertical ({vert_bin})'
+            )
+
+        return vert_bin
 
     def set_conversion_gain_mode(self, mode: str) -> bool:
         """Set the sensor conversion gain mode.
@@ -2502,6 +2497,8 @@ class PylonCamera(Camera):
                 failure raises HardwareError.
 
         Raises:
+            CameraReadFailedError: The grab-state read the config guard needs
+                failed; nothing was written.
             CameraNoAnswerError: The write, or the node probe it needs,
                 timed out (after the probe nothing was written); the camera
                 is not marked disconnected, and the caller may send it again.
@@ -2527,6 +2524,8 @@ class PylonCamera(Camera):
             with self.update_camera_config():
                 self.active.BslConversionGainMode.SetValue(mode)
             return True
+        except HardwareError:
+            raise
         except genicam.RuntimeException as e:
             _cam_log.error(
                 '[CAM Class ] Camera communication error during '
@@ -2561,6 +2560,8 @@ class PylonCamera(Camera):
                 level failure raises HardwareError.
 
         Raises:
+            CameraReadFailedError: The grab-state read the config guard needs
+                failed; nothing was written.
             CameraNoAnswerError: A write, or the node probe they need,
                 timed out (after the probe nothing was written); the camera
                 is not marked disconnected, and the caller may send it again.
@@ -2590,6 +2591,8 @@ class PylonCamera(Camera):
                 if enabled:
                     self.active.BslLineNoiseReduction.SetValue(strength)
             return True
+        except HardwareError:
+            raise
         except genicam.RuntimeException as e:
             _cam_log.error(
                 '[CAM Class ] Camera communication error during '
@@ -3181,15 +3184,15 @@ class PylonCamera(Camera):
     def _frame_grid(self) -> FrameGrid | None:
         """The Width / Height nodes' grid at the current binning.
 
-        None when the camera is inactive or the nodes cannot be read.
+        None when the camera is not connected.
 
         Raises:
-            CameraNoAnswerError: The camera did not answer a read in time;
-                the frame size cannot be planned without the grid, so no
-                write is sent.
+            CameraReadFailedError: The camera did not answer a read, a
+                timeout included; the frame size cannot be planned without
+                the grid, so no write is sent.
         """
         camera = self.active
-        if camera is None:
+        if not camera:
             return None
         try:
             return FrameGrid(
@@ -3197,14 +3200,13 @@ class PylonCamera(Camera):
                 max_size=(camera.Width.GetMax(), camera.Height.GetMax()),
                 size_min=(camera.Width.GetMin(), camera.Height.GetMin()),
             )
-        except genicam.RuntimeException as e:
+        except genicam.GenericException as e:
             # Intentionally NO disconnect teardown, as for the other node
             # reads: removal is owned by the SDK removal callback and the grab
             # loop's definitive paths.
-            _cam_log.error(f'[CAM Class ] Failed to read the frame size grid: {e}')
-            return None
-        except genicam.TimeoutException as e:
-            raise _no_answer('set_frame_size', e, read='the Width/Height grid') from e
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of the Width/Height grid: {e}'
+            ) from e
 
     def _set_hardware_window(self, plan) -> bool:
         """Set Width and Height to the planned acquisition and recenter the ROI.
@@ -3219,6 +3221,8 @@ class PylonCamera(Camera):
             the camera is inactive or the apply fails.
 
         Raises:
+            CameraReadFailedError: The grab-state read the config guard needs
+                failed; nothing was written.
             CameraNoAnswerError: A Width / Height write or a recentre timed
                 out; the camera is not marked disconnected.
         """
@@ -3260,6 +3264,8 @@ class PylonCamera(Camera):
 
             _log_cam('info', f'[CAM Class ] Frame size set to {width}x{height}')
             return True
+        except HardwareError:
+            raise
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_frame_size({w}x{h}): {e}'
@@ -3277,66 +3283,71 @@ class PylonCamera(Camera):
             return False
 
     def get_min_frame_size(self) -> dict:
-        """Return min frame dims as {'width': int, 'height': int}; {} on inactive / read failure."""
+        """Return min frame dims as {'width': int, 'height': int}; {} when not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
+        """
         camera = self.active
-        if camera is None:
+        if not camera:
             return {}
         try:
             return {
                 'width': camera.Width.GetMin(),
                 'height': camera.Height.GetMin(),
             }
-        except genicam.RuntimeException as e:
+        except genicam.GenericException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
             # a transient node read killed the stream); removal is owned by
             # the SDK removal callback + the grab loop's definitive paths.
-            _cam_log.error(f'[CAM Class ] Failed to read min frame size: {e}')
-            return {}
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error reading min frame size: {e}')
-            return {}
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of the Width/Height minimum: {e}'
+            ) from e
 
     def get_max_frame_size(self) -> dict:
-        """Return sensor-driven max frame dims; {} on inactive / read failure.
+        """Return sensor-driven max frame dims; {} when not connected.
 
         A model whose lens images less than the sensor declares its own
         ceiling in `data/scopes.json` ``MaxFrame``; the API takes the smaller.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         camera = self.active
-        if camera is None:
+        if not camera:
             return {}
         try:
             return {
                 'width': camera.Width.GetMax(),
                 'height': camera.Height.GetMax(),
             }
-        except genicam.RuntimeException as e:
+        except genicam.GenericException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
             # a transient node read killed the stream); removal is owned by
             # the SDK removal callback + the grab loop's definitive paths.
-            _cam_log.error(f'[CAM Class ] Failed to read max frame size: {e}')
-            return {}
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error reading max frame size: {e}')
-            return {}
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of the Width/Height maximum: {e}'
+            ) from e
 
     def _hardware_frame_size(self) -> dict | None:
-        """Return active dims as {'width': int, 'height': int}; None on inactive / read failure."""
+        """Return active dims as {'width': int, 'height': int}; None when not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
+        """
         camera = self.active
-        if camera is None:
-            return
+        if not camera:
+            return None
 
         try:
             width = camera.Width.GetValue()
             height = camera.Height.GetValue()
-
-            return {
-                'width': width,
-                'height': height,
-            }
-        except genicam.RuntimeException as e:
+        except genicam.GenericException as e:
             # Driver-wide policy (every pure getter): NO disconnect teardown
-            # from a caught node-read error. A RuntimeException here is
+            # from a caught node-read error. An SDK exception here is
             # ambiguous -- the teardown helper has no signal to tell transient
             # from fatal, so the distinction lives with the callers that DO
             # have definitive evidence (the SDK removal callback, the
@@ -3344,35 +3355,32 @@ class PylonCamera(Camera):
             # which keep sole disconnect authority and still fire on a real
             # unplug. Tearing down from here latched device-removed (no reset
             # short of reconnect) and killed the live stream on one flaky read.
-            _cam_log.error(f'[CAM Class ] Failed to read frame size: {e}')
-            return None
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error reading frame size: {e}')
-            return None
+            raise CameraReadFailedError(
+                f'The camera did not answer a read of Width/Height: {e}'
+            ) from e
+        return {
+            'width': width,
+            'height': height,
+        }
 
     def get_gain(self) -> float:
-        """Return current Gain (dB); -1.0 on any error so callers can treat < 0 as failure."""
-        if self.active is None:
+        """Return current Gain (dB); -1 when not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
+        """
+        if not self.active:
             _cam_log.warning('[CAM Class ] Cannot read gain: camera inactive')
             return -1
 
         try:
             return float(self.active.Gain.GetValue())
-        except genicam.TimeoutException as e:
-            # USB roundtrip timed out (transient). Don't mark disconnected; caller can retry.
-            _cam_log.warning(f'[CAM Class ] get_gain timed out: {e}')
-            return -1
-        except genicam.RuntimeException as e:
+        except genicam.GenericException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
             # a transient node read killed the stream); removal is owned by
             # the SDK removal callback + the grab loop's definitive paths.
-            # Same transient treatment the TimeoutException branch above
-            # always had -- the two error classes are equally retryable here.
-            _cam_log.error(f'[CAM Class ] Failed to read gain value: {e}')
-            return -1
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error reading gain: {e}')
-            return -1
+            raise CameraReadFailedError(f'The camera did not answer a read of Gain: {e}') from e
 
     def get_auto_gain_mode(self) -> str:
         """Read ``GainAuto`` from the camera, past GenApi's node cache.
@@ -3754,41 +3762,33 @@ class PylonCamera(Camera):
         set value) on legacy ace cameras that do not expose the
         Bsl-prefixed node.
 
-        Pure getter: a failed read reports failure via the documented
-        sentinel and never mutates connection state. Disconnect
-        authority lives solely with the callers holding definitive
-        evidence (the SDK removal callback, the DEVICE_NOT_FOUND grab
-        path, the consecutive-failure cascade), which still fire on a
-        real unplug; tearing down from a read latched device-removed
-        (no reset short of reconnect) and killed the live stream on
-        one flaky node read.
+        Pure getter: a failed read never mutates connection state.
+        Disconnect authority lives solely with the callers holding
+        definitive evidence (the SDK removal callback, the
+        DEVICE_NOT_FOUND grab path, the consecutive-failure cascade),
+        which still fire on a real unplug; tearing down from a read
+        latched device-removed (no reset short of reconnect) and killed
+        the live stream on one flaky node read.
 
         Returns:
-            float: Exposure time in milliseconds. Returns ``-1.0`` when
-                the camera is inactive, offers neither node, or the read
-                fails, so callers can treat ``< 0`` as "read failed"
-                without needing a try/except.
+            float: Exposure time in milliseconds; ``-1`` when the camera
+                is not connected.
+
+        Raises:
+            CameraReadFailedError: The read failed, a timeout included, or
+                the camera offers neither node. Every camera LVP drives
+                has ``ExposureTime``.
         """
 
-        if self.active is None:
+        if not self.active:
             _cam_log.warning('[CAM Class ] Cannot read exposure: camera inactive')
             return -1
 
-        # A failed read is still only a READ failure: intentionally no
-        # disconnect teardown (latching device-removed on a transient read
-        # killed the stream). If the camera is really gone, the SDK removal
-        # callback + the grab loop's definitive paths fire within frames.
-        try:
-            microsec = self._read_first_offered(self._EFFECTIVE_EXPOSURE_NODES)
-        except CameraReadFailedError as e:
-            _cam_log.error(f'[CAM Class ] Failed to read exposure time: {e}')
-            return -1
+        microsec = self._read_first_offered(self._EFFECTIVE_EXPOSURE_NODES)
         if microsec is None:
-            _cam_log.error(
-                '[CAM Class ] Failed to read exposure time: the camera offers '
-                'neither BslEffectiveExposureTime nor ExposureTime.'
+            raise CameraReadFailedError(
+                'The camera offers neither BslEffectiveExposureTime nor ExposureTime.'
             )
-            return -1
         return microsec / 1000  # microseconds -> milliseconds
 
     def auto_exposure_t(self, state: bool = True) -> bool | None:

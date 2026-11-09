@@ -1080,9 +1080,12 @@ class Camera(ABC):
             frames are stored as they arrive until a window is set.
 
         Raises:
-            What the driver's window write raises (a camera that did not
-            answer it raises ``CameraNoAnswerError``); frames are then stored
-            as they arrive until a window is set.
+            CameraReadFailedError: A read the write needs failed (the grid,
+                or the grab state the driver's config guard reads), before
+                anything was written; the window held before is kept.
+            What the driver's window write raises otherwise (a camera that
+            did not answer it raises ``CameraNoAnswerError``); frames are
+            then stored as they arrive until a window is set.
         """
         grid = self._frame_grid()
         if grid is None:
@@ -1099,9 +1102,15 @@ class Camera(ABC):
             bias=grid.bias,
         )
         window = FrameWindow.from_plan(plan)
+        held = self._frame_window
         self._set_frame_window(window)
         try:
             applied = self._set_hardware_window(plan)
+        except CameraReadFailedError:
+            # Every driver reads before its first write, so nothing was sent
+            # and the camera still acquires the window held before.
+            self._set_frame_window(held)
+            raise
         except Exception:
             # A write that raised may have set some of the window or none of
             # it, so the window recorded is not known to be the camera's.
@@ -1131,7 +1140,11 @@ class Camera(ABC):
 
     @abstractmethod
     def _frame_grid(self) -> FrameGrid | None:
-        """The windows this camera can acquire now; None when it is inactive."""
+        """The windows this camera can acquire now; None when it is not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read.
+        """
 
     @abstractmethod
     def _set_hardware_window(self, plan: AoiPlan) -> bool:
@@ -1147,7 +1160,12 @@ class Camera(ABC):
         """Return the minimum supported frame size.
 
         Returns:
-            dict: ``{'width': int, 'height': int}``.
+            dict: ``{'width': int, 'height': int}``; ``{}`` when the camera
+                is not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         pass
 
@@ -1156,7 +1174,12 @@ class Camera(ABC):
         """Return the maximum supported frame size.
 
         Returns:
-            dict: ``{'width': int, 'height': int}``.
+            dict: ``{'width': int, 'height': int}``; ``{}`` when the camera
+                is not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         pass
 
@@ -1165,8 +1188,12 @@ class Camera(ABC):
 
         Returns:
             dict: ``{'width': int, 'height': int}``: the window's delivered
-                size, or the camera's own window while none is set. What the
-                driver's own read returns when the camera cannot answer.
+                size, or the camera's own window while none is set; ``None``
+                when the camera is not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         acquired = self._hardware_frame_size()
         window = self._frame_window
@@ -1176,7 +1203,11 @@ class Camera(ABC):
 
     @abstractmethod
     def _hardware_frame_size(self) -> dict | None:
-        """The window the camera acquires, ``{'width', 'height'}``."""
+        """The window the camera acquires, ``{'width', 'height'}``; None when not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read.
+        """
 
     @abstractmethod
     def set_pixel_format(self, pixel_format: str) -> bool:
@@ -1197,10 +1228,11 @@ class Camera(ABC):
 
         Returns:
             The format identifier (e.g. ``'Mono8'``), or ``None`` when the
-            camera is inactive or the read failed. ``None`` is the shared
-            failed-read sentinel -- distinct from every real format name,
-            so a consumer that forgets to handle it fails loudly instead
-            of silently treating the failure as a legal format.
+            camera is not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         pass
 
@@ -1209,7 +1241,12 @@ class Camera(ABC):
         """Return all pixel formats this camera can be set to.
 
         Returns:
-            tuple: Format identifier strings supported by the SDK.
+            tuple: Format identifier strings supported by the SDK; ``()``
+                when the camera is not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         pass
 
@@ -1275,7 +1312,12 @@ class Camera(ABC):
         """Return the current exposure time.
 
         Returns:
-            float: Exposure time in milliseconds.
+            float: Exposure time in milliseconds; ``-1`` when the camera is
+                not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         pass
 
@@ -1573,13 +1615,19 @@ class Camera(ABC):
             bool: True on success.
 
         Raises:
-            What the driver's binning write raises (a camera that did not
-            answer it raises ``CameraNoAnswerError``); frames are then stored
-            as they arrive until a frame size is set.
+            CameraReadFailedError: A read the write needs failed (the binning
+                now, or the grab state the driver's config guard reads),
+                before anything was written; the window is kept.
+            What the driver's binning write raises otherwise (a camera that
+            did not answer it raises ``CameraNoAnswerError``); frames are
+            then stored as they arrive until a frame size is set.
         """
         before = self.get_binning_size()
         try:
             applied = self._set_hardware_binning(size)
+        except CameraReadFailedError:
+            # Every driver reads before its first write, so nothing was sent.
+            raise
         except Exception:
             # The camera may hold the new binning, the old, or one axis of
             # each, so the window set before is not known to fit its frames.
@@ -1598,11 +1646,12 @@ class Camera(ABC):
         """Return the current hardware binning factor.
 
         Returns:
-            int: Binning factor (1 = no binning); 1 when the camera is
-                inactive (no camera means no binning); -1 on a read
-                failure. -1 (not 1) is the failure sentinel because 1 is
-                a legal factor -- an in-band failure value would let a
-                value-validating caller silently de-bin a 2x camera.
+            int: Binning factor (1 = no binning); 1 when the camera is not
+                connected (no camera means no binning).
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         pass
 
@@ -1759,7 +1808,11 @@ class Camera(ABC):
         """Return the current camera gain.
 
         Returns:
-            float: Gain in dB.
+            float: Gain in dB; ``-1`` when the camera is not connected.
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the read, a
+                timeout included. The camera is kept.
         """
         pass
 

@@ -1543,29 +1543,45 @@ class Lumascope:
             asked = (frame_width, frame_height)
             available_binning = self.capabilities.camera_binning_sizes
             if binning_size not in available_binning:
-                camera_binning = self.camera._held_or_read('binning')
-                # At a different factor the saved displayed size would frame
-                # a fraction of the region, so the frame asked for is the
-                # region's at the factor applied; the binning's notice tells
-                # the change of scale, and the frame's below only a refit.
-                rescaled = binning.native_to_displayed(
-                    region, camera_binning, self.camera.get_pixel_alignment()
+                # The camera's binning, read through bring-up's write rule: a
+                # read that fails is kept on the camera's part of the record
+                # and told once, and bring-up goes on with the saved binning,
+                # whose write meets the camera's own answer.
+                read: list[int] = []
+                self.write_camera_at_bring_up(
+                    lambda: read.append(
+                        self.camera._read_a_write_needs(
+                            'set_binning',
+                            'binning',
+                            binning_size,
+                            lambda: self.camera._held_or_read('binning'),
+                        )
+                    )
                 )
-                asked = (rescaled['width'], rescaled['height'])
-                logger.info(
-                    f'[SCOPE API ] initialize: the frame {frame_width}x{frame_height} saved '
-                    f'at binning {binning_size} is rescaled to {asked[0]}x{asked[1]} at the '
-                    f'camera-reported {camera_binning} (available: {available_binning})'
-                )
-                self._bring_up_substitutions.append(
-                    Substitution('binning', saved=binning_size, used=camera_binning)
-                )
-                notifications.report_outcome(
-                    BinningSubstitutedNotice(binning_size, camera_binning),
-                    solicited=False,
-                    category='Camera',
-                )
-                binning_size = camera_binning
+                if read:
+                    camera_binning = read[0]
+                    # At a different factor the saved displayed size would frame
+                    # a fraction of the region, so the frame asked for is the
+                    # region's at the factor applied; the binning's notice tells
+                    # the change of scale, and the frame's below only a refit.
+                    rescaled = binning.native_to_displayed(
+                        region, camera_binning, self.camera.get_pixel_alignment()
+                    )
+                    asked = (rescaled['width'], rescaled['height'])
+                    logger.info(
+                        f'[SCOPE API ] initialize: the frame {frame_width}x{frame_height} saved '
+                        f'at binning {binning_size} is rescaled to {asked[0]}x{asked[1]} at the '
+                        f'camera-reported {camera_binning} (available: {available_binning})'
+                    )
+                    self._bring_up_substitutions.append(
+                        Substitution('binning', saved=binning_size, used=camera_binning)
+                    )
+                    notifications.report_outcome(
+                        BinningSubstitutedNotice(binning_size, camera_binning),
+                        solicited=False,
+                        category='Camera',
+                    )
+                    binning_size = camera_binning
             # The frame runs as the API gives one from a region, the arithmetic
             # a binning change uses: aligned, raised to the camera's minimum,
             # within the maximum. A frame the camera cannot run (0, below the

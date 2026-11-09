@@ -1568,8 +1568,9 @@ class ImagingAPI:
                 grabbing; or, given ``hold``, a run, a diagnostic or a home
                 holds the scope, or ``'other_led_lit'``, an LED other than its
                 channel's is lit.
-            CameraSettingRejected: given ``hold``, the camera refused one of
-                its settings; nothing was captured.
+            CameraSettingRejected: given ``hold``, the camera did not take one
+                of its settings (its ``reason`` says how); nothing was
+                captured.
         """
         wait_s = self._capture_wait_s(
             exclude_sources,

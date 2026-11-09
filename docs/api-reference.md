@@ -761,7 +761,7 @@ CapturedStill: The image and the instrument's record of its frame.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the camera, with none connected or one removed during the capture; `'camera_not_streaming'`, its feed is stopped; `'channel_not_shown'`, `channel` is not the shown channel, nothing captured; `'other_led_lit'`, given `channel`, an LED other than its own is lit before the grab (nothing captured) or lit the frame; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope and this call is not made under it.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing is captured.
 - `CaptureFailedError`: `'no_frame'`, the camera delivered none within its grab window; `'deadline_expired'`, changes kept landing until the deadline passed; `'no_fresh_frame'`, frames came but none within the grab's bound counted for the `setting` changed; `'chunk_rejected'`, frames counted but none at the `setting` asked; `'record_read_failed'`, a frame came but the camera did not answer a read of the gain, exposure or black level its record needs, so it was not kept.
-- `CameraSettingRejected`: given `channel`, the camera refused one of its settings; nothing was captured.
+- `CameraSettingRejected`: given `channel`, the camera did not take one of its settings (its `reason` says how); nothing was captured.
 
 **Refusals**
 
@@ -769,7 +769,7 @@ CapturedStill: The image and the instrument's record of its frame.
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `out_of_range`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
 - [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `no_fresh_frame`, `chunk_rejected`, `record_read_failed`
-- [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`
+- [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`
 
 <a id="ScopeSession.channel_acquire"></a>
 ### `ScopeSession.channel_acquire`
@@ -1532,14 +1532,14 @@ It raises what `start_go_to_step` raises, and the following.
 
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first. The channel and the preview are the step's.
-- `CameraSettingRejected`: the camera refused a setting of the step's channel, raised once the stage has arrived; see `apply_channel_camera`.
+- `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how), raised once the stage has arrived; see `apply_channel_camera`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_go_to_step`. Nothing was started.
 
 **Refusals by REST status**
 
 - 409: [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
 <a id="ScopeSession.held_by_other"></a>
@@ -1680,13 +1680,13 @@ The shown channel now.
 - `ArgumentRefusedError`: `'illumination_out_of_range'`, the channel's stored current is outside the attached board's range.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no shown channel; `'not_connected'`, naming the LED controller the light needs; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or `lit` is True while a manual recording runs and the channel's LED is not lit above 0 mA (a recording keeps the light it started under; nothing is changed). One lit above 0 mA is put at the stored current.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
-- `CameraSettingRejected`: the camera refused a setting of the channel; its LED is already lit or dark.
+- `CameraSettingRejected`: the camera did not take a setting of the channel (its `reason` says how); its LED is already lit or dark.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `illumination_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ScopeSession.live_folder_listing"></a>
@@ -3336,13 +3336,13 @@ The shown channel now.
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'illumination_out_of_range'`, its stored current is outside the attached board's range.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs, or the camera when it leaves during the call; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one, or its LED would be lit from dark or 0 mA (a recording keeps one channel and the light it started under; nothing is changed).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
-- `CameraSettingRejected`: the camera refused a setting of the channel; its LEDs are already shown.
+- `CameraSettingRejected`: the camera did not take a setting of the channel (its `reason` says how); its LEDs are already shown.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `illumination_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ScopeSession.shown_channel"></a>
@@ -3612,14 +3612,14 @@ it is refused on the UI thread; a click calls it from a worker.
 - `PositionOutOfRangeError`: the step lies outside an axis's travel; the axes before it have moved, nothing else changes.
 - `MoveFaultError`: `'driver_failed'`, the board did not take an axis's command; or the turret's move to the step's slot did not arrive; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'` or `'superseded'`, the turret's move to the step's slot was ended.
-- `CameraSettingRejected`: the camera refused a setting of the step's channel; the moves are under way, and the channel and the preview are the step's.
+- `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how); the moves are under way, and the channel and the preview are the step's.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread. Nothing was started.
 
 **Refusals by REST status**
 
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `camera_setting_out_of_range`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ScopeSession.status"></a>
@@ -5111,13 +5111,13 @@ dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effec
 - `ArgumentRefusedError`: `'missing_key'`, `auto_gain` is True and `auto_gain_settings` is None or lacks a key the auto-gain write reads; `'not_a_number'`, one of its values, the gain or the exposure is not a finite number; `'key_unknown'`, it holds a key the write does not take; `'gain_range_inverted'`, its minimum gain is above its maximum. Nothing was written.
 - `CameraSettingOutOfRangeError`: `'gain_db_out_of_range'` or `'exposure_ms_out_of_range'`, the gain or the exposure is outside the range the camera declares; nothing was written.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; nothing was written.
-- `CameraSettingRejected`: The camera did not take the gain, the exposure or the auto-gain change. When more than one, `setting` names each, comma-separated, `requested` holds their values in that order, the message carries each sentence, and the reason is `'camera_no_answer'` when any of them got no answer.
+- `CameraSettingRejected`: The camera did not take the gain, the exposure or the auto-gain change. When more than one, `setting` names each, comma-separated, `requested` holds their values in that order, the message carries each sentence, and the reason is the first any of them carries of `'camera_no_answer'`, `'camera_read_failed'` and `'camera_rejected'`.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_no_answer`, `camera_read_failed`, `camera_rejected`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.auto_exposure"></a>
@@ -5864,7 +5864,7 @@ auto-exposure never had, with nothing written.
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, for any other `mode`: a one-shot is `auto_gain_once`'s. Nothing is sent.
-- `CameraSettingRejected`: The camera refused the change; nothing is shown here.
+- `CameraSettingRejected`: The camera refused the change; nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 - `CameraSettingUnsupportedError`: Turning auto-exposure on for a camera without it.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, for turning auto-exposure on with no camera connected or one removed during the write; turning it off is satisfied either way.
 
@@ -5872,7 +5872,7 @@ auto-exposure never had, with nothing written.
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_auto_gain"></a>
@@ -5912,7 +5912,7 @@ bool | None: The camera's answer, True or None; True, with nothing written, for 
 
 **Raises**
 
-- `CameraSettingRejected`: The camera refused the change. Nothing was recorded, and nothing is shown here.
+- `CameraSettingRejected`: The camera refused the change. Nothing was recorded, and nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 - `CameraSettingUnsupportedError`: Turning auto-gain on for a camera without it.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, for turning auto-gain on with no camera connected or one removed during the write; turning it off is satisfied either way.
 - `ArgumentRefusedError`: `'missing_key'`, `settings` lacks a key the write reads; `'wrong_kind'` or `'not_a_number'`, it or one of its values is not of the kind read; `'key_unknown'`, it holds a key the write does not take; `'gain_range_inverted'`, its minimum gain is above its maximum.
@@ -5921,7 +5921,7 @@ bool | None: The camera's answer, True or None; True, with nothing written, for 
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `wrong_kind`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_binning"></a>
@@ -5957,13 +5957,13 @@ The frame the camera delivers.
 
 - `HardwareCommandRefusedError`: A recording holds the scope: its frames and their pixel size follow the binning it started with. `'not_connected'`, naming the camera, with none connected or one removed during the write. Nothing is saved.
 - `CameraSettingUnsupportedError`: `'binning_unsupported'`, this camera does not offer `size`. Nothing reaches the camera.
-- `CameraSettingRejected`: The camera refused the binning (nothing is saved) or the frame after it (the binning is saved, with the frame the camera reports holding at it, and no frame when it has never reported one).
+- `CameraSettingRejected`: The camera refused the binning (nothing is saved) or the frame after it (the binning is saved, with the frame the camera reports holding at it, and no frame when it has never reported one). Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `binning_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_black_level"></a>
@@ -5996,14 +5996,13 @@ float | None: The black level now in effect, which differs from the request when
 - `CameraSettingUnsupportedError`: This camera has no black level setting (`capabilities.camera_supports_black_level` is False). Nothing reached the camera.
 - `ArgumentRefusedError`: `'not_a_number'`, `level` is not a finite number; nothing was sent to the camera.
 - `CameraSettingOutOfRangeError`: `level` is outside the range the camera reports for its current pixel format; nothing was sent.
-- `CameraSettingRejected`: The camera refused it, as a camera holding its black level automatically does, or raised from the write (chained).
-- `CameraReadFailedError`: `'camera_read_failed'`, the camera's probe of its black level setting or the read of its range failed. Nothing was sent.
+- `CameraSettingRejected`: The camera refused it, as a camera holding its black level automatically does, or raised from the write (chained). Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_exposure_ms"></a>
@@ -6037,14 +6036,14 @@ float | None: The exposure in milliseconds now in effect, which differs from the
 
 - `ArgumentRefusedError`: `'not_a_number'`, the exposure is not a finite number; nothing was sent to the camera.
 - `CameraSettingOutOfRangeError`: The exposure is outside the range the camera declares; nothing was sent to it.
-- `CameraSettingRejected`: A live driver refused the exposure or raised from the write (chained). It carries the words its reporter shows; nothing is shown here.
+- `CameraSettingRejected`: A live driver refused the exposure or raised from the write (chained). It carries the words its reporter shows; nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_frame_size"></a>
@@ -6077,13 +6076,13 @@ The frame the camera delivers: the request floored to even sides.
 
 - `HardwareCommandRefusedError`: A recording holds the scope: its frames are fitted to the geometry it started with. `'not_connected'`, naming the camera, with none connected or one removed during the write. Nothing is saved.
 - `CameraSettingOutOfRangeError`: `'frame_width_out_of_range'` or `'frame_height_out_of_range'`, the size, floored to even sides, is below the camera's minimum frame or above the scope's maximum at the binning held: the sensor, or the model's smaller maximum (`capabilities.camera_limits`). Nothing reaches the camera or is saved; an undeclared end is not checked.
-- `CameraSettingRejected`: The camera refused the frame. Nothing is saved.
+- `CameraSettingRejected`: The camera refused the frame. Nothing is saved. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `frame_width_out_of_range`, `frame_height_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_gain_db"></a>
@@ -6121,14 +6120,14 @@ float | None: The gain in dB now in effect, which differs from the request when 
 
 - `ArgumentRefusedError`: `'not_a_number'`, the gain is not a finite number; nothing was sent to the camera.
 - `CameraSettingOutOfRangeError`: The gain is outside the range the camera declares; nothing was sent to it.
-- `CameraSettingRejected`: A live driver refused the gain or raised from the write (chained). It carries the words its reporter shows; nothing is shown here.
+- `CameraSettingRejected`: A live driver refused the gain or raised from the write (chained). It carries the words its reporter shows; nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_high_conversion_gain"></a>
@@ -6157,14 +6156,13 @@ without the mode is its state, and is saved.
 
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write. Nothing is saved.
 - `CameraSettingUnsupportedError`: `'conversion_gain_mode_unsupported'`, on, for a camera without the mode. Nothing reaches the camera or is saved.
-- `CameraSettingRejected`: The camera refused it or raised from it (chained). Nothing is saved.
-- `CameraReadFailedError`: `'camera_read_failed'`, the camera's probe of the mode failed, here and when it came up (`capabilities.camera_supports_conversion_gain_mode` is None). Nothing was written or saved.
+- `CameraSettingRejected`: The camera refused it or raised from it (chained). Nothing is saved. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `conversion_gain_mode_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_image_mode"></a>
@@ -6194,13 +6192,13 @@ nothing to apply; the mode is saved and bring-up applies it.
 
 - `ArgumentRefusedError`: `'not_offered'`, `mode` is not an image mode. Nothing is applied or saved.
 - `HardwareCommandRefusedError`: A recording holds the scope: its frames are written at the depth it started with. `'not_connected'`, naming the camera, when it went away between the format query and the apply. Nothing is saved.
-- `CameraSettingRejected`: The camera refused the format. Nothing is saved, so captures are never tagged with a depth the camera is not delivering.
+- `CameraSettingRejected`: The camera refused the format. Nothing is saved, so captures are never tagged with a depth the camera is not delivering. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_line_noise_reduction"></a>
@@ -6226,14 +6224,13 @@ the camera took it, as `set_high_conversion_gain` is.
 
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write. Nothing is saved.
 - `CameraSettingUnsupportedError`: `'line_noise_reduction_unsupported'`, on, for a camera without the filter. Nothing reaches the camera or is saved.
-- `CameraSettingRejected`: The camera refused it or raised from it (chained). Nothing is saved.
-- `CameraReadFailedError`: `'camera_read_failed'`, the camera's probe of the filter failed, here and when it came up (`capabilities.camera_supports_line_noise_reduction` is None). Nothing was written or saved.
+- `CameraSettingRejected`: The camera refused it or raised from it (chained). Nothing is saved. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `line_noise_reduction_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`; [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="DiagnosticsAPI"></a>
@@ -9196,20 +9193,18 @@ Marks: enters: `guarded_write`.
 Route: `POST /api/v1/scope/simulation/refuse_camera_read`.
 
 The camera's next `count` reads of `node` fail as the real
-driver that reads the node fails (`SimulatedCamera.FAILED_READS`).
+driver that reads the node fails (`SimulatedCamera.FAILED_READS`):
+each raises `CameraReadFailedError`.
 
-The gain, the exposure and the binning answer -1, the frame size
-and the pixel format None; the black level, the frame rate, the
-minimum exposure and the auto modes raise `CameraReadFailedError`.
-The minimum exposure's is IDS's answer, the one driver that reads it
+The minimum exposure's is IDS's read, the one driver that reads it
 live, offered here so the live-floor read is proven without an IDS
 body. A real driver fails the pixel-format read only before its
 first good read after a connect, since it keeps the format it read.
 
 **Args**
 
-- `node`: The setting read: `'gain'`, `'exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'frame_rate'`, `'minimum_exposure'` (`camera.read_exposure_min_ms`), `'auto_gain'` or `'auto_exposure'`.
-- `answer`: `'failed'`, the node's answer; or `'removed'`, the same answer with the camera gone from the bus during the read (it stays removed for the session, as after `remove_camera`).
+- `node`: The setting read: `'gain'`, `'exposure'`, `'frame_size'` (the window the camera acquires), `'frame_grid'` (the windows it can acquire, which a frame size write reads first), `'binning'`, `'pixel_format'`, `'pixel_formats'` (the formats offered, which a pixel format write reads first), `'black_level'`, `'frame_rate'`, `'minimum_exposure'` (`camera.read_exposure_min_ms`), `'auto_gain'` or `'auto_exposure'`.
+- `answer`: `'failed'`, the read raises; or `'removed'`, the same raise with the camera gone from the bus during the read (it stays removed for the session, as after `remove_camera`).
 - `count`: How many reads in a row meet it, 1 or more.
 
 **Raises**
@@ -13642,8 +13637,10 @@ A camera setting whose read a simulated fault can fail.
 - `gain`
 - `exposure`
 - `frame_size`
+- `frame_grid`
 - `binning`
 - `pixel_format`
+- `pixel_formats`
 - `black_level`
 - `frame_rate`
 - `minimum_exposure`
@@ -15022,13 +15019,14 @@ notifies it.
 
 **Attributes**
 
-- `reason`: `'camera_rejected'` -- the camera refused the write, or its driver raised from it. `'camera_no_answer'` -- the camera did not answer the write, sent twice, so whether it took it is not known. The setting is in `setting` and in the words.
+- `reason`: `'camera_rejected'` -- the camera refused the write, or its driver raised from it. `'camera_no_answer'` -- the camera did not answer the write, sent twice, so whether it took it is not known. `'camera_read_failed'` -- a read the write needs first failed, so nothing was sent and the camera keeps its previous value. The setting is in `setting` and in the words.
 - `setting`: Machine-readable setting name (e.g. 'frame_size').
 - `requested`: The value the caller asked for.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `camera_no_answer` | -- | 500 |
+| `camera_read_failed` | -- | 500 |
 | `camera_rejected` | -- | 500 |
 
 <a id="CameraSettingUnsupportedError"></a>

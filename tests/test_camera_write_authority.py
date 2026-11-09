@@ -26,7 +26,7 @@ import ast
 import pytest
 
 from _lumascope.drivers.simulated_camera import SimulatedCamera
-from _lumascope.drivers.exceptions import CameraWriteFailedError
+from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
 from _lumascope.modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
@@ -127,6 +127,11 @@ def camera_capable(monkeypatch):
     return _sim_camera()
 
 
+def _read_fails(*_args):
+    """A driver read the camera did not answer, as every driver raises it."""
+    raise CameraReadFailedError('simulated read failed')
+
+
 def _grown_by_one(before, *sources):
     """``before`` with each of ``sources`` invalidated once more: what
     ``invalidation_counts`` reads after a write that invalidated exactly
@@ -220,14 +225,14 @@ class TestGeometrySetterSequences:
         camera_plain.set_binning(2)
         cam = camera_plain._driver
         orig = cam.get_binning_size
-        cam.get_binning_size = lambda: -1
+        cam.get_binning_size = _read_fails
         try:
             camera_plain._populate_camera_cache()
         finally:
             cam.get_binning_size = orig
-        # A failed read returns the out-of-band -1 sentinel and must leave the
-        # last-known factor in place -- committing it (or an in-band 1) would
-        # silently de-bin the scale-bar / FOV math for a 2x camera.
+        # A failed read must leave the last-known factor in place --
+        # committing a guess (an in-band 1) would silently de-bin the
+        # scale-bar / FOV math for a 2x camera.
         assert camera_plain.binning == 2
 
     def test_gain_exposure_read_failure_not_cached(self, camera_plain):
@@ -235,16 +240,14 @@ class TestGeometrySetterSequences:
         prior_exposure = camera_plain.exposure_ms
         cam = camera_plain._driver
         orig_gain, orig_exp = cam.get_gain, cam.get_exposure_t
-        cam.get_gain = lambda: -1.0
-        cam.get_exposure_t = lambda: -1.0
+        cam.get_gain = _read_fails
+        cam.get_exposure_t = _read_fails
         try:
             camera_plain._populate_camera_cache()
         finally:
             cam.get_gain, cam.get_exposure_t = orig_gain, orig_exp
-        # A negative return is the drivers' failed-read sentinel. The old
-        # `or 0.0` idiom passed it through (-1.0 is truthy) and latched -1
-        # into the UI gain/exposure readout; a failed read must leave the
-        # last-known values in place.
+        # A failed read once latched -1 into the UI gain/exposure readout; it
+        # must leave the last-known values in place.
         assert camera_plain.gain_db == prior_gain
         assert camera_plain.exposure_ms == prior_exposure
         assert camera_plain.gain_db >= 0

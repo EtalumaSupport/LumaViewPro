@@ -34,7 +34,7 @@ on the read-back after the write took is the write applied.
 import pytest
 from pypylon import genicam
 
-from _lumascope.drivers.exceptions import CameraNoAnswerError
+from _lumascope.drivers.exceptions import CameraNoAnswerError, CameraReadFailedError
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.notification_center import Severity
@@ -458,14 +458,20 @@ def _pixel_formats_unread(cam):
     return cam.set_pixel_format('Mono8')
 
 
-# Reads a setter must make before it can send its write at all: the value is
-# computed from them, or the node they probe is the one written.
+# Reads a setter must make before it can send its write at all: the node they
+# probe is the one written. Part of the write, so unanswered they are its
+# no-answer.
 READS_BEFORE_THE_WRITE = {
-    'set_frame_size (the Width/Height grid)': _frame_grid_unread,
     'set_conversion_gain_mode (the node probe)': _conversion_gain_probe_unread,
     'set_line_noise_reduction (the node probe)': _line_noise_probe_unread,
     'set_black_level (the selector probe)': _black_level_probe_unread,
-    'set_pixel_format (the supported formats)': _pixel_formats_unread,
+}
+
+# The getters a setter reads first, the value computed from them: unanswered,
+# each raises its own read failure, and nothing is sent.
+GETTERS_BEFORE_THE_WRITE = {
+    'set_frame_size (the Width/Height grid)': (_frame_grid_unread, 'SetValue'),
+    'set_pixel_format (the supported formats)': (_pixel_formats_unread, 'SetValue'),
 }
 
 
@@ -488,4 +494,29 @@ class TestAReadTheWriteNeedsWasNotAnswered:
                 if 'nothing was written' not in str(e):
                     offenders[name] = f'said {str(e)!r}'
 
+        assert not offenders, '; '.join(f'{n} {o}' for n, o in offenders.items())
+
+    def test_a_getter_the_write_reads_first_raises_its_read_and_nothing_is_sent(self):
+        """A getter the write is computed from raises ``CameraReadFailedError``
+        with the SDK's words, a timeout included: the API refuses that as a
+        write not sent, never sends it again. Nothing is written and the
+        camera is kept."""
+        offenders = {}
+        for name, (drive, write) in GETTERS_BEFORE_THE_WRITE.items():
+            cam = bare_pylon_camera()
+            cam._device_removed = False
+            try:
+                result = drive(cam)
+            except CameraReadFailedError as e:
+                if 'timed out' not in str(e):
+                    offenders[name] = f"dropped the SDK's words: {e}"
+            except Exception as e:
+                offenders[name] = f'raised {type(e).__name__}: {e}'
+            else:
+                offenders[name] = f'returned {result!r}'
+            for node in ('Width', 'Height', 'PixelFormat'):
+                if getattr(getattr(cam.active, node), write).called:
+                    offenders[name] = f'wrote {node}'
+            if cam._mark_disconnected.called:
+                offenders[name] = 'marked the camera removed'
         assert not offenders, '; '.join(f'{n} {o}' for n, o in offenders.items())

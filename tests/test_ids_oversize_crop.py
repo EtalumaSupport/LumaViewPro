@@ -19,9 +19,12 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
+from ids_peak import ids_peak
 
 from _lumascope.drivers.camera import FrameWindow, ImageHandlerBase
 from _lumascope.drivers.camera_profiles import CameraProfile
+from _lumascope.drivers.exceptions import CameraReadFailedError
 from tests.camera_fakes import bare_ids_camera
 
 # Bench-confirmed IMX676 AOI maxima (binned-space probe, 2026-06-25): 3504x3544.
@@ -277,15 +280,15 @@ def test_an_inactive_camera_refuses_a_frame_size_without_writing():
     assert cam._frame_window is None
 
 
-def test_an_unreadable_aoi_node_refuses_the_frame_size_without_raising():
-    """A node read that fails leaves no grid to plan on: the frame size is
-    refused, reported as False to the caller like any refusal, and no window
-    is recorded."""
+def test_an_unreadable_aoi_node_raises_the_read_and_writes_no_window():
+    """A node read that fails leaves no grid to plan on: the read's failure
+    is raised, nothing is written, and no window is recorded."""
     cam = _ids_camera_with_aoi()
     cam.remote_nodemap = MagicMock()
-    cam.remote_nodemap.FindNode.side_effect = RuntimeError('node read failed')
+    cam.remote_nodemap.FindNode.side_effect = ids_peak.Exception('node read failed')
 
-    assert cam.set_frame_size(1900, 1900) is False
+    with pytest.raises(CameraReadFailedError, match='node read failed'):
+        cam.set_frame_size(1900, 1900)
     assert cam._frame_window is None
 
 

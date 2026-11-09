@@ -13,6 +13,10 @@ each test drives the real getter/setter and watches the node map.
 
 from unittest.mock import MagicMock
 
+import pytest
+from ids_peak import ids_peak
+
+from _lumascope.drivers.exceptions import CameraReadFailedError
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 
 
@@ -49,7 +53,7 @@ class TestIdsPixelFormatCache:
     def test_setter_refreshes_cache(self):
         cam = bare_ids_camera()
         cam._pixel_format_cache = None
-        cam._resolve_logical_format = lambda fmt: 'Mono8'
+        cam._read_supported_pixel_formats = lambda: ('Mono8',)
         assert cam.set_pixel_format('Mono8') is True
         assert cam._pixel_format_cache == 'Mono8'
 
@@ -61,7 +65,7 @@ class TestIdsPixelFormatCache:
         # value at the instant grabbing restarts.
         cam = bare_ids_camera()
         cam._pixel_format_cache = 'Mono8'
-        cam._resolve_logical_format = lambda fmt: 'Mono12'
+        cam._read_supported_pixel_formats = lambda: ('Mono8', 'Mono12')
         cam.is_grabbing = lambda: True  # force update_camera_config to bounce
         cam.stop_grabbing = MagicMock()
         seen = {}
@@ -89,13 +93,14 @@ class TestIdsSupportedPixelFormats:
         assert cam.get_supported_pixel_formats() == ()
         cam.remote_nodemap.FindNode.assert_not_called()  # never touched the nodemap
 
-    def test_wedge_returns_empty_and_does_not_mark_disconnected(self):
-        # A wedged nodemap must NOT be masked as "no formats" silently, but this
-        # query never owns removal -- it returns () and leaves _mark_disconnected
-        # to the DeviceLost callback (unlike the Pylon driver).
+    def test_wedge_raises_the_read_and_does_not_mark_disconnected(self):
+        # A wedged nodemap is never masked as "no formats": the read raises with
+        # the SDK's words, and this query never owns removal -- it leaves
+        # _mark_disconnected to the DeviceLost callback.
         cam = bare_ids_camera()
-        cam.remote_nodemap.FindNode.side_effect = RuntimeError(
+        cam.remote_nodemap.FindNode.side_effect = ids_peak.Exception(
             'InvalidInstanceException: nodemap invalid'
         )
-        assert cam.get_supported_pixel_formats() == ()
+        with pytest.raises(CameraReadFailedError, match='nodemap invalid'):
+            cam.get_supported_pixel_formats()
         cam._mark_disconnected.assert_not_called()

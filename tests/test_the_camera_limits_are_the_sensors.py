@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 
+from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.modules.scope_capabilities import FrameSize
 from tests.scope_fakes import give_camera_capabilities
@@ -49,8 +50,12 @@ def test_a_camera_binned_at_connect_records_the_sensors_frame(camera):
 def test_a_failed_binning_read_does_not_shrink_the_frame(camera, monkeypatch):
     at_1x = _capabilities(camera)
     camera.set_binning_size(2)
-    # The drivers' failed-read answer (Camera.get_binning_size: -1).
-    monkeypatch.setattr(camera, 'get_binning_size', lambda: -1)
+
+    def unreadable():
+        raise CameraReadFailedError('simulated binning read failed')
+
+    # The drivers' failed read (Camera.get_binning_size raises).
+    monkeypatch.setattr(camera, 'get_binning_size', unreadable)
 
     limits = _capabilities(camera).camera_limits
 
