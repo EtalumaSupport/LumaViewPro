@@ -15,10 +15,15 @@ layer's exposure set to 25 ms:
 Every frame the camera delivers is caught by a frame listener: its id, its
 start mapped through a clock mapping latched beside the save
 (``camera_frame_time``; the save's own latch is not public, so the two
-differ by the mappings' uncertainty and drift), and its arrival, which
-comes after the start by at least the exposure. A saved frame's stated time
-is checked against both. The settings are written on the session in
-memory, never saved.
+differ by the mappings' uncertainty and drift), and its arrival. A saved
+frame's stated time is checked against that start. The arrival is checked
+against the start on the host's steady clock alone (the frame's
+``arrived_ns`` against the start the mapping puts on that clock): it comes
+at least the exposure after, less the mapping's own uncertainty, which
+tells a start stamp from an end or arrival stamp. The arrival against the
+stated time on the wall clock is a figure only: it mixes the wall clock
+with the steady one, which nothing here bounds. The settings are written
+on the session in memory, never saved.
 
     python tests/capability/recording_p03_a_saved_frames_time_is_its_start.py
     python tests/capability/recording_p03_a_saved_frames_time_is_its_start.py --hardware
@@ -65,10 +70,19 @@ class _Delivered:
         imaging.add_frame_listener(self._on_frame, name='recording_p03')
 
     def _on_frame(self, frame):
-        start = camera_frame_time(frame, self.mapping) if self.mapping is not None else None
+        mapping = self.mapping
+        start = camera_frame_time(frame, mapping) if mapping is not None else None
         arrival = datetime.datetime.fromtimestamp(frame.wall_ns / 1e9, datetime.UTC)
+        steady_lead_ms = None
+        if start is not None:
+            start_ns = mapping.host_ns + (
+                (int(frame.chunks['Timestamp']) - mapping.camera_ticks)
+                * 1_000_000_000
+                // mapping.tick_hz
+            )
+            steady_lead_ms = (frame.arrived_ns - start_ns) / 1e6
         with self._lock:
-            self.by_id[int(frame.chunks['FrameID'])] = (start, arrival)
+            self.by_id[int(frame.chunks['FrameID'])] = (start, arrival, steady_lead_ms)
             if self._awaited is not None and len(self.by_id) >= self._awaited[0]:
                 self._awaited[1].set()
 
@@ -83,17 +97,19 @@ class _Delivered:
 
 
 def _against_delivered(delivered, stated_at, frame_id):
-    """The stated time's distance from its delivered frame's mapped start, and its lead on arrival, ms."""
+    """The stated time's distance from its delivered frame's mapped start, ms,
+    and the frame's arrival after its start on the steady clock and after the
+    stated time on the wall clock, ms."""
     entry = delivered.by_id.get(int(frame_id))
     if entry is None or entry[0] is None:
         return None, None
-    start, arrival = entry
+    start, arrival, steady_lead_ms = entry
     off = (stated_at - start.at).total_seconds() * 1000
-    lead = (arrival - stated_at).total_seconds() * 1000
-    return off, lead
+    wall_lead_ms = (arrival - stated_at).total_seconds() * 1000
+    return off, (steady_lead_ms, wall_lead_ms)
 
 
-def _summary(name, offs, leads, count):
+def _summary(name, delivered, offs, leads, count):
     offs = [o for o in offs if o is not None]
     leads = [lead for lead in leads if lead is not None]
     figure(f'{name}.compared', f'{len(offs)} of {count}')
@@ -105,16 +121,29 @@ def _summary(name, offs, leads, count):
     if not offs:
         return
     figure(f'{name}.off_ms', (round(min(offs), 3), round(max(offs), 3)))
-    figure(f'{name}.arrival_after_stated_ms', (round(min(leads), 1), round(max(leads), 1)))
+    steady_leads = [steady for steady, _ in leads]
+    wall_leads = [wall for _, wall in leads]
+    uncertainty_ms = delivered.mapping.uncertainty_ns / 1e6
+    figure(f'{name}.mapping_uncertainty_ms', round(uncertainty_ms, 3))
+    figure(
+        f'{name}.arrival_after_start_steady_ms',
+        (round(min(steady_leads), 3), round(max(steady_leads), 3)),
+    )
+    figure(
+        f'{name}.arrival_after_stated_wall_ms',
+        (round(min(wall_leads), 3), round(max(wall_leads), 3)),
+    )
     check(
         f"{name}: every stated time is its frame start, within the mappings' agreement",
         max(abs(o) for o in offs) <= _MAPPING_AGREEMENT_MS,
         f'worst {max(offs, key=abs):+.3f} ms against {_MAPPING_AGREEMENT_MS} ms',
     )
     check(
-        f'{name}: every frame arrived at least its exposure after its stated time',
-        min(leads) >= _EXPOSURE_MS,
-        f'earliest arrival {min(leads):.1f} ms after',
+        f'{name}: every frame arrived at least its exposure after its start, on the steady clock, '
+        "within the mapping's uncertainty",
+        min(steady_leads) >= _EXPOSURE_MS - uncertainty_ms,
+        f'earliest arrival {min(steady_leads):.3f} ms after, against '
+        f'{_EXPOSURE_MS} - {uncertainty_ms:.3f} ms',
     )
 
 
@@ -153,7 +182,7 @@ def _still(session, runner, live):
     off, lead = _against_delivered(
         delivered, datetime.datetime.fromisoformat(record['timestamp_iso']), record['frame_id']
     )
-    _summary('still', [off], [lead], 1)
+    _summary('still', delivered, [off], [lead], 1)
 
 
 def _frame_files(new, delivered):
@@ -228,9 +257,9 @@ def _manual(session, live, as_frames):
         manifest.get('frames_unstamped'),
     )
     if as_frames:
-        _summary(name, *_frame_files(new, delivered))
+        _summary(name, delivered, *_frame_files(new, delivered))
     else:
-        _summary(name, *_index_entries(manifest, delivered))
+        _summary(name, delivered, *_index_entries(manifest, delivered))
 
 
 def main():
