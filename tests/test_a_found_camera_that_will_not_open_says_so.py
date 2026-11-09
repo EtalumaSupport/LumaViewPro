@@ -126,6 +126,43 @@ def test_a_host_with_no_basler_has_no_camera(monkeypatch):
     assert cam.found is False
 
 
+class _DeviceFilter:
+    """pylon's ``DeviceInfo`` as a filter: the device class it was given."""
+
+    def __init__(self):
+        self.device_class = None
+
+    def SetDeviceClass(self, device_class):
+        self.device_class = device_class
+
+
+@pytest.mark.parametrize(('emulation', 'opened'), [(True, 'BaslerCamEmu'), (False, None)])
+def test_a_basler_connect_opens_the_emulator_under_pylon_camemu_and_the_first_basler_otherwise(
+    monkeypatch, emulation, opened
+):
+    """``PYLON_CAMEMU`` adds Basler's emulator beside any real Basler, which
+    enumerates first; under it connect opens the emulator's device class, so
+    a real camera is never opened and configured as the emulator. Without it
+    connect opens the first Basler, any class."""
+    from _lumascope.drivers import pyloncamera
+
+    # a stand-in by design: the simulator has no pylon, and the subject is which device connect asks the SDK for
+    factory = _pylon_tl(monkeypatch, [MagicMock(), MagicMock()])
+    monkeypatch.setattr(pyloncamera.pylon, 'DeviceInfo', _DeviceFilter, raising=False)
+    factory.CreateFirstDevice.side_effect = pyloncamera.genicam.RuntimeException(
+        'No device is available'
+    )
+    cam = bare_pylon_camera()
+    cam.active = None
+    cam._use_camera_emulation = emulation
+
+    with pytest.raises(CameraUsbOpenFailedError):
+        cam.connect()
+
+    (asked,) = factory.CreateFirstDevice.call_args.args or (None,)
+    assert (asked and asked.device_class) == opened
+
+
 def test_the_bring_up_tells_an_open_failure_as_could_not_connect():
     fault = CameraUsbOpenFailedError('IDS camera found, its data stream failed: IndexError')
 

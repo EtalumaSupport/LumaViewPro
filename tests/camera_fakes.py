@@ -54,8 +54,10 @@ def bare_pylon_camera():
     cam = _base_state(pyloncamera.PylonCamera.__new__(pyloncamera.PylonCamera))
     cam.active = MagicMock()
     cam.active.IsGrabbing.return_value = False
-    # Set by __init__, which __new__ skips: no pixel format read yet.
+    # Set by __init__, which __new__ skips: no pixel format read yet, and
+    # no PYLON_CAMEMU, so a real Basler.
     cam._pixel_format_cache = None
+    cam._use_camera_emulation = False
     cam._mark_disconnected = MagicMock()
     # At GC, __del__ calls disconnect(), which blocks up to 2s in
     # _wait_for_acquisition_idle against the MagicMock; stub it so plain

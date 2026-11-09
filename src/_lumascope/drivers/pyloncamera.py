@@ -199,6 +199,10 @@ def _accepted_range(node, name: str) -> tuple[float, float]:
     return low, snapped
 
 
+# The device class of Basler's camera emulator (``PYLON_CAMEMU``), as
+# ``CDeviceInfo.GetDeviceClass()`` reports it.
+_EMULATOR_DEVICE_CLASS = 'BaslerCamEmu'
+
 # Pylon SDK error code returned by grabResult.GetErrorCode() when a
 # buffer is cancelled by StopGrabbing in flight. Value 0xE2000102.
 # USB3-Vision transport namespace (high byte 0xE2). Per Basler
@@ -1173,7 +1177,16 @@ class PylonCamera(Camera):
                     'warning', f'[CAM Class ] pylon TlFactory.EnumerateDevices() failed: {_e_enum}'
                 )
 
-            p_device = pylon.TlFactory.GetInstance().CreateFirstDevice()
+            if self._use_camera_emulation:
+                # PYLON_CAMEMU adds the emulator beside any real Basler on the
+                # bus, and a real one enumerates first: the emulator is
+                # selected by its device class, so a real camera is never
+                # opened and configured as the emulator.
+                emulator = pylon.DeviceInfo()
+                emulator.SetDeviceClass(_EMULATOR_DEVICE_CLASS)
+                p_device = pylon.TlFactory.GetInstance().CreateFirstDevice(emulator)
+            else:
+                p_device = pylon.TlFactory.GetInstance().CreateFirstDevice()
             _created = True
             step = 'its registration'
             self.active = pylon.InstantCamera(p_device)
