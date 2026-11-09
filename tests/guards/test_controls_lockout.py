@@ -340,36 +340,36 @@ class TestGestureMotionFunnel:
     before any widget's disabled state is consulted, so the shared
     ui_helpers movers obey the App's lock record themselves."""
 
-    def _locked_app(self, recording):
+    def _locked_app(self, monkeypatch, recording):
         from _lumascope.modules.scope_session import ControlsLock
 
-        app_cls = sys.modules['kivy.app'].App
         # a stand-in by design: the App exists only when lumaviewpro.py runs
         # as the program; the funnel reads one attribute of it, the record.
         stub = mock.Mock()
         stub.lock = ControlsLock(run_named=None, control_named=None, recording=recording)
-        app_cls.get_running_app = mock.Mock(return_value=stub)
-        return app_cls
+        monkeypatch.setattr(
+            sys.modules['kivy.app'].App, 'get_running_app', mock.Mock(return_value=stub)
+        )
 
-    def test_locked_app_blocks_relative_move(self):
+    def test_locked_app_blocks_relative_move(self, monkeypatch):
         from ui import ui_helpers
 
-        self._locked_app(True)
+        self._locked_app(monkeypatch, True)
         assert ui_helpers._user_motion_locked('X') is True
         # No ctx is wired in this test process: reaching past the guard
         # would raise on ctx access, so returning cleanly IS the proof.
         ui_helpers.jog('X', 1, coarse=False)
 
-    def test_unlocked_app_reaches_for_the_scope(self):
+    def test_unlocked_app_reaches_for_the_scope(self, monkeypatch):
         from ui import ui_helpers
 
-        self._locked_app(False)
+        self._locked_app(monkeypatch, False)
         assert ui_helpers._user_motion_locked('X') is False
 
-    def test_a_headless_host_is_never_locked(self):
+    def test_a_headless_host_is_never_locked(self, monkeypatch):
         from ui import ui_helpers
 
-        sys.modules['kivy.app'].App.get_running_app = mock.Mock(return_value=None)
+        monkeypatch.setattr(sys.modules['kivy.app'].App, 'get_running_app', lambda: None)
         assert ui_helpers._user_motion_locked('X') is False
 
     def test_every_mover_guards(self):
