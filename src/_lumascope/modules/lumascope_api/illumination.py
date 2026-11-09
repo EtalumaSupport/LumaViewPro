@@ -656,7 +656,7 @@ class IlluminationAPI:
         self._led_state_lock = threading.Lock()
         self._lit_by: dict[int, LedLease | None] = {}
 
-        # Per-device LED I/O serialization, so LED stim pulses can
+        # Per-device LED I/O serialization, so LED writes can
         # interleave with camera grabs and motor moves on their own
         # per-device locks. Wrapped with TimedLock for contention
         # tracing.

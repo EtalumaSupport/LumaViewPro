@@ -168,14 +168,6 @@ class TestCompositeConfigShape:
         assert config['period'] is None
         assert config['duration'] is None
 
-    def test_a_composite_never_stimulates_the_sample(self):
-        # Protocol.from_config stamps this one value onto every step, so a
-        # populated dict here would fire stim hardware at the sample during
-        # what is only a multi-channel image capture.
-        settings = _settings(acquiring=('BF', LED0))
-        settings[LED0]['stim_config'] = {'enabled': True, 'duration_ms': 500}
-        assert _assemble(settings)['stim_config'] == {}
-
     def test_routes_through_the_canonical_builder_key_set(self):
         from tests.test_sequenced_capture_config_builder import _CANONICAL_KEYS
 

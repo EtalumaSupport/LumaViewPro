@@ -70,7 +70,6 @@ def _standalone_config(zstack: dict, *, use_zstacking: bool = True) -> dict:
         position_name='ZStack',
         autofocus=False,
         use_zstacking=use_zstacking,
-        stim_config={},
     )
 
 

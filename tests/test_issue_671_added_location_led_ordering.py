@@ -104,7 +104,6 @@ def _step_dict(name, x, y, z, color, idx):
         'Z-Stack Group ID': -1,
         'Acquire': 'image',
         'Video Config': {'duration': 5},
-        'Stim_Config': {},
         'Step Index': idx,
         'Label': '',
         'Channel Group ID': 0,
@@ -170,7 +169,6 @@ def _add_3rd_location_via_insert_step(protocol):
             },
             plate_position=PlateLocation(x_mm=ADDED_X, y_mm=ADDED_Y, z_um=ADDED_Z),
             objective_id='4x Oly',
-            stim_configs={},
             before_step_index=None,
             after_step_index=protocol.num_steps() - 1,
         )

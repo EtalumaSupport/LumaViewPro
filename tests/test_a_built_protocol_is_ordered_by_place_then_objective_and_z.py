@@ -80,5 +80,4 @@ def test_a_reorder_moves_the_revision_and_leaves_every_cell_as_it_was(make_sessi
     for row in protocol.steps().to_dict('records'):
         was = before[row['Gain']]
         assert row['Name'] == was['Name'], row['Gain']
-        for column in ('Video Config', 'Stim_Config'):
-            assert row[column] is was[column], (row['Gain'], column)
+        assert row['Video Config'] is was['Video Config'], row['Gain']

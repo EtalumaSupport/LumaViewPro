@@ -106,7 +106,7 @@ def _make_protocol(steps_config):
 
     steps_config: list of dicts with keys: color, illumination, gain, exposure,
         auto_gain, auto_focus, acquire, x, y, z, well, tile, z_slice,
-        tile_group_id, zstack_group_id, objective, sum_count, video_config, stim_config.
+        tile_group_id, zstack_group_id, objective, sum_count, video_config.
     Missing keys get defaults.
     """
     import pandas as pd
@@ -122,7 +122,6 @@ def _make_protocol(steps_config):
         'false_color': False,
         'sum_count': 1,
         'video_config': {'duration': 1},
-        'stim_config': {},
         'x': 10.0,
         'y': 20.0,
         'z': 5000.0,
@@ -162,7 +161,6 @@ def _make_protocol(steps_config):
                 'Z-Stack Group ID': merged['zstack_group_id'],
                 'Acquire': merged['acquire'],
                 'Video Config': merged['video_config'],
-                'Stim_Config': merged['stim_config'],
                 'Step Index': i,
                 # Unique per-step label: steps that differ only in exposure /
                 # gain / position must still derive distinct capture

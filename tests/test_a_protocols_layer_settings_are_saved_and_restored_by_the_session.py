@@ -2,8 +2,8 @@
 """Save and the layer-settings restore are Session members, as a pair.
 
 A protocol file carries a Layer Settings block: each acquiring layer's
-acquire mode, illumination, gain, auto-gain, exposure, false colour, sum
-and stimulation switch. The GUI composed the block from the store on Save
+acquire mode, illumination, gain, auto-gain, exposure, false colour and
+sum. The GUI composed the block from the store on Save
 and put it back into the store on Load, so a script could neither save a
 protocol the GUI would restore nor restore one the GUI had saved.
 ``ScopeSession.save_protocol`` writes the block and ``apply_channel_settings``
@@ -196,7 +196,6 @@ class TestTheBlockIsTypedAtLoad:
             exposure_ms=200.0,
             false_color=True,
             frames_summed=1,
-            stim_enabled=False,
         )
 
     def test_a_loaded_acquire_is_an_acquire_mode(self, session, tmp_path):
@@ -211,7 +210,7 @@ class TestTheBlockIsTypedAtLoad:
 
     def test_a_row_built_with_a_word_that_is_no_mode_is_refused(self):
         with pytest.raises(ArgumentRefusedError) as refused:
-            ChannelSettings('still', None, None, None, None, None, None, None)
+            ChannelSettings('still', None, None, None, None, None, None)
 
         assert (refused.value.reason, refused.value.argument, refused.value.offered) == (
             'not_offered',
@@ -220,9 +219,9 @@ class TestTheBlockIsTypedAtLoad:
         )
 
     def test_a_blank_cell_is_none(self, session, tmp_path):
-        tsv = _file_with_block(tmp_path, 'BF\timage\t5.0\t0.0\tFalse\t2.0\tFalse\t1\t\n')
+        tsv = _file_with_block(tmp_path, 'BF\timage\t5.0\t0.0\tFalse\t2.0\tFalse\t\t\n')
 
-        assert session.load_protocol(tsv).channel_settings()['BF'].stim_enabled is None
+        assert session.load_protocol(tsv).channel_settings()['BF'].frames_summed is None
 
     @pytest.mark.parametrize(
         'row',
@@ -287,7 +286,6 @@ class TestTheBlockIsTypedAtLoad:
             exposure_ms=40.0,
             false_color=False,
             frames_summed=1,
-            stim_enabled=None,
         )
 
 

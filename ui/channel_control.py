@@ -685,14 +685,13 @@ class ChannelControl(BoxLayout):
         bind ``on_release`` (a touch-up or the wheel, never a programmatic
         value) and a CheckBox's ``on_release`` never fires from ``.active``.
 
-        Only updates widgets for keys that are present in *step*.
-        This allows partial updates (e.g. stim-config-only for non-current
-        channels) without clobbering unrelated widget values.
+        Only updates widgets for keys that are present in *step*, so a
+        partial update leaves unrelated widget values alone.
 
         Args:
             step: Protocol step dict.  Recognized keys: 'Illumination',
                 'Gain', 'Exposure', 'Sum', 'Auto_Focus', 'Auto_Gain',
-                'False_Color', 'Acquire', 'Video Config', 'Stim_Config'.
+                'False_Color', 'Acquire', 'Video Config'.
         """
         gui_logger.display(f'CHANNEL_PANEL_{self.channel}', 'step')
         self._initializing = True
@@ -729,26 +728,6 @@ class ChannelControl(BoxLayout):
             if isinstance(vc, dict) and 'duration' in vc:
                 self.ids['video_duration_text'].text = str(vc['duration'])
                 self.ids['video_duration_slider'].value = float(vc['duration'])
-
-            # Stim config (only for this channel's stim settings)
-            sc = step.get('Stim_Config')
-            if isinstance(sc, dict) and self.channel in sc:
-                stim = sc[self.channel]
-                if stim.get('enabled', False):
-                    self.ids['stim_enable_btn'].active = True
-                    self.ids['stim_disable_btn'].active = False
-                else:
-                    self.ids['stim_disable_btn'].active = True
-                    self.ids['stim_enable_btn'].active = False
-                self.update_stim_controls_visibility()
-                self.ids['stim_ill_text'].text = str(stim.get('illumination_ma', 100))
-                self.ids['stim_ill_slider'].value = float(stim.get('illumination_ma', 100))
-                self.ids['stim_freq_text'].text = str(stim.get('frequency', 1))
-                self.ids['stim_freq_slider'].value = float(stim.get('frequency', 1))
-                self.ids['stim_pulse_width_text'].text = str(stim.get('pulse_width', 10))
-                self.ids['stim_pulse_width_slider'].value = float(stim.get('pulse_width', 10))
-                self.ids['stim_pulse_count_text'].text = str(stim.get('pulse_count', 1))
-                self.ids['stim_pulse_count_slider'].value = int(stim.get('pulse_count', 1))
 
             # Acquire type
             if 'Acquire' in step:

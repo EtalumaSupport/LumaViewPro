@@ -59,7 +59,6 @@ def _make_tiled_protocol(overlap_percent, capabilities):
         'duration': datetime.timedelta(hours=1),
         'frame_dimensions': {'width': 1920, 'height': 1080},
         'binning_size': 1,
-        'stim_config': {},
     }
     protocol = Protocol.from_config(
         input_config=input_config,

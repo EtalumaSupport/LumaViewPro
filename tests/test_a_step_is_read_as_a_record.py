@@ -4,25 +4,21 @@
 ``step(step_index)`` answered a pandas row, which crossed the wire as an object of
 no declared shape keyed by the steps table's column names, and a caller
 wanting every step asked once per step. A step is now a ``StepRecord``, a
-field per column, its video and stimulation configs records of their own,
-and ``step_records()`` answers every step at once.
+field per column, its video config a record of its own, and
+``step_records()`` answers every step at once.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import json
 
 import numpy as np
-import pytest
 from fastapi.testclient import TestClient
 
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.protocol import (
     _STEP_CELLS,
     _STEP_FIELDS,
-    ProtocolFormatError,
-    Stimulation,
     StepRecord,
     VideoConfig,
 )
@@ -45,7 +41,7 @@ def test_the_record_has_a_field_for_every_column_of_the_steps_table():
     assert list(_STEP_FIELDS.values()) == fields
 
 
-def test_a_step_reads_as_its_record_with_its_configs_as_records(session):
+def test_a_step_reads_as_its_record_with_its_video_config_as_a_record(session):
     protocol = _bf_and_blue(session)
     row = protocol.step_row(step_index=1)
 
@@ -60,20 +56,6 @@ def test_a_step_reads_as_its_record_with_its_configs_as_records(session):
         6000.0,
     )
     assert step.video_config == VideoConfig(duration_s=row['Video Config']['duration'])
-    assert step.stim_config == (
-        None
-        if row['Stim_Config'] is None
-        else {
-            layer: Stimulation(
-                enabled=entry.get('enabled'),
-                illumination_ma=entry.get('illumination_ma'),
-                frequency_hz=entry.get('frequency'),
-                pulse_width_ms=entry.get('pulse_width'),
-                pulse_count=entry.get('pulse_count'),
-            )
-            for layer, entry in row['Stim_Config'].items()
-        }
-    )
 
 
 def test_the_step_table_is_every_step_in_order(session):
@@ -142,26 +124,3 @@ def test_every_value_of_a_record_is_a_python_value_not_a_numpy_one(session):
     ]
 
     assert numpy_values == []
-
-
-def test_a_stimulation_entry_that_is_not_a_config_is_refused_naming_its_step(session, tmp_path):
-    protocol = _bf_and_blue(session)
-    saved = tmp_path / 'protocol.tsv'
-    protocol.to_file(saved)
-    first = protocol.step_row(step_index=0)
-
-    # The cell as the writer saves it: JSON, quoted for the TSV, its quotes doubled.
-    def cell(config):
-        return '"' + json.dumps(config).replace('"', '""') + '"'
-
-    stims = cell(dict(first['Stim_Config']))
-    assert stims in saved.read_text()
-    saved.write_text(saved.read_text().replace(stims, cell({'BF': 5}), 1))
-    loaded = session.load_protocol(saved)
-
-    with pytest.raises(ProtocolFormatError) as refused:
-        loaded.step_records()
-
-    assert str(refused.value) == (
-        f'step {first["Name"]} has a Stim_Config entry for BF that is not a config: 5.'
-    )

@@ -66,7 +66,6 @@ WRITERS = {
         channel_config=LAYER_CONFIG,
         plate_position=PLATE_POSITION,
         objective_id='10x Oly',
-        stim_configs={},
     ),
     'delete_step': lambda p, i: p.delete_step(step_index=i),
 }
@@ -81,7 +80,6 @@ def _insert(protocol, **place):
         channel_config=LAYER_CONFIG,
         plate_position=PLATE_POSITION,
         objective_id='10x Oly',
-        stim_configs={},
         **place,
     )
 

@@ -2,7 +2,6 @@
 
 Tests every permutation of protocol creation, save/load, and execution:
 - Image vs video capture
-- With/without stimulation config
 - With/without autofocus
 - Tiling (square and non-square)
 - Z-stacking
@@ -78,44 +77,6 @@ def _make_image_capture_config():
     return ImageCaptureConfig.from_image_mode('8bit')
 
 
-def _default_stim_config():
-    return {
-        LED2: {
-            'enabled': False,
-            'illumination_ma': 100.0,
-            'frequency': 1.0,
-            'pulse_width': 10,
-            'pulse_count': 100,
-        },
-        LED1: {
-            'enabled': False,
-            'illumination_ma': 100.0,
-            'frequency': 1.0,
-            'pulse_width': 10,
-            'pulse_count': 100,
-        },
-        LED0: {
-            'enabled': False,
-            'illumination_ma': 100.0,
-            'frequency': 1.0,
-            'pulse_width': 10,
-            'pulse_count': 100,
-        },
-    }
-
-
-def _stim_config_enabled(channels=(LED1,)):
-    """Stim config with specified channels enabled."""
-    cfg = _default_stim_config()
-    for ch in channels:
-        cfg[ch]['enabled'] = True
-        cfg[ch]['illumination_ma'] = 200.0
-        cfg[ch]['frequency'] = 5.0
-        cfg[ch]['pulse_width'] = 20
-        cfg[ch]['pulse_count'] = 50
-    return cfg
-
-
 def _default_video_config():
     return {'duration': 1.0}
 
@@ -141,7 +102,6 @@ def _make_step(
     zstack_group_id=0,
     acquire='image',
     video_config=None,
-    stim_config=None,
     auto_named=True,
     label='',
 ):
@@ -167,7 +127,6 @@ def _make_step(
         'Z-Stack Group ID': zstack_group_id,
         'Acquire': acquire,
         'Video Config': video_config or _default_video_config(),
-        'Stim_Config': stim_config or _default_stim_config(),
         'Step Index': 0,
         'Auto_Named': auto_named,
         'Label': label,
@@ -404,41 +363,17 @@ class TestRoundTripBasic:
         )
         assert step['Video Config']['duration'] == 5.0
 
-    def test_stim_config_preserved(self, tmp_path):
-        sc = _stim_config_enabled(channels=[LED1, LED0])
-        proto = _build_protocol([_make_step(stim_config=sc)])
-        reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step_row(step_index=0)
-        assert isinstance(step['Stim_Config'], dict), (
-            f'Stim_Config is {type(step["Stim_Config"])}, not dict'
-        )
-        assert step['Stim_Config'][LED1]['enabled'] is True
-        assert step['Stim_Config'][LED0]['enabled'] is True
-        assert step['Stim_Config'][LED2]['enabled'] is False
-        assert step['Stim_Config'][LED1]['frequency'] == 5.0
-
-    def test_stim_disabled_preserved(self, tmp_path):
-        sc = _default_stim_config()
-        proto = _build_protocol([_make_step(stim_config=sc)])
-        reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step_row(step_index=0)
-        assert isinstance(step['Stim_Config'], dict)
-        for ch in (LED2, LED1, LED0):
-            assert step['Stim_Config'][ch]['enabled'] is False
-
     def test_legacy_python_repr_tsv_parses(self, tmp_path):
         """Legacy TSVs written with Python dict repr (single quotes, True/False)
         must still load. Pandas' default CSV stringification produced this format
-        in older versions; json.loads rejects it. Before the fix, legacy TSVs
-        came back with a stand-in stimulation (enabled=False, ill=100) on every
-        step instead of the saved stim values -- stim ran but fired no pulses
-        because every channel was read as disabled. Its old colour keys are
-        read on a stock unit as the stock keys.
+        in older versions; json.loads rejects it. The Video Config is read as
+        the dict it was saved as; the Stim_Config, all off and in the same
+        repr, is read and dropped, since a protocol carries no stimulation.
         """
         stim_legacy = (
             "{'Blue': {'enabled': False, 'illumination': 250.0, 'frequency': 1, "
             "'pulse_width': 10, 'pulse_count': 1}, "
-            "'Green': {'enabled': True, 'illumination': 500.0, 'frequency': 0.8, "
+            "'Green': {'enabled': False, 'illumination': 500.0, 'frequency': 0.8, "
             "'pulse_width': 10, 'pulse_count': 10}, "
             "'Red': {'enabled': False, 'illumination': 500.0, 'frequency': 1, "
             "'pulse_width': 10, 'pulse_count': 1}}"
@@ -468,14 +403,7 @@ class TestRoundTripBasic:
         assert proto is not None
         step = proto.step_row(step_index=0)
 
-        assert isinstance(step['Stim_Config'], dict)
-        assert step['Stim_Config'][LED1]['enabled'] is True
-        assert step['Stim_Config'][LED1]['illumination_ma'] == 500.0
-        assert step['Stim_Config'][LED1]['frequency'] == 0.8
-        assert step['Stim_Config'][LED1]['pulse_count'] == 10
-        assert step['Stim_Config'][LED2]['enabled'] is False
-        assert step['Stim_Config'][LED0]['enabled'] is False
-
+        assert 'Stim_Config' not in step
         assert isinstance(step['Video Config'], dict)
         assert step['Video Config']['duration'] == 8
 
@@ -487,7 +415,7 @@ class TestRoundTripBasic:
         stim_config = (
             "{'Blue': {'enabled': False, 'illumination': 250.0, 'frequency': 1, "
             "'pulse_width': 10, 'pulse_count': 1}, "
-            "'Green': {'enabled': True, 'illumination': 500.0, 'frequency': 0.8, "
+            "'Green': {'enabled': False, 'illumination': 500.0, 'frequency': 0.8, "
             "'pulse_width': 10, 'pulse_count': 10}, "
             "'Red': {'enabled': False, 'illumination': 500.0, 'frequency': 1, "
             "'pulse_width': 10, 'pulse_count': 1}}"
@@ -620,29 +548,6 @@ class TestRoundTripMultiStep:
         assert reloaded.step_row(step_index=1)['Well'] == 'A2'
         assert reloaded.step_row(step_index=2)['Well'] == 'B1'
 
-    def test_video_with_stim(self, tmp_path):
-        """OG protocol pattern: video capture with stimulation enabled."""
-        sc = _stim_config_enabled(channels=[LED1])
-        vc = {'duration': 5.0}
-        steps = [
-            _make_step(name='A1_BF', color='BF', acquire='image'),
-            _make_step(
-                name=f'A1_{LED2}_stim', color=LED2, acquire='video', video_config=vc, stim_config=sc
-            ),
-        ]
-        proto = _build_protocol(steps)
-        reloaded = _save_and_reload(proto, tmp_path)
-
-        # Verify video config survived
-        vid_step = reloaded.step_row(step_index=1)
-        assert vid_step['Acquire'] == 'video'
-        assert isinstance(vid_step['Video Config'], dict)
-
-        # Verify stim config survived
-        assert isinstance(vid_step['Stim_Config'], dict)
-        assert vid_step['Stim_Config'][LED1]['enabled'] is True
-        assert vid_step['Stim_Config'][LED1]['frequency'] == 5.0
-
     def test_tiled_steps(self, tmp_path):
         """Tiled protocol steps preserve tile labels and group IDs."""
         steps = [
@@ -687,11 +592,10 @@ class TestRoundTripMultiStep:
 
     def test_double_save_load(self, tmp_path):
         """Save -> load -> save -> load preserves data (no drift)."""
-        sc = _stim_config_enabled(channels=[LED2, LED0])
         vc = {'duration': 2.0}
         steps = [
             _make_step(name='A1_BF', color='BF'),
-            _make_step(name='A1_vid', color=LED1, acquire='video', video_config=vc, stim_config=sc),
+            _make_step(name='A1_vid', color=LED1, acquire='video', video_config=vc),
         ]
         proto = _build_protocol(steps)
 
@@ -702,9 +606,8 @@ class TestRoundTripMultiStep:
         r2 = _save_and_reload(r1, tmp_path / 'round2')
 
         step = r2.step_row(step_index=1)
-        assert step['Stim_Config'][LED2]['enabled'] is True
-        assert step['Stim_Config'][LED0]['enabled'] is True
-        assert step['Stim_Config'][LED1]['enabled'] is False
+        assert step['Video Config'] == {'duration': 2.0}
+        assert step['Acquire'] == 'video'
 
 
 class TestRoundTripEdgeCases:
@@ -872,33 +775,6 @@ class TestExecuteMultiStep:
         assert completed, 'Mixed image+video protocol did not complete'
 
 
-class TestExecuteWithStim:
-    """Protocol execution with stimulation configs."""
-
-    def test_video_with_stim_enabled(self, executor, scope, tmp_path):
-        sc = _stim_config_enabled(channels=[LED1])
-        steps = [
-            _make_step(
-                name=f'A1_{LED2}_stim',
-                color=LED2,
-                acquire='video',
-                video_config={'duration': 0.5},
-                stim_config=sc,
-            ),
-        ]
-        proto = _build_protocol(steps)
-        completed, _ = _run_and_wait(executor, proto, tmp_path)
-        assert completed, 'Video with stim protocol did not complete'
-
-    def test_image_with_stim_disabled(self, executor, scope, tmp_path):
-        """Stim config present but disabled -- should not affect image capture."""
-        sc = _default_stim_config()
-        steps = [_make_step(stim_config=sc)]
-        proto = _build_protocol(steps)
-        completed, _ = _run_and_wait(executor, proto, tmp_path)
-        assert completed, 'Image with stim-disabled config did not complete'
-
-
 class TestExecuteSaveLoadRun:
     """The full pipeline: create -> save -> reload -> execute."""
 
@@ -908,15 +784,12 @@ class TestExecuteSaveLoadRun:
         completed, _ = _run_and_wait(executor, reloaded, tmp_path)
         assert completed, 'Reloaded BF protocol did not complete'
 
-    def test_video_stim_save_load_run(self, executor, scope, tmp_path):
-        """OG protocol pattern: save with stim+video, reload, run."""
-        sc = _stim_config_enabled(channels=[LED1])
+    def test_video_save_load_run(self, executor, scope, tmp_path):
+        """Save an image and a video step, reload, run."""
         vc = {'duration': 0.5}
         steps = [
             _make_step(name='A1_BF', color='BF', acquire='image'),
-            _make_step(
-                name=f'A1_{LED2}_stim', color=LED2, acquire='video', video_config=vc, stim_config=sc
-            ),
+            _make_step(name=f'A1_{LED2}_video', color=LED2, acquire='video', video_config=vc),
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path / 'save')
@@ -924,12 +797,10 @@ class TestExecuteSaveLoadRun:
         # Verify configs survived reload
         vid_step = reloaded.step_row(step_index=1)
         assert isinstance(vid_step['Video Config'], dict)
-        assert isinstance(vid_step['Stim_Config'], dict)
-        assert vid_step['Stim_Config'][LED1]['enabled'] is True
 
         # Run the reloaded protocol
         completed, _ = _run_and_wait(executor, reloaded, tmp_path)
-        assert completed, 'Reloaded video+stim protocol did not complete'
+        assert completed, 'Reloaded video protocol did not complete'
 
     def test_multi_well_tiled_save_load_run(self, executor, scope, tmp_path):
         steps = [
@@ -1087,35 +958,6 @@ class TestRoundTripMetadata:
             proto = _build_protocol([_make_step(acquire='video', video_config=vc)])
             reloaded = _save_and_reload(proto, tmp_path / f'dur_{dur}')
             assert reloaded.step_row(step_index=0)['Video Config']['duration'] == dur
-
-    def test_stim_multi_channel_enabled(self, tmp_path):
-        """Stim config with all 3 channels enabled."""
-        sc = _stim_config_enabled(channels=[LED2, LED1, LED0])
-        proto = _build_protocol([_make_step(stim_config=sc)])
-        reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step_row(step_index=0)
-        for ch in (LED2, LED1, LED0):
-            assert step['Stim_Config'][ch]['enabled'] is True
-
-    def test_stim_per_channel_values(self, tmp_path):
-        """Each stim channel can have different parameter values."""
-        sc = _default_stim_config()
-        sc[LED2]['enabled'] = True
-        sc[LED2]['frequency'] = 10.0
-        sc[LED2]['pulse_width'] = 5
-        sc[LED2]['pulse_count'] = 200
-        sc[LED1]['enabled'] = True
-        sc[LED1]['frequency'] = 20.0
-        sc[LED1]['pulse_width'] = 50
-        sc[LED1]['pulse_count'] = 10
-        proto = _build_protocol([_make_step(stim_config=sc)])
-        reloaded = _save_and_reload(proto, tmp_path)
-        step = reloaded.step_row(step_index=0)
-        assert step['Stim_Config'][LED2]['frequency'] == 10.0
-        assert step['Stim_Config'][LED2]['pulse_count'] == 200
-        assert step['Stim_Config'][LED1]['frequency'] == 20.0
-        assert step['Stim_Config'][LED1]['pulse_count'] == 10
-        assert step['Stim_Config'][LED0]['enabled'] is False
 
 
 class TestRoundTripCombinations:
@@ -1711,8 +1553,7 @@ class TestProtocolSaveLoadFieldLevel:
     """Verify every single field survives save/load at the field level."""
 
     def test_every_field_preserved(self, tmp_path):
-        """Check that ALL 21 step fields round-trip correctly."""
-        sc = _stim_config_enabled(channels=[LED2])
+        """Check that every step field round-trips correctly."""
         vc = {'duration': 3.5}
         step = _make_step(
             name='Test_Step_1',
@@ -1737,7 +1578,6 @@ class TestProtocolSaveLoadFieldLevel:
             zstack_group_id=4,
             acquire='video',
             video_config=vc,
-            stim_config=sc,
         )
         proto = _build_protocol([step])
         reloaded = _save_and_reload(proto, tmp_path)
@@ -1768,8 +1608,6 @@ class TestProtocolSaveLoadFieldLevel:
         assert s['Acquire'] == 'video'
         assert isinstance(s['Video Config'], dict)
         assert s['Video Config']['duration'] == 3.5
-        assert isinstance(s['Stim_Config'], dict)
-        assert s['Stim_Config'][LED2]['enabled'] is True
 
 
 # ===========================================================================
@@ -1876,7 +1714,6 @@ class TestProtocolInsertStep:
             channel_config=_layer_config(illumination=200.0),
             plate_position=PlateLocation(x_mm=30.0, y_mm=40.0, z_um=5000.0),
             objective_id='10x Oly',
-            stim_configs=_default_stim_config(),
             before_step_index=0,
         )
         assert proto.num_steps() == 2
@@ -1897,7 +1734,6 @@ class TestProtocolInsertStep:
             channel_config=_layer_config(illumination=150.0),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
-            stim_configs=_default_stim_config(),
             before_step_index=None,
             after_step_index=0,
         )
@@ -1922,7 +1758,6 @@ class TestProtocolInsertStep:
             channel_config=_layer_config(),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
-            stim_configs=_default_stim_config(),
             before_step_index=None,
             after_step_index=0,
         )
@@ -1943,32 +1778,12 @@ class TestProtocolInsertStep:
             channel_config=_layer_config(acquire='video', video_config=vc),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
-            stim_configs=_default_stim_config(),
             before_step_index=None,
             after_step_index=0,
         )
         step = proto.step_row(step_index=1)
         assert step['Acquire'] == 'video'
         assert isinstance(step['Video Config'], dict)
-
-    def test_insert_with_stim_config(self):
-        proto = _build_protocol([_make_step()])
-        sc = _stim_config_enabled(channels=[LED1])
-        proto.insert_step(
-            channel_group_id=proto.new_channel_group_id(),
-            turret_slot=-1,
-            step_name='stim_step',
-            channel=LED2,
-            channel_config=_layer_config(acquire='video'),
-            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
-            objective_id='10x Oly',
-            stim_configs=sc,
-            before_step_index=None,
-            after_step_index=0,
-        )
-        step = proto.step_row(step_index=1)
-        assert isinstance(step['Stim_Config'], dict)
-        assert step['Stim_Config'][LED1]['enabled'] is True
 
     def test_insert_save_load_run(self, real_executor, scope, tmp_path):
         """Insert a step, save, reload, and run -- full pipeline."""
@@ -1981,7 +1796,6 @@ class TestProtocolInsertStep:
             channel_config=_layer_config(illumination=200.0),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
-            stim_configs=_default_stim_config(),
             before_step_index=None,
             after_step_index=0,
         )
@@ -2071,7 +1885,6 @@ class TestProtocolModifyStep:
             channel_config=_layer_config(illumination=300.0),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
-            stim_configs=_default_stim_config(),
         )
         step = proto.step_row(step_index=0)
         assert step['channel'] == LED1
@@ -2081,24 +1894,6 @@ class TestProtocolModifyStep:
         assert step['Label'] == 'modified'
         assert step['Name'] == f'modified_{LED1}'
         assert not step['Auto_Named']
-
-    def test_modify_to_video_with_stim(self):
-        proto = _build_protocol([_make_step(acquire='image', z_slice=-1, zstack_group_id=-1)])
-        sc = _stim_config_enabled(channels=[LED0])
-        vc = {'duration': 3.0}
-        proto.modify_step(
-            turret_slot=-1,
-            step_index=0,
-            label='now_video',
-            channel=LED2,
-            channel_config=_layer_config(acquire='video', video_config=vc),
-            plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
-            objective_id='10x Oly',
-            stim_configs=sc,
-        )
-        step = proto.step_row(step_index=0)
-        assert step['Acquire'] == 'video'
-        assert step['Stim_Config'][LED0]['enabled'] is True
 
     def test_modify_save_load_run(self, real_executor, scope, tmp_path):
         """Modify a step, save, reload, run."""
@@ -2111,7 +1906,6 @@ class TestProtocolModifyStep:
             channel_config=_layer_config(illumination=200.0),
             plate_position=PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0),
             objective_id='10x Oly',
-            stim_configs=_default_stim_config(),
         )
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
@@ -2228,7 +2022,7 @@ class TestPerRowConfigParsing:
     """A corrupt config cell refuses the file, naming its step and column.
 
     It used to load as the default config, so the step ran with a video
-    length or a stimulation nobody set; before that, one corrupt row
+    length nobody set; before that, one corrupt row
     wiped every row to the defaults.
     """
 
@@ -2250,7 +2044,7 @@ class TestPerRowConfigParsing:
 class TestV6LayerSettings:
     """Protocol TSV v6 adds a 'Layer Settings' header block that persists
     per-layer UI state so reload restores acquire mode + illumination +
-    gain + exposure + false_color + sum + stim-enabled without inferring
+    gain + exposure + false_color + sum without inferring
     from step rows. v5 files without the block fall back to inference."""
 
     def test_inference_returns_four_channels(self, tmp_path):
@@ -2325,7 +2119,6 @@ class TestV6LayerSettings:
                 exposure_ms=2.0,
                 false_color=False,
                 frames_summed=1,
-                stim_enabled=None,
             ),
             LED0: ChannelSettings(
                 acquire=AcquireMode.VIDEO,
@@ -2335,7 +2128,6 @@ class TestV6LayerSettings:
                 exposure_ms=100.0,
                 false_color=True,
                 frames_summed=3,
-                stim_enabled=False,
             ),
         }
         filepath = tmp_path / 'v6.tsv'
@@ -2359,7 +2151,6 @@ class TestV6LayerSettings:
                     exposure_ms=2.0,
                     false_color=False,
                     frames_summed=1,
-                    stim_enabled=None,
                 ),
             },
         )
@@ -2373,7 +2164,7 @@ class TestV6LayerSettings:
             return lines[start : lines.index('Steps')]
 
         assert block(filepath2) == block(filepath1)
-        assert block(filepath1)[2] == 'BF\timage\t7.5\t1.0\tFalse\t2.0\tFalse\t1\t'
+        assert block(filepath1)[2] == 'BF\timage\t7.5\t1.0\tFalse\t2.0\tFalse\t1'
 
     def test_no_channel_settings_no_block_written(self, tmp_path):
         """Saving without channel_settings AND with no stored block should

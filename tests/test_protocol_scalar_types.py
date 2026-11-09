@@ -61,7 +61,6 @@ def _step_row(name='S1', x=1.5, y=2.5, z=3.5, color='BF', illumination=5.0):
         'Z-Stack Group ID': -1,
         'Acquire': 'image',
         'Video Config': {},
-        'Stim_Config': {},
         'Step Index': 0,
         'Auto_Named': False,
         'Label': '',

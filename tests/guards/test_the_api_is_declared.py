@@ -1050,7 +1050,6 @@ OPEN_STRINGS: dict[str, str] = {
     'StepRecord.label field': _STEP,
     'StepRecord.name field': _STEP,
     'StepRecord.objective field': _OBJECTIVE,
-    'StepRecord.stim_config field': _CHANNEL,
     'StepRecord.tile field': _TILE,
     'StepRecord.well field': _WELL,
     'Substitution.setting field': _SETTING,

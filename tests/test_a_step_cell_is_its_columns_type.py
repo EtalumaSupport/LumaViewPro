@@ -80,7 +80,6 @@ TWO_STEPS = [
         ('Auto_Gain', ''),
         ('Acquire', 'photo'),
         ('Video Config', '{fps: 5'),
-        ('Stim_Config', '[1, 2]'),
     ],
 )
 def test_a_file_with_one_mistyped_cell_is_refused_naming_file_step_and_column(
@@ -196,7 +195,6 @@ WRITES = {
             },
             plate_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             objective_id='10x Oly',
-            stim_configs={},
         ),
     ),
 }
@@ -316,6 +314,5 @@ def test_a_runs_copy_reads_its_cells_as_its_source_does():
             },
             plate_position=PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0),
             objective_id='10x Oly',
-            stim_configs={},
             after_step_index=1,
         )

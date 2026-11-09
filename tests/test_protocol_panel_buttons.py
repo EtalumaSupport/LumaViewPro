@@ -581,7 +581,6 @@ def _one_step_protocol(z_um):
         },
         plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=z_um),
         objective_id='10x Oly',
-        stim_configs={},
         after_step_index=-1,
     )
     return protocol

@@ -60,7 +60,7 @@ def test_current_version_pin():
     # migration branch and the fixtures below were written against this
     # exact value. Bumping CURRENT_VERSION must route you through the
     # module docstring's checklist; updating this line is its LAST step.
-    assert Protocol.CURRENT_VERSION == 11
+    assert Protocol.CURRENT_VERSION == 12
 
 
 def test_previous_version_file_loads_and_upgrades(tmp_path):
@@ -93,7 +93,7 @@ def test_previous_version_file_loads_and_upgrades(tmp_path):
 
 
 def test_every_enumerated_older_version_is_accepted(tmp_path):
-    # v6-v10 share the v11 table shape closely enough to load via column
+    # v6-v11 share the v12 table shape closely enough to load via column
     # recovery; that acceptance must survive any bump. A v8 file without
     # Channel Group ID and Turret Slot gives its steps -1 in each, no Add
     # and no slot recorded.
@@ -103,6 +103,7 @@ def test_every_enumerated_older_version_is_accepted(tmp_path):
         (8, ('Channel Group ID', 'Turret Slot', 'Z-Stack Offset')),
         (9, ('Z-Stack Offset',)),
         (10, ()),
+        (11, ()),
     ):
         filepath = _write_versioned_file(tmp_path, version=version, drop_columns=dropped)
         protocol = protocol_from_file(

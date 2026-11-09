@@ -165,19 +165,6 @@ class TestTheStackIsConfiguredFromSettings:
         assert params['range'] == 20.0
         assert params['step_size'] == 5.0
 
-    def test_stimulation_configs_are_carried_as_stored(self):
-        """GUI parity: every layer's config rides along, enabled or not.
-
-        Stated rather than inherited silently -- if the API should carry
-        only the enabled ones, this test is what changes with it.
-        """
-        import _lumascope.modules.config_helpers as config_helpers
-
-        runner = _runner()
-        runner.start_zstack(channel='BF')
-        expected = config_helpers.get_stim_configs(runner.session.settings)
-        assert _built_config(runner)['stim_config'] == expected
-
     def test_an_unknown_layer_is_refused_by_name(self):
         runner = _runner()
         with pytest.raises(ArgumentRefusedError) as excinfo:
@@ -219,7 +206,6 @@ class TestTheConfigActuallyBuildsASliceEach:
             position_name='ZStack',
             autofocus=False,
             use_zstacking=True,
-            stim_config={},
         )
         from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings

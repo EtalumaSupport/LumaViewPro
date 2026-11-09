@@ -61,7 +61,6 @@ def test_the_per_row_columns_keep_their_type_at_zero_rows():
     assert steps['Auto_Named'].dtype == bool
     assert pd.api.types.is_string_dtype(steps['Name'])
     assert steps['Video Config'].dtype == object
-    assert steps['Stim_Config'].dtype == object
 
 
 def test_a_zero_step_load_logs_nothing_for_a_step_that_does_not_exist(caplog):

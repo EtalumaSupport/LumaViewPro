@@ -246,7 +246,6 @@ class TestTheSelectorAndTheGuiStarterAgree:
             'position_name': 'Autofocus',
             'autofocus': True,
             'use_zstacking': False,
-            'stim_config': {},
         }
         kwargs.update(overrides)
         objective_helper = MagicMock()
@@ -275,7 +274,6 @@ class TestTheSelectorAndTheGuiStarterAgree:
             'duration',
             'frame_dimensions',
             'binning_size',
-            'stim_config',
             'current_z',
             'positions',
         }
@@ -285,7 +283,6 @@ class TestTheSelectorAndTheGuiStarterAgree:
         config = self._selector_config()
         assert config['use_zstacking'] is False
         assert config['zstack_params'] == {}
-        assert config['stim_config'] == {}
         assert config['channel_configs']['BF']['autofocus'] is True
         assert config['channel_configs']['BF']['acquire'] == 'image'
         assert config['positions'][0]['name'] == 'Autofocus'
@@ -331,7 +328,6 @@ class TestTheConfigActuallyBuildsTheIntendedStep:
             'position_name': 'Autofocus',
             'autofocus': True,
             'use_zstacking': False,
-            'stim_config': {},
         }
         kwargs.update(overrides)
 

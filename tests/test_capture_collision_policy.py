@@ -186,7 +186,6 @@ def test_custom_step_count_resumes_past_loaded_labels(tmp_path):
         channel_config=_insert_layer_config(),
         plate_position=PlateLocation(x_mm=10.0, y_mm=10.0, z_um=5000.0),
         objective_id='4x Oly',
-        stim_configs={},
         before_step_index=None,
         after_step_index=0,
     )

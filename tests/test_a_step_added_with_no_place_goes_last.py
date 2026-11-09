@@ -67,7 +67,6 @@ def test_the_protocols_own_insert_names_its_place(session):
             channel_config=session.get_channel_configs()['BF'],
             plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
             objective_id=step['Objective'],
-            stim_configs=session.get_stim_configs(),
         )
 
     assert protocol.num_steps() == 1

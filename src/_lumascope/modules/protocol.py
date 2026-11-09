@@ -82,7 +82,7 @@ def to_python_scalars(step: pd.Series) -> pd.Series:
 
 # The step columns whose cells are dicts. A frame copy shares them, so they
 # are stored read-only: a copy of the frame can then share them safely.
-_DICT_COLUMNS = ('Video Config', 'Stim_Config')
+_DICT_COLUMNS = ('Video Config',)
 
 
 class ReadOnlyDict(dict):
@@ -228,7 +228,6 @@ def refuse_unless_buildable_config(config: object, argument: str, *, empty: bool
         refuse_unless_kind(
             config['tiling_overlap_percent'], 'number', key_path(argument, 'tiling_overlap_percent')
         )
-    read(config, 'stim_config', 'dict', argument)
     if config.get('current_z') is not None:
         refuse_unless_kind(config['current_z'], 'number', key_path(argument, 'current_z'))
     if config.get('previous_well_z') is not None:
@@ -518,6 +517,97 @@ class ProtocolScheduleRefusedError(ProtocolFormatError):
         self.value = value
 
 
+class ProtocolAsksForStimulationError(ProtocolFormatError):
+    """A protocol file that asks for stimulation, which this release does not perform.
+
+    A file written before the protocol's stimulation was removed can ask for
+    it, and under the release that wrote it a run stimulated. Loaded, it
+    would run every step and stimulate none, saying nothing, so it is
+    refused: the words name the first step or Layer Settings channel that
+    asks, as the file spells it, and how to put the file right.
+
+    Attributes:
+        reason: ``'stimulation_not_performed'``.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {
+        'stimulation_not_performed': RefusalCause.REQUEST
+    }
+    title = ProtocolFormatError.title
+
+
+def _refuse_asked_stimulation(
+    protocol_df: pd.DataFrame, block_rows: dict | None, file_path: pathlib.Path
+) -> None:
+    """Refuse a file whose steps or Layer Settings ask for stimulation.
+
+    Read only from a file that carries the columns, one written before v12:
+    a step's Stim_Config holds an entry per channel, and an entry asks when
+    its ``enabled`` is true; a Layer Settings row asks when its Stim_Enabled
+    is. Each is read by the bool cell reader, so a value that is neither
+    True nor False refuses the file as a cell, never taken for on or off.
+    Entries that are all off state nothing and are dropped unread, a channel
+    this release lacks included.
+
+    Raises:
+        ProtocolAsksForStimulationError: a step or a channel asks; the first
+            is named, with how many steps ask.
+        ProtocolFormatError: a Stim_Config cell is not a config of entries,
+            or an ``enabled`` or a Stim_Enabled is not True or False.
+    """
+    asking = []
+    if 'Stim_Config' in protocol_df.columns:
+        names = protocol_df['Name'].to_numpy()
+        for position, cell in enumerate(protocol_df['Stim_Config'].to_numpy()):
+            where = f'step {position + 1} ({names[position]})'
+            try:
+                entries = _dict_cell(cell)
+            except ValueError as e:
+                raise ProtocolFormatError(
+                    f'{where} has Stim_Config {cell!r}, which {e}.', file=file_path
+                ) from None
+            for channel, entry in entries.items():
+                try:
+                    if not isinstance(entry, dict):
+                        raise ValueError('is not a config')
+                    enabled = _bool_cell(entry.get('enabled', False))
+                except ValueError as e:
+                    raise ProtocolFormatError(
+                        f'{where} has a Stim_Config entry for {channel}, {entry!r}, which {e}.',
+                        file=file_path,
+                    ) from None
+                if enabled:
+                    asking.append((where, channel))
+                    break
+    if asking:
+        where, channel = asking[0]
+        others = f' {len(asking)} steps ask for it, this one first.' if len(asking) > 1 else ''
+        raise ProtocolAsksForStimulationError(
+            f'{where} asks for stimulation on {channel}, which this release of LumaViewPro '
+            f'does not perform.{others} To load it, set "enabled" to false in every entry of '
+            'its Stim_Config column, or delete the column.',
+            file=file_path,
+        )
+    for channel, row in (block_rows or {}).items():
+        cell = row.get('Stim_Enabled')
+        cell = cell.strip() if isinstance(cell, str) else cell
+        if cell in (None, ''):
+            continue
+        try:
+            enabled = _bool_cell(cell)
+        except ValueError as e:
+            raise ProtocolFormatError(
+                f'the Layer Settings Stim_Enabled of {channel}, {cell!r}, {e}', file=file_path
+            ) from None
+        if enabled:
+            raise ProtocolAsksForStimulationError(
+                f'its Layer Settings turn stimulation on for {channel}, which this release of '
+                "LumaViewPro does not perform. To load it, set that row's Stim_Enabled to "
+                'False, or delete the column.',
+                file=file_path,
+            )
+
+
 # Below a second, a period is a schedule the run loop cannot keep: it would
 # start each scan before the last one's captures are taken.
 _MIN_PERIOD = datetime.timedelta(seconds=1)
@@ -651,7 +741,6 @@ _STEP_CELLS = {
     'Z-Stack Group ID': _int_cell,
     'Acquire': _acquire_cell,
     'Video Config': _dict_cell,
-    'Stim_Config': _dict_cell,
     'Auto_Named': _bool_cell,
     'Label': _str_cell,
     'Channel Group ID': _int_cell,
@@ -716,30 +805,6 @@ class VideoConfig:
     duration_s: float | None
 
 
-@api_fields('enabled', 'illumination_ma', 'frequency_hz', 'pulse_width_ms', 'pulse_count')
-@dataclasses.dataclass(frozen=True)
-class Stimulation:
-    """One channel's stimulation for a step: on or off, its current, and its pulses.
-
-    Each field is None where the step's config does not say, as in a file
-    from before a value was kept.
-
-    Attributes:
-        enabled: Whether the step asks for stimulation on this channel.
-        illumination_ma: The LED current the step asks for while stimulating
-            on this channel, in mA.
-        frequency_hz: The pulse rate the step asks for, in Hz.
-        pulse_width_ms: How long the step asks each pulse to last, in ms.
-        pulse_count: How many pulses the step asks for.
-    """
-
-    enabled: bool | None
-    illumination_ma: float | None
-    frequency_hz: float | None
-    pulse_width_ms: float | None
-    pulse_count: int | None
-
-
 @api_fields(
     'name',
     'x_mm',
@@ -762,7 +827,6 @@ class Stimulation:
     'z_stack_group_id',
     'acquire',
     'video_config',
-    'stim_config',
     'auto_named',
     'label',
     'channel_group_id',
@@ -800,10 +864,6 @@ class StepRecord:
         acquire: What the step captures.
         video_config: What the step records as video; None where the step
             carries no video config.
-        stim_config: Each channel's stimulation, by channel: every
-            fluorescence channel of the release (``'Ex405'`` to
-            ``'Ex640'``), whether or not this scope has its LED; None where
-            the step carries no stimulation config.
         auto_named: The name is rendered from the step's fields.
         label: The caller's label for the step; '' for none.
         channel_group_id: The steps captured together as one composite
@@ -835,7 +895,6 @@ class StepRecord:
     z_stack_group_id: int | None
     acquire: AcquireMode
     video_config: VideoConfig | None
-    stim_config: dict[str, Stimulation] | None
     auto_named: bool
     label: str
     channel_group_id: int | None
@@ -867,7 +926,6 @@ _STEP_FIELDS = {
     'Z-Stack Group ID': 'z_stack_group_id',
     'Acquire': 'acquire',
     'Video Config': 'video_config',
-    'Stim_Config': 'stim_config',
     'Auto_Named': 'auto_named',
     'Label': 'label',
     'Channel Group ID': 'channel_group_id',
@@ -885,29 +943,6 @@ _NONE_AT_MINUS_ONE = (
 )
 
 
-def _stimulation_records(cell: dict, step_name: str) -> dict[str, Stimulation]:
-    """Each channel's stimulation in a step's Stim_Config cell, as records.
-
-    Raises:
-        ProtocolFormatError: a channel's entry is not a config.
-    """
-    records = {}
-    for channel, entry in cell.items():
-        if not isinstance(entry, dict):
-            raise ProtocolFormatError(
-                f'step {step_name} has a Stim_Config entry for {channel} that is not a config: '
-                f'{entry!r}.'
-            )
-        records[channel] = Stimulation(
-            enabled=entry.get('enabled'),
-            illumination_ma=entry.get('illumination_ma'),
-            frequency_hz=entry.get('frequency'),
-            pulse_width_ms=entry.get('pulse_width'),
-            pulse_count=entry.get('pulse_count'),
-        )
-    return records
-
-
 def _no_position_as_none(row: 'pd.Series | dict') -> None:
     """Set None, in place, where ``row`` holds the frame's NaN for an axis position.
 
@@ -920,20 +955,15 @@ def _no_position_as_none(row: 'pd.Series | dict') -> None:
 
 
 def _step_record(row: Mapping) -> StepRecord:
-    """A step's row, as ``Protocol.step_row`` answers it, as its record: every column one field.
-
-    Raises:
-        ProtocolFormatError: a stimulation entry is not a config.
-    """
+    """A step's row, as ``Protocol.step_row`` answers it, as its record: every column one field."""
     fields = {_STEP_FIELDS[column]: row[column] for column in _STEP_CELLS}
     for column in _NONE_AT_MINUS_ONE:
         if row[column] == -1:
             fields[_STEP_FIELDS[column]] = None
-    video, stims = row['Video Config'], row['Stim_Config']
+    video = row['Video Config']
     fields['video_config'] = (
         None if video is None else VideoConfig(duration_s=video.get('duration'))
     )
-    fields['stim_config'] = None if stims is None else _stimulation_records(stims, row['Name'])
     return StepRecord(**fields)
 
 
@@ -945,7 +975,6 @@ def _step_record(row: Mapping) -> StepRecord:
     'exposure_ms',
     'false_color',
     'frames_summed',
-    'stim_enabled',
 )
 @dataclasses.dataclass(frozen=True)
 class ChannelSettings:
@@ -963,8 +992,6 @@ class ChannelSettings:
         exposure_ms: The camera exposure, in ms.
         false_color: The channel's image is false-coloured.
         frames_summed: How many frames a capture sums.
-        stim_enabled: The channel's stimulation is on; never inferred from
-            the steps.
     """
 
     acquire: AcquireMode
@@ -974,7 +1001,6 @@ class ChannelSettings:
     exposure_ms: float | None
     false_color: bool | None
     frames_summed: int | None
-    stim_enabled: bool | None
 
 
 # Each Layer Settings column after 'Layer', with the channel settings' field
@@ -989,7 +1015,6 @@ _CHANNEL_SETTINGS_CELLS = (
     ('Exposure', 'exposure_ms', _float_cell),
     ('False_Color', 'false_color', _bool_cell),
     ('Sum', 'frames_summed', _int_cell),
-    ('Stim_Enabled', 'stim_enabled', _bool_cell),
 )
 
 
@@ -1046,7 +1071,6 @@ _STEP_CHANNEL_VALUES = (
 )
 
 _VIDEO_KEYS = ('duration',)
-_STIM_KEYS = ('frequency', 'pulse_width', 'pulse_count', 'illumination_ma')
 
 
 def step_channel_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedError]]:
@@ -1054,8 +1078,8 @@ def step_channel_values_refused(step: Mapping) -> list[tuple[str, SettingRefused
 
     The rules a write of them to the channel's settings holds
     (``settings_paths.refused_channel_values``): the step's exposure,
-    illumination, gain and sum, its video's length (required when it
-    records video), and each stimulation config it carries.
+    illumination, gain and sum, and its video's length (required when it
+    records video).
     """
     # Deferred: settings_paths imports this module.
     from _lumascope.modules.settings_paths import refused_channel_values
@@ -1069,20 +1093,10 @@ def step_channel_values_refused(step: Mapping) -> list[tuple[str, SettingRefused
             if part in video or step['Acquire'] == AcquireMode.VIDEO:
                 values[f'video_config.{part}'] = video.get(part)
                 columns[f'video_config.{part}'] = f'Video Config {part}'
-    refused = [
+    return [
         (columns[r.path.partition('.')[2]], r)
         for r in refused_channel_values(step['channel'], values)
     ]
-    stims = step.get('Stim_Config')
-    for stim_channel, stim in stims.items() if isinstance(stims, dict) else ():
-        if not isinstance(stim, dict):
-            continue
-        stim_values = {f'stim_config.{key}': stim[key] for key in _STIM_KEYS if key in stim}
-        refused.extend(
-            (f'Stim_Config {stim_channel} {r.path.rpartition(".")[2]}', r)
-            for r in refused_channel_values(stim_channel, stim_values)
-        )
-    return refused
 
 
 def channel_settings_values_refused(
@@ -1425,13 +1439,20 @@ class Protocol:
     # limit with no control to see or change it; a build that still read it
     # would record a v11 step at its old default, so it refuses the file.
     COLUMNS[11] = COLUMNS[10]
-    CURRENT_VERSION: ClassVar[int] = 11
+    # v12 drops Stim_Config, and the Layer Settings drop Stim_Enabled. Every
+    # step copied every channel's stimulation, off, and no run performed a
+    # step's: the column was most of every file and of every load, and put
+    # large protocols past the file ceiling. A protocol states what it does,
+    # so stimulation returns only with a step that stimulates. An older file
+    # that asks for it is refused at load (_refuse_asked_stimulation).
+    COLUMNS[12] = COLUMNS[11].copy()
+    COLUMNS[12].remove('Stim_Config')
+    CURRENT_VERSION: ClassVar[int] = 12
     CURRENT_COLUMNS: ClassVar[tuple[str, ...]] = tuple(COLUMNS[CURRENT_VERSION])
 
     # Header columns for the v6 'Layer Settings' block. Order is the
-    # written-out order; rows that omit trailing columns (e.g. Stim_Enabled
-    # blank for transmitted channels) are still valid as long as the leading
-    # required columns are present. The cells after 'Layer' are
+    # written-out order; rows that omit trailing columns are still valid as
+    # long as the leading required columns are present. The cells after 'Layer' are
     # _CHANNEL_SETTINGS_CELLS', the one map of a column to its field.
     CHANNEL_SETTINGS_COLUMNS: ClassVar[list] = [
         'Layer',
@@ -1620,8 +1641,7 @@ class Protocol:
         that block. One without (a v5 file, or a protocol built in memory)
         has it inferred from its steps: each channel with steps yields one
         record seeded from its first step, ``acquire`` 'video' when any of
-        its steps records video, else 'image'. ``stim_enabled`` is not
-        inferred: a v5 step carries its stimulation per step.
+        its steps records video, else 'image'.
 
         Every cell is its column's type (``ChannelSettings``), read once
         when the file was read; a blank cell but Acquire is None, and so is
@@ -1663,10 +1683,7 @@ class Protocol:
                 continue
             first = group.iloc[0]
             video = 'Acquire' in group.columns and (group['Acquire'] == AcquireMode.VIDEO).any()
-            fields = {
-                'acquire': AcquireMode.VIDEO if video else AcquireMode.IMAGE,
-                'stim_enabled': None,
-            }
+            fields = {'acquire': AcquireMode.VIDEO if video else AcquireMode.IMAGE}
             for column, field, read in _CHANNEL_SETTINGS_CELLS:
                 if field in fields:
                     continue
@@ -1754,7 +1771,7 @@ class Protocol:
         # Without this, pandas uses Python repr (single quotes) which
         # fails json.loads() on reload.
         steps_df = self._config['steps'].rename(columns={'channel': 'Color'})
-        for col in ('Video Config', 'Stim_Config'):
+        for col in _DICT_COLUMNS:
             if col in steps_df.columns:
                 steps_df[col] = steps_df[col].apply(
                     lambda v: json.dumps(v) if isinstance(v, dict) else v
@@ -1942,7 +1959,6 @@ class Protocol:
                 ('Z-Stack Group ID', int),
                 ('Acquire', str),
                 ('Video Config', object),
-                ('Stim_Config', object),
                 ('Auto_Named', bool),
                 ('Label', str),
                 ('Channel Group ID', int),
@@ -2255,8 +2271,7 @@ class Protocol:
         so a reader never meets one and nothing is guessed for it. A
         protocol that is not runnable keeps its cells as given.
 
-        The dicts in its Video Config and Stim_Config cells are stored
-        read-only (ReadOnlyDict), so a copy of the frame can share them.
+        The dicts in its Video Config cells are stored read-only (ReadOnlyDict), so a copy of the frame can share them.
 
         A step's index is its position: the frame is renumbered 0..n-1 here.
         The writers address a step by label (.at) and step() by position
@@ -2508,7 +2523,6 @@ class Protocol:
         'Sum',
         'Acquire',
         'Video Config',
-        'Stim_Config',
     )
     _STACK_PLACE_COLUMNS = ('X', 'Y', 'Objective', 'Turret Slot')
 
@@ -2781,7 +2795,6 @@ class Protocol:
         channel_config: dict,
         plate_position: 'PlateLocation',
         objective_id: str,
-        stim_configs: dict,
         turret_slot: int,
         label: str | None = None,
     ) -> None:
@@ -2839,7 +2852,6 @@ class Protocol:
             'Turret Slot': turret_slot,
             'Acquire': channel_config['acquire'],
             'Video Config': channel_config['video_config'],
-            'Stim_Config': stim_configs,
         }
         typed = {column: self._typed_value(column, value) for column, value in values.items()}
         if label is not None:
@@ -2878,7 +2890,6 @@ class Protocol:
         channel_config: dict,
         plate_position: 'PlateLocation',
         objective_id: str,
-        stim_configs: dict,
         channel_group_id: int,
         turret_slot: int,
         before_step_index: int | None = None,
@@ -2952,7 +2963,6 @@ class Protocol:
             zstack_group_id=zstack_group_id,
             acquire=channel_config['acquire'],
             video_config=channel_config['video_config'],
-            stim_config=stim_configs,
             auto_named=auto_named,
             channel_group_id=channel_group_id,
             turret_slot=turret_slot,
@@ -2968,9 +2978,6 @@ class Protocol:
         line = line.astype({'Video Config': 'object'})
         line.at[pos_index, 'Video Config'] = step_dict['Video Config']
 
-        line = line.astype({'Stim_Config': 'object'})
-        line.at[pos_index, 'Stim_Config'] = step_dict['Stim_Config']
-
         self._set_steps(
             pd.concat([self._config['steps'], line], ignore_index=False, axis=0)
             .sort_index()
@@ -2984,8 +2991,7 @@ class Protocol:
         """Every step, in order, as its record: the step table in one read.
 
         Raises:
-            ProtocolFormatError: a stimulation entry of a step is not a
-                config.
+            Nothing.
         """
         return tuple(_step_record(row) for row in self._step_rows())
 
@@ -3217,7 +3223,6 @@ class Protocol:
                     zstack_group_id=tile_zstack_group_id,
                     acquire=orig_step['Acquire'],
                     video_config=orig_step['Video Config'],
-                    stim_config=orig_step['Stim_Config'],
                     auto_named=orig_step['Auto_Named'],
                     channel_group_id=orig_step['Channel Group ID'],
                     turret_slot=orig_step['Turret Slot'],
@@ -3413,7 +3418,6 @@ class Protocol:
                     zstack_group_id=zstack_group_id,
                     acquire=orig_step['Acquire'],
                     video_config=orig_step['Video Config'],
-                    stim_config=orig_step['Stim_Config'],
                     auto_named=orig_step['Auto_Named'],
                     channel_group_id=orig_step['Channel Group ID'],
                     turret_slot=orig_step['Turret Slot'],
@@ -3465,7 +3469,6 @@ class Protocol:
         channel_configs = input_config['channel_configs']
         period = input_config['period']
         duration = input_config['duration']
-        stim_config = input_config['stim_config']
         # Where a channel whose focus was never saved is imaged: the stage's Z
         # when the config was built. Read only for such a channel.
         current_z = input_config.get('current_z')
@@ -3618,7 +3621,6 @@ class Protocol:
                     zstack_group_id=-1,
                     acquire=channel_config['acquire'],
                     video_config=video_config,
-                    stim_config=stim_config,
                     auto_named=True,
                     channel_group_id=channel_group_id,
                     # The protocols API stamps the slot once the
@@ -3672,7 +3674,6 @@ class Protocol:
         period = config['period']
         duration = config['duration']
         frame_dimensions = config['frame_dimensions']
-        stim_config = {}
 
         input_config = {
             'labware_id': labware_id,
@@ -3685,7 +3686,6 @@ class Protocol:
             'duration': duration,
             'frame_dimensions': frame_dimensions,
             'binning_size': config['binning_size'],
-            'stim_config': stim_config,
         }
 
         return cls.from_config(
@@ -3719,7 +3719,6 @@ class Protocol:
         zstack_group_id,
         acquire,
         video_config,
-        stim_config,
         auto_named,
         channel_group_id,
         turret_slot,
@@ -3753,7 +3752,6 @@ class Protocol:
             'Z-Stack Group ID': zstack_group_id,
             'Acquire': acquire,
             'Video Config': video_config,
-            'Stim_Config': stim_config,
             'Auto_Named': auto_named,
             'Label': label,
             'Channel Group ID': channel_group_id,
@@ -3762,33 +3760,6 @@ class Protocol:
         }
         step['Name'] = common_utils.build_step_name(common_utils.step_components(step))
         return step
-
-    """
-    stim_config = {
-        "Ex589": {
-            "enabled": True,
-            "illumination_ma": 100,
-            "frequency": 1,
-            "pulse_width": 10,
-            "pulse_count": 1,
-        },
-        "Ex488": {
-            "enabled": True,
-            "illumination_ma": 100,
-            "frequency": 1,
-            "pulse_width": 10,
-            "pulse_count": 1,
-        },
-        "Ex405": {
-            "enabled": True,
-            "illumination_ma": 100,
-            "frequency": 1,
-            "pulse_width": 10,
-            "pulse_count": 1,
-        }
-    }
-
-    """
 
     @staticmethod
     def _add_steps_to_steps_df(steps_df: pd.DataFrame, new_steps: list[dict]):
@@ -3912,15 +3883,16 @@ class Protocol:
         plate that catalogue does not have
 
         ``unit`` is the identity of the scope the protocol is read to run on,
-        and each channel name the file holds -- a step's Color, its
-        Stim_Config keys, a Layer Settings row -- is read as that unit's key
-        for it (``ChannelIdentity.unit_key``): an old name meant an LED, and
-        on this unit that LED's channel may be another key. Such a protocol
-        is runnable: a period or duration no protocol can run raises
-        ProtocolScheduleRefusedError, naming the file, and a step cell or a
+        and each channel name the file holds -- a step's Color, a Layer
+        Settings row -- is read as that unit's key for it
+        (``ChannelIdentity.unit_key``): an old name meant an LED, and on this
+        unit that LED's channel may be another key. Such a protocol is
+        runnable: a period or duration no protocol can run raises
+        ProtocolScheduleRefusedError, naming the file, a step cell or a
         Layer Settings cell that is not of its column's type raises
         ProtocolFormatError, naming the file, the step or channel, and the
-        column.
+        column, and a file from before v12 that asks for stimulation raises
+        ProtocolAsksForStimulationError, naming the step or channel.
 
         ``StoredNames.KEPT`` is for a reader that never runs or edits the
         protocol -- post-processing a finished run reads its record and never
@@ -4002,9 +3974,10 @@ class Protocol:
             # v6 introduced the Layer Settings header block; v7 added the
             # Auto_Named column; v8 the Label column; v9 the Channel Group
             # ID and Turret Slot columns; v10 the Z-Stack Offset column; v11
-            # dropped the fps from each step's Video Config. Older versions
-            # load with the missing columns recovered or defaulted below, and
-            # a stored fps dropped.
+            # dropped the fps from each step's Video Config; v12 the
+            # stimulation columns. Older versions load with the missing
+            # columns recovered or defaulted below, and a stored fps and the
+            # stimulation columns dropped.
             allowed = True
 
         if not allowed:
@@ -4237,23 +4210,6 @@ class Protocol:
                 f'Converting loaded protocol from {config["version"]} to {cls.CURRENT_VERSION}'
             )
 
-        def _carry_stim_key_names(stim_config):
-            """Carry a saved stim config's illumination key to its unit-suffixed name.
-
-            The sub-key moved when the settings dict became the L2 API
-            surface, but protocols saved before that carry the old spelling
-            inside the Stim_Config column. Every reader takes it with a
-            default -- `stim.get('illumination_ma', 100)` -- so without this
-            an older protocol would load silently at 100 mA instead of the
-            current the run was actually set up for.
-            """
-            if not isinstance(stim_config, dict):
-                return stim_config
-            for channel_stim in stim_config.values():
-                if isinstance(channel_stim, dict) and 'illumination' in channel_stim:
-                    channel_stim['illumination_ma'] = channel_stim.pop('illumination')
-            return stim_config
-
         def _parse_config_per_row(position, row, column):
             """One row's config cell, read by the step reader.
 
@@ -4316,37 +4272,18 @@ class Protocol:
         ) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Sum'] = DEFAULT_SUM_CONFIG
 
-        if (config['version'] in (2, 3, 4)) and (cls.CURRENT_VERSION >= 5):
-            # Saved before stimulation existed, so a step records none. Going
-            # to a step writes each channel its Stim_Config names, so a
-            # stand-in here would overwrite the user's stimulation settings.
-            protocol_df['Stim_Config'] = _typed_column(({} for _ in protocol_df.index), object)
-        else:
-            protocol_df['Stim_Config'] = _typed_column(
-                (
-                    _carry_stim_key_names(_parse_config_per_row(position, row, 'Stim_Config'))
-                    for position, (_, row) in enumerate(protocol_df.iterrows())
-                ),
-                object,
-            )
+        # A file from before v12 carries the step's Stim_Config and the Layer
+        # Settings' Stim_Enabled. A runnable read refuses one that asks for
+        # stimulation, naming it as the file spells it; post-processing's
+        # never runs the protocol. Both drop the columns unread after that.
+        if runnable:
+            _refuse_asked_stimulation(protocol_df, block_rows, file_path)
+        protocol_df = protocol_df.drop(columns='Stim_Config', errors='ignore')
 
-        # Renamed once the Stim_Config cells are dicts and before the label
-        # recovery and the Name re-render read the channels, so both see the
-        # unit's keys.
+        # Renamed before the label recovery and the Name re-render read the
+        # channels, so both see the unit's keys.
         if runnable:
             protocol_df['channel'] = protocol_df['channel'].map(unit.unit_key)
-            protocol_df['Stim_Config'] = _typed_column(
-                (
-                    _in_unit_keys(
-                        row['Stim_Config'],
-                        unit,
-                        f'step {position + 1} ({row["Name"]}) Stim_Config',
-                        file_path,
-                    )
-                    for position, (_, row) in enumerate(protocol_df.iterrows())
-                ),
-                object,
-            )
             if block_rows is not None:
                 block_rows = {
                     key: {**row, 'Layer': key}

@@ -332,10 +332,6 @@ class ProtocolRunner:
             position_name='Autofocus',
             autofocus=True,
             use_zstacking=False,
-            # A standalone autofocus never pulses stimulation at the sample:
-            # it is a measurement of focus, and firing the stim hardware
-            # during one is something no caller has asked for.
-            stim_config={},
         )
         protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
 
@@ -454,11 +450,6 @@ class ProtocolRunner:
         z-stack with autofocus enabled refocuses at each slice and
         flattens the stack it was asked to capture.
 
-        Stimulation configs are carried onto the step as stored, enabled or
-        not. Stated rather than
-        inherited silently: if the API should instead carry only the
-        enabled ones, this is the line that changes.
-
         Args:
             channel: Which channel to capture ('BF', 'Ex488', ...).
             sequence_name: The name of the protocol file the run saves in
@@ -514,9 +505,6 @@ class ProtocolRunner:
             # re-centres the very range the stack is sweeping.
             autofocus=False,
             use_zstacking=True,
-            # Unfiltered, matching the starter: every channel's stored config
-            # rides along whether or not that channel is enabled.
-            stim_config=config_helpers.get_stim_configs(settings),
         )
         protocol = self.session.scope.protocols.create_protocol(input_config=input_config)
 

@@ -31,7 +31,9 @@ try:
     show('autofocus', lc['autofocus'])
     show('acquire', lc['acquire'])
     show('video duration', lc['video_config']['duration'])
-    show('stim params', lc['stim_config'])
+    # A layer's stimulation is its settings' alone: the channel configs a
+    # protocol is built from carry none.
+    show('stim params', s.settings[lay]['stim_config'])
     from _lumascope.modules import config_helpers
 
     show(

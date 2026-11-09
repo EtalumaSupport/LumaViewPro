@@ -154,13 +154,10 @@ def _make_single_step_protocol(
     false_color=False,
     sum_count=1,
     video_config=None,
-    stim_config=None,
 ):
     """Create a real Protocol with a single step."""
     if video_config is None:
         video_config = {'duration': 1}
-    if stim_config is None:
-        stim_config = {}
 
     step = {
         'Name': 'A1_test',
@@ -188,7 +185,6 @@ def _make_single_step_protocol(
         'Z-Stack Group ID': -1,
         'Acquire': acquire,
         'Video Config': video_config,
-        'Stim_Config': stim_config,
         'Step Index': 0,
         'Label': '',
         'Channel Group ID': 0,
@@ -216,7 +212,6 @@ def _make_multi_step_protocol(steps_config):
         'false_color': False,
         'sum_count': 1,
         'video_config': {'duration': 1},
-        'stim_config': {},
         'x': 10.0,
         'y': 20.0,
         'z': 5000.0,
@@ -256,7 +251,6 @@ def _make_multi_step_protocol(steps_config):
                 'Z-Stack Group ID': merged['zstack_group_id'],
                 'Acquire': merged['acquire'],
                 'Video Config': merged['video_config'],
-                'Stim_Config': merged['stim_config'],
                 'Step Index': i,
                 # Unique per-step label: steps that differ only in position
                 # or camera settings must still derive distinct capture
@@ -1330,53 +1324,6 @@ class TestFullProtocolMultiScanMultiChannel:
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             max_scans=3,
         )
-        assert completed
-
-
-# ---------------------------------------------------------------------------
-# Stimulation during video
-# ---------------------------------------------------------------------------
-
-
-class TestVideoWithStimulation:
-    """Video capture with LED stimulation config."""
-
-    def test_completes_with_stim(self, executor, scope, tmp_path):
-        stim_config = {
-            LED0: {
-                'enabled': True,
-                'illumination_ma': 100,
-                'frequency': 5,
-                'pulse_width': 20,
-                'pulse_count': 3,
-            }
-        }
-        protocol = _make_single_step_protocol(
-            color='BF',
-            acquire='video',
-            video_config={'duration': 0.5},
-            stim_config=stim_config,
-        )
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed
-
-    def test_completes_with_disabled_stim(self, executor, scope, tmp_path):
-        stim_config = {
-            LED0: {
-                'enabled': False,
-                'illumination_ma': 100,
-                'frequency': 5,
-                'pulse_width': 20,
-                'pulse_count': 3,
-            }
-        }
-        protocol = _make_single_step_protocol(
-            color='BF',
-            acquire='video',
-            video_config={'duration': 0.5},
-            stim_config=stim_config,
-        )
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
 

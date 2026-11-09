@@ -82,7 +82,6 @@ def _make_af_step_protocol():
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
         'Video Config': {'duration': 1},
-        'Stim_Config': {},
         'Step Index': 0,
         'Label': 'AF_test',
         'Channel Group ID': 0,

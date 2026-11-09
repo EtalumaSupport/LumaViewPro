@@ -60,7 +60,6 @@ def _step(name, objective, index):
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
         'Video Config': {'duration': 1.0},
-        'Stim_Config': {},
         'Step Index': index,
         'Auto_Named': False,
         'Label': '',

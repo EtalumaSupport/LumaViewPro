@@ -75,7 +75,6 @@ def _step(x: float, objective: str) -> dict:
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
         'Video Config': {'duration': 1.0},
-        'Stim_Config': {},
         'Step Index': 0,
         'Auto_Named': False,
         'Label': '',

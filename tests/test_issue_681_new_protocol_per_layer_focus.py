@@ -40,7 +40,6 @@ def _layer(focus: float) -> dict:
         'sum': 1,
         'focus': focus,
         'video_config': {'duration': 30},
-        'stim_config': None,
     }
 
 
@@ -61,7 +60,6 @@ def _build_input_config(previous_well_z=None):
         'duration': None,
         'frame_dimensions': {'width': 2048, 'height': 2048},
         'binning_size': 1,
-        'stim_config': {},
     }
     if previous_well_z is not None:
         cfg['previous_well_z'] = previous_well_z

@@ -35,7 +35,6 @@ def _from_config_input(acquire_by_layer: dict[str, str]) -> dict:
             'sum': 1,
             'focus': 100.0,
             'video_config': {'duration': 30},
-            'stim_config': None,
         }
         for layer, acquire in acquire_by_layer.items()
     }
@@ -50,7 +49,6 @@ def _from_config_input(acquire_by_layer: dict[str, str]) -> dict:
         'duration': None,
         'frame_dimensions': {'width': 2048, 'height': 2048},
         'binning_size': 1,
-        'stim_config': {},
     }
 
 

@@ -72,12 +72,11 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
     in ``specific_channels``; a name there that is no channel is skipped,
     not refused (``ScopeSession.get_channel_configs`` refuses it).
     Illumination, gain and exposure are rounded to their stated precision
-    and ``auto_gain`` is read as a bool; ``stim_config`` is a copy, or None
-    where the block has none.
+    and ``auto_gain`` is read as a bool.
 
     Returns:
         dict of channel key -> config dict with keys:
-        acquire, video_config, stim_config, autofocus, false_color,
+        acquire, video_config, autofocus, false_color,
         illumination_ma, gain_db, auto_gain, exposure_ms, sum, focus
     """
     channel_configs = {}
@@ -89,12 +88,6 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
 
         acquire = channel_config['acquire']
         video_config = channel_config['video_config']
-
-        if 'stim_config' in channel_config:
-            # Copy stim_config so we don't mutate the input settings dict
-            stim_config = dict(channel_config['stim_config'])
-        else:
-            stim_config = None
 
         autofocus = channel_config['autofocus']
         false_color = channel_config['false_color']
@@ -112,7 +105,6 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
         channel_configs[channel] = {
             'acquire': acquire,
             'video_config': video_config,
-            'stim_config': stim_config,
             'autofocus': autofocus,
             'false_color': false_color,
             'illumination_ma': illumination,
@@ -124,16 +116,6 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
         }
 
     return channel_configs
-
-
-def get_stim_configs(settings: dict) -> dict:
-    """Build per-channel stim configs from settings."""
-    stim_configs = {}
-    channel_configs = get_channel_configs(settings)
-    for channel in channel_configs:
-        if channel_configs[channel]['stim_config'] is not None:
-            stim_configs[channel] = channel_configs[channel]['stim_config']
-    return stim_configs
 
 
 def get_auto_gain_settings(settings: dict) -> dict:
@@ -1060,7 +1042,6 @@ def build_sequenced_capture_config(values: dict) -> dict:
         'duration': values['duration'],
         'frame_dimensions': values['frame_dimensions'],
         'binning_size': values['binning_size'],
-        'stim_config': values['stim_config'],
         'current_z': values['current_z'],
     }
     if 'positions' in values:
@@ -1199,11 +1180,6 @@ def get_composite_capture_config_from_settings(
             'duration': None,
             'frame_dimensions': get_frame_dimensions_from_settings(settings),
             'binning_size': get_binning_from_settings(settings),
-            # No stimulation. Protocol.from_config stamps this one value onto
-            # every step, so a non-empty dict here would fire the stim
-            # hardware at the sample during a composite -- which capturing a
-            # multi-channel image has never done and nobody asked it to.
-            'stim_config': {},
             'current_z': position.z_um,
             'positions': [composite_position],
         }
@@ -1220,7 +1196,6 @@ def get_standalone_capture_config_from_settings(
     position_name: str,
     autofocus: bool,
     use_zstacking: bool,
-    stim_config: dict,
 ) -> dict:
     """Build the input_config for a one-position, one-channel run at *position*.
 
@@ -1254,8 +1229,6 @@ def get_standalone_capture_config_from_settings(
             z-stack parameters are read from settings only when this is
             set; a caller that is not stacking gets none rather than
             stale ones.
-        stim_config: Per-channel stimulation to stamp onto the step. An
-            empty dict keeps the run stim-free.
 
     *channel* is a channel of this release: the members that build this
     (``ProtocolRunner.start_autofocus``, ``start_zstack``) judge it at their
@@ -1297,7 +1270,6 @@ def get_standalone_capture_config_from_settings(
             'duration': None,
             'frame_dimensions': get_frame_dimensions_from_settings(settings),
             'binning_size': get_binning_from_settings(settings),
-            'stim_config': stim_config,
             'current_z': position.z_um,
             'positions': [step_position],
         }
@@ -1374,7 +1346,6 @@ def get_sequenced_capture_config_from_settings(
             'duration': time_params['duration'],
             'frame_dimensions': get_frame_dimensions_from_settings(settings),
             'binning_size': get_binning_from_settings(settings),
-            'stim_config': get_stim_configs(settings),
             'current_z': current_z,
         }
     )

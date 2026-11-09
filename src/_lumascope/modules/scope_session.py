@@ -173,7 +173,7 @@ _COUNTED_WORK_NAMES = {
 }
 
 # A protocol's ChannelSettings field and the channel-settings key it is saved
-# from and restored into; acquire and stim_enabled are handled apart. The
+# from and restored into; acquire is handled apart. The
 # file's columns are the protocol's to map (protocol._CHANNEL_SETTINGS_CELLS).
 _CHANNEL_SETTINGS_KEYS = (
     ('illumination_ma', 'illumination_ma'),
@@ -2361,11 +2361,6 @@ class ScopeSession:
             illumination_cap_ma=capabilities.led_max_ma if lit else None,
         )
 
-    def get_stim_configs(self) -> dict:
-        import _lumascope.modules.config_helpers as config_helpers
-
-        return config_helpers.get_stim_configs(self.settings)
-
     def get_auto_gain_settings(self) -> dict:
         import _lumascope.modules.config_helpers as config_helpers
 
@@ -2539,7 +2534,7 @@ class ScopeSession:
 
         The other half of ``save_protocol``, and what the GUI's Load does
         once ``load_protocol`` has accepted the plate. Every channel stops
-        acquiring and stimulating; each channel the protocol names then takes
+        acquiring; each channel the protocol names then takes
         its acquire mode and every value its row holds. A blank value leaves
         that channel's control as it was. A channel this release does not know
         (not in ``common_utils.get_channels()``), or this scope does not have,
@@ -2562,8 +2557,6 @@ class ScopeSession:
         with self.settings_lock:
             for name in channels:
                 self._store_setting(f'{name}.acquire', None)
-                if self.settings[name].get('stim_config') is not None:
-                    self._store_setting(f'{name}.stim_config.enabled', False)
             for name, row in rows.items():
                 if name not in channels:
                     logger.warning(
@@ -2582,9 +2575,6 @@ class ScopeSession:
                 for field, key in _CHANNEL_SETTINGS_KEYS:
                     if getattr(row, field) is not None:
                         self._store_setting(f'{name}.{key}', getattr(row, field))
-                stim = self.settings[name].get('stim_config')
-                if row.stim_enabled is not None and isinstance(stim, dict):
-                    self._store_setting(f'{name}.stim_config.enabled', row.stim_enabled)
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
@@ -2624,13 +2614,9 @@ class ScopeSession:
                 channel = self.settings[name]
                 if channel['acquire'] is None:
                     continue
-                stim = channel.get('stim_config')
                 records[name] = ChannelSettings(
                     acquire=channel['acquire'],
                     **{field: channel[key] for field, key in _CHANNEL_SETTINGS_KEYS},
-                    stim_enabled=(
-                        stim['enabled'] if isinstance(stim, dict) and 'enabled' in stim else None
-                    ),
                 )
         fingerprint = protocol.to_file(file_path=path, channel_settings=records)
         protocol.record_saved(fingerprint, pathlib.Path(os.path.abspath(path)))
@@ -3167,7 +3153,6 @@ class ScopeSession:
         return self.scope.protocols.add_step(
             protocol,
             channel_configs=channel_configs,
-            stim_configs=self.get_stim_configs(),
             plate_position=at if at is not None else self.plate_position_on(protocol.labware_id()),
             channel_order=channel_order,
             before_step_index=before_step_index,
@@ -3199,9 +3184,7 @@ class ScopeSession:
         Args:
             protocol: The protocol whose step is rewritten.
             step_index: The step rewritten, counted from 0.
-            channel: The channel whose settings the step takes. When that
-                channel's stimulation is enabled the edit is a stimulation
-                edit, and the step keeps the channel it already acquires.
+            channel: The channel whose settings the step takes.
             label: The step's new label; None (the default) keeps its label.
 
         Raises:
@@ -3235,7 +3218,6 @@ class ScopeSession:
             step_index,
             channel=channel,
             channel_configs=self.get_channel_configs(),
-            stim_configs=self.get_stim_configs(),
             plate_position=self.plate_position_on(protocol.labware_id()),
             label=label,
         )
@@ -3893,9 +3875,6 @@ class ScopeSession:
                 not a channel. Nothing changes.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no channel of the step's colour. Nothing changes.
-            ArgumentRefusedError: ``'channel_unknown'``, the step's
-                stimulation names a channel this release has not. Nothing
-                changes.
             ProtocolRunRefusedError: ``'values_out_of_range'``, a value
                 the step would store in its channels is outside its channel
                 setting's range, each named by column and bound. Nothing
@@ -3946,16 +3925,6 @@ class ScopeSession:
         self.scope.channel_identity.refuse_unless_on_scope(
             step['channel'], 'go_to_step', then='be gone to'
         )
-        stim_configs = step.get('Stim_Config')
-        if isinstance(stim_configs, dict):
-            unknown = sorted(set(stim_configs) - set(common_utils.get_channels()))
-            if unknown:
-                raise ArgumentRefusedError(
-                    'channel_unknown',
-                    argument="the step's stimulation channel",
-                    value=unknown[0],
-                    offered=tuple(common_utils.get_channels()),
-                )
         # Before the lane starts a move: the lane stores the step's values
         # into its channels once the moves are under way.
         refuse_values_out_of_range(step_channel_values_refused(step), f'Step {step_index + 1}')
@@ -4033,8 +4002,7 @@ class ScopeSession:
         the person's live-view configuration is theirs to keep across it.
         The step's config dicts are copied; the protocol owns them. The
         channel's saved focus is left as it is: it is where New starts the
-        next protocol, so visiting a step must not move it. A step's
-        stimulation spans every channel it names, and each takes its own.
+        next protocol, so visiting a step must not move it.
         """
         color = step['channel']
         channel_config = {
@@ -4049,14 +4017,10 @@ class ScopeSession:
         video_config = step.get('Video Config')
         if isinstance(video_config, dict):
             channel_config['video_config'] = copy.deepcopy(video_config)
-        stim_configs = step.get('Stim_Config')
         with self.settings_lock:
             for key, value in channel_config.items():
                 self._store_setting(f'{color}.{key}', value)
             self._write_channel_acquire(color, step['Acquire'])
-            if isinstance(stim_configs, dict):
-                for stim_channel, stim_config in stim_configs.items():
-                    self._store_setting(f'{stim_channel}.stim_config', copy.deepcopy(stim_config))
 
     def _led_address(self, channel: str) -> int | None:
         """The LED address ``channel`` lights on this unit, else None.

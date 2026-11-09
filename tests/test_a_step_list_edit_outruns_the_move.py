@@ -108,7 +108,6 @@ def _insert(
         channel_config=channel_config,
         plate_position=PlateLocation(x_mm=x, y_mm=10.0, z_um=0.0),
         objective_id=objective,
-        stim_configs={},
         before_step_index=before_step_index,
         after_step_index=after_step_index,
     )

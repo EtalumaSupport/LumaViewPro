@@ -26,7 +26,6 @@ from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     refused_in_this_input,
     reset_acquire_ui,
-    reset_stim_ui,
     restore_display_after_run,
     run_reported,
     run_unasked,
@@ -782,7 +781,6 @@ class ProtocolSettings(FloatLayout):
         self._show_capture_root()
 
         reset_acquire_ui()
-        reset_stim_ui()
 
         # Make steps available for drawing locations, and draw them: outside a
         # run the stage redraws only on XY motion, and a load need not move.

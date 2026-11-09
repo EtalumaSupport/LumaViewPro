@@ -139,7 +139,6 @@ class TestLoad:
     ):
         monkeypatch.setattr(file_dialogs.gui_logger, 'select', lambda *a, **kw: None)
         monkeypatch.setattr(ps, 'reset_acquire_ui', lambda: None)
-        monkeypatch.setattr(ps, 'reset_stim_ui', lambda: None)
         previous = ctx.session.new_protocol()
         panel = _panel(ctx, previous)
         panel.ids['labware_spinner'] = SimpleNamespace(text='')

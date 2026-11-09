@@ -2110,8 +2110,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             work needs motion on an axis this scope has no motor for.
             ``'step_position_missing'`` -- steps have no position on an axis
             this scope moves, having been recorded on a scope without it.
-            ``'channel_not_on_scope'`` -- steps take or stimulate a channel this
-            scope does not have, or this scope's channels could not be
+            ``'channel_not_on_scope'`` -- steps take a channel this scope
+            does not have, or this scope's channels could not be
             resolved. ``'objectives_require_turret'`` -- the protocol
             changes objective between steps, and this scope has no turret
             to change it. ``'objective_not_given'`` -- a protocol with a

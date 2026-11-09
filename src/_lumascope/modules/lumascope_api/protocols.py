@@ -341,7 +341,6 @@ class ProtocolsAPI:
         protocol: Protocol,
         *,
         channel_configs: dict,
-        stim_configs: dict,
         plate_position: PlateLocation,
         channel_order: list[str] | None = None,
         before_step_index: int | None = None,
@@ -398,7 +397,6 @@ class ProtocolsAPI:
 
         ordered = [channel for channel in (channel_order or []) if channel in channel_configs]
         ordered += [channel for channel in channel_configs if channel not in ordered]
-        stim_configs = self._stim_configs_with_invalid_channels_disabled(stim_configs)
         if before_step_index is None and after_step_index is None:
             after_step_index = protocol.num_steps() - 1
         acquiring = [
@@ -421,7 +419,6 @@ class ProtocolsAPI:
                 step_name=None,
                 channel=channel,
                 channel_config=channel_config,
-                stim_configs=stim_configs,
                 plate_position=plate_position,
                 objective_id=objective_id,
                 channel_group_id=channel_group_id,
@@ -490,7 +487,6 @@ class ProtocolsAPI:
         *,
         channel: str,
         channel_configs: dict,
-        stim_configs: dict,
         plate_position: PlateLocation,
         label: str | None = None,
     ) -> str:
@@ -501,10 +497,7 @@ class ProtocolsAPI:
         position and the objective it was taken with, whichever button
         saved it.
 
-        ``channel`` is the channel the caller is editing. When that channel's
-        stim config is enabled the edit is a stim edit, not a channel
-        change, so the step keeps the channel it already acquires.
-        ``label`` renames the step; None keeps its label.
+        ``channel`` is the channel the step takes after the update. ``label`` renames the step; None keeps its label.
 
         On an axis this scope has no motor for, the step keeps the position
         it has: the scope measured nothing there, so a loaded step's X/Y
@@ -533,10 +526,6 @@ class ProtocolsAPI:
         step = protocol.step_row(step_index=step_index)
         objective_id = self._recordable_objective(verb='update')
 
-        stim_config = channel_configs[channel].get('stim_config')
-        if stim_config is not None and stim_config['enabled']:
-            channel = step['channel']
-
         if not Protocol.channel_acquires(channel_configs[channel]):
             self._refuse(
                 reason='no_acquiring_channel',
@@ -561,7 +550,6 @@ class ProtocolsAPI:
             label=label,
             channel=channel,
             channel_config=channel_configs[channel],
-            stim_configs=self._stim_configs_with_invalid_channels_disabled(stim_configs),
             plate_position=plate_position,
             objective_id=objective_id,
             turret_slot=self._live_turret_slot(),
@@ -930,40 +918,6 @@ class ProtocolsAPI:
         objective_id, _ = self._scope.runtime_state.resolve_current_objective()
         return objective_id
 
-    @staticmethod
-    def _stim_configs_with_invalid_channels_disabled(stim_configs: dict) -> dict:
-        """Disable an enabled stim channel whose frequency or current is not positive.
-
-        Warned and disabled rather than refused: the stim feature is not
-        in use yet (Eric, 2026-09-21), so its range has no owner and a
-        refusal would be a rule for nobody. When it is used, the range is
-        refused at this boundary, never disabled.
-        """
-        for stim_color, sc in stim_configs.items():
-            if not isinstance(sc, dict) or not sc.get('enabled', False):
-                continue
-            freq = sc.get('frequency', 0)
-            if not isinstance(freq, (int, float)) or freq <= 0:
-                _api_log.warning(
-                    f'[API] Stim channel {stim_color}: frequency {freq} Hz is invalid '
-                    f'(must be > 0). Disabling channel.'
-                )
-                sc['enabled'] = False
-            exp = sc.get('exposure', 0)
-            if isinstance(exp, (int, float)) and exp == 0 and sc.get('enabled', False):
-                _api_log.warning(
-                    f'[API] Stim channel {stim_color}: exposure is 0. '
-                    f'This may produce no visible pulses.'
-                )
-            illum = sc.get('illumination_ma', 0)
-            if isinstance(illum, (int, float)) and illum <= 0 and sc.get('enabled', False):
-                _api_log.warning(
-                    f'[API] Stim channel {stim_color}: illumination {illum} mA is invalid '
-                    f'(must be > 0). Disabling channel.'
-                )
-                sc['enabled'] = False
-        return stim_configs
-
     def refuse_no_acquiring_channel(self, channel_configs: dict) -> None:
         """Refuse a step add or a protocol build when no channel is set to acquire.
 
@@ -1069,45 +1023,6 @@ class ProtocolsAPI:
             message=(
                 f'{scope}, so {len(absent)} step(s) cannot be run: {names}. '
                 f'Delete those steps, or open the protocol on a scope that has the channel.'
-            ),
-        )
-
-    def refuse_absent_stimulation(self, protocol: Protocol) -> None:
-        """Refuse a protocol with a step stimulating a channel this scope does not have.
-
-        Asked where a run is about to start. Only an enabled stimulation is
-        judged: every step this session builds carries a disabled entry for
-        every channel of the release, and one loaded from a file keeps those
-        it was saved with.
-
-        A consult seam, not part of the L2 API surface: an L2 caller meets
-        this refusal through a run's start.
-
-        Raises:
-            ProtocolRunRefusedError: reason ``channel_not_on_scope``, naming
-                the channels and the steps.
-            ProtocolFormatError: a step's stimulation entry is not a config
-                (``Protocol.step_records``).
-        """
-        identity = self._scope.channel_identity
-        present = {record.key_name for record in identity.channels}
-        absent = {}
-        for step in protocol.step_records():
-            for channel, stimulation in (step.stim_config or {}).items():
-                if channel not in present and stimulation.enabled:
-                    absent.setdefault(channel, []).append(step.name)
-        if not absent:
-            return
-        names = sorted({name for steps in absent.values() for name in steps})
-        channels = ', '.join(sorted(absent))
-        self._refuse(
-            reason='channel_not_on_scope',
-            message=(
-                f'This scope ({identity.model}) has no {channels} to stimulate, so '
-                f'{len(names)} step(s) cannot be run: '
-                f'{common_utils.first_few(names, separator=", ")}. '
-                f'Turn that stimulation off in those steps, or run the protocol on a scope '
-                f'that has the channel.'
             ),
         )
 

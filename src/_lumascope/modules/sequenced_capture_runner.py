@@ -1415,9 +1415,6 @@ class SequencedCaptureRunner:
         # says. The load refuses it on the same rule; a protocol built in
         # memory meets it only here.
         self._scope.protocols.refuse_absent_channels(protocol)
-        # And a step stimulating one: a load keeps a file's stimulation as
-        # saved, so this is the one place it is judged.
-        self._scope.protocols.refuse_absent_stimulation(protocol)
 
         # After the connection gate, so a motorized scope whose board fell
         # off is told it is disconnected rather than that it cannot move;

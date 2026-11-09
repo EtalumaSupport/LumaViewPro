@@ -300,7 +300,6 @@ class TestLoad:
         is the app's write, and records no pick: a person's pick is recorded
         by the spinner itself, from the pick."""
         monkeypatch.setattr(ps, 'reset_acquire_ui', lambda: None)
-        monkeypatch.setattr(ps, 'reset_stim_ui', lambda: None)
         panel = _Panel(homed.session.create_empty_protocol())
         panel.ids['labware_spinner'] = SimpleNamespace(text=shown_plate)
 

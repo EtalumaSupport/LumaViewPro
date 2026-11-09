@@ -42,7 +42,6 @@ def _layer(focus):
         'sum': 1,
         'focus': focus,
         'video_config': {'duration': 30},
-        'stim_config': None,
     }
 
 
@@ -58,7 +57,6 @@ def _input_config(**extra):
         'duration': None,
         'frame_dimensions': {'width': 2048, 'height': 2048},
         'binning_size': 1,
-        'stim_config': {},
     }
     cfg.update(extra)
     return cfg

@@ -82,7 +82,6 @@ def _modify_channel(proto, *, layer, label=None):
         channel_config=_modify_layer_config(),
         plate_position=PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0),
         objective_id='4x Oly',
-        stim_configs={},
     )
     return proto.step_row(step_index=0)
 

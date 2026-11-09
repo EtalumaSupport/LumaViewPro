@@ -2,8 +2,7 @@
 """Updating a step is an API capability, refused for the same reasons as adding one.
 
 The GUI's Update Step handler used to own the whole decision: it read the
-live position and the objective, kept the step's channel when only a stim
-config was being edited, ran its own turret pre-check with its own popup,
+live position and the objective, ran its own turret pre-check with its own popup,
 and wrote the step through the protocol module directly. Nothing asked
 whether the position it read was one the scope still knew, so after a
 failed home Update Step saved the last real position -- a plausible
@@ -39,16 +38,13 @@ ADDED_AT = PlateLocation(x_mm=10.0, y_mm=20.0, z_um=5000.0)
 UPDATED_TO = PlateLocation(x_mm=30.0, y_mm=40.0, z_um=6000.0)
 
 
-def _layer_configs(**stim_enabled_by_layer):
-    """The production layer configs, BF and LED 0 set to acquire; the named
-    layers' stim config enabled."""
+def _layer_configs():
+    """The production layer configs, BF and LED 0 set to acquire."""
     settings = complete_settings()
     for layer in config_helpers.get_channel_configs(settings):
         settings[layer]['acquire'] = None
     settings['BF']['acquire'] = 'image'
     settings[LED0]['acquire'] = 'image'
-    for layer, enabled in stim_enabled_by_layer.items():
-        settings[layer]['stim_config'] = {**settings[layer]['stim_config'], 'enabled': enabled}
     return config_helpers.get_channel_configs(settings)
 
 
@@ -57,7 +53,6 @@ def _protocol_with_one_bf_step(scope):
     scope.protocols.add_step(
         protocol,
         channel_configs={'BF': _layer_configs()['BF']},
-        stim_configs={},
         plate_position=ADDED_AT,
         before_step_index=0,
     )
@@ -71,14 +66,12 @@ def _update(
     layer=LED0,
     label=None,
     channel_configs=None,
-    stim_configs=None,
 ):
     return scope.protocols.update_step(
         protocol,
         0,
         channel=layer,
         channel_configs=channel_configs if channel_configs is not None else _layer_configs(),
-        stim_configs=stim_configs if stim_configs is not None else {},
         plate_position=UPDATED_TO,
         label=label,
     )
@@ -170,25 +163,6 @@ class TestTheApiUpdates:
         _update(scope, protocol, label='mine')
         assert _step(protocol)['Label'] == 'mine'
         assert not _step(protocol)['Auto_Named']
-
-    def test_a_layer_with_its_stim_enabled_keeps_the_steps_own_channel(self, scope):
-        # Editing a stim config from another layer's drawer is a stim edit,
-        # not a channel change: the step keeps acquiring what it acquired.
-        protocol = _protocol_with_one_bf_step(scope)
-
-        _update(scope, protocol, layer=LED0, channel_configs=_layer_configs(**{LED0: True}))
-
-        assert _step(protocol)['channel'] == 'BF'
-
-    def test_an_enabled_stim_channel_with_no_frequency_is_saved_disabled(self, scope):
-        # The same rule an add applies: a stim channel that cannot pulse is
-        # not saved as one that will.
-        protocol = _protocol_with_one_bf_step(scope)
-        stim = {'enabled': True, 'frequency': 0, 'illumination_ma': 50.0, 'exposure': 10.0}
-
-        _update(scope, protocol, stim_configs={LED0: stim})
-
-        assert _step(protocol)['Stim_Config'][LED0]['enabled'] is False
 
 
 @pytest.fixture

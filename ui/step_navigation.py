@@ -125,15 +125,6 @@ def go_to_step_update_ui(step):
     # Delegate all per-channel widget updates to ChannelControl
     channel_control.set_step_state(step)
 
-    # Stim config spans multiple channels -- update non-current channels too
-    sc = step.get('Stim_Config')
-    if isinstance(sc, dict):
-        for channel in sc:
-            if channel != color:
-                other_obj = ctx.image_settings.channel_control_lookup(channel=channel)
-                # Build a minimal step dict for the other channel's stim only
-                other_obj.set_step_state({'Stim_Config': {channel: sc[channel]}})
-
     # The LED button is not written here: it shows the LED, and the listener
     # bridge, the button's one writer, draws it from the LED state store --
     # during a run too, so the step's button is down while, and only while,

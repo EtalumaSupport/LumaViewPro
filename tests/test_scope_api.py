@@ -54,7 +54,7 @@ def _make_layer_settings(**overrides):
     return defaults
 
 
-def _make_settings(layers=None, with_stim=False):
+def _make_settings(layers=None):
     """Build a minimal settings dict with the standard layers."""
     from _lumascope.modules.common_utils import get_channels
 
@@ -63,14 +63,7 @@ def _make_settings(layers=None, with_stim=False):
 
     settings = {}
     for layer in layers:
-        s = _make_layer_settings()
-        if with_stim:
-            s['stim_config'] = {
-                'enabled': True,
-                'illumination_ma': 0,
-                'frequency': 1,
-            }
-        settings[layer] = s
+        settings[layer] = _make_layer_settings()
 
     settings['protocol'] = {
         'autogain': {
@@ -197,31 +190,6 @@ class TestGetLayerConfigs:
         for cfg in configs.values():
             assert cfg['exposure_ms'] == round(10.56789, precision)
 
-    def test_stim_config_none_when_absent(self):
-        settings = _make_settings(with_stim=False)
-        configs = config_helpers.get_channel_configs(settings)
-        for cfg in configs.values():
-            assert cfg['stim_config'] is None
-
-    def test_stim_config_illumination_independent(self):
-        """Stim illumination is independent from imaging illumination.
-
-        The stim brightness slider controls stim_config['illumination_ma']
-        directly -- it is NOT force-synced to the layer's imaging illumination.
-        Both carry the _ma suffix because both are LED current in milliamps;
-        they are the same unit on independent controls, not the same value.
-        """
-        settings = _make_settings(with_stim=True)
-        # Set stim illumination to a different value than layer illumination
-        for layer in settings:
-            if isinstance(settings[layer], dict) and 'stim_config' in settings[layer]:
-                settings[layer]['stim_config']['illumination_ma'] = 200
-        configs = config_helpers.get_channel_configs(settings)
-        for cfg in configs.values():
-            assert cfg['stim_config']['illumination_ma'] == 200
-            # Layer illumination is different (50.123456 rounded)
-            assert cfg['illumination_ma'] != 200
-
     def test_auto_gain_bool_conversion(self):
         settings = _make_settings()
         settings['BF']['auto_gain'] = 'True'
@@ -239,7 +207,6 @@ class TestGetLayerConfigs:
         expected_keys = {
             'acquire',
             'video_config',
-            'stim_config',
             'autofocus',
             'false_color',
             'illumination_ma',
@@ -250,21 +217,6 @@ class TestGetLayerConfigs:
             'focus',
         }
         assert set(configs['BF'].keys()) == expected_keys
-
-
-class TestGetStimConfigs:
-    def test_returns_stim_layers_only(self):
-        settings = _make_settings(with_stim=True)
-        # Remove stim from BF to verify filtering
-        del settings['BF']['stim_config']
-        stim = config_helpers.get_stim_configs(settings)
-        assert 'BF' not in stim
-        assert LED2 in stim
-
-    def test_no_stim_returns_empty(self):
-        settings = _make_settings(with_stim=False)
-        stim = config_helpers.get_stim_configs(settings)
-        assert stim == {}
 
 
 class TestGetAutoGainSettings:

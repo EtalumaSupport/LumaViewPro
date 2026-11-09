@@ -87,15 +87,6 @@ def _make_step():
         'Acquire': 'video',
         'Objective': 'obj1',
         'Video Config': {'duration': 30},
-        'Stim_Config': {
-            LED1: {
-                'enabled': True,
-                'illumination_ma': 200,
-                'frequency': 2,
-                'pulse_width': 20,
-                'pulse_count': 3,
-            },
-        },
     }
 
 
@@ -269,7 +260,6 @@ class TestSetStepStateIsAPureWidgetSetter:
         ChannelControl.set_step_state(stand, step)
 
         ids = stand.ids
-        stim = step['Stim_Config'][LED1]
         expected = {
             'autofocus': True,
             'false_color': False,
@@ -284,23 +274,24 @@ class TestSetStepStateIsAPureWidgetSetter:
             'sum_slider': 4,
             'video_duration_text': '30',
             'video_duration_slider': 30.0,
-            'stim_enable_btn': True,
-            'stim_disable_btn': False,
-            'stim_ill_text': str(stim['illumination_ma']),
-            'stim_ill_slider': float(stim['illumination_ma']),
-            'stim_freq_text': str(stim['frequency']),
-            'stim_freq_slider': float(stim['frequency']),
-            'stim_pulse_width_text': str(stim['pulse_width']),
-            'stim_pulse_width_slider': float(stim['pulse_width']),
-            'stim_pulse_count_text': str(stim['pulse_count']),
-            'stim_pulse_count_slider': int(stim['pulse_count']),
+            # A step carries no stimulation: the stim widgets are untouched.
+            'stim_enable_btn': None,
+            'stim_disable_btn': None,
+            'stim_ill_text': None,
+            'stim_ill_slider': None,
+            'stim_freq_text': None,
+            'stim_freq_slider': None,
+            'stim_pulse_width_text': None,
+            'stim_pulse_width_slider': None,
+            'stim_pulse_count_text': None,
+            'stim_pulse_count_slider': None,
             'acquire_video': True,
             'acquire_image': False,
             'acquire_none': False,
         }
         actual = {name: getattr(ids[name], attr) for name, attr in _STEP_WIDGETS.items()}
         assert actual == expected
-        assert stand.visibility_calls == 1
+        assert stand.visibility_calls == 0
         assert stand._initializing is False
 
     def test_auto_gain_checkbox_is_gated_on_camera_support(self, monkeypatch):

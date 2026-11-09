@@ -37,7 +37,6 @@ try:
         step_name=None,
         channel='BF',
         channel_config=lc,
-        stim_configs=config_helpers.get_stim_configs(settings),
         plate_position=pos,
         objective_id=obj_id,
         before_step_index=None,
@@ -55,7 +54,6 @@ try:
         label='probe_renamed',
         channel='BF',
         channel_config=lc2,
-        stim_configs=config_helpers.get_stim_configs(settings),
         plate_position=pos,
         objective_id=obj_id,
     )

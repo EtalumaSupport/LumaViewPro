@@ -1,9 +1,9 @@
 LumaViewPro Protocol
-Version	5
+Version	12
 Period	20.0
 Duration	48.0
 Labware	96 well microplate
 Capture Root
 
 Steps
-Name	X	Y	Z	Auto_Focus	Color	False_Color	Illumination	Gain	Auto_Gain	Exposure	Sum	Objective	Well	Tile	Z-Slice	Custom Step	Tile Group ID	Z-Stack Group ID	Acquire	Video Config	Stim_Config
+Name	X	Y	Z	Auto_Focus	Color	False_Color	Illumination	Gain	Auto_Gain	Exposure	Sum	Objective	Well	Tile	Z-Slice	Custom Step	Tile Group ID	Z-Stack Group ID	Acquire	Video Config	Auto_Named	Label	Channel Group ID	Turret Slot	Z-Stack Offset

@@ -64,7 +64,6 @@ def _added(scope, adds=ADDS):
         scope.protocols.add_step(
             protocol,
             channel_configs=_layer_configs(acquiring),
-            stim_configs={},
             plate_position=AT,
             channel_order=list(acquiring),
         )
@@ -341,7 +340,6 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
                 1,
                 channel='BF',
                 channel_configs=_layer_configs(('BF', LED1)),
-                stim_configs={},
                 plate_position=AT,
             )
 
@@ -357,7 +355,6 @@ class TestAnUpdateCannotDoubleAChannelInItsAdd:
             1,
             channel='BF',
             channel_configs=_layer_configs(('BF', LED1)),
-            stim_configs={},
             plate_position=AT,
         )
 

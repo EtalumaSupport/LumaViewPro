@@ -857,24 +857,6 @@ def reset_acquire_ui():
             channel_control._initializing = False
 
 
-def reset_stim_ui():
-    # Display only: a loaded protocol's stimulation was turned off by the
-    # Session (``ScopeSession.apply_channel_settings``), which writes it.
-    ctx = _app_ctx.ctx
-    for channel in common_utils.get_channels():
-        channel_control = ctx.image_settings.channel_control_lookup(channel=channel)
-        if (
-            'stim_config' in ctx.settings[channel]
-            and ctx.settings[channel]['stim_config'] is not None
-        ):
-            channel_control._initializing = True
-            try:
-                channel_control.ids['stim_disable_btn'].active = True
-            finally:
-                channel_control._initializing = False
-            channel_control.update_stim_controls_visibility()
-
-
 class LoggedAccordionItem(AccordionItem):
     """An accordion item that records a person opening it.
 

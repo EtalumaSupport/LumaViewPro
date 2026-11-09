@@ -185,14 +185,19 @@ def test_update_on_a_layer_not_set_to_acquire_is_refused_and_the_step_kept(ls850
     assert protocol.steps().equals(before)
 
 
-def test_a_stim_edit_is_judged_on_the_steps_own_channel(ls850):
-    # LED 0 stimulates and does not acquire; the step it edits is BF's, and
-    # BF acquires, so the stim edit is not refused.
+def test_an_update_from_a_layer_that_stimulates_and_acquires_nothing_is_refused(ls850):
+    # A step takes the layer it is updated from, whatever that layer's
+    # stimulation: LED 0 stimulates and acquires nothing, so it has no step
+    # to make. It once kept the step's own layer, as a stimulation edit; a
+    # protocol now carries no stimulation.
     protocol = ls850.create_empty_protocol()
     ls850.add_step(protocol)
+    before = protocol.steps()
     ls850.set_channel_acquire(LED0, None)
     ls850.settings[LED0]['stim_config']['enabled'] = True
 
-    ls850.update_step(protocol, 0, channel=LED0)
+    with pytest.raises(ProtocolRunRefusedError) as refused:
+        ls850.update_step(protocol, 0, channel=LED0)
 
-    assert protocol.step_row(step_index=0)['channel'] == 'BF'
+    assert refused.value.reason == 'no_acquiring_channel'
+    assert protocol.steps().equals(before)

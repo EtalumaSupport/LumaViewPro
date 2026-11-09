@@ -138,7 +138,6 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`Status`](#Status)
 - [`StepRecord`](#StepRecord)
 - [`StepStarted`](#StepStarted)
-- [`Stimulation`](#Stimulation)
 - [`Stitch`](#Stitch)
 - [`Substitution`](#Substitution)
 - [`SupportReportSaved`](#SupportReportSaved)
@@ -449,7 +448,7 @@ Put a protocol's Layer Settings into this session's channel controls.
 
 The other half of `save_protocol`, and what the GUI's Load does
 once `load_protocol` has accepted the plate. Every channel stops
-acquiring and stimulating; each channel the protocol names then takes
+acquiring; each channel the protocol names then takes
 its acquire mode and every value its row holds. A blank value leaves
 that channel's control as it was. A channel this release does not know
 (not in `common_utils.get_channels()`), or this scope does not have,
@@ -3605,7 +3604,7 @@ it is refused on the UI thread; a click calls it from a worker.
 
 - `StepNotFoundError`: `step_index` is not a step of `protocol`. Nothing changes.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes.
-- `ArgumentRefusedError`: `'channel_unknown'`, the step's stimulation names a channel this release has not. Nothing changes.
+- `ArgumentRefusedError`: `'channel_unknown'`, the step's colour is not a channel. Nothing changes.
 - `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
@@ -3915,7 +3914,7 @@ Returns the step's name after the update.
 
 - `protocol`: The protocol whose step is rewritten.
 - `step_index`: The step rewritten, counted from 0.
-- `channel`: The channel whose settings the step takes. When that channel's stimulation is enabled the edit is a stimulation edit, and the step keeps the channel it already acquires.
+- `channel`: The channel whose settings the step takes.
 - `label`: The step's new label; None (the default) keeps its label.
 
 **Raises**
@@ -9912,7 +9911,6 @@ the channel's control keeps what it holds.
 - <a id="ChannelSettings.frames_summed"></a>`frames_summed`: `int | None` -- How many frames a capture sums.
 - <a id="ChannelSettings.gain_db"></a>`gain_db`: `float | None` -- The camera gain, in dB.
 - <a id="ChannelSettings.illumination_ma"></a>`illumination_ma`: `float | None` -- The LED current, in mA.
-- <a id="ChannelSettings.stim_enabled"></a>`stim_enabled`: `bool | None` -- The channel's stimulation is on; never inferred from the steps.
 
 <a id="ChannelSliderMaxima"></a>
 ## `lumascope.ChannelSliderMaxima`
@@ -11408,8 +11406,7 @@ A protocol loaded from a file with a 'Layer Settings' block returns
 that block. One without (a v5 file, or a protocol built in memory)
 has it inferred from its steps: each channel with steps yields one
 record seeded from its first step, `acquire` 'video' when any of
-its steps records video, else 'image'. `stim_enabled` is not
-inferred: a v5 step carries its stimulation per step.
+its steps records video, else 'image'.
 
 Every cell is its column's type (`ChannelSettings`), read once
 when the file was read; a blank cell but Acquire is None, and so is
@@ -11570,11 +11567,7 @@ Every step, in order, as its record: the step table in one read.
 
 **Raises**
 
-- `ProtocolFormatError`: a stimulation entry of a step is not a config.
-
-**Refusals by REST status**
-
-- 422: [`ProtocolFormatError`](#ProtocolFormatError): `protocol_invalid`
+Nothing.
 
 <a id="Protocol.tiling"></a>
 ### `Protocol.tiling`
@@ -12225,11 +12218,6 @@ drawer is a fact about a running GUI.
 Autofocus is forced OFF for the step, matching the button. A
 z-stack with autofocus enabled refocuses at each slice and
 flattens the stack it was asked to capture.
-
-Stimulation configs are carried onto the step as stored, enabled or
-not. Stated rather than
-inherited silently: if the API should instead carry only the
-enabled ones, this is the line that changes.
 
 **Args**
 
@@ -12909,7 +12897,6 @@ One step of a protocol, a field per column of its steps table.
 - <a id="StepRecord.label"></a>`label`: `str` -- The caller's label for the step; '' for none.
 - <a id="StepRecord.name"></a>`name`: `str` -- The step's name, rendered from its other fields.
 - <a id="StepRecord.objective"></a>`objective`: `str` -- The objective's catalogue key.
-- <a id="StepRecord.stim_config"></a>`stim_config`: `dict[str, Stimulation] | None` -- Each channel's stimulation, by channel: every fluorescence channel of the release (`'Ex405'` to `'Ex640'`), whether or not this scope has its LED; None where the step carries no stimulation config.
 - <a id="StepRecord.tile"></a>`tile`: `str` -- The step's tile in its grid; '' for no tile.
 - <a id="StepRecord.tile_group_id"></a>`tile_group_id`: `int | None` -- The tile grid the step is one tile of; None for none.
 - <a id="StepRecord.turret_slot"></a>`turret_slot`: `int | None` -- The turret slot the step uses; None for none.
@@ -12933,25 +12920,6 @@ A `step_started` event, sent as each step begins, step 0 included.
 **Fields**
 
 - <a id="StepStarted.step_index"></a>`step_index`: `int` -- The index of the step beginning, from 0.
-
-<a id="Stimulation"></a>
-## `lumascope.Stimulation`
-
-A record: it crosses the wire as its data.  
-Held in: [`StepRecord.stim_config`](#StepRecord.stim_config).
-
-One channel's stimulation for a step: on or off, its current, and its pulses.
-
-Each field is None where the step's config does not say, as in a file
-from before a value was kept.
-
-**Fields**
-
-- <a id="Stimulation.enabled"></a>`enabled`: `bool | None` -- Whether the step asks for stimulation on this channel.
-- <a id="Stimulation.frequency_hz"></a>`frequency_hz`: `float | None` -- The pulse rate the step asks for, in Hz.
-- <a id="Stimulation.illumination_ma"></a>`illumination_ma`: `float | None` -- The LED current the step asks for while stimulating on this channel, in mA.
-- <a id="Stimulation.pulse_count"></a>`pulse_count`: `int | None` -- How many pulses the step asks for.
-- <a id="Stimulation.pulse_width_ms"></a>`pulse_width_ms`: `float | None` -- How long the step asks each pulse to last, in ms.
 
 <a id="Stitch"></a>
 ## `lumascope.Stitch`
@@ -16720,6 +16688,27 @@ same request may succeed once it ends.
 | `unreadable` | request | 422 |
 | `unsupported_source_format` | request | 422 |
 
+<a id="ProtocolAsksForStimulationError"></a>
+### `lumascope.ProtocolAsksForStimulationError`
+
+A refusal; bases `ProtocolFormatError`.
+
+A protocol file that asks for stimulation, which this release does not perform.
+
+A file written before the protocol's stimulation was removed can ask for
+it, and under the release that wrote it a run stimulated. Loaded, it
+would run every step and stimulate none, saying nothing, so it is
+refused: the words name the first step or Layer Settings channel that
+asks, as the file spells it, and how to put the file right.
+
+**Attributes**
+
+- `reason`: `'stimulation_not_performed'`.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `stimulation_not_performed` | request | 422 |
+
 <a id="ProtocolError"></a>
 ### `lumascope.ProtocolError`
 
@@ -16814,7 +16803,7 @@ prints it prints what the GUI shows.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'composite_video_channel'` -- a composite run has a channel set to capture video; a composite merges still images. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective. `'step_position_unknown'` -- a step cannot be added or updated while an axis does not know its position. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol fall outside the stage's travel. `'camera_setting_out_of_range'` -- a step's gain or exposure is outside this camera's range. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'channel_not_on_scope'` -- steps take or stimulate a channel this scope does not have, or this scope's channels could not be resolved. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a channel has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- channel settings the protocol would store hold values no channel setting takes; the message names each.
+- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'composite_video_channel'` -- a composite run has a channel set to capture video; a composite merges still images. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective. `'step_position_unknown'` -- a step cannot be added or updated while an axis does not know its position. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol fall outside the stage's travel. `'camera_setting_out_of_range'` -- a step's gain or exposure is outside this camera's range. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'channel_not_on_scope'` -- steps take a channel this scope does not have, or this scope's channels could not be resolved. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a channel has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- channel settings the protocol would store hold values no channel setting takes; the message names each.
 - `title`: The heading shown above the sentence, the reason's.
 - `message`: The sentence; the same text as the exception's message.
 - `holder`: What holds the microscope at refusal time (the exclusive-activity claim's kind, or `AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).

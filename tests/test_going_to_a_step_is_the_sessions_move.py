@@ -26,7 +26,6 @@ import pandas as pd
 import pytest
 
 from _lumascope.modules.exceptions import (
-    ArgumentRefusedError,
     AxisStateUnknownError,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
@@ -39,8 +38,8 @@ from tests.scope_fakes import TEST_TURRET_OBJECTIVES, channel_reading, home_sim_
 from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.case_walk import failing_cases
-from tests.stock_channels import LED0, LED1
-from tests.protocol_fixtures import protocol_from_file, protocol_of
+from tests.stock_channels import LED0
+from tests.protocol_fixtures import protocol_of
 
 _PLATE = '96 well microplate'
 _OTHER_PLATE = 'Four-Slide Holder'
@@ -70,7 +69,6 @@ def _step(x: float, y: float, z: float, objective: str) -> dict:
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
         'Video Config': {'duration': 1.0},
-        'Stim_Config': {},
         'Step Index': 0,
         'Auto_Named': False,
         'Label': '',
@@ -408,45 +406,12 @@ class TestTheStepIntoItsLayer:
 
         assert unhomed_session.settings['BF'] == before
 
-    def test_a_stimulation_naming_no_layer_is_refused_before_anything_changes(
-        self, session, monkeypatch
-    ):
-        moves = _spy_moves(monkeypatch, session)
-        step = _step(60.0, 40.0, 5000.0, _objective_of(session))
-        step['Stim_Config'] = {'Purple': {'enabled': True}}
-        protocol = _protocol(_PLATE, step)
-        before = copy.deepcopy(session.settings['BF'])
-
-        with pytest.raises(ArgumentRefusedError) as refused:
-            session.go_to_step(protocol, 0)
-
-        assert (refused.value.reason, refused.value.value) == ('channel_unknown', 'Purple')
-        assert moves == []
-        assert session.settings['BF'] == before
-        assert 'Purple' not in session.settings
-
-    def test_a_step_saved_before_stimulation_leaves_the_stimulation_settings_alone(
-        self, no_motor_session, tmp_path
-    ):
-        # A v4 file predates the Stim_Config column, so its steps record no
-        # stimulation; going to one must not stand a made-up one in for it.
-        saved = tmp_path / 'protocol_v4.tsv'
-        _protocol('Center Plate', _step(10.0, 10.0, 0.0, _objective_of(no_motor_session))).to_file(
-            saved
+    def test_going_to_a_step_leaves_the_stimulation_settings_alone(self, no_motor_session):
+        # A protocol carries no stimulation, so going to a step has none to
+        # write: each layer keeps the stimulation its own controls hold.
+        protocol = _protocol(
+            'Center Plate', _step(10.0, 10.0, 0.0, _objective_of(no_motor_session))
         )
-        dropped = set(Protocol.COLUMNS[Protocol.CURRENT_VERSION]) - set(Protocol.COLUMNS[4])
-        lines, keep = [], None
-        for line in saved.read_text().splitlines():
-            cells = line.split('\t')
-            if cells[0] == 'Version':
-                cells = ['Version', '4']
-            elif 'Name' in cells and 'Color' in cells:
-                keep = [i for i, name in enumerate(cells) if name not in dropped]
-            if keep is not None and len(cells) > max(keep):
-                cells = [cells[i] for i in keep]
-            lines.append('\t'.join(cells))
-        saved.write_text('\n'.join(lines) + '\n')
-        protocol = protocol_from_file(saved)
         stimulating = [
             layer
             for layer, values in no_motor_session.settings.items()
@@ -465,7 +430,6 @@ class TestTheStepIntoItsLayer:
         assert {
             layer: no_motor_session.settings[layer]['stim_config'] for layer in before
         } == before
-        assert protocol.step_row(step_index=0)['Stim_Config'] == {}
 
 
 class TestTheLedPreview:
@@ -573,7 +537,6 @@ class TestEveryStepValueReachesTheLayer:
                 'Acquire': 'video',
                 'Z': 1234.0,
                 'Video Config': {'duration': 30},
-                'Stim_Config': {LED1: {'enabled': True, 'illumination_ma': 200}},
             }
         )
         protocol = _protocol('Center Plate', step)
@@ -583,13 +546,10 @@ class TestEveryStepValueReachesTheLayer:
         layer = no_motor_session.settings['BF']
         for column, key in STEP_TO_SETTINGS.items():
             assert layer[key] == step[column], f"{key} did not take the step's {column}"
-        assert no_motor_session.settings[LED1]['stim_config'] == step['Stim_Config'][LED1]
         # The step's dicts are the protocol's: a later edit to them must not
         # reach into the live settings.
         step['Video Config']['duration'] = 999
-        step['Stim_Config'][LED1]['illumination_ma'] = 999
         assert layer['video_config']['duration'] == 30
-        assert no_motor_session.settings[LED1]['stim_config']['illumination_ma'] == 200
 
     def test_a_scope_with_no_motor_previews_the_step(self, no_motor_session):
         no_motor_session.settings['protocol_led_on'] = True

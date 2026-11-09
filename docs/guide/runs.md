@@ -12,9 +12,9 @@ that plate. `new_protocol` and `add_step` capture each channel whose acquire
 setting is on (`set_channel_acquire`); `add_step(channels=...)` names the
 channels instead, one acquiring nothing added as an image step. A step captures
 an image or a video, as its channel's acquire mode says
-([`AcquireMode`](../api-reference.md#AcquireMode)), and carries each
-fluorescence channel's stimulation (`StepRecord.stim_config`, a
-[`Stimulation`](../api-reference.md#Stimulation) per channel).
+([`AcquireMode`](../api-reference.md#AcquireMode)). A protocol carries no
+stimulation: a file saved by an earlier release that asks for it is refused at
+load ([`ProtocolAsksForStimulationError`](../api-reference.md#ProtocolAsksForStimulationError)).
 
 ```python
 session.set_channel_acquire('BF', 'image')       # BF is captured by every step

@@ -70,7 +70,6 @@ def _valid_step(**overrides) -> dict:
         'Z-Stack Group ID': 0,
         'Acquire': 'image',
         'Video Config': {},
-        'Stim_Config': {},
         'Auto_Named': True,
         'Label': '',
         'Channel Group ID': 0,
@@ -242,16 +241,6 @@ class TestValidateVideoConfig:
             _make_protocol([_valid_step(Acquire='image', **{'Video Config': 'garbage'})])
 
 
-class TestValidateStimulation:
-    def test_a_stimulation_outside_its_range_is_refused(self):
-        stim = {LED0: {'enabled': True, 'frequency': 60.0, 'pulse_width': 10, 'pulse_count': 5}}
-        p = _make_protocol([_valid_step(Stim_Config=stim)])
-        errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert [e.partition(': ')[2] for e in errors] == [
-            f'Stim_Config {LED0} frequency: it must be between 0.5 and 6.0, not 60.0'
-        ]
-
-
 class TestValidateNameLength:
     def test_name_too_long(self):
         p = _make_protocol([_valid_step(Name='x' * 201)])
@@ -284,26 +273,11 @@ class TestMultipleErrors:
     def test_each_step_is_told_its_own_errors_in_order_however_its_values_are_typed(self):
         # 0, 0.0 and False compare equal and are worded apart: each step is
         # judged as itself, so no step is told another's words.
-        def stim(**values):
-            return {
-                LED0: {
-                    'enabled': True,
-                    'frequency': 1.0,
-                    'pulse_width': 10,
-                    'pulse_count': 5,
-                    **values,
-                }
-            }
-
         p = _make_protocol(
             [
                 _valid_step(Acquire='video', **{'Video Config': {'duration': 0}}),
                 _valid_step(Acquire='video', **{'Video Config': {'duration': 0.0}}),
                 _valid_step(Acquire='video', **{'Video Config': {'duration': False}}),
-                _valid_step(Stim_Config=stim(pulse_count=0)),
-                _valid_step(Stim_Config=stim(pulse_count=False)),
-                _valid_step(Stim_Config=stim(frequency=0)),
-                _valid_step(Stim_Config=stim(frequency=0.0)),
                 _valid_step(channel='Bad', Illumination=2000.0, Gain=-1.0),
             ]
         )
@@ -316,13 +290,9 @@ class TestMultipleErrors:
             f'Step 1 ({name}): Video Config duration: it must be above 0 and at most 3600, not 0',
             f'Step 2 ({name}): Video Config duration: it must be above 0 and at most 3600, not 0.0',
             f'Step 3 ({name}): Video Config duration: it must be a number, not False',
-            f'Step 4 ({name}): Stim_Config {LED0} pulse_count: it must be a whole number of at least 1, not 0',
-            f'Step 5 ({name}): Stim_Config {LED0} pulse_count: it must be a number, not False',
-            f'Step 6 ({name}): Stim_Config {LED0} frequency: it must be between 0.5 and 6.0, not 0',
-            f'Step 7 ({name}): Stim_Config {LED0} frequency: it must be between 0.5 and 6.0, not 0.0',
-            f"Step 8 ({name}): Color 'Bad' is not valid. Must be one of: {colors}",
-            f'Step 8 ({name}): Gain: it must be at least 0, not -1.0',
-            f'Step 8 ({name}): Illumination must be 0-1000 mA, got 2000.0',
+            f"Step 4 ({name}): Color 'Bad' is not valid. Must be one of: {colors}",
+            f'Step 4 ({name}): Gain: it must be at least 0, not -1.0',
+            f'Step 4 ({name}): Illumination must be 0-1000 mA, got 2000.0',
         ]
 
 

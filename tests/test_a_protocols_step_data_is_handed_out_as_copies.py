@@ -5,8 +5,7 @@ A protocol changes only through its writers, which judge and record each
 change. ``steps()`` handed out the stored frame, so a caller's write landed
 in the protocol unjudged; ``steps().copy()`` and ``copy_for_execution()``
 copied the frame but shared the dicts inside its cells, so a write into a
-step's Stim_Config or Video Config landed in the caller's protocol as
-well, including from a run's own copy.
+step's Video Config landed in the caller's protocol as well, including from a run's own copy.
 
 ``steps()`` and the run's copy hand out a copy of the frame. The dicts in
 its cells are read-only wherever they are, so a write into one raises
@@ -30,7 +29,7 @@ from tests.stock_channels import LED0
 from tests.protocol_fixtures import protocol_from_file
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 
-DICT_COLUMNS = ['Stim_Config', 'Video Config']
+DICT_COLUMNS = ['Video Config']
 
 
 @pytest.fixture
@@ -74,16 +73,6 @@ class TestReadersHandOutCopies:
 
         pd.testing.assert_frame_equal(_snapshot(protocol), before)
 
-    def test_a_write_into_a_nested_stim_dict_is_refused(self, protocol):
-        before = _snapshot(protocol)
-        stim = protocol.step_row(0)['Stim_Config']
-        layer = next(iter(stim))
-
-        with pytest.raises(TypeError):
-            stim[layer]['enabled'] = True
-
-        pd.testing.assert_frame_equal(_snapshot(protocol), before)
-
     @pytest.mark.parametrize('column', DICT_COLUMNS)
     def test_a_write_into_a_dict_one_step_carries_is_refused(self, protocol, column):
         before = _snapshot(protocol)
@@ -106,7 +95,6 @@ class TestReadersHandOutCopies:
                     exposure_ms=2.0,
                     false_color=False,
                     frames_summed=1,
-                    stim_enabled=None,
                 )
             },
         )
@@ -153,7 +141,6 @@ class TestEveryStoredCellIsReadOnly:
             },
             plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
             objective_id=step['Objective'],
-            stim_configs={LED0: {'enabled': False}},
         )
 
         with pytest.raises(TypeError):
@@ -171,11 +158,6 @@ class TestACopyOfACellIsTheCallersOwn:
         assert type(own) is dict
         assert 'written' not in protocol.step_row(0)[column]
         assert own == {**cell, 'written': True}
-
-    def test_a_deep_copy_of_a_stim_config_is_plain_all_the_way_down(self, protocol):
-        own = copy.deepcopy(protocol.step_row(0)['Stim_Config'])
-
-        assert all(type(v) is dict for v in own.values() if isinstance(v, dict))
 
     @pytest.mark.parametrize('column', DICT_COLUMNS)
     def test_a_cell_survives_pickle_unchanged_and_read_only(self, protocol, column):
@@ -249,7 +231,6 @@ class TestAWritersConfigIsCopiedOnce:
     def test_a_write_to_the_callers_config_after_a_modify_leaves_the_protocol(self, protocol):
         step = protocol.step_row(0)
         video_config = {'duration': 5}
-        stim_configs = {LED0: {'enabled': False}}
         protocol.modify_step(
             turret_slot=-1,
             step_index=0,
@@ -267,14 +248,11 @@ class TestAWritersConfigIsCopiedOnce:
             },
             plate_position=PlateLocation(x_mm=step['X'], y_mm=step['Y'], z_um=step['Z']),
             objective_id=step['Objective'],
-            stim_configs=stim_configs,
         )
 
         video_config['duration'] = 99
-        stim_configs[LED0]['enabled'] = True
 
         assert protocol.step_row(0)['Video Config'] == {'duration': 5}
-        assert protocol.step_row(0)['Stim_Config'] == {LED0: {'enabled': False}}
 
     def test_the_tiles_of_one_step_share_its_config_cells(self, session):
         protocol = session.create_empty_protocol()

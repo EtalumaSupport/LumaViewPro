@@ -60,7 +60,6 @@ def test_a_configuration_as_the_session_builds_it_builds(session, config):
         (('frame_dimensions', 'width'), "input_config['frame_dimensions']['width']"),
         (('binning_size',), "input_config['binning_size']"),
         (('use_zstacking',), "input_config['use_zstacking']"),
-        (('stim_config',), "input_config['stim_config']"),
         (('channel_configs', 'BF', 'gain_db'), "input_config['channel_configs']['BF']['gain_db']"),
         (('channel_configs', 'BF', 'acquire'), "input_config['channel_configs']['BF']['acquire']"),
     ],

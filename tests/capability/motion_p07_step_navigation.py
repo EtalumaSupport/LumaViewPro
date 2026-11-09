@@ -38,7 +38,6 @@ def body(s):
         position_name='A',
         autofocus=False,
         use_zstacking=False,
-        stim_config={},
     )
     cfg['positions'] = [
         {'x': 30.0, 'y': 20.0, 'z': 2000.0, 'name': 'A'},

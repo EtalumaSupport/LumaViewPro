@@ -413,13 +413,13 @@ from _lumascope.modules.post_processing_api import (
 from _lumascope.modules.protocol import (
     ChannelSettings,
     Protocol,
+    ProtocolAsksForStimulationError,
     ProtocolFormatError,
     ProtocolScheduleRefusedError,
     ProtocolSizeAdvisory,
     StepEditRefusedError,
     StepNotFoundError,
     StepRecord,
-    Stimulation,
     VideoConfig,
 )
 from _lumascope.modules.protocol_runner import (
@@ -754,6 +754,7 @@ __all__ = [
     'PostProcessingRegistry',
     'ProcessorResult',
     'Protocol',
+    'ProtocolAsksForStimulationError',
     'ProtocolError',
     'ProtocolFormatError',
     'ProtocolNotLoadedError',
@@ -839,7 +840,6 @@ __all__ = [
     'StepNotFoundError',
     'StepRecord',
     'StepStarted',
-    'Stimulation',
     'Stitch',
     'StitchAlgorithm',
     'StitchMode',

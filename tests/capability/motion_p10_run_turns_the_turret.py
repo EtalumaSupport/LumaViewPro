@@ -55,7 +55,6 @@ def _step(name, objective, slot, index, position, layer):
         'Z-Stack Group ID': -1,
         'Acquire': 'image',
         'Video Config': {'duration': 1.0, 'fps': 5},
-        'Stim_Config': {},
         'Step Index': index,
         'Auto_Named': False,
         'Label': '',

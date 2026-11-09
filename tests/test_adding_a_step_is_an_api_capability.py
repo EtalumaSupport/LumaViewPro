@@ -47,7 +47,6 @@ def _add(scope, protocol, channel_configs, **kwargs):
     return scope.protocols.add_step(
         protocol,
         channel_configs=channel_configs,
-        stim_configs={},
         plate_position=PLATE_POSITION,
         **kwargs,
     )

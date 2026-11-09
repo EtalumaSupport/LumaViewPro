@@ -31,13 +31,7 @@ try:
         f'1: stored pair -> acquire={snap["acquire"]!r} '
         f'stim.enabled={snap["stim_config"]["enabled"]!r}'
     )
-    print(
-        '2: session.get_channel_configs:',
-        s.get_channel_configs([lay])[lay]['acquire'],
-        s.get_channel_configs([lay])[lay]['stim_config']['enabled'],
-    )
-    enabled = [layer for layer, cfg in s.get_stim_configs().items() if cfg['enabled']]
-    print('3: session.get_stim_configs, enabled:', enabled)
+    print('2: session.get_channel_configs:', s.get_channel_configs([lay])[lay]['acquire'])
     cfg = config_helpers.get_composite_capture_config_from_settings(
         s.settings, s.scope.objective_helper, position=s.get_current_plate_position()
     )
@@ -46,8 +40,8 @@ try:
     row = steps[steps['channel'] == lay]
     harness.check('a script can build a protocol from settings holding the pair', len(row) > 0)
     _acq = row['Acquire'].iloc[0] if len(row) else None
-    _stim = row['Stim_Config'].iloc[0].get(lay) if len(row) else None
-    print(f'4: protocol step for {lay} -> Acquire={_acq!r} Stim_Config={_stim!r}')
+    # A protocol carries no stimulation: the step states its capture alone.
+    print(f'4: protocol step for {lay} -> Acquire={_acq!r}')
 
     # run it and see whether prepare() refuses the illegal pair
     s.scope.motion.home('ALL')
