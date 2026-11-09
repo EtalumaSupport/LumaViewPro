@@ -27,7 +27,7 @@ import pytest
 from _lumascope.lib.build_files import build_file
 from _lumascope.modules.ui_queue import UiDispatcher, ui_backlog
 from _lumascope.modules.lumascope_api._lumascope import Lumascope
-from _lumascope.modules.scope_display_thread import STATUS_NOT_READY
+from _lumascope.modules.scope_display_thread import STATUS_NOT_READY, STATUS_OK
 from _lumascope.modules.scope_session import ScopeSession
 from ui.scope_display import ScopeDisplay
 
@@ -95,31 +95,34 @@ def display_log():
     logger.setLevel(level)
 
 
-def _shown_frames(gui_ctx, display, count):
+def _shown_frames(gui_ctx, display, monkeypatch, count):
     """Run the real display loop until it has rendered ``count`` frames, then stop it."""
     thread = gui_ctx.scope_display_thread
     rendered = []
     enough = threading.Event()
+    render = display._render_one_frame
 
-    def on_frame(*_frame):
-        rendered.append(1)
-        if len(rendered) >= count:
-            enough.set()
+    def rendering(**kwargs):
+        status = render(**kwargs)
+        if status == STATUS_OK:
+            rendered.append(1)
+            if len(rendered) >= count:
+                enough.set()
+        return status
 
+    monkeypatch.setattr(display, '_render_one_frame', rendering)
     thread.update_channel_config(open_channel='BF')
-    thread.add_frame_listener(on_frame)
     thread.start(display, fps=0)
     try:
         assert enough.wait(30), f'the display rendered {len(rendered)} of {count} frames'
     finally:
         thread.stop()
-        thread.remove_frame_listener(on_frame)
 
 
 def test_a_held_ui_thread_holds_one_post_per_kind_and_shows_the_last_state(
-    gui_ctx, display, held, display_log
+    gui_ctx, display, held, display_log, monkeypatch
 ):
-    _shown_frames(gui_ctx, display, _FRAMES)
+    _shown_frames(gui_ctx, display, monkeypatch, _FRAMES)
     # The frame, the live view's indicator, the validity dot and the
     # engineering stats: one entry each in the dispatcher's queue, however
     # many frames were rendered, and one drain asked of the UI thread.

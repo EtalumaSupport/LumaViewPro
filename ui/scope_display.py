@@ -107,8 +107,7 @@ class ScopeDisplay(Image):
         # _protocol_hold_until / _cycle_start_time all retired from this widget.
         # Lifecycle + pacing state now owned by ScopeDisplayThread
         # (src/_lumascope/modules/scope_display_thread.py). The widget keeps only render-side
-        # state (texture cache, _last_rendered_frame for listener fan-out,
-        # frame-interval history for metrics).
+        # state (texture cache, frame-interval history for metrics).
 
         self.use_bullseye = False
         self.use_crosshairs = False
@@ -208,9 +207,6 @@ class ScopeDisplay(Image):
 
         # Display loop state owned by ScopeDisplayThread. Widget keeps:
         self._last_frame_seq = None  # hand-over ordinal of the last displayed frame (dup check)
-        self._last_rendered_frame = (
-            None  # (bytes, shape, monotonic_ts) for thread.add_frame_listener fan-out
-        )
         self._PROTOCOL_HOLD_MS = (
             500  # hold deadline duration (bumped via thread.bump_protocol_hold)
         )
@@ -854,8 +850,6 @@ class ScopeDisplay(Image):
                         self.create_and_set_bullseye_texture(b, s, gen)
                     ),
                 )
-                # Publish for thread.add_frame_listener fan-out
-                self._last_rendered_frame = (bullseye_bytes, bullseye_shape, time.monotonic())
 
         if not self.use_bullseye:
             t_process_start = time.monotonic()
@@ -888,9 +882,6 @@ class ScopeDisplay(Image):
                     self.create_and_set_texture(b, s, ts, gen, live=True)
                 ),
             )
-            # Publish for thread.add_frame_listener fan-out
-            self._last_rendered_frame = (image_bytes, image_shape, t_blit_scheduled)
-
             # Performance instrumentation gated on settings.debug_mode, which
             # also puts the main log at DEBUG, so the [PERF] logger.debug
             # below reaches it.

@@ -28,10 +28,6 @@ Public API:
   protocol_hold_in_force
                         -- whether that deadline is still ahead; a live
                            blit run during it draws nothing
-  add_frame_listener(callback) / remove_frame_listener(callback)
-                        -- per-frame fan-out hook for future REST
-                           streaming / plugin live-processing.
-                           callback(bytes, shape, generation, monotonic_ts)
 """
 
 import logging
@@ -117,12 +113,6 @@ class ScopeDisplayThread:
         # bump by default (so pause/resume preserves the visual frame).
         self._generation: int = 0
 
-        # Frame listeners (REST / plugin fan-out). Snapshotted under
-        # lock; called outside the lock so a slow listener can't stall
-        # the render loop. Empty by default; zero-cost.
-        self._listeners_lock = threading.Lock()
-        self._frame_listeners: list[Callable] = []
-
     # ---- lifecycle ----
 
     def start(self, renderer: Any, fps: int = 30) -> None:
@@ -206,23 +196,6 @@ class ScopeDisplayThread:
         with self._config_lock:
             self._held_render = (render, category)
         self._wake.set()
-
-    # ---- listeners ----
-
-    def add_frame_listener(self, callback: Callable) -> None:
-        """Register a per-frame listener. Called after the texture
-        dispatch with (bytes, shape, generation, monotonic_ts).
-        Listener exceptions are caught + logged; the loop continues."""
-        with self._listeners_lock:
-            if callback not in self._frame_listeners:
-                self._frame_listeners.append(callback)
-
-    def remove_frame_listener(self, callback: Callable) -> None:
-        with self._listeners_lock:
-            try:
-                self._frame_listeners.remove(callback)
-            except ValueError:
-                pass
 
     # ---- inspection ----
 
@@ -320,10 +293,6 @@ class ScopeDisplayThread:
                 logger.exception('scope_display_thread iteration error')
                 status = STATUS_NOT_READY
 
-            # Fan out to frame listeners on success.
-            if status == STATUS_OK:
-                self._dispatch_listeners(widget)
-
             # FPS pace. Event.wait(timeout=) returns False on timeout,
             # True when stop is signalled. Skip the wait entirely if
             # uncapped or already over budget.
@@ -339,23 +308,3 @@ class ScopeDisplayThread:
                 return
 
         logger.info('scope_display_thread exiting')
-
-    def _dispatch_listeners(self, widget) -> None:
-        """Pull the last-rendered bytes/shape from the widget and fan
-        out to listeners. Snapshot the listener list under lock so
-        registrations during dispatch don't race; call listeners
-        outside the lock so a slow listener can't stall others."""
-        with self._listeners_lock:
-            if not self._frame_listeners:
-                return
-            listeners = list(self._frame_listeners)
-        last = getattr(widget, '_last_rendered_frame', None)
-        if last is None:
-            return
-        data, shape, ts = last
-        gen = self._generation
-        for cb in listeners:
-            try:
-                cb(data, shape, gen, ts)
-            except Exception:
-                logger.exception(f'frame_listener {getattr(cb, "__name__", str(cb))} raised')

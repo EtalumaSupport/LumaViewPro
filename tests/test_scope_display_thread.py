@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Stage B1 regression tests -- ScopeDisplayThread lifecycle, pacing,
-publish/read, pause/resume, listener fan-out.
+publish/read, pause/resume.
 
 Headless-only (no Kivy). The thread is GUI-agnostic per Rule 15 so
 these tests drive the production code path directly.
@@ -36,7 +36,6 @@ class _FakeWidget:
         self.status_sequence = status_sequence or [STATUS_OK]
         self.calls = []  # (cycle_start, generation)
         self._status_index = 0
-        self._last_rendered_frame = (b'fake_bytes', (10, 10), 0.0)
         self._frame_interval_history = deque(maxlen=200)
 
     def _render_one_frame(
@@ -60,12 +59,6 @@ class _FakeWidget:
             self._status_index += 1
         else:
             s = self.status_sequence[-1]
-        if s == STATUS_OK:
-            self._last_rendered_frame = (
-                b'frame_bytes',
-                (10, 10),
-                time.monotonic(),
-            )
         return s
 
 
@@ -262,54 +255,6 @@ def test_layer_config_thread_safe_under_high_publish_rate():
     assert published, 'the publisher never published'
     assert widget.calls, 'thread ran zero iterations under load'
     assert all(c['open_channel'] is None or c['open_channel'].startswith('L') for c in widget.calls)
-
-
-def test_add_frame_listener_called_per_frame():
-    t, widget = _make_thread(status_sequence=[STATUS_OK] * 10)
-    received = []
-
-    def listener(data, shape, gen, ts):
-        received.append((data, shape, gen, ts))
-
-    t.add_frame_listener(listener)
-    t.start(widget, fps=60)
-    time.sleep(0.2)
-    t.stop()
-    assert received, 'listener was never called'
-    data, shape, gen, _ts = received[0]
-    assert data == b'frame_bytes'
-    assert shape == (10, 10)
-    assert gen == t.generation
-
-
-def test_remove_frame_listener_stops_calls():
-    t, widget = _make_thread(status_sequence=[STATUS_OK] * 50)
-    received = []
-
-    def listener(data, shape, gen, ts):
-        received.append(ts)
-
-    t.add_frame_listener(listener)
-    t.start(widget, fps=60)
-    time.sleep(0.1)
-    n_with_listener = len(received)
-    t.remove_frame_listener(listener)
-    time.sleep(0.2)
-    # After removal, no further calls.
-    assert len(received) == n_with_listener
-    t.stop()
-
-
-def test_status_not_ok_does_not_fan_out_to_listeners():
-    t, widget = _make_thread(status_sequence=[STATUS_EMPTY] * 10)
-    received = []
-    t.add_frame_listener(lambda *a: received.append(a))
-    t.start(widget, fps=60)
-    time.sleep(0.15)
-    t.stop()
-    assert received == [], (
-        f'listeners must only fire on STATUS_OK; got {len(received)} calls on STATUS_EMPTY'
-    )
 
 
 def test_uncapped_no_fresh_frame_backs_off_instead_of_busy_spinning():
