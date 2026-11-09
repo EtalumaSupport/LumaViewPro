@@ -424,7 +424,7 @@ class ProtocolPostRecord:
                 if tmp[0] == 'Images':
                     break
 
-            columns, rows = read_table(''.join(fp), sep='\t')
+            columns, rows = read_table(fp, sep='\t')
             # The file names the channel column 'Color' (COLUMNS); in memory
             # it is 'channel', as in the protocol's steps.
             df = pd.DataFrame(rows, columns=columns, dtype=object).rename(

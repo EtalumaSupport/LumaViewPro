@@ -5,7 +5,6 @@ import ctypes
 import dataclasses
 import enum
 import gc
-import io
 import numbers
 import os
 import pathlib
@@ -558,7 +557,7 @@ def light_of(readings: 'tuple[LedReading, ...] | None', shown_channel: str) -> L
     )
 
 
-def read_table(text: str, *, sep: str) -> tuple[list[str], list[list[str]]]:
+def read_table(lines: 'Iterable[str]', *, sep: str) -> tuple[list[str], list[list[str]]]:
     """The header and rows of a delimited table, every cell the text written.
 
     The inverse of ``csv.writer``, which every LumaViewPro table writer is:
@@ -566,18 +565,29 @@ def read_table(text: str, *, sep: str) -> tuple[list[str], list[list[str]]]:
     step named ``NA`` reads back as ``NA``; each reader types its own
     columns by its own rule. Blank lines are skipped.
 
+    ``lines`` (an open file, or the rest of one) is read once, as it comes,
+    so the table's text is never held whole. A cell whose text was read
+    before is the object read before: a protocol's cells are a few thousand
+    texts repeated on every row, and an object per cell held a large
+    protocol's load at several times the table it returned.
+
     Raises:
-        ValueError: the text has no header, a header naming one column
+        ValueError: the table has no header, a header naming one column
             twice, a NUL, a quote the csv module cannot close, or a row
             whose cell count is not the header's. No LumaViewPro writer
             produces any of them.
     """
-    if '\x00' in text:
-        raise ValueError('it holds a NUL character, which no table cell can hold')
+    texts: dict[str, str] = {}
     try:
-        rows = [row for row in csv.reader(io.StringIO(text), delimiter=sep, strict=True) if row]
+        rows = [
+            [texts.setdefault(cell, cell) for cell in row]
+            for row in csv.reader(lines, delimiter=sep, strict=True)
+            if row
+        ]
     except csv.Error as e:
         raise ValueError(f'it is not a well-formed table ({e})') from None
+    if any('\x00' in text for text in texts):
+        raise ValueError('it holds a NUL character, which no table cell can hold')
     if not rows:
         raise ValueError('its table has no header row')
     header, body = rows[0], rows[1:]

@@ -33,9 +33,20 @@ NA_WORDS = ['NA', 'None', 'nan', 'null', 'NaN', 'NULL', 'N/A', '#N/A', '']
 
 @pytest.mark.parametrize('text', NA_WORDS)
 def test_every_cell_is_the_text_written(text):
-    header, rows = read_table(f'Name\tX\n{text}\t1\n', sep='\t')
+    header, rows = read_table(f'Name\tX\n{text}\t1\n'.splitlines(keepends=True), sep='\t')
     assert header == ['Name', 'X']
     assert rows == [[text, '1']]
+
+
+def test_equal_cell_texts_are_one_object():
+    """A protocol's cells are a few thousand texts repeated on every row; each is held once."""
+    lines = ['Name\tWell\n', 'a\tA1\n', 'b\tA1\n', 'c\tA1\n']
+
+    _, rows = read_table(lines, sep='\t')
+
+    wells = [row[1] for row in rows]
+    assert wells == ['A1'] * 3
+    assert all(well is wells[0] for well in wells)
 
 
 @pytest.mark.parametrize(
@@ -51,7 +62,7 @@ def test_every_cell_is_the_text_written(text):
 )
 def test_a_table_no_writer_produces_is_refused(text, words):
     with pytest.raises(ValueError, match=words):
-        read_table(text, sep='\t')
+        read_table(text.splitlines(keepends=True), sep='\t')
 
 
 @pytest.mark.parametrize('name', ['NA', 'None', 'nan', 'null', 'NaN', 'NULL'])

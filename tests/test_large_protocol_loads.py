@@ -11,7 +11,9 @@ of the size a customer asked for (a 96-well plate, 4 channels, 200 Z slices:
 76,800 steps) is saved and reopened.
 """
 
+import gc
 import pathlib
+import tracemalloc
 
 import pytest
 
@@ -60,6 +62,31 @@ def test_the_size_advisory_is_reachable_on_a_loaded_protocol(tmp_path):
     advisory = reloaded.size_advisory(video_fps=VIDEO_FPS)
 
     assert advisory is not None
+
+
+PEAK_STEPS = 2_000
+# The load's peak a step: 3.6 KB when the file's text was held five times
+# over and every cell was its own object; 1.3 KB measured once it read the
+# file's lines once and held each distinct cell text once.
+PEAK_BYTES_A_STEP = 2_000
+
+
+def test_a_load_peaks_under_two_kilobytes_a_step(tmp_path):
+    """A load's memory at its peak scales with the table it returns, not with copies of the file."""
+    steps = [_make_step(name=f'A1_BF_{i}', label=f'custom{i:04d}') for i in range(PEAK_STEPS)]
+    path = tmp_path / 'protocol.tsv'
+    _build_protocol(steps).to_file(path)
+    gc.collect()
+
+    tracemalloc.start()
+    try:
+        loaded = protocol_from_file(file_path=path)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert loaded.num_steps() == PEAK_STEPS
+    assert peak / PEAK_STEPS < PEAK_BYTES_A_STEP, f'{peak / PEAK_STEPS:,.0f} bytes a step'
 
 
 _STACKED_CHANNELS = ('BF', 'Ex405', 'Ex488', 'Ex589')

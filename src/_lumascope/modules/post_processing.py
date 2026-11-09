@@ -301,7 +301,7 @@ def read_cell_count_results(path: str | os.PathLike) -> pd.DataFrame:
 
     try:
         with open(path, encoding='utf-8-sig', newline='') as f:
-            columns, rows = read_table(f.read(), sep=',')
+            columns, rows = read_table(f, sep=',')
     except OSError as e:
         raise refuse(f'it could not be read ({e.strerror})') from e
     except ValueError as e:

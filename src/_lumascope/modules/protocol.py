@@ -1159,17 +1159,38 @@ def refuse_values_out_of_range(refused: list[tuple[str, SettingRefusedError]], w
         )
 
 
-def _header_rows(fp: io.StringIO, file_path: object) -> Iterator[list[str]]:
+def _protocol_lines(file_path: pathlib.Path) -> Iterator[str]:
+    """The lines of a protocol file, each read once, a blank one skipped.
+
+    The one source both the header block and the step table read, so the
+    file's text is never held whole; the file is open while it is read and
+    closed when the source is. A line of whitespace alone is skipped
+    wherever it falls: the shipped v2 example has one before its 'Steps'
+    row. A byte that is not UTF-8 is refused wherever it falls, and a file
+    that cannot be opened, or fails part way through, is not loaded.
+    """
+    try:
+        with open(file_path, encoding='utf-8') as fp:
+            for line in fp:
+                if line.strip():
+                    yield line
+    except UnicodeDecodeError as e:
+        raise ProtocolFormatError('it is not a text file.', file=file_path) from e
+    except OSError as e:
+        raise ProtocolNotLoadedError(file=file_path, cause=e) from e
+
+
+def _header_rows(lines: Iterator[str], file_path: object) -> Iterator[list[str]]:
     """The rows of a protocol file's header block, read one at a time.
 
     Read as ``common_utils.read_table`` reads the step table, strictly, so
     a row the csv module cannot read (a cell over its field limit, text
     after a closing quote) is refused naming the file instead of escaping
-    as a raw ``csv.Error``. Lazy, so ``fp`` stands at the step table once the
-    'Steps' row is taken.
+    as a raw ``csv.Error``. Lazy, so ``lines`` stands at the step table once
+    the 'Steps' row is taken.
     """
     try:
-        yield from csv.reader(fp, delimiter='\t', strict=True)
+        yield from csv.reader(lines, delimiter='\t', strict=True)
     except csv.Error as e:
         raise ProtocolFormatError(
             f'its header block is not well-formed ({e}).', file=file_path
@@ -3936,10 +3957,6 @@ class Protocol:
 
         config = {}
 
-        # Filter out blank lines
-        file_content = None
-        fp = None
-
         try:
             file_size = os.path.getsize(file_path)
             if file_size > PROTOCOL_FILE_CEILING_BYTES:
@@ -3948,222 +3965,230 @@ class Protocol:
                     f'may be ({file_size:,} bytes) and cannot be loaded without exhausting memory.',
                     file=file_path,
                 )
-            with open(file_path, encoding='utf-8') as fp_orig:
-                file_data_lines = [line for line in fp_orig.readlines() if line.strip()]
-                file_content = ''.join(file_data_lines)
-                fp = io.StringIO(file_content)
         except OSError as e:
             raise ProtocolNotLoadedError(file=file_path, cause=e) from e
-        except UnicodeDecodeError as e:
-            raise ProtocolFormatError('it is not a text file.', file=file_path) from e
 
-        csvreader = _header_rows(fp, file_path)
+        with contextlib.closing(_protocol_lines(file_path)) as lines:
+            csvreader = _header_rows(lines, file_path)
 
-        try:
-            verify = next(csvreader)
-        except StopIteration:
-            raise ProtocolFormatError(
-                'Protocol file is empty or invalid.', file=file_path
-            ) from None
-
-        if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
-            raise ProtocolFormatError('Not a valid LumaViewPro Protocol', file=file_path)
-
-        try:
-            version_row = next(csvreader)
-        except StopIteration:
-            raise ProtocolFormatError(
-                'Protocol file is missing version information.', file=file_path
-            ) from None
-
-        if version_row[0] != 'Version':
-            raise ProtocolFormatError("Protocol format is missing 'Version' row.", file=file_path)
-        _refuse_a_header_row_with_no_value(version_row, file_path)
-
-        try:
-            config['version'] = int(version_row[1])
-        except ValueError as ve:
-            raise ProtocolFormatError(
-                "Invalid 'Version' value in protocol file: must be a whole number", file=file_path
-            ) from ve
-
-        allowed = False
-        if config['version'] == cls.CURRENT_VERSION:
-            allowed = True
-
-        elif 2 <= config['version'] < cls.CURRENT_VERSION:
-            # v6 introduced the Layer Settings header block; v7 added the
-            # Auto_Named column; v8 the Label column; v9 the Channel Group
-            # ID and Turret Slot columns; v10 the Z-Stack Offset column; v11
-            # dropped the fps from each step's Video Config; v12 the
-            # stimulation columns. Older versions load with the missing
-            # columns recovered or defaulted below, and a stored fps and the
-            # stimulation columns dropped.
-            allowed = True
-
-        if not allowed:
-            raise ProtocolFormatError(
-                f'protocol version {config["version"]} is not supported; create a new protocol '
-                'in this version of LumaViewPro.',
-                file=file_path,
-            )
-
-        # Read Period
-        try:
-            period_row = next(csvreader)
-            if period_row[0] != 'Period':
-                raise ProtocolFormatError("Missing 'Period' row in protocol file", file=file_path)
-            _refuse_a_header_row_with_no_value(period_row, file_path)
-
-            # Period == 0 is a valid single-scan / non-periodic marker
-            # (Z-stack, single-shot capture, autofocus characterization);
-            # downstream consumers in protocol_time_estimator already treat
-            # period_s == 0 as one scan rather than dividing by zero.
-            config['period'] = schedule_from_units(
-                'period', period_row[1], file=file_path, judged=runnable
-            )
-
-        except StopIteration:
-            raise ProtocolFormatError(
-                "Missing 'Period' row in protocol file", file=file_path
-            ) from None
-
-        except ProtocolFormatError as pfe:
-            raise pfe
-
-        # Read Duration
-        try:
-            duration = next(csvreader)
-            if duration[0] != 'Duration':
-                raise ProtocolFormatError("Missing 'Duration' row in protocol file", file=file_path)
-            _refuse_a_header_row_with_no_value(duration, file_path)
-
-            # Duration == 0 mirrors Period == 0 -- valid single-scan
-            # marker for Manual Z-Stack / single-shot capture (where the
-            # config carries duration=None). Refusing 0 here once kept
-            # Apply-Z-Projection broken: the writer saves None as 0.
-            config['duration'] = schedule_from_units(
-                'duration', duration[1], file=file_path, judged=runnable
-            )
-
-        except StopIteration:
-            raise ProtocolFormatError(
-                "Missing 'Duration' row in protocol file", file=file_path
-            ) from None
-
-        except ProtocolFormatError as pfe:
-            raise pfe
-
-        # Read Labware
-        try:
-            labware = next(csvreader)
-            if labware[0] != 'Labware':
-                raise ProtocolFormatError("Invalid 'Labware' row in protocol file", file=file_path)
-            _refuse_a_header_row_with_no_value(labware, file_path)
-
-            # Stored in the catalogue's spelling whatever the file carried:
-            # a plate renamed since the file was saved is translated here,
-            # once, and nothing downstream sees the old name. Whether the
-            # plate EXISTS is judged only when the caller handed over the
-            # installation's catalogue -- post-processing reads a run's
-            # protocol on whatever install it is on and never uses the
-            # plate, so it has no standing to refuse for it.
-            if wellplate_loader is None:
-                config['labware_id'] = labware_loader.canonical_plate_name(labware[1])
-            else:
-                try:
-                    config['labware_id'] = wellplate_loader.resolve_plate_key(labware[1])
-                except ConfigError as e:
-                    raise ProtocolFormatError(str(e), file=file_path) from e
-
-        except StopIteration:
-            raise ProtocolFormatError(
-                "Missing 'Labware' row in protocol file", file=file_path
-            ) from None
-
-        except ProtocolFormatError as pfe:
-            raise pfe
-
-        # Optional fields not present in older/newer files
-        # Ensure defaults to avoid KeyErrors
-        try:
-            next_row = next(csvreader)
-            if next_row[0] == 'Capture Root':
-                # The shipped data/new_default_protocol.tsv writes
-                # "Capture Root" as a single-cell row (no tab + value),
-                # so next_row[1] raises IndexError. Treat a missing or
-                # empty value column as the empty-capture-root default.
-                config['capture_root'] = next_row[1] if len(next_row) > 1 else ''
-            else:
-                config['capture_root'] = ''
-        except StopIteration:
-            raise ProtocolFormatError('Protocol file is incomplete.', file=file_path) from None
-
-        # Search for "Steps" to indicate start of steps. Along the way,
-        # optionally capture a v6 'Layer Settings' block -- a header row
-        # followed by one row per enabled channel. Block ends at the first
-        # blank row or at the 'Steps' marker. Its rows are typed into
-        # records once the channel names are read as the unit's.
-        block_rows = None
-        if next_row[0] != 'Steps':  # Check to ensure compatibility with no capture_root field
-            found_steps = False
             try:
-                while not found_steps:
-                    tmp = next(csvreader)
-                    if len(tmp) == 0:
-                        continue
-
-                    if tmp[0] == 'Steps':
-                        found_steps = True
-                        break
-
-                    if tmp[0] == 'Layer Settings':
-                        # Parse the block in place. The first non-blank row is
-                        # the column header; subsequent non-blank rows are
-                        # per-channel entries; block ends at the first blank
-                        # row or at the 'Steps' marker. A header with no
-                        # 'Layer' column is refused: an inference from the
-                        # steps would put back settings the file never held.
-                        ls_header = None
-                        block_rows = {}
-                        for sub_row in csvreader:
-                            if len(sub_row) == 0 or sub_row[0] == '':
-                                if ls_header is not None:
-                                    break  # blank row ends the block
-                                continue  # tolerate blank rows before header
-                            if sub_row[0] == 'Steps':
-                                found_steps = True
-                                break
-                            if ls_header is None:
-                                ls_header = sub_row
-                                if 'Layer' not in ls_header:
-                                    raise ProtocolFormatError(
-                                        "its Layer Settings block has no 'Layer' column.",
-                                        file=file_path,
-                                    )
-                                continue
-                            row_dict = dict(zip(ls_header, sub_row, strict=False))
-                            channel_name = row_dict.get('Layer', '').strip()
-                            if not channel_name:
-                                raise ProtocolFormatError(
-                                    'a row of its Layer Settings block names no channel.',
-                                    file=file_path,
-                                )
-                            block_rows[channel_name] = row_dict
+                verify = next(csvreader)
             except StopIteration:
                 raise ProtocolFormatError(
-                    "Missing 'Steps' section in protocol file", file=file_path
+                    'Protocol file is empty or invalid.', file=file_path
                 ) from None
-            # The writer never writes a block with no rows; one that has none
-            # would turn every channel off at a restore.
-            if block_rows == {}:
-                raise ProtocolFormatError('its Layer Settings block has no rows.', file=file_path)
 
-        try:
-            header, rows = common_utils.read_table(''.join(fp), sep='\t')
-        except ValueError as e:
-            raise ProtocolFormatError(f'{e}.', file=file_path) from None
+            if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
+                raise ProtocolFormatError('Not a valid LumaViewPro Protocol', file=file_path)
+
+            try:
+                version_row = next(csvreader)
+            except StopIteration:
+                raise ProtocolFormatError(
+                    'Protocol file is missing version information.', file=file_path
+                ) from None
+
+            if version_row[0] != 'Version':
+                raise ProtocolFormatError(
+                    "Protocol format is missing 'Version' row.", file=file_path
+                )
+            _refuse_a_header_row_with_no_value(version_row, file_path)
+
+            try:
+                config['version'] = int(version_row[1])
+            except ValueError as ve:
+                raise ProtocolFormatError(
+                    "Invalid 'Version' value in protocol file: must be a whole number",
+                    file=file_path,
+                ) from ve
+
+            allowed = False
+            if config['version'] == cls.CURRENT_VERSION:
+                allowed = True
+
+            elif 2 <= config['version'] < cls.CURRENT_VERSION:
+                # v6 introduced the Layer Settings header block; v7 added the
+                # Auto_Named column; v8 the Label column; v9 the Channel Group
+                # ID and Turret Slot columns; v10 the Z-Stack Offset column; v11
+                # dropped the fps from each step's Video Config; v12 the
+                # stimulation columns. Older versions load with the missing
+                # columns recovered or defaulted below, and a stored fps and the
+                # stimulation columns dropped.
+                allowed = True
+
+            if not allowed:
+                raise ProtocolFormatError(
+                    f'protocol version {config["version"]} is not supported; create a new protocol '
+                    'in this version of LumaViewPro.',
+                    file=file_path,
+                )
+
+            # Read Period
+            try:
+                period_row = next(csvreader)
+                if period_row[0] != 'Period':
+                    raise ProtocolFormatError(
+                        "Missing 'Period' row in protocol file", file=file_path
+                    )
+                _refuse_a_header_row_with_no_value(period_row, file_path)
+
+                # Period == 0 is a valid single-scan / non-periodic marker
+                # (Z-stack, single-shot capture, autofocus characterization);
+                # downstream consumers in protocol_time_estimator already treat
+                # period_s == 0 as one scan rather than dividing by zero.
+                config['period'] = schedule_from_units(
+                    'period', period_row[1], file=file_path, judged=runnable
+                )
+
+            except StopIteration:
+                raise ProtocolFormatError(
+                    "Missing 'Period' row in protocol file", file=file_path
+                ) from None
+
+            except ProtocolFormatError as pfe:
+                raise pfe
+
+            # Read Duration
+            try:
+                duration = next(csvreader)
+                if duration[0] != 'Duration':
+                    raise ProtocolFormatError(
+                        "Missing 'Duration' row in protocol file", file=file_path
+                    )
+                _refuse_a_header_row_with_no_value(duration, file_path)
+
+                # Duration == 0 mirrors Period == 0 -- valid single-scan
+                # marker for Manual Z-Stack / single-shot capture (where the
+                # config carries duration=None). Refusing 0 here once kept
+                # Apply-Z-Projection broken: the writer saves None as 0.
+                config['duration'] = schedule_from_units(
+                    'duration', duration[1], file=file_path, judged=runnable
+                )
+
+            except StopIteration:
+                raise ProtocolFormatError(
+                    "Missing 'Duration' row in protocol file", file=file_path
+                ) from None
+
+            except ProtocolFormatError as pfe:
+                raise pfe
+
+            # Read Labware
+            try:
+                labware = next(csvreader)
+                if labware[0] != 'Labware':
+                    raise ProtocolFormatError(
+                        "Invalid 'Labware' row in protocol file", file=file_path
+                    )
+                _refuse_a_header_row_with_no_value(labware, file_path)
+
+                # Stored in the catalogue's spelling whatever the file carried:
+                # a plate renamed since the file was saved is translated here,
+                # once, and nothing downstream sees the old name. Whether the
+                # plate EXISTS is judged only when the caller handed over the
+                # installation's catalogue -- post-processing reads a run's
+                # protocol on whatever install it is on and never uses the
+                # plate, so it has no standing to refuse for it.
+                if wellplate_loader is None:
+                    config['labware_id'] = labware_loader.canonical_plate_name(labware[1])
+                else:
+                    try:
+                        config['labware_id'] = wellplate_loader.resolve_plate_key(labware[1])
+                    except ConfigError as e:
+                        raise ProtocolFormatError(str(e), file=file_path) from e
+
+            except StopIteration:
+                raise ProtocolFormatError(
+                    "Missing 'Labware' row in protocol file", file=file_path
+                ) from None
+
+            except ProtocolFormatError as pfe:
+                raise pfe
+
+            # Optional fields not present in older/newer files
+            # Ensure defaults to avoid KeyErrors
+            try:
+                next_row = next(csvreader)
+                if next_row[0] == 'Capture Root':
+                    # The shipped data/new_default_protocol.tsv writes
+                    # "Capture Root" as a single-cell row (no tab + value),
+                    # so next_row[1] raises IndexError. Treat a missing or
+                    # empty value column as the empty-capture-root default.
+                    config['capture_root'] = next_row[1] if len(next_row) > 1 else ''
+                else:
+                    config['capture_root'] = ''
+            except StopIteration:
+                raise ProtocolFormatError('Protocol file is incomplete.', file=file_path) from None
+
+            # Search for "Steps" to indicate start of steps. Along the way,
+            # optionally capture a v6 'Layer Settings' block -- a header row
+            # followed by one row per enabled channel. Block ends at the first
+            # blank row or at the 'Steps' marker. Its rows are typed into
+            # records once the channel names are read as the unit's.
+            block_rows = None
+            if next_row[0] != 'Steps':  # Check to ensure compatibility with no capture_root field
+                found_steps = False
+                try:
+                    while not found_steps:
+                        tmp = next(csvreader)
+                        if len(tmp) == 0:
+                            continue
+
+                        if tmp[0] == 'Steps':
+                            found_steps = True
+                            break
+
+                        if tmp[0] == 'Layer Settings':
+                            # Parse the block in place. The first non-blank row is
+                            # the column header; subsequent non-blank rows are
+                            # per-channel entries; block ends at the first blank
+                            # row or at the 'Steps' marker. A header with no
+                            # 'Layer' column is refused: an inference from the
+                            # steps would put back settings the file never held.
+                            ls_header = None
+                            block_rows = {}
+                            for sub_row in csvreader:
+                                if len(sub_row) == 0 or sub_row[0] == '':
+                                    if ls_header is not None:
+                                        break  # blank row ends the block
+                                    continue  # tolerate blank rows before header
+                                if sub_row[0] == 'Steps':
+                                    found_steps = True
+                                    break
+                                if ls_header is None:
+                                    ls_header = sub_row
+                                    if 'Layer' not in ls_header:
+                                        raise ProtocolFormatError(
+                                            "its Layer Settings block has no 'Layer' column.",
+                                            file=file_path,
+                                        )
+                                    continue
+                                row_dict = dict(zip(ls_header, sub_row, strict=False))
+                                channel_name = row_dict.get('Layer', '').strip()
+                                if not channel_name:
+                                    raise ProtocolFormatError(
+                                        'a row of its Layer Settings block names no channel.',
+                                        file=file_path,
+                                    )
+                                block_rows[channel_name] = row_dict
+                except StopIteration:
+                    raise ProtocolFormatError(
+                        "Missing 'Steps' section in protocol file", file=file_path
+                    ) from None
+                # The writer never writes a block with no rows; one that has none
+                # would turn every channel off at a restore.
+                if block_rows == {}:
+                    raise ProtocolFormatError(
+                        'its Layer Settings block has no rows.', file=file_path
+                    )
+
+            try:
+                header, rows = common_utils.read_table(lines, sep='\t')
+            except ValueError as e:
+                raise ProtocolFormatError(f'{e}.', file=file_path) from None
         protocol_df = pd.DataFrame(rows, columns=header, dtype=object)
+        # The frame holds the cells; their row lists would stay to the end of the load.
+        del rows
 
         # M19: Validate required columns before processing.
         # Old versions use 'Channel' instead of 'Color' -- accept either.
