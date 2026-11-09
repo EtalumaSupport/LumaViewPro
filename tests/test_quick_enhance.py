@@ -152,6 +152,29 @@ def test_invalid_settings_are_rejected_before_processing():
         QuickEnhancer().apply(np.ones((4, 4), dtype=np.uint16), settings, 12)
 
 
+def test_each_fixed_step_number_out_of_its_range_is_refused():
+    """Every number a step reads is judged by ``validate``, so a value its
+    step cannot run with is refused before any pixel is touched; each row
+    names the words its refusal states."""
+    out_of_range = {
+        'illumination_fit_excludes_upper_percentile': (100.0, 'illumination fit must exclude'),
+        'illumination_fit_sample_target': (0, 'sample target'),
+        'sharpen_sigma_px': (0.0, 'sharpen sigma'),
+        'sharpen_gain': (-0.1, 'sharpen gain'),
+        'sharpen_gate_background_percentile': (95.0, 'sharpen gate'),
+        'sharpen_gate_top_percentile': (101.0, 'sharpen gate'),
+    }
+    unrefused = []
+    for field, (value, words) in out_of_range.items():
+        errors = QuickEnhancer().validate(
+            QuickEnhanceSettings(**{field: value}), np.dtype(np.uint16), 12
+        )
+        if not any(words in error.lower() for error in errors):
+            unrefused.append(f'{field}={value!r}: {errors}')
+
+    assert not unrefused, unrefused
+
+
 def test_quick_enhance_uses_one_fixed_non_ai_recipe():
     settings = QuickEnhanceSettings()
 
@@ -194,7 +217,9 @@ def test_illumination_plane_avoids_full_resolution_coordinate_grids(monkeypatch)
             return np.meshgrid(rows, columns, indexing='ij')
 
     monkeypatch.setattr('_lumascope.modules.quick_enhance.np.mgrid', RejectFullResolutionGrid())
-    plane = QuickEnhancer()._global_illumination_plane(np.ones((1000, 1000), dtype=np.float32))
+    plane = QuickEnhancer()._global_illumination_plane(
+        np.ones((1000, 1000), dtype=np.float32), QuickEnhanceSettings()
+    )
 
     assert plane.shape == (1000, 1000)
     assert plane.dtype == np.float32
@@ -221,6 +246,86 @@ def test_tiny_images_with_denoise_are_safe():
     assert np.array_equal(result, image)
 
 
+def test_denoise_runs_on_a_colour_image_at_every_kernel_its_recipe_can_state():
+    """A colour image is denoised at kernel 5 and 7 as at 3: the size gate
+    reads the image's height and width, not its channel axis, so the step
+    the recipe states as enabled is the step that ran."""
+    rng = np.random.default_rng(7)
+    skipped = []
+    for channels in (3, 4):
+        image = (rng.random((64, 64, channels)) * 4095).astype(np.uint16)
+        undenoised = QuickEnhancer().apply(image, QuickEnhanceSettings(), 12)
+        for kernel in (3, 5, 7):
+            denoised = QuickEnhancer().apply(
+                image,
+                QuickEnhanceSettings(denoise_enabled=True, denoise_kernel_size=kernel),
+                12,
+            )
+            if np.array_equal(denoised, undenoised):
+                skipped.append(f'{channels} channels, kernel {kernel}')
+
+    assert not skipped, skipped
+
+
+def _specimen_12_bit() -> np.ndarray:
+    """A 480x640 12-bit field: a tilted background, noise, and bright
+    blobs, so every step (the plane's fit, the levels, the gate, the blur)
+    has something its number changes."""
+    rng = np.random.default_rng(11)
+    rows, columns = np.mgrid[0:480, 0:640]
+    image = 300.0 + 0.4 * columns + 0.2 * rows + rng.normal(0.0, 25.0, (480, 640))
+    for _ in range(40):
+        y, x = rng.integers(20, 460), rng.integers(20, 620)
+        image[(rows - y) ** 2 + (columns - x) ** 2 < rng.integers(16, 100)] += 1800.0
+    return np.clip(image, 0, 4095).astype(np.uint16)
+
+
+# Each fixed number a step reads, the value it is moved to, and where the
+# recipe states it: (settings field, moved value, operation, recipe key).
+_STEP_NUMBERS = (
+    (
+        'illumination_fit_excludes_upper_percentile',
+        30.0,
+        'illumination_correction',
+        'fit_excludes_upper_percentile',
+    ),
+    ('illumination_fit_sample_target', 1000, 'illumination_correction', 'fit_sample_target'),
+    ('sharpen_sigma_px', 2.0, 'sharpen', 'sigma_px'),
+    ('sharpen_gain', 1.2, 'sharpen', 'gain'),
+    ('sharpen_gate_background_percentile', 40.0, 'sharpen', 'gate_background_percentile'),
+    ('sharpen_gate_top_percentile', 80.0, 'sharpen', 'gate_top_percentile'),
+)
+
+
+def test_each_number_a_step_reads_changes_the_copy_and_is_stated_in_its_recipe(tmp_path):
+    """The recipe states every number the enhancement steps used, read from
+    the one setting the step reads: moving one number alone changes the
+    enhanced copy, and the copy's recipe states the moved value. A step
+    that kept its own literal leaves the copy unchanged and fails here."""
+    source = tmp_path / 'specimen.tif'
+    _write_source(source, _specimen_12_bit(), 12)
+    enhancer = QuickEnhancer()
+
+    def enhance(settings):
+        made = enhancer.export_file(source, settings, channel_colors=release_colors())
+        pixels, _bits, _white = image_utils.load_pixels(
+            made['output_path'], collapse_legacy_false_color=False
+        )
+        return pixels, json.loads(made['recipe_path'].read_text())
+
+    default_pixels, _ = enhance(QuickEnhanceSettings())
+    offenders = []
+    for field, moved, operation, key in _STEP_NUMBERS:
+        pixels, recipe = enhance(QuickEnhanceSettings(**{field: moved}))
+        if np.array_equal(pixels, default_pixels):
+            offenders.append(f'{field}={moved!r} left the copy unchanged')
+        stated = recipe['operations'][operation].get(key)
+        if stated != moved:
+            offenders.append(f'{field}={moved!r}: the recipe states {operation}.{key}={stated!r}')
+
+    assert not offenders, offenders
+
+
 def test_recipe_has_required_provenance_and_quantitative_warning(tmp_path):
     source = tmp_path / 'source.tif'
     _write_source(source, np.arange(64, dtype=np.uint16).reshape(8, 8), 12)
@@ -242,13 +347,21 @@ def test_recipe_has_required_provenance_and_quantitative_warning(tmp_path):
     assert recipe['quantitative_use_warning']
     assert recipe['input_dtype'] == 'uint16'
     assert recipe['operations']['auto_levels']['enabled'] is True
-    assert recipe['operations']['illumination_correction']['enabled'] is True
-    assert recipe['operations']['illumination_correction']['method'] == 'global_plane_normalization'
+    # Every key a version-3 recipe has stated keeps its name and its value,
+    # so a reader of an older recipe reads this one unchanged.
+    assert recipe['operations']['illumination_correction'] == {
+        'enabled': True,
+        'method': 'global_plane_normalization',
+        'fit_excludes_upper_percentile': 10.0,
+        'fit_sample_target': 100_000,
+    }
     assert recipe['operations']['sharpen'] == {
         'enabled': True,
         'method': 'signal_gated_unsharp_mask',
         'sigma_px': 1.0,
         'gain': 0.65,
+        'gate_background_percentile': 65.0,
+        'gate_top_percentile': 95.0,
     }
 
 

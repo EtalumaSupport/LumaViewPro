@@ -64,8 +64,20 @@ class QuickEnhanceSettings:
     high_percentile: float = 99.0
     gamma: float = 0.9
     illumination_correction_enabled: bool = True
+    # The upper share of the sampled brightness left out of the plane's fit,
+    # so the objects themselves do not pull the plane toward them.
+    illumination_fit_excludes_upper_percentile: float = 10.0
+    # The fit samples the image on a stride of ceil(sqrt(size / target)), so
+    # its sample count is near this number, not capped by it.
+    illumination_fit_sample_target: int = 100_000
     denoise_enabled: bool = False
     denoise_kernel_size: int = 3
+    sharpen_sigma_px: float = 1.0
+    sharpen_gain: float = 0.65
+    # Sharpening is gated to the signal: none at or below the background
+    # percentile, full from the top percentile up.
+    sharpen_gate_background_percentile: float = 65.0
+    sharpen_gate_top_percentile: float = 95.0
 
 
 class QuickEnhancer:
@@ -93,6 +105,29 @@ class QuickEnhancer:
             errors.append('Gamma must be between 0.5 and 2.0.')
         if settings.denoise_kernel_size not in (3, 5, 7):
             errors.append('Denoise kernel must be 3, 5, or 7 pixels.')
+        if not 0 <= settings.illumination_fit_excludes_upper_percentile < 100:
+            errors.append('The illumination fit must exclude from 0 to below 100 percent.')
+        if (
+            not isinstance(settings.illumination_fit_sample_target, (int, np.integer))
+            or settings.illumination_fit_sample_target < 1
+        ):
+            errors.append(
+                'The illumination fit sample target must be a whole number of at least 1.'
+            )
+        if not settings.sharpen_sigma_px > 0:
+            errors.append('Sharpen sigma must be above 0 pixels.')
+        if not settings.sharpen_gain >= 0:
+            errors.append('Sharpen gain must be 0 or more.')
+        if not (
+            0
+            <= settings.sharpen_gate_background_percentile
+            < settings.sharpen_gate_top_percentile
+            <= 100
+        ):
+            errors.append(
+                'Sharpen gate background percentile must be below its top percentile, '
+                'within 0 to 100.'
+            )
         return errors
 
     @staticmethod
@@ -166,7 +201,9 @@ class QuickEnhancer:
         return image
 
     @staticmethod
-    def _apply_guarded_unsharp(channels: np.ndarray, is_mono: bool) -> np.ndarray:
+    def _apply_guarded_unsharp(
+        channels: np.ndarray, is_mono: bool, settings: QuickEnhanceSettings
+    ) -> np.ndarray:
         """Sharpen signal edges without amplifying the dark background."""
         if min(channels.shape[:2]) < 3:
             return channels
@@ -174,21 +211,23 @@ class QuickEnhancer:
         finite = intensity[np.isfinite(intensity)]
         if finite.size == 0:
             return channels
-        background = float(np.percentile(finite, 65.0))
-        signal_top = float(np.percentile(finite, 95.0))
+        background = float(np.percentile(finite, settings.sharpen_gate_background_percentile))
+        signal_top = float(np.percentile(finite, settings.sharpen_gate_top_percentile))
         if signal_top <= background:
             signal_top = float(finite.max())
         if signal_top <= background:
             return channels
 
-        blurred = cv2.GaussianBlur(intensity.astype(np.float32, copy=False), (0, 0), 1.0)
+        blurred = cv2.GaussianBlur(
+            intensity.astype(np.float32, copy=False), (0, 0), settings.sharpen_sigma_px
+        )
         signal_gate = np.clip(
             (intensity - background) / max(signal_top - background, 1.0 / 65535.0),
             0.0,
             1.0,
         )
         sharpened_intensity = np.clip(
-            intensity + 0.65 * (intensity - blurred) * signal_gate,
+            intensity + settings.sharpen_gain * (intensity - blurred) * signal_gate,
             0.0,
             1.0,
         )
@@ -230,8 +269,10 @@ class QuickEnhancer:
         channels = source_channels.copy()
         intensity = channels if is_mono else channels.mean(axis=2)
 
-        if settings.illumination_correction_enabled and min(image.shape) >= 3:
-            illumination = self._global_illumination_plane(intensity)
+        # The size gates read the spatial size alone: a colour image's channel
+        # axis is not a dimension a kernel or a fit runs along.
+        if settings.illumination_correction_enabled and min(image.shape[:2]) >= 3:
+            illumination = self._global_illumination_plane(intensity, settings)
             # The global plane corrects field-scale illumination drift without
             # following individual objects, so it cannot add dark edge halos.
             # The reference restores the scene's overall brightness.
@@ -249,7 +290,7 @@ class QuickEnhancer:
             gain = intensity / np.maximum(original_intensity, 1.0 / 65535.0)
             channels = np.clip(source_channels * gain[..., np.newaxis], 0.0, 1.0)
 
-        if settings.denoise_enabled and min(image.shape) >= settings.denoise_kernel_size:
+        if settings.denoise_enabled and min(image.shape[:2]) >= settings.denoise_kernel_size:
             channels = cv2.medianBlur(channels, int(settings.denoise_kernel_size))
 
         levels_source = channels if is_mono else channels.mean(axis=2)
@@ -263,7 +304,7 @@ class QuickEnhancer:
             channels = np.clip((channels - black) / (white - black), 0.0, 1.0)
             if settings.gamma != 1.0:
                 channels = np.power(channels, float(settings.gamma), dtype=np.float32)
-        channels = self._apply_guarded_unsharp(channels, is_mono)
+        channels = self._apply_guarded_unsharp(channels, is_mono, settings)
 
         restored = image.copy()
         enhanced_channels = np.rint(np.clip(channels, 0.0, 1.0) * source_max).astype(
@@ -275,16 +316,22 @@ class QuickEnhancer:
         return restored
 
     @staticmethod
-    def _global_illumination_plane(intensity: np.ndarray) -> np.ndarray:
+    def _global_illumination_plane(
+        intensity: np.ndarray, settings: QuickEnhanceSettings
+    ) -> np.ndarray:
         """Fit a robust field-scale illumination plane, never a local object map."""
         height, width = intensity.shape
-        stride = max(1, int(np.ceil(np.sqrt(intensity.size / 100_000))))
+        stride = max(
+            1, int(np.ceil(np.sqrt(intensity.size / settings.illumination_fit_sample_target)))
+        )
         sample = intensity[::stride, ::stride]
         values = sample.reshape(-1)
         finite = np.isfinite(values)
         if finite.sum() < 3:
             return np.full_like(intensity, float(np.nanmedian(intensity)))
-        cutoff = np.percentile(values[finite], 90.0)
+        cutoff = np.percentile(
+            values[finite], 100 - settings.illumination_fit_excludes_upper_percentile
+        )
         fit_mask = finite & (values <= cutoff)
         if fit_mask.sum() < 3:
             fit_mask = finite
@@ -333,7 +380,10 @@ class QuickEnhancer:
                 'illumination_correction': {
                     'enabled': settings.illumination_correction_enabled,
                     'method': 'global_plane_normalization',
-                    'fit_excludes_upper_percentile': 10.0,
+                    'fit_excludes_upper_percentile': (
+                        settings.illumination_fit_excludes_upper_percentile
+                    ),
+                    'fit_sample_target': settings.illumination_fit_sample_target,
                 },
                 'denoise': {
                     'enabled': settings.denoise_enabled,
@@ -342,8 +392,10 @@ class QuickEnhancer:
                 'sharpen': {
                     'enabled': True,
                     'method': 'signal_gated_unsharp_mask',
-                    'sigma_px': 1.0,
-                    'gain': 0.65,
+                    'sigma_px': settings.sharpen_sigma_px,
+                    'gain': settings.sharpen_gain,
+                    'gate_background_percentile': settings.sharpen_gate_background_percentile,
+                    'gate_top_percentile': settings.sharpen_gate_top_percentile,
                 },
             },
             'settings': asdict(settings),
