@@ -36,9 +36,6 @@ from tests.ast_seams import (
 _NOT_THE_STORE = {
     # The raw file's migration of two retired keys, run before the merge.
     ('src/_lumascope/modules/image_mode.py', 'migrate_settings_dict'): 2,
-    # The report reads the installed file to find the live folder when the
-    # application is not running; there is no prepared store to ask.
-    ('src/_lumascope/modules/tech_support_report.py', '_get_capture_dir'): 1,
     # The auto-gain arm's own settings dict, whose bounds are optional.
     ('src/_lumascope/modules/lumascope_api/camera.py', 'CameraAPI._lock_auto_gain_impl'): 1,
 }

@@ -11,36 +11,26 @@ These tests assert the finder surfaces TSV protocols by their header banner,
 still accepts legacy JSON, and ignores non-protocol files of either type.
 """
 
-import pytest
-
 from _lumascope.modules import tech_support_report
 from _lumascope.modules.protocol import Protocol
 
 
-@pytest.fixture
-def protocol_dir(tmp_path, monkeypatch):
-    """Point both finder search roots at one temp directory."""
-    for name in ('_get_lvp_data_dir', '_get_capture_dir'):
-        monkeypatch.setattr(tech_support_report, name, lambda: tmp_path)
-    return tmp_path
-
-
-def test_finds_running_unsaved_tsv_protocol(protocol_dir):
-    (protocol_dir / 'unsaved_protocol.tsv').write_text(
+def test_finds_running_unsaved_tsv_protocol(tmp_path):
+    (tmp_path / 'unsaved_protocol.tsv').write_text(
         f'{Protocol.PROTOCOL_FILE_HEADER}\nVersion\t5\n', encoding='utf-8'
     )
-    found = tech_support_report.get_recent_protocols()
+    found = tech_support_report.get_recent_protocols([tmp_path])
     assert 'unsaved_protocol' in {p['name'] for p in found}
 
 
-def test_finds_legacy_json_protocol(protocol_dir):
-    (protocol_dir / 'legacy.json').write_text('{"steps": [], "period": 0}', encoding='utf-8')
-    found = tech_support_report.get_recent_protocols()
+def test_finds_legacy_json_protocol(tmp_path):
+    (tmp_path / 'legacy.json').write_text('{"steps": [], "period": 0}', encoding='utf-8')
+    found = tech_support_report.get_recent_protocols([tmp_path])
     assert 'legacy' in {p['name'] for p in found}
 
 
-def test_ignores_non_protocol_files(protocol_dir):
-    (protocol_dir / 'notes.tsv').write_text('col_a\tcol_b\n1\t2\n', encoding='utf-8')
-    (protocol_dir / 'config.json').write_text('{"foo": "bar"}', encoding='utf-8')
-    found = tech_support_report.get_recent_protocols()
+def test_ignores_non_protocol_files(tmp_path):
+    (tmp_path / 'notes.tsv').write_text('col_a\tcol_b\n1\t2\n', encoding='utf-8')
+    (tmp_path / 'config.json').write_text('{"foo": "bar"}', encoding='utf-8')
+    found = tech_support_report.get_recent_protocols([tmp_path])
     assert all(p['name'] not in ('notes', 'config') for p in found)

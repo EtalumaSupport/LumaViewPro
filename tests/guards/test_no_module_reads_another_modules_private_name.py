@@ -25,7 +25,6 @@ _PINNED = frozenset(
     {
         'src/_lumascope/modules/config_helpers.py: common_utils._IS_WINDOWS',
         'src/_lumascope/modules/scope_session.py: ui_queue._set_ui_dispatcher',
-        'src/_lumascope/modules/tech_support_report.py: settings_init._resolve_settings_path',
     }
 )
 

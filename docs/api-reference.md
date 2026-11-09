@@ -1899,7 +1899,7 @@ def make_logs_zip(
 
 Route: `POST /api/v1/make_logs_zip`.
 
-Zip the logs, the data folder, the recent protocols and the video receipts.
+Zip the logs, the data folder, the settings the session runs on, the recent protocols and the video receipts.
 
 Touches no hardware and does not hold the scope: it is for sending
 the record of what already happened.

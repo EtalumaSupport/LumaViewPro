@@ -21,7 +21,6 @@ import pathlib
 import re
 import time
 
-from _lumascope.modules import tech_support_report
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.tech_support_report import TechSupportReport
 
@@ -43,10 +42,9 @@ def _make_two_same_named_runs(tmp_path: pathlib.Path):
     return tmp_path / 'capture'
 
 
-def _run_step_protocols(session, tmp_path, monkeypatch):
-    capture_dir = _make_two_same_named_runs(tmp_path)
-    monkeypatch.setattr(tech_support_report, '_get_capture_dir', lambda: capture_dir)
-    monkeypatch.setattr(tech_support_report, '_get_lvp_data_dir', lambda: None)
+def _run_step_protocols(session, tmp_path):
+    # The session's installation is its own, so its data folder holds no protocol.
+    session.set_live_folder(str(_make_two_same_named_runs(tmp_path)))
 
     report = TechSupportReport(session)
     bundle_tmp = tmp_path / 'bundle'
@@ -55,8 +53,10 @@ def _run_step_protocols(session, tmp_path, monkeypatch):
     return report, bundle_tmp / 'recent_protocols'
 
 
-def test_same_named_protocols_all_survive_in_the_bundle(sim_session, tmp_path, monkeypatch):
-    _, dest = _run_step_protocols(sim_session, tmp_path, monkeypatch)
+def test_same_named_protocols_all_survive_in_the_bundle(
+    sim_session_on_its_own_installation, tmp_path
+):
+    _, dest = _run_step_protocols(sim_session_on_its_own_installation, tmp_path)
 
     copied = sorted(p.name for p in dest.iterdir() if p.suffix == '.tsv')
     assert len(copied) == 2, (
@@ -67,8 +67,10 @@ def test_same_named_protocols_all_survive_in_the_bundle(sim_session, tmp_path, m
     assert any('marker-OLD' in c for c in contents), 'the older record was lost'
 
 
-def test_index_and_metadata_name_the_files_actually_on_disk(sim_session, tmp_path, monkeypatch):
-    report, dest = _run_step_protocols(sim_session, tmp_path, monkeypatch)
+def test_index_and_metadata_name_the_files_actually_on_disk(
+    sim_session_on_its_own_installation, tmp_path
+):
+    report, dest = _run_step_protocols(sim_session_on_its_own_installation, tmp_path)
 
     on_disk = {p.name for p in dest.iterdir() if p.suffix == '.tsv'}
     index_text = (dest / '_index.txt').read_text()

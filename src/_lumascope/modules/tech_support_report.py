@@ -8,16 +8,16 @@ emailing to support@etaluma.com.
 
 A report is made by ``ScopeSession.make_support_report``, the one way every
 client makes one: the GUI's "Generate Support Report" button, REST, the SDK
-and a script. The report is built on that session and its scope.
+and a script. The report is built on that session and its scope, and every
+folder it collects from is that session's: the captures from its live
+folder, the data and the logs from its installation (``scope.source_path``),
+the logs from this process's own log folder too. A script's session may run
+on an installation that is not the process's.
 
 Config file retrieval:
   - Uses MicroPython raw REPL to read files directly from the RP2040
     filesystem (similar to Thonny). No custom firmware command needed.
     Temporarily interrupts firmware, reads files, then soft-resets.
-
-Recent protocols list (reusable from GUI):
-    from _lumascope.modules.tech_support_report import get_recent_protocols
-    protocols = get_recent_protocols(10)
 """
 
 import contextlib
@@ -36,15 +36,13 @@ import sys
 import tempfile
 import time
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
-
-import platformdirs
 
 from _lumascope.drivers.exceptions import CameraUsbLookupFailedError, HardwareError
 from _lumascope.drivers.usb_driver_binding import DeviceBinding
 from _lumascope.lvp_logger import collect_installed_packages, logging_started
-from _lumascope.modules import recording_frames, settings_init
+from _lumascope.modules import recording_frames
 from _lumascope.modules import wall_time
 from _lumascope.modules.exceptions import (
     HARDWARE_STATE_REASONS,
@@ -64,10 +62,10 @@ from _lumascope.modules.lumascope_api.diagnostics import (
     is_board_reply,
 )
 from _lumascope.modules.path_utils import (
-    desktop_folder,
+    CaptureLocationError,
     folder_to_make,
     get_log_dir,
-    get_source_root,
+    require_capture_location,
 )
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
@@ -96,7 +94,13 @@ RECENT_PROTOCOL_COUNT = 10
 
 RECENT_VIDEO_RECEIPT_COUNT = 20
 
-BACKLASH_FOLDER_PATTERNS = ['backlash', 'Backlash', 'BACKLASH']
+# The one part of an installation's data folder a report leaves out: the
+# GUI's pictures, which every installation of a release holds byte for byte.
+DATA_FOLDER_NOT_COPIED = ('icons',)
+
+# What a section holds in place of what it collects when the live folder is
+# not there to read.
+LIVE_FOLDER_NOT_READ = 'LIVE_FOLDER_NOT_READ.txt'
 
 LOG_DELIMITER = (
     '\n'
@@ -136,21 +140,6 @@ TMC5072_DIAG_REGISTERS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Path helpers -- mirrors platformdirs conventions
-# ---------------------------------------------------------------------------
-
-
-def _get_user_documents():
-    """Return the user's Documents directory.
-
-    Uses platformdirs to honor localized folder names (e.g. "Dokumente"
-    on a German Windows install) and match the resolvers used by
-    app_environment.init_environment and path_utils.get_source_root.
-    """
-    return pathlib.Path(platformdirs.user_documents_dir())
-
-
 # The value of an ``"api_key"`` member in a settings file, on its bytes: a
 # string -- escapes allowed, and cut off by a truncation -- or a bare value
 # up to its delimiter. Bytes, not text: a rejected file may not decode.
@@ -168,64 +157,36 @@ def _without_api_keys(data: bytes) -> bytes:
     )
 
 
-def _get_lvp_data_dir():
-    """Return the LVP data/ directory (settings.json, scopes.json, etc.)."""
-    return get_source_root() / 'data'
+def _data_folder_not_copied(data_dir: pathlib.Path) -> Callable[[str, list[str]], set[str]]:
+    """``copytree``'s ignore for ``data_dir``: bytecode anywhere, ``DATA_FOLDER_NOT_COPIED`` at its top."""
+    bytecode = shutil.ignore_patterns('__pycache__', '*.pyc')
 
+    def ignore(folder: str, names: list[str]) -> set[str]:
+        skipped = set(bytecode(folder, names))
+        if pathlib.Path(folder) == data_dir:
+            skipped.update(name for name in names if name in DATA_FOLDER_NOT_COPIED)
+        return skipped
 
-def _get_lvp_logs_dir():
-    """Return the LVP logs/ directory, the log folder's parent, or None."""
-    logs_dir = get_log_dir().parent
-    return logs_dir if logs_dir.is_dir() else None
-
-
-def _get_capture_dir():
-    """Return the capture output directory (from settings or defaults).
-
-    The configured directory is the canonical live_folder key, read
-    current.json-first via _resolve_settings_path -- current.json holds the
-    absolute path the load stored, while settings.json may still carry the
-    relative './capture' default, which is the data root's (``stored_path``).
-    """
-    try:
-        data_root = str(_get_lvp_data_dir().parent)
-        settings_file = settings_init._resolve_settings_path(data_root)
-        settings = settings_init.read_settings_json(settings_file)
-        live_folder = settings.get('live_folder', '')
-        if live_folder:
-            resolved = pathlib.Path(settings_init.stored_path(live_folder, data_root))
-            if resolved.is_dir():
-                return resolved
-    except (FileNotFoundError, settings_init.SettingsFileError, OSError):
-        pass
-    # Fallback: common locations
-    docs = _get_user_documents()
-    for name in ['EtalumaCaptures', 'Etaluma', 'LumaViewPro']:
-        candidate = docs / name
-        if candidate.is_dir():
-            return candidate
-    return docs
+    return ignore
 
 
 # ---------------------------------------------------------------------------
-# Recent Protocols -- reusable from GUI "Recent Protocols" menu
+# Recent Protocols
 # ---------------------------------------------------------------------------
 
 
-def get_recent_protocols(n: int = RECENT_PROTOCOL_COUNT) -> list[dict]:
-    """Return the N most recently modified protocol files.
+def get_recent_protocols(
+    folders: Iterable[pathlib.Path], n: int = RECENT_PROTOCOL_COUNT
+) -> list[dict]:
+    """Return the N most recently modified protocol files under ``folders``.
 
     Returns list of dicts sorted by mtime descending::
 
         [{'path': Path, 'modified': datetime, 'name': str, 'size': int}, ...]
 
-    This is decoupled from the report generator so the GUI can call it
-    directly for a "Recent Protocols" menu.
+    A folder that is not there is not searched.
     """
-    search_dirs = set()
-    for d in [_get_lvp_data_dir(), _get_capture_dir()]:
-        if d and d.is_dir():
-            search_dirs.add(d)
+    search_dirs = {d for d in folders if d.is_dir()}
 
     protocol_files = []
     seen = set()
@@ -1629,6 +1590,24 @@ class TechSupportReport:
         """True when the scope's camera is connected."""
         return self.scope.camera_connected
 
+    def _live_folder(self, section: pathlib.Path, skipped: str) -> pathlib.Path | None:
+        """The session's live folder, or None with why written into ``section``.
+
+        A live folder that is not there (an unplugged drive, a deleted
+        folder) is said, by name, in each section that would have read it;
+        nothing is collected from anywhere in its place.
+        """
+        try:
+            return require_capture_location(self._session.get_setting('live_folder'))
+        except CaptureLocationError as e:
+            section.mkdir(exist_ok=True)
+            (section / LIVE_FOLDER_NOT_READ).write_text(f'{skipped}: {e}\n')
+            return None
+
+    def _data_folder(self) -> pathlib.Path:
+        """The data folder of the session's installation."""
+        return self.scope.source_path / 'data'
+
     def generate(
         self,
         callback: Callable[[int, str], None] | None = None,
@@ -1681,17 +1660,14 @@ class TechSupportReport:
             cb(56, 'Testing disk write speed...')
             self._step_disk_speed(tmp)
 
-            # 14. Data folder  (60-63%)
+            # 14. Data folder and the live settings  (60-63%)
             cb(61, 'Copying data folder...')
             self._step_data_folder(tmp)
+            self._step_live_settings(tmp)
 
-            # 15. Logs  (63-66%)
+            # 15. Logs  (63-69%)
             cb(64, 'Copying log files...')
             self._step_logs(tmp)
-
-            # 16. Backlash results  (66-69%)
-            cb(67, 'Collecting backlash test results...')
-            self._step_backlash(tmp)
 
             # 17. Recent protocols  (69-71%)
             cb(70, 'Collecting recent protocols...')
@@ -2219,9 +2195,9 @@ class TechSupportReport:
         d = tmp / 'disk_speed'
         d.mkdir()
 
-        capture_dir = _get_capture_dir()
-        # Use the capture directory's drive for the test
-        test_dir = capture_dir if capture_dir and capture_dir.is_dir() else desktop_folder()
+        test_dir = self._live_folder(d, 'Disk speed not tested')
+        if test_dir is None:
+            return
 
         results = {
             'test_directory': str(test_dir),
@@ -2459,7 +2435,7 @@ class TechSupportReport:
                 json.dump([identity.to_dict() for identity in bindings], f, indent=2)
 
     def _step_data_folder(self, tmp):
-        """Copy the data folder, every ``current.json*``'s stored ``api_key`` value blanked.
+        """Copy the installation's data folder but its icons, every ``current.json*``'s stored ``api_key`` value blanked.
 
         The live settings file, each one set aside as rejected and a
         ``.saving`` a power cut left are all copied: support reads them
@@ -2469,8 +2445,8 @@ class TechSupportReport:
         settings saver renames its ``.saving`` over ``current.json`` -- is
         not there to copy, and is named in ``NOT_COPIED.txt``.
         """
-        data_dir = _get_lvp_data_dir()
-        if not data_dir or not data_dir.is_dir():
+        data_dir = self._data_folder()
+        if not data_dir.is_dir():
             return
         dest = tmp / 'data'
         gone = []
@@ -2493,7 +2469,7 @@ class TechSupportReport:
             data_dir,
             dest,
             dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns('__pycache__', '*.pyc'),
+            ignore=_data_folder_not_copied(data_dir),
             copy_function=copy,
         )
         if gone:
@@ -2501,6 +2477,17 @@ class TechSupportReport:
                 'Gone from the data folder between its listing and its copy:\n'
                 + ''.join(f'{name}\n' for name in gone)
             )
+
+    def _step_live_settings(self, tmp):
+        """The settings the session is running on, its stored ``api_key`` values blanked.
+
+        Beside the data folder's ``current.json``, which is what was last
+        saved: a script's session saves nothing, a write is kept unsaved
+        while the settings are provisional, and a save follows a write by a
+        second, so the file on disk can differ from what the session runs on.
+        """
+        snapshot = json.dumps(self._session.get_settings_snapshot(), indent=4)
+        (tmp / 'live_settings.json').write_bytes(_without_api_keys(snapshot.encode('utf-8')))
 
     def _step_logs(self, tmp):
         # A process that declined its log files wrote none: the folder, if
@@ -2512,42 +2499,35 @@ class TechSupportReport:
                 'This process started no log files (start_logging(log_files=False)). '
                 "Any logs here are another LumaViewPro process's.\n"
             )
-        logs_dir = _get_lvp_logs_dir()
-        if not logs_dir or not logs_dir.is_dir():
+        # This process's log files are under its own installation; the
+        # session's characterization runs and probes write under the
+        # session's (``get_log_dir(source_path)``). One folder unless a
+        # script's session runs on another installation.
+        process_logs = get_log_dir().parent
+        self._copy_logs(process_logs, tmp / 'logs')
+        session_logs = get_log_dir(self.scope.source_path).parent
+        if session_logs.resolve() != process_logs.resolve():
+            self._copy_logs(session_logs, tmp / 'session_installation_logs')
+
+    @staticmethod
+    def _copy_logs(logs_dir: pathlib.Path, dest: pathlib.Path) -> None:
+        if not logs_dir.is_dir():
             return
-        dest = tmp / 'logs'
         try:
             shutil.copytree(logs_dir, dest, dirs_exist_ok=True)
         except Exception as e:
             dest.mkdir(exist_ok=True)
             (dest / 'ERROR.txt').write_text(f'Copy failed: {e}\n')
 
-    def _step_backlash(self, tmp):
-        capture_dir = _get_capture_dir()
-        if not capture_dir or not capture_dir.is_dir():
-            return
-        dest = tmp / 'backlash_tests'
-        found = False
-        for pattern in BACKLASH_FOLDER_PATTERNS:
-            for match in capture_dir.glob(f'*{pattern}*'):
-                if match.is_dir():
-                    found = True
-                    try:
-                        shutil.copytree(match, dest / match.name, dirs_exist_ok=True)
-                    except Exception as e:
-                        dest.mkdir(exist_ok=True)
-                        (dest / f'{match.name}_ERROR.txt').write_text(str(e))
-        if not found:
-            dest.mkdir(exist_ok=True)
-            (dest / 'none_found.txt').write_text(
-                'No backlash test folders found in capture directory.\n'
-            )
-
     def _step_protocols(self, tmp):
         d = tmp / 'recent_protocols'
         d.mkdir()
 
-        protocols = get_recent_protocols(RECENT_PROTOCOL_COUNT)
+        folders = [self._data_folder()]
+        live = self._live_folder(d, 'Protocols in the live folder not collected')
+        if live is not None:
+            folders.append(live)
+        protocols = get_recent_protocols(folders, RECENT_PROTOCOL_COUNT)
         if not protocols:
             (d / 'none_found.txt').write_text('No protocol files found.\n')
             return
@@ -2583,11 +2563,11 @@ class TechSupportReport:
         """Video receipts: per recent recording, the manifests, a frames
         inventory, and the owning run's execution record -- enough for a
         bundle to prove delivered-vs-configured without shipping frames."""
-        capture_dir = _get_capture_dir()
-        if not capture_dir or not capture_dir.is_dir():
-            return
         d = tmp / 'video_receipts'
         d.mkdir()
+        capture_dir = self._live_folder(d, 'No video receipts collected')
+        if capture_dir is None:
+            return
         recordings = find_video_recording_dirs(capture_dir, RECENT_VIDEO_RECEIPT_COUNT)
         if not recordings:
             (d / 'none_found.txt').write_text(
@@ -2785,6 +2765,7 @@ class TechSupportReport:
 
                 cb(35, 'Copying data folder...')
                 self._step_data_folder(tmp)
+                self._step_live_settings(tmp)
 
                 cb(70, 'Copying recent protocols...')
                 self._step_protocols(tmp)

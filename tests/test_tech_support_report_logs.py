@@ -9,27 +9,28 @@ files states nothing.
 """
 
 from _lumascope.modules import tech_support_report
+from _lumascope.modules.path_utils import get_log_dir
 from _lumascope.modules.tech_support_report import TechSupportReport
+from tests.installation_fixtures import process_logs_at
 
 
-def _logs_step(sim_session, tmp_path, monkeypatch, started):
+def _logs_step(session, tmp_path, monkeypatch, started):
     # a stand-in by design: the process's logging state, which the suite's
     # conftest replaces with a mock and which a test process cannot start twice
     monkeypatch.setattr(tech_support_report, 'logging_started', lambda: started)
-    another_process = tmp_path / 'logs'
-    (another_process / 'LVP_Log').mkdir(parents=True)
-    (another_process / 'LVP_Log' / 'lumaviewpro.log').write_text('another process\n')
-    monkeypatch.setattr(tech_support_report, '_get_lvp_logs_dir', lambda: another_process)
+    process_log = process_logs_at(monkeypatch, tmp_path / 'process') / 'lumaviewpro.log'
+    process_log.write_text('another process\n')
     bundle = tmp_path / 'bundle'
     bundle.mkdir()
-    TechSupportReport(session=sim_session)._step_logs(bundle)
-    return bundle / 'logs'
+    TechSupportReport(session=session)._step_logs(bundle)
+    return bundle
 
 
 def test_a_report_from_a_declined_process_says_its_logs_are_another_processs(
-    sim_session, tmp_path, monkeypatch
+    sim_session_on_its_own_installation, tmp_path, monkeypatch
 ):
-    logs = _logs_step(sim_session, tmp_path, monkeypatch, 'declined')
+    logs = _logs_step(sim_session_on_its_own_installation, tmp_path, monkeypatch, 'declined')
+    logs = logs / 'logs'
 
     assert (logs / 'LVP_Log' / 'lumaviewpro.log').read_text() == 'another process\n'
     assert (logs / 'NOT_THIS_PROCESS.txt').read_text() == (
@@ -39,8 +40,26 @@ def test_a_report_from_a_declined_process_says_its_logs_are_another_processs(
 
 
 def test_a_report_from_a_process_that_started_its_files_says_nothing_of_it(
-    sim_session, tmp_path, monkeypatch
+    sim_session_on_its_own_installation, tmp_path, monkeypatch
 ):
-    logs = _logs_step(sim_session, tmp_path, monkeypatch, 'lumascope')
+    logs = _logs_step(sim_session_on_its_own_installation, tmp_path, monkeypatch, 'lumascope')
 
-    assert not (logs / 'NOT_THIS_PROCESS.txt').exists()
+    assert not (logs / 'logs' / 'NOT_THIS_PROCESS.txt').exists()
+
+
+def test_a_session_on_another_installation_brings_that_installations_logs(
+    sim_session_on_its_own_installation, tmp_path, monkeypatch
+):
+    # A characterization run or a probe writes under the session's
+    # installation; a script's session can run on one that is not the
+    # process's, and the report carries both.
+    session = sim_session_on_its_own_installation
+    result = get_log_dir(session.scope.source_path) / 'characterization_results' / 'run.csv'
+    result.parent.mkdir(parents=True)
+    result.write_text('result\n')
+
+    bundle = _logs_step(session, tmp_path, monkeypatch, 'lumascope')
+
+    carried = bundle / 'session_installation_logs' / 'LVP_Log' / 'characterization_results'
+    assert (carried / 'run.csv').read_text() == 'result\n'
+    assert (bundle / 'logs' / 'LVP_Log' / 'lumaviewpro.log').read_text() == 'another process\n'

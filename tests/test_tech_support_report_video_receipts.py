@@ -13,7 +13,7 @@ execution record, with no pixel data shipped.
 import json
 import time
 
-from _lumascope.modules import recording_frames, tech_support_report
+from _lumascope.modules import recording_frames
 from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
 from _lumascope.modules.tech_support_report import (
@@ -23,6 +23,7 @@ from _lumascope.modules.tech_support_report import (
     video_recording_inventory,
 )
 from _lumascope.modules.video_recording import MANIFEST_FILENAME
+from tests.installation_fixtures import process_logs_at
 from tests.stock_channels import LED1
 
 
@@ -109,12 +110,12 @@ def test_execution_record_found_walking_up_and_absent_for_manual(tmp_path):
     assert find_execution_record(manual) is None
 
 
-def test_step_writes_receipt_bundles(sim_session, tmp_path, monkeypatch):
+def test_step_writes_receipt_bundles(sim_session, tmp_path):
     capture = tmp_path / 'capture'
     run = capture / 'run_A'
     rec = _make_protocol_recording(run)
     (run / ProtocolExecutionRecord.DEFAULT_FILENAME).write_text('rows')
-    monkeypatch.setattr(tech_support_report, '_get_capture_dir', lambda: capture)
+    sim_session.set_live_folder(str(capture))
     report = TechSupportReport(sim_session)
     out = tmp_path / 'bundle'
     out.mkdir()
@@ -140,10 +141,10 @@ def test_step_writes_receipt_bundles(sim_session, tmp_path, monkeypatch):
     assert frame_copies == [], 'receipts must not ship pixel data'
 
 
-def test_step_records_none_found(sim_session, tmp_path, monkeypatch):
+def test_step_records_none_found(sim_session, tmp_path):
     capture = tmp_path / 'capture'
     capture.mkdir()
-    monkeypatch.setattr(tech_support_report, '_get_capture_dir', lambda: capture)
+    sim_session.set_live_folder(str(capture))
     report = TechSupportReport(sim_session)
     out = tmp_path / 'bundle'
     out.mkdir()
@@ -153,20 +154,20 @@ def test_step_records_none_found(sim_session, tmp_path, monkeypatch):
     assert (out / 'video_receipts' / 'none_found.txt').is_file()
 
 
-def test_logs_only_bundle_carries_video_receipts(sim_session, tmp_path, monkeypatch):
+def test_logs_only_bundle_carries_video_receipts(
+    sim_session_on_its_own_installation, tmp_path, monkeypatch
+):
     """A video complaint usually arrives via the quick 'zip logs' bundle,
     not the full report -- the receipts must ride BOTH."""
     import zipfile
 
+    session = sim_session_on_its_own_installation
     capture = tmp_path / 'capture'
     rec = _make_protocol_recording(capture / 'run_A')
-    logs = tmp_path / 'logs'
-    logs.mkdir()
+    logs = process_logs_at(monkeypatch, tmp_path / 'process')
     (logs / 'lumaviewpro.log').write_text('log line\n')
-    monkeypatch.setattr(tech_support_report, '_get_capture_dir', lambda: capture)
-    monkeypatch.setattr(tech_support_report, '_get_lvp_logs_dir', lambda: logs)
-    monkeypatch.setattr(tech_support_report, '_get_lvp_data_dir', lambda: None)
-    report = TechSupportReport(sim_session)
+    session.set_live_folder(str(capture))
+    report = TechSupportReport(session)
 
     zip_path = report.generate_logs_only(output_dir=tmp_path / 'out')
 

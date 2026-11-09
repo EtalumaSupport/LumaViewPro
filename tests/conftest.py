@@ -1387,6 +1387,28 @@ def sim_session(request, tmp_path):
 
 
 @pytest.fixture
+def sim_session_on_its_own_installation(tmp_path):
+    """A session on the simulator on an installation of its own, ``tmp_path / 'installation'``.
+
+    For what reads the session's installation folders (its ``data/``, its
+    logs): the repo's own ``data/`` and ``logs/`` are not in them. Its live
+    folder is ``tmp_path / 'live'``.
+    """
+    from _lumascope.modules.scope_session import ScopeSession
+    from tests.installation_fixtures import write_installation
+    from tests.settings_fixtures import complete_settings
+
+    root = write_installation(tmp_path / 'installation')
+    live = tmp_path / 'live'
+    live.mkdir()
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(live)), simulate=True, source_path=str(root)
+    )
+    yield session
+    session.shutdown()
+
+
+@pytest.fixture
 def gui_ctx(sim_session, monkeypatch):
     """The GUI's app context over ``sim_session``, built as the GUI host builds it.
 

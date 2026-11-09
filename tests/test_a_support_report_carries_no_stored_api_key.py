@@ -23,8 +23,8 @@ import zipfile
 
 import pytest
 
-from _lumascope.modules import tech_support_report
 from _lumascope.modules.exceptions import SupportReportNotSavedError
+from tests.installation_fixtures import INSTALLATION_FILES
 
 # Each file as it sits in the data folder, and as the report must carry it.
 _FILES = {
@@ -57,28 +57,18 @@ _FILES = {
 
 
 @pytest.fixture
-def data(tmp_path, monkeypatch):
-    root = tmp_path / 'installation'
-    folder = root / 'data'
+def data(sim_session_on_its_own_installation):
+    """The data folder of the session's installation, holding ``_FILES``."""
+    folder = sim_session_on_its_own_installation.scope.source_path / 'data'
     for name, (stored, _) in _FILES.items():
         (folder / name).parent.mkdir(parents=True, exist_ok=True)
         (folder / name).write_bytes(stored)
-    # a stand-in by design: the installation's folder, which the report
-    # finds from where LumaViewPro runs.
-    monkeypatch.setattr(tech_support_report, 'get_source_root', lambda *args, **kwargs: root)
     return folder
 
 
 @pytest.fixture
-def session(tmp_path):
-    from _lumascope.modules.scope_session import ScopeSession
-    from tests.settings_fixtures import complete_settings
-
-    live = tmp_path / 'live'
-    live.mkdir()
-    session = ScopeSession.create(complete_settings(live_folder=str(live)), simulate=True)
-    yield session
-    session.shutdown()
+def session(sim_session_on_its_own_installation, data):
+    return sim_session_on_its_own_installation
 
 
 def _copied(zip_path: pathlib.Path) -> dict[str, bytes]:
@@ -93,7 +83,12 @@ def _copied(zip_path: pathlib.Path) -> dict[str, bytes]:
 def test_every_stored_api_key_is_blanked_and_every_other_byte_kept(session, data, tmp_path):
     copied = _copied(session.make_logs_zip(output_dir=tmp_path / 'out').path)
 
-    assert copied == {name: carried for name, (_, carried) in _FILES.items()}
+    assert {name: copied.get(name) for name in _FILES} == {
+        name: carried for name, (_, carried) in _FILES.items()
+    }
+    # Beside them, the installation's own files, each byte as it ships.
+    for name in INSTALLATION_FILES:
+        assert copied[name] == (data / name).read_bytes()
 
 
 @pytest.mark.skipif(

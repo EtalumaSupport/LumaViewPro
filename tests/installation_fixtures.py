@@ -125,6 +125,26 @@ def write_installation(root: pathlib.Path, *, board_block: dict | None = None) -
     return pathlib.Path(root)
 
 
+def process_logs_at(monkeypatch, root: pathlib.Path) -> pathlib.Path:
+    """Make ``root`` this process's installation for the support report's logs step.
+
+    A stand-in by design: the process's own log folder is fixed when the
+    process starts (``get_log_dir()``), so a test that reads what the
+    report collects from it names one of its own. The session's
+    installation, ``get_log_dir(source_path)``, is left as it is.
+    Returns the process's log folder under ``root``, made.
+    """
+    from _lumascope.modules import path_utils, tech_support_report
+
+    def get_log_dir(source_path=None):
+        return path_utils.get_log_dir(root if source_path is None else source_path)
+
+    monkeypatch.setattr(tech_support_report, 'get_log_dir', get_log_dir)
+    log_dir = get_log_dir()
+    log_dir.mkdir(parents=True)
+    return log_dir
+
+
 def use_release(monkeypatch, scopes: pathlib.Path) -> None:
     """Make ``scopes`` the process's release: its layer catalogue and its old names.
 

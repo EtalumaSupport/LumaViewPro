@@ -124,10 +124,8 @@ def test_headless_session_read_path_carries_layer_values():
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         _appdata_with(tmp_dir, OLD_SHAPE)
-        settings_path = settings_init._resolve_settings_path(tmp_dir)
-        settings = settings_init.read_settings_json(settings_path)
+        settings = settings_init.read_settings_json(settings_init.current_json_path(tmp_dir))
 
-    assert os.path.basename(settings_path) == 'current.json'
     config = config_helpers.get_channel_configs(settings, ['BF'])['BF']
     assert config['illumination_ma'] == 25.0
     assert config['exposure_ms'] == 14.56

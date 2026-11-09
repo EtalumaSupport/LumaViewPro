@@ -86,7 +86,13 @@ def test_a_logs_only_report_reads_the_serial_without_a_motor_configuration(
 
     report = TechSupportReport.__new__(TechSupportReport)
     report._meta = {}
-    for step in ('_step_logs', '_step_data_folder', '_step_protocols', '_step_video_receipts'):
+    for step in (
+        '_step_logs',
+        '_step_data_folder',
+        '_step_live_settings',
+        '_step_protocols',
+        '_step_video_receipts',
+    ):
         monkeypatch.setattr(report, step, lambda tmp: None)
     monkeypatch.setattr(report, '_run_hardware_free_steps', lambda *args: None)
     report.diag = SimpleNamespace(motor_board=NullMotionBoard(), get_serial_number=lambda: '12062')

@@ -1173,20 +1173,6 @@ def current_json_path(directory: str | os.PathLike) -> str:
     return os.path.join(directory, 'data', 'current.json')
 
 
-def _resolve_settings_path(directory):
-    current_path = current_json_path(directory)
-    settings_path = os.path.join(directory, 'data', 'settings.json')
-    data_dir = os.path.join(directory, 'data')
-
-    if os.path.exists(current_path):
-        return current_path
-    if os.path.exists(settings_path):
-        return settings_path
-    if not os.path.isdir(data_dir):
-        raise FileNotFoundError(f"Couldn't find 'data' directory at {data_dir}")
-    raise FileNotFoundError(f'No settings files found in {data_dir}')
-
-
 def read_before_preparation(directory: str, key: str) -> tuple[object, str]:
     """One installation-only setting, read before the settings are prepared.
 

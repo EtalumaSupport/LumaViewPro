@@ -10,22 +10,20 @@ reliably reached the one it was meant for.
 """
 
 import logging
-from unittest.mock import patch
 
-import _lumascope.modules.tech_support_report as tech_support_report
 from _lumascope.modules.tech_support_report import TechSupportReport
+from tests.installation_fixtures import process_logs_at
 
 
-def test_delimiter_does_not_append_to_the_newest_log_file(sim_session, tmp_path, caplog):
-    decoy = tmp_path / 'camera.log'
+def test_delimiter_does_not_append_to_the_newest_log_file(
+    sim_session, tmp_path, caplog, monkeypatch
+):
+    decoy = process_logs_at(monkeypatch, tmp_path) / 'camera.log'
     decoy.write_text('camera line\n')
     original = decoy.read_text()
 
     report = TechSupportReport(sim_session)
-    with (
-        patch.object(tech_support_report, '_get_lvp_logs_dir', return_value=tmp_path),
-        caplog.at_level(logging.INFO, logger='LVP.support_report'),
-    ):
+    with caplog.at_level(logging.INFO, logger='LVP.support_report'):
         report._write_log_delimiter()
 
     assert decoy.read_text() == original, 'no direct append into an arbitrary log file'
