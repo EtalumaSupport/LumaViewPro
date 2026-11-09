@@ -811,17 +811,20 @@ def test_unreadable_post_record_moved_aside_and_fresh_record_started(tmp_path, m
     assert preserved.exists()
     assert preserved.read_text() == corrupt_text
 
-    # A fresh current-version record replaced it at the default location.
+    # A fresh current-version record replaced it at the default location,
+    # written out once the caller the load hands it to completes it.
+    result['protocol_post_record'].complete()
     fresh_lines = corrupt_path.read_text().splitlines()
     assert fresh_lines[0] == ProtocolPostRecord.FILE_HEADER
     assert fresh_lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}'
     header_idx = fresh_lines.index('Images') + 1
     assert fresh_lines[header_idx].split('\t') == list(ProtocolPostRecord.COLUMNS)
 
-    # No images in the folder, so the load reports that -- but it did NOT
-    # fail on (or append to) the unreadable record.
-    assert result['status'] is False
-    assert 'No image files' in result['message']
+    # No images in the folder, so the load returns an empty table, which the
+    # processor refuses as no images -- but it did NOT fail on (or append
+    # to) the unreadable record.
+    assert result['status'] is True
+    assert result['images_df'].empty
 
 
 # ---------------------------------------------------------------------------

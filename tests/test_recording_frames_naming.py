@@ -78,6 +78,21 @@ class TestFramePredicates:
         assert not recording_frames.is_video_frame('A1_BF_0003.tiff')
         assert not recording_frames.is_video_frame(f'B2_{LED1}_0001_stitched.tiff')
 
+    def test_an_image_named_like_a_frame_is_a_frame_only_as_a_tiff(self):
+        # A frame is a TIFF named like one; a PNG under a frame's name,
+        # counted as a frame, became a row of the recording and every
+        # build of its run refused for it.
+        names = {
+            'A1_BF_0003_video_Frame_0001': recording_frames.is_protocol_video_frame,
+            'ManualVideo_Frame_0001_2026-08-09_12-00-00-000': recording_frames.is_manual_video_frame,
+        }
+        for stem, is_frame in names.items():
+            assert is_frame(f'{stem}.tiff')
+            assert is_frame(f'{stem}.ome.tiff')
+            assert not is_frame(f'{stem}.png')
+            assert not is_frame(f'{stem}.jpg')
+            assert not recording_frames.is_video_frame(f'{stem}.png')
+
     def test_recording_dir_name_tests_the_final_component_only(self):
         assert recording_frames.is_video_recording_dir_name('A1_BF_0003_video')
         assert not recording_frames.is_video_recording_dir_name('my_video_data')

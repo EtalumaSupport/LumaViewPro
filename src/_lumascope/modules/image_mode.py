@@ -57,7 +57,7 @@ class OutputFormat(enum.StrEnum):
 
 
 # The sequenced formats a post-run merge can read its per-channel frames
-# back out of. JPG is lossy and unreadable by the merge's loader; the
+# back out of. JPG holds the display, lossy and with no capture facts; the
 # hyperstack build leaves a per-well stack with no 2D per-channel frame to
 # merge at all. A run whose product is a merge resolves to one of these.
 MERGEABLE_SEQUENCED_FORMATS = frozenset({OutputFormat.TIFF, OutputFormat.OME_TIFF})

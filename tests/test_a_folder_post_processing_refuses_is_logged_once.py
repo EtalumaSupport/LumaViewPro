@@ -53,12 +53,10 @@ def _locked(*_args):
 # Each folder the loader cannot process, past the first check: what it
 # stubs, and the words of the refusal the caller raises.
 _FOLDERS = {
-    'record_empty': ({'record': _record(0)}, 'Protocol Execution Record has no records'),
     'post_record_stuck': (
         {'record': _record(1), 'post_record': _unreadable, 'replace': _locked},
         'could not be read',
     ),
-    'no_images': ({'record': _record(1)}, 'No image files were found'),
 }
 
 

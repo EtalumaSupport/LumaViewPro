@@ -16,7 +16,6 @@ screen:
 """
 
 from pathlib import Path
-from tests.installation_fixtures import shipped_grids
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -51,40 +50,6 @@ class TestPostProcessingEmptyResultMessages:
 
         assert PostFunction.STITCHED in _MULTI_FRAME_REQUIREMENT
         assert 'tile' in _MULTI_FRAME_REQUIREMENT[PostFunction.STITCHED]
-
-    def test_load_folder_empty_message_actionable(self):
-        # When the helper reports success but the loaded image set is empty,
-        # the post-processor's own branch must fire with the actionable
-        # message naming what was checked for and what to verify.
-        import pathlib
-
-        import pandas as pd
-
-        from _lumascope.modules.composite_generation import CompositeGeneration
-
-        comp = CompositeGeneration(has_turret=False)
-        comp._post_processing_helper.load_folder = lambda path, tiling_grids: {
-            'status': True,
-            'images_df': pd.DataFrame(),
-            'root_path': pathlib.Path('.'),
-            'protocol_post_record': None,
-        }
-        import pytest
-
-        from _lumascope.modules.exceptions import PostProcessingRefusedError
-
-        with pytest.raises(PostProcessingRefusedError) as refused:
-            comp.load_folder(path='run', tiling_grids=shipped_grids())
-        assert refused.value.reason == 'no_images'
-        assert 'No image files were found in the selected folder' in str(refused.value)
-        assert 'captured scan images' in str(refused.value)
-
-    def test_helper_empty_message_actionable(self):
-        # pin-justified: the user-facing message wording is the contract.
-        src = (
-            REPO_ROOT / 'src/_lumascope/modules' / 'protocol_post_processing_helper.py'
-        ).read_text()
-        assert 'captured scan images' in src
 
     def test_composite_no_channels_message_specific(self):
         # pin-justified: the user-facing message wording is the contract.

@@ -103,13 +103,18 @@ def frame_number(filename: str | pathlib.Path) -> int:
 
 
 def is_manual_video_frame(filename: str) -> bool:
-    """True for a manual recording's frame file (not its hyperstack)."""
-    return _MANUAL_FRAME_RE.match(filename) is not None
+    """True for a manual recording's frame file (not its hyperstack).
+
+    A frame is a TIFF named like one: a PNG dropped in under a frame's name
+    counted as a frame became a row of the recording, and every build of its
+    run refused for that PNG.
+    """
+    return _MANUAL_FRAME_RE.match(filename) is not None and image_utils.is_tiff(filename)
 
 
 def is_protocol_video_frame(filename: str | pathlib.Path) -> bool:
-    """True for a frame file written by a protocol video step."""
-    return _PROTOCOL_FRAME_TOKEN in str(filename)
+    """True for a frame file written by a protocol video step: a TIFF named like a frame."""
+    return _PROTOCOL_FRAME_TOKEN in str(filename) and image_utils.is_tiff(filename)
 
 
 def is_video_frame(filename: str | pathlib.Path) -> bool:

@@ -136,7 +136,10 @@ class ProtocolPostProcessingHelper:
         if (len(include_subpaths) != 0) and (len(exclude_subpaths) != 0):
             raise Exception('Specify only include_subpaths OR exclude_subpaths. Not both.')
 
-        images = image_utils.find_tiff_files(path, recursive=True)
+        # Every image, not only TIFFs: which file a build may take is the
+        # processor's one question to ask, and a walk that answered it here
+        # turned a JPG run into "no images".
+        images = sorted(p for p in path.rglob('*') if p.is_file() and image_utils.is_image(p))
 
         # A video recording folder holds frames one level below the
         # protocol folder that owns the execution record; step up so
@@ -318,7 +321,7 @@ class ProtocolPostProcessingHelper:
         Two kinds: a recorded file that is not in the folder (``Missing`` is
         ``'not_on_disk'``), and a capture the run recorded as leaving no
         file (``Missing`` is the reason word the run wrote). Only what the
-        disk walk would have taken counts: a TIFF or a recording's frames
+        disk walk would have taken counts: an image or a recording's frames
         folder, in the selected subfolder when one is selected; a capture
         that left no file belongs to a subfolder named for its channel.
         ``Frames`` is how many frames the row stands for, so a missing
@@ -329,10 +332,8 @@ class ProtocolPostProcessingHelper:
             reason = entry['No File']
             if reason is None:
                 recorded = pathlib.Path(entry['Filename'])
-                takes = (
-                    recorded.suffix.lower() in image_utils.TIFF_SUFFIXES
-                    or recording_frames.is_video_recording_dir_name(recorded.name)
-                )
+                recording = recording_frames.is_video_recording_dir_name(recorded.name)
+                takes = image_utils.is_image(recorded) or recording
                 if not takes or (root_path / recorded).exists():
                     continue
                 if include_subpaths and str(recorded.parent) not in include_subpaths:
@@ -368,7 +369,7 @@ class ProtocolPostProcessingHelper:
         folder lacks is taken too, marked ``Missing`` ``'not_on_disk'`` as a
         raw frame the run recorded is, so the group it belongs to fails
         instead of building short -- under the walk's own filters: only an
-        image the walk would have taken (a TIFF), and only in the selected
+        image the walk would have taken, and only in the selected
         subfolder when one is selected.
         """
         df = protocol_post_record.records()
@@ -377,7 +378,7 @@ class ProtocolPostProcessingHelper:
 
         def walk_would_take(path) -> bool:
             path = pathlib.Path(path)
-            return path.suffix.lower() in image_utils.TIFF_SUFFIXES and (
+            return image_utils.is_image(path) and (
                 not include_subpaths or str(path.parent) in include_subpaths
             )
 
@@ -437,13 +438,6 @@ class ProtocolPostProcessingHelper:
 
         protocol = run.protocol
         protocol_execution_record = run.execution_record
-
-        if protocol_execution_record.num_records() == 0:
-            msg = 'Protocol Execution Record has no records'
-            return {
-                'status': False,
-                'message': msg,
-            }
 
         protocol_post_record = None
         if run.post_record_file is not None:
@@ -522,21 +516,13 @@ class ProtocolPostProcessingHelper:
         )
         post_images_df['Raw'] = False
 
-        if (len(raw_images_df) == 0) and (len(post_images_df) == 0):
-            user_msg = (
-                'No image files were found in this folder to process. '
-                'Check that the folder contains captured scan images.'
-            )
-            return {
-                'status': False,
-                'message': user_msg,
-            }
-
         # Renumbered: each frame arrives with its own 0-based index, and a
         # label shared by a raw row and a post-processed row lets a caller
-        # that finds rows by label mistake one for the other.
-        df_list = [raw_images_df, post_images_df]
-        images_df = pd.concat([df for df in df_list if not df.empty], ignore_index=True)
+        # that finds rows by label mistake one for the other. A folder with
+        # nothing to build from is an empty table, which the caller refuses
+        # as no images.
+        df_list = [df for df in (raw_images_df, post_images_df) if not df.empty]
+        images_df = pd.concat(df_list, ignore_index=True) if df_list else pd.DataFrame()
 
         return {
             'status': True,

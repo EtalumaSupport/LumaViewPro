@@ -262,7 +262,7 @@ class CompositeGeneration(ProtocolPostProcessor):
 
         df = df[df['channel'].isin(allowed_channels)]
 
-        # Load source images via tifffile (RGB-native, returns mono 2D for
+        # Load source images through load_pixels (RGB-native, returns mono 2D for
         # single-channel TIFFs; no BGR upconvert -> no downstream cvtColor
         # ceremony to undo it). Mirrors the manual composite path's
         # in-memory mono inputs so build_composite consumes the same

@@ -502,10 +502,10 @@ class ProtocolPostProcessor(abc.ABC):
             # input it left out either.
             df = df[select(df)]
 
-        # Composite, stitch, and z-projection re-read the source frames via
-        # tifffile, which cannot decode JPG. A scan saved as JPG has no
-        # re-readable source for these outputs, so stop here with a clear
-        # message instead of letting tifffile raise partway through a group.
+        # A build takes TIFF or OME-TIFF. A JPG holds the display, 8-bit and
+        # lossy with the display colors applied, and records no capture
+        # facts: a projection or composite of it is a picture of the screen,
+        # and a stitch of it is placed by geometry alone.
         unsupported_source = next(
             (
                 pathlib.Path(str(filepath))
