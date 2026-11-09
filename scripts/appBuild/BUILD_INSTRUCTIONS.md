@@ -405,6 +405,12 @@ Before a customer build:
 5. Verify both output files exist.
 6. Ship `LumaViewPro-<version>-setup.exe`.
 7. Keep the `.msi` for internal testing or troubleshooting.
+8. The moment the build is made, bump the first line of `version.txt` to
+   the next beta (`4.0.0-beta44` to `4.0.0-beta45`) and push it to the
+   trunk, whether the build was for a customer or for the bench. No two
+   builds share a moniker: the moniker names the Documents data folder,
+   and a folder's `data` is copied only when it has none, so a second
+   build of the same moniker keeps the first one's catalogues.
 
 ## Updating The Build Script
 
