@@ -26,6 +26,7 @@ import configparser
 import datetime
 import importlib.util
 import pathlib
+import re
 
 import pytest
 
@@ -364,3 +365,16 @@ def test_the_setup_bundle_runs_the_one_file_step_after_the_app_in_a_signed_build
     assert '$bundle_args += $bundle_args_fx2' in build
     assert 'lvp_fx2_driver_step_setup.exe' in signed
     assert min_version >= 9
+
+
+def test_a_bundle_variable_that_names_another_is_resolved_when_read():
+    # pin-justified: Bundle.wxs runs in Burn on the Windows build box, not
+    # here. Burn takes a variable's value literally unless it is declared
+    # Type="formatted": beta44's InstallFolder reached the MSI as the text
+    # "[ProgramFiles6432Folder]LumaViewPro\", and the install failed with
+    # Error 1606 at CostFinalize and rolled back.
+    bundle = (BUILD_EXE / 'wix' / 'Bundle.wxs').read_text(encoding='utf-8-sig')
+    variables = re.findall(r'<Variable\b[^>]*>', bundle)
+    assert variables, 'Bundle.wxs declares no Variable'
+    literal = [v for v in variables if '[' in v and 'Type="formatted"' not in v]
+    assert not literal, literal

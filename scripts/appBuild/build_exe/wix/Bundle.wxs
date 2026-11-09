@@ -41,8 +41,10 @@
 
     <!-- LumaViewPro's install folder, Folders.wxs's own default, named once
          here for the two packages that need it: the MSI installs into it and
-         the Classic driver step logs into it. -->
-    <Variable Name="InstallFolder" Value="[ProgramFiles6432Folder]$(var.ProductName)\" />
+         the Classic driver step logs into it. Formatted, so Burn resolves
+         [ProgramFiles6432Folder] when the value is read; a plain string
+         variable is passed on as its literal text. -->
+    <Variable Name="InstallFolder" Value="[ProgramFiles6432Folder]$(var.ProductName)\" Type="formatted" />
 
     <Chain>
 		<!-- VC++ Redistributable (x64). Required chain member: LVP no
