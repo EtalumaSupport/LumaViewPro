@@ -160,6 +160,8 @@ def test_each_fixed_step_number_out_of_its_range_is_refused():
     out_of_range = {
         'illumination_fit_excludes_upper_percentile': (100.0, 'illumination fit must exclude'),
         'illumination_fit_sample_target': (0, 'sample target'),
+        # Above 5 OpenCV's median filter asserts on the float pixels it is given.
+        'denoise_kernel_size': (7, 'denoise kernel'),
         'sharpen_sigma_px': (0.0, 'sharpen sigma'),
         'sharpen_gain': (-0.1, 'sharpen gain'),
         'sharpen_gate_background_percentile': (95.0, 'sharpen gate'),
@@ -250,7 +252,7 @@ def test_tiny_images_with_denoise_are_safe():
 
 
 def test_denoise_runs_on_a_colour_image_at_every_kernel_its_recipe_can_state():
-    """A colour image is denoised at kernel 5 and 7 as at 3: the size gate
+    """A colour image is denoised at kernel 5 as at 3: the size gate
     reads the image's height and width, not its channel axis, so the step
     the recipe states as enabled is the step that ran."""
     rng = np.random.default_rng(7)
@@ -258,7 +260,7 @@ def test_denoise_runs_on_a_colour_image_at_every_kernel_its_recipe_can_state():
     for channels in (3, 4):
         image = (rng.random((64, 64, channels)) * 4095).astype(np.uint16)
         undenoised = QuickEnhancer().apply(image, quick_enhance_settings(), 12)
-        for kernel in (3, 5, 7):
+        for kernel in (3, 5):
             denoised = QuickEnhancer().apply(
                 image,
                 quick_enhance_settings(denoise_enabled=True, denoise_kernel_size=kernel),

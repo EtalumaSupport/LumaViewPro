@@ -112,8 +112,10 @@ class QuickEnhancer:
             errors.append('Low percentile must be below high percentile, within 0 to 100.')
         if not 0.5 <= settings.gamma <= 2.0:
             errors.append('Gamma must be between 0.5 and 2.0.')
-        if settings.denoise_kernel_size not in (3, 5, 7):
-            errors.append('Denoise kernel must be 3, 5, or 7 pixels.')
+        # The denoise runs on float pixels, which OpenCV's median filter takes
+        # only at kernel 3 or 5; above 5 it requires 8-bit input and asserts.
+        if settings.denoise_kernel_size not in (3, 5):
+            errors.append('Denoise kernel must be 3 or 5 pixels.')
         if not 0 <= settings.illumination_fit_excludes_upper_percentile < 100:
             errors.append('The illumination fit must exclude from 0 to below 100 percent.')
         if (
