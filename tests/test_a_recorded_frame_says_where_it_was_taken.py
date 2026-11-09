@@ -42,6 +42,7 @@ from _lumascope.modules.recording_frames import (
     frame_fact,
     write_frame,
 )
+from _lumascope.modules.settings_paths import VIDEO_MAX_DURATION_S_RANGE
 from _lumascope.modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.camera_fakes import delivered_frame
 from tests.frame_records import frame_record, plate
@@ -55,6 +56,15 @@ A_TIME = FrameTime(
     at=wall_time.local_time(1_755_000_000_000_000_000), source=TimestampSource.HOST_ARRIVAL
 )
 A_CAMERA = RecordingCamera(binning_size=2, camera_model='simulated', camera_tick_hz=1_000_000_000)
+
+# A simulated manual recording here ends itself at its time limit, the
+# setting's least, and the test waits on its operation. A recording keeps
+# only the frames that started after it did, and frames reach it behind a
+# backlog that grows under load, so a stop called once the camera has
+# delivered a few frames can find none of them kept. Ended on its frames'
+# clock, it keeps every frame that started within the limit, however late
+# it arrives.
+A_RECORDINGS_LIMIT_S = VIDEO_MAX_DURATION_S_RANGE[0]
 
 
 def _arrival(scope, *, channel_tiebreak='BF', chunks=None, significant_bits=12):
@@ -446,8 +456,6 @@ class TestARecordingOnTheSimulator:
     position as the frame's file does."""
 
     def test_each_frame_states_its_record_and_the_hyperstack_its_rounded_position(self, tmp_path):
-        import threading
-
         from _lumascope.modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
         from _lumascope.modules.scope_session import ScopeSession
         from tests.scope_fakes import home_sim_scope
@@ -455,31 +463,21 @@ class TestARecordingOnTheSimulator:
 
         settings = complete_settings(live_folder=str(tmp_path), video_as_frames=True)
         settings['image_output_format']['sequenced'] = 'OME-TIFF Hyperstack'
+        settings['video']['max_duration_s'] = A_RECORDINGS_LIMIT_S
         session = ScopeSession.create(settings, simulate=True)
-        delivered = threading.Event()
-        count = {'n': 0}
-
-        def _count(_frame):
-            count['n'] += 1
-            if count['n'] >= 3:
-                delivered.set()
-
         try:
             # Homed, so every frame knows where it was taken.
             home_sim_scope(session.scope)
             session.show_channel(LED1)
             session.scope.illumination.led_on(LED1, 100.0)
-            operation = session.manual_recording.start()
-            session.scope.imaging.add_frame_listener(_count, name='test_count')
-            assert delivered.wait(timeout=20), 'the simulated camera delivered no frames'
-            operation.stop()
-            operation.result(timeout=60)
+            assert session.manual_recording.start().result(timeout=60).end_reason == (
+                'duration_elapsed'
+            )
             objective = _stated_fields(
                 session.scope.objectives[session.scope.runtime_state.resolve_current_objective()[0]]
             )
             plate_name = session.scope.runtime_state.get_labware().name
         finally:
-            session.scope.imaging.remove_frame_listener(_count)
             session.shutdown()
 
         folder = next((tmp_path / 'Manual').glob('Video_*'))
@@ -518,20 +516,14 @@ class TestARecordingStatesEachFramesStart:
         """A manual recording of a few frames on a simulated session: its
         folder, each delivered frame's true start by FrameID, and the wall
         time just before the recording was asked to start."""
-        import threading
-
         from _lumascope.drivers import host_clock
         from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
         settings = complete_settings(live_folder=str(tmp_path), video_as_frames=video_as_frames)
+        settings['video']['max_duration_s'] = A_RECORDINGS_LIMIT_S
         session = ScopeSession.create(settings, simulate=True)
         started = {}
-        # The recording's start waits out the exposure change below, taking
-        # frames the listener sees too, so six frames are counted from the
-        # moment the recording is open.
-        enough = {'n': None}
-        six = threading.Event()
         try:
             scope = session.scope
             offset_ns = scope._camera_driver._clock_offset_ns
@@ -542,16 +534,11 @@ class TestARecordingStatesEachFramesStart:
                 steady_ns = exposure.started_ticks - offset_ns
                 wall_ns = host_clock.wall_ns() + steady_ns - host_clock.steady_ns()
                 started[frame.chunks['FrameID']] = wall_time.local_time(wall_ns)
-                if enough['n'] is not None and len(started) >= enough['n']:
-                    six.set()
 
             scope.imaging.add_frame_listener(_truth, name='the true starts')
             before = wall_time.now()
-            operation = session.manual_recording.start()
-            enough['n'] = len(started) + 6
-            assert six.wait(timeout=20), 'the simulated camera delivered no frames'
-            operation.stop()
-            operation.result(timeout=60)
+            result = session.manual_recording.start().result(timeout=60)
+            assert result.end_reason == 'duration_elapsed'
             scope.imaging.remove_frame_listener(_truth)
         finally:
             session.shutdown()
@@ -611,33 +598,18 @@ def _record_a_video_step(tmp_path, *, sequenced_format, image_mode='8bit'):
 
 def _record_manually(tmp_path, *, live_format, sequenced_format):
     """A manual "Frames" recording on the simulator; the frames' paths."""
-    import threading
-
     from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
     settings = headless_settings(
         tmp_path, sequenced_format=sequenced_format, live_format=live_format
     )
     settings['video_as_frames'] = True
-    delivered = threading.Event()
-    count = {'n': 0}
-
-    def _count(_frame):
-        count['n'] += 1
-        if count['n'] >= 3:
-            delivered.set()
-
+    settings['video']['max_duration_s'] = A_RECORDINGS_LIMIT_S
     with open_composite_session(settings) as (session, _runner):
         session.show_channel(LED1)
         session.scope.illumination.led_on(LED1, 100.0)
-        operation = session.manual_recording.start()
-        session.scope.imaging.add_frame_listener(_count, name='test_count')
-        try:
-            assert delivered.wait(timeout=20), 'the simulated camera delivered no frames'
-        finally:
-            session.scope.imaging.remove_frame_listener(_count)
-        operation.stop()
-        operation.result(timeout=60)
+        result = session.manual_recording.start().result(timeout=60)
+        assert result.end_reason == 'duration_elapsed'
     folder = next((tmp_path / 'Manual').glob('Video_*'))
     return [p for p in folder.iterdir() if p.name.startswith('ManualVideo_Frame_0')]
 

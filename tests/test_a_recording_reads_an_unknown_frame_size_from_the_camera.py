@@ -18,8 +18,6 @@ left unknown by an unanswered write of 400 x 300.
 
 from __future__ import annotations
 
-import threading
-
 import pytest
 import tifffile
 
@@ -27,6 +25,7 @@ import _lumascope.modules.manual_recording as manual_recording_module
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.settings_paths import VIDEO_MAX_DURATION_S_RANGE
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
 
@@ -39,12 +38,21 @@ def session(tmp_path, monkeypatch):
     monkeypatch.setattr(
         manual_recording_module, 'check_disk_space_ok', lambda *_: (True, 1_000_000.0)
     )
+    # The recording ends itself at its time limit, the setting's least, and
+    # the test waits on its operation: a recording keeps only the frames
+    # that started after it did, and frames reach it behind a backlog that
+    # grows under load, so a stop called once the camera has delivered a few
+    # can find none kept.
     s = ScopeSession.create(
         complete_settings(
             **_settings(
                 tmp_path,
                 video_as_frames=True,
-                video={'max_fps': 0, 'max_duration_s': 60, 'timestamp_overlay': False},
+                video={
+                    'max_fps': 0,
+                    'max_duration_s': VIDEO_MAX_DURATION_S_RANGE[0],
+                    'timestamp_overlay': False,
+                },
             )
         ),
         simulate=True,
@@ -62,29 +70,9 @@ def session(tmp_path, monkeypatch):
         s.shutdown()
 
 
-def _frames_after_start(session, count):
-    """An event set once ``count`` frames have arrived, and its listener's removal."""
-    seen = []
-    arrived = threading.Event()
-
-    def listener(*_a):
-        seen.append(1)
-        if len(seen) >= count:
-            arrived.set()
-
-    session.scope.imaging.add_frame_listener(listener, name='test_frames_after_start')
-    return arrived, lambda: session.scope.imaging.remove_frame_listener(listener)
-
-
 def test_a_manual_recording_is_made_at_the_frame_the_camera_delivers(session):
-    operation = session.manual_recording.start()
-    arrived, remove = _frames_after_start(session, 5)
-    try:
-        assert arrived.wait(COMPLETION_TIMEOUT), 'the camera delivered no frames to record'
-    finally:
-        remove()
-        operation.stop()
-    operation.result(timeout=COMPLETION_TIMEOUT)
+    finished = session.manual_recording.start().result(timeout=COMPLETION_TIMEOUT)
+    assert finished.end_reason == 'duration_elapsed'
 
     frames = sorted(session.manual_recording.save_folder.glob('ManualVideo_Frame_*.tiff'))
     assert frames, 'the recording wrote no frame'
