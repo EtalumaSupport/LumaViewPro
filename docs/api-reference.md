@@ -1677,7 +1677,7 @@ The shown channel now.
 **Raises**
 
 - `ArgumentRefusedError`: `'illumination_out_of_range'`, the channel's stored current is outside the attached board's range.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no shown channel; `'not_connected'`, naming the LED controller the light needs; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or `lit` is True while a manual recording runs (a recording keeps the light it started under; nothing is changed).
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no shown channel; `'not_connected'`, naming the LED controller the light needs; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or `lit` is True while a manual recording runs and the channel's LED is not lit above 0 mA (a recording keeps the light it started under; nothing is changed). One lit above 0 mA is put at the stored current.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `CameraSettingRejected`: the camera refused a setting of the channel; its LED is already lit or dark.
 
@@ -3333,7 +3333,7 @@ The shown channel now.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'illumination_out_of_range'`, its stored current is outside the attached board's range.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs, or the camera when it leaves during the call; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one or the shown channel is lit (a recording keeps one channel and the light it started under; nothing is changed).
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs, or the camera when it leaves during the call; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one, or its LED would be lit from dark or 0 mA (a recording keeps one channel and the light it started under; nothing is changed).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `CameraSettingRejected`: the camera refused a setting of the channel; its LEDs are already shown.
 
@@ -3605,7 +3605,7 @@ it is refused on the UI thread; a click calls it from a worker.
 - `StepNotFoundError`: `step_index` is not a step of `protocol`. Nothing changes.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes.
 - `ArgumentRefusedError`: `'channel_unknown'`, the step's colour is not a channel. Nothing changes.
-- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light. Nothing changes.
+- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
 - `PositionOutOfRangeError`: the step lies outside an axis's travel; the axes before it have moved, nothing else changes.
@@ -3854,6 +3854,7 @@ settings has a path.
 
 - `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is in-process, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`); `'installation_only'`, it is set only by the installation; `'derived'`, it is derived from the release (`step_channel_order`); `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run, and a channel's illumination above the attached LED board's maximum, among them). Nothing is written.
 - `ConfigurationDefectError`: `'channels_unresolved'`, the write is to the shown channel's camera settings and this scope's channels could not be resolved; the value is stored, and the camera is not changed.
+- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, the write is the shown channel's illumination, its LED is lit at 0 mA, the value is above 0 mA, and a manual recording runs (a recording keeps the light it started under). Nothing is stored.
 
 A numpy scalar in `value`, at any depth, is stored as the Python
 value it holds.
@@ -3863,10 +3864,11 @@ intent; a camera that cannot reach it is driven at its own limit
 when the channel is applied (`CameraAPI.applied_gain_db_for`).
 A write to the shown channel's gain or exposure (or, while it is on
 auto-gain, to the auto-gain bounds) is on the camera, and to its
-illumination on its lit LED, when this returns; a write to a hidden
-channel, or one made while a run, a diagnostic or a home holds the
-scope, is stored only, and so is an illumination written while a
-manual recording runs. Such a write waits on the camera or LED lane,
+illumination on its lit LED, when this returns, a manual recording
+running or not; a write to a hidden channel, or one made while a run,
+a diagnostic or a home holds the scope, is stored only. The
+illumination is put on the LED before it is stored, so a light the
+LED refuses stores nothing. Such a write waits on the camera or LED lane,
 so a caller on the UI thread hands it to a worker. Each auto-gain
 bound is stored alone; a minimum left above the maximum is refused
 when auto-gain is armed with them (`ArgumentRefusedError`,
@@ -6560,7 +6562,7 @@ The commanded current in mA.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; `'not_a_number'`, `illumination_ma` is not a finite number; `'illumination_out_of_range'`, it is outside 0 to the attached board's maximum. Nothing was sent.
-- `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` for a channel whose LED this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs, or a manual recording runs and `illumination_ma` is above 0 mA. Nothing was sent.
+- `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` for a channel whose LED this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs, or a manual recording runs and `illumination_ma` is above 0 mA while the LED is not lit above 0 mA (a recording keeps the light it started under; a lit LED's current may change). Nothing was sent.
 - `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
 - `BoardPortFailedError`: the board's port failed during the write; the LED is believed as it was before the write.
 
@@ -6644,7 +6646,7 @@ the addresses they have lit at a positive current.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs, raised at the first channel it would change; or a manual recording runs and the readings have an LED lit, raised before any change. `'not_connected'`, no LED controller is connected, or `'not_on_this_scope'`, before anything is written.
+- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs, raised at the first channel it would change; or a manual recording runs and the readings light an LED not lit above 0 mA, raised before any change. `'not_connected'`, no LED controller is connected, or `'not_on_this_scope'`, before anything is written.
 - `ArgumentRefusedError`: `'led_address_unknown'`, `'not_a_number'` or `'illumination_out_of_range'` for a light in the readings, before anything is written.
 - `BoardNoReplyError`: the board did not answer a write; that channel is unknown and the writes after it are not made.
 - `BoardPortFailedError`: the board's port failed during a write; that channel is believed as it was, and the writes after it are not made.
@@ -17028,7 +17030,7 @@ asked for the recording reports it where its flight ends.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). A reason it shares with another refusal is explained there: with `ProtocolRunRefusedError`, and `'capture_location_unusable'` and `'names_exhausted'` with `CaptureLocationError`. Its own: `'camera_exposure_unknown'` -- the camera has not reported its exposure time, from which the recording's dead-feed bound derives. `'insufficient_disk'` -- free disk at the save location is below the floor a recording needs to start. `'falsifying_change_in_flight'` -- an objective, camera frame or light change is under way, which a recording would capture through. `'other_led_lit'` -- an LED other than the shown channel's is lit, and the recording is named for the shown channel. `'camera_holds_another_channel'` -- the camera holds another channel's settings than the shown channel's, which the recording is named for. `'changes_not_in_force'` -- a change the scope recorded (a setting, the light, a move) did not come into force within a capture's limit, so the first frame would have been made before it.
+- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). A reason it shares with another refusal is explained there: with `ProtocolRunRefusedError`, and `'capture_location_unusable'` and `'names_exhausted'` with `CaptureLocationError`. Its own: `'camera_exposure_unknown'` -- the camera has not reported its exposure time, from which the recording's dead-feed bound derives. `'insufficient_disk'` -- free disk at the save location is below the floor a recording needs to start. `'falsifying_change_in_flight'` -- an objective, camera frame or LED-lighting change is under way, which a recording would capture through. `'other_led_lit'` -- an LED other than the shown channel's is lit, and the recording is named for the shown channel. `'camera_holds_another_channel'` -- the camera holds another channel's settings than the shown channel's, which the recording is named for. `'changes_not_in_force'` -- a change the scope recorded (a setting, the light, a move) did not come into force within a capture's limit, so the first frame would have been made before it.
 - `title`: Short user-facing refusal title, the reason's.
 - `message`: One-sentence user-facing refusal body; the same text as the exception's message.
 - `holder`: The exclusive-activity claim owner at refusal time, or None when the refusal is not claim-shaped.

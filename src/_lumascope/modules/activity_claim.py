@@ -40,8 +40,8 @@ CONTROL_SILENCE_S = 180.0
 # drive every axis, the LEDs and the camera, and a home leaves every axis
 # unknown until it ends, so while one holds the claim a lane runs only work
 # made under its taking, the controls lock and the objective cannot change
-# under it. A recording is not here -- focusing, moving, an LED off, gain and
-# exposure stay open to anyone during one.
+# under it. A recording is not here -- focusing, moving, an LED off, a lit
+# LED's current, gain and exposure stay open to anyone during one.
 SCOPE_HOLDING_KINDS = frozenset({WorkKind.PROTOCOL, WorkKind.DIAGNOSTIC, WorkKind.HOME})
 
 _acting = threading.local()
@@ -882,7 +882,8 @@ class ActivityClaim:
 
         A recording refuses only work that would falsify the file it is
         writing (``falsifies_recording``: the frame geometry, the pixel
-        format, the turret, a light), whoever makes it -- the recording
+        format, the turret, a light of an LED not lit above 0 mA), whoever
+        makes it -- the recording
         itself never does. Everything else stays open to anyone during one.
         """
         self._end_if_silent(taking)

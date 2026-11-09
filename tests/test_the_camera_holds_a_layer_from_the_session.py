@@ -151,6 +151,24 @@ class TestGoingToAStep:
             recording.stop()
             recording.result(timeout=60)
 
+    def test_going_to_the_lit_shown_layers_step_during_a_recording_lights_it_at_the_steps_current(
+        self, session
+    ):
+        protocol, bf_idx, _blue_idx = _two_step_protocol(session)
+        step_ma = float(protocol.step_row(step_index=bf_idx)['Illumination'])
+        session.update_settings('protocol_led_on', True)
+        session.show_channel('BF')
+        session.light_shown_channel(True)
+        # The lit LED away from the step's current, so the step's light shows.
+        session.update_settings('BF.illumination_ma', step_ma + 10.0)
+        recording = session.manual_recording.start(false_color_on=False)
+        try:
+            session.go_to_step(protocol, bf_idx)
+            assert channel_reading(session.scope.illumination, 'BF').illumination_ma == step_ma
+        finally:
+            recording.stop()
+            recording.result(timeout=60)
+
     def test_a_manual_step_after_an_auto_gain_step_holds_its_own_gain(self, session):
         """Going back to a manual step from an auto-gain one puts the manual
         step's gain on the camera, and the capture gate expects it (#840).

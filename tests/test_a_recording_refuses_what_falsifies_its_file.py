@@ -15,13 +15,19 @@ A recording is named for the shown layer and keeps the light it started
 under. An LED lit mid-recording -- ``led_on('Ex405')`` over REST while the
 recording was named Ex488 -- left frames lit by one channel and shot at
 another's camera settings, under a manifest and an MP4 naming the first;
-every write that would light now carries the same mark, and a start with
-another LED lit, or with the camera on another layer, is refused.
+every write that would light an LED not lit above 0 mA is now refused, on
+the lane as it runs, and a start with another LED lit, or with the camera on
+another layer, is refused. A current change on the LED already lit keeps the
+light, so it goes on the LED: a REST or SDK client that changes the shown
+layer's illumination mid-recording changes the light, and the stored setting
+is the LED's. 0 mA is dark: a current set to 0 and raised again is refused on
+the way up. (The GUI locks its drawer while a recording runs.)
 """
 
 import copy
 import dataclasses
 import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -37,9 +43,18 @@ from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
 from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
 from tests.protocol_drives import run_identity
 from tests.case_walk import failing_cases
+from tests.scope_fakes import channel_reading
 from tests.stock_channels import LED0
 
 _WAIT_S = 2.0
+
+
+def _until(condition, what: str) -> None:
+    """Wait for ``condition``, which no event announces: a task queued on a lane."""
+    deadline = time.monotonic() + _WAIT_S
+    while not condition():
+        assert time.monotonic() < deadline, f'never: {what}'
+        time.sleep(0.01)
 
 
 @pytest.fixture
@@ -219,8 +234,9 @@ class TestTheMembers:
 
 
 class TestTheLights:
-    """While a recording holds, a write that would light an LED is refused
-    before anything changes, from any caller; an off is not."""
+    """While a recording holds, a write that would light an LED not lit above
+    0 mA is refused before anything changes, from any caller; an off, and a
+    current change on the LED already lit, are not."""
 
     @pytest.fixture
     def lit_bf(self, sim_session):
@@ -230,7 +246,7 @@ class TestTheLights:
         sim_session.light_shown_channel(True)
         return sim_session
 
-    def test_every_write_that_would_light_is_refused_and_the_leds_stay(self, lit_bf):
+    def test_every_write_that_would_light_a_dark_led_is_refused_and_the_leds_stay(self, lit_bf):
         session = lit_bf
         illumination = session.scope.illumination
         led0 = illumination.led_address_of(LED0)
@@ -239,7 +255,6 @@ class TestTheLights:
         illumination.led_off(LED0)
         before = illumination.get_led_states()
         lights = [
-            ('led_on, the shown layer at its own current', lambda: illumination.led_on('BF', 50.0)),
             ('led_on, another layer', lambda: illumination.led_on(LED0, 100.0)),
             ('led_on_by_address', lambda: illumination.led_on_by_address(led0, 90.0)),
             ('restore_led_state', lambda: illumination.restore_led_state(lit_led0)),
@@ -250,7 +265,6 @@ class TestTheLights:
                     LedTransitionCtx(led_address=led0, illumination_ma=60.0, preview_on=True),
                 ),
             ),
-            ('light_shown_channel', lambda: session.light_shown_channel(True)),
         ]
         held = session.activity_claim.try_claim('recording')
         try:
@@ -294,10 +308,25 @@ class TestTheLights:
         failed = failing_cases(offs, check, label=lambda case: case[0])
         assert not failed, failed
 
-    def test_a_shown_layers_illumination_is_stored_and_the_led_is_left(self, lit_bf):
+    def test_an_led_lit_at_0_ma_and_turned_up_is_refused(self, lit_bf):
         session = lit_bf
         illumination = session.scope.illumination
-        before = illumination.get_led_states()
+        held = session.activity_claim.try_claim('recording')
+        try:
+            illumination.led_on(LED0, 0.0)
+            before = illumination.get_led_states()
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                illumination.led_on(LED0, 50.0)
+        finally:
+            held.release()
+        assert (refused.value.reason, refused.value.holder) == (
+            'exclusive_activity_running',
+            'recording',
+        )
+        assert illumination.get_led_states() == before
+
+    def test_the_shown_layers_illumination_goes_on_its_lit_led_and_is_stored(self, lit_bf):
+        session = lit_bf
         stored = session.settings['BF']['illumination_ma']
         written = stored - 10.0 if stored > 10.0 else stored + 10.0
         held = session.activity_claim.try_claim('recording')
@@ -306,7 +335,115 @@ class TestTheLights:
         finally:
             held.release()
         assert session.settings['BF']['illumination_ma'] == written
-        assert illumination.get_led_states() == before
+        assert channel_reading(session.scope.illumination, 'BF').illumination_ma == written
+
+    def test_every_current_change_of_the_lit_led_is_put_on_it(self, lit_bf):
+        session = lit_bf
+        illumination = session.scope.illumination
+        bf = illumination.led_address_of('BF')
+        changes = [
+            ('led_on', 30.0, lambda: illumination.led_on('BF', 30.0)),
+            ('led_on_by_address', 40.0, lambda: illumination.led_on_by_address(bf, 40.0)),
+            (
+                'restore_led_state',
+                50.0,
+                lambda: illumination.restore_led_state(
+                    (
+                        dataclasses.replace(
+                            channel_reading(illumination, 'BF'), illumination_ma=50.0
+                        ),
+                    )
+                ),
+            ),
+            (
+                'apply_transition',
+                60.0,
+                lambda: illumination.apply_transition(
+                    LedTransition.MANUAL_STEP,
+                    LedTransitionCtx(led_address=bf, illumination_ma=60.0, preview_on=True),
+                ),
+            ),
+        ]
+
+        def check(name, current, call):
+            held = session.activity_claim.try_claim('recording')
+            try:
+                call()
+            finally:
+                held.release()
+            assert snapshot_lit_pairs(illumination.get_led_states()) == {(bf, current)}
+
+        failed = failing_cases(changes, check, label=lambda case: case[0])
+        assert not failed, failed
+
+    def test_the_shown_layer_at_0_ma_is_applied_and_turned_back_up_is_refused(self, lit_bf):
+        session = lit_bf
+        held = session.activity_claim.try_claim('recording')
+        try:
+            session.update_settings('BF.illumination_ma', 0.0)
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                session.update_settings('BF.illumination_ma', 50.0)
+        finally:
+            held.release()
+        assert (refused.value.reason, refused.value.holder) == (
+            'exclusive_activity_running',
+            'recording',
+        )
+        assert session.settings['BF']['illumination_ma'] == 0.0
+        assert channel_reading(session.scope.illumination, 'BF').illumination_ma == 0.0
+
+    def test_lighting_the_shown_layer_puts_its_stored_current_on_the_lit_led(self, lit_bf):
+        session = lit_bf
+        illumination = session.scope.illumination
+        stored = session.settings['BF']['illumination_ma']
+        other = stored - 10.0 if stored > 10.0 else stored + 10.0
+        illumination.led_on('BF', other)
+        held = session.activity_claim.try_claim('recording')
+        try:
+            session.light_shown_channel(True)
+        finally:
+            held.release()
+        assert channel_reading(illumination, 'BF').illumination_ma == stored
+
+    def test_a_write_off_the_lane_behind_a_queued_dark_leaves_the_store_at_the_leds_current(
+        self, lit_bf
+    ):
+        """A write whose LED was lit when it asked, and dark at 0 mA by the time
+        its turn on the lane came, is refused and stores nothing: the store and
+        the LED end at the same current, whichever write was refused."""
+        session = lit_bf
+        lane = session.io_executor
+        gate = threading.Event()
+        answers = {}
+
+        def write(name, value):
+            try:
+                session.update_settings('BF.illumination_ma', value)
+                answers[name] = 'stored'
+            except HardwareCommandRefusedError as e:
+                answers[name] = (e.reason, e.holder)
+
+        held = session.activity_claim.try_claim('recording')
+        try:
+            lane.put(IOTask(action=gate.wait, args=(_WAIT_S,)))
+            darken = threading.Thread(target=write, args=('darken', 0.0))
+            darken.start()
+            _until(lambda: lane.queue_size() == 1, 'the darkening write queues')
+            raise_ = threading.Thread(target=write, args=('raise', 7.0))
+            raise_.start()
+            _until(lambda: lane.queue_size() == 2, 'the raising write queues behind it')
+            gate.set()
+            darken.join(_WAIT_S)
+            raise_.join(_WAIT_S)
+        finally:
+            gate.set()
+            held.release()
+        assert answers == {
+            'darken': 'stored',
+            'raise': ('exclusive_activity_running', 'recording'),
+        }
+        assert session.settings['BF']['illumination_ma'] == 0.0
+        assert channel_reading(session.scope.illumination, 'BF').illumination_ma == 0.0
 
 
 class TestTheStartKeepsItsName:

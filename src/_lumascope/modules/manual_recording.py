@@ -1205,9 +1205,9 @@ def _say_what_the_frames_cannot_record(scope, to_plate) -> None:
 def _refuse_a_name_that_would_be_false(scope, channel: str) -> None:
     """Refuse a recording named for ``channel`` that would be lit or set for another.
 
-    Read once the recording holds the scope: from then on no light can be
-    turned on and the shown channel cannot change, so what is read here holds
-    for every frame. A recording is named for the shown channel, so another
+    Read once the recording holds the scope: from then on no LED can be lit
+    that was not lit above 0 mA, and the shown channel cannot change, so what
+    is read here holds for every frame. A recording is named for the shown channel, so another
     LED lit would image the frames in a channel they are not named for, and
     a camera holding another channel's settings would shoot them at settings
     that are not the named channel's. A camera that holds no channel whole

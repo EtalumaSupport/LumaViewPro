@@ -2362,8 +2362,8 @@ class RecordingRefusedError(Refusal, CaptureError):
             dead-feed bound derives. ``'insufficient_disk'`` -- free disk
             at the save location is below the floor a recording needs to
             start. ``'falsifying_change_in_flight'`` -- an objective,
-            camera frame or light change is under way, which a recording
-            would capture through. ``'other_led_lit'`` -- an LED other than
+            camera frame or LED-lighting change is under way, which a
+            recording would capture through. ``'other_led_lit'`` -- an LED other than
             the shown channel's is lit, and the recording is named for the
             shown channel. ``'camera_holds_another_channel'`` -- the camera
             holds another channel's settings than the shown channel's, which

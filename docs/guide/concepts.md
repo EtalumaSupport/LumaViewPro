@@ -232,8 +232,8 @@ is refused `HardwareCommandRefusedError` (`'exclusive_activity_running'`), its
 `holder` naming the work and, for a run, `holder_trigger` the host that started
 it (`gui`, `rest` or `api`; None for any other holder). A recording refuses only
 what would falsify its frames -- the frame size, the binning, the image mode,
-the turret, a light, or the shown channel -- and leaves gain, exposure and focus
-open. What holds the scope now is `session.live_work` and
+the turret, a light of an LED that is dark or at 0 mA, or the shown channel --
+and leaves gain, exposure, focus and a lit LED's current open. What holds the scope now is `session.live_work` and
 `session.held_by_other()`, and `session.status` answers it with the rest of the
 scope's state (`GET /api/v1/status`, the read a client makes first).
 

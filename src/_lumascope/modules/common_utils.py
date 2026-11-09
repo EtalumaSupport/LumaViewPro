@@ -534,7 +534,8 @@ def light_of(readings: 'tuple[LedReading, ...] | None', shown_channel: str) -> L
 
     The channel is the lit LED, else ``shown_channel``, the channel the recording
     is named for. A recording refuses to start with another LED lit and
-    refuses every light while it runs (``ManualRecordingController.start``),
+    refuses a light of any LED not lit above 0 mA while it runs
+    (``ManualRecordingController.start``, ``IlluminationAPI.lights_a_dark_led``),
     and a protocol's video step lights its own channel alone, so a frame's
     lit LED is its channel's; the shown channel names a frame with no LED lit,
     as luminescence images. With more than one LED lit, the first in

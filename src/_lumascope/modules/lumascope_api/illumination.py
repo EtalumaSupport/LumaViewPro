@@ -11,12 +11,13 @@ extension.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import functools
 import logging as _logging
 import threading
 from dataclasses import dataclass
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING
 
 from _lumascope.drivers import host_clock
@@ -26,6 +27,8 @@ from _lumascope.lib import profile_trace
 from _lumascope.lib.log_helpers import VERBOSE
 from _lumascope.lib.lumascope_error import Fault
 from _lumascope.modules.finite_number import refuse_unless_finite_number
+from _lumascope.modules.activity_claim import ActivityHolder, current_taking
+from _lumascope.modules.live_work import WorkKind
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
@@ -619,6 +622,70 @@ class IlluminationAPI:
         with self._led_state_lock:
             return address in self._led_state
 
+    def lights_a_dark_led(self, target: Iterable[tuple[int, float]]) -> bool:
+        """Whether ``target`` takes an LED from unlit to a positive current.
+
+        The one answer to whether an LED write would falsify a manual
+        recording. A recording keeps the light it started under: a write that
+        lights an LED not lit at a positive current images its frames under
+        another light, while a current change on an LED already lit at one,
+        and every off, keep it. Lit is ``snapshot_lit_pairs``'s meaning: an
+        address held lit at 0 mA, or unknown, is not lit, so a current set
+        to 0 mA and raised again lights it again.
+
+        A consult seam, not part of the L2 API surface: each LED write asks
+        it on the lane (``_refused_if_it_lights_under_a_recording``), and Go
+        To Step asks it before the stage moves.
+
+        Args:
+            target: The (address, illumination_ma) pairs the write would put
+                on the board.
+        """
+        with self._led_state_lock:
+            lit = {
+                address
+                for address, held in self._led_state.items()
+                if held.state == LedState.LIT and held.illumination_ma > 0
+            }
+        return any(
+            illumination_ma > 0 and address not in lit for address, illumination_ma in target
+        )
+
+    @contextlib.contextmanager
+    def _refused_if_it_lights_under_a_recording(
+        self, target: Iterable[tuple[int, float]], member: str
+    ) -> Iterator[None]:
+        """Run an LED write's body, refused when it lights an LED while a manual recording runs.
+
+        Asked on the lane inside the write's body, against the store as the
+        write is about to run, after the LED controller question. A write
+        that lights an unlit LED (``lights_a_dark_led``) is counted by the
+        claim while it runs, so a recording cannot start under it; any other
+        write is neither refused nor counted. Only a recording refuses it
+        here: any other holder was asked when the lane admitted the write,
+        and one that took the scope since lets no recording start, so the
+        write is not counted. The camera's capture asks the same way
+        (``CameraAPI._hold_channel_for_capture``).
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, no LED
+                controller to light it; ``'exclusive_activity_running'``,
+                naming the recording. Nothing was sent.
+        """
+        if not self.lights_a_dark_led(target):
+            yield
+            return
+        self.refuse_controller_not_connected(member)
+        claim = self._scope._activity_claim
+        refusing = claim.enter_falsifying_change(current_taking()) if claim is not None else None
+        if isinstance(refusing, ActivityHolder) and refusing.kind == WorkKind.RECORDING:
+            raise HardwareCommandRefusedError('exclusive_activity_running', member, refusing.kind)
+        try:
+            yield
+        finally:
+            if claim is not None and refusing is None:
+                claim.leave_falsifying_change()
+
     def __init__(self, scope: Lumascope, driver: LEDBoardProtocol) -> None:
         self._scope = scope
         # driver argument kept for API compatibility but unused; `_driver`
@@ -1043,7 +1110,7 @@ class IlluminationAPI:
     # they hold the scope. From a task already on the lane's worker the lane
     # runs the body inline.
 
-    def _dispatch_led(self, impl, name, args=(), kwargs=None, *, lights=False):
+    def _dispatch_led(self, impl, name, args=(), kwargs=None):
         """Run one LED command for an external caller, on the right thread.
 
         The body runs on the scope's io lane, serialized against every other
@@ -1053,15 +1120,14 @@ class IlluminationAPI:
         nothing logged.
 
         The lane's ``call`` decides a refusal and raises it to the caller:
-        the lane is closed, or a run, a diagnostic or a home holds the scope and this
-        call is not made under its taking, or ``lights`` is set and a
-        recording holds the scope: a recording keeps the one light it was
-        started under, so any write that would light an LED would falsify
-        its frames, and an off never does. The body asks for the LED
+        the lane is closed, or a run, a diagnostic or a home holds the scope
+        and this call is not made under its taking. The body asks for the LED
         controller on the lane (``refuse_controller_not_connected``), so a
         lane refusal is never hidden behind the presence question, and asks
         again when its write finds the controller gone
-        (``_asked_again_after_a_fault``).
+        (``_asked_again_after_a_fault``). A body that would light an unlit
+        LED then asks whether a manual recording refuses it, against the
+        store as it runs (``_refused_if_it_lights_under_a_recording``).
         """
         kwargs = kwargs or {}
         return self._scope._io_executor.call(
@@ -1069,7 +1135,6 @@ class IlluminationAPI:
                 action=self._asked_again_after_a_fault(impl),
                 args=args,
                 kwargs=kwargs,
-                falsifies_recording=lights,
             ),
             name,
             _LED_WRITE_TIMEOUT_S,
@@ -1109,7 +1174,9 @@ class IlluminationAPI:
                 whose LED this model does not drive;
                 ``'exclusive_activity_running'``, another activity holds the
                 scope or the LEDs, or a manual recording runs and
-                ``illumination_ma`` is above 0 mA. Nothing was sent.
+                ``illumination_ma`` is above 0 mA while the LED is not lit
+                above 0 mA (a recording keeps the light it started under; a
+                lit LED's current may change). Nothing was sent.
             BoardNoReplyError: the board did not answer; whether the LED
                 is lit is unknown.
             BoardPortFailedError: the board's port failed during the write;
@@ -1120,13 +1187,13 @@ class IlluminationAPI:
             self._led_on_by_name_impl,
             'led_on',
             args=(channel, illumination_ma),
-            lights=illumination_ma > 0,
         )
 
     def _led_on_by_name_impl(self, channel: str, illumination_ma: float) -> float:
         """``led_on``'s body for a name: its address, then the address lane."""
         address = self._address_to_light(channel, 'led_on')
-        return self._led_on_impl(address, illumination_ma, member='led_on')
+        with self._refused_if_it_lights_under_a_recording({(address, illumination_ma)}, 'led_on'):
+            return self._led_on_impl(address, illumination_ma, member='led_on')
 
     @api(admitted_by=(Admission.LANE_CALL,))
     def led_off(self, channel: str) -> None:
@@ -1198,7 +1265,8 @@ class IlluminationAPI:
                 (``MissingPart.led_address``) for an address this model does
                 not drive; ``'exclusive_activity_running'``, another activity
                 holds the scope or the LEDs, or a manual recording runs and
-                ``illumination_ma`` is above 0 mA. Nothing was sent.
+                ``illumination_ma`` is above 0 mA while the address is not lit
+                above 0 mA, as ``led_on`` says. Nothing was sent.
             BoardNoReplyError: the board did not answer; whether the LED
                 is lit is unknown.
             BoardPortFailedError: the board's port failed during the write;
@@ -1206,12 +1274,17 @@ class IlluminationAPI:
         """
         self._refuse_not_a_board_address(address, 'address')
         return self._dispatch_led(
-            self._led_on_impl,
+            self._led_on_by_address_impl,
             'led_on_by_address',
             args=(address, illumination_ma),
-            kwargs={'member': 'led_on_by_address'},
-            lights=illumination_ma > 0,
         )
+
+    def _led_on_by_address_impl(self, address: int, illumination_ma: float) -> float:
+        """``led_on_by_address``'s body: the recording's question, then the address lane."""
+        with self._refused_if_it_lights_under_a_recording(
+            {(address, illumination_ma)}, 'led_on_by_address'
+        ):
+            return self._led_on_impl(address, illumination_ma, member='led_on_by_address')
 
     @api(in_process=True, engineering=True)
     def led_off_by_address(self, address: int) -> None:
@@ -1272,14 +1345,15 @@ class IlluminationAPI:
 
         See ``_apply_transition_impl`` for what a transition is and when it
         is refused for lease reasons, which is separate from the dispatch
-        refusal here; a transition whose target lights anything is refused
-        whole while a manual recording runs.
+        refusal here; a transition whose target lights an LED not lit above
+        0 mA is refused whole while a manual recording runs
+        (``lights_a_dark_led``), and one that changes a lit LED's current is
+        not.
         """
         return self._dispatch_led(
             self._apply_transition_impl,
             'apply_transition',
             args=(transition, ctx),
-            lights=bool(LedLease.target_leds(transition, ctx)),
         )
 
     def _leds_off_emergency(self, *, timeout_s: float = 2.0) -> None:
@@ -1375,7 +1449,8 @@ class IlluminationAPI:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 another activity holds the scope or the LEDs, raised at the
                 first channel it would change; or a manual recording runs
-                and the readings have an LED lit, raised before any change.
+                and the readings light an LED not lit above 0 mA, raised
+                before any change.
                 ``'not_connected'``, no LED controller is connected, or
                 ``'not_on_this_scope'``, before anything is written.
             ArgumentRefusedError: ``'led_address_unknown'``,
@@ -1391,16 +1466,17 @@ class IlluminationAPI:
             self._restore_led_state_impl,
             'restore_led_state',
             args=(readings,),
-            lights=bool(snapshot_lit_pairs(readings)),
         )
 
     def _restore_led_state_impl(self, readings: tuple[LedReading, ...]) -> None:
-        self._emit_led_diff(
-            snapshot_lit_pairs(readings),
-            lease=None,
-            block=False,
-            member='restore_led_state',
-        )
+        target = snapshot_lit_pairs(readings)
+        with self._refused_if_it_lights_under_a_recording(target, 'restore_led_state'):
+            self._emit_led_diff(
+                target,
+                lease=None,
+                block=False,
+                member='restore_led_state',
+            )
 
     def _leds_off_lit_by(self, lease: LedLease) -> None:
         """Turn off only the LED addresses *lease* lit.
@@ -1725,15 +1801,18 @@ class IlluminationAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
-                a lease holds the LEDs; nothing was sent.
+                a lease holds the LEDs, or a manual recording runs and the
+                target lights an LED not lit above 0 mA; nothing was sent.
         """
         self._refuse_unless_lease_holds(None, 'apply_transition')
-        self._emit_led_diff(
-            LedLease.target_leds(transition, ctx),
-            lease=None,
-            block=transition in _CONFIRM_ON_TRANSITIONS,
-            member='apply_transition',
-        )
+        target = LedLease.target_leds(transition, ctx)
+        with self._refused_if_it_lights_under_a_recording(target, 'apply_transition'):
+            self._emit_led_diff(
+                target,
+                lease=None,
+                block=transition in _CONFIRM_ON_TRANSITIONS,
+                member='apply_transition',
+            )
 
     def force_off(self) -> bool:
         """Turn off all LEDs unconditionally, bypassing any held lease.

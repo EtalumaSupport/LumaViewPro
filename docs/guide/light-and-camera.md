@@ -42,7 +42,8 @@ scope.illumination.leds_off()
 it is held by the illumination API; the drivers hold nothing. A run, an
 autofocus, a diagnostic or a home holds the LEDs for its length, and a write
 from anyone else is refused `'exclusive_activity_running'`. While a recording
-runs, lighting any LED is refused the same way, and turning one off is open. Work that borrows the
+runs, lighting an LED that is dark or at 0 mA is refused the same way;
+changing the current of an LED lit above 0 mA, and turning one off, are open. Work that borrows the
 light and gives it back reads it first and restores it after
 (`get_led_states`, then `restore_led_state` with what it answered).
 

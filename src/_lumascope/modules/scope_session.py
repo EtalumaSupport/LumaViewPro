@@ -3888,7 +3888,8 @@ class ScopeSession:
                 controller is not and the step's preview would light; or a
                 run, a diagnostic or a home holds the
                 scope, or a manual recording runs and the step's channel is not
-                the shown one or its preview would light. Nothing changes.
+                the shown one or its preview would light an LED not lit above
+                0 mA. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.
             MoveFaultError: ``'driver_failed'``, the board did not take an
@@ -3961,14 +3962,20 @@ class ScopeSession:
         was_lit = self._channel_lit(self._shown_channel)
         moves_light = shows or self._shown_channel != step['channel']
         lit = self.settings['protocol_led_on'] if shows else was_lit
-        if moves_light and lit and self._led_address(step['channel']) is not None:
+        address = self._led_address(step['channel'])
+        if moves_light and lit and address is not None:
             # A preview that would light needs the LED controller, asked
             # before anything moves; a dark one needs no board. A recording
-            # refuses the light, so it is asked here too, before the stage
-            # is sent anywhere.
-            self.scope.illumination.refuse_controller_not_connected('go_to_step')
+            # refuses a light of an LED not lit above 0 mA, so it is asked
+            # here too, before the stage is sent anywhere; the light's own
+            # write asks again on the lane.
+            illumination = self.scope.illumination
+            illumination.refuse_controller_not_connected('go_to_step')
             refusing = self.activity_claim.refusing_holder(
-                current_taking(), falsifies_recording=True
+                current_taking(),
+                falsifies_recording=illumination.lights_a_dark_led(
+                    {(address, step['Illumination'])}
+                ),
             )
             if refusing is not None:
                 raise command_refused(refusing, 'go_to_step')
@@ -4041,14 +4048,18 @@ class ScopeSession:
         return address
 
     def _show_leds(self, channel: str, lit: bool) -> None:
-        """``channel``'s LED lit at its stored current when ``lit``, every other LED dark.
+        """``channel``'s LED lit at its stored current when ``lit``, every other LED dark."""
+        with self.settings_lock:
+            illumination_ma = self.settings[channel]['illumination_ma']
+        self._show_leds_at(channel, illumination_ma, lit)
+
+    def _show_leds_at(self, channel: str, illumination_ma: float, lit: bool) -> None:
+        """``channel``'s LED lit at ``illumination_ma`` when ``lit``, every other LED dark.
 
         The one light-one-darken-rest outside a run, through the lease-free
         transition: it diffs against the LED store, so a channel already
         right does not blink, and refuses before anything is turned off.
         """
-        with self.settings_lock:
-            illumination_ma = self.settings[channel]['illumination_ma']
         self.scope.illumination.apply_transition(
             LedTransition.MANUAL_STEP,
             LedTransitionCtx(
@@ -4170,9 +4181,9 @@ class ScopeSession:
                 controller the light needs, or the camera when it leaves
                 during the call; or ``'exclusive_activity_running'``, a run,
                 a diagnostic or a home holds the scope, or a manual recording
-                runs and ``channel`` is not the shown one or the shown channel is lit
-                (a recording keeps one channel and the light it started under;
-                nothing is changed).
+                runs and ``channel`` is not the shown one, or its LED would be
+                lit from dark or 0 mA (a recording keeps one channel and the
+                light it started under; nothing is changed).
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
                 channels could not be resolved.
             CameraSettingRejected: the camera refused a setting of the
@@ -4256,8 +4267,9 @@ class ScopeSession:
                 controller the light needs; or
                 ``'exclusive_activity_running'``, a run, a diagnostic or a
                 home holds the scope, or ``lit`` is True while a manual
-                recording runs (a recording keeps the light it started
-                under; nothing is changed).
+                recording runs and the channel's LED is not lit above 0 mA
+                (a recording keeps the light it started under; nothing is
+                changed). One lit above 0 mA is put at the stored current.
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
                 channels could not be resolved.
             CameraSettingRejected: the camera refused a setting of the
@@ -4489,6 +4501,11 @@ class ScopeSession:
             ConfigurationDefectError: ``'channels_unresolved'``, the write is to the
                 shown channel's camera settings and this scope's channels could not be
                 resolved; the value is stored, and the camera is not changed.
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
+                the write is the shown channel's illumination, its LED is lit
+                at 0 mA, the value is above 0 mA, and a manual recording runs
+                (a recording keeps the light it started under). Nothing is
+                stored.
 
         A numpy scalar in ``value``, at any depth, is stored as the Python
         value it holds.
@@ -4498,10 +4515,11 @@ class ScopeSession:
         when the channel is applied (``CameraAPI.applied_gain_db_for``).
         A write to the shown channel's gain or exposure (or, while it is on
         auto-gain, to the auto-gain bounds) is on the camera, and to its
-        illumination on its lit LED, when this returns; a write to a hidden
-        channel, or one made while a run, a diagnostic or a home holds the
-        scope, is stored only, and so is an illumination written while a
-        manual recording runs. Such a write waits on the camera or LED lane,
+        illumination on its lit LED, when this returns, a manual recording
+        running or not; a write to a hidden channel, or one made while a run,
+        a diagnostic or a home holds the scope, is stored only. The
+        illumination is put on the LED before it is stored, so a light the
+        LED refuses stores nothing. Such a write waits on the camera or LED lane,
         so a caller on the UI thread hands it to a worker. Each auto-gain
         bound is stored alone; a minimum left above the maximum is refused
         when auto-gain is armed with them (``ArgumentRefusedError``,
@@ -4531,11 +4549,18 @@ class ScopeSession:
         )
         preference = path in settings_paths.PREFERENCES
         with contextlib.nullcontext() if preference else a_guarded_write(self.activity_claim):
+            # Applied, then stored: the LED's refusal (a light from 0 mA
+            # during a recording, a control session) stores nothing, and a
+            # write queued on the lane ahead of this one cannot leave the
+            # store at a current the LED refused.
+            channel = self._shown_channel
+            if self._illumination_goes_on_the_led(path, channel):
+                self._show_leds_at(channel, value, True)
             with self.settings_lock:
                 self._store_setting(path, value)
                 if path.startswith('logging.'):
                     _apply_logging(self.settings)
-            self._put_written_setting_on_the_hardware(path)
+            self._put_written_setting_on_the_camera(path, channel)
 
     def _an_activity_holds_the_scope(self) -> bool:
         """Whether a run, a diagnostic or a home holds the scope: a channel
@@ -4543,37 +4568,37 @@ class ScopeSession:
         holder = self.activity_claim.holder
         return holder is not None and holder.kind in SCOPE_HOLDING_KINDS
 
-    def _put_written_setting_on_the_hardware(self, path: str) -> None:
-        """Put a write to the shown channel's hardware settings on the hardware.
+    def _illumination_goes_on_the_led(self, path: str, channel: str) -> bool:
+        """Whether a write to ``path`` is ``channel``'s illumination, put on its lit LED.
 
-        The shown channel's gain and exposure, and the auto-gain bounds while
-        it is on auto-gain, go on the camera; its illumination goes on its
-        LED while it is lit. Any other write, a hidden channel's included, is
-        stored only. While a run, a diagnostic or a home holds the scope the
-        write is stored only, and the run's end puts the shown channel back on
-        the camera from the store. While a manual recording runs its
-        illumination is stored only: the recording refuses every light.
+        ``channel`` is the shown channel. Its illumination goes on its LED
+        while the LED is lit, a manual recording running or not; while a
+        run, a diagnostic or a home holds the scope it is stored only.
         """
-        channel = self._shown_channel
+        return (
+            path == f'{channel}.illumination_ma'
+            and self._channel_lit(channel)
+            and not self._an_activity_holds_the_scope()
+        )
+
+    def _put_written_setting_on_the_camera(self, path: str, channel: str) -> None:
+        """Put a write to the shown channel's camera settings on the camera.
+
+        ``channel`` is the shown channel. Its gain and exposure, and the
+        auto-gain bounds while it is on auto-gain, go on the camera. Any
+        other write, a hidden channel's included, is stored only. While a
+        run, a diagnostic or a home holds the scope the write is stored
+        only, and the run's end puts the shown channel back on the camera
+        from the store.
+        """
         with self.settings_lock:
             auto_gain = self.settings[channel]['auto_gain']
         camera = path in (f'{channel}.gain_db', f'{channel}.exposure_ms') or (
             auto_gain and path.startswith(('protocol.autogain.', 'ag_ae_max_exposure_ms'))
         )
-        holder = self.activity_claim.holder
-        led = (
-            path == f'{channel}.illumination_ma'
-            and self._channel_lit(channel)
-            and (holder is None or holder.kind != WorkKind.RECORDING)
-        )
-        if not (camera or led):
+        if not camera or self._an_activity_holds_the_scope():
             return
-        if self._an_activity_holds_the_scope():
-            return
-        if led:
-            self._show_leds(channel, True)
-        if camera:
-            self.apply_channel_camera(channel)
+        self.apply_channel_camera(channel)
 
     @api(in_process=True)
     @_guarded_write
