@@ -205,8 +205,6 @@ class TestTheFirmwareBoots:
             assert board.firmware_date == '2024-06-05'
             assert board.firmware_version is None
             assert not board.firmware_silent
-            # The connect's safety LEDS_OFF was acknowledged.
-            assert board.last_safety_off_error is None
         finally:
             board.disconnect()
 
@@ -239,12 +237,12 @@ def lit():
 
 
 @pytest.mark.firmware_tier
-def test_the_first_command_after_connect_gets_its_own_reply():
-    # Connect turns the LEDs off. A reply to that left unread is taken by
-    # the next command as its own: INFO would read 'LED 0 has been turned off'.
+def test_the_command_after_an_all_off_gets_its_own_reply():
+    # The all-off's reply is several lines. One left unread is taken by the
+    # next command as its own: INFO would read 'LED 0 has been turned off'.
     board = LEDBoard(backend=SimWireBackend(None, led=LED))
     try:
-        assert board.last_safety_off_error is None
+        board.leds_off()
         assert 'Version' in board.exchange_command('INFO', timeout=2)
     finally:
         board.disconnect()

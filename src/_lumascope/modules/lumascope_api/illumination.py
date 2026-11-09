@@ -20,7 +20,7 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
 from _lumascope.drivers import host_clock
-from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.lib import profile_trace
 from _lumascope.lib.log_helpers import VERBOSE
@@ -725,6 +725,8 @@ class IlluminationAPI:
                 sent.
             BoardNoReplyError: the board did not answer; the address is
                 unknown (``_write``).
+            BoardPortFailedError: the board's port failed during the write;
+                the address is believed as it was (``_write``).
         """
         commanded_ma = self._judge_light(address, illumination_ma, member)
 
@@ -838,6 +840,8 @@ class IlluminationAPI:
                 while a lease other than ``_lease`` holds the LEDs.
             BoardNoReplyError: the board did not answer; the address is
                 unknown (``_write``).
+            BoardPortFailedError: the board's port failed during the write;
+                the address is believed as it was (``_write``).
         """
         # Skip if the address is already dark. Reads from the API-level
         # _led_state store, which is correct for both LEDBoard and FX2.
@@ -880,6 +884,8 @@ class IlluminationAPI:
                 believed lit and no LED controller connected to darken it.
             BoardNoReplyError: the board did not answer; every address is
                 unknown (``_write_leds_off``).
+            BoardPortFailedError: the board's port failed during the write;
+                each address is believed as it was (``_write_leds_off``).
         """
         if not self._scope.led_connected:
             with self._led_state_lock:
@@ -909,6 +915,27 @@ class IlluminationAPI:
             return False
         self._write_leds_off()
         return True
+
+    def _safety_off(self) -> None:
+        """Bring-up's all-off, written as soon as the LED board is up.
+
+        Until it lands, nothing has said what the board holds lit: older
+        firmware can come up with every channel on. So an off that fails,
+        whichever fault the write raised, leaves every address of the board
+        unknown, never dark, and a later off is sent. With no LED controller
+        connected it writes nothing.
+
+        Raises:
+            Fault: the all-off did not complete (``_write_leds_off``); every
+                address of the board is unknown.
+        """
+        if not self._scope.led_connected:
+            return
+        try:
+            self._write_leds_off()
+        except Fault:
+            self._hold_unknown(self._driver.available_channels(), None)
+            raise
 
     def _asked_again_after_a_fault(self, impl):
         """``impl``, asked for the LED controller again when it raises a fault.
@@ -948,11 +975,11 @@ class IlluminationAPI:
         """Make one board write of ``addresses`` under the LED lock.
 
         A board that did not answer may have done what it was told or not,
-        so every address written is held unknown, believed neither lit nor
-        dark: an off writes it and a light is never skipped for it. It is
-        held as lit by ``lease``, whose release then darkens it. No frame
-        is judged against a change that may not have happened; the caller
-        that made it fails instead.
+        so every address written is held unknown (``_hold_unknown``). A port
+        that failed changes nothing the API believes: on a board that is
+        gone, nothing reached it, and the belief it had is the right one.
+        No frame is judged against a change that may not have happened; the
+        caller that made it fails instead.
 
         Returns:
             The scope's steady clock (``host_clock.steady_ns``) when the write
@@ -961,22 +988,33 @@ class IlluminationAPI:
         Raises:
             BoardNoReplyError: the board did not answer; the listeners
                 have been told each address is unknown.
+            BoardPortFailedError: the board's port failed during the write;
+                what the API believes of each address is unchanged.
         """
         try:
             with self._led_lock:
                 began_ns = host_clock.steady_ns()
                 write()
         except BoardNoReplyError:
-            with self._led_state_lock:
-                for address in addresses:
-                    self._led_state[address] = _Held(LedState.UNKNOWN)
-                    self._lit_by[address] = lease
-                readings = [self._reading(address) for address in addresses]
-            _api_log.warning(f'LED write unanswered: addresses {list(addresses)} unknown')
-            for reading in readings:
-                self._fire_led_listeners(reading)
+            self._hold_unknown(addresses, lease)
             raise
         return began_ns
+
+    def _hold_unknown(self, addresses: tuple[int, ...], lease: LedLease | None) -> None:
+        """Hold each of ``addresses`` unknown, and tell the listeners.
+
+        Believed neither lit nor dark: an off writes it and a light is never
+        skipped for it. It is held as lit by ``lease``, whose release then
+        darkens it.
+        """
+        with self._led_state_lock:
+            for address in addresses:
+                self._led_state[address] = _Held(LedState.UNKNOWN)
+                self._lit_by[address] = lease
+            readings = [self._reading(address) for address in addresses]
+        _api_log.warning(f'LED write not confirmed: addresses {list(addresses)} unknown')
+        for reading in readings:
+            self._fire_led_listeners(reading)
 
     def _write_leds_off(self) -> None:
         """Write the board's all-off and record every address dark.
@@ -984,6 +1022,9 @@ class IlluminationAPI:
         Raises:
             BoardNoReplyError: the board did not answer; every address of
                 the board is unknown (``_write``).
+            BoardPortFailedError: the board's port failed during the write;
+                what the API believes of each address is unchanged
+                (``_write``).
         """
         began_ns = self._write(self._driver.available_channels(), self._driver.leds_off, None)
         with self._led_state_lock:
@@ -1071,6 +1112,8 @@ class IlluminationAPI:
                 ``illumination_ma`` is above 0 mA. Nothing was sent.
             BoardNoReplyError: the board did not answer; whether the LED
                 is lit is unknown.
+            BoardPortFailedError: the board's port failed during the write;
+                the LED is believed as it was before the write.
         """
         refuse_unknown_channel(channel, argument='channel')
         return self._dispatch_led(
@@ -1107,6 +1150,8 @@ class IlluminationAPI:
                 scope or the LEDs. Nothing was sent.
             BoardNoReplyError: the board did not answer; whether the LED
                 is lit is unknown.
+            BoardPortFailedError: the board's port failed during the write;
+                the LED is believed as it was before the write.
         """
         refuse_unknown_channel(channel, argument='channel')
         return self._dispatch_led(self._led_off_by_name_impl, 'led_off', args=(channel,))
@@ -1156,6 +1201,8 @@ class IlluminationAPI:
                 ``illumination_ma`` is above 0 mA. Nothing was sent.
             BoardNoReplyError: the board did not answer; whether the LED
                 is lit is unknown.
+            BoardPortFailedError: the board's port failed during the write;
+                the LED is believed as it was before the write.
         """
         self._refuse_not_a_board_address(address, 'address')
         return self._dispatch_led(
@@ -1187,6 +1234,8 @@ class IlluminationAPI:
                 scope or the LEDs. Nothing was sent.
             BoardNoReplyError: the board did not answer; whether the LED
                 is lit is unknown.
+            BoardPortFailedError: the board's port failed during the write;
+                the LED is believed as it was before the write.
         """
         self._refuse_not_a_board_address(address, 'address')
         return self._dispatch_led(
@@ -1210,6 +1259,8 @@ class IlluminationAPI:
                 believed lit and no LED controller connected to darken it.
             BoardNoReplyError: the board did not answer; whether each LED
                 is lit is unknown.
+            BoardPortFailedError: the board's port failed during the write;
+                each LED is believed as it was before the write.
         """
         return self._dispatch_led(self._leds_off_impl, 'leds_off')
 
@@ -1332,6 +1383,9 @@ class IlluminationAPI:
                 light in the readings, before anything is written.
             BoardNoReplyError: the board did not answer a write; that
                 channel is unknown and the writes after it are not made.
+            BoardPortFailedError: the board's port failed during a write; that
+                channel is believed as it was, and the writes after it are not
+                made.
         """
         return self._dispatch_led(
             self._restore_led_state_impl,
@@ -1362,6 +1416,10 @@ class IlluminationAPI:
             BoardNoReplyError: the board did not answer an off; that
                 address is unknown and still the lease's (``_write``), and
                 the addresses after it are left as they were.
+            BoardPortFailedError: the board's port failed during an off; that
+                address is believed as it was and still the lease's
+                (``_write``), and the addresses after it are left as they
+                were.
         """
         with self._led_state_lock:
             addresses_to_off = [address for address, by in self._lit_by.items() if by is lease]
@@ -1633,6 +1691,9 @@ class IlluminationAPI:
                 target light, before anything is written.
             BoardNoReplyError: the board did not answer a write; that
                 channel is unknown and the writes after it are not made.
+            BoardPortFailedError: the board's port failed during a write; that
+                channel is believed as it was, and the writes after it are not
+                made.
         """
         # The whole target is judged before anything is turned off, so a
         # refused light leaves every LED as it was.
@@ -1691,16 +1752,17 @@ class IlluminationAPI:
         Returns:
             True when the all-off was written; False when no LED controller
             was connected to write it to, so whatever the board holds lit
-            stays lit, or when the board did not answer it, every address
-            then unknown (``_write_leds_off``).
+            stays lit; or when the board did not answer it, every address
+            then unknown, or its port failed during it, each address then
+            believed as it was (``_write_leds_off``).
         """
         held = self.led_lease_purpose
         if held is not None:
             _api_log.warning('force_off bypassing the held %r LED lease', held)
         try:
             return self._leds_off_if_present()
-        except BoardNoReplyError as e:
-            _api_log.error(f'force_off unanswered: {e}')
+        except (BoardNoReplyError, BoardPortFailedError) as e:
+            _api_log.error(f'force_off not taken ({type(e).__name__}): {e}')
             return False
 
     # --- Enable / disable ---

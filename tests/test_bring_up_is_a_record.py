@@ -26,6 +26,7 @@ from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.drivers.registry import DeclinedDriver, DriverFallback, NoLiveDriverError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
+from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from _lumascope.modules.exceptions import (
     BinningSubstitutedNotice,
@@ -48,10 +49,20 @@ from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 
-class _SafetyOffFailedBoard(NullLEDBoard):
-    """A board that connected and reported its connect-time LEDS_OFF did not complete."""
+class _FirstAllOffUnanswered(SimulatedLEDBoard):
+    """A simulated LED board that does not answer its first all-off, and answers every command after."""
 
-    last_safety_off_error = 'TimeoutError: no reply'
+    # a stand-in by design: a fault the simulator cannot yet produce;
+    # ``fail_on`` leaves every LEDS_OFF unanswered, the shutdown's own included
+    def __init__(self):
+        super().__init__(timing='instant')
+        self._first_off_missed = False
+
+    def leds_off(self) -> None:
+        if self._first_off_missed:
+            return super().leds_off()
+        self._first_off_missed = True
+        raise BoardNoReplyError('LEDS_OFF: no reply from the board')
 
 
 def _bring_up(monkeypatch, tmp_path, *, motor=None, led=None, camera=None, **settings):
@@ -482,16 +493,16 @@ class TestAProblemOnAPartThatCameUp:
     def test_a_refused_led_safety_off_is_recorded_and_reported_once(
         self, monkeypatch, tmp_path, centre_posts
     ):
-        s = _bring_up(monkeypatch, tmp_path, led=_SafetyOffFailedBoard(), microscope='LS850T')
+        s = _bring_up(monkeypatch, tmp_path, led=_FirstAllOffUnanswered(), microscope='LS850T')
         try:
             led = _status(s.bring_up_record(), Part.LED)
             assert (led.up, led.cause) == (True, 'safety_off_failed')
-            assert led.detail == 'TimeoutError: no reply'
+            assert led.detail == 'BoardNoReplyError: LEDS_OFF: no reply from the board'
             assert not led.missing
             safety = [n for n in centre_posts if n.reason == 'safety_off_failed']
             assert len(safety) == 1
             assert safety[0].title == LedSafetyOffNotTakenError.title
-            assert 'TimeoutError: no reply' in safety[0].message
+            assert 'LEDS_OFF: no reply from the board' in safety[0].message
         finally:
             s.shutdown()
             s.scope.disconnect()

@@ -140,8 +140,5 @@ class NullLEDBoard:
     # ------------------------------------------------------------------
     # Write-only (no-ops)
     # ------------------------------------------------------------------
-    def _safety_leds_off(self):
-        pass
-
     def _on_disconnect(self):
         pass

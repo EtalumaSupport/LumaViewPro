@@ -83,11 +83,10 @@ def test_a_held_port_logs_its_connect_failure_once(kind, driver_log):
     assert loud[0].startswith('ERROR') and 'connect() failed' in loud[0], loud
 
 
-def test_a_present_led_board_connects_and_confirms_its_safety_off(driver_log):
+def test_a_present_led_board_connects_and_logs_nothing(driver_log):
     board = LEDBoard(backend=_present())
     try:
         assert board.is_connected()
-        assert board.last_safety_off_error is None
         assert _loud(driver_log) == []
     finally:
         board.disconnect()

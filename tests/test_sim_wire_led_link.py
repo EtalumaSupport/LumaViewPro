@@ -26,9 +26,7 @@ import _lumascope.drivers.sim_wire.backend as sim_backend
 from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedError
 from _lumascope.lib.lumascope_error import Fault
 from _lumascope.modules.exceptions import HardwareCommandRefusedError
-from _lumascope.modules.lumascope_api.bring_up import Part
 from _lumascope.modules.lumascope_api.illumination import (
-    IlluminationAPI,
     LedState,
     LedTransition,
     LedTransitionCtx,
@@ -236,31 +234,3 @@ def test_a_lease_release_darkens_the_led_its_unanswered_write_left_unknown(scope
     lease.release()
     assert _state(illumination, 1) is LedState.DARK
     assert 1 not in _driven(board)
-
-
-def test_a_bring_up_all_off_the_board_did_not_answer_leaves_every_led_unknown(monkeypatch):
-    # a stand-in by design: a fault is armed for the board's next command,
-    # and bring-up writes others first (the firmware STIM probe), so the
-    # delay is armed as bring-up's all-off starts, the first scope off after
-    # connect.
-    scope_off = IlluminationAPI._leds_off_if_present
-    armed = []
-
-    def armed_once(self):
-        if not armed:
-            armed.append(True)
-            self._scope.simulation.delay_reply('led', 0.5)
-        return scope_off(self)
-
-    monkeypatch.setattr(IlluminationAPI, '_leds_off_if_present', armed_once)
-    session = ScopeSession.create(
-        complete_settings(simulator_tier='firmware', microscope='LS850T'),
-        simulate=True,
-        warn_pre_release=False,
-    )
-    try:
-        led = next(p for p in session.scope.bring_up_record().parts if p.part == Part.LED)
-        assert (led.up, led.cause) == (True, 'safety_off_failed')
-        assert _states(session.scope.illumination) == {LedState.UNKNOWN}
-    finally:
-        session.shutdown()

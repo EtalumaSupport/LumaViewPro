@@ -6521,12 +6521,13 @@ channel believed lit asks for the controller.
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; nothing was sent.
 - `HardwareCommandRefusedError`: `'not_connected'`, the channel is believed lit and no LED controller is connected to darken it; `'exclusive_activity_running'`, another activity holds the scope or the LEDs. Nothing was sent.
 - `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
+- `BoardPortFailedError`: the board's port failed during the write; the LED is believed as it was before the write.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="IlluminationAPI.led_on"></a>
@@ -6562,12 +6563,13 @@ The commanded current in mA.
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; `'not_a_number'`, `illumination_ma` is not a finite number; `'illumination_out_of_range'`, it is outside 0 to the attached board's maximum. Nothing was sent.
 - `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` for a channel whose LED this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs, or a manual recording runs and `illumination_ma` is above 0 mA. Nothing was sent.
 - `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
+- `BoardPortFailedError`: the board's port failed during the write; the LED is believed as it was before the write.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `illumination_out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="IlluminationAPI.leds_off"></a>
@@ -6591,12 +6593,13 @@ when nothing is believed lit.
 
 - `HardwareCommandRefusedError`: `'not_connected'`, a channel believed lit and no LED controller connected to darken it.
 - `BoardNoReplyError`: the board did not answer; whether each LED is lit is unknown.
+- `BoardPortFailedError`: the board's port failed during the write; each LED is believed as it was before the write.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="IlluminationAPI.remove_led_listener"></a>
@@ -6645,12 +6648,13 @@ the addresses they have lit at a positive current.
 - `HardwareCommandRefusedError`: `'exclusive_activity_running'`, another activity holds the scope or the LEDs, raised at the first channel it would change; or a manual recording runs and the readings have an LED lit, raised before any change. `'not_connected'`, no LED controller is connected, or `'not_on_this_scope'`, before anything is written.
 - `ArgumentRefusedError`: `'led_address_unknown'`, `'not_a_number'` or `'illumination_out_of_range'` for a light in the readings, before anything is written.
 - `BoardNoReplyError`: the board did not answer a write; that channel is unknown and the writes after it are not made.
+- `BoardPortFailedError`: the board's port failed during a write; that channel is believed as it was, and the writes after it are not made.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ArgumentRefusedError`](#ArgumentRefusedError): `led_address_unknown`, `not_a_number`, `illumination_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ImagingAPI"></a>

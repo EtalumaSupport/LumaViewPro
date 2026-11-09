@@ -5,7 +5,7 @@ Bug
 ---
 `disconnect()` stopped the motors, closed the serial port and cleared the
 state caches -- but never sent an off. Nothing downstream covered it: the
-driver's `_safety_leds_off()` fires on CONNECT (guarding against a previous
+scope's LED safety off fires at bring-up (guarding against a previous
 session that died with channels lit), and the atexit hook only runs when the
 interpreter exits. So a caller that tore the scope down without exiting the
 process -- a GUI Disconnect button, switching scopes mid-session, an SDK

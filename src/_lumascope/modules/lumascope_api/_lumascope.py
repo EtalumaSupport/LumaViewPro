@@ -40,12 +40,12 @@ else:
 from _lumascope.drivers import camera_profiles, host_clock
 from _lumascope.drivers.camera import Camera
 from _lumascope.drivers.exceptions import (
-    BoardNoReplyError,
     CameraFirmwareMissingError,
     CameraReadFailedError,
     CameraUsbDriverUnusableError,
     HardwareError,
 )
+from _lumascope.lib.lumascope_error import Fault
 
 # Registration-only imports: loading each driver module fires its
 # @*_registry.register(...) decorator so the registry can instantiate it
@@ -434,19 +434,10 @@ def _no_fx2_bindings(identity: str) -> None:
     return None
 
 
-def _board_status(part: Part, board, fallback) -> 'PartStatus':
-    """The record of a board the registry built, real or null.
-
-    A real LED board reports a connect-time LEDS_OFF that did not complete
-    through ``last_safety_off_error``; it is the one problem a board that
-    came up can have, and a sample-safety one (older firmware can leave
-    channels on), so it is on the record.
-    """
+def _board_status(part: Part, fallback) -> 'PartStatus':
+    """The record of a board the registry built, real or null by its ``fallback``."""
     if fallback is not None:
         return PartStatus(part, up=False, cause=fallback.cause, detail=fallback.detail)
-    safety_error = getattr(board, 'last_safety_off_error', None)
-    if safety_error:
-        return PartStatus(part, up=True, cause='safety_off_failed', detail=str(safety_error))
     return PartStatus(part, up=True)
 
 
@@ -1054,7 +1045,7 @@ class Lumascope:
                 absence_expected=motor_absence_expected,
                 motorconfig_defaults=motorconfig_defaults,
             )
-            parts[Part.MOTOR] = _board_status(Part.MOTOR, self._motion_driver, fallback)
+            parts[Part.MOTOR] = _board_status(Part.MOTOR, fallback)
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.
@@ -1069,6 +1060,20 @@ class Lumascope:
         present_axes = self._motion_driver.detect_present_axes()
         self.motion._init_axes(present_axes, self._motion_driver.detect_homed_axes())
         self.motion._start_monitor()
+
+        # ----- Channel identity -----
+        # What the channels on this unit ARE (names, LED addresses,
+        # excitations, filterset) -- resolved from the unit's motorconfig
+        # Channels block or the model's scopes.json rows, here at construction
+        # so every caller (GUI, headless session, script) holds identity
+        # without any separate initialize step. Distinct from the live
+        # LED state the illumination API keeps: identity says what a
+        # channel IS, state says what is lit now. Resolved before the LED
+        # board, from the motion driver and the model alone: the LED safety
+        # off below names each address it darkens through it.
+        self._configured_model = selected_model
+        self._board_names_its_model = board_names_its_model
+        self.channel_identity = self._resolve_channel_identity()
 
         report_step(on_progress, connecting(Part.LED))
 
@@ -1198,7 +1203,7 @@ class Lumascope:
                 logger.info(f'[SCOPE API ] {absent}')
                 self._led_driver: LEDBoardProtocol = NullLEDBoard()
                 led_fallback = DriverFallback('not_detected', ('FX2LEDController',))
-                parts[Part.LED] = _board_status(Part.LED, self._led_driver, led_fallback)
+                parts[Part.LED] = _board_status(Part.LED, led_fallback)
             else:
                 self._led_driver = FX2LEDController(
                     connection=fx2_connection, debug_wire=fx2_debug_wire
@@ -1217,7 +1222,31 @@ class Lumascope:
             self._led_driver, led_fallback = led_registry.create_with_fallback(
                 'auto', debug_wire=fx2_debug_wire
             )
-            parts[Part.LED] = _board_status(Part.LED, self._led_driver, led_fallback)
+            parts[Part.LED] = _board_status(Part.LED, led_fallback)
+
+        # ----- IlluminationAPI, and the LED safety off -----
+        # The LEDs are turned off as soon as the board is up, before the
+        # camera, whose connect can take seconds: LED firmware before v3.0.4
+        # can leave every channel stuck on at full current after a crash or
+        # an interrupted session (about 3 A, 62 degC measured on the board),
+        # photobleaching whatever is on the stage. The off is the scope's own
+        # write, not a caller's command, so it takes no lane and asks no
+        # claim, and with no board connected it writes nothing. An off that
+        # does not complete, whichever way the write failed, leaves every
+        # address unknown (``IlluminationAPI._safety_off``) and the scope
+        # comes up: the failure is the LED part's record, which bring-up
+        # reports once.
+        from _lumascope.modules.lumascope_api.illumination import IlluminationAPI
+
+        self.illumination = IlluminationAPI(self, self._led_driver)
+        try:
+            self.illumination._safety_off()
+        except Fault as fault:
+            parts[Part.LED] = dataclasses.replace(
+                parts[Part.LED],
+                cause='safety_off_failed',
+                detail=f'{type(fault).__name__}: {fault}',
+            )
 
         report_step(on_progress, connecting(Part.CAMERA))
 
@@ -1289,18 +1318,6 @@ class Lumascope:
         self._bring_up_parts = parts
         self._bring_up_substitutions: list[Substitution] = []
 
-        # ----- Channel identity -----
-        # What the channels on this unit ARE (names, LED addresses,
-        # excitations, filterset) -- resolved from the unit's motorconfig
-        # Channels block or the model's scopes.json rows, here at construction
-        # so every caller (GUI, headless session, script) holds identity
-        # without any separate initialize step. Distinct from the live
-        # LED state the illumination API keeps: identity says what a
-        # channel IS, state says what is lit now.
-        self._configured_model = selected_model
-        self._board_names_its_model = board_names_its_model
-        self.channel_identity = self._resolve_channel_identity()
-
         # ----- ScopeCapabilities -----
         # Single source of truth for "what does this scope have" -- built
         # once from the three drivers, frozen thereafter. Callers should
@@ -1319,18 +1336,17 @@ class Lumascope:
         self.frame_validity.use_rules(self.capabilities.frame_rules)
 
         # ----- Sub-API wiring -----
-        # motion was already constructed above (it needs earlier
-        # construction so _init_axes / _start_monitor can run before the
-        # LED/camera drivers are set up). Remaining sub-APIs:
+        # motion and illumination were constructed above (motion so
+        # _init_axes / _start_monitor can run before the LED/camera drivers
+        # are set up, illumination for the LED safety off). Remaining
+        # sub-APIs:
         from _lumascope.modules.lumascope_api.camera import CameraAPI
-        from _lumascope.modules.lumascope_api.illumination import IlluminationAPI
         from _lumascope.modules.lumascope_api.imaging import ImagingAPI
         from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
         from _lumascope.modules.lumascope_api.protocols import ProtocolsAPI
         from _lumascope.modules.lumascope_api.runtime_state import RuntimeState
         from _lumascope.modules.lumascope_api.simulation import SimulationAPI
 
-        self.illumination = IlluminationAPI(self, self._led_driver)
         self.camera = CameraAPI(self, self.frame_validity)
         self.imaging = ImagingAPI(self, self.camera, self.frame_validity)
         self.diagnostics = DiagnosticsAPI(self)
@@ -1475,21 +1491,6 @@ class Lumascope:
             config: ScopeInitConfig instance with all scope-level settings.
         """
         self._motion_expected = config.expects_motion
-        # The safety-off is the scope's own write, never the public
-        # dispatcher: bring-up is the scope configuring itself, not a command
-        # from a caller, so it takes no lane and asks no claim. It asks
-        # presence first, so with no board connected it writes nothing. The
-        # write is bounded by the serial layer's own read and write timeouts;
-        # nothing else holds the LED lock at bring-up. A board that did not
-        # answer leaves every address unknown and the scope comes up: the
-        # failure is the LED part's safety off not taken, on the record
-        # before the report so it is told once whichever off it was.
-        try:
-            self.illumination._leds_off_if_present()
-        except BoardNoReplyError as e:
-            self._bring_up_parts[Part.LED] = dataclasses.replace(
-                self._bring_up_parts[Part.LED], cause='safety_off_failed', detail=str(e)
-            )
         self._report_bring_up(config)
         if self.capabilities.has_turret:
             # The objective is the one assigned to the slot in the light

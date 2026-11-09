@@ -57,47 +57,16 @@ class LEDBoard(SerialBoard):
         # write in about 150 ms; the motor board's 0.1 s would give up first.
         super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]', timeout=0.3, backend=backend)
 
-        # Set by _safety_leds_off() at connect time. None when the board
-        # confirmed LEDS_OFF; "ExceptionType: message" when it did not
-        # answer or the exchange raised. API layer reads this on
-        # construction to fire a notification.
-        self.last_safety_off_error: str | None = None
-
         # A board the port search did not find, or whose connect failed, is
         # sent nothing: the registry judges it and bring-up reports it once.
+        # One that connected is sent nothing here either: the LED safety off
+        # is the scope's, taken as soon as the board is up
+        # (``Lumascope.__init__``), so the API records its failure whichever
+        # way the write fails. A caller building this driver with no scope
+        # sends its own ``leds_off()`` first.
         if not self.found:
             return
         self.connect()
-        if not self.is_connected():
-            return
-
-        # Safety: immediately turn off all LEDs after connecting.
-        # Old crashed LED firmware (pre-v3.0.4) can leave all LEDs stuck on
-        # at full current (~500mA x 6 channels = 3A), causing thermal damage
-        # to the board (measured 62degC). New v3.0.4+ firmware initializes LEDs
-        # off on boot, but this guard protects against old firmware and
-        # interrupted previous sessions.
-        self._safety_leds_off()
-
-    def _safety_leds_off(self):
-        """Turn off all LEDs immediately after connect.
-
-        Guards against pre-v3.0.4 LED firmware that could leave channels
-        stuck on at full current after a crash / interrupted session,
-        risking thermal damage (62 degC measured at 3 A continuous) and
-        sample photobleaching. The reply is read like any other command's:
-        a reply left unread is taken by the next command as its own. If
-        the board doesn't answer, the failure is recorded in
-        self.last_safety_off_error so the API layer can fire a
-        user-visible notification.
-        """
-        try:
-            self.leds_off()
-            logger.info('[LED Class ] Safety LEDS_OFF confirmed on connect')
-            self.last_safety_off_error = None
-        except Exception as e:
-            logger.error(f'[LED Class ] Safety LEDS_OFF failed: {e}')
-            self.last_safety_off_error = f'{type(e).__name__}: {e}'
 
     def available_channels(self) -> tuple[int, ...]:
         """The LED addresses this board drives, 0 to ``_MAX_CHANNEL``.
