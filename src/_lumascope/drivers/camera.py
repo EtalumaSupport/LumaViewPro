@@ -931,6 +931,12 @@ class Camera(ABC):
           - ``camera.log`` :enter / :exit lines emit on every level so
             nested patterns (init_camera_config wrapping
             set_pixel_format) stay visible in diagnostic logs.
+
+        The entry's grab-state read comes before the body, so a read that
+        fails there raises before anything is written. The exit's restart
+        runs after the body's writes: each driver's start reports its own
+        failure and returns (the FX2's raises, ``open_and_start``), so a
+        write that took is never told it failed by the restart after it.
         """
         with self._lifecycle_lock:
             self._update_config_depth += 1
@@ -1049,12 +1055,37 @@ class Camera(ABC):
         """The driver's own stop, run by stop_grabbing()."""
         pass
 
-    @abstractmethod
     def is_grabbing(self) -> bool:
         """Return whether the camera is currently acquiring.
 
+        The removal latch is read here, before the driver is asked, so a
+        camera gone in the window before its teardown answers False on
+        every driver, its handle still held, and is never asked a read it
+        cannot answer.
+
         Returns:
-            bool: True when the SDK reports an active grab loop.
+            bool: True when the driver reports an active grab loop; False
+                when the camera is not connected or was declared removed.
+
+        Raises:
+            CameraReadFailedError: The driver did not answer the grab state.
+                The camera is kept.
+        """
+        if self.is_device_removed():
+            return False
+        return self._is_grabbing()
+
+    @abstractmethod
+    def _is_grabbing(self) -> bool:
+        """The driver's own grab-state read, run by is_grabbing() for a camera not declared removed.
+
+        Returns:
+            bool: True when the SDK reports an active grab loop; False when
+                the camera is not connected.
+
+        Raises:
+            CameraReadFailedError: The SDK did not answer the grab state.
+                The camera is kept.
         """
         pass
 

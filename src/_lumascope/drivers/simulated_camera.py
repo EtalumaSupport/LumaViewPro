@@ -391,6 +391,7 @@ class SimulatedCamera(Camera):
         'minimum_exposure': 'get_min_exposure',
         'auto_gain': 'get_auto_gain_mode',
         'auto_exposure': 'get_auto_exposure_mode',
+        'grabbing': '_is_grabbing',
     }
     # How a read fails: the read's raise, or that raise with the camera gone
     # from the bus during the read.
@@ -657,7 +658,7 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Grabbing
     # ------------------------------------------------------------------
-    def is_grabbing(self) -> bool:
+    def _is_grabbing(self) -> bool:
         """Return whether the simulated camera is currently acquiring.
 
         Returns:

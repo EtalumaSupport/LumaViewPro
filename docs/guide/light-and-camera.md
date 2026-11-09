@@ -152,7 +152,8 @@ falsify its frames -- binning, frame size, image mode -- is refused
 
 **Streaming.** The camera streams from bring-up on. `scope.imaging.disable_streaming()`
 stops its feed and `enable_streaming()` starts it again; `is_streaming()`
-answers which. While the feed is stopped, a still, a saved still, a run's start
+answers which, and raises `CameraReadFailedError` when the camera does not
+answer; the session's `status` then carries `camera_streaming` as `null`. While the feed is stopped, a still, a saved still, a run's start
 and a go-to are refused (`'camera_not_streaming'`). The camera's other members -- the conversion gain,
 line-noise reduction, the longest exposure, the frame rate it reports -- are in
 the [reference](../api-reference.md#CameraAPI).

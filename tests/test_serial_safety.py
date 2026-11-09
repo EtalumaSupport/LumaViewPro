@@ -846,7 +846,7 @@ class TestCameraStateLock:
             def _stop_grabbing(self):
                 pass
 
-            def is_grabbing(self):
+            def _is_grabbing(self):
                 return False
 
             def _frame_grid(self):
@@ -957,7 +957,7 @@ class TestCameraStateLock:
             def _stop_grabbing(self):
                 pass
 
-            def is_grabbing(self):
+            def _is_grabbing(self):
                 return False
 
             def _frame_grid(self):
@@ -1063,7 +1063,7 @@ class TestCameraStateLock:
             def _stop_grabbing(self):
                 pass
 
-            def is_grabbing(self):
+            def _is_grabbing(self):
                 return False
 
             def _frame_grid(self):

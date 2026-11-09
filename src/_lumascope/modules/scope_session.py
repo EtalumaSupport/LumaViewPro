@@ -32,6 +32,7 @@ from collections.abc import Callable, Iterable, Iterator
 from typing import TYPE_CHECKING
 
 import _lumascope.modules.settings_init as settings_init
+from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.drivers.simulated_camera import SimulatedStall
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import (
@@ -107,7 +108,7 @@ from _lumascope.modules.lumascope_api.camera import CameraAPI, ChannelCameraRequ
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from _lumascope.modules.lumascope_api.runtime_state import slots_holding
 from _lumascope.modules.manual_capture import ManualCaptureController
-from _lumascope.modules.notification_center import Notification
+from _lumascope.modules.notification_center import Notification, notifications
 from _lumascope.modules.operation import Operation, refuse_waiting_on_ui_thread
 from _lumascope.modules.manual_recording import ManualRecordingController
 from _lumascope.modules.config_helpers import DisplayRates, log_environment_once
@@ -466,7 +467,8 @@ class Status:
         parts: Which parts came up at bring-up, and why each that did not
             (``ScopeSession.bring_up_record``).
         camera_streaming: Whether the camera is grabbing frames, asked of
-            the camera itself (``ImagingAPI.is_streaming``).
+            the camera itself (``ImagingAPI.is_streaming``); None when the
+            camera did not answer, the failure reported in the log at each ask.
     """
 
     live_work: LiveWork
@@ -476,7 +478,7 @@ class Status:
     axes: dict[StageAxis, AxisPosition]
     turret: TurretStatus | None
     parts: tuple[PartStatus, ...]
-    camera_streaming: bool
+    camera_streaming: bool | None
 
 
 @api_fields('paths')
@@ -1332,7 +1334,22 @@ class ScopeSession:
             'turret': self.scope.motion.turret_status(),
             'parts': self.scope.bring_up_record().parts,
         }
-        return lambda: Status(**at_edge, camera_streaming=self.scope.imaging.is_streaming())
+        return lambda: Status(**at_edge, camera_streaming=self._camera_streaming())
+
+    def _camera_streaming(self) -> bool | None:
+        """Whether the camera is grabbing, or None when it did not answer.
+
+        The one reader of the streaming state for ``status``, its run-state
+        edge and bring-up's last line. None of them is a caller a failed read
+        can be raised to, so the failure is reported once, log only, and the
+        answer is None: one ERROR line per failed read per ask, at the rate
+        the askers ask (a client's poll, the event stream).
+        """
+        try:
+            return self.scope.imaging.is_streaming()
+        except HardwareError as failed:
+            notifications.report_outcome(failed, solicited=False, category='Camera', log_only=True)
+            return None
 
     @contextlib.contextmanager
     def _count_in_flight(self, kind: str):
@@ -2074,11 +2091,9 @@ class ScopeSession:
         # The one marker for "the session is up": a host measures its own
         # consumer's start against it. It says whether the camera is
         # grabbing, which a launch without a camera does not.
-        streaming = session.scope.imaging.is_streaming()
-        logger.info(
-            '[Session  ] bring-up complete: scope configured, '
-            f'camera {"streaming" if streaming else "not streaming"}'
-        )
+        streaming = session._camera_streaming()
+        said = {True: 'streaming', False: 'not streaming', None: 'streaming state unknown'}
+        logger.info(f'[Session  ] bring-up complete: scope configured, camera {said[streaming]}')
 
     @staticmethod
     def _build_autofocus_pair(*, scope):

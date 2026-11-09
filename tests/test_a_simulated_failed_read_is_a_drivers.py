@@ -28,6 +28,7 @@ _DRIVER_GETTERS = {
     'minimum_exposure': 'get_min_exposure',
     'auto_gain': 'get_auto_gain_mode',
     'auto_exposure': 'get_auto_exposure_mode',
+    'grabbing': 'is_grabbing',
 }
 
 

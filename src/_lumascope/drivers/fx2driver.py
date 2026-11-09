@@ -2632,7 +2632,7 @@ class FX2Camera(Camera):
             s['delimiters_wrong'],
         )
 
-    def is_grabbing(self) -> bool:
+    def _is_grabbing(self) -> bool:
         return self._grabbing and self._grab_thread is not None and self._grab_thread.is_alive()
 
     # -- Grab loop ---------------------------------------------------------

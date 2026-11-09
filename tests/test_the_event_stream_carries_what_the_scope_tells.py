@@ -151,6 +151,27 @@ def test_the_first_event_is_the_status_with_the_current_id(client):
     }
 
 
+def test_a_grab_state_the_camera_does_not_answer_is_null_and_the_stream_goes_on(session, client):
+    """The status event carries ``camera_streaming`` as null when the camera
+    does not answer its grab state, and the stream is not ended by it."""
+    session.scope.simulation.refuse_camera_read('grabbing', 'failed', count=1000)
+    try:
+        with _reading(client) as stream:
+            first = stream.next()
+            assert first['event'] == 'status'
+            assert first['data']['camera_streaming'] is None
+            assert (
+                client.post(
+                    '/api/v1/scope/illumination/led_on',
+                    json={'channel': LED0, 'illumination_ma': 10.0},
+                ).status_code
+                == 200
+            )
+            assert stream.next()['event'] != 'error'
+    finally:
+        session.scope._camera_driver.allow_read('grabbing')
+
+
 def test_a_listener_members_event_is_its_record(client):
     with _reading(client) as stream:
         stream.until('status')

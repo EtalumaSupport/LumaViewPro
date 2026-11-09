@@ -225,6 +225,39 @@ class TestWhatIsNotAStall:
         assert shown == []
         assert _stall_lines(caplog) == []
 
+    def test_a_stop_asked_for_is_not_a_stall_when_the_drivers_half_of_it_fails(
+        self, session, shown, caplog
+    ):
+        """The watch reads whether the grab is wanted, never the camera: a
+        stop that was asked for is no stall even when the driver's half of
+        it raises after the frames end, leaving the driver saying it grabs.
+        Read off the camera, that stop was reported as a stall (#847)."""
+        driver = session.scope._camera_driver
+        before = session.scope._frames_delivered()
+        assert _wait_for(lambda: session.scope._frames_delivered() > before, 3.0), (
+            'precondition: the stream delivered'
+        )
+
+        def a_stop_that_fails_after_the_frames_end():
+            driver._stop_acquisition()
+            raise RuntimeError('scripted: the stop failed after the stream ended')
+
+        # A stand-in by design: the simulator cannot yet fail its own stop.
+        driver._stop_grabbing = a_stop_that_fails_after_the_frames_end
+        try:
+            with caplog.at_level(logging.INFO):
+                with pytest.raises(RuntimeError, match='scripted'):
+                    driver.stop_grabbing()
+                assert driver.is_grabbing(), 'precondition: the driver still says it grabs'
+                # As the not-streaming case above: an absence is waited out
+                # past the floor and several of the check's ticks.
+                time.sleep(1.5)
+        finally:
+            del driver._stop_grabbing
+            driver._grabbing = False
+        assert shown == []
+        assert _stall_lines(caplog) == []
+
 
 class TestWhereItIsNotShown:
     def test_an_unattended_run_logs_the_stall_and_shows_nothing(self, session, shown, caplog):

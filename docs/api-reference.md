@@ -7043,11 +7043,16 @@ Route: `GET /api/v1/scope/imaging/is_streaming`.
 Whether the camera is currently acquiring frames.
 
 Queries the driver directly (unlike `scope.camera.active`, which
-reads the held connected-state). False when no camera is attached.
+reads the held connected-state). False when no camera is attached,
+or one its driver declared removed.
 
 **Raises**
 
-Nothing.
+- `CameraReadFailedError`: The camera did not answer its grab state, a camera pulled during the read included; the next ask of a pulled camera answers False.
+
+**Refusals by REST status**
+
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
 
 <a id="ImagingAPI.judge_frame"></a>
 ### `ImagingAPI.judge_frame`
@@ -9203,7 +9208,7 @@ first good read after a connect, since it keeps the format it read.
 
 **Args**
 
-- `node`: The setting read: `'gain'`, `'exposure'`, `'frame_size'` (the window the camera acquires), `'frame_grid'` (the windows it can acquire, which a frame size write reads first), `'binning'`, `'pixel_format'`, `'pixel_formats'` (the formats offered, which a pixel format write reads first), `'black_level'`, `'frame_rate'`, `'minimum_exposure'` (`camera.read_exposure_min_ms`), `'auto_gain'` or `'auto_exposure'`.
+- `node`: The setting read: `'gain'`, `'exposure'`, `'frame_size'` (the window the camera acquires), `'frame_grid'` (the windows it can acquire, which a frame size write reads first), `'binning'`, `'pixel_format'`, `'pixel_formats'` (the formats offered, which a pixel format write reads first), `'black_level'`, `'frame_rate'`, `'minimum_exposure'` (`camera.read_exposure_min_ms`), `'auto_gain'`, `'auto_exposure'` or `'grabbing'` (whether the camera is acquiring, which every write's config guard reads first).
 - `answer`: `'failed'`, the read raises; or `'removed'`, the same raise with the camera gone from the bus during the read (it stays removed for the session, as after `remove_camera`).
 - `count`: How many reads in a row meet it, 1 or more.
 
@@ -12988,7 +12993,7 @@ axis can read HOMING in `axes` a moment before the home appears in
 **Fields**
 
 - <a id="Status.axes"></a>`axes`: `dict[StageAxis, AxisPosition]` -- Each stage axis's state and position, None where the position is not known (`MotionAPI.axis_positions`): X, Y and Z, in um.
-- <a id="Status.camera_streaming"></a>`camera_streaming`: `bool` -- Whether the camera is grabbing frames, asked of the camera itself (`ImagingAPI.is_streaming`).
+- <a id="Status.camera_streaming"></a>`camera_streaming`: `bool | None` -- Whether the camera is grabbing frames, asked of the camera itself (`ImagingAPI.is_streaming`); None when the camera did not answer, the failure reported in the log at each ask.
 - <a id="Status.control"></a>`control`: `ControlSession | None` -- The control session held, None when none is (`ScopeSession.control`).
 - <a id="Status.live_work"></a>`live_work`: `LiveWork` -- Everything the session is still doing (`ScopeSession.live_work`).
 - <a id="Status.lock"></a>`lock`: `ControlsLock` -- Which of a person's controls the Session locks, and why (`ScopeSession.controls_lock`): its editing policy, not a refusal.
@@ -13646,6 +13651,7 @@ A camera setting whose read a simulated fault can fail.
 - `minimum_exposure`
 - `auto_gain`
 - `auto_exposure`
+- `grabbing`
 
 <a id="CameraShutter"></a>
 ### `lumascope.CameraShutter`

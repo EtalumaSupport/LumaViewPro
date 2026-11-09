@@ -914,6 +914,8 @@ class ImagingAPI:
                 ``'record_read_failed'``, a frame came but the camera did not
                 answer a read its record needs, chained from the
                 ``CameraReadFailedError``.
+            CameraReadFailedError: The camera did not answer whether it is
+                grabbing, asked before the capture; nothing was captured.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, absent at the call or removed during the capture;
                 ``'camera_not_streaming'``, connected but not grabbing.
@@ -1562,6 +1564,8 @@ class ImagingAPI:
                 frame came but the camera did not answer a read of the gain,
                 exposure or black level its record needs, so it was not kept,
                 chained from the ``CameraReadFailedError``.
+            CameraReadFailedError: The camera did not answer whether it is
+                grabbing, asked before the capture; nothing was captured.
             HardwareCommandRefusedError: ``'not_connected'``, naming this
                 member, with no camera at the call or removed during the
                 capture; ``'camera_not_streaming'``, connected but not
@@ -2481,10 +2485,13 @@ class ImagingAPI:
         """Whether the camera is currently acquiring frames.
 
         Queries the driver directly (unlike ``scope.camera.active``, which
-        reads the held connected-state). False when no camera is attached.
+        reads the held connected-state). False when no camera is attached,
+        or one its driver declared removed.
 
         Raises:
-            Nothing.
+            CameraReadFailedError: The camera did not answer its grab state,
+                a camera pulled during the read included; the next ask of a
+                pulled camera answers False.
         """
         driver = self._driver
         if driver is None:
@@ -2505,6 +2512,7 @@ class ImagingAPI:
         is attached.
 
         Raises:
+            CameraReadFailedError: The camera did not answer its grab state.
             HardwareCommandRefusedError: ``'scope_disconnected'``, the lane
                 closed as the question was put.
             LaneCallStillRunningError: ``'call_overran'``, what is queued
@@ -2702,8 +2710,8 @@ class ImagingAPI:
         so the imaging API watches its own frame count on the session's
         scheduler, in every host, and reports ``CameraStreamStalledError``
         unsolicited once per stall. A stall is the count standing still
-        while the camera is connected and streaming, or its grab is wanted
-        and has stopped on its own (the driver's ``grab_wanted``), for ten
+        while the camera is connected and its grab is wanted (the driver's
+        ``grab_wanted``, which a grab that stopped on its own keeps), for ten
         times the longest exposure the camera may be using
         (``longest_exposure_ms``, the sensor's maximum while the exposure is
         unknown) and never less than 5 s (``prologue_stall_threshold_s``).
@@ -2833,12 +2841,14 @@ class ImagingAPI:
             self._delivered_rate_published.notify_all()
 
     def _check_stream(self) -> None:
-        # A grab that is wanted and not running stopped when nobody asked,
-        # and is watched as a stall like a grab that delivers nothing.
+        # The grab the driver wants, not the SDK's grab state: the watch asks
+        # the camera nothing, so it never waits out a grab stop that holds the
+        # SDK's lock, and a read that fails cannot blind it or report itself
+        # every second. A grab that is wanted and not running stopped when
+        # nobody asked, and is watched as a stall like a grab that delivers
+        # nothing; a stop someone asked for is not wanted.
         driver = self._driver
-        streaming = self._scope.camera_connected and (
-            self.is_streaming() or (driver is not None and driver.grab_wanted)
-        )
+        streaming = self._scope.camera_connected and driver is not None and driver.grab_wanted
         self._sample_delivery(streaming)
         if not streaming:
             # A camera that is not streaming delivers nothing by design; the

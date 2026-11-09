@@ -1060,7 +1060,10 @@ class PylonCamera(Camera):
                 _cam_log.info('start_grabbing: already grabbing, skipping')
                 return
         except Exception as e:
-            _cam_log.info(f'start_grabbing IsGrabbing() check raised: {e}')
+            # A failed read, not "not grabbing": the start goes on, since one
+            # that fails logs its own failure and returns, and the read's
+            # failure is logged where a sweep of errors finds it.
+            _cam_log.warning(f'start_grabbing could not read the grab state, starting anyway: {e}')
         try:
             # B20 / B23: snapshot StreamGrabber.Status into the trace
             # log before StartGrabbing so post-mortem analysis can
@@ -1121,17 +1124,23 @@ class PylonCamera(Camera):
             _cam_log.warning(f'pylon StartGrabbing FAILED: {e}')
             _cam_log.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
-    def is_grabbing(self) -> bool:
-        """Return True if the camera is currently in a grab loop.
+    def _is_grabbing(self) -> bool:
+        """Return True if the camera is currently in a grab loop; False when not connected.
 
-        Returns False on any SDK error so callers can use this as a
-        defensive precondition (e.g. B28 ChunkModeActive guard) without
-        a try/except.
+        ``is_connected()`` is not asked, since it marks the camera
+        disconnected as it answers.
+
+        Raises:
+            CameraReadFailedError: The SDK did not answer the grab state.
+                The camera is kept.
         """
-        try:
-            return self.active.IsGrabbing()
-        except Exception:
+        camera = self.active
+        if not camera:
             return False
+        try:
+            return camera.IsGrabbing()
+        except genicam.GenericException as e:
+            raise CameraReadFailedError(f'The camera did not answer its grab state: {e}') from e
 
     def connect(self) -> bool:
         """Try to connect to the first available basler camera"""
@@ -1591,6 +1600,10 @@ class PylonCamera(Camera):
         applied. A RuntimeException is one such step: one failed node access
         is not evidence the camera is gone, and a camera really removed is
         marked so by the SDK's removal callback.
+
+        Raises:
+            CameraReadFailedError: The config guard's grab-state read failed,
+                before any step ran.
         """
         camera = self.active
         if camera is None:
@@ -1680,11 +1693,12 @@ class PylonCamera(Camera):
             # axis, the SetValue will clamp + warn from set_frame_size.
             ('the 1900x1900 frame', lambda: self.set_frame_size(w=1900, h=1900)),
         ]
-        try:
-            with self.update_camera_config():
-                self.config_not_applied = self._apply_config_steps(steps)
-        except Exception as e:
-            _cam_log.exception(f'[CAM Class ] Unexpected error in init_camera_config: {e}')
+        # Each step's own failure is _apply_config_steps'; the guard's own
+        # entry and exit (the grab-state read, the stop, the restart) are not
+        # a step, and a failure there reaches connect()'s handler, which
+        # reports a found camera whose configuration failed.
+        with self.update_camera_config():
+            self.config_not_applied = self._apply_config_steps(steps)
 
     # Frame-identity chunk candidates in preference order. Different
     # Basler models advertise different per-frame identity chunks

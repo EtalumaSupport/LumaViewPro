@@ -828,8 +828,9 @@ class SimulationAPI:
                 ``'pixel_formats'`` (the formats offered, which a pixel
                 format write reads first), ``'black_level'``,
                 ``'frame_rate'``, ``'minimum_exposure'``
-                (``camera.read_exposure_min_ms``), ``'auto_gain'`` or
-                ``'auto_exposure'``.
+                (``camera.read_exposure_min_ms``), ``'auto_gain'``,
+                ``'auto_exposure'`` or ``'grabbing'`` (whether the camera is
+                acquiring, which every write's config guard reads first).
             answer: ``'failed'``, the read raises; or ``'removed'``, the
                 same raise with the camera gone from the bus during the
                 read (it stays removed for the session, as after

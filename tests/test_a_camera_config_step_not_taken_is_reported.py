@@ -102,3 +102,78 @@ def test_bring_up_reports_the_steps_not_taken_once(monkeypatch, tmp_path, centre
     finally:
         s.shutdown()
         s.scope.disconnect()
+
+
+def test_a_config_guard_that_cannot_read_the_grab_state_runs_no_step_and_raises_the_read():
+    """The guard's own grab-state read is no step: it fails the configuration
+    whole, before any step runs, and reaches connect()'s handler (Pylon's and
+    IDS's report a found camera whose configuration failed) instead of being
+    swallowed with every step skipped and nothing named."""
+    from _lumascope.drivers.exceptions import CameraReadFailedError
+
+    def unreadable():
+        raise CameraReadFailedError('The camera did not answer its grab state: timeout')
+
+    pylon = init_configurable_pylon_camera()
+    ids = bare_ids_camera()
+    ids.profile = MagicMock(pixel_formats=['Mono8'])
+    for name in ('set_pixel_format', 'exposure_t', 'set_frame_size', '_configure_free_run'):
+        setattr(ids, name, MagicMock())
+    for cam in (pylon, ids):
+        cam.is_grabbing = unreadable
+        try:
+            cam.init_camera_config()
+        except CameraReadFailedError:
+            pass
+        else:
+            raise AssertionError(f'{type(cam).__name__}: configured past an unread grab state')
+        cam.exposure_t.assert_not_called()
+        cam.set_frame_size.assert_not_called()
+        assert cam.config_not_applied == ()
+
+
+def test_an_ids_connect_whose_configuration_cannot_read_the_grab_state_fails_naming_the_read(
+    monkeypatch,
+):
+    """Through ``connect``: the guard's read reaches connect's own handler, a
+    camera found whose configuration could not read its grab state, raised
+    to the registry as that camera's with the step and the read in its
+    words, and no step run. Pylon's connect reads the grab state raw before
+    its configuration and fails there (its own handler); its configuration
+    guard is the case above."""
+    import pytest
+    from ids_peak import ids_peak
+
+    from _lumascope.drivers import idscamera
+    from _lumascope.drivers.exceptions import CameraReadFailedError, CameraUsbOpenFailedError
+
+    cam = bare_ids_camera()
+    cam.active = None
+    opened = MagicMock()
+    stream = opened.DataStreams.return_value[0].OpenDataStream.return_value
+    stream.IsGrabbing.side_effect = ids_peak.TimeoutException('GC_ERR_TIMEOUT')
+    cam._find_device = MagicMock()
+    cam._open_device_with_retry = lambda descriptor, refresh: (opened, descriptor)
+    # Stand-ins by design: the subject is connect's handler around the
+    # configuration; the device, its profile and its handler are not.
+    monkeypatch.setattr(idscamera, 'ImageHandler', MagicMock())
+    for name in (
+        '_register_device_callbacks',
+        '_load_profile',
+        '_query_dynamic_capabilities',
+        '_reapply_frame_callbacks',
+        '_cleanup_partial_connect',
+        'set_pixel_format',
+        'exposure_t',
+        'set_frame_size',
+        '_configure_free_run',
+    ):
+        setattr(cam, name, MagicMock())
+    cam.profile = MagicMock(pixel_formats=['Mono8'])
+
+    with pytest.raises(CameraUsbOpenFailedError, match='its configuration failed') as raised:
+        cam.connect()
+    assert isinstance(raised.value.__cause__, CameraReadFailedError)
+    assert 'grab state' in str(raised.value)
+    cam.set_frame_size.assert_not_called()
+    cam._cleanup_partial_connect.assert_called_once()

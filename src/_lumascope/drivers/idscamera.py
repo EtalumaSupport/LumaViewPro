@@ -500,6 +500,7 @@ class IDSCamera(Camera):
             # same instance does not silently stop delivering frames to them.
             self._reapply_frame_callbacks()
 
+            step = 'its configuration'
             self.init_camera_config()
             # connect() returns CONFIGURED but NOT grabbing; the single
             # start fires later via open_and_start() (the start gate).
@@ -1416,6 +1417,10 @@ class IDSCamera(Camera):
         not take is logged and named in ``config_not_applied``, which
         bring-up reports, and the camera stays connected with the rest
         applied.
+
+        Raises:
+            CameraReadFailedError: The config guard's grab-state read failed,
+                before any step ran.
         """
         if not self.active:
             return
@@ -1506,17 +1511,26 @@ class IDSCamera(Camera):
             # what it is, beginning with the limiter the camera reports.
             ('the free-run state log', self._log_free_run_state),
         ]
-        try:
-            with self.update_camera_config():
-                self.config_not_applied = self._apply_config_steps(steps)
-        except Exception as e:
-            _cam_log.error(f'[CAM Class ] init_camera_config failed: {e}')
+        # Each step's own failure is _apply_config_steps'; the guard's own
+        # entry and exit (the grab-state read, the stop, the restart) are not
+        # a step, and a failure there reaches connect()'s handler, which
+        # reports a found camera whose configuration failed.
+        with self.update_camera_config():
+            self.config_not_applied = self._apply_config_steps(steps)
 
-    def is_grabbing(self):
-        if not self.data_stream:
+    def _is_grabbing(self) -> bool:
+        """Whether the data stream is acquiring; False when the camera is not connected.
+
+        Raises:
+            CameraReadFailedError: The SDK did not answer the grab state.
+                The camera is kept.
+        """
+        if not self.active or not self.data_stream:
             return False
-
-        return self.data_stream.IsGrabbing()
+        try:
+            return self.data_stream.IsGrabbing()
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(f'The camera did not answer its grab state: {e}') from e
 
     def _assume_dead_stall_s(self) -> float:
         """The stall age past which teardown treats the device as dead.
@@ -1684,25 +1698,29 @@ class IDSCamera(Camera):
         if self.active is None or self.remote_nodemap is None or self.data_stream is None:
             _cam_log.warning('[CAM Class ] start_grabbing skipped: camera not connected')
             return
-        if self.is_grabbing():
-            _cam_log.info('ids start_grabbing SKIPPED: already grabbing')
-            return
-        # A prior stop() whose grab threads never quiesced leaves the stream
-        # wedged: its buffer pool is un-revoked AND its threads still hold the data
-        # stream. Announcing a fresh pool on top is the leak that grows the
-        # announced count every cycle, and a fresh consumer cannot start under the
-        # live one. Abort cleanly instead of stacking; the wedge ceilings own the
-        # escalation to the removal drop. (Not hit in normal reconfigure:
-        # stop_grabbing blocks on the join ceiling, so a returning stop means
-        # threads already died.)
-        if self.cam_image_handler is not None and not self.cam_image_handler.threads_quiesced():
-            _cam_log.error(
-                '[CAM Class ] start_grabbing aborted: prior grab threads have not '
-                'quiesced (stream wedged); not stacking a fresh buffer pool'
-            )
-            return
-        _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
+        # The grab-state read is inside the start's try: a read that fails is
+        # the start's failure, logged and rolled back like every other. The
+        # config guard runs this after a write's body, so a read failing here
+        # must not reach the write as its own failure: the write took.
         try:
+            if self.is_grabbing():
+                _cam_log.info('ids start_grabbing SKIPPED: already grabbing')
+                return
+            # A prior stop() whose grab threads never quiesced leaves the stream
+            # wedged: its buffer pool is un-revoked AND its threads still hold the data
+            # stream. Announcing a fresh pool on top is the leak that grows the
+            # announced count every cycle, and a fresh consumer cannot start under the
+            # live one. Abort cleanly instead of stacking; the wedge ceilings own the
+            # escalation to the removal drop. (Not hit in normal reconfigure:
+            # stop_grabbing blocks on the join ceiling, so a returning stop means
+            # threads already died.)
+            if self.cam_image_handler is not None and not self.cam_image_handler.threads_quiesced():
+                _cam_log.error(
+                    '[CAM Class ] start_grabbing aborted: prior grab threads have not '
+                    'quiesced (stream wedged); not stacking a fresh buffer pool'
+                )
+                return
+            _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
             # Reclaim any pool a prior unclean-but-now-quiesced stop left announced
             # BEFORE allocating fresh, so the announced count cannot grow cycle over
             # cycle (the mid-suite wedge). Safe: threads are confirmed dead above.

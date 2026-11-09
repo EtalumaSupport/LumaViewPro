@@ -19,6 +19,7 @@ whose exception classes are the vendors'.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import pathlib
 import subprocess
@@ -29,7 +30,7 @@ from unittest.mock import MagicMock
 import pytest
 from ids_peak import ids_peak
 
-from _lumascope.drivers.camera import FrameWindow
+from _lumascope.drivers.camera import Camera, FrameWindow
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
@@ -209,6 +210,107 @@ def test_an_ids_gain_write_whose_selector_read_fails_lets_it_out_with_nothing_wr
         cam.gain(6.0)
     cam.remote_nodemap.FindNode.return_value.SetValue.assert_not_called()
     cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.assert_not_called()
+
+
+# --- the grab state -------------------------------------------------------------------
+
+
+def test_each_driver_raises_a_grab_state_read_the_sdk_did_not_answer_and_keeps_the_camera():
+    """A grab-state read the SDK did not answer raises ``CameraReadFailedError``
+    with the SDK's words, and the camera is kept. Pylon folded it to
+    ``False``, which every caller read as "not streaming"; IDS let the SDK's
+    own type out."""
+    from pypylon import genicam
+
+    pylon = bare_pylon_camera()
+    pylon.active.IsGrabbing.side_effect = genicam.TimeoutException('usb stalled')
+    ids = bare_ids_camera()
+    ids.data_stream.IsGrabbing.side_effect = ids_peak.TimeoutException('GC_ERR_TIMEOUT')
+    for cam, words in ((pylon, 'usb stalled'), (ids, 'GC_ERR_TIMEOUT')):
+        with pytest.raises(CameraReadFailedError, match=words):
+            cam.is_grabbing()
+        cam._mark_disconnected.assert_not_called()
+
+
+def test_a_camera_declared_removed_answers_not_grabbing_and_asks_the_driver_nothing():
+    """The base reads the removal latch before the driver is asked, so a
+    camera gone before its teardown answers ``False`` on every driver, its
+    handle still held, and no read is made of a camera that cannot answer.
+    The simulator answered ``True`` in that window, so ``is_streaming`` and
+    ``status`` said streaming for a pulled camera on the simulated scope
+    alone."""
+    pylon = bare_pylon_camera()
+    ids = bare_ids_camera()
+    sim = SimulatedCamera()
+    sim.start_grabbing()
+    try:
+        for cam, sdk_read in (
+            (pylon, pylon.active.IsGrabbing),
+            (ids, ids.data_stream.IsGrabbing),
+            (sim, None),
+        ):
+            if sdk_read is not None:
+                sdk_read.side_effect = AssertionError('a removed camera was asked')
+            # The base's latch, as a removal callback sets it before the teardown.
+            Camera._mark_disconnected(cam)
+            assert cam.active, f'{type(cam).__name__}: precondition: the handle is still held'
+            assert cam.is_grabbing() is False, type(cam).__name__
+            if sdk_read is not None:
+                sdk_read.assert_not_called()
+    finally:
+        sim._stop_acquisition()
+
+
+def _ids_restart_read_fails(cam):
+    """The guard's entry reads the camera grabbing; the restart's read after the write fails."""
+    cam.data_stream.IsGrabbing.side_effect = [True, ids_peak.TimeoutException('GC_ERR_TIMEOUT')]
+    # A stand-in by design: the subject is the restart after the write, not the stop before it.
+    cam._stop_grabbing = MagicMock()
+    cam._rollback_failed_start = MagicMock()
+
+
+def test_an_ids_write_whose_restart_cannot_read_the_grab_state_took_and_the_start_rolls_back(
+    caplog,
+):
+    """The guard's exit restarts the grab after the write, and IDS's start
+    reads the grab state inside its own ``try``: a read failing there is the
+    start's failure, logged and rolled back. The write that took is told
+    applied, every value sent, and the grab is still wanted, so the stall
+    watch reports the dark view rather than the write being told it failed."""
+    offenders = []
+    for name, write in _IDS_SETTERS.items():
+        cam = bare_ids_camera()
+        _ids_restart_read_fails(cam)
+        caplog.clear()
+        try:
+            answer, written = write(cam)
+        except Exception as e:
+            offenders.append(f'{name}: the write was told {type(e).__name__}: {e}')
+            continue
+        if answer is False:
+            offenders.append(f'{name}: answered not applied')
+        if not all(node.called for node in written):
+            offenders.append(f'{name}: not every value was sent')
+        if not cam.grab_wanted:
+            offenders.append(f'{name}: the grab is no longer wanted')
+        if cam._rollback_failed_start.call_count != 1:
+            offenders.append(f'{name}: rolled back {cam._rollback_failed_start.call_count} times')
+        if not [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING
+            and 'rolling back' in r.getMessage()
+            and 'GC_ERR_TIMEOUT' in r.getMessage()
+        ]:
+            offenders.append(f'{name}: no WARNING naming the read')
+    assert not offenders, '\n'.join(offenders)
+
+
+def test_an_ids_format_write_whose_restart_cannot_read_the_grab_state_holds_the_new_format():
+    cam = bare_ids_camera()
+    _ids_restart_read_fails(cam)
+    _ids_format_write(cam)
+    assert cam._pixel_format_cache == 'Mono8'
 
 
 # --- the base keeps the window a failed read leaves ------------------------------------
