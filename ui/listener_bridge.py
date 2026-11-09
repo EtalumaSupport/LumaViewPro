@@ -106,6 +106,10 @@ def _apply_live_view_fps(ctx, path: str) -> None:
     ctx.scope_display_thread.set_fps(ctx.live_view_fps)
 
 
+def _redraw_quick_enhance(ctx, path: str) -> None:
+    ctx.quick_enhance_controls.show_switches()
+
+
 def _redraw_advanced(ctx, path: str) -> None:
     popup = _microscope(ctx).advanced_settings_shown()
     if popup is not None:
@@ -147,6 +151,7 @@ SHOWN_SETTINGS: tuple[tuple[str, Callable[[object, str], None]], ...] = (
     ('keep_led_between_steps', _redraw_advanced),
     ('tiling_overlap_percent', _redraw_advanced),
     ('camera', _redraw_advanced),
+    ('quick_enhance', _redraw_quick_enhance),
 )
 
 # The settings the window does not show: read where they are used, set only
@@ -178,7 +183,6 @@ NOT_SHOWN: frozenset[str] = frozenset(
         'lvp_lock_port',
         'rest_api',
         'step_channel_order',
-        'quick_enhance',
     }
 )
 

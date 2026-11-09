@@ -2102,6 +2102,101 @@
 		height: '38dp'
 		on_release: self.choose('apply_quick_enhance_to_folder')
 
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
+		size_hint_y: None
+		height: '26dp'
+		Label:
+			text: 'Auto-levels'
+			tooltip_text: 'Stretch the brightness: the dimmest 1% black, the brightest 1% white.'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+		CheckBox:
+			id: auto_levels_enabled
+			size_hint_x: None
+			width: '25dp'
+			on_release: root.set_switch('auto_levels_enabled', self.active)
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
+		size_hint_y: None
+		height: '26dp'
+		Label:
+			text: 'Gamma'
+			tooltip_text: 'Brighten the midtones a little.'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+		CheckBox:
+			id: gamma_enabled
+			size_hint_x: None
+			width: '25dp'
+			on_release: root.set_switch('gamma_enabled', self.active)
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
+		size_hint_y: None
+		height: '26dp'
+		Label:
+			text: 'Even illumination'
+			tooltip_text: 'Even out light brighter in one part of the field than another.'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+		CheckBox:
+			id: illumination_correction_enabled
+			size_hint_x: None
+			width: '25dp'
+			on_release: root.set_switch('illumination_correction_enabled', self.active)
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
+		size_hint_y: None
+		height: '26dp'
+		Label:
+			text: 'Denoise'
+			tooltip_text: 'Smooth pixel noise with a 3-pixel median.'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+		CheckBox:
+			id: denoise_enabled
+			size_hint_x: None
+			width: '25dp'
+			on_release: root.set_switch('denoise_enabled', self.active)
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_x: NARROW_WIDTH
+		pos_hint: {'center_x': 0.5}
+		size_hint_y: None
+		height: '26dp'
+		Label:
+			text: 'Sharpen'
+			tooltip_text: 'Sharpen fine detail where the image has signal.'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+		CheckBox:
+			id: sharpen_enabled
+			size_hint_x: None
+			width: '25dp'
+			on_release: root.set_switch('sharpen_enabled', self.active)
+
 <QuickEnhanceUtilityButton@RoundedButton>:
 	font_size: '12sp'
 	color: 0.96, 0.98, 1, 1

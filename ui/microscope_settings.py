@@ -240,6 +240,8 @@ class MicroscopeSettings(BoxLayout):
 
         ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id'].show_settings()
 
+        ctx.quick_enhance_controls.show_switches()
+
         # Stimulation is firmware-gated. The enable toggle lives in
         # Advanced Settings now; startup just establishes the setting and
         # pushes the persisted state down to every channel via the single

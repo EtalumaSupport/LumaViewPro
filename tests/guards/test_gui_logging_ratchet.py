@@ -253,6 +253,12 @@ _ROSTER = {
         'FOLDER_CHOOSE',
         'FOLDER_CHOOSE_OPEN',
     ),
+    # Each step's switch: the record is named for the setting it writes.
+    'QuickEnhanceControls.auto_levels_enabled': (_D('set_switch'),),
+    'QuickEnhanceControls.denoise_enabled': (_D('set_switch'),),
+    'QuickEnhanceControls.gamma_enabled': (_D('set_switch'),),
+    'QuickEnhanceControls.illumination_correction_enabled': (_D('set_switch'),),
+    'QuickEnhanceControls.sharpen_enabled': (_D('set_switch'),),
     # A touch on the live view: click-to-centre.
     'ShaderViewer.scope_display_id': ('SCOPE_CLICK_TO_CENTER',),
     # Each sets the stitching mode, then chooses the folder; RUN_STITCHER's

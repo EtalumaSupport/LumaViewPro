@@ -85,6 +85,26 @@ class QuickEnhanceControls(BoxLayout):
         super().__init__(**kwargs)
         _app_ctx.register_early('quick_enhance_controls', self)
 
+    def show_switches(self) -> None:
+        """Show each step's switch as the settings store holds it.
+
+        Each switch's checkbox has the id of the setting it shows under
+        ``quick_enhance``.
+        """
+        for field, enabled in _app_ctx.ctx.settings['quick_enhance'].items():
+            self.ids[field].active = enabled
+
+    def set_switch(self, field: str, enabled: bool) -> None:
+        """Write the step's switch the person set; the switches then show what is stored."""
+        label = f'QUICK_ENHANCE_{field.upper()}'
+        gui_logger.toggle(label, enabled)
+        ctx = _app_ctx.ctx
+        run_reported(
+            lambda: ctx.update_settings(f'quick_enhance.{field}', enabled),
+            self.show_switches,
+            label,
+        )
+
     def set_source(self, path) -> None:
         """Enhance the image or folder at ``path``; the API says which it is."""
         target = pathlib.Path(path)
