@@ -304,13 +304,28 @@ class ChannelControl(BoxLayout):
 
         The Session puts a write to the shown channel's gain, exposure or
         illumination on the hardware before it returns, so a drag is live,
-        each tick in order on that one lane. The answer reaches the widgets
-        through the store and the listeners.
+        each tick in order on that one lane. A stored write reaches the
+        widgets through the store and the listeners; a refused one stores
+        nothing and tells no listener, so the setting's own slider and box
+        are drawn from the store once the write has answered, whatever it
+        answered, and a refused drag shows the setting it left in place.
+        The other settings' widgets are left to their own writes.
         """
-        session = _app_ctx.ctx.session
+        ctx = _app_ctx.ctx
+        session = ctx.session
         path = f'{self.channel}.{key}'
+        (slider_id, text_id) = next((s, t) for s, t, k in _CHANNEL_VALUE_WIDGETS if k == key)
+
+        def show_stored():
+            with ctx.settings_lock:
+                stored = ctx.settings[self.channel][key]
+            self._show_value_on_widgets(slider_id, text_id, stored)
+
         submit_reported(
-            lambda: session.update_settings(path, value), None, f'{name}_{self.channel}', lane=lane
+            lambda: session.update_settings(path, value),
+            show_stored,
+            f'{name}_{self.channel}',
+            lane=lane,
         )
 
     def ill_slider(self):
