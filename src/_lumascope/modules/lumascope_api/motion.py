@@ -1150,7 +1150,7 @@ class MotionAPI:
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
     @_home_runs_its_own_moves
-    def _home_impl(self) -> None:
+    def _home_impl(self, put_back: bool = False) -> None:
         """Home every axis the motor board has.
 
         This is the unified "home everything" entry point used by
@@ -1160,6 +1160,11 @@ class MotionAPI:
         homed and raises HardwareError on a failure.
 
         Returns only when every homed axis has a known position.
+
+        Args:
+            put_back: When True, the turret goes back on the slot it was on
+                and Z back to its target once the home has succeeded (see
+                ``_put_back``); X and Y stay where the home left them.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
@@ -1172,6 +1177,9 @@ class MotionAPI:
                 motor board is no longer connected; ``'lid_open'``, the lid
                 was opened while the home moved.
             HomingStoppedError: ``'stopped'``, a Stop ended it.
+            MoveNotCompletedError, HardwareCommandRefusedError: the put-back,
+                as ``_put_back`` raises; every axis keeps the position the
+                home established.
         """
         # Asked before the driver: without it, a home with no controller
         # dispatches into the driver and fails there, and the person sees
@@ -1183,6 +1191,7 @@ class MotionAPI:
         # What a home the interlock refuses before anything moves gives back.
         states_before = self._axis_states(present_axes)
         turret_before = self._last_turret_position
+        z_before = self._known_target('Z', states_before)
         for ax in present_axes:
             self._set_axis_state(ax, AxisState.HOMING)
         # A homing turret is in no known slot until the home succeeds.
@@ -1246,6 +1255,39 @@ class MotionAPI:
                 raise
             finally:
                 _api_log.info('home DONE')
+            # After the try, not in it: a put-back's own failure is a move's,
+            # and the catch-all above would make every homed axis unknown.
+            if put_back and not self._stopped_since(stop_generation):
+                self._put_back(turret_before if 'T' in present_axes else None, z_before)
+
+    def _known_target(self, axis: str, states: Mapping[str, str]) -> float | None:
+        """``axis``'s target when ``states`` holds it IDLE, else None: a home puts back only a number that was true."""
+        if states.get(axis) != AxisState.IDLE:
+            return None
+        return self._target_position(axis)
+
+    def _put_back(self, slot: int | None, z_um: float | None) -> None:
+        """After a home, put the turret back on ``slot``, then Z back at ``z_um``; None leaves that axis where the home left it.
+
+        Nothing is put back while an axis of the scope has no known
+        position: every move would be refused for it, and the home that
+        recovered the others has still succeeded. The turret turns first,
+        with Z parked, so the objective never turns at the sample's height.
+
+        Raises:
+            MoveNotCompletedError: the turret change or the Z move did not
+                arrive, or a Stop ended it.
+            HardwareCommandRefusedError: a move was refused before it drove
+                (an interlock open, the motion monitor ended).
+        """
+        if lost := self._axes_refusing_motion():
+            _api_log.info(f'home put nothing back: {", ".join(lost)} has no known position')
+            return
+        if slot is not None:
+            # Z is left parked when it goes to its own target next.
+            self._move_turret_impl(slot, restore_z=z_um is None)
+        if z_um is not None:
+            self._move_absolute_impl('Z', position=z_um).result()
 
     @contextlib.contextmanager
     def _safe_turret_move(self, restore_z: bool = True) -> Iterator[int]:
@@ -1317,10 +1359,16 @@ class MotionAPI:
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
     @_home_runs_its_own_moves
-    def _home_turret_impl(self) -> None:
+    def _home_turret_impl(self, put_back: bool = False) -> None:
         """Home the turret axis. Moves Z to 0 during turret motion for safety.
 
         Returns when the turret is homed.
+
+        Args:
+            put_back: When True, the turret goes back on the slot it was on
+                once the home has succeeded, a turret change with its own Z
+                park and restore (see ``_put_back``). Z is back already: the
+                home restores it.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
@@ -1345,6 +1393,8 @@ class MotionAPI:
                 UNKNOWN.
             MoveStoppedError: a Stop ended the Z park or the Z restore,
                 with the turret as for ``MoveFaultError``.
+            MoveNotCompletedError, HardwareCommandRefusedError: the put-back,
+                as ``_put_back`` raises; the turret was homed.
         """
         # Asked before the Z park: a scope with no turret would otherwise
         # park and restore Z and record slot 1 for a turret it does not
@@ -1415,6 +1465,12 @@ class MotionAPI:
                 raise
             finally:
                 _api_log.info('T home DONE')
+            # After the try and after slot 1 is recorded, not inside the
+            # home's park: there a refused put-back would make the turret
+            # unknown, slot 1 would be recorded over it, and a Stop would be
+            # refused on a board that cannot stop a home.
+            if put_back and not self._stopped_since(stop_generation):
+                self._put_back(turret_before, None)
 
     @slow_task_budget(_TURRET_MOVE_SLOW_TASK_S)
     def _move_turret_impl(self, slot: int, restore_z: bool = True) -> None:
@@ -2036,10 +2092,14 @@ class MotionAPI:
 
     @slow_task_budget(_HOMING_SLOW_TASK_S)
     @_home_runs_its_own_moves
-    def _zhome_impl(self) -> None:
+    def _zhome_impl(self, put_back: bool = False) -> None:
         """Home the Z axis (focus).
 
         Returns when Z is homed and its position read.
+
+        Args:
+            put_back: When True, Z goes back to its target once the home has
+                succeeded (see ``_put_back``).
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
@@ -2053,6 +2113,9 @@ class MotionAPI:
                 connected; ``'lid_open'``, the lid was opened while the home
                 moved.
             HomingStoppedError: ``'stopped'``, a Stop ended it.
+            MoveNotCompletedError, HardwareCommandRefusedError: the put-back,
+                as ``_put_back`` raises; Z keeps the position the home
+                established.
         """
         # Asked before the driver, as the full home does: its
         # exchange_command would fail there and the user see a homing
@@ -2061,39 +2124,49 @@ class MotionAPI:
         _api_log.info('Z home START')
         # What a home the interlock refuses before anything moves gives back.
         state_before = self._axis_states(('Z',))['Z']
+        z_before = self._known_target('Z', {'Z': state_before})
         self._set_axis_state('Z', AxisState.HOMING)
+        stop_generation = self._stop_generation
         stops_asked = self._stops_asked
         self._scope.frame_validity.invalidate(FrameValiditySource.Z_MOVE, began_ns=None)
-        try:
-            with (
-                self._reference_position_logger(),
-                self._driving_home(
-                    'Z', stops_asked, {'Z': state_before}, self._last_turret_position
-                ),
-            ):
-                self._driver.zhome()
-            read = self._refresh_position_cache()
-            if 'Z' in read:
-                self._set_axis_state('Z', AxisState.IDLE)
-            self._raise_unread_axes('Z', ('Z',), read)
-        except HomingFailedError:
-            raise
-        except MotionInterlockError as e:
-            self._note_interlock_stop(e)
-            if not e.moved:
-                self._give_back_states({'Z': state_before})
-                raise HardwareCommandRefusedError(REFUSED_BEFORE_MOTION[e.reason], 'home') from e
-            self._set_axis_state('Z', AxisState.UNKNOWN)
-            raise HomingFaultError('Z', e.reason, ('Z',)) from e
-        except HardwareError as e:
-            self._set_axis_state('Z', AxisState.UNKNOWN)
-            raise self._home_ending('Z', stops_asked, ('Z',)) from e
-        except Exception:
-            # Our own defect: it leaves as itself, and Z is unknown all the same.
-            self._set_axis_state('Z', AxisState.UNKNOWN)
-            raise
-        finally:
-            _api_log.info('Z home DONE')
+        # One command around the home and its put-back, so no frame is
+        # counted at the home's height on the way back.
+        with self._command():
+            try:
+                with (
+                    self._reference_position_logger(),
+                    self._driving_home(
+                        'Z', stops_asked, {'Z': state_before}, self._last_turret_position
+                    ),
+                ):
+                    self._driver.zhome()
+                read = self._refresh_position_cache()
+                if 'Z' in read:
+                    self._set_axis_state('Z', AxisState.IDLE)
+                self._raise_unread_axes('Z', ('Z',), read)
+            except HomingFailedError:
+                raise
+            except MotionInterlockError as e:
+                self._note_interlock_stop(e)
+                if not e.moved:
+                    self._give_back_states({'Z': state_before})
+                    raise HardwareCommandRefusedError(
+                        REFUSED_BEFORE_MOTION[e.reason], 'home'
+                    ) from e
+                self._set_axis_state('Z', AxisState.UNKNOWN)
+                raise HomingFaultError('Z', e.reason, ('Z',)) from e
+            except HardwareError as e:
+                self._set_axis_state('Z', AxisState.UNKNOWN)
+                raise self._home_ending('Z', stops_asked, ('Z',)) from e
+            except Exception:
+                # Our own defect: it leaves as itself, and Z is unknown all the same.
+                self._set_axis_state('Z', AxisState.UNKNOWN)
+                raise
+            finally:
+                _api_log.info('Z home DONE')
+            # After the try, as the whole-scope home's put-back is.
+            if put_back and not self._stopped_since(stop_generation):
+                self._put_back(None, z_before)
 
     @api(reads=True)
     def axes_without_position(self) -> dict[Axis, AxisState]:
@@ -3458,11 +3531,17 @@ class MotionAPI:
         return self._move_xy_by_impl(None, distance)
 
     @api(admitted_by=(Admission.LANE_CALL,))
-    def home(self, axis: HomeTarget = HomeTarget.ALL) -> None:
+    def home(self, axis: HomeTarget = HomeTarget.ALL, put_back: bool | None = None) -> None:
         """Home the given axis set, and wait for it.
 
         Returns only when the home established a reference: every homed
         axis has a known position (for ``'ALL'``, the axes the board has).
+        A home leaves the axes where the firmware's home ends them -- Z at
+        the bottom, the turret on slot 1, the stage at the middle of its
+        travel -- unless it puts back: then the turret returns to the slot
+        it was on and Z to its target, each only when its position was
+        known before the home. Nothing is put back while any axis of the
+        scope has no known position. X and Y are never put back.
         The API sets no time limit on the wait: the home ends when the board
         ends it, which bounds each of its phases and halts when one runs out,
         or when the driver stops waiting for a board that has stopped
@@ -3475,6 +3554,9 @@ class MotionAPI:
                 ``'ALL'`` (default) homes every axis the board has; the
                 firmware routine homes Z, then T, then X/Y. ``'ALL'`` and
                 ``'Z'`` run whatever the axes' state.
+            put_back: Whether the home puts the turret and Z back; None
+                (default) as the stored setting ``motion.restore_after_home``
+                says, read when the home is asked.
 
         Raises:
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
@@ -3485,8 +3567,12 @@ class MotionAPI:
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller, or no Z or turret to
                 home (see ``refuse_absent``); ``'exclusive_activity_running'``,
-                a run, a diagnostic or a recording holds the scope; or
-                ``'lid_open_before_motion'``, the stage's lid is open, and nothing moves.
+                a run, a diagnostic or a recording holds the scope;
+                ``'home_in_flight'``, a home asked earlier, by any caller,
+                has not ended; or ``'lid_open_before_motion'``, the stage's
+                lid is open, and nothing moves. After a home that succeeded,
+                the put-back's move refused before it drove
+                (``'lid_open_before_motion'``, ``'monitor_ended'``).
             HomingFaultError: the home was driven and did not establish
                 a reference: ``'error'``, the driver raised;
                 ``'board_lost'``, the motor board is no longer connected;
@@ -3496,8 +3582,6 @@ class MotionAPI:
             HomingStoppedError: a Stop ended the home. The axes it names
                 are UNKNOWN; none, when the Stop landed before the home was
                 driven.
-            HardwareCommandRefusedError: ``'home_in_flight'``, while a home
-                asked earlier, by any caller, has not ended.
             AxisStateUnknownError: for ``'T'``, an axis of the scope has no
                 known position; nothing was driven. ``'ALL'`` recovers it.
             MoveFaultError: for ``'T'``, the Z park before the turret's home
@@ -3505,9 +3589,16 @@ class MotionAPI:
                 and slot when it was never driven, else it is UNKNOWN. A
                 park refused before Z moved is a ``HardwareCommandRefusedError``
                 (``'monitor_ended'``, or an interlock reason), the turret as
-                it was.
+                it was. After a home that succeeded, the put-back's turret
+                change or Z move did not arrive; every homed axis keeps the
+                position the home established.
             MoveStoppedError: for ``'T'``, a Stop ended the Z park or the Z
-                restore, the turret as for ``MoveFaultError``.
+                restore, the turret as for ``MoveFaultError``; or a Stop
+                ended the put-back after a home that succeeded, every homed
+                axis keeping the position the home established.
+            ConfigurationDefectError: ``'scope_not_composed'``, ``put_back``
+                is None on a scope no session composes, which has no setting
+                to read; nothing was asked of the scope.
 
         While it runs, the home holds the session's activity claim as a run
         does: every other request to the scope is refused, naming the home,
@@ -3517,7 +3608,7 @@ class MotionAPI:
         """
         refuse_waiting_on_ui_thread('home')
         impl = self._home_body(axis)
-        body, release_if_unrun, _stop, taking = self.claim_home(impl)
+        body, release_if_unrun, _stop, taking = self.claim_home(self._homing(impl, put_back))
         try:
             with acting(taking):
                 self._dispatch_motion(
@@ -3531,7 +3622,9 @@ class MotionAPI:
             raise
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_SUBMIT,))
-    def start_home(self, axis: HomeTarget = HomeTarget.ALL) -> Operation[None]:
+    def start_home(
+        self, axis: HomeTarget = HomeTarget.ALL, put_back: bool | None = None
+    ) -> Operation[None]:
         """Start the home ``home`` runs, without waiting for it; returns its ``Operation``.
 
         For a caller that must not block for the length of a home -- a
@@ -3546,6 +3639,8 @@ class MotionAPI:
         Args:
             axis: What to home: ``'Z'``, ``'T'`` (the turret) or ``'ALL'``, every axis
                 the scope has.
+            put_back: Whether the home puts the turret and Z back, as for
+                ``home``.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is not
@@ -3553,9 +3648,10 @@ class MotionAPI:
             HardwareCommandRefusedError: ``'home_in_flight'``, while a home
                 asked earlier has not ended; or the home was refused as
                 ``home`` is refused.
+            ConfigurationDefectError: ``'scope_not_composed'``, as for ``home``.
         """
         impl = self._home_body(axis)
-        body, release_if_unrun, stop, taking = self.claim_home(impl)
+        body, release_if_unrun, stop, taking = self.claim_home(self._homing(impl, put_back))
         waiter: concurrent.futures.Future[None] = concurrent.futures.Future()
         # Marked running before the lane holds it, so only the lane settles
         # it and nothing cancels it beside the claim.
@@ -3572,13 +3668,29 @@ class MotionAPI:
             raise
         return Operation.following(waiter, stop=stop, first=release_if_unrun)
 
-    def _home_body(self, axis: HomeTarget) -> Callable[[], None]:
+    def _home_body(self, axis: HomeTarget) -> Callable[..., None]:
         """The home body for ``axis``."""
         if axis == HomeTarget.Z:
             return self._zhome_impl
         if axis == HomeTarget.T:
             return self._home_turret_impl
         return self._home_impl
+
+    def _homing(self, impl: Callable[..., None], put_back: bool | None) -> Callable[[], None]:
+        """The home body ``impl``, putting back as ``put_back`` says, or as the stored setting does when it is None.
+
+        Wrapped so the lane still names the task and reads its slow-task
+        budget from the body; ``_home_moves_turret`` is asked of the body
+        itself, never of this.
+        """
+        if put_back is None:
+            put_back = self._scope.read_setting('motion.restore_after_home')
+
+        @functools.wraps(impl)
+        def homing() -> None:
+            impl(put_back=put_back)
+
+        return homing
 
     def claim_home(
         self, impl: Callable[[], None]

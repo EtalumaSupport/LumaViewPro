@@ -43,20 +43,25 @@ from tests.settings_fixtures import complete_settings, installation_of_its_own
 @pytest.fixture
 def scope():
     """A homed LS850T on the fast tier."""
-    return home_sim_scope(build_scope(simulate=True))
+    scope = home_sim_scope(build_scope(simulate=True))
+    bind_settings_like_a_session(scope)
+    return scope
 
 
 @pytest.fixture
 def firmware_scope():
     """An unhomed LS850T on the firmware tier: the production EL-0940
     drivers over the board firmware in simulation."""
-    return build_scope(simulate=True, sim_tier='firmware')
+    scope = build_scope(simulate=True, sim_tier='firmware')
+    bind_settings_like_a_session(scope)
+    return scope
 
 
 @pytest.fixture
 def ls720():
     """A homed LS720: the production TMCM-6110 driver over its simulated board."""
     scope = build_scope(simulate=True, sim_model='LS720', register_atexit=False)
+    bind_settings_like_a_session(scope)
     scope.motion.home()
     return scope
 

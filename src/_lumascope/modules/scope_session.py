@@ -6633,7 +6633,8 @@ class ScopeSession:
             disable_homing: If True, issue no startup motion at all.
             home_fn: Callable taking a ``HomeTarget`` that homes it and
                 raises as ``MotionAPI.home`` does; the startup motion hands it
-                ``HomeTarget.ALL``. Defaults to the motion API.
+                ``HomeTarget.ALL``. Defaults to the motion API's home that
+                puts nothing back.
             turret_fn: Callable taking a turret slot. Defaults to
                 the motion API.
 
@@ -6664,7 +6665,10 @@ class ScopeSession:
             return skipped('the motor board did not come up at bring-up')
 
         if home_fn is None:
-            home_fn = self.scope.motion.home
+            # The plain home: every session starts on slot 1 with Z at the
+            # bottom, whatever the person's put-back setting says; a scope
+            # already homed at connect would otherwise have Z driven back up.
+            home_fn = lambda target: self.scope.motion.home(target, put_back=False)
         if turret_fn is None:
             turret_fn = lambda slot: self.scope.motion.move_turret(slot)
 
@@ -6712,7 +6716,8 @@ class ScopeSession:
             disable_homing: If True, issue no startup motion at all.
             home_fn: Callable taking a ``HomeTarget`` that homes it and
                 raises as ``MotionAPI.home`` does; the startup motion hands it
-                ``HomeTarget.ALL``. Defaults to the motion API.
+                ``HomeTarget.ALL``. Defaults to the motion API's home that
+                puts nothing back.
             turret_fn: Callable taking a turret slot. Defaults to
                 the motion API.
 

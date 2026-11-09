@@ -137,6 +137,7 @@ def test_the_el0940_driver_refuses_a_stop_while_it_homes(monkeypatch):
     scope = build_scope(
         simulate=True, sim_model='LS850', sim_tier='firmware', register_atexit=False
     )
+    bind_settings_like_a_session(scope)
     try:
         homing = _announce_the_board_homing(scope, monkeypatch, 'Z')
         with concurrent.futures.ThreadPoolExecutor(1) as pool:

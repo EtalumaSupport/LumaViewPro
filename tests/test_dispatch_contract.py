@@ -191,7 +191,7 @@ def test_a_home_runs_on_the_io_lane(sim_scope):
     """The home, which the caller waits on, runs on the lane too."""
     threads: list[str] = []
 
-    def _home():
+    def _home(put_back):
         threads.append(threading.current_thread().name)
 
     with patch.object(sim_scope.motion, '_zhome_impl', _home):

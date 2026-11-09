@@ -173,7 +173,8 @@
     },
     "video_as_frames": false,
     "motion": {
-        "acceleration_max_pct": 100
+        "acceleration_max_pct": 100,
+        "restore_after_home": false
     },
     "video": {
         "max_fps": 0,

@@ -174,6 +174,7 @@ KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
         'profiling.open_files_enabled',
         'video_as_frames',
         'video.timestamp_overlay',
+        'motion.restore_after_home',
         'show_tooltips',
         'show_step_locations',
         'protocol_led_on',

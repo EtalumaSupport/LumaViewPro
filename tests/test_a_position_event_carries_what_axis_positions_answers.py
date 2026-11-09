@@ -16,7 +16,7 @@ import threading
 import pytest
 
 from _lumascope.modules.lumascope_api import AxisPosition, AxisState
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 KNOWN = (AxisState.IDLE, AxisState.MOVING)
 
@@ -24,6 +24,7 @@ KNOWN = (AxisState.IDLE, AxisState.MOVING)
 @pytest.fixture
 def scope():
     scope = build_scope(simulate=True)
+    bind_settings_like_a_session(scope)
     yield scope
     scope.motion._disconnect()
 

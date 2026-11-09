@@ -104,6 +104,7 @@ class TestLumascopeHome:
         raised as the not-connected refusal.
         """
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         scope._motion_driver = NullMotionBoard()
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
@@ -122,6 +123,7 @@ class TestLumascopeHome:
         import time
 
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         scope._motion_driver = NullMotionBoard()
 
         t0 = time.monotonic()
@@ -150,10 +152,11 @@ class TestLumascopeHome:
         """'Z' | 'T' | 'ALL' route to the Z / turret / full-home bodies
         (the legacy 'XY' alias is not accepted)."""
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         ran = []
-        scope.motion._zhome_impl = lambda: ran.append('Z') or True
-        scope.motion._home_turret_impl = lambda: ran.append('T') or True
-        scope.motion._home_impl = lambda: ran.append('ALL') or True
+        scope.motion._zhome_impl = lambda put_back: ran.append('Z') or True
+        scope.motion._home_turret_impl = lambda put_back: ran.append('T') or True
+        scope.motion._home_impl = lambda put_back: ran.append('ALL') or True
 
         scope.motion.home(axis='Z')
         scope.motion.home(axis='T')
@@ -165,6 +168,7 @@ class TestLumascopeHome:
         marks the present axes IDLE."""
         received = self._capture_errors()
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
 
         # Simulate LS820: only Z physically present.
         scope._motion_driver.detect_present_axes = lambda: ['Z']
@@ -195,6 +199,7 @@ class TestLumascopeHome:
         response, hardware error, partial home aborted by Z/T error). The
         API must raise the Homing Failed fault."""
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
 
         def fails(*args, **kwargs):
             raise BoardNoReplyError('no response from motor board')
@@ -214,6 +219,7 @@ class TestLumascopeHome:
         """Sanity: home() on a simulated LS850-style scope (X+Y+Z) must
         execute and mark all present axes IDLE on the success path."""
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         scope._motion_driver.set_timing_mode('instant')
         present = scope._motion_driver.detect_present_axes()
         assert 'X' in present and 'Y' in present
@@ -254,6 +260,7 @@ class TestFrameValidityDuringHoming:
 
     def test_zhome_marks_frame_invalid_during_motion(self):
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         validity = scope.imaging.frame_validity
         captured = {}
 
@@ -278,6 +285,7 @@ class TestFrameValidityDuringHoming:
 
     def test_home_marks_frame_invalid_during_motion_full_xyz(self):
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         validity = scope.imaging.frame_validity
         present = scope._motion_driver.detect_present_axes()
         assert 'X' in present and 'Y' in present and 'Z' in present
@@ -309,6 +317,7 @@ class TestFrameValidityDuringHoming:
         from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
         scope = build_scope(simulate=True)
+        bind_settings_like_a_session(scope)
         validity = scope.imaging.frame_validity
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         # Rebuild the capability snapshot after patching the driver --
@@ -343,6 +352,7 @@ class TestFrameValidityDuringHoming:
         # A turret-equipped sim (LS850T): an LS850 has no T axis, and
         # `home(axis='T')` correctly no-ops there.
         scope = build_scope(simulate=True, sim_model='LS850T')
+        bind_settings_like_a_session(scope)
         validity = scope.imaging.frame_validity
         assert 'T' in scope._motion_driver.detect_present_axes()
         # Homed first: a turret home is refused while any axis is unhomed.

@@ -22,6 +22,19 @@ home holds the scope like a run: other work is refused
 stop while the home drives is refused (`'home_not_stoppable'`) and the home runs
 to its end.
 
+A home leaves Z at the bottom, the turret on slot 1 and the stage at the middle
+of its travel. With the setting `motion.restore_after_home` on (off as shipped;
+Advanced Settings' *Restore Focus and Objective After Home*), it then puts the
+turret back on its slot and Z back at its target, each only when its position
+was known before the home, and nothing while any axis has none; X and Y stay
+where the home left them. `home(axis, put_back=True)` or `put_back=False`
+decides one home whatever the setting says. A put-back that fails raises its
+move's error, with every homed axis known.
+
+```python
+scope.motion.home(put_back=True)            # back on its objective, Z where it was
+```
+
 **A position to keep is read at rest.** A position you will act on later -- a
 step, a bookmark, a sweep's centre -- is read while its axes are still, by
 `scope.motion.positions_to_keep`. It is refused `AxisMovingError` (`'axis_moving'`)

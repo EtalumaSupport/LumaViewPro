@@ -27,7 +27,7 @@ from _lumascope.modules.exceptions import (
     HomingFaultError,
 )
 from _lumascope.modules.lumascope_api import AxisState
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 ROUTES = ('ALL', 'Z', 'T')
 SUBJECT = {'ALL': 'Homing', 'Z': 'Z axis homing', 'T': 'Turret homing'}
@@ -38,6 +38,7 @@ DONE_LINE = {'ALL': 'home DONE', 'Z': 'Z home DONE', 'T': 'T home DONE'}
 @pytest.fixture
 def scope(centre_posts):
     scope = build_scope(simulate=True)
+    bind_settings_like_a_session(scope)
     scope.motion.home('ALL')
     scope.posts = centre_posts
     return scope
@@ -141,6 +142,7 @@ def test_a_turret_home_on_a_scope_with_no_turret_is_refused_and_homes_nothing():
     # A scope with no turret has none to home: it is refused before Z is
     # parked, and no slot is recorded.
     scope = build_scope(simulate=True, sim_model='LS850')
+    bind_settings_like_a_session(scope)
     assert 'T' not in scope.capabilities.axes
 
     with pytest.raises(HardwareCommandRefusedError) as caught:

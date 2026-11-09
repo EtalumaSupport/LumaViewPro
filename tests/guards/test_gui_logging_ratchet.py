@@ -72,6 +72,7 @@ _ROSTER = {
     'AdvancedSettings.display_max_fps_slider': ('DISPLAY_MAX_FPS',),
     'AdvancedSettings.protocol_led_on_btn': ('PROTOCOL_LED_ON',),
     'AdvancedSettings.recording_max_fps_slider': ('RECORDING_MAX_FPS',),
+    'AdvancedSettings.restore_after_home_id': ('RESTORE_AFTER_HOME',),
     'AdvancedSettings.scope_spinner': ('SCOPE',),
     'AdvancedSettings.separate_folder_per_channel_id': ('SEPARATE_FOLDERS',),
     'AdvancedSettings.show_step_locations_id': ('SHOW_STEP_LOCATIONS',),

@@ -20,7 +20,13 @@ import pytest
 from tests.settings_fixtures import complete_settings
 
 from _lumascope.modules.scope_session import ScopeSession
-from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope, swap_lanes
+from tests.scope_fakes import (
+    bind_settings_like_a_session,
+    build_scope,
+    real_executor_bundle,
+    spec_scope,
+    swap_lanes,
+)
 from tests.test_scope_api import _RecordingExecutor
 
 
@@ -56,6 +62,7 @@ def _teardown_live_rigs():
 
 def _real_scope():
     scope = build_scope(simulate=True)
+    bind_settings_like_a_session(scope)
     _LIVE.append(('scope', scope))
     return scope
 
@@ -79,7 +86,9 @@ class TestDispatchInvariant:
         scope = swap_lanes(_real_scope(), io=io_ex, camera=cam_ex)
         ScopeSession(settings={}, scope=scope, executor_bundle=real_executor_bundle())
 
-        scope.motion.home('Z')
+        # The plain home: the session here holds no settings to read the
+        # put-back from, and the lane it runs on is all this test asks.
+        scope.motion.home('Z', put_back=False)
         assert io_ex.submitted, (
             "a session-composed scope must dispatch through the scope's own "
             'lane; the session composing around it must not reroute it'

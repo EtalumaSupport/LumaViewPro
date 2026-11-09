@@ -116,6 +116,7 @@ def sim_scope():
     from tests.scope_fakes import home_sim_scope
 
     scope = home_sim_scope(build_scope(simulate=True))
+    bind_settings_like_a_session(scope)
     yield scope
     scope.disconnect()
 
@@ -724,6 +725,7 @@ class TestAxisState:
         from _lumascope.modules.lumascope_api import AxisState
 
         scope = build_scope(simulate=True, sim_model='LS850')
+        bind_settings_like_a_session(scope)
         try:
             assert 'T' not in tuple(scope._motion_driver.detect_present_axes())
             assert 'T' not in scope.capabilities.axes

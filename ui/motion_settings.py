@@ -397,6 +397,7 @@ class XYStageControl(BoxLayout):
         gui_logger.button('HOME_XY')
         logger.info('[LVP Main  ] XYStageControl.home()')
         # The home's display shows every axis, the turret included: the
-        # firmware's home returns the turret to position 1. With no motor
-        # controller the home's own refusal is what the person is shown.
+        # home leaves it on position 1, or back on its slot when the
+        # put-back setting is on. With no motor controller the home's own
+        # refusal is what the person is shown.
         run_reported(lambda: move_home(axis='ALL'), None, 'HOME_XY')

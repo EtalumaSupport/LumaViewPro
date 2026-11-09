@@ -25,7 +25,7 @@ from _lumascope.modules.exceptions import (
     PositionOutOfRangeError,
 )
 from _lumascope.modules.lumascope_api import AxisState
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 
 _START = {'X': 60_000.0, 'Y': 40_000.0}
 
@@ -33,6 +33,7 @@ _START = {'X': 60_000.0, 'Y': 40_000.0}
 @pytest.fixture
 def scope():
     scope = home_sim_scope(build_scope(simulate=True, sim_model='LS850', register_atexit=False))
+    bind_settings_like_a_session(scope)
     scope.motion.move_xy(_START['X'], _START['Y'])
     yield scope
     scope.disconnect()
@@ -135,6 +136,7 @@ class TestTheLidOnAClassic:
         scope = build_scope(
             simulate=True, sim_model='LS720', source_path='.', register_atexit=False
         )
+        bind_settings_like_a_session(scope)
         assert isinstance(scope._motion_driver, Tmcm6110Board)
         scope.motion.home()
         yield scope

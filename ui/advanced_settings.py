@@ -96,6 +96,7 @@ class AdvancedSettings(Popup):
             self._show_fps_limit(slider_id)
         self.ids['video_max_duration_input'].text = str(get_manual_video_max_duration(settings))
         self.ids['video_timestamp_overlay_id'].active = video_settings['timestamp_overlay']
+        self.ids['restore_after_home_id'].active = settings['motion']['restore_after_home']
 
         self.ids['separate_folder_per_channel_id'].state = (
             'down' if settings['separate_folder_per_channel'] else 'normal'
@@ -246,6 +247,21 @@ class AdvancedSettings(Popup):
         if value is not None:
             run_reported(lambda: ctx.update_settings(path, value), show_stored, label)
         return widget.text != typed
+
+    def update_restore_after_home(self):
+        ctx = _app_ctx.ctx
+        restore = self.ids['restore_after_home_id'].active
+        gui_logger.toggle('RESTORE_AFTER_HOME', restore)
+        run_reported(
+            lambda: ctx.update_settings('motion.restore_after_home', restore),
+            self._show_stored_restore_after_home,
+            'RESTORE_AFTER_HOME',
+        )
+
+    def _show_stored_restore_after_home(self):
+        self.ids['restore_after_home_id'].active = _app_ctx.ctx.settings['motion'][
+            'restore_after_home'
+        ]
 
     def update_video_timestamp_overlay(self):
         state = self.ids['video_timestamp_overlay_id'].active
@@ -518,6 +534,25 @@ kv = Builder.load_string(
                         input_filter: 'int'
                         text: format(acceleration_pct_slider.value)
                         on_commit: root.acceleration_pct_text()
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp'
+                    Label:
+                        text: 'Restore Focus and Objective After Home'
+                        tooltip_text: 'After a home, turn the turret back to its objective\\nand return the focus to where it was.\\nOff: the focus stays at the bottom and the turret on position 1.'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        font_size: '12sp'
+                    CheckBox:
+                        id: restore_after_home_id
+                        disabled: app.lock.run_lockout
+                        size_hint_x: None
+                        width: '25dp'
+                        active: False
+                        on_release: root.update_restore_after_home()
 
                 # Hidden when firmware lacks stim. The toggle's OWN height
                 # collapses with the row, so the invisible button cannot overlap

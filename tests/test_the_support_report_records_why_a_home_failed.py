@@ -61,3 +61,15 @@ def test_a_turret_home_whose_z_park_failed_is_recorded_as_the_turrets_result(ses
     assert result['passed'] is False
     assert result['axes']['T']['status'] == 'FAIL'
     assert result['axes']['T']['home_response'].startswith('Error: The Z move did not complete')
+
+
+def test_the_homing_test_reads_the_axes_where_the_home_left_them(session):
+    """The report homes plainly whatever the person's put-back setting says:
+    it records the axes where the home left them, the turret on slot 1."""
+    session.scope.motion.move_turret(3)
+    session.update_settings('motion.restore_after_home', True)
+
+    result = TechSupportReport(session).diag.run_homing_test()
+
+    assert result['passed'] is True
+    assert session.scope.motion.turret_status().slot == 1

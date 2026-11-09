@@ -21,12 +21,13 @@ import pytest
 
 from _lumascope.modules.exceptions import HomingFailedError
 from _lumascope.modules.lumascope_api import AxisState
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
 @pytest.fixture
 def scope():
     scope = build_scope(simulate=True)
+    bind_settings_like_a_session(scope)
     yield scope
     scope.motion._disconnect()
 

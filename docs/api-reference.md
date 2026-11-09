@@ -2532,7 +2532,7 @@ standard startup orchestration without copy-pasting from the App.
 **Args**
 
 - `disable_homing`: If True, issue no startup motion at all.
-- `home_fn`: Callable taking a `HomeTarget` that homes it and raises as `MotionAPI.home` does; the startup motion hands it `HomeTarget.ALL`. Defaults to the motion API.
+- `home_fn`: Callable taking a `HomeTarget` that homes it and raises as `MotionAPI.home` does; the startup motion hands it `HomeTarget.ALL`. Defaults to the motion API's home that puts nothing back.
 - `turret_fn`: Callable taking a turret slot. Defaults to the motion API.
 
 **Raises**
@@ -3502,7 +3502,7 @@ returns an operation already done.
 **Args**
 
 - `disable_homing`: If True, issue no startup motion at all.
-- `home_fn`: Callable taking a `HomeTarget` that homes it and raises as `MotionAPI.home` does; the startup motion hands it `HomeTarget.ALL`. Defaults to the motion API.
+- `home_fn`: Callable taking a `HomeTarget` that homes it and raises as `MotionAPI.home` does; the startup motion hands it `HomeTarget.ALL`. Defaults to the motion API's home that puts nothing back.
 - `turret_fn`: Callable taking a turret slot. Defaults to the motion API.
 
 **Raises**
@@ -7431,7 +7431,7 @@ Nothing.
 ### `MotionAPI.home`
 
 ```python
-def home(self, axis: HomeTarget = HomeTarget.ALL) -> None
+def home(self, axis: HomeTarget = HomeTarget.ALL, put_back: bool | None = None) -> None
 ```
 
 Marks: enters: `lane_call`.  
@@ -7441,6 +7441,12 @@ Home the given axis set, and wait for it.
 
 Returns only when the home established a reference: every homed
 axis has a known position (for `'ALL'`, the axes the board has).
+A home leaves the axes where the firmware's home ends them -- Z at
+the bottom, the turret on slot 1, the stage at the middle of its
+travel -- unless it puts back: then the turret returns to the slot
+it was on and Z to its target, each only when its position was
+known before the home. Nothing is put back while any axis of the
+scope has no known position. X and Y are never put back.
 The API sets no time limit on the wait: the home ends when the board
 ends it, which bounds each of its phases and halts when one runs out,
 or when the driver stops waiting for a board that has stopped
@@ -7449,17 +7455,19 @@ answering; either ends it in `HomingFaultError`.
 **Args**
 
 - `axis`: `'Z'` homes the Z axis only. `'T'` homes the turret (parks Z at 0, homes T, restores Z), and is refused while any axis has no known position, since its park is a move. `'ALL'` (default) homes every axis the board has; the firmware routine homes Z, then T, then X/Y. `'ALL'` and `'Z'` run whatever the axes' state.
+- `put_back`: Whether the home puts the turret and Z back; None (default) as the stored setting `motion.restore_after_home` says, read when the home is asked.
 
 **Raises**
 
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread; nothing was started (`start_home` is the form for a button).
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is not `'Z'`, `'T'` or `'ALL'`; nothing was asked of the scope.
-- `HardwareCommandRefusedError`: `'home_in_flight'`, while a home asked earlier, by any caller, has not ended.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller, or no Z or turret to home (see `refuse_absent`); `'exclusive_activity_running'`, a run, a diagnostic or a recording holds the scope; `'home_in_flight'`, a home asked earlier, by any caller, has not ended; or `'lid_open_before_motion'`, the stage's lid is open, and nothing moves. After a home that succeeded, the put-back's move refused before it drove (`'lid_open_before_motion'`, `'monitor_ended'`).
 - `HomingFaultError`: the home was driven and did not establish a reference: `'error'`, the driver raised; `'board_lost'`, the motor board is no longer connected; `'unread'`, a homed axis's position could not be read; `'lid_open'` or `'stage_unpowered'`, an interlock opened while the home moved. The axes it names are UNKNOWN.
 - `HomingStoppedError`: a Stop ended the home. The axes it names are UNKNOWN; none, when the Stop landed before the home was driven.
 - `AxisStateUnknownError`: for `'T'`, an axis of the scope has no known position; nothing was driven. `'ALL'` recovers it.
-- `MoveFaultError`: for `'T'`, the Z park before the turret's home or the Z restore after it failed; the turret keeps its state and slot when it was never driven, else it is UNKNOWN. A park refused before Z moved is a `HardwareCommandRefusedError` (`'monitor_ended'`, or an interlock reason), the turret as it was.
-- `MoveStoppedError`: for `'T'`, a Stop ended the Z park or the Z restore, the turret as for `MoveFaultError`.
+- `MoveFaultError`: for `'T'`, the Z park before the turret's home or the Z restore after it failed; the turret keeps its state and slot when it was never driven, else it is UNKNOWN. A park refused before Z moved is a `HardwareCommandRefusedError` (`'monitor_ended'`, or an interlock reason), the turret as it was. After a home that succeeded, the put-back's turret change or Z move did not arrive; every homed axis keeps the position the home established.
+- `MoveStoppedError`: for `'T'`, a Stop ended the Z park or the Z restore, the turret as for `MoveFaultError`; or a Stop ended the put-back after a home that succeeded, every homed axis keeping the position the home established.
+- `ConfigurationDefectError`: `'scope_not_composed'`, `put_back` is None on a scope no session composes, which has no setting to read; nothing was asked of the scope.
 
 While it runs, the home holds the session's activity claim as a run
 does: every other request to the scope is refused, naming the home,
@@ -7469,10 +7477,10 @@ as that activity's work and takes no claim of its own.
 
 **Refusals by REST status**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `lid_open_before_motion`, `home_in_flight`; [`HomingStoppedError`](#HomingStoppedError): `stopped`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `home_in_flight`, `lid_open_before_motion`; [`HomingStoppedError`](#HomingStoppedError): `stopped`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
-- 500: [`HomingFaultError`](#HomingFaultError): `error`, `board_lost`, `unread`, `lid_open`, `stage_unpowered`; [`MoveFaultError`](#MoveFaultError): `monitor_ended`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- 500: [`HomingFaultError`](#HomingFaultError): `error`, `board_lost`, `unread`, `lid_open`, `stage_unpowered`; [`MoveFaultError`](#MoveFaultError): `monitor_ended`; [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
 <a id="MotionAPI.interlocks"></a>
 ### `MotionAPI.interlocks`
@@ -7932,7 +7940,11 @@ other axes keep the threshold their controller gives them.
 ### `MotionAPI.start_home`
 
 ```python
-def start_home(self, axis: HomeTarget = HomeTarget.ALL) -> Operation[None]
+def start_home(
+    self,
+    axis: HomeTarget = HomeTarget.ALL,
+    put_back: bool | None = None,
+) -> Operation[None]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_submit`.  
@@ -7952,16 +7964,19 @@ a home, and nothing once the home has ended.
 **Args**
 
 - `axis`: What to home: `'Z'`, `'T'` (the turret) or `'ALL'`, every axis the scope has.
+- `put_back`: Whether the home puts the turret and Z back, as for `home`.
 
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is not `'Z'`, `'T'` or `'ALL'`; nothing was asked of the scope.
 - `HardwareCommandRefusedError`: `'home_in_flight'`, while a home asked earlier has not ended; or the home was refused as `home` is refused.
+- `ConfigurationDefectError`: `'scope_not_composed'`, as for `home`.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `home_in_flight`, `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
 <a id="MotionAPI.start_jog"></a>

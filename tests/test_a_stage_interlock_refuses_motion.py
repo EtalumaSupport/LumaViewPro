@@ -38,7 +38,7 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.lumascope_api import AxisState, Interlock
 from _lumascope.modules.sequential_io_executor import IOTask
-from tests.scope_fakes import build_scope, home_sim_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 from tests.case_walk import failing_cases
 
 LID_WORDS = "The microscope's lid is open. Close it to move or home the stage."
@@ -48,6 +48,7 @@ POWER_WORDS = "The stage has no power. Check the stage's power supply, then home
 @pytest.fixture
 def scope():
     scope = home_sim_scope(build_scope(simulate=True, sim_model='LS850', register_atexit=False))
+    bind_settings_like_a_session(scope)
     yield scope
     scope.disconnect()
 
@@ -185,6 +186,7 @@ class TestAHomeTheInterlockRefuses:
         scope = home_sim_scope(
             build_scope(simulate=True, sim_model='LS850T', register_atexit=False)
         )
+        bind_settings_like_a_session(scope)
         try:
             assert scope.motion.turret_status().slot == 1
             monkeypatch.setattr(scope._motion_driver, 'home', _refuse('lid_open', stopped=False))
@@ -200,6 +202,7 @@ class TestAHomeTheInterlockRefuses:
         scope = home_sim_scope(
             build_scope(simulate=True, sim_model='LS850T', register_atexit=False)
         )
+        bind_settings_like_a_session(scope)
         try:
             before = scope.motion.turret_status()
             monkeypatch.setattr(
@@ -216,6 +219,7 @@ class TestAHomeTheInterlockRefuses:
 
     def test_an_unhomed_axis_refused_stays_unknown_not_homed(self, monkeypatch):
         scope = build_scope(simulate=True, sim_model='LS850', register_atexit=False)
+        bind_settings_like_a_session(scope)
         try:
             monkeypatch.setattr(scope._motion_driver, 'home', _refuse('lid_open', stopped=False))
 
@@ -265,6 +269,7 @@ class TestALidOpenedDuringAMove:
         """The production TMCM-6110 driver over its simulated board: the lid is
         read on every arrival poll of an X or Y move, not only at its start."""
         ls720 = build_scope(simulate=True, sim_model='LS720', register_atexit=False)
+        bind_settings_like_a_session(ls720)
         try:
             ls720.motion.home()
             limits = ls720.motion.get_axis_limits('X')
@@ -299,6 +304,7 @@ class TestTheInterlocksRead:
 
     def test_an_open_interlock_is_answered_as_the_member(self):
         ls720 = build_scope(simulate=True, sim_model='LS720', register_atexit=False)
+        bind_settings_like_a_session(ls720)
         try:
             ls720.simulation.interlock(lid_open=True, powered=False)
 

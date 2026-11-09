@@ -1452,7 +1452,9 @@ class FirmwareDiagnostics:
 
         def _home(axis):
             try:
-                motion.home(axis)
+                # The plain home: the report reads the axes where the home
+                # left them, whatever the person's put-back setting says.
+                motion.home(axis, put_back=False)
             except (HomingFailedError, MoveNotCompletedError, AxisStateUnknownError) as e:
                 # A move is the turret home's Z park or restore, whose outcome
                 # is the turret's result; the turret home is refused while an

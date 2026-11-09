@@ -261,6 +261,21 @@ def test_a_z_home_runs_while_an_axis_is_lost_and_motion_stays_refused(stage_scop
 
 
 @pytest.mark.slow
+def test_a_z_home_that_puts_back_still_recovers_z_while_an_axis_is_lost(stage_scope):
+    """Asked to put back, the Z home recovers Z and leaves it at its home: the
+    put-back would be refused for X, and the home itself succeeded."""
+    stage_scope.motion.move_z(z_um=3000.0)
+    _lose_x(stage_scope)
+    z_before = _board_targets(stage_scope)['Z']
+
+    stage_scope.motion.home('Z', put_back=True)
+
+    assert stage_scope.motion.get_axis_state('Z') == AxisState.IDLE
+    assert stage_scope.motion.get_axis_state('X') == AxisState.UNKNOWN
+    assert _board_targets(stage_scope)['Z'] != z_before, 'Z stays where the home left it'
+
+
+@pytest.mark.slow
 def test_a_move_gesture_is_refused_for_an_axis_it_does_not_name(stage_scope):
     """The consult seam answers as the gate does, so a gesture's pre-check
     cannot pass a move the gate then refuses; a save still asks only about
