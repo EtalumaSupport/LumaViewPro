@@ -11,9 +11,9 @@ of the size a customer asked for (a 96-well plate, 4 channels, 200 Z slices:
 76,800 steps) is saved and reopened.
 """
 
-import gc
 import pathlib
-import tracemalloc
+import subprocess
+import sys
 
 import pytest
 
@@ -66,9 +66,25 @@ def test_the_size_advisory_is_reachable_on_a_loaded_protocol(tmp_path):
 
 PEAK_STEPS = 2_000
 # The load's peak a step: 3.6 KB when the file's text was held five times
-# over and every cell was its own object; 1.3 KB measured once it read the
-# file's lines once and held each distinct cell text once.
+# over and every cell was its own object; 1.7 KB at 2,000 steps once it read
+# the file's lines once and held each distinct cell text once.
 PEAK_BYTES_A_STEP = 2_000
+
+# The load, measured in a process of its own: tracemalloc counts every
+# allocation in its process, so in a test worker it also counts the other
+# threads and the garbage earlier tests left (10.5 MB at 2,000 steps in a CI
+# worker, against 3.3 MB alone).
+_MEASURED_LOAD = """
+import gc, sys, tracemalloc
+from tests.protocol_fixtures import protocol_from_file
+gc.collect()
+tracemalloc.start()
+loaded = protocol_from_file(file_path=sys.argv[1])
+_, peak = tracemalloc.get_traced_memory()
+print(loaded.num_steps(), peak)
+"""
+
+_CHECKOUT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def test_a_load_peaks_under_two_kilobytes_a_step(tmp_path):
@@ -76,16 +92,17 @@ def test_a_load_peaks_under_two_kilobytes_a_step(tmp_path):
     steps = [_make_step(name=f'A1_BF_{i}', label=f'custom{i:04d}') for i in range(PEAK_STEPS)]
     path = tmp_path / 'protocol.tsv'
     _build_protocol(steps).to_file(path)
-    gc.collect()
 
-    tracemalloc.start()
-    try:
-        loaded = protocol_from_file(file_path=path)
-        _, peak = tracemalloc.get_traced_memory()
-    finally:
-        tracemalloc.stop()
+    child = subprocess.run(
+        [sys.executable, '-c', _MEASURED_LOAD, str(path)],
+        cwd=_CHECKOUT,
+        capture_output=True,
+        text=True,
+    )
 
-    assert loaded.num_steps() == PEAK_STEPS
+    assert child.returncode == 0, child.stderr
+    num_steps, peak = map(int, child.stdout.split())
+    assert num_steps == PEAK_STEPS
     assert peak / PEAK_STEPS < PEAK_BYTES_A_STEP, f'{peak / PEAK_STEPS:,.0f} bytes a step'
 
 
