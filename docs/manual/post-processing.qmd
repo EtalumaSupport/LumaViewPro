@@ -193,19 +193,27 @@ and the method: `custom0000_BF_TA1_0000_zproj_max.tiff`.
 
 ## Quick Enhance {#sec-pp-enhance}
 
-Quick Enhance makes an adjusted copy of an image, easier to look at:
+Quick Enhance makes an adjusted copy of an image, easier to look at. It has
+five steps, each with its own switch under the two buttons
+(@fig-pp-enhance):
 
-1. It evens out light that is brighter in one part of the field than
-   another.
-2. It stretches the brightness so that the dimmest 1% of the pixels are
-   black and the brightest 1% are white, and brightens the midtones a
-   little.
-3. It sharpens fine detail where the image has signal, leaving the
-   background as it is.
+- [Auto-levels]{.guilabel} stretches the brightness so that the dimmest 1%
+  of the pixels are black and the brightest 1% are white.
+- [Gamma]{.guilabel} brightens the midtones a little.
+- [Even illumination]{.guilabel} evens out light that is brighter in one
+  part of the field than another.
+- [Denoise]{.guilabel} smooths pixel noise with a 3-pixel median.
+- [Sharpen]{.guilabel} sharpens fine detail where the image has signal,
+  leaving the background as it is.
 
-The steps and their settings are fixed. The copy is not for measurement:
-its brightness no longer stands for the light from the sample. Measure on
-the images as taken.
+Every step but [Denoise]{.guilabel} is on until you turn it off. A step
+that is off does not run. LumaViewPro remembers the switches, from one
+session to the next. The numbers each step uses are fixed.
+
+![The Quick Enhance controls, at their defaults](images/post-processing-quick-enhance-ls850.png){#fig-pp-enhance width=35%}
+
+The copy is not for measurement: its brightness no longer stands for the
+light from the sample. Measure on the images as taken.
 
 - [Enhance image...]{.guilabel}: choose one image: TIFF, OME-TIFF, PNG, JPG
   or BMP.
