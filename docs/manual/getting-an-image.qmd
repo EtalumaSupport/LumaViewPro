@@ -2,18 +2,19 @@
 
 This chapter gives one recipe for each kind of image you can take by hand:
 a still image, a bioluminescence image, a composite, a video and a Z-stack.
-The controls each recipe uses are described in @sec-channels and
+The controls the recipes use are described in @sec-channels and
 @sec-focus, and the toolbar's buttons in @sec-toolbar. To take images
-automatically, at many positions or over time, use a protocol.
+automatically, at many positions or over time, use a protocol
+(@sec-protocols).
 
 ## Before you start {#sec-image-before}
 
 - Place the sample in its labware holder (@sec-labware-holders), seated
   flat.
 - Make sure LumaViewPro knows which objective is in the light path
-  (@sec-objective). Until it does, captures are refused.
-- Choose the destination folder with the toolbar's Destination folder
-  button. Every image and video you take is saved under it
+  (@sec-objective). It won't capture until it does.
+- Choose a destination folder with the toolbar's Destination folder
+  button. Every image and video you take is saved inside it
   (@sec-image-files).
 - Choose the file format in [Live Image Format]{.guilabel} (@sec-live-format)
   and the bit depth in [Image Mode]{.guilabel}
@@ -23,122 +24,120 @@ automatically, at many positions or over time, use a protocol.
 
 For a transmitted-light or fluorescence channel:
 
-1. On a Lumascope with a motorized XY stage, move to the sample, or to the
-   first well of a plate: click the point on the plate map in
-   [XY Stage Control]{.guilabel} (@sec-plate-map).
+1. If your Lumascope has a motorized stage, move to the sample, or to the
+   first well of a plate: click its spot on the plate map in
+   [XY Stage Control]{.guilabel} (@sec-plate-map), or right-click a point
+   in the live image to center it (@sec-click-to-center).
 2. Open the channel's drawer in the right panel, for example
-   [Brightfield]{.channel}. The live image shows that channel.
-3. Switch on [Enable LED]{.guilabel} to light the channel's LED.
-4. Adjust the focus until the sample is sharp (@sec-focus-adjust), or use
-   [Autofocus]{.guilabel} once the image is near focus (@sec-autofocus).
+   [Brightfield]{.channel}. The live image switches to that channel.
+3. Turn on [Enable LED]{.guilabel}.
+4. Focus until the sample is sharp (@sec-focus-adjust). Once it's close,
+   [Autofocus]{.guilabel} can finish the job (@sec-autofocus).
 5. Adjust [LED (mA)]{.guilabel}, [Gain (dB)]{.guilabel} and
-   [Exp (ms)]{.guilabel} until the image is bright without being
-   saturated: the histogram (@sec-histogram) should have most of its
-   pixels away from either end.
-6. On a Lumascope with a focus motor, click [Save Focus]{.guilabel} to save
-   this focus for the channel (@sec-channel-focus). To come back to this
-   place later, click [Set Z]{.guilabel} in [Objective Control]{.guilabel}
-   and, on a Lumascope with a motorized XY stage, [Set X]{.guilabel} and
-   [Set Y]{.guilabel} in [XY Stage Control]{.guilabel}.
-7. Click the toolbar's Capture button.
+   [Exp (ms)]{.guilabel} until the image is bright but not saturated. Most
+   of the histogram (@sec-histogram) should sit away from both ends.
+6. If your Lumascope has a focus motor, click [Save Focus]{.guilabel} to
+   keep this focus for the channel (@sec-channel-focus). To return to this
+   spot later, click [Set Z]{.guilabel} in [Objective Control]{.guilabel},
+   plus [Set X]{.guilabel} and [Set Y]{.guilabel} in
+   [XY Stage Control]{.guilabel} if you have a motorized stage.
+7. Click Capture in the toolbar.
 
-The image is saved in the `Manual` folder of the destination folder, named
-for the channel shown, with a number that counts up with each capture, for
-example `live_BF_000001.tiff`. On a Lumascope with a motorized XY stage, the
-name also gives the well the image was taken in, as in
-`live_D6_BF_000001.tiff`. A TIFF or OME-TIFF file records the channel, the
-LED current, the gain, the exposure, the objective and the stage position;
-a JPG records none of them (@sec-live-format).
+The image is saved in the `Manual` folder inside your destination folder.
+Its name includes the channel and a number that goes up with each
+capture, such as `live_BF_000001.tiff`. With a motorized stage, the well
+is included too: `live_D6_BF_000001.tiff`. TIFF and OME-TIFF files store
+the channel, LED current, gain, exposure, objective and stage position
+with the image; JPG files don't (@sec-live-format).
 
-Capture saves whatever the camera delivers. An image taken with the LED
-switched off is saved, dark; check [Enable LED]{.guilabel} first. The
-Freeze button stops only the display: Capture still saves a new image from
-the camera, not the frozen picture.
+Capture always takes a new image from the camera. If the LED is off,
+you'll get a dark image, so check [Enable LED]{.guilabel} first. Freeze
+only pauses the display; Capture still saves a new image from the camera,
+not the frozen one.
 
-If the stage position is not known, for example before the stage has
-homed, the image is saved without a well or a position, and LumaViewPro
-says so ("Position Not Recorded"). Click [Home Stage]{.guilabel} to record
-them in later images.
-
-Right-click a point of the live image to center it before you
-capture (@sec-click-to-center).
+If LumaViewPro doesn't know where the stage is, for example before it has
+homed, the image is saved without a well or position, and you'll see a
+"Position Not Recorded" message. Click [Home Stage]{.guilabel}, and later
+images will include them.
 
 ## A bioluminescence image {#sec-image-lumi}
 
 Requires: the [Lumi]{.channel} channel.
 
-A luminescent sample is often too faint to focus in its own light. Focus
-in a transmitted channel first:
+A luminescent sample is often too faint to focus by its own light, so
+focus in a transmitted-light channel first:
 
 1. Open the [Brightfield]{.channel} or [Phase Contrast]{.channel} drawer,
-   switch on [Enable LED]{.guilabel}, focus on the sample, and click
+   turn on [Enable LED]{.guilabel}, focus on the sample, and click
    [Save Focus]{.guilabel}.
-2. Open the [Lumi]{.channel} drawer. It has no LED; the camera images the
-   light the sample emits.
+2. Open the [Lumi]{.channel} drawer. [Lumi]{.channel} has no LED; the
+   camera images the light the sample gives off.
 3. Raise [Gain (dB)]{.guilabel} and [Exp (ms)]{.guilabel} toward the top
    of their ranges.
 4. If the live image still shows nothing, set [Sum]{.guilabel} to add
-   several frames into each image, for example 4 (@sec-sum). Summing
-   keeps its added range only in a full-depth [Image Mode]{.guilabel}.
-5. Click the toolbar's Capture button, then open the image with the
-   toolbar's Open last save folder button and check that the
-   luminescence shows.
+   several frames into each image, for example 4 (@sec-sum). The extra
+   range from summing is kept only in a full-depth
+   [Image Mode]{.guilabel}.
+5. Click Capture in the toolbar. Then click Open last save folder in the
+   toolbar, open the image, and check that the luminescence shows.
 
-To image the [Lumi]{.channel} channel at the focus found in transmitted
-light, save that same focus in the [Lumi]{.channel} drawer with
-[Save Focus]{.guilabel} while the focus is unchanged.
+To image [Lumi]{.channel} at the focus you found in transmitted light,
+click [Save Focus]{.guilabel} in the [Lumi]{.channel} drawer too, before
+you move the focus.
 
 ## A composite image {#sec-image-composite}
 
 A composite combines several channels of the same field into one image:
-fluorescence channels over each other, or over one transmitted channel.
+fluorescence channels layered over each other, or over one
+transmitted-light channel.
 
 1. Set up and focus each channel as for a still image, and in each
    channel's drawer set [Acquire Settings]{.guilabel} to
-   [Image]{.guilabel} (@sec-channel-acquire). At least two channels must
-   be set to [Image]{.guilabel}; with fewer, the composite is refused
-   ("Not Enough Channels").
+   [Image]{.guilabel} (@sec-channel-acquire). You need at least two
+   channels set to [Image]{.guilabel}; with fewer, LumaViewPro won't make
+   the composite and shows "Not Enough Channels".
 2. For each fluorescence or [Lumi]{.channel} channel, set
-   [CBT (%)]{.guilabel}, the brightness above which its pixels are laid
-   over the transmitted image (@sec-cbt).
-3. Click the toolbar's Composite button. Each channel is captured in turn
-   with its own settings, at its saved focus (or at the current focus, for
-   a channel with no saved focus), and with an autofocus first if its
-   [Auto Focus]{.guilabel} is on. Click Composite again to stop.
+   [CBT (%)]{.guilabel}. Pixels brighter than this are laid over the
+   transmitted-light image (@sec-cbt).
+3. Click Composite in the toolbar. Each channel is captured in turn with
+   its own settings, at its saved focus. A channel with no saved focus
+   uses the current focus, and a channel with [Auto Focus]{.guilabel} on
+   autofocuses first. Click Composite again to stop.
 
-Each composite is saved in a new folder, `Manual/Composites/<date>_<time>/`
-in the destination folder: one image per channel, for example
-`Composite_BF_0000.tiff`, and the combined image in its `Composite`
-folder. Composites are saved as TIFF or OME-TIFF
-(@sec-sequenced-format). The per-channel images keep the bit depth of the
+Each composite gets its own folder, `Manual/Composites/<date>_<time>/`,
+inside your destination folder. It holds one image per channel, such as
+`Composite_BF_0000.tiff`, and the combined image in a `Composite`
+subfolder. Composites are saved as TIFF or OME-TIFF
+(@sec-sequenced-format). The per-channel images keep the bit depth set in
 [Image Mode]{.guilabel} (@sec-image-mode); the combined image is 8-bit
 color.
 
 ## A video {#sec-image-video}
 
 1. Set up and focus the channel as for a still image.
-2. Click the toolbar's Record button. Click it again to stop; otherwise
-   the recording stops at [Video Time Limit (s)]{.guilabel}, 300 seconds
-   unless changed in [Advanced Settings]{.guilabel} (@sec-advanced-camera).
+2. Click Record in the toolbar, and click it again to stop. If you don't,
+   recording stops at [Video Time Limit (s)]{.guilabel}: 300 seconds
+   unless you change it in [Advanced Settings]{.guilabel}
+   (@sec-advanced-camera).
 
-The video is saved in the `Manual` folder, named for the date and time it
-started, for example `Video_2026-11-04_21.28.29.mp4`. Its name does not
-give the channel; a file beside it, ending in `_manifest.json`, records
-the channel and the frames written. With [Video Recording Format]{.guilabel}
+The video is saved in the `Manual` folder, named with the date and time it
+started, such as `Video_2026-11-04_21.28.29.mp4`. The name doesn't include
+the channel; a file next to it ending in `_manifest.json` records the
+channel and the frames written. With [Video Recording Format]{.guilabel}
 set to [Frames]{.guilabel}, the frames are saved as separate images in a
-folder of the same name instead (@sec-video-format).
+folder with that name instead (@sec-video-format).
 
-A recording cannot be started while a protocol runs, and the destination
-folder and the objective cannot be changed while it records.
+You can't start a recording while a protocol is running, and you can't
+change the destination folder or the objective while recording.
 
 ## A Z-stack {#sec-image-zstack}
 
 Requires: a focus motor.
 
 1. Set up the channel as for a still image, and focus at the depth you
-   want as the stack's top, center or bottom.
+   want as the top, center or bottom of the stack.
 2. In [Objective Control]{.guilabel}, under [Acquire Z Stack]{.guilabel},
-   set the step size, the range and where the stack sits against the
+   set the step size, the range, and where the stack sits relative to the
    current focus (@sec-zstack).
 3. Click [Acquire]{.guilabel}.
 
@@ -146,8 +145,8 @@ The slices are saved in a new folder, `Manual/Z-Stacks/<date>_<time>/`.
 
 ## Where the files are saved {#sec-image-files}
 
-Everything is saved under the destination folder. Each folder is made the
-first time something is saved in it.
+Everything is saved inside the destination folder. Each folder below is
+created the first time something is saved to it.
 
 | Folder | What it holds |
 |:---|:---|
@@ -158,10 +157,9 @@ first time something is saved in it.
 
 : The folders under the destination folder {#tbl-image-folders tbl-colwidths="[40,60]"}
 
-With [Save channels in separate folders]{.guilabel} on in
-[Advanced Settings]{.guilabel} (@sec-advanced-protocol), still images are
-saved in a folder for each channel inside `Manual`, for example
-`Manual/BF`.
+If [Save channels in separate folders]{.guilabel} is on in
+[Advanced Settings]{.guilabel} (@sec-advanced-protocol), still images go
+into a folder per channel inside `Manual`, such as `Manual/BF`.
 
-The toolbar's Open last save folder button opens the folder LumaViewPro
-last saved to.
+Open last save folder in the toolbar opens the folder LumaViewPro saved to
+most recently.
