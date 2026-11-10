@@ -85,8 +85,8 @@ turret, each turret position takes one objective.
 When removing the cap or installing an objective, take care not to push the
 focus axis or the turret out of position. If you think you may have moved
 either, home the microscope: on a Lumascope with a stage, click
-[Home Stage]{.guilabel}, which homes every axis and turns the turret, if there
-is one, to position 1 (@sec-xy-stage); on one without a stage, click
+[Home Stage]{.guilabel}, which homes every axis (@sec-xy-stage); on one
+without a stage, click
 [Home]{.guilabel} in the focus controls (@sec-focus-adjust).
 
 The objectives come in threaded bottles; keep each in its bottle when it is

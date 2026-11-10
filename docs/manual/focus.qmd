@@ -71,7 +71,9 @@ down, away from it:
 A move beyond the focus motor's travel is refused, and the focus is not
 moved.
 
-[Home]{.guilabel} lowers the focus completely, to position 0.
+[Home]{.guilabel} lowers the focus completely, to position 0. With
+[Restore Focus and Objective After Home]{.guilabel} on in Advanced Settings
+(@sec-advanced-general), the focus then returns to where it was.
 
 [Set Z]{.guilabel} stores the current focus position, and
 [Go to Set Z]{.guilabel} returns to it. There is one stored position,
@@ -125,8 +127,11 @@ position in the light path. To name that position's objective again, click
 its button.
 
 When LumaViewPro starts, and when [Home Stage]{.guilabel} is clicked, the
-turret turns to position 1. Installing objectives on the turret is
-described in @sec-turret-objectives.
+turret turns to position 1. With
+[Restore Focus and Objective After Home]{.guilabel} on, a home then turns
+the turret back to the objective it was on; at start it stays at
+position 1. Installing objectives on the turret is described in
+@sec-turret-objectives.
 
 ## Z-stacks {#sec-zstack}
 
@@ -191,7 +196,11 @@ How quickly the stage accelerates is set by
 lowered completely, the turret, if there is one, turns to position 1, and
 the stage is driven to its home position. The stage then moves to the
 middle of its travel, and the focus rises to a little above its lowest
-point. Bring the sample back into focus afterwards.
+point. Bring the sample back into focus afterwards, or turn on
+[Restore Focus and Objective After Home]{.guilabel} in Advanced Settings
+(@sec-advanced-general): the turret then turns back to the objective it
+was on and the focus returns to where it was. The stage stays at the
+middle of its travel either way.
 
 ![The XY Stage Control drawer on an LS850](images/focus-xy-stage-ls850.png){#fig-xy-stage width=30%}
 

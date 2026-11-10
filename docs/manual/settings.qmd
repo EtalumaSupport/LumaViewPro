@@ -197,6 +197,19 @@ The maximum acceleration of the motors, as a percentage of the firmware's
 maximum: 1 to 100, default 100. Lower values move the stage more gently, for
 loosely attached cells.
 
+#### Restore Focus and Objective After Home
+
+Requires: a focus motor.
+
+When on, a home started with [Home Stage]{.guilabel} (@sec-xy-stage) or
+the focus [Home]{.guilabel} (@sec-focus-adjust), or by a program through
+the REST interface, ends by turning the turret, if there is one, back to
+the objective it was on and returning the focus to where it was. The stage
+is not returned. When off, the focus stays near its lowest point and the
+turret at position 1. Default: off. The home at start and the one a
+support report makes (@sec-support-report) leave the turret at position 1
+whatever this setting says.
+
 #### REST server
 
 Shows the state of the REST interface, through which other programs control
