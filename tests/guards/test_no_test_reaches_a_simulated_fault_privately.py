@@ -108,6 +108,10 @@ _OWN_DOORS: dict[str, str] = {
     'tests/test_serial_safety.py': (
         "the EL-0940 drivers' exchange, lock and acks on the firmware simulator, no scope"
     ),
+    'tests/wire_boards.py': (
+        'the one builder of the EL-0940 drivers on the firmware simulator, no scope; '
+        "it holds the board's first reply for a board still booting at the open"
+    ),
 }
 
 
