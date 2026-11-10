@@ -87,13 +87,19 @@ class _WatchedBackend(SimWireBackend):
         return WatchedPort(board, **kwargs)
 
 
-def motor_on_the_wire(model: str = 'LS850T', axes: str = 'XYZT', **spec):
+def motor_on_the_wire(
+    model: str = 'LS850T', axes: str = 'XYZT', first_reply_late_s: float | None = None, **spec
+):
     """(MotorBoard, the simulated motor board) on *model*'s firmware.
 
     *spec* goes to `MotorBoardSpec`: ``dialect`` ('field', the default
-    firmware, or '3.0'), ``timing``, ``oracle``.
+    firmware, or '3.0'), ``timing``, ``oracle``. ``first_reply_late_s``
+    holds the board's first reply, its answer to the connect's wake, that
+    long: a board still booting when the driver opens its port.
     """
     backend = _WatchedBackend(MotorBoardSpec(model, frozenset(axes), **spec))
+    if first_reply_late_s is not None:
+        backend.motor_board.delay_next_reply(first_reply_late_s)
     board = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS, backend=backend)
     _TEARDOWNS.append(board.disconnect)
     return board, backend.motor_board

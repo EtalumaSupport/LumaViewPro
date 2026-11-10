@@ -40,6 +40,18 @@ _serial_log = logging.getLogger('LVP.serial')
 CONNECT_FAILURES = (HardwareError, serial.SerialException, OSError)
 
 
+def _reads_as_firmware_error(text: str) -> bool:
+    """Whether a board's reply text carries the firmware's own error words."""
+    return 'ERROR' in text or 'FAIL' in text or 'exceeds safe' in text
+
+
+# Every shipped firmware's INFO answer carries this line: the field motor
+# board's one line ``<BoardRev> Firmware: <date>``, the 3.0 motor board's
+# with its version after it, the field LED board's ``Firmware: <date>``
+# among its four.
+_INFO_ANSWER_MARK = 'Firmware:'
+
+
 def _describe_port(port) -> str:
     """One listed serial port: its device, USB VID:PID, description and serial number."""
     usb_id = '-' if port.vid is None else f'{port.vid:04X}:{port.pid:04X}'
@@ -661,7 +673,11 @@ class SerialBoard:
         # before the send, and our own defect, leave as themselves.
         try:
             resp_lines = self.exchange_command(
-                'INFO', response_numlines=6, timeout=0.5, stop_on_empty=True
+                'INFO',
+                response_numlines=6,
+                timeout=0.5,
+                stop_on_empty=True,
+                expect_unsupported=True,
             )
         except BoardNoReplyError as e:
             self.firmware_version = None
@@ -678,6 +694,21 @@ class SerialBoard:
             )
             return
         resp = '\n'.join(resp_lines)
+
+        # Detection judges its own reply (expect_unsupported above). The
+        # field firmwares answer every line that is not a command, the reset's
+        # wake newline included; a board still booting at the open answers it
+        # after the wake's drain, so that rejection lands in INFO's reply,
+        # ahead of the board's answer. Beside the answer it is the wake's late
+        # answer; with no answer it is INFO's failure.
+        errors = [line for line in resp_lines if _reads_as_firmware_error(line)]
+        if errors:
+            if any(_INFO_ANSWER_MARK in line for line in resp_lines):
+                _serial_log.info(
+                    f"{self._label} DETECT the wake's late answer, ahead of INFO's: {errors!r}"
+                )
+            else:
+                _serial_log.warning(f'{self._label} FIRMWARE ERROR: INFO -> {resp_lines}')
 
         # Accumulate non-empty response bytes so _reset_firmware
         # can track whether any detection attempt ever saw output.
@@ -951,7 +982,7 @@ class SerialBoard:
                 )
 
                 resp_str = str(response)
-                if 'ERROR' in resp_str or 'FAIL' in resp_str or 'exceeds safe' in resp_str:  # noqa: SIM102
+                if _reads_as_firmware_error(resp_str):  # noqa: SIM102
                     # Capability probes (e.g. motor_stop sending STOP to
                     # firmware that may or may not support it) pass
                     # expect_unsupported=True so the warning doesn't
