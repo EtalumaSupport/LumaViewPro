@@ -280,41 +280,6 @@ class TestSimulatedMotorBoard:
         assert 'X' in limits
         assert 'Y' in limits
 
-    def test_amax_dmax_probe_warning_suppressed(self, caplog):
-        """Legacy firmware probe failures for AMAXX/DMAXX/AMAXY/DMAXY
-        are filtered out of LVP.serial WARNING records.
-        src/_lumascope/drivers/motorboard.py installs the filter at import time."""
-        import logging
-
-        serial_log = logging.getLogger('LVP.serial')
-        with caplog.at_level(logging.WARNING, logger='LVP.serial'):
-            for cmd in ('AMAXX', 'DMAXX', 'AMAXY', 'DMAXY'):
-                serial_log.warning(
-                    f"[XYZ Class ] FIRMWARE ERROR: {cmd} -> ERROR: command '{cmd}' not found:"
-                )
-        suppressed = [r for r in caplog.records if 'FIRMWARE ERROR' in r.getMessage()]
-        assert suppressed == [], (
-            f'AMAX/DMAX probe warnings must be filtered; leaked {len(suppressed)} records'
-        )
-
-    def test_other_firmware_errors_still_propagate(self, caplog):
-        """Filter must drop ONLY the AMAX/DMAX probe records. Any other
-        FIRMWARE ERROR (real protocol-level failure) propagates."""
-        import logging
-
-        serial_log = logging.getLogger('LVP.serial')
-        with caplog.at_level(logging.WARNING, logger='LVP.serial'):
-            serial_log.warning(
-                '[XYZ Class ] FIRMWARE ERROR: MOVE -> ERROR: motor stalled at limit switch'
-            )
-            serial_log.warning(
-                '[LED Class ] FIRMWARE ERROR: ILLUMS -> ERROR: channel not available'
-            )
-        passed = [r for r in caplog.records if 'FIRMWARE ERROR' in r.getMessage()]
-        assert len(passed) == 2, (
-            f'Real FIRMWARE ERROR records must propagate; got {len(passed)} (expected 2)'
-        )
-
     def test_axes_config(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         config = board.get_axes_config()

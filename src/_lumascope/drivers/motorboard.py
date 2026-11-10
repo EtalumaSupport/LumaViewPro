@@ -2,7 +2,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import math
-import logging
 import threading
 import time
 from typing import ClassVar
@@ -23,25 +22,6 @@ from _lumascope.drivers.exceptions import (
 )
 from _lumascope.drivers.motorconfig import MotorConfig, read_only_axes_config
 
-
-class _LegacyAccelProbeFilter(logging.Filter):
-    """Drop LVP.serial FIRMWARE ERROR records for the AMAX/DMAX probe
-    commands. acceleration_limit() probes per-axis accel/decel registers
-    that legacy motor firmware doesn't implement; the response is ERROR,
-    the driver catches it and falls back to DEFAULT_ACCELERATION_LIMIT.
-    The warning is noise, not a failure. All other FIRMWARE ERROR
-    records propagate unchanged."""
-
-    _PROBES = ('AMAXX', 'DMAXX', 'AMAXY', 'DMAXY')
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        if 'FIRMWARE ERROR' not in msg:
-            return True
-        return not any(f'FIRMWARE ERROR: {p}' in msg for p in self._PROBES)
-
-
-logging.getLogger('LVP.serial').addFilter(_LegacyAccelProbeFilter())
 
 # Axis order the firmware reports and the driver answers in.
 _FIRMWARE_AXES = ('X', 'Y', 'Z', 'T')
@@ -574,7 +554,7 @@ class MotorBoard(SerialBoard):
         parameter_char = parameter_map[parameter]
         command = f'{parameter_char}MAX{axis}'
         DEFAULT_ACCELERATION_LIMIT = 30000
-        resp = self.exchange_command(command)
+        resp = self.exchange_command(command, expect_unsupported=True)
 
         # Firmware that does not implement the query answers ERROR or text
         # that is not a register value: that is the board saying it has no

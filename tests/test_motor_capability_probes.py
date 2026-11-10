@@ -43,6 +43,17 @@ def _firmware_errors(caplog):
     ]
 
 
+def test_an_acceleration_limit_the_firmware_lacks_is_its_default_and_no_fault(caplog):
+    """The field firmware answers AMAXX with its not-found error: the board
+    has no limit to report, so the default is its answer, and no firmware
+    fault is logged for an answer the driver asked for."""
+    board, _sim = motor_on_the_wire()
+    with caplog.at_level(VERBOSE, logger='LVP.serial'):
+        assert board.acceleration_limit('X', 'acceleration') == 30000
+    assert len(_exchanges(caplog, 'AMAXX')) == 1
+    assert _firmware_errors(caplog) == []
+
+
 class TestSupportsPredicates:
     def test_firmware_without_the_families_is_answered_unsupported_once_and_quietly(self, caplog):
         """The field firmware answers both probes with its not-found error:
