@@ -79,16 +79,8 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             run_reported(controller.stop, self.draw_record_button, 'RECORD')
             return
 
-        # The shown channel's false-colour toggle governs display only; the
-        # recording names its channel itself. Read here, on the GUI thread,
-        # since .ids access is not thread-safe.
-        channel = ctx.session.shown_channel.channel
-        false_color_on = (
-            ctx.image_settings.channel_control_lookup(channel=channel).ids['false_color'].active
-        )
-
         def _start():
-            recording = controller.start(false_color_on=false_color_on)
+            recording = controller.start()
             recording.add_done_callback(self._on_recording_complete)
 
         # On the worker pool: the controller's start opens the encoder and

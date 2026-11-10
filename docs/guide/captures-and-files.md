@@ -49,16 +49,18 @@ written, each its `file` and the record of it, `record` (a `FrameRecord`, as
 where the position has none and the number counting up from `000001`; with
 `separate_folder_per_channel` set it is in a folder per channel under
 `Manual/`. The live folder is `live_folder` in the settings, set by
-`session.set_live_folder(folder)`, which creates it. `false_color_on` is the
-false-colour toggle of LumaViewPro's channel controls: on, the file carries
-the channel's colour for display ([Saved files](#saved-files)); off, it is
-grey. It changes how the file is shown, never what it records.
+`session.set_live_folder(folder)`, which creates it. The channel's stored
+`false_color` setting (`<channel>.false_color`, the false-colour toggle of
+LumaViewPro's channel controls) decides how the file is rendered: on, it
+carries the channel's colour for display ([Saved files](#saved-files)); off,
+it is grey. A manual recording follows the same setting. It changes how the
+file is shown, never what it records.
 
 ```python
 scope.motion.move_to_well('B2')             # over the simulator's specimen
 session.show_channel('BF')
 scope.illumination.led_on('BF', 5)
-saving = session.manual_capture.capture(false_color_on=False)
+saving = session.manual_capture.capture()
 saved = saving.result(timeout=30)
 print(saved[0].file, saved[0].channel, saved[0].statistics.maximum)
 assert saved[0].well_label == 'B2' and saved[0].statistics.maximum > 0   # at B2, and lit
@@ -154,7 +156,7 @@ import tifffile
 
 session.show_channel('BF')
 scope.illumination.led_on('BF', 5)
-path = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0].file
+path = session.manual_capture.capture().result(timeout=30)[0].file
 scope.illumination.leds_off()
 
 with tifffile.TiffFile(path) as tif:    # a plain TIFF's first description is the view

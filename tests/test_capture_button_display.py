@@ -18,7 +18,6 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     ObjectiveUnknownError,
 )
-from _lumascope.modules.scope_session import ShownChannel
 
 
 @pytest.fixture
@@ -28,10 +27,6 @@ def button_ctx():
     ctx = MagicMock()
     ctx.scope_display.use_bullseye = True
     ctx.scope_display.use_crosshairs = False
-    ctx.session.shown_channel = ShownChannel('BF', lit=False)
-    ctx.image_settings.channel_control_lookup.return_value.ids = {
-        'false_color': types.SimpleNamespace(active=False)
-    }
     original = _app_ctx.ctx
     _app_ctx.ctx = ctx
     # Headless, no UI dispatcher: a settled still's post runs at once.
@@ -107,14 +102,13 @@ def test_anything_else_is_not_shown_raw(button_ctx, centre_posts):
     assert 'live_folder' not in _one_notice(centre_posts).message
 
 
-def test_the_button_hands_the_member_what_the_user_sees(button_ctx):
+def test_the_button_hands_the_member_only_the_overlays_asked_for(button_ctx):
     from ui.composite_capture import CompositeCapture
 
     CompositeCapture.live_capture(object())
 
     kwargs = button_ctx.session.manual_capture.capture.call_args.kwargs
     assert kwargs == {
-        'false_color_on': False,
         'bullseye': True,
         'crosshairs': False,
     }

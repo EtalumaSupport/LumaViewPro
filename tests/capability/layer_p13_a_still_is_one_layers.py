@@ -41,7 +41,7 @@ TRAVEL_DELAYS_S = (0.0, 0.05, 0.15)
 
 
 def _still(session):
-    stills = session.manual_capture.capture(false_color_on=False).result(timeout=60)
+    stills = session.manual_capture.capture().result(timeout=60)
     return stills[0].file
 
 

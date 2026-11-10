@@ -34,7 +34,7 @@ def _session(tmp_path, **settings):
 
 
 def _saved_still(session):
-    (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30.0)
+    (still,) = session.manual_capture.capture().result(timeout=30.0)
     return still.file
 
 

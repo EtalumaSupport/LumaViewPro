@@ -48,9 +48,7 @@ def main():
         scope.simulation.remove_camera()
         print(f'Not connected: {scope.unconnected_parts()}')
         scope.illumination.led_on('BF', 5)
-        no_camera = refused(
-            lambda: session.manual_capture.capture(false_color_on=False).result(timeout=30)
-        )
+        no_camera = refused(lambda: session.manual_capture.capture().result(timeout=30))
         scope.illumination.leds_off()
         return before_home, past_travel, no_camera
     finally:

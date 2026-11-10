@@ -65,7 +65,7 @@ def main():
             # camera; lighting it lights it at its stored current.
             session.show_channel(channel)
             session.light_shown_channel(True)
-            saving = session.manual_capture.capture(false_color_on=False)
+            saving = session.manual_capture.capture()
             stored[channel] = saving.result(timeout=30)[0]
             session.light_shown_channel(False)
             report(stored[channel])
@@ -77,7 +77,7 @@ def main():
         session.light_shown_channel(True)
         scope.camera.set_exposure_ms(RAW_EXPOSURE_MS)
         scope.camera.set_gain_db(RAW_GAIN_DB)
-        raw = session.manual_capture.capture(false_color_on=False).result(timeout=30)[0]
+        raw = session.manual_capture.capture().result(timeout=30)[0]
         session.light_shown_channel(False)
         report(raw)
         return stored, raw

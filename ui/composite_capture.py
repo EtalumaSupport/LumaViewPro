@@ -48,23 +48,18 @@ class CompositeCapture(FloatLayout):
 
         Every decision about the still -- channel, folder, name, summing,
         format, depth, overlay copy, refusals -- is the session's
-        ``manual_capture``; the button supplies only what the user is
-        looking at, read here on the main thread. A second press while a
+        ``manual_capture``; the button supplies only the overlay copies the
+        user asked for, read here on the main thread. A second press while a
         still is in flight, and a press while a run holds the camera, are
         the member's refusals; the reporter shows them, and whatever the
         still's operation settles with, like any other outcome.
         """
         gui_logger.button('LIVE_CAPTURE')
         ctx = _app_ctx.ctx
-        channel = ctx.session.shown_channel.channel
-        false_color_on = (
-            ctx.image_settings.channel_control_lookup(channel=channel).ids['false_color'].active
-        )
         bullseye = ctx.scope_display.use_bullseye
         crosshairs = ctx.scope_display.use_crosshairs
         run_reported(
             lambda: ctx.session.manual_capture.capture(
-                false_color_on=false_color_on,
                 bullseye=bullseye,
                 crosshairs=crosshairs,
             ).add_done_callback(lambda done: schedule_ui(lambda _dt: _still_settled(done))),

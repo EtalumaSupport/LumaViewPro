@@ -495,7 +495,7 @@ def test_every_jobs_end_is_an_event_with_the_job(client, session, monkeypatch):
     with _reading(client) as stream:
         stream.until('status')
         move = client.post('/api/v1/scope/motion/start_move_z_by', json={'dz_um': 10.0}).json()
-        still = client.post('/api/v1/manual_capture/capture', json={'false_color_on': False}).json()
+        still = client.post('/api/v1/manual_capture/capture', json={}).json()
         held = client.post(
             '/api/v1/scope/illumination/leds_off', headers={'Prefer': 'respond-async'}
         ).json()

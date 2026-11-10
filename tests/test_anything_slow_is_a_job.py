@@ -514,7 +514,7 @@ def test_a_still_job_deleted_while_it_runs_is_accepted_and_ends_as_it_would_have
     # meets it running; the simulated camera captures at once.
     monkeypatch.setattr(session.manual_capture, '_capture_and_save', held)
     try:
-        job = client.post('/api/v1/manual_capture/capture', json={'false_color_on': False}).json()
+        job = client.post('/api/v1/manual_capture/capture', json={}).json()
         location = f'/api/v1/jobs/{job["id"]}'
 
         asked = client.delete(location)

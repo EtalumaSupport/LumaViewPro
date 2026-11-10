@@ -3986,7 +3986,6 @@ One still at a time, captured on the camera lane and saved.
 def capture(
     self,
     *,
-    false_color_on: bool,
     bullseye: bool = False,
     crosshairs: bool = False,
 ) -> Operation[tuple[SavedStill, ...]]
@@ -3998,7 +3997,6 @@ Capture one still and save it; returns at once.
 
 **Args**
 
-- `false_color_on`: Whether the shown channel is displayed in false colour -- how the file is rendered, never what it says was imaged.
 - `bullseye`: Also save a copy with the bullseye colour map.
 - `crosshairs`: Also save a copy with the centre crosshairs. With either overlay, one extra file is written, from the same frame, beside the unmarked one.
 
@@ -4006,8 +4004,10 @@ The still is named for the shown channel (`session.show_channel`),
 read as its frame is taken, and the camera holds that channel's
 stored settings for the frame and after it; after a raw camera
 write it keeps the written values, and the frame's record says no
-channel was held. In the session's engineering mode the name carries
-the turret slot.
+channel was held. The file is rendered in false colour when that
+channel's stored `false_color` is on, grey when it is off -- how
+the file is rendered, never what it says was imaged. In the session's
+engineering mode the name carries the turret slot.
 
 **Returns**
 
@@ -4197,7 +4197,7 @@ Nothing.
 ### `ManualRecordingController.start`
 
 ```python
-def start(self, *, false_color_on: bool = False) -> Operation[RecordingFinished]
+def start(self) -> Operation[RecordingFinished]
 ```
 
 Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`, `lane_override`.  
@@ -4212,11 +4212,9 @@ made a brightfield hyperstack impossible to build, since the
 toggle being off left the channel unnamed. The channel is the shown
 channel (`session.show_channel`), read once the recording
 holds the scope, when no light can change and the shown channel cannot
-move; a start that would make the name false is refused.
-
-**Args**
-
-- `false_color_on`: Whether the shown channel is displayed in false colour. Controls rendering alone; grayscale when False.
+move; a start that would make the name false is refused. The
+frames are rendered in false colour when that channel's stored
+`false_color` is on, grey when it is off.
 
 **Returns**
 

@@ -24,7 +24,7 @@ curl -s -w '\n' --json '{"path": "BF.exposure_ms", "value": 2.0}' $API/update_se
 curl -s -w '\n' --json '{"path": "BF.gain_db", "value": 1.0}' $API/update_settings           # 200
 curl -s -w '\n' --json '{"channel": "BF"}' $API/show_channel                                 # 200
 curl -s -w '\n' --json '{"lit": true}' $API/light_shown_channel                              # 200
-BF_JOB=$(curl -s --json '{"false_color_on": false}' $API/manual_capture/capture | jq -r .id)   # 202
+BF_JOB=$(curl -s --json '{}' $API/manual_capture/capture | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$BF_JOB              # 200: the still, its frame held for BF
 curl -s -w '\n' --json '{"lit": false}' $API/light_shown_channel                             # 200
 
@@ -34,7 +34,7 @@ curl -s -w '\n' --json '{"path": "Ex488.exposure_ms", "value": 100.0}' $API/upda
 curl -s -w '\n' --json '{"path": "Ex488.gain_db", "value": 10.0}' $API/update_settings          # 200
 curl -s -w '\n' --json '{"channel": "Ex488"}' $API/show_channel                                 # 200
 curl -s -w '\n' --json '{"lit": true}' $API/light_shown_channel                                 # 200
-EX488_JOB=$(curl -s --json '{"false_color_on": false}' $API/manual_capture/capture | jq -r .id)   # 202
+EX488_JOB=$(curl -s --json '{}' $API/manual_capture/capture | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$EX488_JOB           # 200
 curl -s -w '\n' --json '{"lit": false}' $API/light_shown_channel                                # 200
 
@@ -45,6 +45,6 @@ curl -s -w '\n' --json '{"channel": "BF"}' $API/show_channel                    
 curl -s -w '\n' --json '{"lit": true}' $API/light_shown_channel                      # 200
 curl -s -w '\n' -X PUT --json '{"exposure_ms": 1.5}' $API/scope/camera/exposure_ms   # 200: 1.5
 curl -s -w '\n' -X PUT --json '{"gain_db": 3.0}' $API/scope/camera/gain_db           # 200: 3.0
-RAW_JOB=$(curl -s --json '{"false_color_on": false}' $API/manual_capture/capture | jq -r .id)   # 202
+RAW_JOB=$(curl -s --json '{}' $API/manual_capture/capture | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$RAW_JOB             # 200
 curl -s -w '\n' --json '{"lit": false}' $API/light_shown_channel    # 200

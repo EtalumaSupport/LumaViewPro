@@ -21,7 +21,7 @@ curl -s -w '\n' $API/control                                        # 200: who h
 # In the session: a move, and a still.
 curl -s -w '\n' -H "Control-Session: $CONTROL" -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200
 curl -s -w '\n' -H "Control-Session: $CONTROL" --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0
-JOB=$(curl -s -H "Control-Session: $CONTROL" --json '{"false_color_on": false}' $API/manual_capture/capture | jq -r .id)   # 202
+JOB=$(curl -s -H "Control-Session: $CONTROL" --json '{}' $API/manual_capture/capture | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$JOB                 # 200: the still
 curl -s -w '\n' -H "Control-Session: $CONTROL" --json '{}' $API/scope/illumination/leds_off   # 200
 

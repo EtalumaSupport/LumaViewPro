@@ -139,7 +139,7 @@ def test_a_chunkless_still_whose_exposure_read_fails_saves_nothing(session, monk
     session.scope.simulation.refuse_camera_read('exposure', 'failed', count=10)
 
     with pytest.raises(CaptureFailedError) as failed:
-        session.manual_capture.capture(false_color_on=False).result(timeout=30)
+        session.manual_capture.capture().result(timeout=30)
 
     assert failed.value.reason == 'record_read_failed'
     assert isinstance(failed.value.__cause__, CameraReadFailedError)

@@ -68,6 +68,8 @@ def _run_manual_capture(tmp_path, scope, *, shown_channel, false_color_on, separ
     )
     for name in release_catalogue():
         settings[name].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 0})
+    # How the file is rendered is the shown channel's stored choice.
+    settings[shown_channel]['false_color'] = false_color_on
     capture = ManualCaptureController(
         on_saved=lambda folder: None,
         scope=scope,
@@ -78,7 +80,7 @@ def _run_manual_capture(tmp_path, scope, *, shown_channel, false_color_on, separ
         engineering_mode=lambda: False,
         channel_colors=release_colors,
     )
-    reported = capture.capture(false_color_on=false_color_on).result(timeout=30)
+    reported = capture.capture().result(timeout=30)
 
     return sorted((tmp_path / 'Manual').rglob('*.tiff')), reported
 

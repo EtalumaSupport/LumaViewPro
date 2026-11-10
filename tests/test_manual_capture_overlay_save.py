@@ -112,7 +112,6 @@ def _run_capture(ctx, sum_count=1):
 
     with patch('_lumascope.modules.manual_capture.save_image', side_effect=_saved) as save_one:
         capture.capture(
-            false_color_on=False,
             bullseye=ctx.use_bullseye,
             crosshairs=ctx.use_crosshairs,
         ).result(timeout=10)

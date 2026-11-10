@@ -198,7 +198,7 @@ def test_showing_another_layer_during_a_recording_is_refused_and_changes_nothing
     from _lumascope.modules.exceptions import HardwareCommandRefusedError
 
     session.light_shown_channel(True)
-    recording = session.manual_recording.start(false_color_on=False)
+    recording = session.manual_recording.start()
     try:
         with pytest.raises(HardwareCommandRefusedError) as refused:
             session.show_channel(LED0)
@@ -214,7 +214,7 @@ def test_showing_another_layer_during_a_recording_is_refused_and_changes_nothing
 
 
 def test_showing_the_shown_layer_during_a_recording_is_no_change(session):
-    recording = session.manual_recording.start(false_color_on=False)
+    recording = session.manual_recording.start()
     try:
         assert session.show_channel('BF') == ShownChannel('BF', lit=False)
     finally:
@@ -257,7 +257,7 @@ class TestTheShownChannelsLitIsTheLed:
         """The stale lit asked for a light the recording refuses; dark, showing
         the recording's own layer is no change."""
         session.light_shown_channel(True)
-        recording = session.manual_recording.start(false_color_on=False)
+        recording = session.manual_recording.start()
         try:
             session.scope.illumination.leds_off()
 

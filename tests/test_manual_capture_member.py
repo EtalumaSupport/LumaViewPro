@@ -22,6 +22,7 @@ import time
 
 import numpy as np
 import pytest
+import tifffile
 
 import _lumascope.modules.image_mode as image_mode
 from _lumascope.modules.exceptions import (
@@ -86,7 +87,6 @@ def over_the_first_well(session) -> str:
 
 
 def _capture(session, **kwargs):
-    kwargs.setdefault('false_color_on', False)
     return session.manual_capture.capture(**kwargs).result(timeout=RESULT_TIMEOUT_S)
 
 
@@ -192,6 +192,38 @@ class TestWhereTheFileLands:
         assert path.read_bytes()[:2] == b'\xff\xd8'
 
 
+class TestTheRenderingIsTheChannels:
+    def test_a_still_is_rendered_by_its_channels_stored_false_colour(self, still_session):
+        # Ex405 ships with false colour on; its stored choice, not a caller's
+        # word, decides. An 8-bit fluorescence TIFF in colour carries its
+        # colour as a palette; a grey one carries none.
+        session, _ = still_session
+        session.show_channel(LED0)
+        session.update_settings(f'{LED0}.false_color', False)
+        (grey,) = _files(session)
+        session.update_settings(f'{LED0}.false_color', True)
+        (colour,) = _files(session)
+
+        with tifffile.TiffFile(grey) as tif:
+            assert tif.pages[0].colormap is None
+        with tifffile.TiffFile(colour) as tif:
+            assert tif.pages[0].colormap is not None
+
+    def test_a_client_naming_the_rendering_is_refused_on_the_wire(self, still_session):
+        from fastapi.testclient import TestClient
+
+        from _lumascope.rest.app import build_app
+
+        session, tmp_path = still_session
+        with TestClient(build_app(session)) as client:
+            answer = client.post('/api/v1/manual_capture/capture', json={'false_color_on': True})
+
+        assert answer.status_code == 422, answer.text
+        (unfit,) = answer.json()['errors']
+        assert (unfit['loc'][-1], unfit['type']) == ('false_color_on', 'extra_forbidden')
+        assert not (tmp_path / 'Manual').exists(), 'nothing was captured'
+
+
 class TestOverlays:
     def test_an_overlay_is_a_second_file_from_the_same_capture(self, still_session):
         session, _ = still_session
@@ -247,11 +279,9 @@ class TestASumIsTakenBackToBack:
             camera = session.scope._camera_driver
             # The first still after bring-up also waits out the session's
             # own settle; the claim is about a sum, so it is made on the next.
-            session.manual_capture.capture(false_color_on=False).result(timeout=RESULT_TIMEOUT_S)
+            session.manual_capture.capture().result(timeout=RESULT_TIMEOUT_S)
             before = camera.grab().seq
-            still = session.manual_capture.capture(false_color_on=False).result(
-                timeout=RESULT_TIMEOUT_S
-            )[0]
+            still = session.manual_capture.capture().result(timeout=RESULT_TIMEOUT_S)[0]
             spanned = camera.grab().seq - before
 
         assert still.record.frames_summed == sum_count
@@ -269,7 +299,7 @@ class TestRefusalsAndFailures:
         session, _ = still_session
         blocker = _LaneBlocker(session)
         try:
-            still = session.manual_capture.capture(false_color_on=False)
+            still = session.manual_capture.capture()
             assert still.stop() is None
             assert not still.done()
         finally:
@@ -280,9 +310,9 @@ class TestRefusalsAndFailures:
         session, _ = still_session
         blocker = _LaneBlocker(session)
         try:
-            first = session.manual_capture.capture(false_color_on=False)
+            first = session.manual_capture.capture()
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(false_color_on=False)
+                session.manual_capture.capture()
             assert refused.value.reason == 'capture_in_flight'
         finally:
             blocker.release()
@@ -305,14 +335,14 @@ class TestRefusalsAndFailures:
                 return original(request)
 
             session.manual_capture._capture_and_save = observed
-            first = session.manual_capture.capture(false_color_on=False)
+            first = session.manual_capture.capture()
             assert body_running.wait(5.0), 'the still never started on the lane'
             with pytest.raises(concurrent.futures.TimeoutError):
                 first.result(timeout=0.1)
 
             assert session.manual_capture.in_flight
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(false_color_on=False)
+                session.manual_capture.capture()
             assert refused.value.reason == 'capture_in_flight'
             first.result(timeout=RESULT_TIMEOUT_S)
             assert not session.manual_capture.in_flight
@@ -323,7 +353,7 @@ class TestRefusalsAndFailures:
         assert held is not None
         try:
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(false_color_on=False)
+                session.manual_capture.capture()
         finally:
             held.release()
         assert refused.value.reason == 'exclusive_activity_running'
@@ -338,7 +368,7 @@ class TestRefusalsAndFailures:
         session, _ = still_session
         blocker = _LaneBlocker(session)
         try:
-            future = session.manual_capture.capture(false_color_on=False)
+            future = session.manual_capture.capture()
             _wait_until_queued(session, 1)
             session.camera_executor.shutdown(wait=False)
         finally:
@@ -352,7 +382,7 @@ class TestRefusalsAndFailures:
         session, tmp_path = still_session
         session.scope.simulation.stall_stream(0.0, 600.0)
 
-        future = session.manual_capture.capture(false_color_on=False)
+        future = session.manual_capture.capture()
 
         with pytest.raises(CaptureFailedError) as failed:
             future.result(timeout=RESULT_TIMEOUT_S)
@@ -366,7 +396,7 @@ class TestRefusalsAndFailures:
         session, tmp_path = still_session
         session.scope._camera_driver.stop_grabbing()
 
-        future = session.manual_capture.capture(false_color_on=False)
+        future = session.manual_capture.capture()
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
             future.result(timeout=RESULT_TIMEOUT_S)
@@ -407,12 +437,12 @@ class TestAStillIsWaitedForWithinItsBound:
         session, tmp_path = still_session
         blocker = _LaneBlocker(session)
         try:
-            operation = session.manual_capture.capture(false_color_on=False)
+            operation = session.manual_capture.capture()
             with pytest.raises(LaneCallStillRunningError) as overran:
                 operation.result(timeout=RESULT_TIMEOUT_S)
             assert overran.value.reason == 'call_overran'
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.manual_capture.capture(false_color_on=False)
+                session.manual_capture.capture()
             assert refused.value.reason == 'capture_in_flight'
         finally:
             blocker.release()
@@ -427,7 +457,7 @@ class TestAStillIsWaitedForWithinItsBound:
         session, _ = still_session
         blocker = _LaneBlocker(session)
         try:
-            operation = session.manual_capture.capture(false_color_on=False)
+            operation = session.manual_capture.capture()
             with pytest.raises(LaneCallStillRunningError):
                 operation.result(timeout=RESULT_TIMEOUT_S)
             # The lane answers what it will not run as it closes, and the
@@ -445,7 +475,7 @@ class TestTheRecordIsTheCapturesMoment:
         session.scope.camera.set_gain_db(1.0)
         blocker = _LaneBlocker(session)
         try:
-            future = session.manual_capture.capture(false_color_on=False)
+            future = session.manual_capture.capture()
             # The still is queued behind the blocker before the write is sent.
             _wait_until_queued(session, 1)
             writer = threading.Thread(target=session.scope.camera.set_gain_db, args=(20.0,))
@@ -541,9 +571,7 @@ class TestAStillReturnsItsRecord:
 
         session, _ = still_session
         with TestClient(build_app(session)) as client:
-            job = client.post(
-                '/api/v1/manual_capture/capture', json={'false_color_on': False}
-            ).json()
+            job = client.post('/api/v1/manual_capture/capture', json={}).json()
             ended = client.get(f'/api/v1/jobs/{job["id"]}', headers={'Prefer': 'wait=30'}).json()
 
         assert ended['status'] == 'completed', ended

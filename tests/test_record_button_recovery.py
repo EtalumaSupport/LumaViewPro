@@ -68,7 +68,7 @@ class _Controller:
         self.stop_calls = 0
         self.start_calls = 0
 
-    def start(self, false_color_on=False):
+    def start(self):
         self.start_calls += 1
         if self.error is not None:
             raise self.error

@@ -162,16 +162,12 @@ class ManualCaptureController:
     def capture(
         self,
         *,
-        false_color_on: bool,
         bullseye: bool = False,
         crosshairs: bool = False,
     ) -> 'Operation[tuple[SavedStill, ...]]':
         """Capture one still and save it; returns at once.
 
         Args:
-            false_color_on: Whether the shown channel is displayed in false
-                colour -- how the file is rendered, never what it says was
-                imaged.
             bullseye: Also save a copy with the bullseye colour map.
             crosshairs: Also save a copy with the centre crosshairs. With
                 either overlay, one extra file is written, from the same
@@ -181,8 +177,10 @@ class ManualCaptureController:
         read as its frame is taken, and the camera holds that channel's
         stored settings for the frame and after it; after a raw camera
         write it keeps the written values, and the frame's record says no
-        channel was held. In the session's engineering mode the name carries
-        the turret slot.
+        channel was held. The file is rendered in false colour when that
+        channel's stored ``false_color`` is on, grey when it is off -- how
+        the file is rendered, never what it says was imaged. In the session's
+        engineering mode the name carries the turret slot.
 
         Returns:
             An ``Operation`` whose result is a ``SavedStill`` per file
@@ -227,7 +225,6 @@ class ManualCaptureController:
             request = _StillRequest(
                 scope=self._scope,
                 settings=self._settings_snapshot(),
-                false_color_on=false_color_on,
                 bullseye=bullseye,
                 crosshairs=crosshairs,
                 engineering_mode=self._engineering_mode(),
@@ -366,6 +363,9 @@ class ManualCaptureController:
         # taken with, and an unknown one refuses before anything is captured.
         objective_id, _ = scope.runtime_state.resolve_current_objective()
         channel, still = self._grab_named(scope, capture_config)
+        # How the file is rendered, the imaged channel's own stored choice, as
+        # the drawer's toggle and a client's settings write leave it.
+        false_color_on = settings[channel]['false_color']
         array = still.image
         save_folder = manual_folder
         if settings['separate_folder_per_channel']:
@@ -432,7 +432,7 @@ class ManualCaptureController:
             significant_bits=significant_bits,
             white_bits=frame_record.frame_significant_bits,
             channel=channel,
-            false_color_on=request.false_color_on,
+            false_color_on=false_color_on,
             channel_colors=request.channel_colors,
             output_format=capture_config.output_format_live,
             jpeg_quality=capture_config.jpg_quality,
@@ -493,7 +493,7 @@ class ManualCaptureController:
                 # Already the 8-bit rendering, shown as it is.
                 white_bits=None,
                 channel=channel,
-                false_color_on=request.false_color_on,
+                false_color_on=false_color_on,
                 channel_colors=request.channel_colors,
                 output_format=capture_config.output_format_live,
                 jpeg_quality=capture_config.jpg_quality,
@@ -553,7 +553,6 @@ class _StillRequest:
         *,
         scope: Any,
         settings: dict,
-        false_color_on: bool,
         bullseye: bool,
         crosshairs: bool,
         engineering_mode: bool,
@@ -561,7 +560,6 @@ class _StillRequest:
     ):
         self.scope = scope
         self.settings = settings
-        self.false_color_on = false_color_on
         self.bullseye = bullseye
         self.crosshairs = crosshairs
         self.engineering_mode = engineering_mode

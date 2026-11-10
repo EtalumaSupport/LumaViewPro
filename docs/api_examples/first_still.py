@@ -38,7 +38,7 @@ def main():
 
         # The still is named for the lit LED, and the camera holds that
         # channel's stored gain and exposure for its frame.
-        saved = session.manual_capture.capture(false_color_on=False).result(timeout=30)
+        saved = session.manual_capture.capture().result(timeout=30)
         scope.illumination.leds_off()
 
         still = saved[0]

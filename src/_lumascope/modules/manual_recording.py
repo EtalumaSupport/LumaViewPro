@@ -324,7 +324,7 @@ class ManualRecordingController:
     # ------------------------------------------------------------------
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.LANE_OVERRIDE))
-    def start(self, *, false_color_on: bool = False) -> 'Operation[RecordingFinished]':
+    def start(self) -> 'Operation[RecordingFinished]':
         """Snapshot configuration and open a recording; returns its operation.
 
         Channel IDENTITY (what was imaged) and false-color RENDERING (how
@@ -334,11 +334,9 @@ class ManualRecordingController:
         toggle being off left the channel unnamed. The channel is the shown
         channel (``session.show_channel``), read once the recording
         holds the scope, when no light can change and the shown channel cannot
-        move; a start that would make the name false is refused.
-
-        Args:
-            false_color_on: Whether the shown channel is displayed in false colour.
-                Controls rendering alone; grayscale when False.
+        move; a start that would make the name false is refused. The
+        frames are rendered in false colour when that channel's stored
+        ``false_color`` is on, grey when it is off.
 
         Returns:
             The recording's ``Operation``: done once its frames, MP4 close and
@@ -495,8 +493,8 @@ class ManualRecordingController:
             # of, whether they were shown in false colour: the video builder
             # colours a rebuild only when it was on, so frames the user
             # deliberately saved gray stay gray, in the colour of the day.
-            # The channel is set once the recording holds the scope.
-            'false_color': false_color_on,
+            # It is the channel's own stored choice, set with the channel once
+            # the recording holds the scope.
             'camera': {
                 'model': camera.camera_model,
                 'serial': camera.camera_serial_number,
@@ -522,6 +520,8 @@ class ManualRecordingController:
             claimed['channel'] = channel = self._shown_channel()
             _refuse_a_name_that_would_be_false(scope, channel)
             manifest_extra['channel'] = channel
+            false_color = settings[channel]['false_color']
+            claimed['false_color'] = manifest_extra['false_color'] = false_color
             # The size the file is made at: held, else read, so an unknown one is
             # asked for (CameraReadFailedError when the camera does not answer).
             frame_size = scope.camera.frame_size or scope.camera.read_frame_size()
@@ -623,7 +623,7 @@ class ManualRecordingController:
                 video_as_frames=video_as_frames,
                 save_folder=save_folder,
                 channel=claimed['channel'],
-                false_color_on=false_color_on,
+                false_color_on=claimed['false_color'],
                 channel_colors=self._channel_colors(),
                 save_encoding=capture_config.save_encoding,
                 capture_depth=capture_config.capture_depth,
@@ -643,9 +643,9 @@ class ManualRecordingController:
                     width=claimed['frame_size'].width,
                     height=claimed['frame_size'].height,
                     # Rendering: grey keeps the encoder gray, which is what a
-                    # recording with the toggle off must produce.
+                    # recording with the channel's false colour off must produce.
                     color=channel_record.shown_color(
-                        plan.channel, false_color_on, plan.channel_colors
+                        plan.channel, plan.false_color_on, plan.channel_colors
                     ),
                     include_timestamp_overlay=config.timestamp_overlay,
                     vfr=True,

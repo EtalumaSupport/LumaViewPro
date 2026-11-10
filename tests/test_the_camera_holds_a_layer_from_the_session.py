@@ -115,7 +115,7 @@ class TestGoingToAStep:
 
     def test_going_to_another_layers_step_during_a_recording_is_refused(self, session):
         protocol, _bf_idx, blue_idx = _two_step_protocol(session)
-        recording = session.manual_recording.start(false_color_on=False)
+        recording = session.manual_recording.start()
         try:
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 session.go_to_step(protocol, blue_idx)
@@ -137,7 +137,7 @@ class TestGoingToAStep:
         # Away from the step's Z, so a move to it would show.
         motion.move_z(motion.get_current_position('Z') + 50.0)
         away = motion.get_current_position('Z')
-        recording = session.manual_recording.start(false_color_on=False)
+        recording = session.manual_recording.start()
         try:
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 session.go_to_step(protocol, bf_idx)
@@ -161,7 +161,7 @@ class TestGoingToAStep:
         session.light_shown_channel(True)
         # The lit LED away from the step's current, so the step's light shows.
         session.update_settings('BF.illumination_ma', step_ma + 10.0)
-        recording = session.manual_recording.start(false_color_on=False)
+        recording = session.manual_recording.start()
         try:
             session.go_to_step(protocol, bf_idx)
             assert channel_reading(session.scope.illumination, 'BF').illumination_ma == step_ma

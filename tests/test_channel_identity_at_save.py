@@ -112,7 +112,9 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
         image_output_format={'live': 'TIFF', 'sequenced': 'TIFF'},
         image_mode='8bit',
     )
-    settings[LAYER].update({'exposure_ms': 10, 'sum': 1, 'illumination_ma': 100})
+    settings[LAYER].update(
+        {'exposure_ms': 10, 'sum': 1, 'illumination_ma': 100, 'false_color': false_color_active}
+    )
     capture = ManualCaptureController(
         on_saved=lambda folder: None,
         scope=scope,
@@ -123,7 +125,7 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
         engineering_mode=lambda: False,
         channel_colors=release_colors,
     )
-    capture.capture(false_color_on=false_color_active, crosshairs=use_crosshairs).result(timeout=30)
+    capture.capture(crosshairs=use_crosshairs).result(timeout=30)
 
     return sorted((tmp_path / 'Manual').glob('*.tiff'))
 

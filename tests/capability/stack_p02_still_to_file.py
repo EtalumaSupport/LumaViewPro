@@ -26,7 +26,7 @@ def body(session):
             sizes = []
             for _ in range(N):
                 t = time.perf_counter()
-                fut = session.manual_capture.capture(false_color_on=False)
+                fut = session.manual_capture.capture()
                 stills = fut.result(timeout=60)
                 samples.append(time.perf_counter() - t)
                 sizes.append(stills[0].file.stat().st_size)

@@ -80,8 +80,9 @@ def test_a_still_is_saved_in_its_channels_override(tmp_path):
     with _open_session(_settings(tmp_path)) as session:
         session.show_channel(LED2)
         session.update_settings(f'{LED2}.display_color', MAGENTA)
+        session.update_settings(f'{LED2}.false_color', True)
 
-        (path,) = _files(session, false_color_on=True)
+        (path,) = _files(session)
 
         with tifffile.TiffFile(path) as tif:
             brightest = [int(v) for v in tif.pages[0].colormap[:, -1]]
