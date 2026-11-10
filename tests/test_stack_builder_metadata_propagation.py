@@ -43,14 +43,20 @@ def _write_structured_input(
     path: pathlib.Path,
     *,
     channel: str,
-    plate_pos_mm: dict,
-    z_pos_um: float,
+    plate_pos_mm: dict | None,
+    z_pos_um: float | None,
     value: int = 100,
 ) -> None:
     """Write a per-frame TIFF via image_utils.write_tiff so it carries
     structured acquisition metadata (the realistic input shape for
-    stack_builder)."""
+    stack_builder). A position given as None is one the frame did not
+    record, and the file states none."""
     arr = np.full((4, 4), value, dtype=np.uint8)
+    position = {
+        key: fact
+        for key, fact in (('plate_pos_mm', plate_pos_mm), ('z_pos_um', z_pos_um))
+        if fact is not None
+    }
     image_utils.write_tiff(
         data=arr,
         file_loc=path,
@@ -58,8 +64,7 @@ def _write_structured_input(
         save_encoding='8bit',
         metadata={
             'datetime': datetime.datetime(2026, 5, 27, 12, 0, 0),
-            'plate_pos_mm': plate_pos_mm,
-            'z_pos_um': z_pos_um,
+            **position,
             'objective': {
                 'id': '20x Oly',
                 'magnification': 20,
@@ -90,117 +95,182 @@ def _write_structured_input(
     )
 
 
-class TestStackBuilderPropagatesPlanePositions:
-    """Per-plane PositionX/Y/Z must reach the OME-XML <Plane> elements.
-    Pre-fix: positions were collected then ignored by
-    _generate_image_metadata, silently dropped from the output."""
-
-    def test_z_stack_plane_positions_land_in_ome_xml(self, tmp_path):
-        # Build a single-channel Z-stack: 1 T x 3 Z x 1 C.
-        # Plane positions distinguishable: Z = 100.0, 110.0, 120.0 um.
-        z_positions = [100.0, 110.0, 120.0]
-        plate_pos = {'x': 12.5, 'y': 8.25}
-        rows = []
-        for z_idx, z_val in enumerate(z_positions):
-            fname = f'frame_t0_z{z_idx}_c0.tiff'
+def _stack_of(tmp_path, frames: list[dict]) -> pathlib.Path:
+    """A hyperstack built by the stack builder from ``frames``, each a dict of
+    its ``scan`` and ``slice``, the step's ``plan`` (X, Y, Z) the build's
+    rows carry, and what its file recorded: ``xy`` and ``z`` (None: not
+    recorded), or ``bare`` for a file with no record at all."""
+    rows = []
+    for frame in frames:
+        fname = f'frame_s{frame["scan"]}_z{frame["slice"]}.tiff'
+        if frame.get('bare'):
+            tf.imwrite(str(tmp_path / fname), np.full((4, 4), 100, dtype=np.uint8))
+        else:
             _write_structured_input(
-                tmp_path / fname,
-                channel=LED1,
-                plate_pos_mm=plate_pos,
-                z_pos_um=z_val,
-                value=50 + z_idx * 10,
+                tmp_path / fname, channel=LED1, plate_pos_mm=frame['xy'], z_pos_um=frame['z']
             )
-            rows.append(
-                {
-                    'Filepath': fname,
-                    'channel': LED1,
-                    'Scan Count': 0,
-                    'Z-Slice': z_idx,
-                    'X': plate_pos['x'],
-                    'Y': plate_pos['y'],
-                    'Z': z_val,
-                }
-            )
-        df = pd.DataFrame(rows)
-
-        output_file_loc = pathlib.Path('out.ome.tiff')
-        result = StackBuilder._create_stack(
-            path=tmp_path,
-            df=df,
-            output_file_loc=output_file_loc,
-            save_encoding='right_aligned',
-            channel_colors=release_colors(),
+        x, y, z = frame['plan']
+        rows.append(
+            {
+                'Filepath': fname,
+                'channel': LED1,
+                'Scan Count': frame['scan'],
+                'Z-Slice': frame['slice'],
+                'X': x,
+                'Y': y,
+                'Z': z,
+            }
         )
-        assert result['status'], f'_create_stack failed: {result.get("error")}'
+    result = StackBuilder._create_stack(
+        path=tmp_path,
+        df=pd.DataFrame(rows),
+        output_file_loc=pathlib.Path('out.ome.tiff'),
+        save_encoding='right_aligned',
+        channel_colors=release_colors(),
+    )
+    assert result['status'], result.get('error')
+    return tmp_path / 'out.ome.tiff'
 
-        with tf.TiffFile(str(tmp_path / output_file_loc)) as tif:
-            ome_xml = tif.ome_metadata or ''
 
-        # OME-XML should contain one <Plane> per T*Z*C plane (1*3*1 = 3).
-        assert ome_xml.count('<Plane ') == 3, (
-            f'Hyperstack must emit one OME <Plane> per T*Z*C plane '
-            f'(expected 3, got {ome_xml.count("<Plane ")}).'
-        )
+def _planes(out: pathlib.Path) -> list[dict]:
+    """The hyperstack's OME <Plane> attributes, in T, Z, C order."""
+    root = valid_description(out)
+    planes = [dict(p.attrib) for p in root.iter(q('Plane'))]
+    return sorted(planes, key=lambda p: (int(p['TheT']), int(p['TheZ']), int(p['TheC'])))
 
-        # Each plane must carry its PositionZ -- the bug pre-fix dropped
-        # these silently.
-        for z_val in z_positions:
-            assert f'PositionZ="{z_val}"' in ome_xml, (
-                f'Expected PositionZ="{z_val}" in OME-XML <Plane> element; '
-                f'missing means plane positions are not propagating into '
-                f'the hyperstack output (regression of the plane_metadata-'
-                f'ignored bug).'
-            )
 
-    def test_z_stack_plane_xy_positions_land_in_ome_xml(self, tmp_path):
-        # Distinguishable X/Y across planes -- catches a regression that
-        # only writes the first plane's position.
-        positions = [
-            (10.0, 5.0, 100.0),
-            (11.0, 6.0, 110.0),
-            (12.0, 7.0, 120.0),
+# The bench numbers SSOT audit A2 was probed with: a z-stack planned at
+# 7154 / 7159 / 7164 um that autofocus took at about 7174.
+_PLAN = [(12.5, 8.25, 7154.0), (12.5, 8.25, 7159.0), (12.5, 8.25, 7164.0)]
+
+
+class TestEachPlaneStatesWhereItsFrameWasTaken:
+    """A hyperstack's plane positions are its frames' records, the one store
+    of where a frame was taken ("A saved file's record"), never the plan the
+    build's rows carry: after autofocus the found focus, scan by scan, and
+    an axis a frame did not record is stated on no plane."""
+
+    def test_each_plane_states_its_frames_recorded_position_scan_by_scan(self, tmp_path):
+        # Two scans of a three-slice stack, each scan focused afresh; the
+        # stage stopped a little off the planned X/Y.
+        recorded = {
+            0: ({'x': 12.5003, 'y': 8.2497}, [7174.2, 7173.7, 7174.0]),
+            1: ({'x': 12.4998, 'y': 8.2502}, [7180.1, 7179.6, 7181.3]),
+        }
+        frames = [
+            {'scan': scan, 'slice': i, 'plan': _PLAN[i], 'xy': xy, 'z': zs[i]}
+            for scan, (xy, zs) in recorded.items()
+            for i in range(3)
         ]
-        rows = []
-        for z_idx, (x, y, z) in enumerate(positions):
-            fname = f'frame_z{z_idx}.tiff'
-            _write_structured_input(
-                tmp_path / fname,
-                channel=LED1,
-                plate_pos_mm={'x': x, 'y': y},
-                z_pos_um=z,
-            )
-            rows.append(
-                {
-                    'Filepath': fname,
-                    'channel': LED1,
-                    'Scan Count': 0,
-                    'Z-Slice': z_idx,
-                    'X': x,
-                    'Y': y,
-                    'Z': z,
-                }
-            )
-        df = pd.DataFrame(rows)
 
-        StackBuilder._create_stack(
-            path=tmp_path,
-            df=df,
-            output_file_loc=pathlib.Path('out.ome.tiff'),
-            save_encoding='right_aligned',
-            channel_colors=release_colors(),
+        planes = _planes(_stack_of(tmp_path, frames))
+
+        stated = [
+            (float(p['PositionX']), float(p['PositionY']), float(p['PositionZ'])) for p in planes
+        ]
+        assert stated == [(f['xy']['x'], f['xy']['y'], f['z']) for f in frames], (
+            "each plane states its own frame's recorded position, not the step's plan"
         )
-        with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
-            ome_xml = tif.ome_metadata or ''
 
-        for x, y, _ in positions:
-            assert f'PositionX="{x}"' in ome_xml, (
-                f'PositionX="{x}" missing from OME-XML; per-plane X '
-                f'positions not propagating to hyperstack output.'
+    def test_an_axis_one_frame_did_not_record_is_stated_on_no_plane(self, tmp_path):
+        xy = {'x': 12.5003, 'y': 8.2497}
+        frames = [
+            {'scan': 0, 'slice': i, 'plan': _PLAN[i], 'xy': xy, 'z': z}
+            for i, z in enumerate([7174.2, None, 7174.0])
+        ]
+
+        planes = _planes(_stack_of(tmp_path, frames))
+
+        assert [p.get('PositionZ') for p in planes] == [None] * 3, 'not the plan, not a part'
+        assert {(float(p['PositionX']), float(p['PositionY'])) for p in planes} == {
+            (12.5003, 8.2497)
+        }
+
+    def test_frames_with_no_plate_position_give_planes_with_no_x_or_y(self, tmp_path):
+        # A Z-only scope: its frames state Z alone, though its step names an X and Y.
+        frames = [
+            {'scan': 0, 'slice': i, 'plan': _PLAN[i], 'xy': None, 'z': 7174.0 + i} for i in range(3)
+        ]
+
+        planes = _planes(_stack_of(tmp_path, frames))
+
+        assert [(p.get('PositionX'), p.get('PositionY')) for p in planes] == [(None, None)] * 3
+        assert [float(p['PositionZ']) for p in planes] == [7174.0, 7175.0, 7176.0]
+
+    def test_a_frame_with_no_record_leaves_every_axis_off_every_plane(self, tmp_path):
+        frames = [
+            {'scan': 0, 'slice': 0, 'plan': _PLAN[0], 'xy': {'x': 12.5, 'y': 8.25}, 'z': 7174.2},
+            {'scan': 0, 'slice': 1, 'plan': _PLAN[1], 'bare': True},
+        ]
+
+        out = _stack_of(tmp_path, frames)
+
+        # With no position and no time, tifffile writes no <Plane> at all.
+        stated = [k for p in _planes(out) for k in p if k.startswith('Position')]
+        assert stated == [], 'a frame with no record states no position, so no plane states one'
+        assert 'z_pos_um' not in image_utils.read_file_record(out)
+
+    def test_the_planes_and_the_files_record_state_one_z(self, tmp_path):
+        # No autofocus: the stage stops at a whole microstep, so a step planned
+        # at 7154.0 is taken at 7154.00255.
+        frames = [
+            {
+                'scan': scan,
+                'slice': 0,
+                'plan': _PLAN[0],
+                'xy': {'x': 12.5, 'y': 8.25},
+                'z': 7154.00255,
+            }
+            for scan in range(2)
+        ]
+        out = _stack_of(tmp_path, frames)
+
+        assert [float(p['PositionZ']) for p in _planes(out)] == [7154.00255] * 2
+        assert image_utils.read_file_record(out)['z_pos_um'] == 7154.00255, (
+            "the record read back is the planes' Z, the one Z the file states"
+        )
+
+    def test_an_autofocused_runs_hyperstack_states_the_focus_its_frame_was_taken_at(self, tmp_path):
+        """End to end on the simulator: a run's two-slice z-stack autofocuses
+        onto a sample 30 um above its planned Z, and the run's hyperstack
+        states on each plane the Z its frame's file recorded, placed from the
+        focus the sweep found."""
+        from _lumascope.modules.image_mode import OutputFormat
+        from tests.test_a_late_write_records_its_frame import _protocol, _step
+        from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+        settings = headless_settings(tmp_path, sequenced_format=OutputFormat.HYPERSTACK)
+        with open_composite_session(settings) as (session, runner):
+            limits = session.scope.motion.get_axis_limits('Z')
+            # Mid-travel, so the sweep's window fits inside Z's travel.
+            planned_z = round((limits.min_um + limits.max_um) / 2.0)
+            camera = session.scope._camera_driver
+            camera.set_test_pattern(enabled=True, pattern='focus_target')
+            camera.set_focal_z(planned_z + 30.0)
+            slices = [
+                {
+                    **_step('C1', i, x=20.0, gain=1.0, autofocus=True),
+                    'Z': planned_z + 5.0 * i,
+                    'Z-Slice': i,
+                    'Z-Stack Group ID': 0,
+                }
+                for i in range(2)
+            ]
+
+            run = runner.start_single_scan(
+                protocol=_protocol(slices), parent_dir=str(tmp_path / 'runs')
             )
-            assert f'PositionY="{y}"' in ome_xml, (
-                f'PositionY="{y}" missing from OME-XML; per-plane Y '
-                f'positions not propagating to hyperstack output.'
-            )
+            assert run.result(timeout=60) is not None
+            assert run.files.result(timeout=60) is not None
+
+        (stack,) = (tmp_path / 'runs').rglob('*.ome.tiff')
+        frames = sorted(p for p in (tmp_path / 'runs').rglob('*.tif*') if p != stack)
+        taken_at = [image_utils.read_file_record(frame)['z_pos_um'] for frame in frames]
+        planned = [s['Z'] for s in slices]
+        assert all(abs(z - plan) > 10.0 for z, plan in zip(taken_at, planned, strict=True)), (
+            f'precondition: the sweep moved off the plan {planned}; the frames say {taken_at}'
+        )
+        assert sorted(float(p['PositionZ']) for p in _planes(stack)) == sorted(taken_at)
 
 
 class TestStackBuilderPropagatesPixelSizeAndChannels:

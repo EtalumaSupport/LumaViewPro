@@ -35,7 +35,6 @@ import pandas as pd
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Frame
 import _lumascope.modules.image_mode as image_mode
-import _lumascope.modules.image_save as image_save
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.wall_time as wall_time
@@ -928,7 +927,7 @@ class ManualRecordingController:
 
     def _write_tiff_frame(self, image, timestamp_s, frame_number, config, chunks, facts) -> Path:
         plan = self._plan
-        fact, light, _record = facts
+        _fact, light, _record = facts
         if config.bit_depth == 8 and image.dtype != np.uint8:
             image = image_utils.convert_to_8bit(image, config.bit_depth)
 
@@ -957,12 +956,8 @@ class ManualRecordingController:
             # The row is THIS frame's fact, the same one its file carries:
             # the stage and the LEDs are open to other callers while a
             # manual recording runs, so a start-time snapshot would be a
-            # claim about frames it never saw.
-            # The position as the frame's file states it, to its precision.
-            position = image_save.position_metadata_fields(
-                fact.plate_x_mm, fact.plate_y_mm, fact.z_um
-            )
-            plate_pos_mm = position.get('plate_pos_mm')
+            # claim about frames it never saw. Where the frame was taken is
+            # not copied here: the build reads it from the frame's file.
             self._hyperstack_rows.append(
                 {
                     'Filepath': file_loc.name,
@@ -972,9 +967,6 @@ class ManualRecordingController:
                     # is recorded on every frame regardless of rendering.
                     'channel': light.channel,
                     'Z-Slice': 0,
-                    'X': plate_pos_mm['x'] if plate_pos_mm else None,
-                    'Y': plate_pos_mm['y'] if plate_pos_mm else None,
-                    'Z': position.get('z_pos_um'),
                 }
             )
         return file_loc

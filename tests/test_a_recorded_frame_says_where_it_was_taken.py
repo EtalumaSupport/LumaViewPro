@@ -498,6 +498,7 @@ class TestARecordingOnTheSimulator:
         # The stage stood still, so every plane states the one position.
         stack = read_file_record(folder / MANUAL_HYPERSTACK_FILENAME)
         assert stack['plate_pos_mm'] == written['plate_pos_mm'], "the stack states the frame's"
+        assert stack['z_pos_um'] == written['z_pos_um'], "the stack states the frame's"
 
 
 class TestARecordingStatesEachFramesStart:

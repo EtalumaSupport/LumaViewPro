@@ -1532,26 +1532,13 @@ class TestHealthCheckArming:
 
 
 class TestTheRecordedPosition:
-    """The hyperstack labels X and Y as plate millimetres, so that is what is
-    recorded; an axis the scope does not know is not recorded, the others
-    are; and every row is its own frame's, not the recording's first."""
+    """An axis the scope does not know is said once, not per frame; every
+    hyperstack row is its own frame's channel, not the recording's first;
+    and an unknown turret drops no stage position. Each frame's file states
+    its position (TestEachFrameRecordsItsOwnMoment), and the hyperstack
+    reads it from there."""
 
-    def test_a_known_position_is_recorded_in_plate_millimetres(self, tmp_path, monkeypatch):
-        captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
-        controller.start()
-        feed_frames(scope, clock, 2, fps=10.0)
-        controller.stop()
-        finish(controller)
-
-        assert list(captured['df']['X']) == [1.5, 1.5]
-        assert list(captured['df']['Y']) == [2.5, 2.5]
-        assert list(captured['df']['Z']) == [3.0, 3.0]
-
-    def test_an_unknown_axis_is_not_recorded_the_others_are_and_it_says_so_once(
-        self, tmp_path, monkeypatch
-    ):
-        captured = _capture_hyperstack_df(monkeypatch)
+    def test_an_unknown_axis_is_said_once(self, tmp_path, monkeypatch):
         shown = []
         monkeypatch.setattr(
             manual_recording_module.notifications,
@@ -1565,30 +1552,12 @@ class TestTheRecordedPosition:
         controller.stop()
         finish(controller)
 
-        assert captured['df']['X'].isna().all()
-        assert captured['df']['Y'].isna().all(), 'X and Y travel as a pair'
-        assert list(captured['df']['Z']) == [3.0, 3.0], 'Z is independent of the pair'
         titles = [title for title, _ in shown]
         assert titles.count('Position Not Recorded') == 1
         (message,) = [m for t, m in shown if t == 'Position Not Recorded']
         assert 'X position' in message and 'once it is known' in message
 
-    def test_an_axis_known_later_is_recorded_from_then_on(self, tmp_path, monkeypatch):
-        captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
-        scope.motion.unknown = {'X': 'unknown'}
-        controller.start()
-        feed_frames(scope, clock, 1, fps=10.0)
-        scope.motion.unknown = {}
-        feed_frames(scope, clock, 1, fps=10.0)
-        controller.stop()
-        finish(controller)
-
-        xs = captured['df']['X'].tolist()
-        assert xs[0] != xs[0], 'the first frame has no X (NaN)'
-        assert xs[1] == 1.5
-
-    def test_each_row_is_its_own_frames_position_and_channel(self, tmp_path, monkeypatch):
+    def test_each_row_is_its_own_frames_channel(self, tmp_path, monkeypatch):
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0, shown=LED0)
         controller.start()
@@ -1599,7 +1568,6 @@ class TestTheRecordedPosition:
         controller.stop()
         finish(controller)
 
-        assert list(captured['df']['X']) == [1.5, 3.5]
         assert list(captured['df']['channel']) == [LED0, LED1]
 
     def test_a_frames_recording_without_a_hyperstack_is_told_too(self, tmp_path, monkeypatch):
@@ -1645,16 +1613,16 @@ class TestTheRecordedPosition:
         finish(controller)
         assert shown == [], 'an MP4 recording has no per-frame record to warn about'
 
-    def test_an_unknown_turret_does_not_drop_the_stage_position(self, tmp_path, monkeypatch):
-        captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+    def test_an_unknown_turret_does_not_drop_the_stage_position(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, lit='BF')
         scope.motion.unknown = {'T': 'unknown'}
         controller.start()
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
         finish(controller)
 
-        assert list(captured['df']['X']) == [1.5, 1.5]
+        described = TestEachFrameRecordsItsOwnMoment._described_frames(tmp_path)
+        assert [d['plate_pos_mm'] for d in described] == [{'x': 1.5, 'y': 2.5}] * 2
 
 
 class TestEachFrameRecordsItsOwnMoment:

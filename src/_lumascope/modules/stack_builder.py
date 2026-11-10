@@ -428,12 +428,18 @@ class StackBuilder(ProtocolPostProcessor):
         input_records = [record for _, record in headers]
         timestamps = [image_utils.stated_frame_time(record) for record in input_records]
 
+        # Each plane states where its frame was taken, as the frame's file
+        # recorded it: after an autofocus that is the focus found, and the
+        # stage's own stop rather than the step's planned X, Y and Z, which
+        # the rows carry only to lay the stack out. A frame with no record,
+        # or a record without a position, gives its plane none.
         # Positions only: build_hyperstack_output_metadata derives every
         # unit list itself, so unit entries built here would be dead.
+        plate_positions = [(record or {}).get('plate_pos_mm') for record in input_records]
         plane_metadata = {
-            'PositionX': df['X'].tolist(),
-            'PositionY': df['Y'].tolist(),
-            'PositionZ': df['Z'].tolist(),
+            'PositionX': [pos['x'] if pos else None for pos in plate_positions],
+            'PositionY': [pos['y'] if pos else None for pos in plate_positions],
+            'PositionZ': [(record or {}).get('z_pos_um') for record in input_records],
         }
 
         # Timing is all-or-nothing: DeltaT is the measured list only when
