@@ -23,6 +23,7 @@ Stays GUI-agnostic -- takes a ``Scheduler`` instead of importing Kivy.
 
 from __future__ import annotations
 
+import datetime
 import sys
 import threading
 import time
@@ -31,6 +32,7 @@ from collections.abc import Callable
 
 from _lumascope.lvp_logger import logger
 import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules import wall_time
 from _lumascope.modules.ui_queue import schedule_ui, ui_thread
 from _lumascope.modules.scheduler import Scheduler
 
@@ -66,6 +68,13 @@ ENGINEERING_METRICS_INTERVAL_S = 60.0
 DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S = 60.0
 DEFAULT_CAMERA_TEMP_INTERVAL_S = 14400.0
 
+# The heartbeat's cadence, and the gap between two of its runs that says no
+# thread of the process ran. The gap is under the GUI's one-second hold
+# report, so every hold it reports is judged against it, and over the
+# cadence by enough that a busy host's late wake is not a stop.
+HEARTBEAT_INTERVAL_S = 0.25
+STOP_GAP_S = 1.0
+
 # Backlog thresholds used by the executor-watchdog tick. Match the
 # pre-LVP-A-12 values so behavior is identical.
 _EXECUTOR_BACKLOG_WARN_TOTAL = 10
@@ -100,8 +109,8 @@ class MetricsLogger:
         # Scheduler bound at start() -- None means not started.
         self._scheduler: Scheduler | None = None
         # Active schedule handles per tick (so each can be cancelled
-        # independently). Keys: 'system_metrics', 'executor_watchdog',
-        # 'ui_watch'.
+        # independently). Keys: 'heartbeat', 'system_metrics',
+        # 'executor_watchdog', 'ui_watch'.
         # Camera-temp lives on Lumascope already (LVP-A-2) -- not stored
         # here because Lumascope owns its own handle.
         self._handles: dict[str, object] = {}
@@ -113,6 +122,14 @@ class MetricsLogger:
         self._ui_probe: object | None = None
         self._ui_probe_posted_at = 0.0
         self._ui_hold_reported = False
+
+        # The heartbeat: when it last ran, and the last stretch in which no
+        # thread of the process ran, on time.monotonic; None while it is not
+        # running. Written by its tick; read by every report of a held UI
+        # thread.
+        self._beat_lock = threading.Lock()
+        self._last_beat: float | None = None
+        self._last_stop: tuple[float, float] | None = None
 
     # ---- Tick implementations (also callable on-demand) ----
 
@@ -138,6 +155,55 @@ class MetricsLogger:
             )
         except Exception as e:
             logger.warning(f'[MetricsLogger] tick_system_metrics failed: {type(e).__name__}: {e}')
+
+    def tick_heartbeat(self) -> None:
+        """Note that the process ran; say once when it finds that it did not.
+
+        Internal metrics scheduling -- driven by the host's periodic
+        scheduler and not part of the L2 API surface.
+
+        The tick runs on its own timer thread a few times a second, so a gap
+        between two of its runs past ``STOP_GAP_S`` is a stretch in which no
+        thread of the process ran: the operating system stopped it (a
+        standby suspends it), or one call held the interpreter, which stops
+        every Python thread. The two cannot be told apart from inside, so
+        the line names both. A field bundle gave a standby's hour to the UI
+        thread; every report of a held UI thread takes such a stretch out of
+        what it gives the thread (``stopped_within``).
+        """
+        now = time.monotonic()
+        with self._beat_lock:
+            previous, self._last_beat = self._last_beat, now
+            if previous is None or now - previous <= STOP_GAP_S:
+                return
+            self._last_stop = (previous, now)
+        gap = now - previous
+        ended = wall_time.now()
+        began = ended - datetime.timedelta(seconds=gap)
+        logger.warning(
+            f'[Watchdog  ] LVP ran no thread for {gap:.1f} s, '
+            f'{began.time().isoformat(timespec="milliseconds")} - '
+            f'{ended.time().isoformat(timespec="milliseconds")} '
+            '(the process was stopped, as in a standby, or one call held the interpreter)'
+        )
+
+    def stopped_within(self, began: float, ended: float) -> float:
+        """The seconds of ``began`` to ``ended`` (``time.monotonic``) in which no thread of the process ran.
+
+        Internal: the reports of a held UI thread and the live view's frame
+        judges ask it, so none gives a stretch the process did not run to
+        the UI thread or the display. It counts the last
+        recorded stop and a gap still open: after a resume a report can run
+        before the heartbeat's first run does, and the heartbeat's silence
+        then is the stop not yet recorded. Zero while the heartbeat is not
+        running.
+        """
+        now = time.monotonic()
+        with self._beat_lock:
+            stops = [self._last_stop] if self._last_stop is not None else []
+            if self._last_beat is not None and now - self._last_beat > STOP_GAP_S:
+                stops.append((self._last_beat, now))
+        return sum(max(0.0, min(ended, end) - max(began, start)) for start, end in stops)
 
     def tick_executor_watchdog(self) -> None:
         """Log the lanes' queue depths and the queueless threads' states.
@@ -179,14 +245,22 @@ class MetricsLogger:
         is reported one to two ticks after it starts, with the stack the
         thread is in. One probe is outstanding at a time. A host with no UI
         thread posts none. A freeze that holds the GIL stops this timer
-        too, so it cannot be seen from here.
+        too, so it cannot be seen from here. A probe whose wait spans a
+        stretch the process did not run (``stopped_within``) is replaced,
+        not reported: the heartbeat says that stretch, and a hold after it
+        is seen from the new probe.
         """
         thread = ui_thread()
         if thread is None:
             return
         now = time.monotonic()
         with self._ui_watch_lock:
-            if self._ui_probe is None:
+            outlived_a_stop = (
+                self._ui_probe is not None
+                and not self._ui_hold_reported
+                and self.stopped_within(self._ui_probe_posted_at, now) > 0
+            )
+            if self._ui_probe is None or outlived_a_stop:
                 probe = self._ui_probe = object()
                 self._ui_probe_posted_at = now
                 self._ui_hold_reported = False
@@ -210,7 +284,9 @@ class MetricsLogger:
         """The probe, on the UI thread: the thread ran; say so if its hold was reported.
 
         The probe was posted at a tick inside the hold, not at its start, so
-        its wait is the hold's lower bound, and the line says so.
+        its wait is the hold's lower bound, and the line says so. A stretch
+        the process did not run after the hold was reported is not the
+        thread's, and the line takes it out.
         """
         now = time.monotonic()
         with self._ui_watch_lock:
@@ -218,9 +294,15 @@ class MetricsLogger:
                 return
             self._ui_probe = None
             reported = self._ui_hold_reported
-            waited_s = now - self._ui_probe_posted_at
-        if reported:
-            logger.info(f'[Watchdog  ] UI thread ran again; it was held at least {waited_s:.0f} s')
+            posted_at = self._ui_probe_posted_at
+        if not reported:
+            return
+        stopped_s = self.stopped_within(posted_at, now)
+        stopped = f'; for {stopped_s:.0f} s of it no LVP thread ran' if stopped_s else ''
+        logger.info(
+            f'[Watchdog  ] UI thread ran again; it was held at least {now - posted_at - stopped_s:.0f} s'
+            f'{stopped}'
+        )
 
     # ---- Lifecycle ----
 
@@ -253,6 +335,11 @@ class MetricsLogger:
         """
         self._display = display
         self._scheduler = scheduler
+
+        # First, so every report of a held UI thread has it to ask.
+        self._handles['heartbeat'] = self._scheduler.schedule_interval(
+            self.tick_heartbeat, HEARTBEAT_INTERVAL_S
+        )
 
         # Initial snapshot -- match the pre-LVP-A-12 behavior of logging
         # once on startup so the very first log line carries fingerprint
@@ -310,6 +397,10 @@ class MetricsLogger:
             except Exception as e:
                 logger.warning(f'[MetricsLogger] unschedule {name} failed: {e}')
         self._handles.clear()
+        # Once its timer is gone, a heartbeat no longer running reads as no
+        # stop at all, not as one growing until the next start.
+        with self._beat_lock:
+            self._last_beat = self._last_stop = None
         try:
             self._scope.imaging.stop_camera_temp_logging(self._scheduler.unschedule)
         except Exception as e:

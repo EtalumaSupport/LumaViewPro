@@ -10,6 +10,7 @@ re-exports everything for existing callers.
 import datetime
 import logging
 import threading
+import time
 import typing
 
 from kivy.clock import Clock
@@ -50,15 +51,41 @@ def report_ui_thread_hold(dt: float) -> None:
     before ``build()`` scheduled this. A field bundle's 9-10 s protocol
     loads froze the GUI with no line saying so; the watchdog's UI probe
     sees only a hold of a minute or more, and dumps the stack it is in.
+
+    A stretch in which no thread of the process ran is not the thread's:
+    a field bundle's standby read as an hour's hold. The session's
+    heartbeat says such a stretch, and this line gives the thread only the
+    rest of its window, saying nothing when the rest is under the report's
+    threshold.
     """
-    if dt > UI_HOLD_REPORT_S:
-        ended = wall_time.now() - datetime.timedelta(seconds=Clock.time() - Clock.get_time())
-        began = ended - datetime.timedelta(seconds=dt)
-        logger.warning(
-            f'[UI        ] The UI thread was held {dt:.1f} s, '
-            f'{began.time().isoformat(timespec="milliseconds")} - '
-            f'{ended.time().isoformat(timespec="milliseconds")}'
-        )
+    if dt <= UI_HOLD_REPORT_S:
+        return
+    since_frame_s = Clock.time() - Clock.get_time()
+    ended = wall_time.now() - datetime.timedelta(seconds=since_frame_s)
+    began = ended - datetime.timedelta(seconds=dt)
+    window_ended = time.monotonic() - since_frame_s
+    stopped_s = process_stopped_s(window_ended - dt, window_ended)
+    if dt - stopped_s <= UI_HOLD_REPORT_S:
+        return
+    stopped = f'; for {stopped_s:.1f} s of it no LVP thread ran' if stopped_s else ''
+    logger.warning(
+        f'[UI        ] The UI thread was held {dt - stopped_s:.1f} s, '
+        f'{began.time().isoformat(timespec="milliseconds")} - '
+        f'{ended.time().isoformat(timespec="milliseconds")}{stopped}'
+    )
+
+
+def process_stopped_s(began: float, ended: float) -> float:
+    """The seconds of ``began`` to ``ended`` (``time.monotonic``) in which no thread of the process ran.
+
+    The GUI's one read of the session's heartbeat, for every line that
+    would otherwise give such a stretch to the UI thread or the live view.
+    Zero before the session exists, when no heartbeat runs.
+    """
+    session = _app_ctx.ctx.session if _app_ctx.ctx is not None else None
+    if session is None:
+        return 0.0
+    return session.metrics_logger.stopped_within(began, ended)
 
 
 def run_reported(

@@ -34,6 +34,8 @@ from collections import deque
 from types import ModuleType
 from unittest.mock import MagicMock
 
+import pytest
+
 
 class _StubWidget:
     def __init__(self, **kwargs):
@@ -293,3 +295,59 @@ def test_engineering_stats_use_a_stride_4_view():
     colour = np.full((1900, 1900, 3), 7, dtype=np.uint8)
     mean_c, std_c = ScopeDisplay._engineering_stats(colour)
     assert (mean_c, std_c) == (7.0, 0.0)
+
+
+# --- A stretch in which no thread of the process ran is not a slow frame -----
+#
+# A sim run stopped for 10 s (kill -STOP) logged "[SLOW FRAME] interval=10033ms":
+# the camera and the display were not late, the process did not run. The
+# session's heartbeat says that stretch; the judge and the histogram take it
+# out, as they take out a hold.
+
+
+@pytest.fixture
+def stopped_10_s(sim_session, monkeypatch):
+    """The session's heartbeat having recorded a stop from 1000.0 to 1010.0 (time.monotonic)."""
+    import types
+
+    import _lumascope.modules.app_context as app_context
+    import _lumascope.modules.metrics_logger as metrics_logger_module
+
+    # a stand-in by design: no test can stop its own process for a stretch
+    # and go on; the heartbeat reads only time.monotonic, and this one jumps
+    # as a standby does.
+    clock = types.SimpleNamespace(now=999.0)
+    monkeypatch.setattr(
+        metrics_logger_module, 'time', types.SimpleNamespace(monotonic=lambda: clock.now)
+    )
+    monkeypatch.setattr(app_context, 'ctx', app_context.AppContext.over_session(sim_session))
+    watch = sim_session.metrics_logger
+    while clock.now < 1000.0:
+        watch.tick_heartbeat()
+        clock.now += metrics_logger_module.HEARTBEAT_INTERVAL_S
+    watch.tick_heartbeat()
+    clock.now = 1010.0
+    watch.tick_heartbeat()
+
+
+def test_a_frame_gap_the_process_did_not_run_is_not_a_slow_frame(stopped_10_s, caplog):
+    stand = _primed(33.0)
+    assert _feed(stand, 1010.033, caplog) == []
+    assert abs(stand._spike_interval_window[-1] - 33.0) < 0.001
+
+
+def test_a_stutter_beside_a_stop_fires_and_reports_the_stop(stopped_10_s, caplog):
+    records = _feed(_primed(33.0), 1010.250, caplog)
+    assert len(records) == 1, records
+    assert 'interval=250ms' in records[0] and 'stopped=10000ms' in records[0], records
+
+
+def test_record_frame_interval_excludes_a_stop(stopped_10_s):
+    stand = _Stand()
+    stand._frame_interval_history = deque(maxlen=10)
+    stand._last_frame_pull_time = None
+    record = ScopeDisplay._record_frame_interval
+    record(stand, 1000.0, 0.0)
+    record(stand, 1010.038, 0.0)
+    (interval,) = stand._frame_interval_history
+    assert abs(interval - 38.0) < 0.001

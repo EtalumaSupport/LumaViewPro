@@ -180,3 +180,103 @@ def test_a_hold_names_its_window_ending_when_its_frame_started_not_at_the_line(
     stamped = datetime.datetime.fromtimestamp(record.created)
     assert 0.29 <= (stamped - ended).total_seconds() < 0.35, (ended, stamped)
     assert abs((ended - began).total_seconds() - 9.04) < 0.002, (began, ended)
+
+
+class _Monotonic:
+    """A monotonic clock the test moves; a stop is a jump no thread saw."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def monotonic(self):
+        return self.now
+
+
+@pytest.fixture
+def monotonic(monkeypatch):
+    """The metrics module's and the GUI reporter's clock, one the test moves."""
+    import ui.ui_helpers as ui_helpers
+
+    # a stand-in by design: no test can stop its own process for a stretch
+    # and go on; the heartbeat and the reports read only time.monotonic,
+    # and this one jumps as a standby does.
+    clock = _Monotonic()
+    fake_time = types.SimpleNamespace(monotonic=clock.monotonic)
+    monkeypatch.setattr(metrics_logger_module, 'time', fake_time)
+    monkeypatch.setattr(ui_helpers, 'time', fake_time)
+    return clock
+
+
+def _beat(watch, clock, until):
+    """Run the heartbeat at its cadence up to *until*, as its timer thread does."""
+    while clock.now < until:
+        watch.tick_heartbeat()
+        clock.now += metrics_logger_module.HEARTBEAT_INTERVAL_S
+    clock.now = until
+    watch.tick_heartbeat()
+
+
+def test_a_stretch_in_which_no_thread_ran_is_said_once_with_its_length(
+    sim_session, monotonic, caplog
+):
+    """A gap between two heartbeats past STOP_GAP_S is said once, naming both causes."""
+    watch = sim_session.metrics_logger
+    _beat(watch, monotonic, 1001.0)
+    assert _said(caplog, logging.WARNING) == []
+
+    monotonic.now += 3448.7
+    _beat(watch, monotonic, monotonic.now + 1.0)
+
+    warnings = _said(caplog, logging.WARNING)
+    assert len(warnings) == 1, warnings
+    assert warnings[0].startswith('[Watchdog  ] LVP ran no thread for 3448.7 s, '), warnings
+    assert 'standby' in warnings[0] and 'held the interpreter' in warnings[0]
+    assert watch.stopped_within(1000.0, monotonic.now) == pytest.approx(3448.7)
+
+
+def test_a_probe_waiting_through_a_stop_is_not_a_hold_and_one_after_it_is(
+    sim_session, held_ui_thread, monotonic, caplog
+):
+    """The watch blames the UI thread for no stretch the process did not run.
+
+    Its timer can run before the heartbeat's after a resume, so the
+    heartbeat's silence counts as the stop not yet said; a hold after the
+    resume is still reported, from the probe posted then.
+    """
+    watch = sim_session.metrics_logger
+    _beat(watch, monotonic, 1001.0)
+    watch.tick_ui_watch()
+
+    monotonic.now += 3448.7
+    watch.tick_ui_watch()
+    assert not any('UI thread' in line for line in _said(caplog, logging.WARNING))
+
+    _beat(watch, monotonic, monotonic.now + 60.0)
+    watch.tick_ui_watch()
+    holds = [line for line in _said(caplog, logging.WARNING) if 'UI thread has run nothing' in line]
+    assert len(holds) == 1 and 'for at least 60 s' in holds[0], holds
+
+
+def test_the_gui_gives_the_ui_thread_only_the_part_of_its_window_the_process_ran(
+    sim_session, monotonic, frame_started_before_the_line, monkeypatch, caplog
+):
+    """A window the process did not run says nothing; a hold beside a stop is the hold alone."""
+    import _lumascope.modules.app_context as app_context
+
+    ui_helpers = frame_started_before_the_line
+    monkeypatch.setattr(app_context, 'ctx', app_context.AppContext.over_session(sim_session))
+    caplog.set_level(logging.WARNING)
+    watch = sim_session.metrics_logger
+    _beat(watch, monotonic, 1001.0)
+    monotonic.now += 3448.7
+    _beat(watch, monotonic, monotonic.now + 0.3)
+
+    ui_helpers.report_ui_thread_hold(3448.7 + 0.3)
+    assert messages(records_of(caplog, ui_helpers)) == []
+
+    _beat(watch, monotonic, monotonic.now + 5.0)
+    ui_helpers.report_ui_thread_hold(3448.7 + 5.0 + 0.3)
+    said = messages(records_of(caplog, ui_helpers))
+    assert len(said) == 1, said
+    assert said[0].startswith('[UI        ] The UI thread was held 5.'), said
+    assert said[0].endswith('; for 3448.7 s of it no LVP thread ran'), said

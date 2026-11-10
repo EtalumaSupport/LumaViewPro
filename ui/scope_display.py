@@ -94,6 +94,18 @@ FRAME_SPIKE_MEDIAN_REFRESH_S = 0.5  # recompute the cached median at most this o
 FRAME_SPIKE_LOG_MIN_GAP_S = 2.0
 
 
+def _stopped_ms(began, ended):
+    """The milliseconds of ``began`` to ``ended`` (``time.monotonic``) in which no thread of the process ran.
+
+    A standby that suspends the process, or one call that holds the
+    interpreter, is no frame the camera or the display was late with: a sim
+    run stopped for 10 s logged a 10033 ms slow frame.
+    """
+    from ui.ui_helpers import process_stopped_s
+
+    return process_stopped_s(began, ended) * 1000.0
+
+
 class ScopeDisplay(Image):
     # The active capture/save image mode, owned here as the runtime SSOT so UI
     # panels in other widget trees can observe mode changes (e.g. depth-loss
@@ -424,10 +436,15 @@ class ScopeDisplay(Image):
 
         Time the loop deliberately spent not rendering (holds, pause) is
         excluded so p50/p95/p99/max read as delivery latency -- a frame held
-        on screen on purpose is not a consumer stall.
+        on screen on purpose is not a consumer stall. So is a stretch the
+        process did not run (``_stopped_ms``).
         """
         if self._last_frame_pull_time is not None:
-            interval_ms = (cycle_start - self._last_frame_pull_time) * 1000.0 - intentional_wait_ms
+            interval_ms = (
+                (cycle_start - self._last_frame_pull_time) * 1000.0
+                - intentional_wait_ms
+                - _stopped_ms(self._last_frame_pull_time, cycle_start)
+            )
             self._frame_interval_history.append(interval_ms)
         self._last_frame_pull_time = cycle_start
 
@@ -470,7 +487,9 @@ class ScopeDisplay(Image):
         median window -- an intended freeze is not a stutter, and a protocol's
         hold chain must not inflate the baseline. When a genuine spike remains
         after subtraction the WARN still fires, with held= reported so the
-        line accounts for the full wall-clock span.
+        line accounts for the full wall-clock span. A stretch in which no
+        thread of the process ran is taken out the same way, and reported as
+        stopped= when a spike remains.
 
         settled is False while the API reports a camera-side change (exposure,
         gain, LED, frame size, ...) whose switch-over frames are still arriving.
@@ -502,7 +521,8 @@ class ScopeDisplay(Image):
             return
         if prev_time is None:
             return
-        interval_ms = (cycle_start - prev_time) * 1000.0 - held_ms
+        stopped_ms = _stopped_ms(prev_time, cycle_start)
+        interval_ms = (cycle_start - prev_time) * 1000.0 - held_ms - stopped_ms
         window.append(interval_ms)
         if len(window) < self._spike_min_samples:
             return
@@ -516,10 +536,11 @@ class ScopeDisplay(Image):
         p_grab, p_proc, p_eng = prev_compute if prev_compute else (0.0, 0.0, 0.0)
         prev_total = p_grab + p_proc + p_eng
         held_note = f' held={held_ms:.0f}ms' if held_ms > 0 else ''
+        stopped_note = f' stopped={stopped_ms:.0f}ms' if stopped_ms > 0 else ''
         logger.warning(
             f'[SLOW FRAME] interval={interval_ms:.0f}ms (median={median_ms:.0f}ms) | '
             f'prev-frame grab={p_grab:.1f}ms proc={p_proc:.1f}ms eng={p_eng:.1f}ms '
-            f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms{held_note}'
+            f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms{held_note}{stopped_note}'
         )
 
     @staticmethod
