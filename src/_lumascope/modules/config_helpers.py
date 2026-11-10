@@ -68,11 +68,15 @@ def find_nearest_step(x: float, y: float, protocol: 'Protocol | None') -> int:
 def get_channel_configs(settings: dict, specific_channels: list | None = None) -> dict:
     """Each channel's settings block in ``settings``, as a run or a protocol build takes it.
 
-    One dict per channel of the release, in its order, or per channel named
-    in ``specific_channels``; a name there that is no channel is skipped,
-    not refused (``ScopeSession.get_channel_configs`` refuses it).
+    One dict per channel of the release, or per channel named in
+    ``specific_channels``; a name there that is no channel is skipped, not
+    refused (``ScopeSession.get_channel_configs`` refuses it).
     Illumination, gain and exposure are rounded to their stated precision
     and ``auto_gain`` is read as a bool.
+
+    The channels come in step order, ``step_channel_order``, not the
+    drawers' display order: every build takes its channels from here, so a
+    place's steps run in that one order however the protocol was built.
 
     Returns:
         dict of channel key -> config dict with keys:
@@ -80,7 +84,7 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
         illumination_ma, gain_db, auto_gain, exposure_ms, sum, focus
     """
     channel_configs = {}
-    for channel in common_utils.get_channels():
+    for channel in settings['step_channel_order']:
         if (specific_channels is not None) and (channel not in specific_channels):
             continue
 
@@ -1063,7 +1067,8 @@ def get_composite_channels(settings: dict) -> list:
     """The channels a composite run captures, in capture order.
 
     Every channel set to capture contributes one step, an image or a video,
-    transmitted channels first. None is dropped here: a composite has one
+    in step order (``step_channel_order``), the order every build takes its
+    channels in (``get_channel_configs``). None is dropped here: a composite has one
     transmitted plane and takes no video, and the run engine refuses a
     second transmitted channel and a Video channel in prepare(), where every
     refusal a run can meet is raised, so the user is told rather than given
@@ -1078,11 +1083,7 @@ def get_composite_channels(settings: dict) -> list:
     """
     return [
         channel
-        for channel in (
-            *common_utils.get_transmitted_channels(),
-            *common_utils.get_fluorescence_channels(),
-            *common_utils.get_luminescence_channels(),
-        )
+        for channel in settings['step_channel_order']
         if settings[channel]['acquire'] is not None
     ]
 

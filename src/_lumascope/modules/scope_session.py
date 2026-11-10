@@ -3143,8 +3143,9 @@ class ScopeSession:
             StepEditRefusedError: ``'step_value_refused'``, both given.
         """
         if channels is None:
+            # Already in step order, which is the order the steps take.
             channel_configs = self.get_channel_configs()
-            channel_order = self.settings['step_channel_order']
+            channel_order = None
         else:
             channels = tuple(channels)
             for channel in channels:

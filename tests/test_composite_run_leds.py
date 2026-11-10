@@ -348,9 +348,9 @@ def ordered_composite(tmp_path, monkeypatch):
 
 
 class TestCaptureOrder:
-    """The channels set to capture, lit in catalogue order."""
+    """The channels set to capture, lit in step order (`step_channel_order`)."""
 
-    def test_the_lit_order_is_the_catalogue_order(self, ordered_composite):
+    def test_the_lit_order_is_the_step_order(self, ordered_composite):
         # get_composite_channels is what the config assembly promises the
         # run will capture; a run that lights a different set, or the
         # same set in a different order, means the plan and the engine

@@ -11,6 +11,7 @@ their illumination changed.
 """
 
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -114,17 +115,20 @@ def test_gui_load_carries_layer_values(bf_layer, expected_illumination, expected
 
 
 def test_headless_session_read_path_carries_layer_values():
-    """The L2 entry point reads the file itself and never calls load_settings.
+    """A host with no GUI reads an old current.json through the one preparation.
 
-    ``ScopeSession.load_user_settings`` resolves and reads current.json directly
-    when no settings have been loaded into the process -- the normal state in
-    a fresh REST or CLI process. A migration living in the GUI's load path
-    would never run here, and ``get_channel_configs`` would raise KeyError on
-    every pre-upgrade config.
+    A fresh REST or CLI process has loaded no settings, and
+    ``ScopeSession.load_user_settings`` prepares the installation's
+    current.json through ``settings_init.prepare_settings``, the call every
+    host makes. A migration living in the GUI's load path would never run
+    here, and ``get_channel_configs`` would raise KeyError on every
+    pre-upgrade config.
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         _appdata_with(tmp_dir, OLD_SHAPE)
-        settings = settings_init.read_settings_json(settings_init.current_json_path(tmp_dir))
+        settings, _rejected = settings_init.prepare_settings(
+            logging.getLogger(__name__), tmp_dir, fall_back_to_template=False
+        )
 
     config = config_helpers.get_channel_configs(settings, ['BF'])['BF']
     assert config['illumination_ma'] == 25.0

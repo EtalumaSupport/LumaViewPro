@@ -38,6 +38,7 @@ import pathlib
 import pytest
 
 from _lumascope.modules.exceptions import CaptureError
+from _lumascope.modules.config_helpers import get_composite_channels
 from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.run_events import RunEvents
 from tests.test_composite_run_e2e import (
@@ -231,7 +232,9 @@ class TestAChannelThatCapturesNothing:
             outcome = runner.start_composite(
                 sequence_name='two_of_three',
                 parent_dir=str(tmp_path),
-                events=_fail_these_channels(_session.scope._camera_driver, step_colors, {_FAILING}),
+                events=_fail_these_channels(
+                    _session.scope._camera_driver, get_composite_channels(settings), {_FAILING}
+                ),
             )
             settled = outcome.result(timeout=120)
 

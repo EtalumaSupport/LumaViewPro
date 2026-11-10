@@ -220,9 +220,9 @@ class TestLiveCaptureConfigSeam:
             'focus': 0.0,
         }
         schema = set(
-            config_helpers.get_channel_configs({'BF': channel_config}, specific_channels=['BF'])[
-                'BF'
-            ]
+            config_helpers.get_channel_configs(
+                {'BF': channel_config, 'step_channel_order': ['BF']}, specific_channels=['BF']
+            )['BF']
         )
 
         src = (

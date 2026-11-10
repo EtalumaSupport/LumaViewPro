@@ -17,6 +17,7 @@ import time
 import pytest
 
 import _lumascope.modules.common_utils as common_utils
+from _lumascope.modules.config_helpers import get_composite_channels
 from _lumascope.modules.exceptions import CaptureError, RunImagesNotSavedError, RunIncompleteError
 from _lumascope.modules.run_events import RunEvents
 
@@ -223,7 +224,9 @@ class TestACompositeMissingAChannel:
             outcome = runner.start_composite(
                 sequence_name='two_of_three',
                 parent_dir=str(tmp_path),
-                events=_fail_these_channels(session.scope._camera_driver, step_colors, {_FAILING}),
+                events=_fail_these_channels(
+                    session.scope._camera_driver, get_composite_channels(settings), {_FAILING}
+                ),
             ).result(timeout=WAIT_S)
         assert not outcome.merged and outcome.artifact_path is None, outcome
         assert outcome.status == 'incomplete', outcome

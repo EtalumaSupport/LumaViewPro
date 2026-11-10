@@ -1,10 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A protocol's steps are ordered for travel: by place, then by objective and Z at each place.
+"""A protocol's steps are ordered by place, then by objective and slice at each place.
 
 ``Protocol.optimize_step_ordering`` is the order a tile or z-stack build leaves
 a protocol in. The places keep the order each first appears in; at one place
-the steps of one objective sit together, rising in Z; steps that tie keep the
-order they were made in; steps with no X/Y are one place of their own.
+the steps of one objective sit together, in the order they were made in
+whatever their Z (Z orders only a stack's slices:
+``test_a_place_runs_its_channels_in_step_order.py``); steps with no X/Y are
+one place of their own.
 
 The protocol is made as a user's would be: added on the simulated turret
 scope (an objective change needs one), saved, and edited in the saved file,
@@ -51,7 +53,7 @@ def _protocol_file(session, path):
     return path
 
 
-def test_the_steps_are_ordered_by_place_then_objective_and_z(make_session, tmp_path):
+def test_the_steps_are_ordered_by_place_then_objective_in_the_order_made(make_session, tmp_path):
     session = make_session('LS850T')
     protocol = session.load_protocol(_protocol_file(session, tmp_path / 'unordered.tsv'))
 
@@ -61,11 +63,11 @@ def test_the_steps_are_ordered_by_place_then_objective_and_z(make_session, tmp_p
     place_a, unplaced, place_b = order[:4], order[4:6], order[6:]
     assert sorted(place_a) == [1.0, 4.0, 5.0, 6.0], order
     # At place A the 10x step is its own block, at either end; the 4x steps
-    # rise in Z, and the two at one Z keep the order they were made in.
+    # keep the order they were made in, though the first is the highest.
     assert 4.0 in (place_a[0], place_a[-1]), order
-    assert [gain for gain in place_a if gain != 4.0] == [5.0, 6.0, 1.0], order
-    assert unplaced == [7.0, 2.0], order
-    assert place_b == [8.0, 3.0], order
+    assert [gain for gain in place_a if gain != 4.0] == [1.0, 5.0, 6.0], order
+    assert unplaced == [2.0, 7.0], order
+    assert place_b == [3.0, 8.0], order
 
 
 def test_a_reorder_moves_the_revision_and_leaves_every_cell_as_it_was(make_session, tmp_path):

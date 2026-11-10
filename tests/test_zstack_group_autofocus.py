@@ -253,17 +253,20 @@ def test_focusing_a_channel_places_its_stacks_with_their_reference_at_the_focus(
 
 @pytest.mark.slow
 def test_a_groups_sweep_runs_in_its_reference_slices_light(focusing_session, tmp_path):
-    """A group holds every channel at its position in Z order, so its first
-    slice -- the one that fires the sweep -- can be another channel's. The
-    sweep runs in the reference slice's light all the same: LED 0 saved 10 um
-    below BF sorts first here, and BF is the channel that autofocuses."""
+    """A group holds every channel at its position, each slice's channels in
+    step order, so its first slice -- the one that fires the sweep -- can be
+    another channel's. The sweep runs in the reference slice's light all the
+    same: BF comes first in step order and does not autofocus here, and LED 0,
+    saved 10 um below it, is the channel that does."""
     session = focusing_session
+    session.update_settings('BF.autofocus', False)
     session.set_channel_acquire(LED0, 'image')
     session.save_channel_focus(LED0, LAYER_FOCUS_UM - 10.0)
+    session.update_settings(f'{LED0}.autofocus', True)
     protocol = _stack(session)
     first = protocol.step_row(step_index=0)
     reference = protocol.step_row(step_index=protocol.focus_sweep_step(step_index=0))
-    assert (first['channel'], reference['channel']) == (LED0, 'BF')
+    assert (first['channel'], reference['channel']) == ('BF', LED0)
 
     lit = []
 
@@ -280,7 +283,7 @@ def test_a_groups_sweep_runs_in_its_reference_slices_light(focusing_session, tmp
 
     assert outcome.status == 'completed', outcome
     # Nothing is lit before the first slice's sweep, so the first light is the sweep's.
-    assert lit[0] == ('BF', reference['Illumination'])
+    assert lit[0] == (LED0, reference['Illumination'])
 
 
 # --- A file from before the offset was recorded --------------------------

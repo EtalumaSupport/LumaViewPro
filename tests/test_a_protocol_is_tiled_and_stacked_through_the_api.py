@@ -355,14 +355,15 @@ class TestNewTilesAsApplyDoes:
 
         assert refused.value.reason == 'tiles_outside_travel'
 
-    def test_each_tile_keeps_its_well_and_each_channel_its_saved_focus_in_z_order(
+    def test_each_tile_keeps_its_well_and_each_channel_its_saved_focus_in_step_order(
         self, wide_field_session
     ):
         steps = _new_bf_and_blue_tiled(wide_field_session, '2x2').steps()
 
+        # BF first though LED 0 is saved lower: Z orders no channel against another.
         first_tile = steps[(steps['Well'] == 'A1') & (steps['Tile'] == 'A1')]
-        assert first_tile['channel'].tolist() == [LED0, 'BF']
-        assert first_tile['Z'].tolist() == pytest.approx([4990.0, 5000.0])
+        assert first_tile['channel'].tolist() == ['BF', LED0]
+        assert first_tile['Z'].tolist() == pytest.approx([5000.0, 4990.0])
         assert not steps['Custom Step'].any()
         assert steps.groupby('Well')['Tile'].nunique().eq(4).all()
         assert (steps['Well'] != '').all()

@@ -19,7 +19,7 @@ from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.zstack_config import ZStackReference
 from tests.guards.test_the_gui_edits_protocols_through_the_api import WRITERS
 from tests.scope_fakes import home_sim_scope
-from tests.test_a_built_protocol_is_ordered_by_place_then_objective_and_z import _protocol_file
+from tests.test_a_built_protocol_is_ordered_by_place_then_objective_and_slice import _protocol_file
 from tests.test_a_command_for_absent_motion_hardware_is_refused import make_session  # noqa: F401
 from tests.test_a_step_records_its_turret_slot import _as_an_old_file
 

@@ -1955,7 +1955,14 @@ class Protocol:
         return self._fingerprint_of(header, steps)
 
     def optimize_step_ordering(self) -> None:
-        """Order the steps for travel: by place, then by objective and Z at each place.
+        """Order the steps by place, then by objective and z-stack slice at each place.
+
+        A place's steps of one objective keep the order they were made in at
+        every slice, which for a build is the channels' step order: Z orders
+        only a stack's slices, lowest first, never one channel against another.
+        Ordered by each channel's own Z, a place ran its channels in the
+        order of their saved focus, so the same channels ran differently
+        by how the protocol was built.
 
         Raises:
             Nothing.
@@ -1974,15 +1981,16 @@ class Protocol:
         # second on a 1536-well tile build.
         # The keys sit in a frame of their own, indexed by position, so the
         # order takes any index the steps carry and no column of theirs.
-        # Stable, so channels at one Z keep the order they were made in.
+        # Stable, so the channels at one slice keep the order they were made
+        # in. A step that is no slice (-1) keeps its place among its own.
         keys = pd.DataFrame(
             {
                 'place': place.to_numpy(),
                 'Objective': steps['Objective'].to_numpy(),
-                'Z': steps['Z'].to_numpy(),
+                'Z-Slice': steps['Z-Slice'].to_numpy(),
             }
         )
-        order = keys.sort_values(by=['place', 'Objective', 'Z'], kind='stable').index
+        order = keys.sort_values(by=['place', 'Objective', 'Z-Slice'], kind='stable').index
         self._reorder_steps(order)
 
     @staticmethod
@@ -3483,8 +3491,8 @@ class Protocol:
             self._set_steps(pd.DataFrame.from_dict(new_steps))
             self.optimize_step_ordering()
         else:
-            # Stable, so slices at one Z keep the Add's channel order.
-            block.sort(key=lambda step_dict: (step_dict['Objective'], step_dict['Z']))
+            # Stable, so every slice keeps the Add's channel order.
+            block.sort(key=lambda step_dict: (step_dict['Objective'], step_dict['Z-Slice']))
             if block_at is not None:
                 new_steps[block_at:block_at] = block
             self._set_steps(pd.DataFrame.from_dict(new_steps))

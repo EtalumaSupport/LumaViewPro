@@ -76,6 +76,10 @@ def _make_settings(layers=None):
     settings['objective_id'] = '4x Oly'
     settings['stage_offset'] = {'x': 0, 'y': 0}
     settings['live_folder'] = '/tmp'
+    # Derived from the release at every preparation, so every prepared store holds it.
+    settings['step_channel_order'] = [
+        c for c in complete_settings()['step_channel_order'] if c in layers
+    ]
     return settings
 
 
