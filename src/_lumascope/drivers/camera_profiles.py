@@ -301,10 +301,11 @@ _MT9P031_LS620 = CameraProfile(
     has_auto_gain=False,  # no hardware AE/AG on MT9P031
     has_auto_exposure=False,
     driver='fx2',
+    timing_model='MT9P031-LS620',
     notes='Cypress FX2 USB + Aptina MT9P031 sensor. 4 LED channels via '
     'I2C at 0x2A. No hardware auto gain/exposure. No binning. '
-    'Mono8 only (top 8 bits of 12-bit ADC). Exposure changes '
-    'have a 2-frame pipeline delay. Hardware-validated at 4.5 fps '
+    'Mono8 only (top 8 bits of 12-bit ADC). The frames a capture '
+    'waits after a change are measured in the timing record. Hardware-validated at 4.5 fps '
     'on LS620 macOS (63/63 frames).',
 )
 

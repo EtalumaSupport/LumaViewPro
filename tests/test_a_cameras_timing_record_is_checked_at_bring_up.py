@@ -214,6 +214,34 @@ def test_a_broken_timing_record_is_refused_at_bring_up(tmp_path, monkeypatch):
     assert refused.value.file_path == broken
 
 
+def test_a_classic_waits_the_counts_its_camera_was_measured_to_need():
+    """Every Classic carries the one FX2 camera, the MT9P031, measured once on
+    the LS720: a capture waits that run's counts, with the run behind them.
+    Its frame size, measured 2, is not in the record, so it keeps the shipped
+    3 (Eric, 2026-11-10: frame size changes are rare)."""
+    scope = build_scope(simulate=True, sim_model='LS720')
+    try:
+        published = scope.capabilities.frame_rules
+    finally:
+        scope.disconnect()
+
+    measured = {
+        source: (rule.count, rule.provenance['microscope'], rule.provenance['run_id'])
+        for source, rule in published.items()
+        if rule.provenance is not None
+    }
+    run = '2026-11-10_143549_ronchi_camera_only'
+    assert measured == {
+        'exposure': (3, 'LS720', run),
+        'gain': (3, 'LS720', run),
+        'led': (3, 'LS720', run),
+        'caller': (3, 'LS720', run),
+        'z_move': (1, 'LS720', run),
+        'turret': (1, 'LS720', run),
+    }
+    assert published['frame_size'].count == FrameValidity.SKIP_FRAMES['frame_size']
+
+
 def test_a_source_its_record_measured_no_count_for_keeps_its_shipped_count():
     """The simulated camera's shipped record measured no count, as the
     shipped cameras' do, so every source's published count is the shipped

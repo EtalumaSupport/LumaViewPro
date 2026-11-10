@@ -1,0 +1,234 @@
+{
+  "camera_model": "MT9P031-LS620",
+  "date": "2026-11-10",
+  "frame_intervals_ms": {
+    "1": 233.98,
+    "5": 233.9,
+    "10": 233.89,
+    "20": 233.97,
+    "50": 232.61,
+    "100": 232.8,
+    "200": 233.82
+  },
+  "schema": 3,
+  "validity": {
+    "exposure": {
+      "short_to_long": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.55,
+            "max": 3.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ],
+      "long_to_short": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.55,
+            "max": 3.0
+          },
+          "trials": 10,
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ]
+    },
+    "gain": {
+      "up": [
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ],
+      "down": [
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 1.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ],
+      "burst_up": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 3.0,
+            "max": 3.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ],
+      "burst_down": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.55,
+            "max": 3.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ]
+    },
+    "led": {
+      "off_to_on": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ],
+      "on_to_off": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 2.0,
+            "max": 2.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ],
+      "burst_up": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 3.0,
+            "max": 3.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ],
+      "burst_down": [
+        {
+          "delivered_frames": {
+            "p50": 2.0,
+            "p95": 3.0,
+            "max": 3.0
+          },
+          "trials": 30,
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ]
+    },
+    "z_move": {
+      "up": [
+        {
+          "delivered_frames": {
+            "p50": 1.0,
+            "p95": 1.0,
+            "max": 1.0
+          },
+          "trials": 10,
+          "distance": "1mm",
+          "provenance": {
+            "run_id": "2026-11-10_143549_ronchi_camera_only",
+            "host": "Zephyr5.local",
+            "os": "macOS-26.7.2-arm64-arm-64bit-Mach-O",
+            "lvp_version": "4.0.0-beta47",
+            "plugin_version": "1.0.203",
+            "measured_date": "2026-11-10",
+            "microscope": "LS720"
+          }
+        }
+      ]
+    }
+  }
+}
