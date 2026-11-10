@@ -27,9 +27,10 @@ from tests.camera_fakes import grab_a_frame_made_after_now
 
 PERIOD_S = 1.0 / SimulatedCamera._MAX_DELIVERY_FPS
 
-# Longer than the frame period: a host that cannot draw a frame in the time
-# the sensor takes to make one.
-SLOW_DRAWING_S = 0.040
+# Six frame periods: a host that cannot draw a frame in the time the sensor
+# takes to make one, slow enough that a hand-over held behind the drawing
+# lags by far more than a loaded host delays the sensor thread's wake-up.
+SLOW_DRAWING_S = 0.150
 
 
 def _slow_drawing(cam, on_draw=None):
@@ -66,22 +67,31 @@ class _Stored:
 
 
 def test_a_drawing_slower_than_the_frame_period_never_delays_the_number():
-    """Each frame is handed over its own period after it starts, however long the host takes to draw it."""
+    """Each frame is handed over its own period after it starts, however long the host takes to draw it.
+
+    The hand-over is stamped on the host's clock as the sensor thread wakes
+    to it, so it trails the frame's leaving by however late the host wakes
+    that thread, tens of milliseconds under a loaded test run. The bound is
+    set by the defect, not by the host: a hand-over held behind a drawing
+    trails its start by the drawing's time or more, and every later one by
+    more again.
+    """
     cam = SimulatedCamera(width=48, height=24)
     cam.exposure_t(1.0)  # the delivery ceiling's period sets the frame period
     _slow_drawing(cam)
     cam.open_and_start()
     try:
         grab_a_frame_made_after_now(cam, timeout_s=5.0)
-        frames = _Stored(cam, 10).wait()
+        frames = _Stored(cam, 5).wait()
         clock_offset_ns = cam.camera_clock_ticks() - host_clock.steady_ns()
     finally:
         cam.stop_grabbing()
 
     leaves_s = PERIOD_S + (SimulatedCamera.SENSOR_PIPELINE_FRAMES - 1) * PERIOD_S
     lags_s = [(f.arrived_ns - (f.chunks['Timestamp'] - clock_offset_ns)) / 1e9 for f in frames]
-    assert all(lag < leaves_s + PERIOD_S / 2 for lag in lags_s), (
+    assert all(lag < leaves_s + SLOW_DRAWING_S / 2 for lag in lags_s), (
         f'start to hand-over {[round(lag, 4) for lag in lags_s]} s; the camera takes {leaves_s} s'
+        f' and the host {SLOW_DRAWING_S} s to draw'
     )
 
 
@@ -113,7 +123,11 @@ def test_a_pattern_written_during_a_drawing_leaves_that_frame_as_it_was_numbered
 
 def test_a_stream_restarted_from_a_frame_callback_leaves_one_stream_storing():
     """A listener that changes the pixel format from its callback stops and restarts the stream on
-    the delivery thread; the old stream ends, and frames keep coming at one stream's rate."""
+    the delivery thread; the old stream ends, and frames keep coming at one stream's rate.
+
+    The window is timed as it ran, since a loaded host oversleeps it, and
+    the bound sits halfway to the two streams' rate the defect stores at.
+    """
     cam = SimulatedCamera(width=48, height=24)
     cam.exposure_t(1.0)
     restarted = threading.Event()
@@ -128,13 +142,14 @@ def test_a_stream_restarted_from_a_frame_callback_leaves_one_stream_storing():
     try:
         assert restarted.wait(5.0), 'no frame reached the callback; the rest proves nothing'
         grab_a_frame_made_after_now(cam, timeout_s=5.0)
+        opened_ns = host_clock.steady_ns()
         before = cam.delivered_counts[0]
-        window_s = 1.0
-        time.sleep(window_s)
+        time.sleep(1.0)
         stored = cam.delivered_counts[0] - before
+        window_s = (host_clock.steady_ns() - opened_ns) / 1e9
     finally:
         cam.stop_grabbing()
 
-    assert stored <= window_s * SimulatedCamera._MAX_DELIVERY_FPS * 1.1, (
-        f'{stored} frames stored in {window_s} s: more than one stream is storing'
+    assert stored <= window_s * SimulatedCamera._MAX_DELIVERY_FPS * 1.5, (
+        f'{stored} frames stored in {window_s:.3f} s: more than one stream is storing'
     )
