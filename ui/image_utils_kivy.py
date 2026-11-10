@@ -19,6 +19,11 @@ def image_to_texture(image, existing: Texture | None = None) -> Texture:
     The input must already be 8-bit: the blit copies raw bytes as ubyte,
     so a wider payload would be read back as garbage. Downconvert with
     convert_to_8bit(image, significant_bits) at the depth-aware caller.
+
+    The image has row 0 at the top, as every frame and file does; a Kivy
+    texture's row 0 is its bottom, so a texture made here is flipped once,
+    where it is made (``flip_vertical`` is a toggle, so a reused one, already
+    flipped, is not flipped again).
     """
     if image.dtype != np.uint8:
         raise ValueError(
@@ -26,8 +31,6 @@ def image_to_texture(image, existing: Texture | None = None) -> Texture:
             'Downconvert with convert_to_8bit(image, significant_bits) first -- '
             'blitting a wider payload as ubyte reads back as garbage.'
         )
-    # Vertical flip
-    image = cv2.flip(image, 0)
 
     if image.ndim == 3 and image.shape[2] == 4:
         # TIFF data is RGB-native. Kivy's reusable display texture is BGR,
@@ -44,6 +47,7 @@ def image_to_texture(image, existing: Texture | None = None) -> Texture:
         return existing
 
     image_texture = Texture.create(size=size, colorfmt='bgr')
+    image_texture.flip_vertical()
     image_texture.blit_buffer(buf, colorfmt='bgr', bufferfmt='ubyte')
     return image_texture
 

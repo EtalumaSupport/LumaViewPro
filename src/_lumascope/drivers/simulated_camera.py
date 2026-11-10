@@ -21,11 +21,15 @@ import numpy as np
 from _lumascope.lib.log_helpers import logger
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import (
+    NOTHING_OWED,
     Camera,
+    CameraNodeValue,
     FrameGrid,
     HandOver,
     ImageHandlerBase,
+    copy_oriented,
     link_info,
+    orientation_owed,
 )
 from _lumascope.drivers.camera_profiles import simulated_profile
 from _lumascope.drivers.exceptions import (
@@ -146,6 +150,9 @@ class _DrawingRegisters:
         binning: The binning it is drawn at.
         test_pattern: What it shows (``set_test_pattern``).
         focal_z_um: Where the sample is in focus (``set_focal_z``).
+        reverse_rows: The sensor reverses its rows at readout (``ReverseY``).
+        reverse_columns: The sensor reverses its columns at readout
+            (``ReverseX``).
     """
 
     height: int
@@ -154,6 +161,29 @@ class _DrawingRegisters:
     binning: int
     test_pattern: str
     focal_z_um: float
+    reverse_rows: bool
+    reverse_columns: bool
+
+
+@dataclass(frozen=True)
+class SimulatedReverseNode:
+    """One of the simulated sensor's reverse nodes (``ReverseY``, ``ReverseX``), as a body has it.
+
+    A body that lacks the node is declared None in its place
+    (``SimulatedCamera.REVERSE_NODES``).
+
+    Attributes:
+        writable: The camera takes a write of it; False is a read-only node.
+        value: What it holds before connect writes it.
+        fails: None, or how the connect-time orientation meets it failing:
+            ``'read'``, its read raises; ``'access'``, the ask whether it is
+            writable raises; ``'write'``, its write raises; ``'not_taken'``,
+            its write answers and the node keeps its value.
+    """
+
+    writable: bool = True
+    value: bool = False
+    fails: str | None = None
 
 
 # A frame the sensor has numbered, on its way to the delivery thread: the
@@ -344,6 +374,17 @@ class SimulatedCamera(Camera):
     # with: there is no objective to ask, and its focus still has to fall
     # off on either side of the plane for a standalone test of it.
     _UNWIRED_DOF_UM = 10.0
+
+    # The sensor's reverse nodes, by name; None for a node the body lacks.
+    # Its native readout order is the drawn frame's columns reversed, its
+    # rows in the drawn order: ReverseX restores the columns, and ReverseY
+    # puts row 0 at the top of the picture. A test declares another body by
+    # replacing this table before the camera is built; the connect-time
+    # orientation (``orientation_owed``) meets it as a real body's nodes.
+    REVERSE_NODES: ClassVar[dict[str, SimulatedReverseNode | None]] = {
+        'ReverseY': SimulatedReverseNode(),
+        'ReverseX': SimulatedReverseNode(),
+    }
 
     # The nodes a write can be refused on (refuse_write), each by the setter
     # the API writes it through.
@@ -662,6 +703,52 @@ class SimulatedCamera(Camera):
         self._black_level = 0.0
         self._binning = 1
         self._conversion_gain_mode = 'Low'
+        # The orientation, in its place after the user set, as the real
+        # drivers set it: a failure raises to the registry, and the camera
+        # does not come up.
+        self.owed_reverse = NOTHING_OWED
+        self._reverse = {
+            name: node.value for name, node in self.REVERSE_NODES.items() if node is not None
+        }
+        self.owed_reverse = orientation_owed(
+            self._read_reverse, self._reverse_is_writable, self._write_reverse
+        )
+
+    def _read_reverse(self, name: str) -> CameraNodeValue | None:
+        """The reverse node ``name``'s value; None for a node the body lacks.
+
+        Raises:
+            CameraReadFailedError: The body's node is declared to fail its read.
+        """
+        node = self.REVERSE_NODES.get(name)
+        if node is None:
+            return None
+        if node.fails == 'read':
+            raise CameraReadFailedError(f'simulated {name} node read failed')
+        return CameraNodeValue(self._reverse[name], '')
+
+    def _reverse_is_writable(self, name: str) -> bool:
+        """Whether the body takes a write of the reverse node ``name``.
+
+        Raises:
+            CameraReadFailedError: The body's node is declared to fail its access.
+        """
+        node = self.REVERSE_NODES[name]
+        if node.fails == 'access':
+            raise CameraReadFailedError(f'simulated {name} node access failed')
+        return node.writable
+
+    def _write_reverse(self, name: str, value: bool) -> None:
+        """Write the reverse node ``name``; a node declared ``'not_taken'`` keeps its value.
+
+        Raises:
+            CameraWriteFailedError: The body's node is declared to fail its write.
+        """
+        node = self.REVERSE_NODES[name]
+        if node.fails == 'write':
+            raise CameraWriteFailedError(f'simulated {name} node write failed')
+        if node.fails != 'not_taken':
+            self._reverse[name] = value
 
     # ------------------------------------------------------------------
     # Grabbing
@@ -1035,7 +1122,7 @@ class SimulatedCamera(Camera):
         on_the_way: collections.deque = collections.deque()
         while (numbered := stream.take()) is not None:
             handler, handed_over, exposure, registers, bits, chunks = numbered
-            image = self._generate_image(exposure, registers)
+            image = self._read_out(self._generate_image(exposure, registers), registers)
             # The transfer from a real camera to the host takes time after the
             # frame is exposed; the realistic preset charges it here, between
             # the frame being numbered and made and the host storing it.
@@ -1668,7 +1755,23 @@ class SimulatedCamera(Camera):
             binning=self._binning,
             test_pattern=self._test_pattern,
             focal_z_um=self._focal_z,
+            reverse_rows=self._reverse.get('ReverseY', False),
+            reverse_columns=self._reverse.get('ReverseX', False),
         )
+
+    def _read_out(self, drawn: np.ndarray, registers: _DrawingRegisters) -> np.ndarray:
+        """The frame the host receives from a drawn one: the sensor's readout, then the driver's copy.
+
+        The sensor reads its columns out reversed from the drawn frame
+        unless ``ReverseX`` restores them, and its rows in the drawn order
+        unless ``ReverseY`` reverses them, as the frame's registers stood.
+        The copy turns what the sensor owes (``copy_oriented``), as a real
+        driver's does.
+        """
+        sensor = drawn[::-1] if registers.reverse_rows else drawn
+        if not registers.reverse_columns:
+            sensor = sensor[:, ::-1]
+        return copy_oriented(sensor, self.owed_reverse)
 
     def _generate_image(self, exposure: SensorExposure, registers: _DrawingRegisters) -> np.ndarray:
         """Generate a synthetic image as ``exposure`` made it, at ``registers``' geometry and pattern.

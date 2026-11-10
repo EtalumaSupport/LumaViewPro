@@ -3751,8 +3751,8 @@ class MotionAPI:
 
         The point is ``x_fraction`` of the frame's width from its column 0
         and ``y_fraction`` of its height from its row 0, in the frame as the
-        API returns it (``capture_still().image``): row 0 is the bottom of
-        the live view, the opposite of a saved file. The stage moves by
+        API returns it (``capture_still().image``): row 0 is the top of the
+        picture, as in the live view and a saved file. The stage moves by
         ``RuntimeStateAPI.frame_point_distance`` for that point. Its
         refusals come in the order a jog's do: the arguments, the lane's,
         the motion gate's, then the objective's and the scale's. X and Y
@@ -3762,7 +3762,8 @@ class MotionAPI:
 
         Args:
             x_fraction: How far across the frame's width, from 0 to 1.
-            y_fraction: How far up the frame's height, from 0 to 1.
+            y_fraction: How far down the frame's height, from 0 at the top
+                to 1.
 
         Returns:
             One ``Operation`` for the moves started, as ``start_move_xy_by``'s.

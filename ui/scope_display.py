@@ -398,11 +398,10 @@ class ScopeDisplay(Image):
                 return
             # The click as fractions of the shown image, and the hit test on
             # those same numbers, so a click the test passes is a point the
-            # API takes. Kivy's y is bottom-up, the camera's row order as the
-            # live view blits it unflipped, so the API's frame convention
-            # holds as is.
+            # API takes. Kivy's y is bottom-up and the frame's row 0 is its
+            # top, so y is turned here, once.
             x_fraction = (event.pos[0] - (self.center_x - width / 2)) / width
-            y_fraction = (event.pos[1] - (self.center_y - height / 2)) / height
+            y_fraction = 1.0 - (event.pos[1] - (self.center_y - height / 2)) / height
 
             if 0.0 <= x_fraction <= 1.0 and 0.0 <= y_fraction <= 1.0:
                 from ui.ui_helpers import submit_move
@@ -1019,6 +1018,9 @@ class ScopeDisplay(Image):
             or self._bullseye_texture.size != size
         ):
             self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
+            # The frame's row 0 is its top, a texture's is its bottom: flipped
+            # once, where it is made.
+            self._bullseye_texture.flip_vertical()
             # Nearest sampling both ways: the bullseye LUT is a topographic map,
             # mostly black with thin pure-color iso-intensity bands. Linear
             # minification would blend those one-pixel contour lines toward black
@@ -1083,6 +1085,9 @@ class ScopeDisplay(Image):
             # prefiltered pyramid (trilinear) instead of aliasing. blit_buffer
             # regenerates the pyramid each frame (mipmap_generation defaults on).
             self._mono_texture = Texture.create(size=size, colorfmt='luminance', mipmap=True)
+            # The frame's row 0 is its top, a texture's is its bottom: flipped
+            # once, where it is made.
+            self._mono_texture.flip_vertical()
         self._mono_texture.blit_buffer(image_bytes, colorfmt='luminance', bufferfmt='ubyte')
         self.texture = self._mono_texture
         self.frames_shown += 1

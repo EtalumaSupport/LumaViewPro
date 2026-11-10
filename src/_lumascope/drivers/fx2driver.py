@@ -533,10 +533,11 @@ class FrameLayout(NamedTuple):
     ``w`` stored are the first of them, from byte ``column``: with
     Mirror_Column clear, as the driver leaves it, the columns are read out in
     numerical order from Column_Start (RR R0x020), so the extra ones come
-    last. With Mirror_Row set, as the driver sets it, the rows are read out
-    from Row_Start + Row_Size down to Row_Start, so the row skipped first and
-    the row not stored last trade ends and the ``h`` stored are the same
-    sensor rows, reversed. After ``FRAME_DELIM``
+    last. With Mirror_Row clear, as the driver leaves it, the rows are read
+    out in numerical order from Row_Start to Row_Start + Row_Size; set, they
+    are read out the other way, the row skipped first and the row not stored
+    last trade ends, and the ``h`` stored are the same sensor rows, reversed.
+    After ``FRAME_DELIM``
     comes the first output row, which the parser skips (``skip`` bytes, one
     more than a row), then the ``h`` stored rows, then the last output row,
     which it does not store. Both unstored rows carry sensor data. The row's
@@ -598,15 +599,15 @@ REG_ROW_BLACK = 0x49
 MIRROR_ROW = 0x8000
 MIRROR_COLUMN = 0x4000
 
-# Read Mode 2 as connect writes it: Mirror_Row set, Mirror_Column clear, Row_BLC
-# on. LumaViewPro shows and saves a frame's first row at the bottom, and every
-# camera delivers to that; Basler and IDS reverse their columns at the sensor to
-# do it. The FX2 scopes' optics put the image on this sensor so that it reads
-# correctly with its rows in numerical order shown top-down, as LumaView Classic
-# showed it, so here the sensor reverses its rows. A USAF target facing the
-# objective then reads as it does on an LS850, where with Mirror_Column alone
-# it read rotated 180 degrees and with neither flipped top-to-bottom.
-READ_MODE2 = MIRROR_ROW | 0x0040
+# Read Mode 2 as connect writes it: Mirror_Row and Mirror_Column clear, Row_BLC
+# on, the value the soft reset before it leaves. Every camera delivers a frame
+# with row 0 at the top of the picture; Basler and IDS reverse their rows and
+# columns at the sensor to do it. The FX2 scopes' optics put the image on this
+# sensor so that it reads correctly with its rows in numerical order shown
+# top-down, as LumaView Classic showed it, so here the sensor reverses neither.
+# A USAF target facing the objective then reads as it does on an LS850. The
+# driver cannot read the register back; the reset and this write both set it.
+READ_MODE2 = 0x0040
 
 # The Row Black Target written at connect, and the black level the camera
 # reports: one value, so the report cannot drift from the write.

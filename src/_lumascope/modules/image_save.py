@@ -533,18 +533,6 @@ def generate_image_metadata(
     return metadata
 
 
-def _apply_save_orientation(array):
-    """Flip the camera array to the canonical save orientation.
-
-    Single source of the save-time orientation convention, applied
-    identically to every output format (TIFF, OME-TIFF, JPG) so they
-    can never diverge. The camera delivers rows top-to-bottom; the
-    saved image -- and the stitching / tiling pipeline that reads it
-    back -- expects the vertically-flipped view.
-    """
-    return np.flip(array, 0)
-
-
 def prepare_image_for_saving(
     scope: Lumascope,
     array: np.ndarray,
@@ -628,8 +616,6 @@ def prepare_image_for_saving(
     )
 
     metadata['significant_bits'] = significant_bits
-
-    array = _apply_save_orientation(array)
 
     path = generate_image_save_path(
         save_folder=save_folder,
@@ -795,17 +781,13 @@ def save_image(
     try:
         if output_format == image_mode.OutputFormat.JPG:
             # Convenience / sharing export: bake the displayed channel
-            # color into 8-bit pixels and write a JPEG. Shares the
-            # orientation convention with the TIFF path via
-            # _apply_save_orientation (the only step both formats have in
-            # common); without it the JPG saved upside-down relative to the
-            # TIFFs and the tiling pipeline that reads them. Bit depth,
+            # color into 8-bit pixels and write a JPEG. Bit depth,
             # color baking, and metadata are format-specific: JPG is an
             # 8-bit rendered display image, TIFF / OME-TIFF carry the
             # 16-bit data + metadata.
             # Rendered as it is shown: a sum against one frame's white.
             jpg_bytes = image_utils.encode_display_jpg(
-                _apply_save_orientation(array),
+                array,
                 render_color,
                 significant_bits=significant_bits,
                 white_bits=white_bits,

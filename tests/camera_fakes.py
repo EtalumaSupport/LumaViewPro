@@ -17,7 +17,7 @@ import queue as _queue_mod
 import threading
 import time
 from types import MappingProxyType
-from unittest.mock import MagicMock
+from unittest.mock import DEFAULT, MagicMock
 
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Camera, Frame, ImageHandlerBase
@@ -63,7 +63,28 @@ def bare_pylon_camera():
     # _wait_for_acquisition_idle against the MagicMock; stub it so plain
     # fakes tear down fast.
     cam._wait_for_acquisition_idle = MagicMock(return_value=True)
+    from pypylon import genicam
+
+    # The body's reverse nodes, typed; a name removed is a node it lacks,
+    # which pypylon's GetNode raises for.
+    cam.reverse_nodes = _reverse_nodes(genicam.IBoolean)
+    reverses = tuple(cam.reverse_nodes)
+
+    def get_node(name):
+        if name in reverses and name not in cam.reverse_nodes:
+            raise genicam.LogicalErrorException(f'Node not existing: {name}')
+        return cam.reverse_nodes.get(name, DEFAULT)
+
+    cam.active.GetNodeMap.return_value.GetNode.side_effect = get_node
     return cam
+
+
+def _reverse_nodes(boolean_node) -> dict:
+    """A body's ``ReverseY`` and ``ReverseX``: typed, writable, holding False,
+    as the connect-time orientation meets a real body's. A test replaces one
+    (an absent node is a name removed, for the Pylon map; a read-only one is
+    built ``writable=False``)."""
+    return {name: boolean_node(False, writable=True) for name in ('ReverseY', 'ReverseX')}
 
 
 def disconnectable_pylon_camera():
@@ -388,6 +409,15 @@ def bare_ids_camera():
     # get_frame_size run against real state.
     cam._sensor_max = None
     cam._offset_min = (0, 0)
+    from ids_peak import ids_peak
+
+    # The body's reverse nodes, typed; a name removed is a node it lacks.
+    cam.reverse_nodes = _reverse_nodes(ids_peak.BooleanNode)
+    reverses = tuple(cam.reverse_nodes)
+    cam.remote_nodemap.HasNode.side_effect = lambda name: (
+        name in cam.reverse_nodes if name in reverses else DEFAULT
+    )
+    cam.remote_nodemap.FindNode.side_effect = lambda name: cam.reverse_nodes.get(name, DEFAULT)
     return cam
 
 

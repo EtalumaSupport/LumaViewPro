@@ -129,6 +129,20 @@ def test_the_colour_is_chosen_from_what_is_under_the_bar_not_the_whole_frame():
 
 
 @pytest.mark.usefixtures('_scale')
+def test_the_bar_is_at_the_bottom_right_of_the_picture_with_its_text_above_it():
+    """A frame's row 0 is the top of the picture, so the bottom is its last rows."""
+    drawn = _bar_pixels((400, 400), np.uint8)
+    rows = np.flatnonzero(drawn.any(axis=1))
+    cols = np.flatnonzero(drawn.any(axis=0))
+    # The bar is the row drawn widest; its text is the rows above it.
+    bar_row = int(np.argmax(drawn.sum(axis=1)))
+
+    assert rows[-1] >= 400 * 0.9 and cols[0] >= 200, (rows[[0, -1]], cols[[0, -1]])
+    assert rows[0] < bar_row <= rows[-1], (rows[[0, -1]], bar_row)
+    assert drawn[rows[0] : bar_row - 3].any(), 'no text above the bar'
+
+
+@pytest.mark.usefixtures('_scale')
 def test_a_black_bar_is_drawn():
     image = np.full((400, 400), 200, dtype=np.uint8)
     # A black bar introduces a run of 0-valued pixels on a frame with none.

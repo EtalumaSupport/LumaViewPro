@@ -49,16 +49,25 @@ class InternalErrorException(Exception):  # noqa: N818 -- mirrors the ids_peak S
 
 
 class Node:
-    """A node; a test builds one with its value, unit and readability. A value
-    that is an exception is raised by the read."""
+    """A node; a test builds one with its value, unit, readability and
+    writability. A value that is an exception is raised by the read and the
+    write; a writability that is one is raised by ``IsWriteable``."""
 
-    def __init__(self, value=None, *, unit: str = '', readable: bool = True):
+    def __init__(
+        self, value=None, *, unit: str = '', readable: bool = True, writable: object = False
+    ):
         self._value = value
         self._unit = unit
         self._readable = readable
+        self._writable = writable
 
     def IsReadable(self) -> bool:
         return self._readable
+
+    def IsWriteable(self) -> bool:
+        if isinstance(self._writable, BaseException):
+            raise self._writable
+        return self._writable
 
     def _read(self):
         if isinstance(self._value, BaseException):
@@ -69,6 +78,10 @@ class Node:
 class _ValueNode(Node):
     def Value(self):
         return self._read()
+
+    def SetValue(self, value):
+        self._read()
+        self._value = value
 
 
 class FloatNode(_ValueNode):

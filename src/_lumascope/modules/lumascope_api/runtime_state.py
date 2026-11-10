@@ -50,11 +50,12 @@ def refuse_unless_frame_point(x_fraction: object, y_fraction: object) -> None:
 
 
 def _distance_to(extent: FieldOfView, x_fraction: float, y_fraction: float) -> StageDistance:
-    # From the frame's centre to the point: half the frame each way. Camera
-    # row up is stage +Y, so the fractions carry their sign straight over.
+    # From the frame's centre to the point: half the frame each way. Row 0 is
+    # the top of the picture and up the picture is stage +Y, so a point above
+    # the centre, a fraction under one half, is a positive distance.
     return StageDistance(
         dx_um=(x_fraction - 0.5) * extent.width_um,
-        dy_um=(y_fraction - 0.5) * extent.height_um,
+        dy_um=(0.5 - y_fraction) * extent.height_um,
     )
 
 
@@ -307,15 +308,16 @@ class RuntimeState:
 
         The point is ``x_fraction`` of the frame's width from its column 0
         and ``y_fraction`` of its height from its row 0, in the frame as the
-        API returns it (``capture_still().image``): row 0 is the bottom of
-        the live view, the opposite of a saved file. A fraction is the same
+        API returns it (``capture_still().image``): row 0 is the top of the
+        picture, as in the live view and a saved file. A fraction is the same
         place on the sample at every binning and frame size. The distance is
         at the current objective and binning; moving the stage by it brings
         the point to the centre (``MotionAPI.start_center_on``).
 
         Args:
             x_fraction: How far across the frame's width, from 0 to 1.
-            y_fraction: How far up the frame's height, from 0 to 1.
+            y_fraction: How far down the frame's height, from 0 at the top
+                to 1.
 
         Returns:
             StageDistance | None: Positive ``dx_um`` for a point right of

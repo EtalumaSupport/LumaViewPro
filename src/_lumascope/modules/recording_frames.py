@@ -148,18 +148,16 @@ def is_video_recording_dir(path: str | pathlib.Path) -> bool:
     return path.is_dir() and any(is_protocol_video_frame(p.name) for p in path.iterdir())
 
 
-def orient_and_fit(image: np.ndarray, width: int, height: int) -> np.ndarray:
-    """Flip a raw camera frame to display orientation and fit the geometry.
+def fit_to_recording(image: np.ndarray, width: int, height: int) -> np.ndarray:
+    """Fit a camera frame to the recording's geometry.
 
-    Orientation and contiguity are paid here at the write edge, never in
-    the per-frame ingest callback.
+    Paid here at the write edge, never in the per-frame ingest callback.
 
     Raises:
         ValueError: The frame cannot fit the recording geometry. Costs
             exactly that frame -- the engine counts it as a write
             failure and the recording continues.
     """
-    image = np.flip(image, 0)
     target_shape = (height, width)
     if image.shape != target_shape:
         fitted = image_utils.fit_frame_to_shape(image, target_shape)
@@ -347,7 +345,7 @@ def write_frame(
 
     Args:
         scope: The scope the recording runs against.
-        image: The frame, oriented and fitted (``orient_and_fit``).
+        image: The frame, fitted (``fit_to_recording``).
         file_loc: Output path, from the recording's template: its suffix
             names the container.
         arrived: What the frame states, read as it arrived (``arrival``).

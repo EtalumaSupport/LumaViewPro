@@ -68,7 +68,7 @@ from _lumascope.modules.lumascope_api.frame_record import (
 from _lumascope.modules.recording_frames import (
     RecordingCamera,
     arrival,
-    orient_and_fit,
+    fit_to_recording,
     protocol_frame_filename_template,
     recording_camera,
     write_frame,
@@ -649,7 +649,7 @@ class ProtocolVideoStep:
         """Write one kept frame as its final artifact (runs on the lane)."""
         self._check_disk_floor(config)
 
-        image = orient_and_fit(image, config.width, config.height)
+        image = fit_to_recording(image, config.width, config.height)
 
         step = self._step
         if self._video_as_frames:

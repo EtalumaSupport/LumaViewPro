@@ -105,10 +105,13 @@ class AcquireContinuousConfiguration:
 
 
 class _Node:
-    def __init__(self, value=None, *, unit: str = '', readable: bool = True):
+    def __init__(
+        self, value=None, *, unit: str = '', readable: bool = True, writable: bool = False
+    ):
         self._value = value
         self._unit = unit
         self.readable = readable
+        self.writable = writable
 
 
 class _ValueNode(_Node):
@@ -116,6 +119,12 @@ class _ValueNode(_Node):
         if isinstance(self._value, BaseException):
             raise self._value
         return self._value
+
+    def SetValue(self, value):
+        """Takes the value; a node built with an exception as its value raises it."""
+        if isinstance(self._value, BaseException):
+            raise self._value
+        self._value = value
 
 
 class _UnitNode(_ValueNode):
@@ -168,6 +177,17 @@ def IsReadable(node) -> bool:
     test built unreadable; anything else a test supplies (MagicMock or fake
     node) counts as readable."""
     return node is not None and getattr(node, 'readable', True) is not False
+
+
+def IsWritable(node) -> bool:
+    """genicam.IsWritable stand-in: a None node is not writable, nor is a stub
+    node built without ``writable=True``; a MagicMock a test supplies counts as
+    writable. A writability that is an exception is raised, as an access the
+    camera did not answer."""
+    writable = getattr(node, 'writable', True)
+    if isinstance(writable, BaseException):
+        raise writable
+    return node is not None and writable is not False
 
 
 # Real pypylon PixelType enum values, so a grab result's pixel type maps to
@@ -227,6 +247,7 @@ _GENICAM_MEMBERS = {
     'LogicalErrorException': LogicalErrorException,
     'OutOfRangeException': OutOfRangeException,
     'IsReadable': IsReadable,
+    'IsWritable': IsWritable,
     'IInteger': IInteger,
     'IFloat': IFloat,
     'IBoolean': IBoolean,

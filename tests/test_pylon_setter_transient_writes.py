@@ -78,11 +78,15 @@ def _camera():
 
 # (the writer the handler is in, the call a caller makes, the failure answer).
 # 'false' / 'raises' are the two answers for a write not taken ('read_failed'
-# for latch_clock, whose write starts a read); 'not_applied'
-# is init_camera_config's: the step is named in config_not_applied. 'none' is
-# the two writers with no caller, which answer None for every failure.
+# for latch_clock, whose write starts a read). init_camera_config's steps
+# each answer 'not_applied', named in config_not_applied
+# (test_a_camera_config_step_not_taken_is_reported); with every write
+# failing, its orientation write fails too, and a camera whose orientation is
+# not taken raises. 'none' is the two writers with no caller, which answer
+# None for every failure.
 _CASES = [
-    ('init_camera_config', lambda c: c.init_camera_config(), 'not_applied'),
+    ('init_camera_config', lambda c: c.init_camera_config(), 'raises'),
+    ('_write_reverse', lambda c: c._write_reverse('ReverseY', True), 'raises'),
     (
         'set_max_acquisition_frame_rate',
         lambda c: c.set_max_acquisition_frame_rate(True, 5.0),

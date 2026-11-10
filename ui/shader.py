@@ -116,7 +116,7 @@ def cursor_plate(scope, fraction: tuple[float, float]) -> PlatePosition | None:
     Args:
         scope: The scope the cursor's image is from.
         fraction: The cursor as fractions of the shown frame's width and
-            height, row 0 at the bottom, as ``frame_point_distance`` takes.
+            height, row 0 at the top, as ``frame_point_distance`` takes.
     """
     if not scope.capabilities.has_xy_stage:
         return None
@@ -191,7 +191,7 @@ void main (void) {
         self._mouse_pixel_x = -1
         self._mouse_pixel_y = -1
         # The cursor as fractions of the shown frame, in the API's frame
-        # convention (row 0 at the bottom), for the plate readout.
+        # convention (row 0 at the top), for the plate readout.
         self._mouse_fraction = (0.5, 0.5)
         self._mouse_over_image = False
         Window.bind(mouse_pos=self._on_mouse_pos)
@@ -317,17 +317,17 @@ void main (void) {
         norm_w, norm_h = scope_display.norm_image_size
         # The cursor as fractions of the shown image, and the hit test on
         # those same numbers, so a point the test passes is one the API's
-        # conversion takes (fractions from 0 to 1).
+        # conversion takes (fractions from 0 to 1). Kivy's y is bottom-up and
+        # the frame's row 0 is its top, so y is turned here, once.
         x_fraction = (local_x - (scope_display.center_x - norm_w / 2)) / norm_w
-        y_fraction = (local_y - (scope_display.center_y - norm_h / 2)) / norm_h
+        y_fraction = 1.0 - (local_y - (scope_display.center_y - norm_h / 2)) / norm_h
 
         if 0.0 <= x_fraction <= 1.0 and 0.0 <= y_fraction <= 1.0:
             # Full-resolution sensor frame, not the downscaled preview texture,
             # so the reported pixel coordinate is in sensor pixels.
             frame_w, frame_h = scope_display.full_resolution_frame_size()
             self._mouse_pixel_x = int(x_fraction * frame_w)
-            # Kivy Y is bottom-up, image Y is top-down
-            self._mouse_pixel_y = frame_h - 1 - int(y_fraction * frame_h)
+            self._mouse_pixel_y = int(y_fraction * frame_h)
             self._mouse_pixel_x = max(0, min(self._mouse_pixel_x, frame_w - 1))
             self._mouse_pixel_y = max(0, min(self._mouse_pixel_y, frame_h - 1))
             self._mouse_fraction = (x_fraction, y_fraction)

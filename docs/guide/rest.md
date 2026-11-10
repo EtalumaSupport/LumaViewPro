@@ -254,6 +254,9 @@ event is `closing`.
 
 ## The live view and files
 
+Every frame below -- `/live`, `/live.jpg`, `/still`'s pixels -- has row 0 at
+the top of the picture, as LumaViewPro's window and its saved files have it.
+
 - `GET /api/v1/live` -- the camera's frames as MJPEG, for a browser's `<img>`,
   each part carrying `X-Frame-Ordinal` and `X-Frame-Timestamp`; `max_width`
   bounds a frame's width, half the camera's frame when not given.

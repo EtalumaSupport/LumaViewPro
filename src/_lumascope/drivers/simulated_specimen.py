@@ -157,8 +157,12 @@ class Specimen:
 
         Stage X runs along the columns and Y along the rows, so as the stage
         moves to higher X and Y the sample moves toward lower column and
-        row: the direction the stitcher's placement and the save's row flip
-        expect.
+        row of this window. The window is in each simulated sensor's native
+        row order, row 0 at the bottom of the picture; the sensor reads it
+        out reversed (``SimulatedCamera.REVERSE_NODES``; the simulated FX2's
+        optics), so in a delivered frame, row 0 at the top, the sample moves
+        toward the bottom of the picture: the direction the stitcher's
+        placement expects.
 
         Args:
             x_um: The stage's X; None on a scope with no X axis, which holds

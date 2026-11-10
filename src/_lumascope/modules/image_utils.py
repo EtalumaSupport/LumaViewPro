@@ -3065,10 +3065,11 @@ def _compute_scale_bar_overlay(
     scale_bar_bottom_offset = int(height / 40)
     scale_bar_right_offset = int(width / 40)
 
+    # In the bottom rows: a frame's row 0 is the top of the picture.
     x_end = width - scale_bar_right_offset
     x_start = x_end - scale_bar_length_pixels
-    y_start = scale_bar_bottom_offset
-    y_end = y_start + scale_bar_thickness_pixels
+    y_end = height - 1 - scale_bar_bottom_offset
+    y_start = y_end - scale_bar_thickness_pixels
 
     # Render the bar+text geometry with a NONZERO sentinel, not the bar's real
     # value. The mask below is built from nonzero canvas pixels; a black bar
@@ -3084,8 +3085,9 @@ def _compute_scale_bar_overlay(
         canvas = np.zeros((height, width), dtype=dtype)
         canvas[y_start : y_end + 1, x_start : x_end + 1] = sentinel
 
+    # The text's baseline, above the bar.
     text_x_pos = x_start
-    text_y_pos = y_end + 5
+    text_y_pos = y_start - 5
     font_scale = max(0.75, width / 2000)
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     font_thickness = 1
@@ -3109,7 +3111,7 @@ def _compute_scale_bar_overlay(
         color=(sentinel, sentinel, sentinel),
         thickness=font_thickness,
         lineType=cv2.LINE_AA,
-        bottomLeftOrigin=True,
+        bottomLeftOrigin=False,
     )
 
     # Mask marks the bar+text geometry (nonzero sentinel pixels), so the value
@@ -3266,8 +3268,8 @@ def add_timestamp(image: np.ndarray, timestamp_str: str) -> np.ndarray:
     else:  # 16-bit
         text_intensity = 2**16 - 1
 
-    # A C-contiguous copy: np.flip() produces non-contiguous views that
-    # OpenCV rejects with "Layout incompatible with cv::Mat".
+    # A C-contiguous copy: the frame passed in is never written, and OpenCV
+    # rejects a non-contiguous view with "Layout incompatible with cv::Mat".
     image = np.array(image, order='C', copy=True)
     cv2.rectangle(
         image,

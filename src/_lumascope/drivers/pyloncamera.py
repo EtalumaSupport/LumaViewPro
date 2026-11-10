@@ -20,9 +20,12 @@ from _lumascope.drivers.camera import (
     FrameGrid,
     HandOver,
     ImageHandlerBase,
+    NOTHING_OWED,
+    copy_oriented,
     declared_speed,
     link_info,
     node_snapshot_value,
+    orientation_owed,
 )
 from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
@@ -1603,7 +1606,8 @@ class PylonCamera(Camera):
         """Apply Etaluma's canonical camera configuration once on connect.
 
         Loads the `Default` user set, sets pixel format to Mono8, sets
-        explicit gain (0 dB), enables `ReverseX`, enables validity
+        explicit gain (0 dB), sets the image orientation (`ReverseY` and
+        `ReverseX`, ``orientation_owed``), enables validity
         chunks (B28-guarded), and runs the auto-gain init defaults.
         Wrapped in `update_camera_config()` so the caller does not
         need a separate stop/start cycle.
@@ -1613,16 +1617,20 @@ class PylonCamera(Camera):
         bring-up reports, and the camera stays connected with the rest
         applied. A RuntimeException is one such step: one failed node access
         is not evidence the camera is gone, and a camera really removed is
-        marked so by the SDK's removal callback.
+        marked so by the SDK's removal callback. The orientation is not such
+        a step: a camera whose frame could arrive either way up does not
+        come up.
 
         Raises:
             CameraReadFailedError: The config guard's grab-state read failed,
-                before any step ran.
+                before any step ran; or the orientation could not be read.
+            CameraWriteFailedError: The orientation was not taken.
         """
         camera = self.active
         if camera is None:
             return
         self.config_not_applied = ()
+        self.owed_reverse = NOTHING_OWED
 
         def load_default_user_set():
             # Per Basler doc user-sets.html: "Loading a user set is
@@ -1692,11 +1700,11 @@ class PylonCamera(Camera):
             ('auto-gain off', lambda: self.auto_gain(state=False)),
             # Set explicit gain -- camera default after UserSetLoad is undefined
             ('gain 0 dB', lambda: self.gain(0.0)),
-            ('the image orientation (ReverseX)', lambda: camera.ReverseX.SetValue(True)),
         ]
+        steps_after = []
         if not self._use_camera_emulation:
-            steps.append(('the auto-gain and focus defaults', self.init_auto_gain_focus))
-        steps += [
+            steps_after.append(('the auto-gain and focus defaults', self.init_auto_gain_focus))
+        steps_after += [
             ('exposure 10 ms', lambda: self.exposure_t(exposure_ms=10)),
             # 1900x1900: bench-witnessed driver-init default. Both
             # production cameras (a2A3536 ace 2 and daA3840 dart)
@@ -1710,9 +1718,40 @@ class PylonCamera(Camera):
         # Each step's own failure is _apply_config_steps'; the guard's own
         # entry and exit (the grab-state read, the stop, the restart) are not
         # a step, and a failure there reaches connect()'s handler, which
-        # reports a found camera whose configuration failed.
+        # reports a found camera whose configuration failed. So does the
+        # orientation's, which runs between the steps, in its place.
         with self.update_camera_config():
-            self.config_not_applied = self._apply_config_steps(steps)
+            not_applied = self._apply_config_steps(steps)
+            self.owed_reverse = orientation_owed(
+                lambda name: self.read_node(name, 'device'),
+                self._reverse_is_writable,
+                self._write_reverse,
+            )
+            self.config_not_applied = not_applied + self._apply_config_steps(steps_after)
+
+    def _reverse_is_writable(self, name: str) -> bool:
+        """Whether the camera takes a write of the reverse node ``name`` (``orientation_owed``).
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the node's access.
+        """
+        try:
+            return genicam.IsWritable(self._find_node(self.active.GetNodeMap(), name))
+        except genicam.GenericException as e:
+            raise CameraReadFailedError(
+                f'The camera did not answer the access of {name}: {e}'
+            ) from e
+
+    def _write_reverse(self, name: str, value: bool) -> None:
+        """Write the reverse node ``name`` (``orientation_owed``).
+
+        Raises:
+            CameraWriteFailedError: The camera refused the write.
+        """
+        try:
+            self._find_node(self.active.GetNodeMap(), name).SetValue(value)
+        except genicam.GenericException as e:
+            raise CameraWriteFailedError(f'The camera refused a write of {name}: {e}') from e
 
     # Frame-identity chunk candidates in preference order. Different
     # Basler models advertise different per-frame identity chunks
@@ -5047,6 +5086,11 @@ class _PylonImageGrabWorker:
             )
             self._count_failed_grab()
             return
+        # A reverse the sensor did not take is turned in a second copy, paid
+        # only on a body that owes one.
+        owed = self._parent.owed_reverse
+        if owed != NOTHING_OWED:
+            img = copy_oriented(img, owed)
         chunks = _read_validity_chunks(grabResult)
         # Read the depth from the frame's OWN pixel type -- the format the SDK
         # delivered this buffer in -- so the depth stays bound to the frame.

@@ -27,10 +27,14 @@ from _lumascope.drivers.camera import (
     FrameGrid,
     HandOver,
     ImageHandlerBase,
+    NOTHING_OWED,
+    OwedReverse,
+    copy_oriented,
     declared_speed,
     link_info,
     no_hardware_auto_mode,
     node_snapshot_value,
+    orientation_owed,
 )
 from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
@@ -250,19 +254,20 @@ def _ids_delivery_significant_bits(wire_format_name: str) -> int:
     return 8
 
 
-def _unpack_buffer(buffer, wire_format_name: str):
+def _unpack_buffer(buffer, wire_format_name: str, owed: OwedReverse):
     """Unpack one finished IDS buffer to its delivered array.
 
     BufferToImage + ConvertTo to the delivery target (native uint16 for the
     12-bit modes; 8-bit uint8 directly for the 8-bit-mode Mono10 wire, see
     _ids_delivery_target), then copy to a contiguous array that outlives the
-    SDK image and the re-queued buffer.
+    SDK image and the re-queued buffer, turning in that copy the reverses
+    the sensor did not take (``owed``).
     """
     target = _ids_delivery_target(wire_format_name)
     img = ids_peak_ipl_extension.BufferToImage(buffer)
     if img.PixelFormat() != target:
         img = img.ConvertTo(target)
-    return img.get_numpy().copy()
+    return copy_oriented(img.get_numpy(), owed)
 
 
 # GenTL SFNC-standard DataStream statistics counters read by the diagnostic
@@ -1419,15 +1424,19 @@ class IDSCamera(Camera):
         Each step runs whatever an earlier one did: a step the camera did
         not take is logged and named in ``config_not_applied``, which
         bring-up reports, and the camera stays connected with the rest
-        applied.
+        applied. The image orientation (``orientation_owed``) is not such a
+        step: a camera whose frame could arrive either way up does not come
+        up.
 
         Raises:
             CameraReadFailedError: The config guard's grab-state read failed,
-                before any step ran.
+                before any step ran; or the orientation could not be read.
+            CameraWriteFailedError: The orientation was not taken.
         """
         if not self.active:
             return
         self.config_not_applied = ()
+        self.owed_reverse = NOTHING_OWED
 
         def load_default_user_set():
             self.remote_nodemap.FindNode('UserSetSelector').SetCurrentEntry('Default')
@@ -1474,20 +1483,6 @@ class IDSCamera(Camera):
                 return False
             return self.set_pixel_format(preferred)
 
-        def orientation():
-            # Apply the horizontal flip only when this body advertises
-            # ReverseX as writable -- a capability check via the node's
-            # access status, not an assumption every body has it. Orientation
-            # nodes vary by body/mount.
-            _reverse_x = self._diag_probe_node(self.remote_nodemap, 'ReverseX')
-            if _reverse_x.get('access') in ('ReadWrite', 'WriteOnly'):
-                self.remote_nodemap.FindNode('ReverseX').SetValue(True)
-            else:
-                logger.info(
-                    f'[CAM Class ] ReverseX not writable on this body '
-                    f'({_reverse_x.get("access", "absent")}); leaving default orientation'
-                )
-
         def trigger_off():
             # Ensure freerun mode (no external trigger)
             try:
@@ -1498,7 +1493,8 @@ class IDSCamera(Camera):
         steps = [
             ('the Default user set', load_default_user_set),
             ('the pixel format', pixel_format),
-            ('the image orientation (ReverseX)', orientation),
+        ]
+        steps_after = [
             ('free-run trigger off', trigger_off),
             # Set geometry and exposure BEFORE configuring the rate -- the
             # throughput ceiling and the AcquisitionFrameRate max both
@@ -1517,9 +1513,40 @@ class IDSCamera(Camera):
         # Each step's own failure is _apply_config_steps'; the guard's own
         # entry and exit (the grab-state read, the stop, the restart) are not
         # a step, and a failure there reaches connect()'s handler, which
-        # reports a found camera whose configuration failed.
+        # reports a found camera whose configuration failed. So does the
+        # orientation's, which runs between the steps, in its place.
         with self.update_camera_config():
-            self.config_not_applied = self._apply_config_steps(steps)
+            not_applied = self._apply_config_steps(steps)
+            self.owed_reverse = orientation_owed(
+                lambda name: self._read_node_in(self.remote_nodemap, name),
+                self._reverse_is_writable,
+                self._write_reverse,
+            )
+            self.config_not_applied = not_applied + self._apply_config_steps(steps_after)
+
+    def _reverse_is_writable(self, name: str) -> bool:
+        """Whether the camera takes a write of the reverse node ``name`` (``orientation_owed``).
+
+        Raises:
+            CameraReadFailedError: The camera did not answer the node's access.
+        """
+        try:
+            return self.remote_nodemap.FindNode(name).IsWriteable()
+        except ids_peak.Exception as e:
+            raise CameraReadFailedError(
+                f'The camera did not answer the access of {name}: {e}'
+            ) from e
+
+    def _write_reverse(self, name: str, value: bool) -> None:
+        """Write the reverse node ``name`` (``orientation_owed``).
+
+        Raises:
+            CameraWriteFailedError: The camera refused the write.
+        """
+        try:
+            self.remote_nodemap.FindNode(name).SetValue(value)
+        except ids_peak.Exception as e:
+            raise CameraWriteFailedError(f'The camera refused a write of {name}: {e}') from e
 
     def _is_grabbing(self) -> bool:
         """Whether the data stream is acquiring; False when the camera is not connected.
@@ -4063,11 +4090,12 @@ class ImageHandler(ImageHandlerBase):
         """Unpack one finished buffer to its delivered array + that array's depth.
 
         Delegates to _unpack_buffer: BufferToImage + ConvertTo to the delivery
-        target, copy out; the camera base crops it to the window when it is
-        stored. The depth is _ids_delivery_significant_bits (paired with the
-        delivery target): 12 for the 12-bit modes' native uint16, 8 for the
-        8-bit-mode Mono10 wire delivered directly as uint8. Worker-only.
+        target, copy out turned as the sensor owes; the camera base crops it to
+        the window when it is stored. The depth is _ids_delivery_significant_bits
+        (paired with the delivery target): 12 for the 12-bit modes' native
+        uint16, 8 for the 8-bit-mode Mono10 wire delivered directly as uint8.
+        Worker-only.
         """
         wire = self._parent.get_pixel_format()
-        array = _unpack_buffer(buffer, wire)
+        array = _unpack_buffer(buffer, wire, self._parent.owed_reverse)
         return array, _ids_delivery_significant_bits(wire)

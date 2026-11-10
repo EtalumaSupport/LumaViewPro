@@ -81,7 +81,7 @@ from _lumascope.modules.recording_frames import (
     RecordingCamera,
     arrival,
     manual_frame_filename_template,
-    orient_and_fit,
+    fit_to_recording,
     filename_time,
     recording_camera,
     write_frame,
@@ -918,7 +918,7 @@ class ManualRecordingController:
         """Write one kept frame as its final artifact (runs on the lane)."""
         self._check_disk_floor(config)
 
-        image = orient_and_fit(image, config.width, config.height)
+        image = fit_to_recording(image, config.width, config.height)
 
         plan = self._plan
         if plan.video_as_frames:

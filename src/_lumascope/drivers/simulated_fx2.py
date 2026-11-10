@@ -402,11 +402,11 @@ class SimulatedFX2Device:
         simulator renders the specimen only in the window and leaves them 0.
 
         The FX2 scopes' optics put the specimen on the sensor with its rows,
-        in numerical order, the reverse of the order every camera delivers
-        them in, and the rows and columns are read out as Read Mode 2 orders
-        them: with the driver's Mirror_Row the frame carries the specimen as
-        every simulated camera delivers it, and the extra columns trail the
-        window unless Mirror_Column moves them ahead of it.
+        in numerical order, running from the top of the picture, and the rows
+        and columns are read out as Read Mode 2 orders them: with Mirror_Row
+        clear, as the driver leaves it, the frame carries the specimen as
+        every simulated camera delivers it, row 0 at the top, and the extra
+        columns trail the window unless Mirror_Column moves them ahead of it.
         """
         w, h = self.sensor.window()
         layout = frame_layout(w, h)

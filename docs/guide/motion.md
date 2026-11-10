@@ -125,8 +125,8 @@ coarse)` answers the step itself, for showing it.
 **Centering on a point.** `start_center_on(x_fraction, y_fraction)` moves X
 and Y so a point of the camera's frame comes to its centre: the point is a
 fraction of the frame's width from column 0 and of its height from row 0, in
-the frame as `capture_still().image` holds it (row 0 is the bottom of the live
-view; a saved file is flipped). A fraction is the same place on the sample at
+the frame as `capture_still().image` holds it (row 0 is the top of the
+picture, as in the live view and a saved file). A fraction is the same place on the sample at
 any binning. It refuses as a jog does, then with `ObjectiveUnknownError` or
 `PixelSizeUnknownError` when no distance can be measured.
 `runtime_state.frame_point_distance(x_fraction, y_fraction)` answers the

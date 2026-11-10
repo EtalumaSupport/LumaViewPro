@@ -128,8 +128,10 @@ _SIM_ONLY_NAME_BUDGET = {
     # scope around it its stage and light; withhold_chunk and the CHUNKS it
     # takes, the fault of a frame that arrives without one chunk;
     # set_outside_light, the light from outside the scope behind the door
-    # light_outside, which no real camera has a node for.
-    'Camera': 36,
+    # light_outside, which no real camera has a node for; REVERSE_NODES, the
+    # body's reverse nodes a test declares, which a real driver reads from
+    # the camera at connect.
+    'Camera': 37,
 }
 
 # Parameter divergences that stay until the simulators gain a shared

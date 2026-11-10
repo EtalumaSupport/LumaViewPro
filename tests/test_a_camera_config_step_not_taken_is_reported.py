@@ -2,11 +2,13 @@
 """A connect-time camera configuration step the camera did not take is named, and the rest run.
 
 ``init_camera_config`` used to stop at its first failed step, so every later
-setting -- the image orientation among them, which nothing re-applies --
-stayed at the camera's own default, with only an ERROR in the log. Each
-step now runs whatever an earlier one did; the ones not taken are named on
-the driver (``config_not_applied``) and bring-up reports them once
-(``CameraConfigNotAppliedNotice``; Eric 2026-10-16, *"Run all, report once"*).
+setting, which nothing re-applies, stayed at the camera's own default, with
+only an ERROR in the log. Each step now runs whatever an earlier one did;
+the ones not taken are named on the driver (``config_not_applied``) and
+bring-up reports them once (``CameraConfigNotAppliedNotice``; Eric
+2026-10-16, *"Run all, report once"*). The image orientation is not such a
+step: a camera whose orientation cannot be known does not come up
+(``tests/test_a_camera_whose_orientation_cannot_be_known_does_not_come_up.py``).
 
 The drivers run over the suite's SDK stand-ins; the setters each step fans
 out to are stubbed (``init_configurable_pylon_camera``), so the step under
@@ -22,15 +24,12 @@ from tests.test_bring_up_is_a_record import _bring_up
 
 def test_a_pylon_step_not_taken_is_named_and_the_rest_run():
     cam = init_configurable_pylon_camera()
-    cam.active.ReverseX.SetValue.side_effect = Exception('ReverseX not writable')
     cam.set_pixel_format = MagicMock(return_value=False)
+    cam.gain = MagicMock(side_effect=Exception('Gain not writable'))
 
     cam.init_camera_config()
 
-    assert cam.config_not_applied == (
-        'the Mono8 pixel format',
-        'the image orientation (ReverseX)',
-    )
+    assert cam.config_not_applied == ('the Mono8 pixel format', 'gain 0 dB')
     cam.exposure_t.assert_called_once_with(exposure_ms=10)
     cam.set_frame_size.assert_called_once_with(w=1900, h=1900)
     cam._mark_disconnected.assert_not_called()
@@ -49,15 +48,12 @@ def test_a_pylon_step_that_loses_comms_is_named_and_the_rest_run():
     del cam._mark_disconnected  # the real latch
     cam._device_removed = False
     cam._use_camera_emulation = False  # a real camera runs the auto-gain step
-    cam.active.ReverseX.SetValue.side_effect = genicam.RuntimeException('comms lost')
+    cam.auto_gain = MagicMock(side_effect=genicam.RuntimeException('comms lost'))
     cam.init_auto_gain_focus = MagicMock(side_effect=genicam.RuntimeException('comms lost'))
 
     cam.init_camera_config()
 
-    assert cam.config_not_applied == (
-        'the image orientation (ReverseX)',
-        'the auto-gain and focus defaults',
-    )
+    assert cam.config_not_applied == ('auto-gain off', 'the auto-gain and focus defaults')
     cam.exposure_t.assert_called_once_with(exposure_ms=10)
     cam.set_frame_size.assert_called_once_with(w=1900, h=1900)
     assert not cam.is_device_removed()
@@ -76,7 +72,6 @@ def test_an_ids_step_not_taken_is_named_and_the_rest_run():
     ):
         setattr(cam, name, MagicMock())
     cam.get_supported_pixel_formats = MagicMock(return_value=('Mono8',))
-    cam._diag_probe_node = MagicMock(return_value={'access': 'ReadWrite'})
 
     cam.init_camera_config()
 
@@ -89,16 +84,14 @@ def test_an_ids_step_not_taken_is_named_and_the_rest_run():
 def test_bring_up_reports_the_steps_not_taken_once(monkeypatch, tmp_path, centre_posts):
     # A stand-in by design: the simulated camera's connect-time configuration
     # cannot be made to fail (a simulator gap), so its account is set.
-    monkeypatch.setattr(
-        SimulatedCamera, 'config_not_applied', ('the image orientation (ReverseX)',)
-    )
+    monkeypatch.setattr(SimulatedCamera, 'config_not_applied', ('gain 0 dB',))
 
     s = _bring_up(monkeypatch, tmp_path, microscope='LS850T')
     try:
         notices = [n for n in centre_posts if n.reason == 'camera_config_not_applied']
         assert len(notices) == 1, centre_posts
         assert notices[0].title == 'Camera configuration incomplete'
-        assert 'the image orientation (ReverseX)' in notices[0].message
+        assert 'gain 0 dB' in notices[0].message
     finally:
         s.shutdown()
         s.scope.disconnect()

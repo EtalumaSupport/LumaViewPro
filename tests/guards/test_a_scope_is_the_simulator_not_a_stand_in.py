@@ -171,7 +171,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 87
+ALLOWED_ENTRIES = 86
 ALLOWED = frozenset(
     {
         'tests/camera_fakes.py::bare_ids_camera',
@@ -221,7 +221,6 @@ ALLOWED = frozenset(
         'tests/test_firmware_updater.py::TestSendFwupdateCommand.test_a_defect_in_the_exchange_leaves_as_itself',
         'tests/test_fresh_process_reads_homed_state.py::TestAxisStateSeeding.test_seeding_requires_the_hardware_answer',
         'tests/test_issue_653_skip_guard.py::handler_and_log',
-        'tests/test_issue_690_jpg_orientation.py::test_tiff_and_jpg_save_identical_orientation',
         'tests/test_jpg_export.py::_scope_with_depth',
         'tests/test_led_ack_and_tsr_filename.py::TestLedDriverRejectsNonAckResponses._make_led',
         'tests/test_led_ack_and_tsr_filename.py::TestLedExitEngineeringRecoversFromWedge._make_led',

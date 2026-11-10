@@ -5,8 +5,8 @@ The right-click on the live image used to read the pixel size itself and,
 when the objective was unknown, log a line and do nothing: the stage stayed
 and nobody was told why. It also converted the click with its own maths,
 and the cursor's plate readout with a second copy. The member takes the
-point as fractions of the camera's frame (row 0 at the bottom, as
-``capture_still().image`` holds it), refuses as a jog does, and moves X and
+point as fractions of the camera's frame (row 0 at the top, as
+``capture_still().image`` and a saved file hold it), refuses as a jog does, and moves X and
 Y as one request under one command; ``RuntimeStateAPI.frame_point_distance``
 is the one conversion both the move and the readout use.
 """
@@ -100,23 +100,24 @@ def test_a_point_moves_each_axis_by_its_fraction_of_the_field_from_the_centre(tu
     scope.motion.start_center_on(0.5, 0.5).result()
     assert _xy(scope.motion) == pytest.approx((60_000.0, 40_000.0), abs=0.01)
 
+    # A point above the centre, row 0 at the top, is up the stage: +Y.
     scope.motion.start_center_on(0.8, 0.35).result()
     assert _xy(scope.motion) == pytest.approx(
-        (60_000.0 + 0.3 * field.width_um, 40_000.0 - 0.15 * field.height_um), abs=0.01
+        (60_000.0 + 0.3 * field.width_um, 40_000.0 + 0.15 * field.height_um), abs=0.01
     )
 
 
 def test_a_point_whose_y_is_past_travel_moves_neither(turret_session):
     """One X and Y request: refused, it moves neither, never X then a refused Y."""
     motion = turret_session.scope.motion
-    dy = turret_session.scope.runtime_state.frame_point_distance(0.6, 0.9).dy_um
+    dy = turret_session.scope.runtime_state.frame_point_distance(0.6, 0.1).dy_um
     limits = motion.get_axis_limits('Y')
     # Y half the point's distance short of the end it would move past.
     y = limits.max_um - dy / 2
     motion.move_xy(60_000.0, y)
 
     with pytest.raises(PositionOutOfRangeError) as refused:
-        motion.start_center_on(0.6, 0.9)
+        motion.start_center_on(0.6, 0.1)
 
     assert (refused.value.reason, refused.value.axis) == ('position_out_of_range', 'Y')
     motion.wait_until_finished_moving(timeout_s=10.0)
@@ -168,6 +169,28 @@ def test_the_cursor_reads_the_plate_position_centering_on_its_point_reaches(turr
     reached = scope.runtime_state.stage_to_plate(x, y)
 
     assert (read.x_mm, read.y_mm) == pytest.approx((reached.x_mm, reached.y_mm), abs=1e-6)
+
+
+def test_the_cursor_a_quarter_of_the_way_down_the_shown_image_is_that_far_down_the_frame():
+    """Kivy's y counts up from the bottom and the frame's row 0 is its top:
+    the cursor's fraction is the one ``start_center_on`` takes, and its pixel
+    is that row of the frame."""
+    # A stand-in by design: the subject is the widget's own conversion of a
+    # window point; Kivy's widgets do not run in the test process.
+    display = SimpleNamespace(
+        texture=object(),
+        norm_image_size=(100.0, 100.0),
+        center_x=50.0,
+        center_y=50.0,
+        full_resolution_frame_size=lambda: (1000, 500),
+    )
+    viewer = SimpleNamespace(ids={'scope_display_id': display}, to_local=lambda x, y: (x, y))
+
+    # Three quarters of the way up the window is a quarter of the way down.
+    shader.ShaderViewer._on_mouse_pos(viewer, None, (25.0, 75.0))
+
+    assert viewer._mouse_fraction == pytest.approx((0.25, 0.25))
+    assert (viewer._mouse_pixel_x, viewer._mouse_pixel_y) == (250, 125)
 
 
 def test_the_cursor_reads_a_position_after_a_binning_change_before_a_new_frame_is_shown(

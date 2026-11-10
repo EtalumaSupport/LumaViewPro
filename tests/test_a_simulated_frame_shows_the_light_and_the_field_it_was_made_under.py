@@ -245,11 +245,12 @@ def _image_shift(before: np.ndarray, after: np.ndarray) -> tuple[float, float]:
 
 
 def test_a_stage_move_shifts_the_image_by_the_distance_over_the_pixel_size_against_the_stage():
-    """A move of D um shifts the image D over the saved pixel size, toward lower column and row.
+    """A move of D um shifts the image D over the saved pixel size, toward lower column and higher row.
 
-    So two tiles whose fields overlap on the stage overlap in their images
-    where the stitcher's placement puts them, and the direction is the one
-    its placement and the save's row flip expect.
+    Row 0 is the top of the picture, so a move to higher Y carries the
+    sample toward its bottom. So two tiles whose fields overlap on the stage
+    overlap in their images where the stitcher's placement puts them, and
+    the direction is the one its placement expects.
     """
     with _session('LS850', homed=True) as session:
         scope = session.scope
@@ -269,7 +270,7 @@ def test_a_stage_move_shifts_the_image_by_the_distance_over_the_pixel_size_again
     rows, cols = _image_shift(here, right)
     assert abs(rows) <= 2.5 and abs(cols + 600) <= 2.5, (rows, cols)
     rows, cols = _image_shift(here, down)
-    assert abs(rows + 450) <= 2.5 and abs(cols) <= 2.5, (rows, cols)
+    assert abs(rows - 450) <= 2.5 and abs(cols) <= 2.5, (rows, cols)
 
 
 def _centre(frame: np.ndarray, size: int) -> np.ndarray:

@@ -169,14 +169,14 @@ class TestFieldsSurviveConcurrentStores:
         cam = SimulatedCamera(width=32, height=24)
         cam.exposure_t(1.0)  # the delivery ceiling: as many stores as it makes
 
-        # Stamp each frame's camera counter into a pixel, so the PIXELS say
-        # which frame they are. The sensor numbers every frame it counts, so
-        # within a stream a frame's ordinal is its counter plus one offset,
-        # however reads and stores interleave and whichever frames are
-        # dropped on the way to the store.
+        # Stamp each frame's camera counter into every pixel, so the PIXELS
+        # say which frame they are, wherever the sensor's readout puts them.
+        # The sensor numbers every frame it counts, so within a stream a
+        # frame's ordinal is its counter plus one offset, however reads and
+        # stores interleave and whichever frames are dropped on the way to
+        # the store.
         def stamped(exposure, _registers):
-            frame = np.zeros((24, 32), dtype=np.uint8)
-            frame[0, 0] = exposure.frame_id % 251
+            frame = np.full((24, 32), exposure.frame_id % 251, dtype=np.uint8)
             return frame
 
         monkeypatch.setattr(cam, '_generate_image', stamped)

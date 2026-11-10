@@ -19,7 +19,7 @@ from _lumascope.lib.log_helpers import logger
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.aoi_geometry import AoiPlan, center_crop, plan_aoi
 from _lumascope.drivers.camera_profiles import CameraProfile, lookup_profile
-from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
 
 default_max_exposure = 1_000  # in ms
 
@@ -210,6 +210,113 @@ def node_snapshot_value(
             continue
         return answer.value
     return entry
+
+
+# The words naming the connect-time step that sets the frame's orientation.
+ORIENTATION_STEP = 'the image orientation'
+
+
+@dataclass(frozen=True)
+class OwedReverse:
+    """The reverses a camera's sensor did not take, which its copy of each frame applies.
+
+    Every frame a driver delivers has row 0 at the top of the picture and
+    column 0 at its left, as an image viewer, a TIFF and a JPEG draw it. A
+    sensor that can reverse its rows (``ReverseY``) and its columns
+    (``ReverseX``) delivers that order itself; an axis it cannot reverse is
+    owed, and turned in the copy the driver already makes
+    (``copy_oriented``).
+
+    Attributes:
+        rows: The frame's rows are turned in the copy.
+        columns: The frame's columns are turned in the copy.
+    """
+
+    rows: bool = False
+    columns: bool = False
+
+
+NOTHING_OWED = OwedReverse()
+
+# Each sensor reverse, by the node that sets it and the axis it turns.
+_REVERSE_NODES = (('ReverseY', 'rows'), ('ReverseX', 'columns'))
+
+
+def copy_oriented(array: np.ndarray, owed: OwedReverse) -> np.ndarray:
+    """A C-contiguous copy of a delivered frame, with the reverses its sensor owes applied.
+
+    The one place a frame's rows or columns are turned: nothing above the
+    drivers turns a frame.
+    """
+    if owed.rows:
+        array = array[::-1]
+    if owed.columns:
+        array = array[:, ::-1]
+    return np.array(array, order='C', copy=True)
+
+
+def orientation_owed(
+    read: Callable[[str], CameraNodeValue | CameraNodeHasNoValue | None],
+    writable: Callable[[str], bool],
+    write: Callable[[str, bool], None],
+) -> OwedReverse:
+    """Set the sensor's reverses at connect; the axes it could not take, owed to the copy.
+
+    For ``ReverseY`` and then ``ReverseX``, read through the driver's
+    reader that raises on a failed read:
+
+    - absent: owed;
+    - present and writable: written True and read back; True is taken;
+    - present and read-only: its value decides; True is taken (the sensor
+      already reverses, so the copy must not turn it again), False owed.
+
+    Anything else leaves the orientation unknown, and a camera whose frame
+    could arrive either way up does not come up.
+
+    Args:
+        read: The driver's reader of one remote-device node
+            (``read_node``'s answer: a value, why there is none, or None
+            for a node the camera does not have).
+        writable: Whether the camera takes a write of the named node.
+        write: Writes the named node.
+
+    Raises:
+        CameraReadFailedError: A read of a node failed, or a node present
+            holds no value to read; its words name the step and the node.
+        CameraWriteFailedError: A write failed, or its read-back is not
+            True; its words name the step and the node.
+    """
+    owed = {}
+    for node, axis in _REVERSE_NODES:
+        step = f'{ORIENTATION_STEP} ({node})'
+        try:
+            value = read(node)
+            if value is None:
+                owed[axis] = True
+                continue
+            if not isinstance(value, CameraNodeValue):
+                raise CameraReadFailedError(
+                    f'{node} is present and holds no value to read ({value})'
+                )
+            if not writable(node):
+                owed[axis] = value.value is not True
+                continue
+            write(node, True)
+            back = read(node)
+        except (CameraReadFailedError, CameraWriteFailedError) as e:
+            raise type(e)(f'{step}: {e}') from e
+        if not (isinstance(back, CameraNodeValue) and back.value is True):
+            raise CameraWriteFailedError(f'{step}: written True, read back {back}')
+        owed[axis] = False
+    result = OwedReverse(**owed)
+    _cam_log.info(
+        f'[CAM Class ] {ORIENTATION_STEP}: '
+        + ', '.join(
+            f'{node} {"owed to the copy" if getattr(result, axis) else "taken"}'
+            for node, axis in _REVERSE_NODES
+        )
+    )
+    return result
 
 
 class ImageHandlerBase:
@@ -603,6 +710,10 @@ class Camera(ABC):
     # the camera did not take, by name; bring-up reports them. Empty for a
     # driver with no such configuration, and before it runs.
     config_not_applied: tuple[str, ...] = ()
+    # The reverses this camera's sensor did not take at connect, which its
+    # copy of each frame applies (``orientation_owed``, ``copy_oriented``).
+    # Read by the copy alone.
+    owed_reverse: OwedReverse = NOTHING_OWED
 
     def __init__(self):
         self._state_lock = threading.Lock()

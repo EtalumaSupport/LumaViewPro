@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """An FX2's window is placed and read out as the MT9P031 documents give.
 
-The driver sets Mirror_Row and leaves Mirror_Column off, so a target reads as
-it does on the LS850. Without the column mirror the register
+The driver leaves Mirror_Row and Mirror_Column off, so a target reads as it
+does on the LS850. Without the column mirror the register
 reference requires Column_Start in the form 4n, and the columns read out in
 numerical order from Column_Start, so the columns beyond the window trail it.
 Row_Start is LumaView Classic's. And the simulated FX2 sends sensor data in
@@ -195,9 +195,11 @@ def test_the_simulated_sensor_reads_out_in_the_order_read_mode_2_sets(sim, mode,
 def test_the_simulated_frame_carries_the_specimen_upright_at_the_drivers_read_mode(
     sim, camera, monkeypatch
 ):
-    # The simulated FX2's optics put the specimen on the sensor upside down,
-    # as the FX2 scopes' do; the driver's Mirror_Row delivers it the way up
-    # every simulated camera delivers it. Each specimen row carries its index.
+    # The simulated FX2's optics put the specimen on the sensor with its rows
+    # reversed from the order the specimen is drawn in (row 0 at the bottom
+    # of the picture), as the FX2 scopes' do; with Mirror_Row clear the frame
+    # holds them as read, row 0 at the top, as every simulated camera
+    # delivers it. Each specimen row carries its index.
     import numpy as np
 
     device = sim.device
@@ -207,4 +209,4 @@ def test_the_simulated_frame_carries_the_specimen_upright_at_the_drivers_read_mo
     layout = fx2driver.frame_layout(w, h)
     body = np.frombuffer(device.frame(), dtype=np.uint8)
     rows = body[layout.skip : layout.needed].reshape(h, layout.stride)
-    assert (rows[:, :w] == pattern[1 : h + 1]).all()
+    assert (rows[:, :w] == pattern[::-1][1 : h + 1]).all()
