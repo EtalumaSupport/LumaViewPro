@@ -3,8 +3,10 @@
 
 A sleeping computer drops the scope's USB devices, so a session comes back
 to a scope it has lost, whether a run was under way or a person was setting
-up between runs. The session takes the operating system's request not to
-sleep while idle (``host_power.hold_awake``) when it is built and releases
+up between runs; a Modern Standby PC whose screen goes off enters connected
+standby and runs the camera path throttled. The session takes the operating
+system's request to keep the computer and its screen awake
+(``host_power.hold_awake``) when it is built and releases
 it when it closes; this owner keeps only that hold, never an "is LVP open"
 flag, since the session's own lifetime is the fact.
 """
@@ -35,6 +37,7 @@ class KeepAwake:
             self._tell(answer)
         else:
             self._hold = answer
+            logger.info(f'[KeepAwake] the session holds the computer awake: {answer.holds}')
 
     def release(self) -> None:
         """Release the request, if one was taken; a second release does nothing.

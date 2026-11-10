@@ -11,12 +11,14 @@ operating system the suite installs (``conftest.install_mock_deps``);
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from _lumascope.drivers.host_power import AwakeNotHeld
 from _lumascope.modules.lumascope_api.bring_up import CONFIGURING
 from _lumascope.modules.scope_session import ScopeSession
-from tests.host_power_stub import host
+from tests.host_power_stub import HOLDS, host
 from tests.settings_fixtures import complete_settings
 
 SETTLE_S = 60
@@ -61,6 +63,20 @@ def test_a_session_holds_the_computer_awake_with_nothing_running(session):
     session.run_application_session()
 
     assert host.held == 1
+
+
+def test_the_hold_taken_is_logged_once_in_the_host_s_words(tmp_path, heard, caplog):
+    # The log is the product here: a field bundle's only evidence the request
+    # was held, and of what the platform was asked to hold.
+    caplog.set_level(logging.INFO)
+    session = _create(tmp_path, heard)
+    try:
+        session.run_application_session()
+    finally:
+        session.shutdown()
+
+    logged = [r.getMessage() for r in caplog.records if HOLDS in r.getMessage()]
+    assert len(logged) == 1, logged
 
 
 def test_a_run_a_recording_and_a_control_session_end_without_releasing_it(session, tmp_path):

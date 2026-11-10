@@ -785,8 +785,8 @@ class KeepAwakeNotHeldNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
 
     def __init__(self, reason: str, detail: str):
         super().__init__(
-            f'LumaViewPro cannot keep this computer awake ({detail}): set its sleep '
-            'time to Never before a long run or recording.'
+            f'LumaViewPro cannot keep this computer awake ({detail}): set its screen '
+            'and sleep times to Never before a long run or recording.'
         )
         self.reason = reason
         self.detail = detail

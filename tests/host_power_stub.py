@@ -16,6 +16,9 @@ from collections.abc import Callable
 
 from _lumascope.drivers import host_power as _real
 
+HOLDS = 'what the stand-in host holds'
+"""The stand-in hold's description, as a backend's own words would be."""
+
 
 class RecordingHost:
     """The holds production has taken and not released, and the next refusal.
@@ -61,7 +64,7 @@ class RecordingHost:
             with self._lock:
                 self._live.remove(hold)
 
-        hold = _real.AwakeHold(release)
+        hold = _real.AwakeHold(release, HOLDS)
         with self._lock:
             self._live.append(hold)
             self.on_lost = on_lost

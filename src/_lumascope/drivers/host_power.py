@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The host's request to stay awake: the one place LVP asks the operating
-system not to sleep while the computer is idle.
+system to keep the computer, and its screen, awake while it is idle.
 
 One call per platform: ``hold_awake`` takes the request and returns the
 ``AwakeHold`` that releases it. Each hold is the operating system's own
@@ -8,17 +8,29 @@ handle, never tied to the thread that took it -- a session takes it on the
 thread that builds the session and releases it on the thread that closes
 it -- and the operating
 system drops it when the process exits, so a crash never leaves the
-computer held awake. The screen may still turn off, and the person's own
-Sleep, a closed lid or an update restart still sleep the computer: every
-backend asks only that idle sleep wait.
+computer held awake. The screen is held on as well as the system: on a
+Modern Standby PC the screen's idle timeout is what enters connected
+standby, whatever system request a process holds, and inside it the
+process runs throttled. The person's own Sleep, a closed lid or an update
+restart still sleep the computer; only idle sleep and the idle screen
+timeout wait.
 
-- Windows: a power request (``PowerCreateRequest`` / ``PowerSetRequest``,
-  ``PowerRequestSystemRequired``). Not ``SetThreadExecutionState``, which
-  holds for the calling thread only, so a release on another thread would
-  leave the first thread's request standing.
-- macOS: an IOKit power assertion, ``PreventUserIdleSystemSleep``, the
-  assertion ``caffeinate -i`` makes, made in-process.
-- Linux: a ``systemd-inhibit --what=idle`` child. logind's inhibitor is a
+- Windows: one power request (``PowerCreateRequest`` / ``PowerSetRequest``)
+  holding ``PowerRequestDisplayRequired`` and
+  ``PowerRequestSystemRequired``. Display-required also keeps the
+  screensaver and the idle auto-lock from starting; system-required stays
+  beside it, so a screen turned off anyway (by a policy, the lock screen's
+  own timeout) still leaves the system up. Not ``SetThreadExecutionState``,
+  which holds for the calling thread only, so a release on another thread
+  would leave the first thread's request standing.
+- macOS: two IOKit power assertions, ``PreventUserIdleDisplaySleep`` and
+  ``PreventUserIdleSystemSleep`` (``caffeinate -di``), made in-process. The
+  display assertion does not light a display already off, so the system
+  assertion stays beside it.
+- Linux: a ``systemd-inhibit --what=idle:sleep`` child: the idle inhibitor
+  blocks logind's idle action, and the sleep inhibitor the auto-suspend a
+  desktop routes through logind. Whether the screen blanks is the
+  desktop's, not logind's, so it is not held here. logind's inhibitor is a
   held D-Bus file descriptor and no D-Bus client is among LVP's
   dependencies, so the child holds it; it runs ``tail --pid`` on this
   process, so it exits with LVP.
@@ -61,9 +73,15 @@ class AwakeHold:
     ``release`` is idempotent: a second call does nothing, so the request's
     handle is never released twice (IOKit answers a second release of one
     assertion with ``kIOReturnBadArgument``).
+
+    Attributes:
+        holds: What the operating system was asked to keep awake, in the
+            backend's own words, for the log: what one platform holds is
+            not what another does.
     """
 
-    def __init__(self, release: Callable[[], None]):
+    def __init__(self, release: Callable[[], None], holds: str):
+        self.holds = holds
         self._release = release
         self._lock = threading.Lock()
         self._released = False
@@ -82,7 +100,9 @@ class AwakeHold:
 
 
 def hold_awake(why: str, on_lost: Callable[[AwakeNotHeld], None]) -> AwakeHold | AwakeNotHeld:
-    """Ask the operating system not to sleep while the computer is idle.
+    """Ask the operating system to keep the computer and its screen awake while it is idle.
+
+    On Linux the screen is the desktop's, so only sleep is held there.
 
     Args:
         why: The words the operating system lists beside the request
@@ -126,7 +146,9 @@ def _hold_windows(why: str) -> AwakeHold | AwakeNotHeld:
 
     power_request_context_version = 0
     power_request_context_simple_string = 0x1
+    power_request_display_required = 0
     power_request_system_required = 1
+    requests = (power_request_display_required, power_request_system_required)
     invalid_handle = wintypes.HANDLE(-1).value
 
     kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -144,19 +166,29 @@ def _hold_windows(why: str) -> AwakeHold | AwakeNotHeld:
     handle = kernel32.PowerCreateRequest(ctypes.byref(context))
     if not handle or handle == invalid_handle:
         return AwakeNotHeld('keep_awake_refused', ctypes.FormatError(ctypes.get_last_error()))
-    if not kernel32.PowerSetRequest(handle, power_request_system_required):
-        error = ctypes.get_last_error()
-        kernel32.CloseHandle(handle)
-        return AwakeNotHeld('keep_awake_refused', ctypes.FormatError(error))
+    for request in requests:
+        if not kernel32.PowerSetRequest(handle, request):
+            error = ctypes.get_last_error()
+            # Closing the handle drops every request set on it, so a refused
+            # second set leaves nothing of the first standing.
+            kernel32.CloseHandle(handle)
+            return AwakeNotHeld('keep_awake_refused', ctypes.FormatError(error))
 
     def release() -> None:
-        cleared = kernel32.PowerClearRequest(handle, power_request_system_required)
-        error = ctypes.get_last_error()
+        # Both clears are tried before the handle closes, so a refused first
+        # clear never leaves the second request set.
+        errors = []
+        for request in requests:
+            if not kernel32.PowerClearRequest(handle, request):
+                errors.append(ctypes.get_last_error())
         kernel32.CloseHandle(handle)
-        if not cleared:
-            raise ctypes.WinError(error)
+        if errors:
+            raise ctypes.WinError(errors[0])
 
-    return AwakeHold(release)
+    return AwakeHold(
+        release,
+        'the display and the system (PowerRequestDisplayRequired, PowerRequestSystemRequired)',
+    )
 
 
 def _hold_macos(why: str) -> AwakeHold | AwakeNotHeld:
@@ -180,27 +212,46 @@ def _hold_macos(why: str) -> AwakeHold | AwakeNotHeld:
 
     utf8 = 0x08000100
     assertion_level_on = 255
-    kind = cf.CFStringCreateWithCString(None, b'PreventUserIdleSystemSleep', utf8)
-    name = cf.CFStringCreateWithCString(None, why.encode(), utf8)
-    assertion = ctypes.c_uint32(0)
-    try:
-        returned = iokit.IOPMAssertionCreateWithName(
-            kind, assertion_level_on, name, ctypes.byref(assertion)
-        )
-    finally:
-        cf.CFRelease(kind)
-        cf.CFRelease(name)
-    if returned != 0:
-        return AwakeNotHeld(
-            'keep_awake_refused', f'IOPMAssertionCreateWithName returned {returned:#x}'
-        )
+    kinds = (b'PreventUserIdleDisplaySleep', b'PreventUserIdleSystemSleep')
+    assertions: list[int] = []
+    for kind_name in kinds:
+        kind = cf.CFStringCreateWithCString(None, kind_name, utf8)
+        name = cf.CFStringCreateWithCString(None, why.encode(), utf8)
+        assertion = ctypes.c_uint32(0)
+        try:
+            returned = iokit.IOPMAssertionCreateWithName(
+                kind, assertion_level_on, name, ctypes.byref(assertion)
+            )
+        finally:
+            cf.CFRelease(kind)
+            cf.CFRelease(name)
+        if returned != 0:
+            # A refused second assertion releases the first, so nothing is
+            # left held when the answer is that nothing was taken; a first
+            # one IOKit will not release is said, since it stays held until
+            # the process exits.
+            detail = f'IOPMAssertionCreateWithName({kind_name.decode()}) returned {returned:#x}'
+            for taken in assertions:
+                released = iokit.IOPMAssertionRelease(taken)
+                if released != 0:
+                    detail += f'; the assertion already taken was not released ({released:#x})'
+            return AwakeNotHeld('keep_awake_refused', detail)
+        assertions.append(assertion.value)
 
     def release() -> None:
-        returned = iokit.IOPMAssertionRelease(assertion.value)
-        if returned != 0:
-            raise OSError(f'IOPMAssertionRelease returned {returned:#x}')
+        # Both releases are tried before either refusal is raised.
+        refused = [
+            f'IOPMAssertionRelease returned {returned:#x}'
+            for returned in [iokit.IOPMAssertionRelease(taken) for taken in assertions]
+            if returned != 0
+        ]
+        if refused:
+            raise OSError('; '.join(refused))
 
-    return AwakeHold(release)
+    return AwakeHold(
+        release,
+        'the display and the system (PreventUserIdleDisplaySleep, PreventUserIdleSystemSleep)',
+    )
 
 
 def _hold_linux(why: str, on_lost: Callable[[AwakeNotHeld], None]) -> AwakeHold | AwakeNotHeld:
@@ -213,7 +264,7 @@ def _hold_linux(why: str, on_lost: Callable[[AwakeNotHeld], None]) -> AwakeHold 
         child = subprocess.Popen(
             [
                 inhibit,
-                '--what=idle',
+                '--what=idle:sleep',
                 '--who=LumaViewPro',
                 f'--why={why}',
                 '--mode=block',
@@ -251,4 +302,6 @@ def _hold_linux(why: str, on_lost: Callable[[AwakeNotHeld], None]) -> AwakeHold 
         if child.poll() is None:
             os.killpg(child.pid, signal.SIGTERM)
 
-    return AwakeHold(release)
+    return AwakeHold(
+        release, "idle and sleep (systemd-inhibit --what=idle:sleep); the screen is the desktop's"
+    )
