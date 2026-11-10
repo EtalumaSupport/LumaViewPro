@@ -25,6 +25,7 @@ from _lumascope.drivers.firmware_updater import (
     _restore_configs,
     _report_progress,
     update_firmware,
+    deploy_firmware_file,
     BoardType,
     BOARD_CONFIGS,
     UpdateError,
@@ -349,7 +350,7 @@ class TestRestoreConfigs:
         board.repl_write_file.return_value = write_ok
         return board
 
-    def test_surviving_file_skipped(self):
+    def test_surviving_file_skipped(self, tmp_path):
         """File that survived the update (matches backup) is not rewritten."""
         cfg = BOARD_CONFIGS[BoardType.MOTOR]
         data = b'{"motor": 1}'
@@ -358,23 +359,23 @@ class TestRestoreConfigs:
             file_contents=[data],
         )
 
-        result = _restore_configs(board, cfg, {'motorconfig.json': data})
+        result = _restore_configs(board, cfg, {'motorconfig.json': data}, tmp_path)
 
         assert result is True
         board.repl_write_file.assert_not_called()
 
-    def test_missing_file_written(self):
+    def test_missing_file_written(self, tmp_path):
         """File missing from board after update is restored."""
         cfg = BOARD_CONFIGS[BoardType.MOTOR]
         data = b'{"motor": 1}'
         board = self._make_board(files_on_board=[])
 
-        result = _restore_configs(board, cfg, {'motorconfig.json': data})
+        result = _restore_configs(board, cfg, {'motorconfig.json': data}, tmp_path)
 
         assert result is True
         board.repl_write_file.assert_called_once()
 
-    def test_changed_file_restored(self):
+    def test_changed_file_restored(self, tmp_path):
         """File that exists but differs from backup is overwritten."""
         cfg = BOARD_CONFIGS[BoardType.LED]
         backup_data = b'{"cal": "good"}'
@@ -383,19 +384,21 @@ class TestRestoreConfigs:
             file_contents=[b'{"cal": "corrupted"}'],
         )
 
-        result = _restore_configs(board, cfg, {'cal.json': backup_data})
+        result = _restore_configs(board, cfg, {'cal.json': backup_data}, tmp_path)
 
         assert result is True
         board.repl_write_file.assert_called_once()
 
-    def test_write_failure_raises(self):
-        """repl_write_file returning False raises UpdateError."""
+    def test_write_failure_raises_naming_the_backup_folder(self, tmp_path):
+        """repl_write_file returning False raises UpdateError, naming the
+        folder the backup is in, so the user can find the copy to restore."""
         cfg = BOARD_CONFIGS[BoardType.LED]
         board = self._make_board(files_on_board=[], write_ok=False)
 
         with pytest.raises(UpdateError) as exc_info:
-            _restore_configs(board, cfg, {'cal.json': b'data'})
+            _restore_configs(board, cfg, {'cal.json': b'data'}, tmp_path)
         assert exc_info.value.stage == UpdateStage.RESTORING_CONFIG
+        assert str(tmp_path / 'led') in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -611,3 +614,125 @@ class TestUpdateFirmwareTooSmallUf2:
         )
         assert result.success is False
         assert 'too small' in result.error_message
+
+
+# ---------------------------------------------------------------------------
+# The backup folder is the caller's: update_firmware and deploy_firmware_file
+# ---------------------------------------------------------------------------
+
+
+def _board_with_one_config(config_bytes):
+    """A connected board holding motorconfig.json, whose raw REPL answers.
+
+    A stand-in by design: the wire simulator has no raw REPL (entry fails
+    on its firmware), so a backup cannot be taken from the simulated
+    board; this is that simulator gap.
+    """
+    board = MagicMock()
+    board.found = True
+    board.firmware_version = '1.0.0'
+    board.enter_raw_repl.return_value = True
+    board.repl_list_files.return_value = ['motorconfig.json']
+    board.repl_read_file.return_value = config_bytes
+    board.repl_write_file.return_value = True
+    board.verify_firmware_running.return_value = 'ok'
+    return board
+
+
+def _run_each_update(tmp_path, monkeypatch, board, backup_dir):
+    """Run update_firmware and deploy_firmware_file on *board*, each with
+    *backup_dir*, and return their results by name. The update stops at
+    WAITING_BOOTSEL: a stand-in by design for the host's BOOTSEL drive and
+    picotool, which the test host does not have."""
+    from _lumascope.drivers import firmware_updater
+
+    monkeypatch.setattr(firmware_updater, 'SerialBoard', lambda **_kw: board)
+    monkeypatch.setattr(firmware_updater, 'time', _NO_WAIT_TIME)
+    monkeypatch.setattr(firmware_updater, '_detect_bootsel_drive', lambda: None)
+    monkeypatch.setattr(firmware_updater, '_wait_for_bootsel_drive', lambda timeout: None)
+    monkeypatch.setattr(firmware_updater, '_find_picotool', lambda: None)
+    uf2 = tmp_path / 'motor_firmware_v2.0.0.uf2'
+    uf2.write_bytes(b'\x00' * 1024)
+    main_py = tmp_path / 'main.py'
+    main_py.write_bytes(b'# firmware\n' * 20)
+
+    def folder(name):
+        return None if backup_dir is None else backup_dir / name
+
+    return {
+        'update_firmware': update_firmware(
+            BoardType.MOTOR, uf2, backup_dir=folder('update_firmware')
+        ),
+        'deploy_firmware_file': deploy_firmware_file(
+            BoardType.MOTOR,
+            main_py,
+            backup_dir=folder('deploy_firmware_file'),
+            skip_post_test=True,
+        ),
+    }
+
+
+class TestTheBackupFolderIsTheCallers:
+    def test_an_update_backs_up_into_the_folder_its_caller_names(self, tmp_path, monkeypatch):
+        """Each update writes the board's config files and their manifest
+        under the folder its caller named, and reports that folder."""
+        config = b'{"motor": 1}'
+        backups = tmp_path / 'backups'
+        results = _run_each_update(tmp_path, monkeypatch, _board_with_one_config(config), backups)
+
+        for name, result in results.items():
+            board_dir = backups / name / 'motor'
+            assert result.config_backup_path == backups / name, name
+            assert (board_dir / 'motorconfig.json').read_bytes() == config, name
+            manifest = json.loads((board_dir / 'backup_manifest.json').read_text())
+            assert manifest['motorconfig.json']['size'] == len(config), name
+        assert results['deploy_firmware_file'].success is True
+        assert results['update_firmware'].error_stage == UpdateStage.WAITING_BOOTSEL
+
+    def test_an_update_given_no_folder_takes_no_backup(self, tmp_path, monkeypatch):
+        """None takes no backup: no folder is reported and no file is
+        written anywhere the test can see."""
+        results = _run_each_update(
+            tmp_path, monkeypatch, _board_with_one_config(b'{"motor": 1}'), None
+        )
+
+        for name, result in results.items():
+            assert result.config_backup_path is None, name
+        assert results['deploy_firmware_file'].success is True
+        assert results['update_firmware'].error_stage == UpdateStage.WAITING_BOOTSEL
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            'main.py',
+            'motor_firmware_v2.0.0.uf2',
+        ]
+
+    @pytest.mark.firmware_tier
+    def test_an_unmakeable_folder_fails_preflight_before_the_board_is_touched(
+        self, tmp_path, monkeypatch
+    ):
+        """A folder that cannot be made fails each update at PREFLIGHT,
+        naming the folder, before the simulated board is connected: no
+        version was read from it."""
+        import functools
+
+        from _lumascope.drivers import firmware_updater
+
+        monkeypatch.setattr(
+            firmware_updater, 'SerialBoard', functools.partial(SerialBoard, backend=_motor_bus())
+        )
+        monkeypatch.setattr(firmware_updater, '_detect_bootsel_drive', lambda: None)
+        a_file = tmp_path / 'a_file'
+        a_file.write_bytes(b'')
+        unmakeable = a_file / 'backups'
+        uf2 = tmp_path / 'motor_firmware_v2.0.0.uf2'
+        uf2.write_bytes(b'\x00' * 1024)
+        main_py = tmp_path / 'main.py'
+        main_py.write_bytes(b'# firmware\n' * 20)
+
+        for result in (
+            update_firmware(BoardType.MOTOR, uf2, backup_dir=unmakeable),
+            deploy_firmware_file(BoardType.MOTOR, main_py, backup_dir=unmakeable),
+        ):
+            assert result.success is False
+            assert result.error_stage == UpdateStage.PREFLIGHT
+            assert str(unmakeable) in result.error_message
+            assert result.old_version is None, 'the board was connected'

@@ -23,6 +23,7 @@ Usage::
     result = update_firmware(
         board_type=BoardType.MOTOR,
         uf2_path=Path('motor_firmware_v2.1.0.uf2'),
+        backup_dir=Path('firmware_backups') / time.strftime('%Y%m%d_%H%M%S'),
         progress_callback=my_progress_fn,
     )
     if result.success:
@@ -33,7 +34,6 @@ Safety invariants:
   - UF2 write is atomic (RP2040 bootloader handles it)
   - Only one board updated at a time (both appear as 'RPI-RP2')
   - Configs verified via SHA256 after write
-  - All file writes use temp-then-rename for atomicity
 """
 
 import hashlib
@@ -544,8 +544,30 @@ def _bootloader_via_raw_repl(board):
 # ---------------------------------------------------------------------------
 
 
+def _make_backup_dir(backup_dir):
+    """The caller's backup folder, made before the board is touched; None
+    when the caller takes no backup.
+
+    Raises UpdateError at PREFLIGHT, naming the folder, when it cannot be
+    made, so an unwritable folder fails the update before the board is
+    taken into raw REPL.
+    """
+    if backup_dir is None:
+        return None
+    backup_dir = Path(backup_dir)
+    try:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise UpdateError(
+            f'Cannot make the backup folder {backup_dir}: {e}',
+            stage=UpdateStage.PREFLIGHT,
+        ) from e
+    return backup_dir
+
+
 def _backup_configs(board, board_config, backup_dir, callback=None):
-    """Back up all config files from board via raw REPL.
+    """Back up all config files from board via raw REPL into backup_dir,
+    which _make_backup_dir has made.
 
     Returns dict of {filename: bytes_content}.
     Raises UpdateError if a file exists on board but cannot be read.
@@ -602,8 +624,7 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
             stage=UpdateStage.BACKING_UP_CONFIG,
         )
 
-    # Save backup files to local disk
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    # Save backup files to local disk; pre-flight made backup_dir
     board_dir = backup_dir / board_config.board_type.value
     board_dir.mkdir(exist_ok=True)
 
@@ -625,8 +646,9 @@ def _backup_configs(board, board_config, backup_dir, callback=None):
     return configs
 
 
-def _restore_configs(board, board_config, config_data, callback=None):
-    """Restore config files to board via raw REPL.
+def _restore_configs(board, board_config, config_data, backup_dir, callback=None):
+    """Restore config files to board via raw REPL; backup_dir is the folder
+    _backup_configs wrote them to, named when a restore fails.
 
     Only restores files that are missing or differ from the backup.
     Returns True if all files restored successfully.
@@ -671,7 +693,8 @@ def _restore_configs(board, board_config, config_data, callback=None):
 
             if not board.repl_write_file(filename, data):
                 raise UpdateError(
-                    f'Failed to restore config: {filename}. Backup available on local disk.',
+                    f'Failed to restore config: {filename}. The backup is in '
+                    f'{backup_dir / board_config.board_type.value}.',
                     stage=UpdateStage.RESTORING_CONFIG,
                 )
             logger.info(f'Restored {filename} ({len(data)} bytes)')
@@ -792,9 +815,9 @@ def check_update_needed(board_type, uf2_path):
 def update_firmware(
     board_type: BoardType,
     uf2_path: Path | str,
+    *,
+    backup_dir: Path | str | None,
     progress_callback: Callable[[UpdateStage, str, float], object] | None = None,
-    backup_dir: Path | str | None = None,
-    skip_config_backup: bool = False,
     skip_post_test: bool = False,
 ) -> UpdateResult:
     """Execute the complete firmware update sequence.
@@ -805,10 +828,11 @@ def update_firmware(
     Args:
         board_type: BoardType.LED or BoardType.MOTOR
         uf2_path: Path to the UF2 file to flash
+        backup_dir: The folder the board's config files are backed up
+            into, made in pre-flight before the board is touched; None
+            takes no backup (a fresh board with no configs). Required:
+            the folder is the caller's, never one the updater picks.
         progress_callback: Optional (stage, message, progress) callback
-        backup_dir: Where to save config backups. Defaults to
-            ~/Documents/Etaluma/firmware_backups/<timestamp>/
-        skip_config_backup: Skip config backup (fresh board, no configs)
         skip_post_test: Skip post-update verification
 
     Returns:
@@ -817,13 +841,6 @@ def update_firmware(
     config = BOARD_CONFIGS[board_type]
     uf2_path = Path(uf2_path)
     result = UpdateResult(success=False, board_type=board_type)
-
-    if backup_dir is None:
-        ts = time.strftime('%Y%m%d_%H%M%S')
-        backup_dir = Path.home() / 'Documents' / 'Etaluma' / 'firmware_backups' / ts
-
-    backup_dir = Path(backup_dir)
-    result.config_backup_path = backup_dir
 
     try:
         # ---- Stage 1: Pre-flight checks ----
@@ -866,6 +883,9 @@ def update_firmware(
                 stage=UpdateStage.PREFLIGHT,
             )
 
+        backup_dir = _make_backup_dir(backup_dir)
+        result.config_backup_path = backup_dir
+
         # ---- Stage 2: Connect and check current version ----
         _report_progress(
             progress_callback,
@@ -892,14 +912,14 @@ def update_firmware(
 
         # ---- Stage 3: Back up config files ----
         config_data = {}
-        if not skip_config_backup:
+        if backup_dir is not None:
             _report_progress(
                 progress_callback, UpdateStage.BACKING_UP_CONFIG, 'Backing up config files...', 0.10
             )
             config_data = _backup_configs(board, config, backup_dir, progress_callback)
             logger.info(f'Backed up {len(config_data)} config files')
         else:
-            logger.info('Config backup skipped by request')
+            logger.info('No backup folder named -- config backup not taken')
 
         # ---- Stage 4: Send FWUPDATE command ----
         _report_progress(
@@ -1036,7 +1056,7 @@ def update_firmware(
             _report_progress(
                 progress_callback, UpdateStage.RESTORING_CONFIG, 'Restoring config files...', 0.75
             )
-            _restore_configs(board2, config, config_data, progress_callback)
+            _restore_configs(board2, config, config_data, backup_dir, progress_callback)
         else:
             logger.info('No config files to restore')
 
@@ -1255,9 +1275,9 @@ def nuke_board(
 def deploy_firmware_file(
     board_type: BoardType,
     firmware_path: Path | str,
+    *,
+    backup_dir: Path | str | None,
     progress_callback: Callable[[UpdateStage, str, float], object] | None = None,
-    backup_dir: Path | str | None = None,
-    skip_config_backup: bool = False,
     skip_post_test: bool = False,
 ) -> UpdateResult:
     """Deploy main.py to a board via raw REPL (no UF2, no BOOTSEL).
@@ -1280,9 +1300,11 @@ def deploy_firmware_file(
     Args:
         board_type: BoardType.LED or BoardType.MOTOR
         firmware_path: Path to the main.py file to deploy
+        backup_dir: The folder the board's config files are backed up
+            into, made in pre-flight before the board is touched; None
+            takes no backup (a fresh board with no configs). Required:
+            the folder is the caller's, never one the updater picks.
         progress_callback: Optional (stage, message, progress) callback
-        backup_dir: Where to save config backups
-        skip_config_backup: Skip config backup
         skip_post_test: Skip post-update verification
 
     Returns:
@@ -1291,13 +1313,6 @@ def deploy_firmware_file(
     config = BOARD_CONFIGS[board_type]
     firmware_path = Path(firmware_path)
     result = UpdateResult(success=False, board_type=board_type)
-
-    if backup_dir is None:
-        ts = time.strftime('%Y%m%d_%H%M%S')
-        backup_dir = Path.home() / 'Documents' / 'Etaluma' / 'firmware_backups' / ts
-
-    backup_dir = Path(backup_dir)
-    result.config_backup_path = backup_dir
 
     try:
         # ---- Stage 1: Pre-flight checks ----
@@ -1317,6 +1332,9 @@ def deploy_firmware_file(
             )
         logger.info(f'Firmware file: {firmware_path.name} ({len(fw_data)} bytes)')
 
+        backup_dir = _make_backup_dir(backup_dir)
+        result.config_backup_path = backup_dir
+
         # ---- Stage 2: Connect ----
         _report_progress(
             progress_callback,
@@ -1335,7 +1353,7 @@ def deploy_firmware_file(
 
         # ---- Stage 3: Back up config files ----
         config_data = {}
-        if not skip_config_backup:
+        if backup_dir is not None:
             _report_progress(
                 progress_callback, UpdateStage.BACKING_UP_CONFIG, 'Backing up config files...', 0.10
             )
@@ -1343,7 +1361,7 @@ def deploy_firmware_file(
             logger.info(f'Backed up {len(config_data)} config files')
             # _backup_configs already exits raw REPL and verifies firmware
         else:
-            logger.info('Config backup skipped by request')
+            logger.info('No backup folder named -- config backup not taken')
 
         # ---- Stage 4: Deploy firmware via raw REPL ----
         _report_progress(
