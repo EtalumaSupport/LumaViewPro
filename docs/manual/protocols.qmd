@@ -246,6 +246,15 @@ slice as set in [Objective Control]{.guilabel} when the stack was made
 A protocol is a `.tsv` file; another file type is refused. The protocol
 last saved or loaded opens again the next time LumaViewPro starts.
 
+LumaViewPro knows when the protocol has changed since it was made with
+[New]{.guilabel}, loaded or saved: its steps, [Interval]{.guilabel},
+[Duration]{.guilabel}, labware or [Root]{.guilabel}. A change to a
+channel's drawer is not a change to the protocol. Before
+[New]{.guilabel} or [Load]{.guilabel} replaces a changed protocol, it
+asks whether to discard the changes ("Unsaved Changes");
+[Cancel]{.guilabel} keeps the protocol as it is. Closing LumaViewPro
+asks the same.
+
 ### Editing the file {#sec-protocol-file}
 
 A protocol file is tab-separated text: a header with the interval, the
