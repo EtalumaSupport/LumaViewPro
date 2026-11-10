@@ -543,10 +543,9 @@ class RuntimeState:
             than half a pitch beyond its outer well centres; None when X or Y does not
             know its position, or the scope has no X or Y at all. Consumers
             omit the well from filenames and metadata for both rather than
-            stamping a fabricated one -- an axis that lost its reference keeps
-            answering the last target it had, which names a real well the
-            scope may no longer be over. The two stay distinct so a caller can
-            say which it was.
+            stamping a fabricated one -- the last number an axis had before it
+            lost its reference names a real well the scope may no longer be
+            over. The two stay distinct so a caller can say which it was.
 
         Raises:
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
@@ -554,17 +553,15 @@ class RuntimeState:
             CatalogueNameRefusedError: ``'labware_unknown'``, the selected
                 labware is not in the catalogue.
         """
-        unknown = self._scope.motion.axes_without_position()
-        if 'X' in unknown or 'Y' in unknown:
+        # One read: it leaves out an axis the scope lacks and answers None for
+        # one whose position is not known, from the same snapshot as the
+        # numbers, so a home starting between two reads cannot pass.
+        targets = self._scope.motion.get_target_positions()
+        x_um, y_um = targets.get('X'), targets.get('Y')
+        if x_um is None or y_um is None:
             return None
 
         labware = self.get_labware()
-
-        # The all-axes read carries only the axes the scope has.
-        targets = self._scope.motion.get_target_positions()
-        if 'X' not in targets or 'Y' not in targets:
-            return None
-
-        target = self.stage_to_plate(targets['X'], targets['Y'])
+        target = self.stage_to_plate(x_um, y_um)
 
         return labware.get_well_label(x=target.x_mm, y=target.y_mm)

@@ -7357,8 +7357,9 @@ Z, in um; the turret has a slot, not a position (`turret_status`).
 With the motor board lost every axis is UNKNOWN, with no position.
 No serial I/O.
 
-The state lock is taken first and the cache lock inside it. No
-other path nests the two, so this order cannot meet its reverse.
+The state lock is taken first and the cache lock inside it. Every
+path that nests the two takes them in this order, so it cannot meet
+its reverse.
 
 **Returns**
 
@@ -7402,7 +7403,7 @@ The travel moves are refused against, or `None` if the axis has no configured li
 ### `MotionAPI.get_target_positions`
 
 ```python
-def get_target_positions(self) -> dict[StageAxis, float]
+def get_target_positions(self) -> dict[StageAxis, float | None]
 ```
 
 Marks: reads (changes nothing).  
@@ -7416,12 +7417,15 @@ polled position, which sits up to a microstep off it. A relative
 move's target is the board's own target plus the offset, so it
 carries that target's microstep rounding. Where no target was
 reached it is the polled position: before the axis's first move,
-after a home, after a STOP ended the move, while the axis is
-UNKNOWN, and while a move has not yet written its final target (a
-Z backlash leg). An axis whose position has not been read since
-bring-up -- its bring-up read failed -- is UNKNOWN and answers
-0.0, which nothing read. A refused move writes nothing, so the
-previous target stands.
+after a home, after a STOP ended the move, and while a move has not
+yet written its final target (a Z backlash leg). A refused move
+writes nothing, so the previous target stands.
+
+An axis whose position is not known -- UNKNOWN or HOMING, or every
+axis while the motor board is lost, as `axis_positions` answers
+it -- answers None: no move stands and none may start, so it has
+no target. The states, the moves and the numbers come from one
+snapshot.
 
 An axis with no hardware behind it is left out, and so is the
 turret, which has a slot (`turret_status`). No serial I/O.
@@ -8615,7 +8619,7 @@ looks up the matching well label.
 
 **Returns**
 
-str | None: Well label (e.g. `"A1"`); `''` when the selected labware has no wells (the Blank plate) or the position is more than half a pitch beyond its outer well centres; None when X or Y does not know its position, or the scope has no X or Y at all. Consumers omit the well from filenames and metadata for both rather than stamping a fabricated one -- an axis that lost its reference keeps answering the last target it had, which names a real well the scope may no longer be over. The two stay distinct so a caller can say which it was.
+str | None: Well label (e.g. `"A1"`); `''` when the selected labware has no wells (the Blank plate) or the position is more than half a pitch beyond its outer well centres; None when X or Y does not know its position, or the scope has no X or Y at all. Consumers omit the well from filenames and metadata for both rather than stamping a fabricated one -- the last number an axis had before it lost its reference names a real well the scope may no longer be over. The two stay distinct so a caller can say which it was.
 
 **Raises**
 

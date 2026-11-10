@@ -112,23 +112,21 @@ def test_a_finished_move_redraws_the_arrived_z(control, monkeypatch):
 
 
 def test_a_redraw_shows_no_z_while_the_api_does_not_know_it(gui_ctx, monkeypatch):
-    """Unhomed, Z is UNKNOWN while its target still answers a number (the
-    position cache's seed): the text says Z is not known, never that number,
-    and the slider shows the target. A scope comes up this way, and a failed
-    home leaves Z the same."""
+    """Unhomed, Z is UNKNOWN and has no target: the text says Z is not known,
+    and the slider is left where it stands, set to no number. A scope comes
+    up this way, and a failed home leaves Z the same."""
     motion = gui_ctx.scope.motion
     assert motion.axis_positions()['Z'] == AxisPosition(AxisState.UNKNOWN, None)
-    target = motion.get_target_positions()['Z']
-    assert target is not None
+    assert motion.get_target_positions()['Z'] is None
     ctrl = VerticalControl.__new__(VerticalControl)
     ctrl.ids = {'z_position_id': _Box(), 'obj_position': _Slider()}
-    ctrl.ids['obj_position'].value = target + 100.0
+    ctrl.ids['obj_position'].value = 1234.0
     _draw_now(monkeypatch)
 
     ctrl.update_gui()
 
     assert ctrl.ids['z_position_id'].text == '--'
-    assert ctrl.ids['obj_position'].value == target
+    assert ctrl.ids['obj_position'].value == 1234.0
 
 
 @pytest.mark.parametrize('sim_session', [{'microscope': 'LS620'}], indirect=True)

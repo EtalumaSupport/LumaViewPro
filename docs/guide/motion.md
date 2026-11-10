@@ -93,8 +93,9 @@ raises `MotorStopFailedError`: the stage may still be moving.
 
 **Motion you did not start.** `wait_until_finished_moving()` returns once every
 axis moving now has stopped, and raises if one did not stop well;
-`get_target_positions()` answers where each axis was last commanded to go. A
-move you started is judged by its own operation's `result()`.
+`get_target_positions()` answers where each axis was last commanded to go, and
+None for an axis whose position is not known. A move you started is judged by
+its own operation's `result()`.
 
 **Interlocks.** The LS720's stage refuses to move with its lid open or its
 stage unpowered (`'lid_open_before_motion'`, `'stage_unpowered_before_motion'`);

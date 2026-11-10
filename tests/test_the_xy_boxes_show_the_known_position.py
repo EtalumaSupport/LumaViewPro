@@ -33,11 +33,11 @@ def _shown(ctrl):
 
 
 def test_an_unhomed_stage_shows_as_not_known(gui_ctx):
-    """Unhomed, X and Y are UNKNOWN while the target still answers a number:
-    both boxes show ``--``, not the plate position of that number."""
+    """Unhomed, X and Y are UNKNOWN and have no target: both boxes show
+    ``--``, not a plate position."""
     scope = gui_ctx.scope
     assert scope.capabilities.has_xy_stage
-    assert scope.motion.get_target_positions()['X'] is not None
+    assert scope.motion.get_target_positions()['X'] is None
     ctrl = _control()
 
     ctrl.update_gui()

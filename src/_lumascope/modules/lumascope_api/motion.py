@@ -2223,8 +2223,9 @@ class MotionAPI:
         With the motor board lost every axis is UNKNOWN, with no position.
         No serial I/O.
 
-        The state lock is taken first and the cache lock inside it. No
-        other path nests the two, so this order cannot meet its reverse.
+        The state lock is taken first and the cache lock inside it. Every
+        path that nests the two takes them in this order, so it cannot meet
+        its reverse.
 
         Returns:
             dict[StageAxis, AxisPosition]: Stage axis to (state, position), in
@@ -2415,26 +2416,40 @@ class MotionAPI:
         with self._pos_cache_lock:
             return self._pos_cache.get(axis, 0.0)
 
+    @staticmethod
+    def _commanded_target(state: str, move: _Move | None) -> float | None:
+        """The target rule: the move's commanded target where it is in flight or arrived, else None (the caller answers the cache).
+
+        Called with ``_axis_state_lock`` held, so the move cannot be settled
+        between the tests. An UNKNOWN after an arrival leaves the move
+        settled 'arrived', so the state is tested as well as the outcome.
+        """
+        if (
+            move is not None
+            and move.target is not None
+            and state in (AxisState.MOVING, AxisState.IDLE)
+            and move.outcome in (None, 'arrived')
+        ):
+            return float(move.target)
+        return None
+
     def _target_position(self, axis: str) -> float | None:
-        """One axis's target, as ``get_target_positions`` answers it; None for an axis with no hardware behind it (``_has_position``)."""
+        """One axis's target by the rule ``get_target_positions`` uses, read from the axis store as it stands; None for an axis with no hardware behind it (``_has_position``).
+
+        Unlike the published read, an axis whose position is not known
+        answers its cached number: the home's put-back and the turret's Z
+        restore read it, and each judges the axis's state itself.
+        """
         if not self._has_position(axis):
             return None
         with self._axis_state_lock:
-            state = self._axis_state.get(axis, AxisState.UNKNOWN)
-            move = self._current_move.get(axis)
-            # An UNKNOWN after an arrival leaves the move settled 'arrived',
-            # so the state is tested as well as the outcome.
-            if (
-                move is not None
-                and move.target is not None
-                and state in (AxisState.MOVING, AxisState.IDLE)
-                and move.outcome in (None, 'arrived')
-            ):
-                return float(move.target)
-        return self._read_position_cache(axis)
+            target = self._commanded_target(
+                self._axis_state.get(axis, AxisState.UNKNOWN), self._current_move.get(axis)
+            )
+        return target if target is not None else self._read_position_cache(axis)
 
     @api(reads=True)
-    def get_target_positions(self) -> dict[StageAxis, float]:
+    def get_target_positions(self) -> dict[StageAxis, float | None]:
         """The target of every stage axis the scope has a position for (where it is commanded to go), by axis name, in um.
 
         The last target this API wrote to the board for each axis, while
@@ -2443,12 +2458,15 @@ class MotionAPI:
         move's target is the board's own target plus the offset, so it
         carries that target's microstep rounding. Where no target was
         reached it is the polled position: before the axis's first move,
-        after a home, after a STOP ended the move, while the axis is
-        UNKNOWN, and while a move has not yet written its final target (a
-        Z backlash leg). An axis whose position has not been read since
-        bring-up -- its bring-up read failed -- is UNKNOWN and answers
-        0.0, which nothing read. A refused move writes nothing, so the
-        previous target stands.
+        after a home, after a STOP ended the move, and while a move has not
+        yet written its final target (a Z backlash leg). A refused move
+        writes nothing, so the previous target stands.
+
+        An axis whose position is not known -- UNKNOWN or HOMING, or every
+        axis while the motor board is lost, as ``axis_positions`` answers
+        it -- answers None: no move stands and none may start, so it has
+        no target. The states, the moves and the numbers come from one
+        snapshot.
 
         An axis with no hardware behind it is left out, and so is the
         turret, which has a slot (``turret_status``). No serial I/O.
@@ -2456,11 +2474,22 @@ class MotionAPI:
         Raises:
             Nothing.
         """
-        return {
-            StageAxis(ax): self._target_position(ax)
-            for ax in self._scope.capabilities.axes
-            if ax != Axis.T and self._has_position(ax)
-        }
+        wanted = [
+            ax for ax in self._scope.capabilities.axes if ax != Axis.T and self._has_position(ax)
+        ]
+        lost = self._board_lost()
+        answers: dict[StageAxis, float | None] = {}
+        with self._axis_state_lock:
+            with self._pos_cache_lock:
+                cache = dict(self._pos_cache)
+            for ax in wanted:
+                state = AxisState.UNKNOWN if lost else self._axis_state.get(ax, AxisState.UNKNOWN)
+                if not self._position_known(state):
+                    answers[StageAxis(ax)] = None
+                    continue
+                target = self._commanded_target(state, self._current_move.get(ax))
+                answers[StageAxis(ax)] = target if target is not None else cache.get(ax, 0.0)
+        return answers
 
     def get_current_position(self, axis: StageAxis) -> float | None:
         """Get the current position for a stage axis, in um.
