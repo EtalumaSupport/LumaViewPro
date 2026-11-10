@@ -68,6 +68,16 @@ A relative link in a published document -- the README, ``docs/`` and the
 examples' README -- reaches its file, and its anchor in a markdown file
 (polarity 6): a heading, or an anchor the generated reference holds -- a
 member, field or class the generator rendered.
+
+The docs beyond the guide
+-------------------------
+The plugin tutorial (its level table aside, a changelog), the examples'
+README, the manual and the generated reference teach the API too, so a
+member or a route each names is held to the guide's rules, and no line of
+them or of the guide names the internal package but the one sentence that
+says it is internal (polarity 7). There, and in the guide, a member marked
+engineering is off the surface. What they teach today off it is the seed,
+which only shrinks.
 """
 
 import ast
@@ -83,12 +93,13 @@ import shlex
 import subprocess
 import traceback
 import urllib.parse
+from unittest import mock
 import warnings
 
 import pytest
 
 from _lumascope.lib.lumascope_error import LumascopeError
-from tests.ast_seams import REPO_ROOT, MemberNames, Packages, tracked_files
+from tests.ast_seams import REPO_ROOT, MemberNames, Packages, Words, tracked_files
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 HUB = 'docs/lumascope-skills.md'
@@ -102,7 +113,8 @@ HUB = 'docs/lumascope-skills.md'
 # `caps` is an alias the guide establishes in its own example block
 # (`caps = scope.capabilities`, in "What LumaViewPro is") and then reads the
 # capabilities through. Without it those lines would sit outside the guard.
-_CALL_FORM = re.compile(r'\b(scope|session|caps)((?:\.[A-Za-z_][A-Za-z0-9_]*)+)')
+# `ctx` is the plugin tutorial's name for the session a plugin is handed.
+_CALL_FORM = re.compile(r'\b(scope|session|caps|ctx)((?:\.[A-Za-z_][A-Za-z0-9_]*)+)')
 
 # Fence languages whose contents are checked. The empty string is an
 # unlabelled ``` block; the reference uses those for python too, and they
@@ -285,11 +297,17 @@ def live_objects(tmp_path_factory):
     session = ScopeSession.create(
         complete_settings(live_folder=str(tmp_path_factory.mktemp('live'))), simulate=True
     )
+    # The namespaces a plugin is handed (`ctx.plugins`) exist once the host
+    # loads plugins. A stand-in by design: no installed plugin is discovered,
+    # since what is installed in this environment is not what the docs teach.
+    with mock.patch('importlib.metadata.entry_points', return_value=[]):
+        session.load_plugins()
     scope = session.scope
     yield {
         'scope': scope,
         'session': session,
         'caps': scope.capabilities,
+        'ctx': session,
     }
     session.shutdown()
 
@@ -309,8 +327,13 @@ def _walk_chain(root, chain):
 
 
 def _first_unmarked_step(root, receiver, chain):
-    """The first ``Class.member`` the chain reaches that is not marked, or None."""
-    from _lumascope.modules.api_surface import fields_of, mark_of
+    """The first ``Class.member`` the chain reaches that is not on the surface, or None.
+
+    The surface is what is marked and not marked engineering: an
+    engineering member is a bench or support member, outside what a reader
+    is taught.
+    """
+    from _lumascope.modules.api_surface import fields_of, is_engineering, mark_of
 
     obj = root
     for attr in chain:
@@ -319,7 +342,8 @@ def _first_unmarked_step(root, receiver, chain):
             owner = type(obj)
         if owner is None or not owner.__module__.startswith('_lumascope.modules'):
             return None
-        marked = mark_of(vars(owner).get(attr)) or any(
+        value = vars(owner).get(attr)
+        marked = (mark_of(value) and not is_engineering(value)) or any(
             attr in fields_of(k) for k in type(obj).__mro__
         )
         if not marked:
@@ -1385,7 +1409,7 @@ class TestLumascopeSkillsWalkthroughRuns:
 # The names the guide's prose is held to, each kind by its owner; every other
 # backticked token is not checked. The Changelog names what no longer
 # resolves, by design, so its section is left out by its heading.
-_RECEIVER_FORM = re.compile(r'^(scope|session|caps)((?:\.[A-Za-z_]\w*)+)(?:\(.*\))?$')
+_RECEIVER_FORM = re.compile(r'^(scope|session|caps|ctx)((?:\.[A-Za-z_]\w*)+)(?:\(.*\))?$')
 _CLASS_MEMBER = re.compile(r'^([A-Z]\w*)\.([A-Za-z_]\w*)(?:\(.*\))?$')
 _ROUTE = re.compile(r'^(?:(GET|POST|PUT|DELETE) )?(/api(?:/[^\s?]*)?)(?:\?\S*)?$')
 _DOTTED = re.compile(r'^([A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)+$')
@@ -1452,6 +1476,8 @@ class _ProseOwners:
 
     def judge(self, token):
         """``(kind, why it is wrong or None)``, or None for a token of no checked kind."""
+        from _lumascope.modules.api_surface import is_engineering
+
         if match := _RECEIVER_FORM.match(token):
             receiver, chain = match.group(1), tuple(match.group(2).lstrip('.').split('.'))
             root = self.live[receiver]
@@ -1462,6 +1488,10 @@ class _ProseOwners:
             return 'member', unmarked and f'{unmarked} is not API'
         if (match := _ROUTE.match(token)) and match.group(2).startswith('/api'):
             method, path = match.group(1), match.group(2)
+            if path.endswith('/') and not method:
+                # A prefix: the routes under it, as "every route under /api/v1/scope/" says.
+                prefixed = any(p.startswith(path) for p, _ in self.routes)
+                return 'route', None if prefixed else 'no route is under it'
             answering = [m for p, m in self.routes if _route_matches(p, path)]
             if not answering:
                 return 'route', 'no route answers it'
@@ -1470,7 +1500,8 @@ class _ProseOwners:
             return 'route', None
         if (match := _CLASS_MEMBER.match(token)) and match.group(1) in self.universe:
             cls, name = self.universe[match.group(1)], match.group(2)
-            if f'{cls.__name__}.{name}' in self.marked:
+            item = self.marked.get(f'{cls.__name__}.{name}')
+            if item is not None and (item.field or not is_engineering(item.value)):
                 return 'member', None
             if issubclass(cls, enum.Enum) and name in cls.__members__:
                 return 'member', None
@@ -1557,6 +1588,220 @@ class TestLumascopeSkillsProseNamesResolve:
         ):
             assert expected in reported, reported
         assert len(failures) == 6, reported
+
+
+# Polarity 7: the docs beyond the guide teach only the surface.
+#
+# The guide's own checks above hold the guide. The plugin tutorial, the
+# examples' README, the manual and the rendered reference teach as well, and
+# a name they teach is relied on as the guide's is: so each of them is read
+# by the same two readers -- the fenced call forms and the prose names -- and
+# judged by the same owners, with an engineering member off the surface. The
+# examples' code is not read here: `tests/test_api_examples.py` runs each
+# `.py` and its `.sh` twin on a simulated server, and
+# `tests/guards/test_no_client_reads_an_unmarked_member.py` counts every read
+# its code makes round the surface, receivers followed through its types.
+#
+# Exempt: the tutorial's level table, a changelog (a row that taught an
+# internal is superseded by a later row saying it is not API, never
+# rewritten); and the one sentence that says `_lumascope` is internal.
+_TUTORIAL = 'docs/plugin-tutorial.md'
+_LEVEL_TABLE_SECTION = '## The plugin API level'
+_INTERNAL = re.compile(r'\b_lumascope\b')
+# The kinds of prose name judged here: a member and a route. A settings path
+# is the settings' vocabulary, not a member, and a quoted value in the
+# reference is as often a value as a reason.
+_TAUGHT_KINDS = Words({'member', 'route'})
+_SAYS_IT_IS_INTERNAL = (
+    'docs/guide/concepts.md',
+    'under `_lumascope` is internal and may change in any release.',
+)
+
+# The rows the docs teach today, by (file, the name that is not on the
+# surface): each leaves in the commit that rewrites its line, and none is
+# added. Drained to empty before 4.0.
+_TAUGHT_SEED: dict[tuple[str, str], int] = {
+    ('docs/api-reference.md', 'ActivityClaim.holder'): 1,
+    ('docs/api-reference.md', 'CameraAPI.active'): 1,
+    ('docs/api-reference.md', 'CameraAPI.get_held_channel'): 1,
+    ('docs/api-reference.md', 'CameraAPI.hold_channel'): 1,
+    ('docs/api-reference.md', 'CapturedStill.significant_bits'): 3,
+    ('docs/api-reference.md', 'Clock.schedule_once'): 3,
+    ('docs/api-reference.md', 'FrameRecord.blown'): 1,
+    ('docs/api-reference.md', 'FrameValidity.SKIP_FRAMES'): 1,
+    ('docs/api-reference.md', 'FrameValidity.check_timing_record'): 1,
+    ('docs/api-reference.md', 'FrameValidity.judge'): 1,
+    ('docs/api-reference.md', 'FrameValidity.judgments'): 1,
+    ('docs/api-reference.md', 'FrameValidity.motion_settled'): 2,
+    ('docs/api-reference.md', 'FrameValidity.owed'): 1,
+    ('docs/api-reference.md', 'Lumascope.disconnect'): 2,
+    ('docs/api-reference.md', 'Lumascope.initialize'): 1,
+    ('docs/api-reference.md', 'MetricsLogger.start'): 1,
+    ('docs/api-reference.md', 'MissingPart.XY_STAGE'): 1,
+    ('docs/api-reference.md', 'MissingPart.channel'): 1,
+    ('docs/api-reference.md', 'ObjectiveLoader.get_objective_info'): 1,
+    ('docs/api-reference.md', 'ObjectiveLoader.objectives'): 1,
+    ('docs/api-reference.md', 'Operation.all_of'): 3,
+    ('docs/api-reference.md', 'PluginRegistry.all_health'): 1,
+    ('docs/api-reference.md', 'PluginRegistry.run_protocol_complete_processors'): 1,
+    ('docs/api-reference.md', 'Protocol.adopt_focus_from'): 1,
+    ('docs/api-reference.md', 'Protocol.apply_tiling'): 1,
+    ('docs/api-reference.md', 'Protocol.from_file'): 1,
+    ('docs/api-reference.md', 'Protocol.to_file'): 1,
+    ('docs/api-reference.md', 'ProtocolRunner.run_X'): 1,
+    ('docs/api-reference.md', 'ProtocolsAPI.load_protocol'): 3,
+    ('docs/api-reference.md', 'ProtocolsAPI.step_targets'): 1,
+    ('docs/api-reference.md', 'SequencedCaptureRunner.state_refusal'): 1,
+    ('docs/api-reference.md', 'WellPlateLoader.resolve_plate_key'): 1,
+    ('docs/plugin-tutorial.md', 'PluginSpec.subscribes_to'): 1,
+    ('docs/plugin-tutorial.md', 'RESTRegistry.register'): 2,
+}
+
+
+def _without_level_table(text):
+    """The tutorial with its level table's rows blanked, every line kept in place."""
+    lines, inside = [], False
+    for line in text.splitlines():
+        if line.startswith('## '):
+            inside = line == _LEVEL_TABLE_SECTION
+        lines.append('' if inside and line.startswith('|') else line)
+    return '\n'.join(lines)
+
+
+def taught_doc_labels(root=None):
+    """Every published doc that teaches the API beyond the guide, repo-relative."""
+    return [
+        _TUTORIAL,
+        'docs/api_examples/README.md',
+        *tracked_files(('docs/manual',), '*.qmd', root=root),
+        'docs/api-reference.md',
+    ]
+
+
+def taught_docs(root=None):
+    """``[(label, text), ...]`` for each of ``taught_doc_labels``, the tutorial's level table blanked."""
+    root = REPO_ROOT if root is None else root
+    docs = []
+    for label in taught_doc_labels(root):
+        text = (root / label).read_text(encoding='utf-8')
+        docs.append((label, _without_level_table(text) if label == _TUTORIAL else text))
+    return docs
+
+
+def internal_mentions(text, label):
+    """``(lineno, '_lumascope')`` per line of ``text`` naming the internal package, the exempt sentence aside."""
+    exempt_label, exempt_line = _SAYS_IT_IS_INTERNAL
+    return [
+        (lineno, '_lumascope')
+        for lineno, line in enumerate(text.splitlines(), 1)
+        if _INTERNAL.search(line) and not (label == exempt_label and exempt_line in line)
+    ]
+
+
+def off_surface_rows(text, label, owners):
+    """``(lineno, name, why)`` per name ``text`` teaches that is not on the surface.
+
+    ``name`` is what the row is counted by: the member that is not API, the
+    prefix that does not resolve, or the prose token of another kind.
+    """
+    rows = []
+    for receiver, chain, lineno in _fenced_call_forms(text):
+        root = owners.live[receiver]
+        missing = _first_missing_attr(root, receiver, chain)
+        step = None if missing else _first_unmarked_step(root, receiver, chain)
+        if missing:
+            rows.append((lineno, missing, 'does not resolve'))
+        elif step:
+            rows.append((lineno, step, 'is not API'))
+    for token, lineno in prose_tokens(text):
+        judged = owners.judge(token)
+        if judged is None or judged[0] not in _TAUGHT_KINDS or judged[1] is None:
+            continue
+        kind, why = judged
+        name = token
+        if kind == 'member' and why.endswith(' is not API'):
+            name = why.removesuffix(' is not API')
+        rows.append((lineno, name, why))
+    rows += [
+        (lineno, name, 'names the internal package')
+        for lineno, name in internal_mentions(text, label)
+    ]
+    return rows
+
+
+class TestTheDocsTeachOnlyTheSurface:
+    """Polarity 7: what the published docs teach beyond the guide is the surface."""
+
+    def test_no_doc_teaches_a_name_off_the_surface(self, prose_owners):
+        found, lines = collections.Counter(), collections.defaultdict(list)
+        for label, text in taught_docs():
+            for lineno, name, why in off_surface_rows(text, label, prose_owners):
+                found[label, name] += 1
+                lines[label, name].append(f'  {label}:{lineno}  {name}  -> {why}')
+        for path, text in guide_texts():
+            label = path.relative_to(REPO_ROOT).as_posix()
+            for lineno, name in internal_mentions(text, label):
+                found[label, name] += 1
+                lines[label, name].append(
+                    f'  {label}:{lineno}  {name}  -> names the internal package'
+                )
+        seed = collections.Counter(_TAUGHT_SEED)
+        new, gone = found - seed, seed - found
+        assert not new, (
+            'A published doc teaches a name that is not on the surface: a member not '
+            'marked @api (or marked engineering), a name that does not resolve, a route '
+            'no route answers, or the internal package. Teach the marked member, or say in '
+            'words what the API does.\n'
+            + '\n'.join(line for key in sorted(new) for line in lines[key])
+        )
+        assert not gone, (
+            'A row of the seed is no longer taught: lower its count in _TAUGHT_SEED in '
+            'this commit.\n'
+            + '\n'.join(f'  {key}: {seed[key]} -> {found[key]}' for key in sorted(gone))
+        )
+
+    def test_the_walk_judges_names_in_each_kind_of_doc(self, prose_owners):
+        judged = collections.Counter()
+        for label, text in taught_docs():
+            judged[label] += sum(1 for token, _ in prose_tokens(text) if prose_owners.judge(token))
+            judged[label] += sum(1 for _ in _fenced_call_forms(text))
+        for label in (_TUTORIAL, 'docs/api-reference.md'):
+            assert judged[label], f'the walk judged no name in {label}: {dict(judged)}'
+        assert any(label.startswith('docs/manual/') for label in judged), (
+            f'the walk read no manual chapter: {sorted(judged)}'
+        )
+
+    def test_a_planted_doc_reports_each_kind_and_not_the_level_table(self, prose_owners):
+        planted = (
+            '## A chapter\n'
+            'Call `ImagingAPI.capture_still` and `ctx.scope.motion.get_current_position()`.\n'
+            '```python\n'
+            'ctx.scope.imaging.capture_still()\n'
+            '```\n'
+            'Import `_lumascope.modules.scope_session` if you must.\n'
+            'Every route under `/api/v1/scope/camera/`, and none under `/api/v1/nowhere/`.\n'
+            'Right: `ScopeSession.capture_still`, `ctx.scope.motion.axis_positions()`.\n'
+            f'{_LEVEL_TABLE_SECTION}\n'
+            '| Level | Added |\n'
+            '|---|---|\n'
+            '| level 1 | `CameraAPI.active` |\n'
+        )
+        rows = off_surface_rows(_without_level_table(planted), _TUTORIAL, prose_owners)
+        assert sorted(rows) == [
+            (2, 'ImagingAPI.capture_still', 'ImagingAPI.capture_still is not API'),
+            (2, 'MotionAPI.get_current_position', 'MotionAPI.get_current_position is not API'),
+            (4, 'ImagingAPI.capture_still', 'is not API'),
+            (6, '_lumascope', 'names the internal package'),
+            (7, '/api/v1/nowhere/', 'no route is under it'),
+        ], rows
+
+    def test_only_the_sentence_that_says_the_package_is_internal_is_exempt(self):
+        label, line = _SAYS_IT_IS_INTERNAL
+        assert internal_mentions(line, label) == []
+        assert internal_mentions(line, _TUTORIAL) == [(1, '_lumascope')]
+        assert line in (REPO_ROOT / label).read_text(encoding='utf-8'), (
+            f'{label} no longer holds the sentence its exemption names'
+        )
 
 
 _LINK = re.compile(r'\]\(([^)\s]+)\)')

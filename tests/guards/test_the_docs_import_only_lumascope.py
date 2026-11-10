@@ -5,7 +5,8 @@
 can change in any release, and ``tests``, ``ui`` and ``tools`` are not
 installed for a reader at all. Every example script under
 ``docs/api_examples/`` and every Python fence (labelled ``python`` or
-unlabelled) of the guide, the plugin tutorial and the READMEs is read by
+unlabelled) of the guide, the plugin tutorial, the manual and the
+READMEs is read by
 its AST, and an import whose first segment names a module or package of
 this checkout, other than ``lumascope``, is reported with its file and
 line. The checkout's names are computed from the files git tracks, so a new
@@ -19,16 +20,15 @@ import ast
 from pathlib import PurePosixPath
 
 from tests.ast_seams import REPO_ROOT, tracked_files
-from tests.guards.test_api_doc_guard import fence_info, guide_files
+from tests.guards.test_api_doc_guard import fence_info, guide_files, taught_doc_labels
 
 _PUBLIC = 'lumascope'
-# The guide is the hub and the files its map names, read as the guide guard reads them.
-_DOCS = (
-    'README.md',
-    *guide_files(),
-    'docs/plugin-tutorial.md',
-    'docs/api_examples/README.md',
-)
+_REFERENCE = 'docs/api-reference.md'
+# The guide (the hub and the files its map names) and every other doc that
+# teaches the API, read as the guide guard reads them. The generated
+# reference's fences are signatures, never a program a reader runs; its
+# every line is read for the internal package by the guide guard's polarity 7.
+_DOCS = ('README.md', *guide_files(), *(d for d in taught_doc_labels() if d != _REFERENCE))
 _PYTHON_FENCES = ('', 'python')
 
 
