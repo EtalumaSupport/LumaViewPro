@@ -761,13 +761,13 @@ class SettingsNotSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
 
 
 class KeepAwakeNotHeldNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """This computer may go to sleep while the scope is in use.
+    """This computer may go to sleep while LumaViewPro is open.
 
-    The scope is in use -- a run, a recording, a home, a diagnostic, or a
-    client holding the control session -- and the operating system's request
-    to stay awake could not be taken, or a hold it granted ended. The work
-    goes on: a computer that might sleep is told, never turned into a run
-    that cannot start. Told once per session and reason.
+    A session is open -- whatever it is doing, a run, a recording, or nothing
+    between runs -- and the operating system's request to stay awake could
+    not be taken, or a hold it granted ended. LumaViewPro goes on: a
+    computer that might sleep is told, never turned into a session that
+    cannot start. Told at most once per session and reason.
 
     Attributes:
         reason: ``'keep_awake_unsupported'`` -- this host has no way to take

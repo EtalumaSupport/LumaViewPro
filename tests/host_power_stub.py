@@ -22,6 +22,8 @@ class RecordingHost:
 
     Attributes:
         refuse_with: When set, ``hold_awake`` answers it instead of holding.
+        refuse_release_with: When set, a release raises it and the hold
+            stays live, as an operating system that did not release it.
         on_lost: What the last hold was given to call if the host ended it.
     """
 
@@ -29,6 +31,7 @@ class RecordingHost:
         self._lock = threading.Lock()
         self._live: list[_real.AwakeHold] = []
         self.refuse_with: _real.AwakeNotHeld | None = None
+        self.refuse_release_with: OSError | None = None
         self.on_lost: Callable[[_real.AwakeNotHeld], None] | None = None
 
     @property
@@ -42,6 +45,7 @@ class RecordingHost:
         with self._lock:
             self._live.clear()
             self.refuse_with = None
+            self.refuse_release_with = None
             self.on_lost = None
 
     def hold_awake(
@@ -52,6 +56,8 @@ class RecordingHost:
         hold: _real.AwakeHold
 
         def release() -> None:
+            if self.refuse_release_with is not None:
+                raise self.refuse_release_with
             with self._lock:
                 self._live.remove(hold)
 

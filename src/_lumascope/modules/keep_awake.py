@@ -1,19 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Whether the host is asked to stay awake: exactly while the scope is in use.
+"""Whether the host is asked to stay awake: exactly while a session is open.
 
-A sleeping computer drops the scope's USB devices and ends the run, so
-while a run, a recording, a home or a diagnostic holds the scope, or a
-client (Micro-Manager, a script) holds its control session, the operating
-system is asked not to sleep while idle (``host_power.hold_awake``). The
-session reads that level from its activity claim; this owner keeps only
-the operating system's hold, never a second "in use" flag, and re-reads the
-level at every change the claim announces.
+A sleeping computer drops the scope's USB devices, so a session comes back
+to a scope it has lost, whether a run was under way or a person was setting
+up between runs. The session takes the operating system's request not to
+sleep while idle (``host_power.hold_awake``) when it is built and releases
+it when it closes; this owner keeps only that hold, never an "is LVP open"
+flag, since the session's own lifetime is the fact.
 """
 
 from __future__ import annotations
-
-import threading
-from collections.abc import Callable
 
 from _lumascope.drivers import host_power
 from _lumascope.lvp_logger import logger
@@ -23,66 +19,44 @@ _WHY = 'LumaViewPro is using the microscope'
 
 
 class KeepAwake:
-    """Holds the host's request to stay awake while ``in_use`` reads True.
+    """Holds the host's request to stay awake from construction to ``release``.
 
-    ``sync`` reads ``in_use`` inside its own lock and holds or releases to
-    match, so of two changes racing, the one applied last is the level read
-    last: a run's release can never land after a recording's newer take.
-    The lock guards only the hold; nothing but the operating system's call
-    runs under it, and every report is made after it is left.
-
-    It needs no close of its own: a session's close waits until nothing
-    holds the scope and ends its control session, and refuses both from its
-    first step, so the last change it announces releases the hold; the
-    operating system drops a hold whose process has exited.
+    One take per session, so each way the request can fail is told at most
+    once per session with nothing to remember it. The operating system drops
+    a hold whose process has exited, so a session never closed holds nothing
+    once its process is gone.
     """
 
-    def __init__(self, in_use: Callable[[], bool]):
-        """Args:
-        in_use: Whether the scope is in use now; read at every ``sync``.
-        """
-        self._in_use = in_use
-        self._lock = threading.Lock()
+    def __init__(self):
+        """Take the request; one not taken is told (``KeepAwakeNotHeldNotice``) and LVP goes on."""
         self._hold: host_power.AwakeHold | None = None
-        # The reasons already told this session: each is told once, as the
-        # startup home holds the scope at every launch.
-        self._told: set[str] = set()
+        answer = host_power.hold_awake(_WHY, on_lost=self._tell)
+        if isinstance(answer, host_power.AwakeNotHeld):
+            self._tell(answer)
+        else:
+            self._hold = answer
 
-    def sync(self) -> None:
-        """Hold the request while the scope is in use, and only then.
+    def release(self) -> None:
+        """Release the request, if one was taken; a second release does nothing.
 
-        A run-state listener: it runs on the thread that changed the claim,
-        so it waits on nothing but the operating system's call. A request
-        not taken is told (``KeepAwakeNotHeldNotice``) and the work goes on.
+        Called from the session's teardown, which must finish whatever the
+        operating system answers: a release it refuses is logged and the
+        request is left for the operating system to drop when the process
+        exits.
         """
-        failed: host_power.AwakeNotHeld | None = None
-        released: host_power.AwakeHold | None = None
-        with self._lock:
-            wanted = self._in_use()
-            if wanted and self._hold is None:
-                answer = host_power.hold_awake(_WHY, on_lost=self._lost)
-                if isinstance(answer, host_power.AwakeNotHeld):
-                    failed = answer
-                else:
-                    self._hold = answer
-            elif not wanted and self._hold is not None:
-                released, self._hold = self._hold, None
-                released.release()
-        if failed is not None:
-            self._tell(failed)
-        if released is not None:
-            logger.info('[KeepAwake] the scope is free: the computer may sleep again')
+        hold, self._hold = self._hold, None
+        if hold is None:
+            return
+        try:
+            hold.release()
+        except OSError as ex:
+            logger.warning(f'[KeepAwake] the operating system did not release the request: {ex}')
+            return
+        logger.info('[KeepAwake] the session is closed: the computer may sleep again')
 
-    def _lost(self, lost: host_power.AwakeNotHeld) -> None:
-        """A hold the operating system granted ended by itself."""
-        self._tell(lost)
-
-    def _tell(self, failed: host_power.AwakeNotHeld) -> None:
-        with self._lock:
-            if failed.reason in self._told:
-                logger.info(f'[KeepAwake] the computer is not held awake: {failed.detail}')
-                return
-            self._told.add(failed.reason)
+    @staticmethod
+    def _tell(failed: host_power.AwakeNotHeld) -> None:
+        """A request not taken, or a hold the operating system ended by itself."""
         from _lumascope.modules.notification_center import notifications
 
         notifications.report_outcome(

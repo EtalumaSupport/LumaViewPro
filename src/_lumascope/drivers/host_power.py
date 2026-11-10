@@ -4,8 +4,9 @@ system not to sleep while the computer is idle.
 
 One call per platform: ``hold_awake`` takes the request and returns the
 ``AwakeHold`` that releases it. Each hold is the operating system's own
-handle, never tied to the thread that took it -- the claim's listener takes
-and releases on whichever thread changes the claim -- and the operating
+handle, never tied to the thread that took it -- a session takes it on the
+thread that builds the session and releases it on the thread that closes
+it -- and the operating
 system drops it when the process exits, so a crash never leaves the
 computer held awake. The screen may still turn off, and the person's own
 Sleep, a closed lid or an update restart still sleep the computer: every
@@ -236,7 +237,7 @@ def _hold_linux(why: str, on_lost: Callable[[AwakeNotHeld], None]) -> AwakeHold 
 
     # logind answers after the child has started, so a refusal arrives as
     # the child's exit: watched here, never waited for on the thread that
-    # took the hold, which may hold the claim's callers' locks.
+    # took the hold, which is building a session.
     def watch() -> None:
         _, stderr = child.communicate()
         if not released.is_set():

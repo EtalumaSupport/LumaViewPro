@@ -761,15 +761,6 @@ class ScopeSession:
         # refusal gate and the recording engine's start), which take
         # this handle by injection.
         self.activity_claim = ActivityClaim(on_transition=self.notify_run_state)
-        # The computer is asked to stay awake while the scope is in use: an
-        # activity holds it, or a client holds its control session. Read
-        # from the claim at every change it announces, so every host -- the
-        # GUI, REST, a script -- gets it, and nothing else stores it.
-        claim = self.activity_claim
-        self._keep_awake = KeepAwake(
-            in_use=lambda: claim.holder is not None or claim.control is not None
-        )
-        self.add_run_state_listener(self._keep_awake.sync)
         # The device lanes ask the claim before running work, so while a run,
         # a diagnostic or a home holds the scope only its own work reaches the
         # hardware, whoever submits. The IO key is kept for the one named
@@ -852,6 +843,12 @@ class ScopeSession:
             save_channel_focus=self.save_channel_focus,
         )
         self._protocol_runner = None
+        # The computer is kept awake while the session is open, in every host
+        # (the GUI, REST, a script), since a sleep drops the scope's USB
+        # devices whatever the session is doing. Last, so a constructor that
+        # raises before it leaves nothing held: only a built session has a
+        # teardown to release it.
+        self._keep_awake = KeepAwake()
 
     @property
     def io_executor(self) -> 'SequentialIOExecutor':
@@ -6516,6 +6513,9 @@ class ScopeSession:
 
     def _tear_down(self) -> None:
         """Release everything the session constructed, the hardware last."""
+        # First: the close has waited for every run, recording and write, so
+        # nothing the request protected is still under way.
+        self._keep_awake.release()
         # The session owns its scheduler: a session over a caller's scope
         # still ends its own timers (a live health check outliving the
         # session would fire into torn-down state).
