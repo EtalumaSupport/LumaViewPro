@@ -1434,10 +1434,11 @@ class PylonCamera(Camera):
             self.active = None
             self._stop_image_grab_worker()
             if not (_created or _devs):
-                # Expected when no Basler is present (e.g. the registry
-                # probing Pylon on an IDS-only bench) -- the registry recovers
-                # by trying the next driver, so WARNING not ERROR.
-                _cam_log.warning(
+                # No Basler is not a fault: the registry tries the next driver
+                # and owns the absence verdict, and the enumeration line above
+                # is this driver's one report of it. What pylon said is kept
+                # here, below it.
+                _cam_log.debug(
                     f'[CAM Class ] Pylon camera connect failed (no device enumerated): {ex}'
                 )
                 return False

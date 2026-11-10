@@ -10,10 +10,16 @@ connect to the camera". On 2026-10-20 an IDS U3-34L whose reopen failed on
 ``DataStreams()[0]`` after a successful open was told "a camera driver did
 not load ... Reinstall".
 
+No camera of a driver's kind is not a fault: the registry tries the next
+driver and owns the verdict, so the driver logs it below WARNING. A Classic
+launch, which has an FX2 camera and no Basler, logged a WARNING from Pylon
+on every launch into the errors log support reads first.
+
 The SDKs are stand-ins by design: the simulator has neither IDS peak nor
 pylon, and the faults are the SDKs' own.
 """
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -75,13 +81,19 @@ def test_an_ids_camera_that_another_program_holds_raises(monkeypatch):
     assert cam.active is None
 
 
-def test_an_ids_host_whose_device_update_fails_has_no_camera(monkeypatch):
+def _warnings(caplog):
+    return [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_an_ids_host_whose_device_update_fails_has_no_camera_and_warns_of_none(monkeypatch, caplog):
     devices, _descriptor = _one_ids_device()
     cam, dm = _ids_camera(monkeypatch, devices)
     dm.Update.side_effect = RuntimeError('no GenTL producer')
 
-    assert cam.connect() is False
+    with caplog.at_level(logging.DEBUG):
+        assert cam.connect() is False
     assert cam.found is False
+    assert _warnings(caplog) == []
 
 
 def _pylon_tl(monkeypatch, devices):
@@ -112,7 +124,7 @@ def test_a_basler_that_is_listed_and_will_not_open_raises(monkeypatch):
     assert cam.active is None
 
 
-def test_a_host_with_no_basler_has_no_camera(monkeypatch):
+def test_a_host_with_no_basler_has_no_camera_and_warns_of_none(monkeypatch, caplog):
     from _lumascope.drivers import pyloncamera
 
     factory = _pylon_tl(monkeypatch, [])
@@ -122,8 +134,10 @@ def test_a_host_with_no_basler_has_no_camera(monkeypatch):
     cam = bare_pylon_camera()
     cam.active = None
 
-    assert cam.connect() is False
+    with caplog.at_level(logging.DEBUG):
+        assert cam.connect() is False
     assert cam.found is False
+    assert _warnings(caplog) == []
 
 
 class _DeviceFilter:

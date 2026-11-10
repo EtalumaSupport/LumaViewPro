@@ -444,7 +444,10 @@ class IDSCamera(Camera):
         try:
             descriptor = self._find_device()
         except _IDSAbsentError as er:
-            _cam_log.warning(f'[CAM Class ] IDS camera connect failed: {er}')
+            # No IDS camera is not a fault: the registry tries the next driver
+            # and owns the absence verdict. This line is the driver's one
+            # report of it, with the SDK's reason.
+            _cam_log.info(f'[CAM Class ] IDS camera connect failed: {er}')
             self._cleanup_partial_connect()
             return False
         # A camera is on the bus from here on: a failure is that camera's,
