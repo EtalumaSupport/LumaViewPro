@@ -955,6 +955,14 @@ class InstallationFileError(Fault, Exception):
     settings and still fail on the same file. The reader raises it and logs
     nothing; whoever catches it logs it once.
 
+    The words advise the step that fixes the file where it is. An installed
+    build keeps its data in Documents, where the installer writes nothing
+    and each launch puts back a shipped file that is missing, so a file
+    there is mended, or removed for the launch to put the shipped copy
+    back; mending comes first, since the file can hold the user's own
+    edits. Any other file, the build's own or a run that is not installed,
+    is reinstalled or restored.
+
     Attributes:
         file_path: The file that could not be used.
     """
@@ -965,11 +973,19 @@ class InstallationFileError(Fault, Exception):
     title = 'Installation File Unusable'
 
     def __init__(self, file_path, problem: str):
+        # Deferred: path_utils imports this module.
+        from _lumascope.modules.path_utils import installed_data_root
+
         file_path = pathlib.Path(file_path)
-        super().__init__(
-            f'{file_path.name} in {file_path.parent} {problem}; reinstall LumaViewPro or '
-            'restore the file'
-        )
+        installed = installed_data_root()
+        if installed is not None and file_path.is_relative_to(installed / 'data'):
+            advice = (
+                'fix the file, or remove it and start LumaViewPro again to put back '
+                'the shipped copy'
+            )
+        else:
+            advice = 'reinstall LumaViewPro or restore the file'
+        super().__init__(f'{file_path.name} in {file_path.parent} {problem}; {advice}')
         self.file_path = file_path
 
 

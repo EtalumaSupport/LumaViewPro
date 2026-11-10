@@ -481,8 +481,8 @@ def get_source_root(
     """Return the writable user data root for the current app session.
 
     The one derivation of it: an installed build keeps its data in
-    Documents, in a folder named for its version; any other run keeps it in
-    the folder it was launched from.
+    Documents, in a folder named for its version (``installed_data_root``);
+    any other run keeps it in the folder it was launched from.
 
     Raises:
         InstallationFileError: an installed build whose ``version.txt`` names
@@ -494,9 +494,26 @@ def get_source_root(
     if app_runtime() != AppRuntime.INSTALLED:
         return launch_root()
 
+    installed = installed_data_root()
+    if installed is None:
+        raise InstallationFileError(build_root() / 'version.txt', 'names no version')
+    return installed
+
+
+def installed_data_root() -> pathlib.Path | None:
+    """An installed build's data folder in Documents, which its launch seeds; None for any other run.
+
+    The one derivation of that folder: ``get_source_root`` answers it for
+    an installed build, and ``InstallationFileError`` asks it which advice
+    fixes a file. Never raises, since the refusal's own words ask it: an
+    installed build whose ``version.txt`` names no version has no such
+    folder and answers None, which ``get_source_root`` refuses.
+    """
+    if app_runtime() != AppRuntime.INSTALLED:
+        return None
     version, _build_timestamp = read_version()
     if not version:
-        raise InstallationFileError(build_root() / 'version.txt', 'names no version')
+        return None
 
     import platformdirs
 

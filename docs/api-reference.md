@@ -16094,6 +16094,14 @@ by falling back to the shipped settings template would replace good
 settings and still fail on the same file. The reader raises it and logs
 nothing; whoever catches it logs it once.
 
+The words advise the step that fixes the file where it is. An installed
+build keeps its data in Documents, where the installer writes nothing
+and each launch puts back a shipped file that is missing, so a file
+there is mended, or removed for the launch to put the shipped copy
+back; mending comes first, since the file can hold the user's own
+edits. Any other file, the build's own or a run that is not installed,
+is reinstalled or restored.
+
 **Attributes**
 
 - `file_path`: The file that could not be used.

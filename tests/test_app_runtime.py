@@ -78,6 +78,48 @@ def test_an_installed_build_whose_version_txt_names_no_version_is_refused(exe_fo
         path_utils.get_source_root()
 
     assert refused.value.file_path == path_utils.build_root() / 'version.txt'
+    # A file of the build's own: a reinstall puts it back.
+    assert 'reinstall LumaViewPro' in str(refused.value)
+
+
+def _unusable_labware(data_root: pathlib.Path) -> pathlib.Path:
+    path = data_root / 'data' / 'labware.json'
+    path.parent.mkdir(parents=True)
+    path.write_text('{"Wellplate": ')
+    return path
+
+
+def test_an_unusable_file_in_an_installed_builds_data_folder_is_mended_or_removed_never_reinstalled(
+    exe_folder, tmp_path, monkeypatch
+):
+    """The installer writes nothing in Documents and each launch puts back a missing shipped
+    file, so the refusal advises mending the file or removing it and launching again."""
+    (exe_folder / INSTALLED_MARKER).write_text('')
+    documents = tmp_path / 'Documents'
+    # platformdirs is a conftest stand-in; the Documents folder is the user's.
+    monkeypatch.setattr(sys.modules['platformdirs'], 'user_documents_dir', lambda: str(documents))
+    path = _unusable_labware(path_utils.get_source_root())
+
+    with pytest.raises(InstallationFileError) as refused:
+        path_utils.read_installation_file(path)
+
+    words = str(refused.value)
+    assert 'remove it and start LumaViewPro again' in words, words
+    assert 'reinstall' not in words, words
+
+
+def test_an_unusable_data_file_on_a_build_the_installer_did_not_install_is_reinstalled(
+    exe_folder,
+):
+    """A bundle keeps its data beside it and no launch puts a file back: today's advice stands."""
+    path = _unusable_labware(path_utils.get_source_root())
+
+    with pytest.raises(InstallationFileError) as refused:
+        path_utils.read_installation_file(path)
+
+    words = str(refused.value)
+    assert 'reinstall LumaViewPro' in words, words
+    assert 'start LumaViewPro again' not in words, words
 
 
 def test_the_marker_does_not_make_a_source_run_installed(tmp_path, monkeypatch):
