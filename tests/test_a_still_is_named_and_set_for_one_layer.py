@@ -55,7 +55,7 @@ def session(tmp_path):
 def _still(session):
     """The still's channel (from its file name) and its frame's record."""
     (still,) = session.manual_capture.capture(false_color_on=False).result(timeout=30)
-    return still.file.name, still.frame
+    return still.file.name, still.record
 
 
 def _settings_of(record) -> tuple[float, float]:
@@ -173,7 +173,7 @@ def test_a_still_pressed_as_the_shown_layer_changes_is_one_layers(session):
     finally:
         session.remove_shown_channel_listener(press)
     (still,) = pressed[0].result(timeout=30)
-    record = still.frame
+    record = still.record
 
     assert f'_{LED0}_' in still.file.name
     assert _settings_of(record) == _stored(LED0)
@@ -340,7 +340,7 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
         (still,) = controller.capture(false_color_on=False).result(timeout=30)
     finally:
         taken[0].release()
-    record = still.frame
+    record = still.record
 
     assert taken[0] is not None
     assert f'_{LED0}_' in still.file.name

@@ -55,7 +55,7 @@ def test_a_summed_still_previews_as_bright_as_it_is_shown(summed):
     shown = _jpeg(client.get(f'/api/v1/previews/{_name(session, still)}?max_width={width}'))
 
     as_shown = image_utils.convert_sum_to_8bit(
-        pixels, still.frame.frames_summed, still.frame.frame_significant_bits
+        pixels, still.record.frames_summed, still.record.frame_significant_bits
     )
     against_the_sums_depth = image_utils.convert_to_8bit(pixels, bits)
     assert shown.shape == as_shown.shape

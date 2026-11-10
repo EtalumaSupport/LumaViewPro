@@ -31,11 +31,11 @@ RAW_GAIN_DB = 3.0
 
 
 def report(still):
-    frame = still.frame
+    record = still.record
     print(f'Saved {still.file.name}')
-    print(f'  channel {still.channel}, camera held {frame.held_channel}')
-    print(f'  {frame.exposure_ms} ms, {frame.gain_db} dB')
-    print(f'  current of each LED lit, by address: {dict(frame.illumination_ma)} mA')
+    print(f'  channel {still.channel}, camera held {record.held_channel}')
+    print(f'  {record.exposure_ms} ms, {record.gain_db} dB')
+    print(f'  current of each LED lit, by address: {dict(record.illumination_ma)} mA')
     print(f'  brightest pixel {still.statistics.maximum}')
 
 

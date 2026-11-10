@@ -136,8 +136,8 @@ def test_first_still_saves_a_lit_unsaturated_still_and_its_record():
 
     still = _run_example('first_still')
     assert (still.channel, still.well_label) == ('BF', 'B2')
-    assert still.frame.held_channel == 'BF'
-    assert still.frame.dark is False
+    assert still.record.held_channel == 'BF'
+    assert still.record.dark is False
     assert still.statistics.maximum < _full_scale(still.significant_bits)
     record = read_file_record(still.file)
     assert (record['channel'], record['illumination_ma'], record['dark']) == ('BF', 5.0, False)
@@ -149,7 +149,7 @@ def test_first_still_over_rest_saves_the_same_still(served, tmp_path):
     client, run = served('first_still')
     still = client.get(f'/api/v1/jobs/{run.variables["JOB"]}').json()['result'][0]
     assert (still['channel'], still['well_label']) == ('BF', 'B2')
-    assert still['frame']['dark'] is False
+    assert still['record']['dark'] is False
     assert still['statistics']['maximum'] < _full_scale(still['significant_bits'])
     downloaded = tmp_path / 'still.tiff'
     downloaded.write_bytes(run.written['still.tiff'])
@@ -204,15 +204,15 @@ def test_channel_settings_takes_each_still_with_the_settings_it_wrote():
     assert [
         (
             s.channel,
-            s.frame.held_channel,
-            list(s.frame.illumination_ma.values()),
-            s.frame.exposure_ms,
-            s.frame.gain_db,
+            s.record.held_channel,
+            list(s.record.illumination_ma.values()),
+            s.record.exposure_ms,
+            s.record.gain_db,
         )
         for s in stills
     ] == list(_CHANNEL_STILLS)
     for s in stills:
-        assert _lit_and_unsaturated(s.frame.dark, s.statistics.maximum, s.significant_bits), s
+        assert _lit_and_unsaturated(s.record.dark, s.statistics.maximum, s.significant_bits), s
 
 
 def test_channel_settings_over_rest_takes_the_same_stills(served):
@@ -224,16 +224,16 @@ def test_channel_settings_over_rest_takes_the_same_stills(served):
     assert [
         (
             s['channel'],
-            s['frame']['held_channel'],
-            list(s['frame']['illumination_ma'].values()),
-            s['frame']['exposure_ms'],
-            s['frame']['gain_db'],
+            s['record']['held_channel'],
+            list(s['record']['illumination_ma'].values()),
+            s['record']['exposure_ms'],
+            s['record']['gain_db'],
         )
         for s in stills
     ] == list(_CHANNEL_STILLS)
     for s in stills:
         assert _lit_and_unsaturated(
-            s['frame']['dark'], s['statistics']['maximum'], s['significant_bits']
+            s['record']['dark'], s['statistics']['maximum'], s['significant_bits']
         ), s
 
 

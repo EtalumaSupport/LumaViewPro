@@ -10428,7 +10428,7 @@ A frame the camera delivered.
 ## `lumascope.FrameRecord`
 
 A record: it crosses the wire as its data.  
-Held in: [`CapturedStill.record`](#CapturedStill.record), [`SavedStill.frame`](#SavedStill.frame).
+Held in: [`CapturedStill.record`](#CapturedStill.record), [`SavedStill.record`](#SavedStill.record).
 
 The instrument's own account of one captured frame.
 
@@ -12614,11 +12614,11 @@ place a JPG's channel, position and frame are stated.
 
 - <a id="SavedStill.channel"></a>`channel`: `str` -- The channel it is named and set for.
 - <a id="SavedStill.file"></a>`file`: `Path` -- The file written.
-- <a id="SavedStill.frame"></a>`frame`: `FrameRecord` -- The instrument's account of the frame (`FrameRecord`); an overlay copy carries its frame's.
 - <a id="SavedStill.objective_id"></a>`objective_id`: `str` -- The objective in the light path when it was taken.
 - <a id="SavedStill.output_format"></a>`output_format`: `OutputFormat` -- The format it was saved in; never the hyperstack, which a single capture has no meaning for.
 - <a id="SavedStill.plate_x_mm"></a>`plate_x_mm`: `float | None` -- Plate X where it was taken; None when the axis had no reference.
 - <a id="SavedStill.plate_y_mm"></a>`plate_y_mm`: `float | None` -- Plate Y, likewise.
+- <a id="SavedStill.record"></a>`record`: `FrameRecord` -- The instrument's account of the frame (`FrameRecord`); an overlay copy carries its frame's.
 - <a id="SavedStill.significant_bits"></a>`significant_bits`: `int` -- The depth of the array saved: the frame's as captured, or 8 for an overlay copy, the frame's 8-bit rendering. A scaled encoding stores the frame left-justified in its file.
 - <a id="SavedStill.stage_z_um"></a>`stage_z_um`: `float | None` -- Stage Z, likewise.
 - <a id="SavedStill.statistics"></a>`statistics`: `ImageStatistics` -- The values of the array saved, in its counts at `significant_bits`.

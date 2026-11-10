@@ -74,7 +74,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 79
+PLUGIN_API_LEVEL = 80
 # Published: ``from lumascope import PLUGIN_API_LEVEL`` (api_surface.CONSTANTS_ATTRIBUTE).
 _lvp_api_constants = ('PLUGIN_API_LEVEL',)
 

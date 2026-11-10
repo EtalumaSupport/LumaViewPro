@@ -129,7 +129,7 @@ def test_a_blown_still_is_told_once_by_the_still(tmp_path, monkeypatch, caplog):
             (still,) = _capture(session)
 
     assert still.file.is_file(), 'a blown still is saved'
-    assert still.frame.blown is True
+    assert still.record.blown is True
     told = [r.getMessage() for r in caplog.records if 'The still is' in r.getMessage()]
     assert told == [
         '[ManualCapture] The still is 100% saturated -- likely over-exposure or a '

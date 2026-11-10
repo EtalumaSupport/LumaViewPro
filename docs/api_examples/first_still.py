@@ -45,8 +45,8 @@ def main():
         full_scale = (1 << still.significant_bits) - 1
         print(f'Saved {still.file}')
         print(f'  channel {still.channel}, well {still.well_label}')
-        print(f'  exposure {still.frame.exposure_ms} ms, gain {still.frame.gain_db} dB')
-        print(f'  lit: {still.frame.dark is False}')
+        print(f'  exposure {still.record.exposure_ms} ms, gain {still.record.gain_db} dB')
+        print(f'  lit: {still.record.dark is False}')
         print(f'  brightest pixel {still.statistics.maximum} of {full_scale}')
         return still
     finally:

@@ -52,11 +52,11 @@ _MEMBER = 'manual_capture.capture'
 @api_fields(
     'channel',
     'file',
-    'frame',
     'objective_id',
     'output_format',
     'plate_x_mm',
     'plate_y_mm',
+    'record',
     'significant_bits',
     'stage_z_um',
     'statistics',
@@ -85,7 +85,7 @@ class SavedStill:
             A scaled encoding stores the frame left-justified in its file.
         output_format: The format it was saved in; never the hyperstack, which
             a single capture has no meaning for.
-        frame: The instrument's account of the frame (``FrameRecord``); an
+        record: The instrument's account of the frame (``FrameRecord``); an
             overlay copy carries its frame's.
         statistics: The values of the array saved, in its counts at
             ``significant_bits``.
@@ -100,7 +100,7 @@ class SavedStill:
     well_label: str | None
     significant_bits: int
     output_format: OutputFormat
-    frame: FrameRecord
+    record: FrameRecord
     statistics: ImageStatistics
 
 
@@ -460,7 +460,7 @@ class ManualCaptureController:
                 well_label=well_label,
                 significant_bits=bits,
                 output_format=capture_config.output_format_live,
-                frame=frame_record,
+                record=frame_record,
                 statistics=image_utils.image_statistics(written),
             )
 

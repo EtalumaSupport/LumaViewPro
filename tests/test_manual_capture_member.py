@@ -254,7 +254,7 @@ class TestASumIsTakenBackToBack:
             )[0]
             spanned = camera.grab().seq - before
 
-        assert still.frame.frames_summed == sum_count
+        assert still.record.frames_summed == sum_count
         assert spanned <= sum_count + 1, (
             f"a still summing {sum_count} frames spanned {spanned} of the camera's "
             'frames: something waits between the frames of a sum'
@@ -508,7 +508,7 @@ class TestAStillReturnsItsRecord:
         assert still.plate_x_mm == pytest.approx(x_mm, abs=0.01)
         assert still.plate_y_mm == pytest.approx(y_mm, abs=0.01)
         assert still.stage_z_um is not None
-        assert still.frame.frames_summed == 1
+        assert still.record.frames_summed == 1
         assert still.significant_bits == 8
         assert 0 <= still.statistics.minimum <= still.statistics.maximum <= 255
 
@@ -528,7 +528,7 @@ class TestAStillReturnsItsRecord:
 
         raw, overlay = _capture(session, crosshairs=True)
 
-        assert overlay.frame == raw.frame
+        assert overlay.record == raw.record
         assert overlay.significant_bits == 8
         # The crosshairs are drawn white, so the copy reaches full scale.
         assert overlay.statistics.maximum == 255
@@ -551,7 +551,7 @@ class TestAStillReturnsItsRecord:
         # The homed stage stands over E7 of the default plate.
         assert still['file']['name'] == 'Manual/live_E7_BF_000001.tiff'
         assert still['channel'] == 'BF'
-        assert still['frame']['frames_summed'] == 1
+        assert still['record']['frames_summed'] == 1
         assert set(still['statistics']) == {
             'minimum',
             'maximum',

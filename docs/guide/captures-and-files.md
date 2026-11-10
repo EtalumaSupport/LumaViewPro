@@ -43,8 +43,8 @@ record to tell; never re-measure the pixels.
 **A saved still.** `session.manual_capture.capture(...)` takes the still
 LumaViewPro's Capture button takes, and saves it: the summing and the format
 come from the settings. It returns an `Operation` of a `SavedStill` per file
-written, each its `file` and the record of it, `frame` (a `FrameRecord`, the
-record `capture_still` answers as `record`). The file is
+written, each its `file` and the record of it, `record` (a `FrameRecord`, as
+`capture_still` answers it). The file is
 `<live folder>/Manual/live_<well>_<channel>_<number>.<ext>`, the well left out
 where the position has none and the number counting up from `000001`; with
 `separate_folder_per_channel` set it is in a folder per channel under
