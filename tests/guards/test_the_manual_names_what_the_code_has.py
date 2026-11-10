@@ -16,9 +16,17 @@ tree; every image is used and none is a full-resolution original; and the
 manual is left out of the source archive (``export-ignore``), so its images
 do not weigh down GitHub's "Download ZIP".
 
+A default or a range the prose quotes is marked too, naming its setting:
+``[90]{.default setting="jpg_quality"}``,
+``[1 to 100]{.range setting="jpg_quality"}``. A default is checked against
+the shipped template, a range against the setting's rule in ``_RANGES``.
+
 Not checked: a label the UI builds by f-string (other than the drawers'),
-a control whose behaviour changes under the same name, and a range the
-prose quotes. Those belong to the manual's claims audit.
+a control whose behaviour changes under the same name, a slider's span (a
+widget's range is display), a limit the hardware declares, and a quoted
+value that is no number or switch ("Max", a percentage of a fraction).
+Those belong to the manual's claims audit and to the read of the trunk's
+behaviour changes at each manual session's start.
 """
 
 import ast
@@ -30,6 +38,7 @@ import urllib.parse
 from PIL import Image
 
 from _lumascope.modules.channel_record import load_scope_models
+from _lumascope.modules.exceptions import SettingRefusedError
 from _lumascope.modules.settings_paths import _RANGES
 from tests.ast_seams import REPO_ROOT, tracked_files
 from ui.image_settings import _drawer_title
@@ -140,6 +149,90 @@ def test_every_marked_setting_is_one_lvp_stores():
         and not any(fnmatch.fnmatchcase(path, key) for key in _RANGES)
     ]
     assert not unknown, f'settings the manual names that LVP does not have: {unknown}'
+
+
+_NUMBER_MARK = re.compile(r'\[([^\[\]]+)\]\{\.(default|range) setting="([^"]+)"\}')
+_NUMBER = re.compile(r'-?\d+(?:\.\d+)?')
+
+
+def _number_marks(kind):
+    """Every (page, text, settings) the manual marks ``{.<kind> setting="..."}``.
+
+    A ``{.default}`` or ``{.range}`` written any other way (no ``setting``, a
+    second attribute) is not a mark this guard can read, so it fails here
+    rather than going unchecked.
+    """
+    marks, unread = [], []
+    for page in _pages():
+        source = page.read_text(encoding='utf-8')
+        found = _NUMBER_MARK.findall(source)
+        marks += [(page.name, text, paths.split()) for text, mark, paths in found if mark == kind]
+        if len(re.findall(r'\{\.(?:default|range)\b', source)) != len(found):
+            unread.append(page.name)
+    assert not unread, (
+        f'pages with a {{.default}} or {{.range}} mark this guard cannot read: {unread}'
+    )
+    assert marks, f'the manual marks no {kind}: the check below would pass on nothing'
+    return marks
+
+
+def _shipped(path):
+    node = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text(encoding='utf-8'))
+    for part in path.split('.'):
+        node = node[part]
+    return node
+
+
+def test_every_marked_default_is_the_shipped_one():
+    """A ``{.default setting="a b"}`` states what the shipped template holds
+    for each setting named: "on" or "off" for a switch, else its numbers,
+    one for every setting or one each, in order (``1900 x 1900`` for the
+    frame's width and height)."""
+    wrong = []
+    for page, text, paths in _number_marks('default'):
+        shipped = [_shipped(path) for path in paths]
+        if text in ('on', 'off'):
+            stated = [text == 'on'] * len(paths)
+            agrees = all(
+                isinstance(s, bool) and s == t for s, t in zip(shipped, stated, strict=True)
+            )
+        else:
+            numbers = [float(n) for n in _NUMBER.findall(text)]
+            stated = numbers * len(paths) if len(numbers) == 1 else numbers
+            agrees = len(stated) == len(paths) and all(
+                not isinstance(s, bool) and isinstance(s, (int, float)) and float(s) == t
+                for s, t in zip(shipped, stated, strict=True)
+            )
+        if not agrees:
+            wrong.append((page, text, dict(zip(paths, shipped, strict=True))))
+    assert not wrong, f'defaults the manual states that the shipped settings do not hold: {wrong}'
+
+
+def _refusal(rule, path, value):
+    """The reason ``rule`` refuses ``value`` for, or None when it takes it."""
+    try:
+        rule(path, value)
+    except SettingRefusedError as refused:
+        return refused.reason
+    return None
+
+
+def test_every_marked_range_is_the_one_lvp_refuses_outside():
+    """A ``{.range setting="..."}`` reading "<low> to <high>" is the range
+    the setting's rule in ``_RANGES`` holds: both ends are taken, and one
+    whole unit beyond either end is refused as ``out_of_range``."""
+    wrong = []
+    for page, text, paths in _number_marks('range'):
+        low, high = (int(n) if float(n).is_integer() else float(n) for n in _NUMBER.findall(text))
+        for path in paths:
+            rule = next(rule for key, rule in _RANGES.items() if fnmatch.fnmatchcase(path, key))
+            answers = {
+                value: _refusal(rule, path, value) for value in (low, high, low - 1, high + 1)
+            }
+            expected = {low: None, high: None, low - 1: 'out_of_range', high + 1: 'out_of_range'}
+            if answers != expected:
+                wrong.append((page, text, path, answers))
+    assert not wrong, f'ranges the manual states that the settings rules do not hold: {wrong}'
 
 
 def test_every_marked_control_is_a_label_the_ui_shows():

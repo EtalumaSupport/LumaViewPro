@@ -36,9 +36,9 @@ the window; scroll it to reach its top and its bottom.
 ## Time Settings {#sec-protocol-time}
 
 - [Interval]{.guilabel}: the time from the start of one scan to the start
-  of the next, in minutes. Default: 20 minutes.
+  of the next, in minutes. Default: [20]{.default setting="protocol.period"} minutes.
 - [Duration]{.guilabel}: the length of the whole protocol, in hours.
-  Default: 48 hours.
+  Default: [48]{.default setting="protocol.duration"} hours.
 
 A full run takes Duration divided by Interval scans, rounded down: 48 hours
 at 20 minutes is 144 scans. An interval of 0, or a duration shorter than

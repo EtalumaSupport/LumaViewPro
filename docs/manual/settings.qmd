@@ -29,7 +29,7 @@ pixels, width by height. Enter a value in either box and press Enter. The
 boxes show the frame size after binning (@sec-binning); at 2x2 each value is
 half the number of sensor pixels. The largest frame depends on the model
 and its camera (@tbl-max-frame); a larger frame is refused. Default:
-1900 x 1900.
+[1900 x 1900]{.default setting="frame.width frame.height"}.
 
 On the LS820 and LS850 a frame larger than 2100 x 2100 extends beyond the
 objective's field of view.
@@ -79,7 +79,7 @@ Composites are saved as TIFF or OME-TIFF only. When Hyperstack or JPG is
 selected, composites are saved as OME-TIFF.
 
 When either format is JPG, a [JPG Quality]{.guilabel} slider is shown
-below them: 1 to 100, default 90. A higher value retains more detail and
+below them: [1 to 100]{.range setting="jpg_quality"}, default [90]{.default setting="jpg_quality"}. A higher value retains more detail and
 produces larger files. It applies to both formats.
 
 ### Video Recording Format {#sec-video-format}
@@ -129,7 +129,7 @@ images, labeled with its length and the objective magnification, for
 example "100um, 10x". The bar is drawn in black or white for contrast with
 the image. An objective must be assigned in [Objective Control]{.guilabel};
 otherwise no bar is drawn. The setting cannot be changed while a protocol
-runs, a video records or the stage homes. Default: off.
+runs, a video records or the stage homes. Default: [off]{.default setting="scale_bar.enabled"}.
 
 ### Enable Crosshairs {#sec-crosshairs}
 
@@ -151,7 +151,7 @@ saved: it is off at each start.
 ### Show Tooltips {#sec-tooltips}
 
 Displays a short description of a control when the mouse pointer rests on
-it. Default: off.
+it. Default: [off]{.default setting="show_tooltips"}.
 
 ### The buttons {#sec-settings-buttons}
 
@@ -194,7 +194,7 @@ LumaViewPro; a wrong selection gives the wrong channels.
 Requires: a motorized XY stage.
 
 The maximum acceleration of the motors, as a percentage of the firmware's
-maximum: 1 to 100, default 100. Lower values move the stage more gently, for
+maximum: [1 to 100]{.range setting="motion.acceleration_max_pct"}, default [100]{.default setting="motion.acceleration_max_pct"}. Lower values move the stage more gently, for
 loosely attached cells.
 
 #### Restore Focus and Objective After Home
@@ -206,7 +206,7 @@ the focus [Home]{.guilabel} (@sec-focus-adjust), or by a program through
 the REST interface, ends by turning the turret, if there is one, back to
 the objective it was on and returning the focus to where it was. The stage
 is not returned. When off, the focus stays near its lowest point and the
-turret at position 1. Default: off. The home at start and the one a
+turret at position 1. Default: [off]{.default setting="motion.restore_after_home"}. The home at start and the one a
 support report makes (@sec-support-report) leave the turret at position 1
 whatever this setting says.
 
@@ -229,19 +229,19 @@ Max. The camera and the live image are not slowed.
 #### Video Time Limit (s)
 
 The maximum duration of a recording made with the toolbar's Record button:
-1 to 3600 seconds, default 300. Recording stops automatically at the limit;
+[1 to 3600]{.range setting="video.max_duration_s"} seconds, default [300]{.default setting="video.max_duration_s"}. Recording stops automatically at the limit;
 press Record again to stop sooner.
 
 #### Display max FPS
 
 The maximum frame rate of the live image display: 1 to 60, or Max, which
-draws every frame. Default: 30. Lower values reduce the load on the
+draws every frame. Default: [30]{.default setting="live_view_fps"}. Lower values reduce the load on the
 computer. Recordings and captures are not affected.
 
 #### Video Timestamp Overlay
 
 Burns each frame's capture time into the frames of a recording, for both
-manual recordings and protocol video steps. Default: on.
+manual recordings and protocol video steps. Default: [on]{.default setting="video.timestamp_overlay"}.
 
 ### Protocol {#sec-advanced-protocol}
 
@@ -249,21 +249,21 @@ manual recordings and protocol video steps. Default: on.
 
 Keeps each step's LED on while stepping manually through a protocol's
 steps, to preview each step's illumination. LED behavior during a protocol
-run is not affected. Default: off.
+run is not affected. Default: [off]{.default setting="protocol_led_on"}.
 
 #### Keep LED on across moves
 
 During a protocol run, keeps the LED on while the stage moves between
 consecutive steps of the same channel, instead of switching it off and on
 again, which shortens the scan. It does not apply to autofocus scans.
-Default: off.
+Default: [off]{.default setting="keep_led_between_steps"}.
 
 #### Tiling Overlap
 
 Requires: a motorized XY stage.
 
 The overlap between adjacent tiles, as a percentage of the frame: 0%, 10%,
-15% or 20%, default 0%. It applies to tiles created after the change. With
+15% or 20%, default [0%]{.default setting="tiling_overlap_percent"}. It applies to tiles created after the change. With
 an overlap, stitching aligns tiles by matching image content; at 0%, tiles
 are placed by stage position alone.
 
@@ -272,10 +272,10 @@ are placed by stage position alone.
 Requires: a motorized XY stage.
 
 Marks each protocol step with a yellow cross on the plate map in
-[XY Stage Control]{.guilabel}. Default: off.
+[XY Stage Control]{.guilabel}. Default: [off]{.default setting="show_step_locations"}.
 
 #### Save channels in separate folders
 
 Saves each channel's images in a separate folder named for the channel, for
 both manual captures and protocol runs. The setting is read when a protocol
-starts and is not stored in the protocol. Default: off.
+starts and is not stored in the protocol. Default: [off]{.default setting="separate_folder_per_channel"}.

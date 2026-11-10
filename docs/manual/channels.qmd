@@ -53,8 +53,8 @@ fluorescence channels. A typed value may be higher than the slider's
 range, up to the LED board's maximum; a higher value is refused, and the
 setting keeps its previous value.
 
-Defaults: [Brightfield]{.channel} 5 mA; [Phase Contrast]{.channel} and
-[Darkfield]{.channel} 50 mA; each fluorescence channel 250 mA.
+Defaults: [Brightfield]{.channel} [5 mA]{.default setting="BF.illumination_ma"}; [Phase Contrast]{.channel} and
+[Darkfield]{.channel} [50 mA]{.default setting="PC.illumination_ma DF.illumination_ma"}; each fluorescence channel [250 mA]{.default setting="channel_defaults.fluorescence.illumination_ma"}.
 
 ## Camera {#sec-channel-camera}
 
@@ -76,9 +76,9 @@ milliseconds, from 1 ms; a finer exposure, such as 0.5 or 12.7 ms, may be
 typed in the box. A longer exposure may be typed in the box too; a gain
 or exposure beyond the camera's limit is applied at that limit.
 
-Defaults: [Brightfield]{.channel} 1 dB and 2 ms; [Phase Contrast]{.channel}
-1 dB and 5 ms; [Darkfield]{.channel} 1 dB and 30 ms; each fluorescence
-channel and the [Lumi]{.channel} channel 10 dB and 100 ms.
+Defaults: [Brightfield]{.channel} [1 dB]{.default setting="BF.gain_db"} and [2 ms]{.default setting="BF.exposure_ms"}; [Phase Contrast]{.channel}
+[1 dB]{.default setting="PC.gain_db"} and [5 ms]{.default setting="PC.exposure_ms"}; [Darkfield]{.channel} [1 dB]{.default setting="DF.gain_db"} and [30 ms]{.default setting="DF.exposure_ms"}; each fluorescence
+channel and the [Lumi]{.channel} channel [10 dB]{.default setting="channel_defaults.fluorescence.gain_db Lumi.gain_db"} and [100 ms]{.default setting="channel_defaults.fluorescence.exposure_ms Lumi.exposure_ms"}.
 
 ### Auto Gain/Exp {#sec-auto-gain}
 
@@ -92,8 +92,8 @@ the frame (half the width and half the height). While it is on, the
 [Gain (dB)]{.guilabel} and [Exp (ms)]{.guilabel} controls are disabled.
 Turning it off on the channel shown keeps the gain and exposure the camera
 had reached, in place of the values set before.
-The camera keeps the gain between 0 and 20 dB and the exposure at or below
-50 ms on a transmitted channel, 200 ms on a fluorescence channel.
+The camera keeps the gain between [0]{.default setting="protocol.autogain.min_gain_db"} and [20 dB]{.default setting="protocol.autogain.max_gain_db"} and the exposure at or below
+[50 ms]{.default setting="ag_ae_max_exposure_ms.transmitted"} on a transmitted channel, [200 ms]{.default setting="ag_ae_max_exposure_ms.fluorescence"} on a fluorescence channel.
 With Auto Gain/Exp on, set the LED to 10 to 30 mA on a transmitted channel
 and 50 to 400 mA on a fluorescence channel.
 
@@ -117,7 +117,7 @@ Requires: the [Lumi]{.channel} channel.
 
 [Sum]{.guilabel} adds several frames into one image, each frame taken at
 the exposure set, to collect more of a faint signal: 1 to 100 on the
-slider; any whole number may be typed. Default: 1, one frame.
+slider; any whole number may be typed. Default: [1]{.default setting="channel_defaults.fluorescence.sum Lumi.sum"}, one frame.
 
 In the [8-bit]{.guilabel} image mode, a summed image is saved in 8 bits and
 the added range is lost; a note in the drawer states this. Select a
@@ -147,14 +147,14 @@ Requires: a focus motor.
 
 [Auto Focus]{.guilabel} runs an autofocus, based on image contrast, before
 each step of this channel in a protocol, and before this channel is taken
-in a composite captured with the toolbar's Composite button. Default: off.
+in a composite captured with the toolbar's Composite button. Default: [off]{.default setting="channel_defaults.fluorescence.autofocus"}.
 
 ## Video Settings {#sec-channel-video}
 
 [Duration (s)]{.guilabel} is the length of the video a protocol records in
 this channel at each step, when the channel's acquire setting is
 [Video]{.guilabel}: 1 to 60 seconds on the slider; a value up to 3600
-seconds may be typed. Default: 5 seconds. A recording made with the
+seconds may be typed. Default: [5]{.default setting="channel_defaults.fluorescence.video_config.duration"} seconds. A recording made with the
 toolbar's Record button is limited by [Video Time Limit (s)]{.guilabel}
 instead (@sec-advanced-camera).
 
@@ -180,8 +180,8 @@ Requires: a fluorescence channel or the [Lumi]{.channel} channel.
 [CBT (%)]{.guilabel}, the composite brightness threshold, sets which pixels
 of this channel are laid over the transmitted image in a composite: a
 pixel is used when its brightness is at least this percentage of full
-scale. A higher percentage keeps only the brightest parts. 0 to 100;
-default 50. The threshold applies only to a composite that includes a
+scale. A higher percentage keeps only the brightest parts. [0 to 100]{.range setting="Lumi.composite_brightness_threshold"};
+default [50]{.default setting="channel_defaults.fluorescence.composite_brightness_threshold Lumi.composite_brightness_threshold"}. The threshold applies only to a composite that includes a
 transmitted channel; in a composite of fluorescence channels alone, every
 pixel is used.
 
@@ -201,7 +201,7 @@ runs.
 
 - [False Color]{.guilabel}: shows the channel in its color, the color of
   its swatch, instead of gray. Offered on the fluorescence channels and
-  the [Lumi]{.channel} channel; default: on. Images saved in the
+  the [Lumi]{.channel} channel; default: [on]{.default setting="channel_defaults.fluorescence.false_color"}. Images saved in the
   [RGB (full depth)]{.guilabel} image mode are saved in this color
   (@sec-image-mode).
 - [Log]{.guilabel}: draws the histogram's counts on a logarithmic scale,
