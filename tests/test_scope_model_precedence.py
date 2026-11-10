@@ -11,7 +11,6 @@ the bring-up, and a headless host never did.
 """
 
 import logging
-import threading
 
 import pytest
 
@@ -193,7 +192,8 @@ def test_with_no_board_to_say_what_the_scope_is_an_unlisted_stored_model_is_refu
     """A real scope whose motor board reports no model (none is plugged in: an
     FX2 Classic, a manual scope) is described by its stored model alone, so
     one the catalogue does not list is refused at bring-up, as the simulator
-    already refuses it, and nothing the bring-up started is left running.
+    already refuses it. That the refused bring-up's threads end is
+    ``test_a_refused_create_leaves_nothing_running.py``'s.
     """
     # a stand-in by design: the registries' port scans, which the suite never
     # runs; the boards are production's null drivers, the camera the simulated one.
@@ -208,7 +208,6 @@ def test_with_no_board_to_say_what_the_scope_is_an_unlisted_stored_model_is_refu
         lambda name='auto', **_kwargs: (NullLEDBoard(), None),
     )
     simulated_camera_on_a_real_scope(monkeypatch)
-    before = set(threading.enumerate())
 
     with pytest.raises(ScopeModelUnknownError) as refused:
         ScopeSession.create(
@@ -218,4 +217,3 @@ def test_with_no_board_to_say_what_the_scope_is_an_unlisted_stored_model_is_refu
             warn_pre_release=False,
         )
     assert refused.value.model == 'LS999'
-    assert [t.name for t in threading.enumerate() if t not in before] == []
