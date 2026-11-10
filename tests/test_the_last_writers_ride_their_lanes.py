@@ -259,7 +259,7 @@ class TestTheSupportReportDuringARun:
         assert sn in motor_info and 'SKIPPED' in motor_info
         for rel in (
             'firmware_configs/config_backup.txt',
-            'hardware_checks/tmc5072_registers.txt',
+            'hardware_checks/motor_driver_registers.txt',
             'hardware_checks/serial_latency.txt',
         ):
             text = (tmp_path / rel).read_text()

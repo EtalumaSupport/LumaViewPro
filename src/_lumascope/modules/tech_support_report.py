@@ -813,6 +813,9 @@ class MotorBoardPresence(enum.Enum):
 # What a motor text section says on a board that has no text channel.
 NO_MOTOR_TEXT = 'Not supported on this motor board (no text command channel)'
 
+# What a typed motor read writes when the board's firmware does not offer it.
+NOT_OFFERED = 'not offered by this motor firmware'
+
 
 def _write_axis_section(f, heading: str, entries: dict, show=str) -> None:
     """Write one per-axis section, or the one statement standing for it."""
@@ -822,6 +825,11 @@ def _write_axis_section(f, heading: str, entries: dict, show=str) -> None:
         return
     for ax, value in entries.items():
         f.write(f'  {ax}: {show(value)}\n')
+
+
+def _offered(value) -> str:
+    """A typed motor read as written: its value, or that the firmware does not offer it."""
+    return NOT_OFFERED if value is None else str(value)
 
 
 def _unread_text(unread: dict) -> str:
@@ -1170,12 +1178,10 @@ class FirmwareDiagnostics:
     def get_driver_status_all(self) -> dict:
         """DRVSTAT for all 4 axes (raw 32-bit register values).
 
-        Returns ``{axis: int | None}``. None means firmware does not
-        support DRVSTAT_<axis> on this axis (legacy firmware). A board with
-        no text channel has no TMC5072 to ask: ``{'not_applicable': ...}``.
+        Returns ``{axis: int | None | _NotRead}``. None means the firmware
+        does not offer DRVSTAT_<axis> (legacy firmware). A board with no
+        text channel has no driver status to ask: ``{'not_applicable': ...}``.
         """
-        if not self._scope:
-            return dict.fromkeys('XYZT')
         no_text = self._no_motor_text()
         if no_text is not None:
             return {'not_applicable': no_text}
@@ -1202,18 +1208,19 @@ class FirmwareDiagnostics:
             }
         return result
 
-    def get_fan_status(self) -> int | str | None:
+    def get_fan_status(self) -> int | str | _NotRead:
         """Read fan tachometer RPM via the diagnostics sub-API.
 
-        Returns int RPM, or None if firmware does not support FANSPEED,
-        or the statement that a board with no text channel reports none.
+        Returns int RPM, ``_NotRead`` when the read did not go through, or
+        the words for why there is none: a board with no text channel
+        reports none, and other firmware may not offer FANSPEED.
         """
-        if not self._scope:
-            return None
         rpm = _hardware_reading(self._scope.diagnostics.read_motor_fan_rpm)
-        if rpm is None and self._no_motor_text() is not None:
+        if rpm is not None:
+            return rpm
+        if self._no_motor_text() is not None:
             return 'Not applicable: this motor board reports no fan speed'
-        return rpm
+        return NOT_OFFERED
 
     def get_i2c_scan(self) -> str:
         unread = self._unread_led(needs_v2=True)
@@ -1307,10 +1314,12 @@ class FirmwareDiagnostics:
             'timings_ms': [round(t, 2) for t in timings],
         }
 
-    def read_tmc5072_registers(self) -> dict:
-        """Read key TMC5072 diagnostic registers via raw SPI commands.
+    def read_motor_driver_registers(self) -> dict:
+        """Read the motor driver chips' key diagnostic registers via raw SPI commands.
 
-        Returns dict per chip (XY, ZT) with register values.
+        Only an EL-0940's TMC5072 pair answers them; a board without a text
+        channel says so. Returns dict per chip (XY, ZT) with register values
+        as the board sent them.
         Uses the firmware's SPI<axis>0x<addr><payload> command.
         """
         unread = self._unread_motor_text()
@@ -1727,9 +1736,13 @@ class TechSupportReport:
             motor_info = self.diag.get_motor_info()
             fullinfo = self.diag.get_motor_fullinfo()
             sn = self.diag.get_serial_number()
+            # Read at connect, so a board with no text channel, which INFO
+            # and FULLINFO cannot ask, still states its firmware.
+            version = self.scope.diagnostics.get_motor_info().firmware_version
             with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
                 f.write(f'Motor Board INFO:\n{motor_info}\n\n')
                 f.write(f'Motor Board FULLINFO:\n{fullinfo}\n\n')
+                f.write(f'Firmware version (read at connect): {version or "not known"}\n')
                 f.write(f'Serial Number: {sn}\n')
 
             positions = self.diag.get_motor_positions_all()
@@ -1738,7 +1751,7 @@ class TechSupportReport:
                 _write_axis_section(
                     f, 'Motor Positions', positions, lambda v: json.dumps(v, default=str)
                 )
-                _write_axis_section(f, '\nTMC5072 Driver Status', drvstat)
+                _write_axis_section(f, '\nMotor Driver Status', drvstat, _offered)
             fan = self.diag.get_fan_status()
 
         i2c = self.diag.get_i2c_scan()
@@ -1784,7 +1797,7 @@ class TechSupportReport:
             with open(d / 'motor_status.txt', 'w', encoding='utf-8') as f:
                 f.write('Motor Positions: not read.\n')
                 f.write(skipped)
-                _write_axis_section(f, '\nTMC5072 Driver Status', drvstat)
+                _write_axis_section(f, '\nMotor Driver Status', drvstat, _offered)
             fan = self.diag.get_fan_status()
         with open(d / 'peripherals.txt', 'w', encoding='utf-8') as f:
             f.write(f'Fan: {fan}\n\n')
@@ -1922,13 +1935,16 @@ class TechSupportReport:
                     tmp / 'hardware_checks', 'led_leakage.txt', 'LED Leakage Check', skip
                 )
 
-            # 5. TMC5072 register dump  (18-20%)
+            # 5. Motor driver register dump  (18-20%)
             cb(19, 'Reading motor driver registers...')
             if skip is None:
-                self._step_tmc_registers(tmp)
+                self._step_motor_driver_registers(tmp)
             else:
                 self._record_skipped(
-                    tmp / 'hardware_checks', 'tmc5072_registers.txt', 'TMC5072 Registers', skip
+                    tmp / 'hardware_checks',
+                    'motor_driver_registers.txt',
+                    'Motor Driver Registers',
+                    skip,
                 )
 
             # 6. Fan tachometer verification  (20-23%)
@@ -2030,14 +2046,14 @@ class TechSupportReport:
                 f.write(f'\nOverall: {overall}\n')
                 f.write(f'(Threshold: {LED_LEAKAGE_WARN_MA} mA)\n')
 
-    def _step_tmc_registers(self, tmp):
-        """Dump key TMC5072 diagnostic registers."""
+    def _step_motor_driver_registers(self, tmp):
+        """Dump the motor driver chips' key diagnostic registers."""
         d = tmp / 'hardware_checks'
         d.mkdir(exist_ok=True)
 
-        regs = self.diag.read_tmc5072_registers()
-        with open(d / 'tmc5072_registers.txt', 'w', encoding='utf-8') as f:
-            f.write('TMC5072 Register Dump\n' + '=' * 40 + '\n\n')
+        regs = self.diag.read_motor_driver_registers()
+        with open(d / 'motor_driver_registers.txt', 'w', encoding='utf-8') as f:
+            f.write('Motor Driver Registers\n' + '=' * 40 + '\n\n')
             if 'not_applicable' in regs:
                 f.write(f'{regs["not_applicable"]}.\n')
             elif 'error' in regs:
@@ -2048,16 +2064,7 @@ class TechSupportReport:
                     for reg_name, value in registers.items():
                         f.write(f'  {reg_name:16s}: {value}\n')
                     f.write('\n')
-                f.write('Key flags in DRV_STATUS:\n')
-                f.write('  Bit 0-1: SG_RESULT (StallGuard)\n')
-                f.write('  Bit 24: s2ga (short to GND coil A)\n')
-                f.write('  Bit 25: s2gb (short to GND coil B)\n')
-                f.write('  Bit 26: ola (open load A -- motor disconnected?)\n')
-                f.write('  Bit 27: olb (open load B -- motor disconnected?)\n')
-                f.write('  Bit 25: ot (overtemperature shutdown)\n')
-                f.write('  Bit 26: otpw (overtemperature pre-warning)\n')
-                f.write('  Bit 31: stst (standstill indicator)\n')
-        with open(d / 'tmc5072_registers.json', 'w', encoding='utf-8') as f:
+        with open(d / 'motor_driver_registers.json', 'w', encoding='utf-8') as f:
             json.dump(regs, f, indent=2, default=str)
 
     def _step_fan_test(self, tmp):

@@ -23,7 +23,7 @@ from tests.settings_fixtures import complete_settings
 TEXT_SECTIONS = (
     'firmware_info/motor_info.txt',
     'firmware_info/motor_status.txt',
-    'hardware_checks/tmc5072_registers.txt',
+    'hardware_checks/motor_driver_registers.txt',
 )
 
 
@@ -115,7 +115,7 @@ def test_the_typed_reads_a_board_without_text_lacks_say_not_applicable(
     out = _report(session, tmp_path)
 
     status = (out / 'firmware_info' / 'motor_status.txt').read_text()
-    assert NO_MOTOR_TEXT in status.split('TMC5072 Driver Status:')[1]
+    assert NO_MOTOR_TEXT in status.split('Motor Driver Status:')[1]
     assert 'None' not in status
     peripherals = (out / 'firmware_info' / 'peripherals.txt').read_text()
     assert peripherals.startswith('Fan: Not applicable: this motor board reports no fan speed')

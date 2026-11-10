@@ -23,15 +23,18 @@ MOTOR_FILES = (
     'firmware_info/motor_info.txt',
     'firmware_info/motor_status.txt',
     'firmware_configs/motor_config.txt',
-    'hardware_checks/tmc5072_registers.txt',
+    'hardware_checks/motor_driver_registers.txt',
     'hardware_checks/fan_test.txt',
     'motion_tests/homing_test.txt',
 )
 
 
-def _report(tmp_path, model, monkeypatch=None, unplug=False, held=False):
+def _report(tmp_path, model, monkeypatch=None, unplug=False, held=False, tier='fast'):
     session = ScopeSession.create(
-        complete_settings(live_folder=str(tmp_path / 'live'), microscope=model), simulate=True
+        complete_settings(
+            live_folder=str(tmp_path / 'live'), microscope=model, simulator_tier=tier
+        ),
+        simulate=True,
     )
     if unplug:
         monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: False))
@@ -71,12 +74,36 @@ def test_an_unplugged_board_on_a_motorised_scope_is_still_reported_missing(tmp_p
     out = _report(tmp_path, 'LS850T', monkeypatch, unplug=True)
 
     for rel in (
-        'hardware_checks/tmc5072_registers.txt',
+        'hardware_checks/motor_driver_registers.txt',
         'hardware_checks/fan_test.txt',
         'motion_tests/homing_test.txt',
     ):
         assert 'Motor board not connected' in (out / rel).read_text(), rel
     assert 'No motor board on this model' not in _all_text(out)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ('model', 'tier'),
+    [('LS620', 'fast'), ('LS720', 'fast'), ('LS850T', 'firmware')],
+    ids=['no_motor_board', 'tmcm6110', 'el0940_field_firmware'],
+)
+def test_no_motor_section_names_a_part_the_scope_may_lack_or_writes_none(tmp_path, model, tier):
+    # The motor driver sections were headed TMC5072, the EL-0940's part, on
+    # every model, and a read the firmware does not offer was written as
+    # None. The LS720 runs the production 6110 driver; the LS850T's field
+    # firmware offers neither the driver status nor the fan speed.
+    out = _report(tmp_path, model, tier=tier)
+
+    assert not [p.name for p in out.rglob('*') if 'tmc5072' in p.name.lower()]
+    texts = {
+        rel: (out / rel).read_text()
+        for rel in (*MOTOR_FILES, 'firmware_info/peripherals.txt')
+        if (out / rel).exists()
+    }
+    assert 'firmware_info/motor_status.txt' in texts
+    for rel, text in texts.items():
+        assert 'TMC5072' not in text and 'None' not in text, (rel, text)
 
 
 @pytest.mark.slow

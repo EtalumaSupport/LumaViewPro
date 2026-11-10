@@ -17,7 +17,7 @@ from _lumascope.modules.tech_support_report import TechSupportReport
 from tests.scope_fakes import session_on_a_simulated_scope
 
 WRITING_STEPS = ('_step_firmware_tests', '_step_led_checks', '_step_fan_test', '_step_homing_test')
-BOARD_QUERY_STEPS = ('_step_configbackup', '_step_tmc_registers', '_step_serial_latency')
+BOARD_QUERY_STEPS = ('_step_configbackup', '_step_motor_driver_registers', '_step_serial_latency')
 ALWAYS_STEPS = ('_step_firmware_info', '_step_camera_diagnostics')
 READING_STEPS = BOARD_QUERY_STEPS + ALWAYS_STEPS
 SKIPPED_FILES = (
@@ -26,7 +26,7 @@ SKIPPED_FILES = (
     'hardware_checks/fan_test.txt',
     'motion_tests/homing_test.txt',
     'firmware_configs/config_backup.txt',
-    'hardware_checks/tmc5072_registers.txt',
+    'hardware_checks/motor_driver_registers.txt',
     'hardware_checks/serial_latency.txt',
 )
 
