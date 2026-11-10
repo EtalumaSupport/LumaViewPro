@@ -840,7 +840,7 @@ def _unread_text(unread: dict) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class _NotRead:
-    """A board command the hardware did not answer, in its words.
+    """A board or camera read that did not go through, in the hardware's words.
 
     A type of its own, never a string, so a step that times, parses or
     counts a reply tells it from one by what it is.
