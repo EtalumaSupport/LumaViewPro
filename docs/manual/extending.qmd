@@ -1,11 +1,11 @@
 # Working farther from the microscope {#sec-extending}
 
-The supplied USB cable is 3 meters long, and it cannot be extended or
+The supplied USB cable is 3 meters long, and it can't be extended or
 replaced (@sec-connecting). To work farther from the microscope, for
 example when it is in an incubator, keep the computer beside it and extend
 the monitor, keyboard and mouse instead: a longer HDMI cable to the
-monitor, and a Bluetooth keyboard and mouse. That is all a desktop computer
-needs. A laptop also needs to work with its lid closed:
+monitor, and a Bluetooth keyboard and mouse. That's all a desktop computer
+needs. A laptop also has to work with its lid closed:
 
 1. Connect the microscope to the laptop with the supplied USB cable.
 2. Connect the laptop to an external monitor with an HDMI cable of the

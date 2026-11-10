@@ -1,8 +1,7 @@
 # Your Lumascope {#sec-your-lumascope}
 
-This manual covers every Lumascope model LumaViewPro supports. Each feature is
-described once. A section that needs particular hardware opens with a line
-naming it, for example "Requires: a motorized XY stage". @tbl-models shows
+This manual covers every Lumascope model LumaViewPro supports. A section
+that needs particular hardware starts with a line naming it, for example "Requires: a motorized XY stage". @tbl-models shows
 what each model has.
 
 ```{=typst}

@@ -10,7 +10,7 @@ action. They disrupt cell membranes, dissolve lipids and denature proteins,
 and these processes need water, so the alcohol must be diluted to 60% to 90%
 in water to work (typically 70%, by volume). They act on lipid-containing
 viruses and a broad range of bacteria, but not on spore-forming bacteria.
-They evaporate fast, so a long contact time is hard to reach without
+They evaporate quickly, so a long contact time is hard to achieve without
 immersion. Alcohols are generally regarded as non-corrosive.
 
 ## Wiping down with bleach {#sec-bleach}
@@ -18,9 +18,9 @@ immersion. Alcohols are generally regarded as non-corrosive.
 Chlorine compounds are inexpensive, fast-acting disinfectants with a broad
 antimicrobial range. Hypochlorites, the most used, come as liquids (sodium
 hypochlorite, as in household bleach) and solids (calcium hypochlorite,
-sodium dichloroisocyanurate). Household bleach holds 5.25% available
-chlorine, 52,500 ppm. It is a strong oxidizer and loses strength quickly, so
-make it fresh and use it the day it is made.
+sodium dichloroisocyanurate). Household bleach contains 5.25% available
+chlorine, 52,500 ppm. It's a strong oxidizer and loses strength quickly, so
+mix it fresh and use it the day it's made.
 
 ## Hydrogen peroxide vapor (HPV) {#sec-hpv}
 

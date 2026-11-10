@@ -3,16 +3,16 @@
 The labware LumaViewPro offers (@sec-protocol-labware) is defined in the
 file `labware.json`, in the `data` folder of LumaViewPro's folder in your
 Documents, for example `Documents\LumaViewPro 4.0.0\data\labware.json`.
-To image a plate that is not on the list, add it to that file.
+To image a plate that isn't on the list, add it to that file.
 
-Save a copy of the file under another name first, for example
+First, save a copy of the file under another name, for example
 `labware-original.json`. LumaViewPro reads only `labware.json`, so the copy
 is ignored until you need it back.
 
 ## A labware entry
 
-Open `labware.json` in Notepad or another text editor. Each labware is one
-entry under `"Wellplate"`. This is the Four-Slide Holder's:
+Open `labware.json` in Notepad or another text editor. Each labware is an
+entry under `"Wellplate"`. Here is the Four-Slide Holder's:
 
 ```json
 "Four-Slide Holder": {
@@ -42,26 +42,25 @@ distance is in millimeters. X runs across the plate, along a row; Y runs
 down it, along a column.
 
 - **The name**, before the colon, is the name shown in the labware list.
-  Each name must be different, so change the name of an entry you copied.
-  Two old names, `Center Dish` and `384 well Corning Spheroid Microplate`,
-  cannot be used: LumaViewPro reads them as Center Plate and 384 well
-  microplate.
+  Each name must be unique, so rename an entry you copied. Two old names,
+  `Center Dish` and `384 well Corning Spheroid Microplate`, can't be used:
+  LumaViewPro treats them as Center Plate and 384 well microplate.
 - **standard**: the standard the plate is made to, for example
-  `"ANSI SLAS 2004"`, or `""` for none. It is recorded in each image's file.
+  `"ANSI SLAS 2004"`, or `""` for none. It's recorded in each image file.
 - **diameter**: the diameter of a well, above 0. The plate map draws each
   well this size. `-1` draws each well filling its spacing: as wide as the
   X spacing and as tall as the Y spacing.
 - **columns** and **rows**: how many wells there are across and down,
   each a whole number, 0 or more.
 - **dimensions**: the plate's outside width (`x`) and height (`y`), each
-  above 0. LumaViewPro does not use `z`.
+  above 0. LumaViewPro doesn't use `z`.
 - **spacing**: the distance from one well's center to the next, across
   (`x`) and down (`y`), each above 0. The two can differ.
 - **offset**: the center of the first well, A1, measured from the plate's
   top-left corner. With the stage at the center of A1, these are the X and
   Y shown in [XY Stage Control]{.guilabel} (@sec-xy-stage).
 
-LumaViewPro does not check that wells fit in their spacing, so wells can
+LumaViewPro doesn't check that wells fit in their spacing, so wells can
 overlap.
 
 ## Using the new labware
@@ -69,12 +68,12 @@ overlap.
 LumaViewPro reads `labware.json` when it starts, so restart it after saving
 the file. The new labware is then in the labware list.
 
-If LumaViewPro cannot use the file, it does not start. This happens when a
-value is missing, is not a number or is outside the range given above,
+If LumaViewPro can't use the file, it won't start. That happens when a
+value is missing, isn't a number or is outside the range given above,
 when two entries have the same name, or when a comma or brace is out of
-place. The reason is the last line of `lumaviewpro_errors.log`, in the
+place. The reason is on the last line of `lumaviewpro_errors.log`, in the
 `logs\LVP_Log` folder beside `data`, for example
 `Documents\LumaViewPro 4.0.0\logs\LVP_Log\lumaviewpro_errors.log`. It
-names the plate and the value LumaViewPro could not use, the name given
-twice, or the line and column where the file stops making sense. Put your saved copy back as
+names the plate and the value LumaViewPro couldn't use, the duplicated
+name, or the line and column where the file stops making sense. Put your saved copy back as
 `labware.json`, start LumaViewPro, and make the change again.

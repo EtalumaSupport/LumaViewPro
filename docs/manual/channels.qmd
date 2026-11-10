@@ -19,48 +19,48 @@ in a channel's drawer.
 - **Bioluminescence**: the [Lumi]{.channel} channel of the Lumi. It has no
   LED: the camera images the light the sample emits.
 
-The drawers are listed in the same order on every model, and a channel your
-microscope does not have has no drawer.
+The drawers are listed in the same order on every model, and only the
+channels your microscope has get a drawer.
 
 ## Showing a channel {#sec-showing-a-channel}
 
 Click a channel's title to open its drawer and show that channel: the live
-image and the camera take that channel's settings. One drawer is open at a
-time. Images captured with the toolbar's Capture button are named for the
-channel shown.
+image and the camera switch to that channel's settings. Only one drawer is
+open at a time. The toolbar's Capture button puts the shown channel's name
+in the image's file name.
 
-One LED is lit at a time. If the shown channel's LED is lit when you open
-another drawer, that channel's LED is lit in its place; if it is dark, the
-new channel is shown dark.
+Only one LED is lit at a time. If the shown channel's LED is on when you
+open another drawer, the new channel's LED comes on in its place; if it's
+off, the new channel stays dark.
 
-While a protocol runs, the drawers cannot be changed; the run shows each
-step's channel in turn.
+While a protocol is running, the drawers can't be changed; the run shows
+each step's channel in turn.
 
 ![The 488 nm Excitation drawer on an LS850, with its LED lit](images/channels-ex488-ls850.png){#fig-channels-ex488 width=35%}
 
 ## Illumination {#sec-channel-illumination}
 
 Requires: a channel with an LED. The [Lumi]{.channel} channel has no
-Illumination section, and the section is not shown when LumaViewPro runs
+Illumination section, and the section isn't shown when LumaViewPro runs
 without the microscope's LED board.
 
-[Enable LED]{.guilabel} lights or darkens the shown channel's LED.
+[Enable LED]{.guilabel} turns the shown channel's LED on and off.
 
 [LED (mA)]{.guilabel} sets the LED's current, in milliamperes. Drag the
 slider, or type a value in the box and press Enter. The slider runs to
 50 mA on the transmitted channels and to the LED board's maximum on the
-fluorescence channels. A typed value may be higher than the slider's
-range, up to the LED board's maximum; a higher value is refused, and the
-setting keeps its previous value.
+fluorescence channels. You can type a value above the slider's range, up
+to the LED board's maximum; anything higher isn't accepted, and the setting
+keeps its previous value.
 
 Defaults: [Brightfield]{.channel} [5 mA]{.default setting="BF.illumination_ma"}; [Phase Contrast]{.channel} and
 [Darkfield]{.channel} [50 mA]{.default setting="PC.illumination_ma DF.illumination_ma"}; each fluorescence channel [250 mA]{.default setting="channel_defaults.fluorescence.illumination_ma"}.
 
 ## Camera {#sec-channel-camera}
 
-Each channel keeps its own camera gain and exposure, and the camera takes
-them when the channel is shown. Without a camera connected, these controls
-are disabled.
+Each channel keeps its own camera gain and exposure, and the camera
+switches to them when the channel is shown. These controls are disabled
+when no camera is connected.
 
 [Gain (dB)]{.guilabel} amplifies the camera's signal, in decibels: 0 to
 the camera's maximum, in steps of 0.1. Higher gain brightens the image and
@@ -72,9 +72,10 @@ runs to 50 ms on [Brightfield]{.channel}, to 200 ms on
 the camera's maximum if lower, on the fluorescence channels; on the
 [Lumi]{.channel} channel it runs to the camera's maximum. On the
 fluorescence and [Lumi]{.channel} channels the slider moves in whole
-milliseconds, from 1 ms; a finer exposure, such as 0.5 or 12.7 ms, may be
-typed in the box. A longer exposure may be typed in the box too; a gain
-or exposure beyond the camera's limit is applied at that limit.
+milliseconds, starting at 1 ms; you can type a finer exposure in the box,
+such as 0.5 or 12.7 ms. You can also type a longer exposure than the slider
+allows; a gain or exposure beyond the camera's limit is applied at that
+limit.
 
 Defaults: [Brightfield]{.channel} [1 dB]{.default setting="BF.gain_db"} and [2 ms]{.default setting="BF.exposure_ms"}; [Phase Contrast]{.channel}
 [1 dB]{.default setting="PC.gain_db"} and [5 ms]{.default setting="PC.exposure_ms"}; [Darkfield]{.channel} [1 dB]{.default setting="DF.gain_db"} and [30 ms]{.default setting="DF.exposure_ms"}; each fluorescence
@@ -82,31 +83,31 @@ channel and the [Lumi]{.channel} channel [10 dB]{.default setting="channel_defau
 
 ### Auto Gain/Exp {#sec-auto-gain}
 
-Requires: a camera with automatic gain and exposure. The control is not
+Requires: a camera with automatic gain and exposure. The control isn't
 shown on the LS460, LS560, LS620 and LS720, nor on the [Lumi]{.channel} channel.
 
-[Auto Gain/Exp]{.guilabel} lets the camera set the gain and the exposure
+[Auto Gain/Exp]{.guilabel} lets the camera adjust the gain and exposure
 itself, continuously, to bring the image to a target brightness of 30% of
-full scale. The camera measures the brightness over the central half of
-the frame (half the width and half the height). While it is on, the
+full scale. The camera measures brightness over the central half of the
+frame (half the width and half the height). While it's on, the
 [Gain (dB)]{.guilabel} and [Exp (ms)]{.guilabel} controls are disabled.
-Turning it off on the channel shown keeps the gain and exposure the camera
-had reached, in place of the values set before.
+When you turn it off on the shown channel, the gain and exposure stay
+where the camera left them, replacing the values set before.
 The camera keeps the gain between [0]{.default setting="protocol.autogain.min_gain_db"} and [20 dB]{.default setting="protocol.autogain.max_gain_db"} and the exposure at or below
 [50 ms]{.default setting="ag_ae_max_exposure_ms.transmitted"} on a transmitted channel, [200 ms]{.default setting="ag_ae_max_exposure_ms.fluorescence"} on a fluorescence channel.
 With Auto Gain/Exp on, set the LED to 10 to 30 mA on a transmitted channel
 and 50 to 400 mA on a fluorescence channel.
 
-The setting belongs to the channel, and each protocol step added in that
-channel takes it. A step's own setting can differ from the channel's: in a
-tiled scan, for example, the steps whose tiles overlap a well's edge can
-be left without Auto Gain/Exp while the steps inside the well use it.
+The setting belongs to the channel, and each protocol step you add in that
+channel copies it. A step's own setting can differ from the channel's: in a
+tiled scan, for example, steps whose tiles overlap a well's edge can have
+Auto Gain/Exp off while the steps inside the well have it on.
 
 ::: {.callout-warning}
 ## Very dark and very light areas in one image
 
 Auto Gain/Exp sets one brightness for the whole measured area. When that
-area holds both very dark and very light parts, such as the black wall at
+area contains both very dark and very light parts, such as the black wall at
 the edge of a well and the bright well beside it, the light part is
 overexposed. Set the gain and exposure by hand for such images.
 :::
@@ -115,12 +116,12 @@ overexposed. Set the gain and exposure by hand for such images.
 
 Requires: the [Lumi]{.channel} channel.
 
-[Sum]{.guilabel} adds several frames into one image, each frame taken at
-the exposure set, to collect more of a faint signal: 1 to 100 on the
-slider; any whole number may be typed. Default: [1]{.default setting="channel_defaults.fluorescence.sum Lumi.sum"}, one frame.
+[Sum]{.guilabel} adds several frames, each at the set exposure, into one
+image to collect more of a faint signal: 1 to 100 on the slider, or type
+any whole number. Default: [1]{.default setting="channel_defaults.fluorescence.sum Lumi.sum"}, one frame.
 
 In the [8-bit]{.guilabel} image mode, a summed image is saved in 8 bits and
-the added range is lost; a note in the drawer states this. Select a
+the added range is lost; a note in the drawer warns you of this. Select a
 full-depth [Image Mode]{.guilabel} to keep it (@sec-image-mode).
 
 ![The Lumi drawer on a Lumi: Sum, and no Illumination
@@ -130,12 +131,12 @@ section](images/channels-lumi.png){#fig-channels-lumi width=35%}
 
 Requires: a focus motor.
 
-Each channel keeps its own saved focus, a Z position. A protocol step added
-in a channel takes that channel's saved focus as its Z.
+Each channel has its own saved focus, a Z position. A protocol step you
+add in a channel uses that channel's saved focus as its Z.
 
 - [Save Focus]{.guilabel} saves the current Z as the channel's focus. If a
-  protocol step of this channel is selected in the [Protocol]{.guilabel}
-  drawer, the step takes the Z too; no other step is changed.
+  step in this channel is selected in the [Protocol]{.guilabel} drawer,
+  that step gets the Z too; no other step changes.
 - [Go to Focus]{.guilabel} moves the focus to the channel's saved focus.
 - [To All Steps]{.guilabel} saves the current Z as the channel's focus and
   sets every step of this channel in the current protocol to it. The
@@ -145,65 +146,65 @@ in a channel takes that channel's saved focus as its Z.
 
 Requires: a focus motor.
 
-[Auto Focus]{.guilabel} runs an autofocus, based on image contrast, before
-each step of this channel in a protocol, and before this channel is taken
-in a composite captured with the toolbar's Composite button. Default: [off]{.default setting="channel_defaults.fluorescence.autofocus"}.
+[Auto Focus]{.guilabel} runs a contrast-based autofocus before each of
+this channel's steps in a protocol, and before this channel is captured in
+a composite made with the toolbar's Composite button. Default: [off]{.default setting="channel_defaults.fluorescence.autofocus"}.
 
 ## Video Settings {#sec-channel-video}
 
 [Duration (s)]{.guilabel} is the length of the video a protocol records in
 this channel at each step, when the channel's acquire setting is
-[Video]{.guilabel}: 1 to 60 seconds on the slider; a value up to 3600
-seconds may be typed. Default: [5]{.default setting="channel_defaults.fluorescence.video_config.duration"} seconds. A recording made with the
+[Video]{.guilabel}: 1 to 60 seconds on the slider, or type up to 3600
+seconds. Default: [5]{.default setting="channel_defaults.fluorescence.video_config.duration"} seconds. A recording made with the
 toolbar's Record button is limited by [Video Time Limit (s)]{.guilabel}
 instead (@sec-advanced-camera).
 
 ## Acquire Settings {#sec-channel-acquire}
 
-What a protocol, and the toolbar's Composite button, take in this channel:
+What a protocol and the toolbar's Composite button capture in this
+channel:
 
 - [None]{.guilabel}: nothing. Default.
 - [Image]{.guilabel}: an image.
 - [Video]{.guilabel}: a video, as long as [Duration (s)]{.guilabel}.
 
-A composite captured with the Composite button combines the channels set
-to [Image]{.guilabel}, and takes one transmitted channel at most. A
-composite with a channel set to [Video]{.guilabel}, or with more than one
-of [Brightfield]{.channel}, [Phase Contrast]{.channel} and
-[Darkfield]{.channel} set to capture, is refused before anything is
-captured, and the message names the channels to change.
+The Composite button combines the channels set to [Image]{.guilabel},
+with at most one transmitted-light channel. If a channel is set to
+[Video]{.guilabel}, or more than one of [Brightfield]{.channel},
+[Phase Contrast]{.channel} and [Darkfield]{.channel} is set to capture,
+LumaViewPro won't start the composite, and the message tells you which
+channels to change.
 
 ### CBT (%) {#sec-cbt}
 
 Requires: a fluorescence channel or the [Lumi]{.channel} channel.
 
 [CBT (%)]{.guilabel}, the composite brightness threshold, sets which pixels
-of this channel are laid over the transmitted image in a composite: a
+of this channel are laid over the transmitted-light image in a composite: a
 pixel is used when its brightness is at least this percentage of full
 scale. A higher percentage keeps only the brightest parts. [0 to 100]{.range setting="Lumi.composite_brightness_threshold"};
 default [50]{.default setting="channel_defaults.fluorescence.composite_brightness_threshold Lumi.composite_brightness_threshold"}. The threshold applies only to a composite that includes a
 transmitted channel; in a composite of fluorescence channels alone, every
 pixel is used.
 
-The thresholds also apply to composites generated afterwards in
-[Post Processing]{.guilabel}, which uses each channel's threshold at the
-time it runs. Generating a composite again with a different threshold
-makes a new composite beside the earlier one.
+The thresholds also apply to composites you make later in
+[Post Processing]{.guilabel}, which uses each channel's threshold as it is
+when the composite is made. Making a composite again with a different
+threshold creates a new one beside the earlier one.
 
 ## The histogram {#sec-histogram}
 
 Below the acquire settings, a histogram shows how many pixels of the live
 image have each brightness, dark on the left and bright on the right. It
-is drawn while the channel is shown and is not updated while a protocol
-runs.
+updates while the channel is shown, but not while a protocol is running.
 
 ## Display Properties {#sec-display-properties}
 
-- [False Color]{.guilabel}: shows the channel in its color, the color of
-  its swatch, instead of gray. Offered on the fluorescence channels and
+- [False Color]{.guilabel}: shows the channel in its swatch's color
+  instead of gray. Available on the fluorescence channels and
   the [Lumi]{.channel} channel; default: [on]{.default setting="channel_defaults.fluorescence.false_color"}. Images saved in the
   [RGB (full depth)]{.guilabel} image mode are saved in this color
   (@sec-image-mode).
 - [Log]{.guilabel}: draws the histogram's counts on a logarithmic scale,
-  so that small counts remain visible beside large ones. Only the
+  so small counts stay visible next to large ones. Only the
   histogram is affected. Default: off.

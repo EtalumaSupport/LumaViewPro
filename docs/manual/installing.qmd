@@ -1,19 +1,19 @@
 # Installing LumaViewPro and connecting {#sec-installing}
 
 Install LumaViewPro before you connect the microscope to the computer for
-the first time: the installer puts the camera's driver on the computer, so
-the camera is recognized the moment it is plugged in.
+the first time. The installer adds the camera's driver, so the camera is
+recognized as soon as you plug it in.
 
 ## Your computer {#sec-computer}
 
-LumaViewPro runs on Windows 10 or 11. A desktop or a laptop will do.
-The monitor does not change the images LumaViewPro saves; a poor monitor
-only makes focus harder to judge by eye.
+LumaViewPro runs on Windows 10 or 11, on a desktop or a laptop. The
+monitor doesn't affect the images LumaViewPro saves; a poor monitor just
+makes focus harder to judge by eye.
 
 LumaViewPro can also be run from its source code on Windows, macOS or Linux,
 with Python 3.12 or 3.13. The `README.md` on the
 [LumaViewPro GitHub page](https://github.com/EtalumaSupport/LumaViewPro)
-says how.
+explains how.
 
 ## Downloading and installing {#sec-download}
 
@@ -23,33 +23,33 @@ Download LumaViewPro from either place:
 - the [LumaViewPro releases on GitHub](https://github.com/EtalumaSupport/LumaViewPro/releases).
 
 The download is a zip file holding the setup program,
-`LumaViewPro-<version>-setup.exe`. One setup program serves every Lumascope
-model.
+`LumaViewPro-<version>-setup.exe`. The same setup program works for every
+Lumascope model.
 
 1. Open the zip file and run the setup program.
 2. Follow its steps. It installs LumaViewPro and the drivers the Lumascope
    cameras need.
 
-The installer puts LumaViewPro in `Program Files\LumaViewPro` and makes two
-shortcuts named LumaViewPro, with the orange Etaluma icon: one on the
+The installer puts LumaViewPro in `Program Files\LumaViewPro` and creates
+two shortcuts named LumaViewPro, with the orange Etaluma icon: one on the
 desktop and one in the Start menu. Start LumaViewPro from either, or pin it
 to the taskbar.
 
-LumaViewPro keeps your settings, protocols and logs in a folder of your
+LumaViewPro keeps your settings, protocols and logs in a folder in
 Documents named for the version, for example `Documents\LumaViewPro 4.0.0`.
-A new version starts with a new folder, and nothing in the older one is
-carried over. To keep your settings, start the new version once so that
-it makes its folder, close it, and copy
-`data\current.json` from the older folder into the new folder's `data`;
-settings added by the new version are filled in at the next start. Add
-your own labware to the new `labware.json` (@sec-custom-labware) instead
-of copying the old file, which lacks any labware the new version added.
+Each new version starts with a new folder and carries nothing over from the
+old one. To keep your settings, start the new version once so it creates
+its folder, close it, and copy `data\current.json` from the old folder into
+the new folder's `data` folder; any settings the new version added are
+filled in the next time it starts. Add your own labware to the new
+`labware.json` (@sec-custom-labware) rather than copying the old file,
+which won't have any labware the new version added.
 
 ## Connecting the microscope {#sec-connecting}
 
 1. Plug the microscope end of the supplied USB cable into the port labeled
-   **COMPUTER** on the microscope (@sec-cables), if it is not already.
-2. Plug the other end into a USB3 port on the computer, directly: not into a
+   **COMPUTER** on the microscope (@sec-cables), if it isn't already.
+2. Plug the other end directly into a USB3 port on the computer, not into a
    USB hub.
 3. Plug the power supply's barrel connector into the port labeled
    **POWER INPUT 24V DC**, and the power supply into an AC outlet.
@@ -58,7 +58,7 @@ Place the computer on a flat, stable surface within reach of the 3 meter
 USB cable.
 
 ::: {.callout-warning title="Use only the supplied USB cable"}
-Do not extend the USB cable or replace it with another: the connection to
+Don't extend the USB cable or replace it with another; the connection to
 the microscope will fail. To work farther from the microscope, extend the
 monitor, keyboard and mouse instead (@sec-extending).
 :::
@@ -70,7 +70,7 @@ and the 24 V DC cable through the incubator's port, which is often on the
 upper back wall.
 
 - Keep the power supply outside the incubator: only its 24 V DC cable goes
-  in. Do not leave the power supply hanging by its DC
+  in. Don't leave the power supply hanging by its DC
   cable; support it, or fix it to the back of the incubator.
 - Seal around the cables with the foam plug supplied, or adapt the port's
   own plug or stopper.
@@ -82,11 +82,11 @@ upper back wall.
 ### The microscope is not found {#sec-not-found}
 
 When LumaViewPro starts, it looks for the microscope's camera, its LED board
-and, on a Lumascope with motors, its motor controller. If nothing is found it
-says so once, "No hardware detected", and offers to go on in software-only
-mode: you can design protocols and see the controls, but nothing is
-captured. If one part is missing it names that part, for example "Camera not
-found. Check USB cable and power." While no camera is connected, the image
+and, on a Lumascope with motors, its motor controller. If none of them is
+found, you'll see "No hardware detected" once, with an offer to continue in
+software-only mode: you can design protocols and look through the controls,
+but nothing is captured. If just one part is missing, the message names it,
+for example "Camera not found. Check USB cable and power." While no camera is connected, the image
 area shows a picture of a camera and a USB cable.
 
 Check, then restart LumaViewPro:
@@ -98,10 +98,10 @@ Check, then restart LumaViewPro:
 
 ### A USB2 port {#sec-usb2}
 
-On a USB2 port the camera does not work: Windows finds it but loads no
-driver for it. In Device Manager it is then listed under "Other devices"
-(@fig-usb2), where on a USB3 port it is listed under "Basler USB3 Vision
-Cameras" (@fig-usb3). Move the cable to a USB3 port, often marked SS or colored
+The camera doesn't work on a USB2 port: Windows finds it but doesn't load
+a driver for it. In Device Manager it then appears under "Other devices"
+(@fig-usb2), instead of under "Basler USB3 Vision Cameras" as it does on a
+USB3 port (@fig-usb3). Move the cable to a USB3 port, often marked SS or colored
 blue, and restart LumaViewPro.
 
 ::: {layout-ncol=2}
@@ -119,15 +119,15 @@ Scale.
 
 ### Sending a support report {#sec-support-report}
 
-When asking Etaluma for help, attach a support report. In the
+When you ask Etaluma for help, attach a support report. In the
 [Microscope Settings]{.guilabel} panel, [Generate Support Report]{.guilabel}
 tests the microscope and saves a zip of the results and LumaViewPro's logs
-to your desktop. On a Lumascope with motors it homes every axis, as
+to your desktop. On a Lumascope with motors, it homes every axis, as
 [Home Stage]{.guilabel} does (@sec-xy-stage), and leaves them there: the focus
 near its lowest point and the turret, if there is one, at position 1. Take
-any sample off the stage first, and afterwards bring the sample back into
-focus and check which objective is in the light path. It can take a few
-minutes.
-[Zip Logs Only]{.guilabel} saves the logs alone, quickly, and moves nothing.
+any sample off the stage first. Afterwards, put the sample back, refocus,
+and check which objective is in the light path. It can take a few minutes.
+[Zip Logs Only]{.guilabel} saves just the logs; it's quick and moves
+nothing.
 
 Send the zip to Etaluma Technical Support at support@etaluma.com.

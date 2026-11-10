@@ -1,6 +1,6 @@
 # Setting up the microscope {#sec-setting-up}
 
-## What is in the box {#sec-in-the-box}
+## What's in the box {#sec-in-the-box}
 
 Each LS820, LS850, LS850T and Lumi ships with:
 
@@ -9,7 +9,7 @@ Each LS820, LS850, LS850T and Lumi ships with:
   (@fig-auraphase-parts);
 - the accessories (@fig-accessories): a power cord for your country; the AC
   to DC power supply; two USB communication cables, USB-A to USB-B and USB-C
-  to USB-B, so that either kind of port on the computer will do; a foam plug
+  to USB-B, so either kind of computer port works; a foam plug
   for the incubator port; a slide holder; a black microplate lid for blocking
   room light during fluorescence imaging; and the quick start guide.
 
@@ -27,8 +27,8 @@ stage comes with the universal labware holder on its manual stage.
 
 The optional four-slide holder takes four microscope slides side by side,
 held by magnetic clamps (@fig-four-slide-holders). On a Lumascope with a
-motorized XY stage, choose the "Four-Slide Holder" labware in
-LumaViewPro so that each slide is a position the stage can move to.
+motorized XY stage, select the "Four-Slide Holder" labware in
+LumaViewPro so the stage can move to each slide.
 
 ![The optional four-slide holders](images/four-slide-holders.jpg){#fig-four-slide-holders width=70%}
 
@@ -37,8 +37,8 @@ LumaViewPro so that each slide is a position the stage can move to.
 The microscope's ports are on its rear panel (@fig-rear-ls850,
 @fig-rear-ls820):
 
-- **COMPUTER**: the USB cable to the PC. Connect the microscope end now, and
-  wait to connect the computer end until LumaViewPro is installed
+- **COMPUTER**: the USB cable to the PC. Connect the microscope end now, but
+  don't connect the computer end until LumaViewPro is installed
   (@sec-installing).
 - **POWER INPUT 24V DC**: the barrel connector of the power supply. Plug the
   power supply's cord into an AC outlet.
@@ -52,10 +52,10 @@ The microscope's ports are on its rear panel (@fig-rear-ls850,
 
 ## The AuraPhase accessory {#sec-auraphase}
 
-The AuraPhase accessory gives the transmitted channels: brightfield, phase
-contrast and darkfield (each model's channels are in @tbl-models).
-LumaViewPro switches its LEDs, so it must be connected for the transmitted
-channels to light.
+The AuraPhase accessory provides the transmitted-light channels:
+brightfield, phase contrast and darkfield (each model's channels are in
+@tbl-models). LumaViewPro switches its LEDs, so it must be connected for
+those channels to light.
 
 To attach it:
 
@@ -72,8 +72,8 @@ To attach it:
 ::: {.callout-warning title="Phase contrast and darkfield need the right objective"}
 Phase contrast works only with a phase contrast objective (the 10x, 20x and
 40x Phase objectives Etaluma supplies), and darkfield only with an objective
-of 2x or lower. LumaViewPro lets you light either
-channel with any objective; it does not check.
+of 2x or lower. LumaViewPro doesn't check: it lets you light either
+channel with any objective.
 :::
 
 ## Installing objectives {#sec-objectives}
@@ -82,24 +82,24 @@ Your Lumascope comes with a plastic cap screwed in where the objective goes.
 Unscrew the cap and screw in the objective of your choice. On a Lumascope with a
 turret, each turret position takes one objective.
 
-When removing the cap or installing an objective, take care not to push the
-focus axis or the turret out of position. If you think you may have moved
+When you remove the cap or install an objective, be careful not to push
+the focus axis or the turret out of position. If you might have moved
 either, home the microscope: on a Lumascope with a stage, click
 [Home Stage]{.guilabel}, which homes every axis (@sec-xy-stage); on one
 without a stage, click
 [Home]{.guilabel} in the focus controls (@sec-focus-adjust).
 
-The objectives come in threaded bottles; keep each in its bottle when it is
-not on the microscope. Always keep a cap or an objective in the optics, so no
-dust enters, and leave a microplate or lid in the nest when the microscope is
-not in use, so no dust settles on the objective.
+The objectives come in threaded bottles; keep each one in its bottle when
+it isn't on the microscope. Always keep a cap or an objective in place so
+dust can't get into the optics, and leave a microplate or lid in the nest
+when the microscope isn't in use so dust doesn't settle on the objective.
 
 ### Objectives on a turret {#sec-turret-objectives}
 
 Requires: a turret.
 
-When you install only two objectives, put them in opposite positions, so the
-turret stays balanced.
+If you install only two objectives, put them in opposite positions to keep
+the turret balanced.
 
 ::: {.callout-warning title="Tall objectives"}
 Tall objectives (100x, and some 60x) can collide with the stage assembly.

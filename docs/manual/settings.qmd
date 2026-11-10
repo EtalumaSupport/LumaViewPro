@@ -1,13 +1,12 @@
 # Settings {#sec-settings}
 
 This chapter describes each setting in [Microscope Settings]{.guilabel} and
-in [Advanced Settings]{.guilabel}, once. A setting that needs particular
-hardware says so. Settings are saved and restored at the next start, except
-where this chapter states otherwise.
+[Advanced Settings]{.guilabel}. Settings that need particular hardware say
+so. Settings are saved and restored at the next start, except where noted.
 
-A value outside a setting's range is refused, with the reason, and the
-setting keeps its previous value; it is never adjusted to the nearest
-allowed value.
+If you enter a value outside a setting's range, LumaViewPro tells you why
+it can't be used, and the setting keeps its previous value; it's never
+adjusted to the nearest allowed value.
 
 ## Microscope Settings {#sec-microscope-settings}
 
@@ -17,9 +16,9 @@ when LumaViewPro starts (@fig-tour-left-ls850).
 ### Lumascope Model {#sec-model-line}
 
 The first line shows the model LumaViewPro is running as. On a microscope
-that does not report its own model, a different model selected for the next
+that doesn't report its own model, a different model selected for the next
 start is shown after it, for example "(LS560 at next start)". The model is
-chosen in
+selected in
 [Advanced Settings]{.guilabel} (@sec-advanced-general).
 
 ### Frame Size and Field of View {#sec-frame-size}
@@ -28,7 +27,7 @@ chosen in
 pixels, width by height. Enter a value in either box and press Enter. The
 boxes show the frame size after binning (@sec-binning); at 2x2 each value is
 half the number of sensor pixels. The largest frame depends on the model
-and its camera (@tbl-max-frame); a larger frame is refused. Default:
+and its camera (@tbl-max-frame); a larger frame isn't accepted. Default:
 [1900 x 1900]{.default setting="frame.width frame.height"}.
 
 On the LS820 and LS850 a frame larger than 2100 x 2100 extends beyond the
@@ -42,8 +41,8 @@ objective's field of view.
 
 : Largest frame size by model {#tbl-max-frame tbl-colwidths="[30,70]"}
 
-The frame size cannot be changed while a protocol, a Z-stack, a composite or
-an autofocus runs.
+You can't change the frame size while a protocol, Z-stack, composite or
+autofocus is running.
 
 The tiles of a tiled protocol are calculated from the frame size and
 binning in use when the protocol is created. Run the protocol with the same
@@ -72,15 +71,15 @@ and composites.
 - TIFF and OME-TIFF: as for [Live Image Format]{.guilabel}.
 - Hyperstack: at the end of the run, the images of each well are combined
   into one OME-TIFF stack, which ImageJ and Fiji open through Bio-Formats.
-- JPG: as for [Live Image Format]{.guilabel}. A run saved as JPG cannot be
+- JPG: as for [Live Image Format]{.guilabel}. A run saved as JPG can't be
   Z-projected, stitched, combined into a composite or made into a video.
 
 Composites are saved as TIFF or OME-TIFF only. When Hyperstack or JPG is
 selected, composites are saved as OME-TIFF.
 
 When either format is JPG, a [JPG Quality]{.guilabel} slider is shown
-below them: [1 to 100]{.range setting="jpg_quality"}, default [90]{.default setting="jpg_quality"}. A higher value retains more detail and
-produces larger files. It applies to both formats.
+below them: [1 to 100]{.range setting="jpg_quality"}, default [90]{.default setting="jpg_quality"}. Higher values keep more detail and make
+larger files. It applies to both formats.
 
 ### Video Recording Format {#sec-video-format}
 
@@ -97,16 +96,16 @@ The bit depth and encoding of saved images.
 
 - 8-bit: pixel values 0 to 255, as displayed. Default.
 - Scientific (full depth): the full bit depth the camera delivers, including
-  the extended range of summed images, stored unscaled. These images appear
-  dark in standard image viewers because the values occupy only the lower
-  part of the file's range.
+  the extended range of summed images, stored unscaled. These images look
+  dark in ordinary image viewers because the values use only the lower part
+  of the file's range.
 - Scaled (full depth): the same data scaled to the file's full range, so the
   images appear at normal brightness in any viewer.
 - RGB (full depth): full bit depth, saved in the channel's false color.
 
-The mode cannot be changed while a protocol, a Z-stack, a composite or an
-autofocus runs. JPG files are always 8-bit; when a full-depth mode is
-selected with a JPG format, a note below the mode states that full depth is
+You can't change the mode while a protocol, Z-stack, composite or
+autofocus is running. JPG files are always 8-bit; if you select a
+full-depth mode with a JPG format, a note below the mode says full depth is
 kept only in TIFF. A composite's per-channel images are saved in the
 selected mode; only its combined image is 8-bit.
 
@@ -118,40 +117,39 @@ sensitivity and reduces resolution. The available sizes are those the
 camera supports; 1x1 (no binning) is the default. The
 [Frame Size]{.guilabel} boxes update to the binned size.
 
-In [8-bit]{.guilabel} mode the extended range from binning is not retained
-in saved images, and a note below [Binning]{.guilabel} states this. Select
-a full-depth [Image Mode]{.guilabel} to retain it.
+In [8-bit]{.guilabel} mode, saved images don't keep the extra range from
+binning, and a note below [Binning]{.guilabel} warns you of this. Select a
+full-depth [Image Mode]{.guilabel} to keep it.
 
 ### Enable Scale Bar {#sec-scale-bar}
 
 Draws a scale bar in the lower right corner of the live image and of saved
 images, labeled with its length and the objective magnification, for
 example "100um, 10x". The bar is drawn in black or white for contrast with
-the image. An objective must be assigned in [Objective Control]{.guilabel};
-otherwise no bar is drawn. The setting cannot be changed while a protocol
-runs, a video records or the stage homes. Default: [off]{.default setting="scale_bar.enabled"}.
+the image. No bar is drawn until an objective is assigned in
+[Objective Control]{.guilabel}. You can't change the setting while a
+protocol is running, a video is recording or the stage is homing. Default: [off]{.default setting="scale_bar.enabled"}.
 
 ### Enable Crosshairs {#sec-crosshairs}
 
 Overlays crosshairs and four concentric rings on the center of the live
-image. Manually captured images are saved without the overlay; an
-additional 8-bit copy with the overlay is saved alongside, with `_overlay`
-at the end of its name. This setting is not saved: crosshairs are off at
-each start.
+image. Images you capture are saved without the overlay, plus an extra
+8-bit copy with the overlay, its name ending in `_overlay`. This setting
+isn't saved: crosshairs are off each time LumaViewPro starts.
 
 ### Live Image Contrast Stretching {#sec-contrast-stretch}
 
 Stretches the displayed brightness of the live image to the full range, so
 the darkest pixels display as black and the brightest as white. This
-reveals detail in dim images. Only the display is affected; saved images
-are not changed. Stretching is suspended, and the switch disabled, while a
-protocol, a Z-stack, a composite or an autofocus runs. This setting is not
-saved: it is off at each start.
+brings out detail in dim images. Only the display is affected; saved
+images don't change. Stretching pauses, and the switch is disabled, while a
+protocol, Z-stack, composite or autofocus is running. This setting isn't
+saved: it's off each time LumaViewPro starts.
 
 ### Show Tooltips {#sec-tooltips}
 
-Displays a short description of a control when the mouse pointer rests on
-it. Default: [off]{.default setting="show_tooltips"}.
+Shows a short description of a control when you hover the mouse pointer
+over it. Default: [off]{.default setting="show_tooltips"}.
 
 ### The buttons {#sec-settings-buttons}
 
@@ -160,8 +158,8 @@ it. Default: [off]{.default setting="show_tooltips"}.
 [Zip Logs Only]{.guilabel} create files for Etaluma Technical Support
 (@sec-support-report).
 
-While a protocol runs, a video records, or another program controls the
-microscope, every control in Microscope Settings is greyed out except
+While a protocol is running, a video is recording, or another program
+controls the microscope, every control in Microscope Settings is greyed out except
 [Generate Support Report]{.guilabel} and [Zip Logs Only]{.guilabel}, so
 the logs can be sent while a long run is still going.
 
@@ -177,15 +175,14 @@ the window, to close it.
 
 #### Lumascope Model
 
-The model of a microscope that does not report its own. On such a
-microscope a change takes effect at the next start of LumaViewPro, and a
-notice says so. A microscope whose motor board reports its model runs as
-that model at every start; a model chosen there is kept for the next
-microscope connected that does not report its own, and a notice says so.
-The model cannot be
-changed while a protocol runs.
+Sets the model for a microscope that doesn't report its own. On such a
+microscope, a change takes effect the next time LumaViewPro starts, and a
+notice tells you so. A microscope whose motor board reports its model
+always runs as that model; a model chosen while it's connected is kept for
+the next microscope that doesn't report its own, and a notice tells you
+so. You can't change the model while a protocol is running.
 
-LumaViewPro cannot tell an LS460, an LS560 and an LS620 apart. On these
+LumaViewPro can't tell an LS460, an LS560 and an LS620 apart. On these
 models, select the correct model here and restart
 LumaViewPro; a wrong selection gives the wrong channels.
 
@@ -201,14 +198,14 @@ loosely attached cells.
 
 Requires: a focus motor.
 
-When on, a home started with [Home Stage]{.guilabel} (@sec-xy-stage) or
+When on, homing started with [Home Stage]{.guilabel} (@sec-xy-stage) or
 the focus [Home]{.guilabel} (@sec-focus-adjust), or by a program through
 the REST interface, ends by turning the turret, if there is one, back to
 the objective it was on and returning the focus to where it was. The stage
-is not returned. When off, the focus stays near its lowest point and the
-turret at position 1. Default: [off]{.default setting="motion.restore_after_home"}. The home at start and the one a
-support report makes (@sec-support-report) leave the turret at position 1
-whatever this setting says.
+isn't returned. When off, the focus stays near its lowest point and the
+turret at position 1. Default: [off]{.default setting="motion.restore_after_home"}. The homing at startup and during a
+support report (@sec-support-report) always leaves the turret at position
+1, whatever this setting says.
 
 #### REST server
 
@@ -224,7 +221,7 @@ LumaViewPro closed (@sec-integrators).
 The maximum number of frames per second a recording keeps, for both the
 toolbar's Record button and protocol video steps: 1 to 200, or Max at the
 top of the slider, which keeps every frame the camera delivers. Default:
-Max. The camera and the live image are not slowed.
+Max. The camera and the live image aren't slowed.
 
 #### Video Time Limit (s)
 
@@ -236,7 +233,7 @@ press Record again to stop sooner.
 
 The maximum frame rate of the live image display: 1 to 60, or Max, which
 draws every frame. Default: [30]{.default setting="live_view_fps"}. Lower values reduce the load on the
-computer. Recordings and captures are not affected.
+computer. Recordings and captures aren't affected.
 
 #### Video Timestamp Overlay
 
@@ -247,15 +244,15 @@ manual recordings and protocol video steps. Default: [on]{.default setting="vide
 
 #### Preview LED when stepping
 
-Keeps each step's LED on while stepping manually through a protocol's
-steps, to preview each step's illumination. LED behavior during a protocol
-run is not affected. Default: [off]{.default setting="protocol_led_on"}.
+Keeps each step's LED on as you step through a protocol by hand, so you
+can preview each step's lighting. It doesn't affect the LEDs during a
+protocol run. Default: [off]{.default setting="protocol_led_on"}.
 
 #### Keep LED on across moves
 
 During a protocol run, keeps the LED on while the stage moves between
 consecutive steps of the same channel, instead of switching it off and on
-again, which shortens the scan. It does not apply to autofocus scans.
+again, which shortens the scan. It doesn't apply to autofocus scans.
 Default: [off]{.default setting="keep_led_between_steps"}.
 
 #### Tiling Overlap
@@ -278,4 +275,4 @@ Marks each protocol step with a yellow cross on the plate map in
 
 Saves each channel's images in a separate folder named for the channel, for
 both manual captures and protocol runs. The setting is read when a protocol
-starts and is not stored in the protocol. Default: [off]{.default setting="separate_folder_per_channel"}.
+starts and isn't stored in the protocol. Default: [off]{.default setting="separate_folder_per_channel"}.

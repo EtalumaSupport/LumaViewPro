@@ -7,12 +7,12 @@ in (@sec-sanitizing), and set up the computer for a long time-lapse
 
 ## Putting the microscope into a warm, humid incubator {#sec-incubator-in}
 
-A room-temperature microscope placed in a warm, humid incubator gathers
-condensation. Do not do this. Instead:
+A room-temperature microscope placed in a warm, humid incubator collects
+condensation. Don't do this. Instead:
 
 1. Turn on the incubator's internal fan, if it has one.
 2. Remove the humidification: turn off an active humidifier, or take out the
-   pans of water. Do not leave the door open; it invites contamination.
+   pans of water. Don't leave the door open; it invites contamination.
 3. When the incubator is warm and dry, place the microscope on its shelf.
 4. Wait 2 to 4 hours for the microscope to reach the incubator's
    temperature.
@@ -22,13 +22,13 @@ condensation. Do not do this. Instead:
 ## Taking the microscope out {#sec-incubator-out}
 
 A warm microscope can be taken out of a humid incubator and put on the bench
-at any time: it is warmer than the room, so no water condenses on it.
+at any time: it's warmer than the room, so no water condenses on it.
 
 ::: {.callout-warning title="Condensation ruins the microscope"}
-- Do not move the microscope into and out of the incubator again and again:
+- Don't move the microscope into and out of the incubator again and again:
   each move puts its optics and electronics through a cycle of condensation
   and evaporation.
 - Take the microscope out of the incubator before turning the incubator off.
   An incubator cooling down condenses its moisture onto the microscope.
-- Do not turn the microscope off while it is in a humid incubator.
+- Don't turn the microscope off while it's in a humid incubator.
 :::

@@ -19,12 +19,12 @@ sleep time to Never (@fig-windows-power).
 
 ## Network {#sec-windows-network}
 
-If the computer does not need a network during the run (recommended):
+If the computer doesn't need a network during the run (recommended):
 
 1. Unplug the Ethernet cable, if there is one.
 2. Turn on Airplane Mode: Settings, Network & Internet, Airplane Mode, On.
    This stops all wireless communication: Wi-Fi, Bluetooth and cellular.
-   Do not reconnect to a network afterwards: that turns Wi-Fi back on.
+   Don't reconnect to a network afterwards; that turns Wi-Fi back on.
 
 If the computer needs a network during the run:
 
