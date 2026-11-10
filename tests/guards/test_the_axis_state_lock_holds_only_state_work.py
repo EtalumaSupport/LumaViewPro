@@ -37,6 +37,7 @@ _STATE_WORK = frozenset(
         'self._axis_state.get',
         'self._axis_state.items',
         'self._axis_state.values',
+        'self._commanded_target',  # reads the move's fields and compares; a float at most
         'self._current_move.get',
         'self._position_known',  # a set-membership test on the state
         'host_clock.steady_ns',

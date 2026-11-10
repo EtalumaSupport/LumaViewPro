@@ -2478,17 +2478,24 @@ class MotionAPI:
             ax for ax in self._scope.capabilities.axes if ax != Axis.T and self._has_position(ax)
         ]
         lost = self._board_lost()
-        answers: dict[StageAxis, float | None] = {}
         with self._axis_state_lock:
             with self._pos_cache_lock:
                 cache = dict(self._pos_cache)
-            for ax in wanted:
-                state = AxisState.UNKNOWN if lost else self._axis_state.get(ax, AxisState.UNKNOWN)
-                if not self._position_known(state):
-                    answers[StageAxis(ax)] = None
-                    continue
-                target = self._commanded_target(state, self._current_move.get(ax))
-                answers[StageAxis(ax)] = target if target is not None else cache.get(ax, 0.0)
+            states = dict(self._axis_state)
+            commanded = {
+                ax: self._commanded_target(self._axis_state.get(ax), self._current_move.get(ax))
+                for ax in wanted
+            }
+        if lost:
+            states = dict.fromkeys(states, AxisState.UNKNOWN)
+        answers: dict[StageAxis, float | None] = {}
+        for ax in wanted:
+            if not self._position_known(states.get(ax, AxisState.UNKNOWN)):
+                answers[StageAxis(ax)] = None
+            elif commanded[ax] is not None:
+                answers[StageAxis(ax)] = commanded[ax]
+            else:
+                answers[StageAxis(ax)] = cache.get(ax, 0.0)
         return answers
 
     def get_current_position(self, axis: StageAxis) -> float | None:
