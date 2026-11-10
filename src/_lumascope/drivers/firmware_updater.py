@@ -478,7 +478,8 @@ def _send_fwupdate_command(board, board_config):
     doesn't recognize FWUPDATE (old/legacy firmware), falls back to
     entering raw REPL and running ``machine.bootloader()`` directly.
 
-    After this call, the board is disconnected (rebooting into BOOTSEL).
+    After this call, the board is disconnected (rebooting into BOOTSEL),
+    whether it succeeded or raised.
 
     Raises UpdateError if neither method succeeds.
     """
@@ -502,17 +503,13 @@ def _send_fwupdate_command(board, board_config):
                 logger.info('FWUPDATE not supported -- using raw REPL fallback')
                 _bootloader_via_raw_repl(board)
 
-        board.disconnect()
-
-    except UpdateError:
-        board.disconnect()
-        raise
     except (HardwareError, serial.SerialException, OSError) as e:
-        board.disconnect()
         raise UpdateError(
             f'FWUPDATE command failed: {e}',
             stage=UpdateStage.SENDING_FWUPDATE,
         ) from e
+    finally:
+        board.disconnect()
 
 
 def _bootloader_via_raw_repl(board):
@@ -841,6 +838,9 @@ def update_firmware(
     config = BOARD_CONFIGS[board_type]
     uf2_path = Path(uf2_path)
     result = UpdateResult(success=False, board_type=board_type)
+    # The board before the flash and the board after it; the finally closes
+    # whichever is open, so no exit leaves the port held
+    board = board2 = None
 
     try:
         # ---- Stage 1: Pre-flight checks ----
@@ -907,7 +907,6 @@ def update_firmware(
             _report_progress(
                 progress_callback, UpdateStage.COMPLETE, 'Already at target version', 1.0
             )
-            board.disconnect()
             return result
 
         # ---- Stage 3: Back up config files ----
@@ -1072,7 +1071,6 @@ def update_firmware(
             logger.info('Post-update test skipped by request')
 
         # ---- Stage 11: Success ----
-        board2.disconnect()
         result.success = True
         _report_progress(progress_callback, UpdateStage.COMPLETE, 'Firmware update complete', 1.0)
         logger.info(f'Firmware update successful: {current_version} -> {new_version}')
@@ -1091,6 +1089,11 @@ def update_firmware(
         logger.error(f'Firmware update unexpected error: {e}', exc_info=True)
         _report_progress(progress_callback, UpdateStage.FAILED, f'Unexpected error: {e}', 0.0)
         return result
+
+    finally:
+        for held in (board, board2):
+            if held is not None:
+                held.disconnect()
 
 
 def nuke_board(
@@ -1313,6 +1316,8 @@ def deploy_firmware_file(
     config = BOARD_CONFIGS[board_type]
     firmware_path = Path(firmware_path)
     result = UpdateResult(success=False, board_type=board_type)
+    # The finally closes it, so no exit leaves the port held
+    board = None
 
     try:
         # ---- Stage 1: Pre-flight checks ----
@@ -1378,19 +1383,22 @@ def deploy_firmware_file(
                 stage=UpdateStage.RESTORING_CONFIG,
             )
 
-        if not board.repl_write_file('main.py', fw_data):
-            raise UpdateError(
-                f'Failed to write main.py ({len(fw_data)} bytes)',
-                stage=UpdateStage.RESTORING_CONFIG,
+        # Raw REPL is left on every exit: the write is temp-then-rename on the
+        # board, so a failed write reboots the board on its old main.py
+        try:
+            if not board.repl_write_file('main.py', fw_data):
+                raise UpdateError(
+                    f'Failed to write main.py ({len(fw_data)} bytes)',
+                    stage=UpdateStage.RESTORING_CONFIG,
+                )
+            logger.info(f'Deployed main.py ({len(fw_data)} bytes, SHA256 verified)')
+
+            # ---- Stage 5: Exit raw REPL and verify ----
+            _report_progress(
+                progress_callback, UpdateStage.VERIFYING_VERSION, 'Rebooting firmware...', 0.75
             )
-        logger.info(f'Deployed main.py ({len(fw_data)} bytes, SHA256 verified)')
-
-        # ---- Stage 5: Exit raw REPL and verify ----
-        _report_progress(
-            progress_callback, UpdateStage.VERIFYING_VERSION, 'Rebooting firmware...', 0.75
-        )
-
-        board.exit_raw_repl()
+        finally:
+            board.exit_raw_repl()
         time.sleep(3.0)
 
         # Re-detect firmware version after reboot
@@ -1411,7 +1419,6 @@ def deploy_firmware_file(
             logger.info('Post-update test skipped by request')
 
         # ---- Done ----
-        board.disconnect()
         result.success = True
         _report_progress(progress_callback, UpdateStage.COMPLETE, 'Firmware deploy complete', 1.0)
         logger.info(f'Firmware deploy successful: {current_version} -> {new_version}')
@@ -1430,3 +1437,7 @@ def deploy_firmware_file(
         logger.error(f'Firmware deploy unexpected error: {e}', exc_info=True)
         _report_progress(progress_callback, UpdateStage.FAILED, f'Unexpected error: {e}', 0.0)
         return result
+
+    finally:
+        if board is not None:
+            board.disconnect()

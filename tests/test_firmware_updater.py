@@ -224,12 +224,14 @@ class TestSendFwupdateCommand:
         board.disconnect.assert_called()
 
     def test_a_defect_in_the_exchange_leaves_as_itself(self):
-        """Only the board's failures become UpdateError; our own leaves as itself."""
+        """Only the board's failures become UpdateError; our own leaves as
+        itself, and the board's port is closed on the way out."""
         cfg = self._make_motor_config()
         board = MagicMock()
         board.exchange_command.side_effect = TypeError('a defect')
         with pytest.raises(TypeError, match='a defect'):
             _send_fwupdate_command(board, cfg)
+        board.disconnect.assert_called_once_with()
 
     @pytest.mark.firmware_tier
     def test_fallback_to_raw_repl_on_not_found(self):
@@ -622,12 +624,10 @@ class TestUpdateFirmwareTooSmallUf2:
 
 
 def _board_with_one_config(config_bytes):
-    """A connected board holding motorconfig.json, whose raw REPL answers.
-
-    A stand-in by design: the wire simulator has no raw REPL (entry fails
-    on its firmware), so a backup cannot be taken from the simulated
-    board; this is that simulator gap.
-    """
+    """A connected board holding motorconfig.json, whose raw REPL answers."""
+    # The wire simulator has no raw REPL (entry fails on its firmware), so a
+    # backup cannot be taken from the simulated board.
+    # a stand-in by design: the simulator gap above, raw REPL
     board = MagicMock()
     board.found = True
     board.firmware_version = '1.0.0'
@@ -736,3 +736,75 @@ class TestTheBackupFolderIsTheCallers:
             assert result.error_stage == UpdateStage.PREFLIGHT
             assert str(unmakeable) in result.error_message
             assert result.old_version is None, 'the board was connected'
+
+
+# ---------------------------------------------------------------------------
+# Every update exit closes the board's port
+# ---------------------------------------------------------------------------
+
+
+class TestEveryUpdateExitClosesThePort:
+    @pytest.mark.slow
+    @pytest.mark.firmware_tier
+    def test_a_failed_update_leaves_the_port_free(self, tmp_path, monkeypatch):
+        """Each update that fails after connecting -- here at its raw-REPL
+        step, which the simulated board refuses -- closes the port, so the
+        next connection to the board opens it."""
+        import functools
+
+        from _lumascope.drivers import firmware_updater, raw_repl
+
+        monkeypatch.setattr(firmware_updater, 'time', _NO_WAIT_TIME)
+        monkeypatch.setattr(raw_repl, 'time', _NO_WAIT_TIME)
+        monkeypatch.setattr(firmware_updater, '_detect_bootsel_drive', lambda: None)
+        uf2 = tmp_path / 'motor_firmware_v2.0.0.uf2'
+        uf2.write_bytes(b'\x00' * 1024)
+        main_py = tmp_path / 'main.py'
+        main_py.write_bytes(b'# firmware\n' * 20)
+        cfg = BOARD_CONFIGS[BoardType.MOTOR]
+
+        for name, update, stage in (
+            (
+                'update_firmware',
+                lambda: update_firmware(BoardType.MOTOR, uf2, backup_dir=tmp_path / 'backup'),
+                UpdateStage.BACKING_UP_CONFIG,
+            ),
+            (
+                'deploy_firmware_file',
+                lambda: deploy_firmware_file(BoardType.MOTOR, main_py, backup_dir=None),
+                UpdateStage.RESTORING_CONFIG,
+            ),
+        ):
+            backend = _motor_bus()
+            monkeypatch.setattr(
+                firmware_updater, 'SerialBoard', functools.partial(SerialBoard, backend=backend)
+            )
+            result = update()
+            assert result.error_stage == stage, name
+            assert result.old_version is not None, f'{name} failed before connecting'
+
+            after = SerialBoard(vid=cfg.vid, pid=cfg.pid, label='[after]', backend=backend)
+            after.connect()
+            try:
+                assert after.driver is not None, f'{name} left the port open'
+            finally:
+                after.disconnect()
+
+    def test_a_failed_firmware_write_lets_the_board_out_of_raw_repl(self, tmp_path, monkeypatch):
+        """A deploy whose main.py write fails takes the board out of raw
+        REPL, which reboots it on its old main.py, and closes its port."""
+        from _lumascope.drivers import firmware_updater
+
+        board = _board_with_one_config(b'{"motor": 1}')
+        board.repl_write_file.return_value = False
+        monkeypatch.setattr(firmware_updater, 'SerialBoard', lambda **_kw: board)
+        monkeypatch.setattr(firmware_updater, 'time', _NO_WAIT_TIME)
+        main_py = tmp_path / 'main.py'
+        main_py.write_bytes(b'# firmware\n' * 20)
+
+        result = deploy_firmware_file(BoardType.MOTOR, main_py, backup_dir=None)
+
+        assert result.error_stage == UpdateStage.RESTORING_CONFIG
+        assert 'main.py' in result.error_message
+        board.exit_raw_repl.assert_called_once_with()
+        board.disconnect.assert_called()
