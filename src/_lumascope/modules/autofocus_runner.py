@@ -949,32 +949,30 @@ class AutofocusRunner:
         # tissue). Early stop could miss the global peak. The full
         # range must always be swept.
 
-        # Extend scan if peak is at the edge -- we need both sides
-        # of the peak for a reliable Gaussian fit. Keep going until
-        # we see 2 consecutive drops below 50% of peak.
+        # A peak at the top of the window extends the sweep upward, one
+        # step at a time, until two points lie past it: the fit needs
+        # both sides of the peak. Nothing extends downward: the sample
+        # lies on the glass, and below the glass there is no sample to find.
         if next_index >= self._params['targets'] and len(self._af_data_pass) >= 3:
             pass_scores = [d['score'] for d in self._af_data_pass if np.isfinite(d['score'])]
             if pass_scores:
                 pass_max = max(pass_scores)
                 peak_idx = pass_scores.index(pass_max)
-                # Peak is in the last 2 positions -- extend the scan
                 if peak_idx >= len(pass_scores) - 2 and pass_max > 0:
-                    recent = pass_scores[-2:]
-                    if not all(s < pass_max * 0.5 for s in recent):
-                        if self._past_travel(
-                            self._params['z_min'],
-                            next_target,
-                            'the extended window',
-                        ):
-                            raise AutofocusFailedError('travel_exhausted')
-                        self._params['targets'] += 1
-                        self._params['z_max'] = next_target
-                        _af_log.info(
-                            f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}'
-                        )
-                        self._target_index = next_index
-                        self._move_absolute_position(position=next_target)
-                        return
+                    if self._past_travel(
+                        self._params['z_min'],
+                        next_target,
+                        'the extended window',
+                    ):
+                        raise AutofocusFailedError('travel_exhausted')
+                    self._params['targets'] += 1
+                    self._params['z_max'] = next_target
+                    _af_log.info(
+                        f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}'
+                    )
+                    self._target_index = next_index
+                    self._move_absolute_position(position=next_target)
+                    return
 
         # Measure next step?
         if next_index < self._params['targets']:
