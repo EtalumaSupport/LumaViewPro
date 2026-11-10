@@ -5,7 +5,7 @@
 a protocol in. The places keep the order each first appears in; at one place
 the steps of one objective sit together, in the order they were made in
 whatever their Z (Z orders only a stack's slices:
-``test_a_place_runs_its_channels_in_step_order.py``); steps with no X/Y are
+``test_a_place_runs_its_channels_in_drawer_order.py``); steps with no X/Y are
 one place of their own.
 
 The protocol is made as a user's would be: added on the simulated turret

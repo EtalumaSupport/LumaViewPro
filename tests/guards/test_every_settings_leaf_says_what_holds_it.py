@@ -65,7 +65,6 @@ def test_every_table_entry_names_a_setting_the_template_holds():
         ),
         'INSTALLATION_ONLY': lambda key: any(path.split('.')[0] == key for path in paths),
         'PREFERENCES': lambda key: key in paths,
-        'DERIVED': lambda key: key in paths,
         'BOUND_AT_USE': lambda key: key in paths,
         'KIND_IS_THE_RANGE': lambda key: by_pattern(key, paths),
         '_RANGES': lambda key: by_pattern(key, paths),

@@ -298,7 +298,7 @@ A setting that a member owns is written only through that member, since the
 member also applies it: `binning` is the camera's (`scope.camera.set_binning`),
 `microscope` the session's `select_model`. Writing or reading it by path is
 refused `'has_member'`, its `member` naming the member to call. The reasons a path write is refused
--- `'has_member'`, `'host_only'`, `'installation_only'`, `'derived'`, `'not_a_setting'`,
+-- `'has_member'`, `'host_only'`, `'installation_only'`, `'not_a_setting'`,
 `'block'`, `'wrong_kind'`, `'out_of_range'`, `'not_offered'` -- are
 [`SettingRefusedError`'s](../api-reference.md#SettingRefusedError).
 

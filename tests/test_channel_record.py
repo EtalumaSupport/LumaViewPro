@@ -210,7 +210,6 @@ class TestCatalogueRecords:
             'manual_max_exposure_ms': {'manual_max_exposure_ms': 0},
             'manual_max_illumination_ma': {'manual_max_illumination_ma': 50.5},
             'display_color': {'display_color': [1, 0, 1]},
-            'step_order': {'step_order': 1.5},
             'sim_light_magnification_power': {'sim_light_magnification_power': 'square'},
         }
         wrong = {
@@ -238,10 +237,19 @@ class TestCatalogueRecords:
         texts = ('#ff8000', '#ffffff', '#00ff00', '#0080ff', '#ff00ff')
         assert [format_display_color(parse_display_color(t)) for t in texts] == list(texts)
 
-    def test_a_repeated_key_or_step_order_is_refused(self, tmp_path):
+    def test_a_repeated_key_is_refused(self, tmp_path):
         assert 'key' in self._refused(tmp_path, [CATALOGUE[0], CATALOGUE[0]])
-        moved = {**CATALOGUE[1], 'step_order': CATALOGUE[0]['step_order']}
-        assert 'step_order' in self._refused(tmp_path, [CATALOGUE[0], moved])
+
+    def test_a_record_carrying_a_retired_step_order_still_reads(self, tmp_path):
+        # Every 4.0 beta's scopes.json gave each record a step_order; an
+        # installer can leave that file beside a release that reads none.
+        path = tmp_path / 'scopes_fixture.json'
+        old = [{**record, 'step_order': i} for i, record in enumerate(CATALOGUE)]
+        path.write_text(json.dumps({'LayerOrder': old, 'Models': {}}), encoding='utf-8')
+
+        records = load_channel_catalogue(read_installation_file(path), path)
+
+        assert [record.key for record in records] == [record['key'] for record in CATALOGUE]
 
     def test_a_name_is_no_longer_a_record(self, tmp_path):
         assert 'not an object' in self._refused(tmp_path, ['BF', 'PC'])

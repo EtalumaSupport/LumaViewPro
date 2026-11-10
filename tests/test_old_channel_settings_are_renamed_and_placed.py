@@ -42,7 +42,7 @@ _OLD_STEP_ORDER = ['BF', 'PC', 'DF', 'Green', 'Blue', 'Red', 'Lumi']
 def _write_old_current_json(root: pathlib.Path, *, microscope: str) -> None:
     """A ``current.json`` as an earlier release saved it: each fluorescence
     block under its old name, with gains of its own, ``Blue`` acquiring with
-    the retired shipped focus, and the step order in the old keys."""
+    the retired shipped focus, and the retired step order in the old keys."""
     settings = complete_settings(live_folder=str(root / 'live'), microscope=microscope)
     for gain, (stock, old) in enumerate(zip(_STOCK, _OLD, strict=True), start=3):
         block = settings.pop(stock)
@@ -67,7 +67,8 @@ def _transmitted_rows() -> list[dict]:
 def test_preparation_renames_old_blocks_to_their_stock_keys(tmp_path, monkeypatch):
     """Prepared, the old blocks are the stock keys' and every reader saw them
     there: ``Blue``'s retired 4950 focus is forgotten, no old key is left,
-    and the old step order is re-derived without being reported."""
+    and the retired step order is dropped without being reported, so the
+    next save writes none."""
     root = write_installation(tmp_path)
     _write_old_current_json(root, microscope='LS850')
     settings_init.take_stored_replacements()
@@ -80,7 +81,7 @@ def test_preparation_renames_old_blocks_to_their_stock_keys(tmp_path, monkeypatc
     assert _gains(prepared, _STOCK) == [3.0, 4.0, 5.0]
     assert prepared['Ex405']['focus'] is None
     assert not set(_OLD) & set(prepared)
-    assert prepared['step_channel_order'][3:6] == ['Ex488', 'Ex405', 'Ex589']
+    assert 'step_channel_order' not in prepared
     assert settings_init.take_stored_replacements() == []
 
 

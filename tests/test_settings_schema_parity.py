@@ -105,6 +105,7 @@ RETIRED_TOP_LEVEL = {
     'camera_type',
     'tracemalloc_enabled',
     'cprofile_enabled',
+    'step_channel_order',
 }
 
 requires_current_json = pytest.mark.skipif(

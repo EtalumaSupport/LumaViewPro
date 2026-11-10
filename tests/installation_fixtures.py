@@ -43,7 +43,7 @@ def shipped_grids():
     return TilingGrids(SHIPPED_DATA / 'tiling.json')
 
 
-def _fluorescence_record(key: str, color: str, step_order: int) -> dict:
+def _fluorescence_record(key: str, color: str) -> dict:
     return {
         'key': key,
         'modality': 'fluorescence',
@@ -51,7 +51,6 @@ def _fluorescence_record(key: str, color: str, step_order: int) -> dict:
         'manual_max_exposure_ms': 1000,
         'manual_max_illumination_ma': None,
         'display_color': color,
-        'step_order': step_order,
         'sim_light_per_ma_s': 0.0126,
         'sim_light_magnification_power': 0,
     }
@@ -68,8 +67,8 @@ def _row(key: str, led: int, nm: int | None) -> dict:
 # Two fluorescence channels the release does not ship, on the two LED
 # addresses no shipped model drives, in colours no shipped channel has.
 ADDED_CHANNELS = (
-    _fluorescence_record('Ex445', '#00ffff', 9),
-    _fluorescence_record('Ex730', '#ff00ff', 10),
+    _fluorescence_record('Ex445', '#00ffff'),
+    _fluorescence_record('Ex730', '#ff00ff'),
 )
 
 # Three units on that release, by how many fluorescence channels each

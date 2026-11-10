@@ -57,9 +57,9 @@ from tests.stock_channels import LED0, LED1, LED2
 # into one that passes for the wrong reason.
 _COERCION_LOG_FRAGMENT = 'cannot be merged; this run saves'
 
-# The layer whose steps are made to fail. LED0 is never first in the
-# release step order (BF, PC, DF, LED1, LED0, LED2, Lumi, ...), so a run that
-# fails only LED0 always has a successful step before it -- which is what
+# The layer whose steps are made to fail. Every run here acquires BF, which
+# comes before LED0 in the drawers' order (BF, PC, DF, LED0, LED1, ...), so a
+# run that fails only LED0 always has a successful step before it -- which is what
 # makes the strike counter's reset, not just its increment, observable.
 _FAILING = LED0
 

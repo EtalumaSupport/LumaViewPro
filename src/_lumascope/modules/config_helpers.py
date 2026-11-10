@@ -74,9 +74,9 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
     Illumination, gain and exposure are rounded to their stated precision
     and ``auto_gain`` is read as a bool.
 
-    The channels come in step order, ``step_channel_order``, not the
-    drawers' display order: every build takes its channels from here, so a
-    place's steps run in that one order however the protocol was built.
+    The channels come in the drawers' order (``common_utils.get_channels``):
+    every build takes its channels from here, so a place's steps run in that
+    one order however the protocol was built.
 
     Returns:
         dict of channel key -> config dict with keys:
@@ -84,7 +84,7 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
         illumination_ma, gain_db, auto_gain, exposure_ms, sum, focus
     """
     channel_configs = {}
-    for channel in settings['step_channel_order']:
+    for channel in common_utils.get_channels():
         if (specific_channels is not None) and (channel not in specific_channels):
             continue
 
@@ -1067,8 +1067,8 @@ def get_composite_channels(settings: dict) -> list:
     """The channels a composite run captures, in capture order.
 
     Every channel set to capture contributes one step, an image or a video,
-    in step order (``step_channel_order``), the order every build takes its
-    channels in (``get_channel_configs``). None is dropped here: a composite has one
+    in the drawers' order, the order every build takes its channels in
+    (``get_channel_configs``). None is dropped here: a composite has one
     transmitted plane and takes no video, and the run engine refuses a
     second transmitted channel and a Video channel in prepare(), where every
     refusal a run can meet is raised, so the user is told rather than given
@@ -1083,7 +1083,7 @@ def get_composite_channels(settings: dict) -> list:
     """
     return [
         channel
-        for channel in settings['step_channel_order']
+        for channel in common_utils.get_channels()
         if settings[channel]['acquire'] is not None
     ]
 

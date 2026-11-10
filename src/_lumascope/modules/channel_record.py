@@ -125,8 +125,6 @@ class CatalogueChannel:
     not the light's limit: the text entry reaches past it, up to what the
     connected board can be asked for.
     `display_color` is the release's colour for the channel, ``'#rrggbb'``.
-    `step_order` is where the channel's steps are inserted in a new protocol,
-    which is not its display order.
     `sim_light_per_ma_s` is the light the simulated cameras render for the
     channel, per mA of LED current and second of exposure at unity gain,
     through an objective of `SIM_LIGHT_MAGNIFICATION`; None for a channel
@@ -150,7 +148,6 @@ class CatalogueChannel:
     manual_max_exposure_ms: float | None
     manual_max_illumination_ma: int | None
     display_color: str
-    step_order: int
     sim_light_per_ma_s: float | None
     sim_light_magnification_power: float | None
 
@@ -900,19 +897,16 @@ def load_channel_catalogue(
     Raises:
         InstallationFileError: ``LayerOrder`` is missing, empty, or not a
             list of records; or a record has a field missing or of the
-            wrong kind, or repeats another's key or step order.
+            wrong kind, or repeats another's key.
     """
     raw = scopes_data.get('LayerOrder')
     if not isinstance(raw, list) or not raw:
         raise InstallationFileError(path, f'has no usable LayerOrder (found {raw!r})')
     records = tuple(_catalogue_channel(entry, path) for entry in raw)
-    for field in ('key', 'step_order'):
-        values = [getattr(record, field) for record in records]
-        repeated = sorted({v for v in values if values.count(v) > 1}, key=str)
-        if repeated:
-            raise InstallationFileError(
-                path, f'has LayerOrder records repeating {field} {repeated}'
-            )
+    keys = [record.key for record in records]
+    repeated = sorted({key for key in keys if keys.count(key) > 1})
+    if repeated:
+        raise InstallationFileError(path, f'has LayerOrder records repeating key {repeated}')
     return records
 
 
@@ -954,9 +948,6 @@ def _catalogue_channel(entry: object, path: str | os.PathLike) -> CatalogueChann
         parse_display_color(entry['display_color'])
     except ValueError as e:
         raise refuse(f'whose display_color {e}') from e
-    step_order = entry['step_order']
-    if not isinstance(step_order, int) or isinstance(step_order, bool):
-        raise refuse('whose step_order is not an integer')
     light = entry['sim_light_per_ma_s']
     if light is not None and not (_is_number(light) and light > 0):
         raise refuse('whose sim_light_per_ma_s is not a positive number or null')
@@ -972,7 +963,6 @@ def _catalogue_channel(entry: object, path: str | os.PathLike) -> CatalogueChann
         manual_max_exposure_ms=None if ceiling is None else float(ceiling),
         manual_max_illumination_ma=illumination_ceiling,
         display_color=entry['display_color'],
-        step_order=step_order,
         sim_light_per_ma_s=None if light is None else float(light),
         sim_light_magnification_power=None if power is None else float(power),
     )

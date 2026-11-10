@@ -3853,7 +3853,7 @@ settings has a path.
 
 **Raises**
 
-- `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is in-process, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`); `'installation_only'`, it is set only by the installation; `'derived'`, it is derived from the release (`step_channel_order`); `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run, and a channel's illumination above the attached LED board's maximum, among them). Nothing is written.
+- `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is in-process, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`); `'installation_only'`, it is set only by the installation; `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run, and a channel's illumination above the attached LED board's maximum, among them). Nothing is written.
 - `ConfigurationDefectError`: `'channels_unresolved'`, the write is to the shown channel's camera settings and this scope's channels could not be resolved; the value is stored, and the camera is not changed.
 - `HardwareCommandRefusedError`: `'exclusive_activity_running'`, the write is the shown channel's illumination, its LED is lit at 0 mA, the value is above 0 mA, and a manual recording runs (a recording keeps the light it started under). Nothing is stored.
 
@@ -3881,7 +3881,7 @@ effect as they are written.
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`SettingRefusedError`](#SettingRefusedError): `has_member`, `host_only`, `installation_only`, `derived`, `not_a_setting`, `block`, `wrong_kind`, `out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`SettingRefusedError`](#SettingRefusedError): `has_member`, `host_only`, `installation_only`, `not_a_setting`, `block`, `wrong_kind`, `out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -17782,7 +17782,7 @@ responses branches on `reason`; a person reads the message.
 
 **Attributes**
 
-- `reason`: `'has_member'` -- the setting is changed by its own member, named in `member` by its path from the session (the camera's as `scope.camera.<name>`). `'host_only'` -- that member is in-process: only the application hosting the scope changes the setting, and a REST client reads it. `'not_a_setting'` -- no setting has this path. `'block'` -- the path names a block of settings, which is written one setting at a time. `'installation_only'` -- the setting is read only from the installation's settings file. `'derived'` -- the setting is derived from the release when the template is read (`step_channel_order`); a handed dict's differing copy is refused for it too. `'wrong_kind'` -- the value is not the kind the setting holds. `'out_of_range'` -- the value is outside the setting's range. `'not_offered'` -- the setting holds a closed set (a `StrEnum`, such as `image_mode`'s `ImageMode`) and the value is not one of its values.
+- `reason`: `'has_member'` -- the setting is changed by its own member, named in `member` by its path from the session (the camera's as `scope.camera.<name>`). `'host_only'` -- that member is in-process: only the application hosting the scope changes the setting, and a REST client reads it. `'not_a_setting'` -- no setting has this path. `'block'` -- the path names a block of settings, which is written one setting at a time. `'installation_only'` -- the setting is read only from the installation's settings file. `'wrong_kind'` -- the value is not the kind the setting holds. `'out_of_range'` -- the value is outside the setting's range. `'not_offered'` -- the setting holds a closed set (a `StrEnum`, such as `image_mode`'s `ImageMode`) and the value is not one of its values.
 - `path`: The dotted path that was written.
 - `detail`: Why, as a clause about the value (`'it must be above 0, not 0'`), for a caller that names the setting its own way: a protocol step's column.
 - `member`: The member that changes the setting, for `'has_member'` and `'host_only'`; otherwise None.
@@ -17801,7 +17801,6 @@ beside the words.
 | Reason | Cause | REST status |
 |---|---|---|
 | `block` | request | 422 |
-| `derived` | request | 422 |
 | `has_member` | request | 422 |
 | `host_only` | request | 422 |
 | `installation_only` | request | 422 |

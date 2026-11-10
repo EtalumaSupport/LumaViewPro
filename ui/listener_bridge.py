@@ -182,7 +182,6 @@ NOT_SHOWN: frozenset[str] = frozenset(
         'ag_ae_max_exposure_ms',
         'lvp_lock_port',
         'rest_api',
-        'step_channel_order',
     }
 )
 

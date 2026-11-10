@@ -355,7 +355,7 @@ class TestNewTilesAsApplyDoes:
 
         assert refused.value.reason == 'tiles_outside_travel'
 
-    def test_each_tile_keeps_its_well_and_each_channel_its_saved_focus_in_step_order(
+    def test_each_tile_keeps_its_well_and_each_channel_its_saved_focus_in_drawer_order(
         self, wide_field_session
     ):
         steps = _new_bf_and_blue_tiled(wide_field_session, '2x2').steps()

@@ -1958,7 +1958,7 @@ class Protocol:
         """Order the steps by place, then by objective and z-stack slice at each place.
 
         A place's steps of one objective keep the order they were made in at
-        every slice, which for a build is the channels' step order: Z orders
+        every slice, which for a build is the drawers' channel order: Z orders
         only a stack's slices, lowest first, never one channel against another.
         Ordered by each channel's own Z, a place ran its channels in the
         order of their saved focus, so the same channels ran differently

@@ -3143,7 +3143,7 @@ class ScopeSession:
             StepEditRefusedError: ``'step_value_refused'``, both given.
         """
         if channels is None:
-            # Already in step order, which is the order the steps take.
+            # Already in the drawers' order, which is the order the steps take.
             channel_configs = self.get_channel_configs()
             channel_order = None
         else:
@@ -4507,8 +4507,7 @@ class ScopeSession:
                 in-process, so only the application hosting the scope changes
                 it (``live_folder``, ``protocol.filepath``);
                 ``'installation_only'``, it is set
-                only by the installation; ``'derived'``, it is derived from
-                the release (``step_channel_order``); ``'not_a_setting'``, it is not a
+                only by the installation; ``'not_a_setting'``, it is not a
                 setting; ``'block'``, it names a block; ``'wrong_kind'``,
                 ``value`` is not the setting's kind; ``'out_of_range'``, it
                 is outside its range (a ``protocol.period`` or

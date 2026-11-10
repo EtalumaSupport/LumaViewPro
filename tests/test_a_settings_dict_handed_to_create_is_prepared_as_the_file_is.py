@@ -78,7 +78,6 @@ def test_a_hand_dict_comes_up_with_every_template_key_and_is_told_nothing(tmp_pa
         ('motion.acceleration_max_pct', None, 'wrong_kind'),
         ('zstack.range', 10**400, 'wrong_kind'),
         ('BF.focus', 'abc', 'wrong_kind'),
-        ('step_channel_order', ['BF'], 'derived'),
         # A closed set's leaf: a value outside the set is not one it offers.
         ('image_mode', '16bit', 'not_offered'),
     ],

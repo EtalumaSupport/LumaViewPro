@@ -153,12 +153,6 @@ PREFERENCES: typing.Final[frozenset[str]] = frozenset(
     }
 )
 
-# A setting derived from the release when the template is read, never a
-# person's: ``step_channel_order``, from the catalogue's ``LayerOrder``. No
-# write changes it, and a stored copy that differs is replaced at load by
-# the derived one.
-DERIVED: typing.Final[frozenset[str]] = frozenset({'step_channel_order'})
-
 # A switch: its kind, true or false, is its whole range. ``*`` stands for
 # any channel.
 KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
@@ -490,13 +484,12 @@ def _range_for(path: str) -> typing.Callable[[str, typing.Any], None] | None:
 def is_classified(path: str) -> bool:
     """Whether the setting at ``path`` says what holds it beyond its kind.
 
-    A member, the installation, the release's derivation, a range, a switch's
-    kind, or an owner that bounds it where it is used.
+    A member, the installation, a range, a switch's kind, or an owner that
+    bounds it where it is used.
     """
     return (
         member_for(path) is not None
         or is_installation_only(path)
-        or path in DERIVED
         or _range_for(path) is not None
         or _pattern_for(KIND_IS_THE_RANGE, path) is not None
         or path in BOUND_AT_USE
@@ -614,8 +607,8 @@ def check_write(
 
     Raises:
         SettingRefusedError: ``path`` is owned by a member (named),
-            is set only by the installation's settings file, is derived
-            from the release (``'derived'``), is not a setting, or names a
+            is set only by the installation's settings file, is not a
+            setting, or names a
             block rather than one setting; or ``value``
             is not the setting's kind, or is outside its range (a protocol
             period or duration no protocol can run, and an illumination
@@ -630,8 +623,6 @@ def check_write(
         raise SettingRefusedError(
             'installation_only', path, "it is read from the installation's settings file"
         )
-    if path in DERIVED:
-        raise SettingRefusedError('derived', path, "it is derived from the release's catalogue")
     shipped: object = template
     for segment in path.split('.'):
         if not isinstance(shipped, dict) or segment not in shipped:
@@ -672,10 +663,6 @@ def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:
             )
     elif got != want:
         raise SettingRefusedError('wrong_kind', path, f'it holds a {want}, not {value!r}')
-    if path in DERIVED and value != shipped:
-        raise SettingRefusedError(
-            'derived', path, f"it is derived from the release's catalogue as {shipped!r}"
-        )
     rule = _range_for(path)
     if rule is not None:
         rule(path, value)

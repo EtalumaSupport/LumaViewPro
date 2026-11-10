@@ -191,16 +191,14 @@ def test_values_in_range_are_kept_and_nothing_is_told(tmp_path):
     assert told == []
 
 
-def test_a_stored_step_order_that_is_not_the_releases_takes_the_derived_one_untold(tmp_path):
-    """The step order is derived from the catalogue when the template is read,
-    so a stored one that differs is no person's choice -- no write reaches it
-    -- but an earlier release's derivation, which the load re-derives without
-    telling anyone of a value they never set."""
-    template = settings_init.load_template(logging.getLogger(__name__), str(TEMPLATE))
-    derived = template['step_channel_order']
-    stored = list(reversed(derived))
+def test_a_stored_step_order_is_dropped_untold(tmp_path):
+    """Every 4.0 beta stored a second channel order, derived from the
+    catalogue and never a person's choice; every build follows the drawers'
+    order now, so the load drops it without telling anyone of a value they
+    never set, and the next save writes none."""
+    stored = ['BF', 'PC', 'DF', 'Ex488', 'Ex405', 'Ex589', 'Lumi', 'Ex550', 'Ex640']
 
     settings, told = _prepare(tmp_path, lambda current: current.update(step_channel_order=stored))
 
-    assert settings['step_channel_order'] == derived
+    assert 'step_channel_order' not in settings
     assert told == []

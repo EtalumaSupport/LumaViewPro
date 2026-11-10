@@ -526,6 +526,12 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     if settings_dict.pop('binning_size', None) is not None:
         changed = True
 
+    # A second channel order, once derived from the catalogue for new
+    # protocols' steps. Every build follows the drawers' order now, so a
+    # stored copy would be an order nothing reads.
+    if settings_dict.pop('step_channel_order', None) is not None:
+        changed = True
+
     # A plate the catalogue has renamed since this file named it, folded to
     # the key so the one store every reader trusts never carries a spelling
     # the catalogue lacks. Whether the plate exists at all is answered where
@@ -722,36 +728,8 @@ def load_template(logger: logging.Logger, template_path: str) -> dict:
     if missing:
         raise InstallationFileError(template_path, f'lacks the keys the app needs: {missing}')
     _give_every_channel_a_block(template, template_path)
-    _give_the_shipped_step_order(template, template_path)
     _validate_settings(template, template_path, logger)
     return template
-
-
-def _give_the_shipped_step_order(template: dict, template_path: str) -> None:
-    """The order a new protocol's steps take, from the catalogue's ``step_order``.
-
-    The catalogue's record is the one place a channel's step order is said, so
-    a key added there takes its place without an edit here. A template that
-    states its own order would be a second, unread source of it, and is
-    refused. A stored order is not a person's either: no write reaches it
-    (``settings_paths.DERIVED``), so one that differs is an earlier
-    release's derivation, re-derived at load (``prepare_loaded``) and not
-    told.
-
-    Raises:
-        InstallationFileError: the template states ``step_channel_order``.
-    """
-    # Deferred: channel_record imports lvp_logger, which imports this module.
-    from _lumascope.modules.channel_record import release_channels
-
-    if 'step_channel_order' in template:
-        raise InstallationFileError(
-            template_path,
-            "states step_channel_order, which is each scopes.json LayerOrder record's step_order",
-        )
-    template['step_channel_order'] = [
-        record.key for record in sorted(release_channels(), key=lambda record: record.step_order)
-    ]
 
 
 def _give_every_channel_a_block(template: dict, template_path: str) -> None:
@@ -1018,7 +996,6 @@ def prepare_loaded(
         logger.info(f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}')
     # Imported here: settings_paths' own imports reach this module (lvp_logger).
     from _lumascope.modules.settings_paths import (
-        DERIVED,
         refuse_handed_values,
         replace_refused_stored_values,
     )
@@ -1026,16 +1003,6 @@ def prepare_loaded(
     if handed:
         refuse_handed_values(loaded, template)
     else:
-        # A stored derived value is the release's, never a person's: no write
-        # reaches one, so one that differs is an earlier release's
-        # derivation (a step order in its own keys), re-derived and not told.
-        # A handed one is a write of it, refused as a write is.
-        for path in DERIVED:
-            *blocks, leaf = path.split('.')
-            stored, shipped = loaded, template
-            for block in blocks:
-                stored, shipped = stored[block], shipped[block]
-            stored[leaf] = copy.deepcopy(shipped[leaf])
         replaced = replace_refused_stored_values(loaded, template)
         if replaced is not None:
             _stored_replacements.append(replaced)
