@@ -21,19 +21,16 @@ from _lumascope.drivers.exceptions import (
     LedFirmwareWedgedError,
 )
 from _lumascope.drivers.simulated_fx2 import SimulatedFX2
-from _lumascope.modules.lumascope_api.diagnostics import (
-    ERROR_PREFIX,
-    LedCommandSet,
-    NO_REPLY,
-    NO_RESPONSE,
-    NOT_CONNECTED,
-    is_board_reply,
-)
+from _lumascope.modules.lumascope_api.diagnostics import LedCommandSet
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules import tech_support_report
-from _lumascope.modules.exceptions import HardwareCommandRefusedError, SessionClosingError
+from _lumascope.modules.exceptions import (
+    HardwareCommandRefusedError,
+    MissingPart,
+    MoveFaultError,
+    SessionClosingError,
+)
 from _lumascope.modules.tech_support_report import FirmwareDiagnostics, TechSupportReport
-from tests.scope_fakes import spec_scope
 from tests.settings_fixtures import complete_settings
 
 NOT_ON_THIS_BOARD = 'Not supported on this LED board'
@@ -54,13 +51,6 @@ def fx2_led():
     return fx2driver.FX2LEDController(connection=SimulatedFX2().connect())
 
 
-def test_the_channels_stand_ins_are_not_replies():
-    for stand_in in (NOT_CONNECTED, NO_REPLY, NO_RESPONSE, f'{ERROR_PREFIX}timeout', '', None):
-        assert not is_board_reply(stand_in), stand_in
-    assert is_board_reply('Etaluma LED Controller v2.0.1')
-    assert is_board_reply(['line one', 'line two'])
-
-
 def test_a_v2_board_carries_every_led_command(session):
     assert session.scope.diagnostics.get_led_info().command_set == LedCommandSet.V2
 
@@ -71,7 +61,7 @@ def test_a_pre_v2_board_keeps_its_info_and_says_what_it_cannot_do(session, monke
 
     diag = FirmwareDiagnostics(scope=session.scope)
     info = diag.get_led_info()
-    assert is_board_reply(info) and 'Not supported' not in str(info), info
+    assert not str(info).startswith(('not read', 'Not supported')), info
     for answer in (diag.run_led_selftest(), diag.get_i2c_scan(), diag.get_led_readings()):
         assert 'needs v2' in answer, answer
     leakage = diag.check_led_leakage()
@@ -166,17 +156,45 @@ def test_a_leaking_channel_warns(session, monkeypatch):
     assert leakage['channels']['CH1']['status'] == 'WARN'
 
 
-def test_a_board_that_does_not_answer_is_not_timed(session, monkeypatch):
-    # The API answers at once for a board it cannot reach; that is no round trip.
-    monkeypatch.setattr(session.scope._led_driver, 'found', False)
-    latency = FirmwareDiagnostics(scope=session.scope).measure_serial_latency('led', 'INFO')
-    assert 'min_ms' not in latency and 'All' in latency['error'], latency
+def test_a_board_that_does_not_answer_is_not_timed(session):
+    # A read that timed out took the timeout, not a round trip.
+    session.scope.simulation.drop_replies('motor', count=None, command='INFO')
+    latency = FirmwareDiagnostics(scope=session.scope).measure_serial_latency(
+        'motor', 'INFO', iterations=3
+    )
+    assert latency == {'error': 'All 3 calls failed', 'errors': 3}
 
 
-def test_a_fullinfo_that_timed_out_is_not_a_serial_number():
-    scope = spec_scope()
-    scope.diagnostics.send_diagnostic_command.return_value = NO_REPLY
-    assert FirmwareDiagnostics(scope=scope).get_serial_number() == 'UNKNOWN'
+def test_a_fullinfo_that_timed_out_is_not_a_serial_number(session):
+    session.scope.simulation.drop_replies('motor', command='FULLINFO')
+    assert FirmwareDiagnostics(scope=session.scope).get_serial_number() == 'UNKNOWN'
+
+
+def test_a_lost_motor_board_is_written_in_the_refusals_words_and_the_report_goes_on(tmp_path):
+    # Each motor read is refused once the loss is found; the report writes
+    # the refusal where the reading would have gone, never a stand-in. The
+    # firmware tier: its board is lost as a cable pull loses it.
+    lost = ScopeSession.create(
+        complete_settings(
+            live_folder=str(tmp_path / 'live'), simulator_tier='firmware', microscope='LS850T'
+        ),
+        simulate=True,
+    )
+    try:
+        lost.scope.motion.home()
+        lost.scope.simulation.unplug('motor')
+        with pytest.raises(MoveFaultError):
+            lost.scope.motion.move_z(0.0)
+        report = TechSupportReport(lost)
+        report._step_firmware_info(tmp_path)
+    finally:
+        lost.shutdown()
+
+    words = MissingPart.MOTOR_CONTROLLER.sentence
+    for rel in ('firmware_info/motor_info.txt', 'firmware_info/motor_status.txt'):
+        text = (tmp_path / rel).read_text()
+        assert f'not read: {words}' in text, (rel, text)
+        assert 'Board not connected' not in text and ': None' not in text, (rel, text)
 
 
 def test_a_board_that_does_not_enter_engineering_mode_is_not_measured(session, monkeypatch):

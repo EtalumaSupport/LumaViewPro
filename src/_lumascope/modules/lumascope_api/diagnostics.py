@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from _lumascope.drivers.camera import CameraNodeHasNoValue, CameraNodeValue
-from _lumascope.drivers.exceptions import BoardNoReplyError, HardwareError
 from _lumascope.lvp_logger import log_dir, logger
 from _lumascope.modules.finite_number import refuse_outside, refuse_unless_wait_s
 from _lumascope.modules.api_surface import Admission, ProgressCallback, api, api_fields
@@ -51,10 +50,6 @@ _MOTOR_VERBS_ANYWHERE = ('ACTUAL_W', 'TARGET_W')
 # TMC5072 read half; bit 7 set is a register write) and a decimal payload.
 _SPI_READ = re.compile(r'SPI[A-Z]0X([0-7][0-9A-F])\d+')
 
-# What the diagnostics channel answers in place of a board's reply. They
-# come back as strings so a report can write them where the reply would
-# have gone; anything that times, parses or counts a reply tells them from
-# one with ``is_board_reply``.
 # What the camera benchmarks take: generous for any characterization, and
 # short of a lane wait the host cannot hold (a huge one overflowed it).
 _BENCHMARK_CYCLES = (1, 10_000)
@@ -229,11 +224,6 @@ class LedBoardInfo:
     command_set: LedCommandSet | None
 
 
-NOT_CONNECTED = 'Board not connected'
-NO_REPLY = 'None'  # a single-line read that timed out
-NO_RESPONSE = 'No response'  # a multi-line read that returned nothing
-ERROR_PREFIX = 'Error: '
-
 # What ``firmware_version`` names for a board that answered INFO with no
 # version string: the original firmware, which predates version numbers and
 # is told apart by its date. None is kept for a board that did not answer.
@@ -252,13 +242,6 @@ def _firmware_identity(driver) -> dict:
     if version is None and driver.firmware_responding:
         version = ORIGINAL_FIRMWARE
     return {'firmware_version': version, 'firmware_date': driver.firmware_date}
-
-
-def is_board_reply(response: str | list[str] | None) -> bool:
-    """True when ``response`` is a board's reply, not the channel's stand-in for one."""
-    if not response or response in (NOT_CONNECTED, NO_REPLY, NO_RESPONSE):
-        return False
-    return not (isinstance(response, str) and response.startswith(ERROR_PREFIX))
 
 
 def _refuse_motor_verb(command: str) -> None:
@@ -1108,38 +1091,33 @@ class DiagnosticsAPI:
                 driver's default.
 
         Returns:
-            str: Response from the board, ``'None'`` when it did not answer,
-                ``'Board not connected'`` with no board connected
-                (``_board_connected``), or ``'Error: <msg>'`` if its port
-                failed.
+            str: The board's reply, as it sent it: a firmware ``ERROR:``
+                line is a reply.
 
         Raises:
             ValueError: A motor command that moves, stops or repositions a
-                motor; the motion API carries those.
+                motor, which the motion API carries; or a target that is
+                neither ``'led'`` nor ``'motor'``. Nothing was sent.
             HardwareCommandRefusedError: a run, a diagnostic or a home holds the
-                scope and this call is not made under its taking; the
-                command is not sent. An exchange that fails once sent is
-                still answered with ``'Error: <msg>'``. Or
-                ``'not_on_this_scope'``, ``MissingPart.TEXT_COMMANDS``: the
-                board takes no text commands (a TMCM-6110, a Classic's FX2
-                LED controller); nothing is sent.
+                scope and this call is not made under its taking. Or the
+                board is not there, as every command for it is refused:
+                ``'not_connected'``, naming the motor or LED controller;
+                ``'axis_absent'``, ``MissingPart.MOTORS``, for a motor
+                command on a manual scope. Or ``'not_on_this_scope'``,
+                ``MissingPart.TEXT_COMMANDS``: the board takes no text
+                commands (a TMCM-6110, a Classic's FX2 LED controller).
+                Nothing was sent.
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
                 sent.
+            BoardNoReplyError: the board did not answer, or the port failed
+                after the command was sent.
+            BoardPortFailedError: the port is closed, or failed before the
+                command was sent.
         """
-        if isinstance(target, str) and target.lower() in ('motor', 'motion'):
-            _refuse_motor_verb(command)
         if timeout_s is not None:
             refuse_unless_wait_s(timeout_s, 'timeout_s')
-        try:
-            board = self._diagnostic_target_board(target)
-        except ValueError as e:
-            logger.warning(f'[SCOPE API ] send_diagnostic_command: {e}')
-            return f'{ERROR_PREFIX}{e}'
-
-        if not self._board_connected(board):
-            return NOT_CONNECTED
-        self._refuse_no_text_commands(board, 'send_diagnostic_command')
+        board = self._diagnostic_board(target, command, 'send_diagnostic_command')
 
         logger.debug(
             f'[SCOPE API ] send_diagnostic_command(target={target}, command={command!r}, '
@@ -1152,31 +1130,13 @@ class DiagnosticsAPI:
             # driver exchange_command keeps bare `timeout` (pyserial-shaped)
             kwargs['timeout'] = timeout_s
         return self._scope.motion._dispatch_motion(
-            self._exchange_command_impl,
+            board.exchange_command,
             'send_diagnostic_command',
-            args=(board, target, command),
+            args=(command,),
             kwargs=kwargs,
             timeout_s=(timeout_s or 0.0) + self._BOARD_QUEUE_MARGIN_S,
             slow_task_threshold_sec=timeout_s,
         )
-
-    @staticmethod
-    def _refuse_no_text_commands(board, member: str) -> None:
-        if not board.takes_text_commands:
-            part = MissingPart.TEXT_COMMANDS
-            raise HardwareCommandRefusedError(part.reason, member, missing=part)
-
-    @staticmethod
-    def _exchange_command_impl(board, target: str, command: str, **kwargs) -> str:
-        try:
-            return board.exchange_command(command, **kwargs)
-        except BoardNoReplyError:
-            return NO_REPLY
-        except HardwareError as e:
-            logger.warning(
-                f'[SCOPE API ] send_diagnostic_command({target}, {command!r}) failed: {e}'
-            )
-            return f'{ERROR_PREFIX}{e}'
 
     def send_diagnostic_command_multiline(
         self,
@@ -1199,35 +1159,26 @@ class DiagnosticsAPI:
                 ``['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']``.
 
         Returns:
-            Response (driver-defined; typically str or list[str]),
-            ``'No response'`` when the board did not answer, ``'Board not
-            connected'``, or ``'Error: <msg>'`` if its port failed.
+            The board's reply (driver-defined; typically str or list[str]),
+            as it sent it: a firmware ``ERROR:`` line is a reply.
 
         Raises:
             ValueError: A motor command that moves, stops or repositions a
-                motor; the motion API carries those.
-            HardwareCommandRefusedError: a run, a diagnostic or a home holds the
-                scope and this call is not made under its taking; the
-                command is not sent. An exchange that fails once sent is
-                still answered with ``'Error: <msg>'``. Or
-                ``'not_on_this_scope'``, ``MissingPart.TEXT_COMMANDS``: the
-                board takes no text commands; nothing is sent.
+                motor, which the motion API carries; or a target that is
+                neither ``'led'`` nor ``'motor'``. Nothing was sent.
+            HardwareCommandRefusedError: as ``send_diagnostic_command``: the
+                scope held by another activity, the board not there, or a
+                board that takes no text commands. Nothing was sent.
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
                 sent.
+            BoardNoReplyError: no line arrived, or the port failed after
+                the command was sent.
+            BoardPortFailedError: the port is closed, or failed before the
+                command was sent.
         """
-        if isinstance(target, str) and target.lower() in ('motor', 'motion'):
-            _refuse_motor_verb(command)
         refuse_unless_wait_s(timeout_s, 'timeout_s')
-        try:
-            board = self._diagnostic_target_board(target)
-        except ValueError as e:
-            logger.warning(f'[SCOPE API ] send_diagnostic_command_multiline: {e}')
-            return f'{ERROR_PREFIX}{e}'
-
-        if not self._board_connected(board):
-            return NOT_CONNECTED
-        self._refuse_no_text_commands(board, 'send_diagnostic_command_multiline')
+        board = self._diagnostic_board(target, command, 'send_diagnostic_command_multiline')
 
         if end_markers is None:
             end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
@@ -1237,30 +1188,20 @@ class DiagnosticsAPI:
             f'command={command!r}, timeout_s={timeout_s}, end_markers={end_markers})'
         )
         return self._scope.motion._dispatch_motion(
-            self._exchange_multiline_impl,
+            board.exchange_multiline,
             'send_diagnostic_command_multiline',
-            args=(board, target, command, timeout_s, end_markers),
+            args=(command,),
+            # driver exchange_multiline keeps bare `timeout` (pyserial-shaped)
+            kwargs={'timeout': timeout_s, 'end_markers': end_markers},
             timeout_s=timeout_s + self._BOARD_QUEUE_MARGIN_S,
             slow_task_threshold_sec=timeout_s,
         )
 
-    @staticmethod
-    def _exchange_multiline_impl(board, target, command, timeout_s, end_markers):
-        try:
-            # driver exchange_multiline keeps bare `timeout` (pyserial-shaped)
-            return board.exchange_multiline(command, timeout=timeout_s, end_markers=end_markers)
-        except BoardNoReplyError:
-            return NO_RESPONSE
-        except HardwareError as e:
-            logger.warning(
-                f'[SCOPE API ] send_diagnostic_command_multiline({target}, {command!r}) failed: {e}'
-            )
-            return f'{ERROR_PREFIX}{e}'
-
     # --- Motor driver / fan diagnostics ---
     # Each read returns parsed values or None when the firmware does not
     # support the command (legacy 2024-09-10 firmware did not include
-    # DRVSTAT_<axis> / FANSPEED / FAN). Per Eric: the driver
+    # DRVSTAT_<axis> / FANSPEED / FAN); a board that is not there is
+    # refused, as every motor command is, never a None. Per Eric: the driver
     # owns firmware-version gating; callers (TSR, future REST
     # diagnostic endpoint) read None as "INCONCLUSIVE -- firmware
     # does not support this probe." The fan setter differs on purpose: a
@@ -1272,7 +1213,7 @@ class DiagnosticsAPI:
         """Read TMC5072 DRV_STATUS register for an axis.
 
         Returns the raw register value as int (caller decodes bits),
-        or None when the firmware does not implement DRVSTAT_<axis>.
+        or None when the board's firmware does not offer DRVSTAT_<axis>.
 
         Args:
             axis: The axis whose driver chip to read.
@@ -1280,9 +1221,13 @@ class DiagnosticsAPI:
         Raises:
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name; nothing was read.
+            HardwareCommandRefusedError: ``'not_connected'`` (the motor
+                controller), or ``'axis_absent'``, ``MissingPart.MOTORS`` on
+                a manual scope; nothing was read.
         """
-        drv = getattr(self._scope, '_motion_driver', None)
-        if drv is None or not hasattr(drv, 'read_drv_status'):
+        self._scope.motion.refuse_absent('read_motor_drv_status')
+        drv = self._scope._motion_driver
+        if not hasattr(drv, 'read_drv_status'):
             return None
         return drv.read_drv_status(axis)
 
@@ -1290,14 +1235,17 @@ class DiagnosticsAPI:
     def read_motor_fan_rpm(self) -> int | None:
         """Read motor-board fan tachometer RPM.
 
-        Returns RPM as int (0 if no tach wire) or None when firmware
-        does not implement FANSPEED.
+        Returns RPM as int (0 if no tach wire) or None when the board's
+        firmware does not offer FANSPEED.
 
         Raises:
-            Nothing.
+            HardwareCommandRefusedError: ``'not_connected'`` (the motor
+                controller), or ``'axis_absent'``, ``MissingPart.MOTORS`` on
+                a manual scope; nothing was read.
         """
-        drv = getattr(self._scope, '_motion_driver', None)
-        if drv is None or not hasattr(drv, 'read_fanspeed'):
+        self._scope.motion.refuse_absent('read_motor_fan_rpm')
+        drv = self._scope._motion_driver
+        if not hasattr(drv, 'read_fanspeed'):
             return None
         return drv.read_fanspeed()
 
@@ -1619,28 +1567,31 @@ class DiagnosticsAPI:
             return f'dltl{round(value / 1_000_000)}M'
         return 'dltlunknown'
 
-    @staticmethod
-    def _board_connected(board) -> bool:
-        """Whether a diagnostic may reach ``board``: found at bring-up, and not lost since.
+    def _diagnostic_board(self, target: str, command: str, member: str):
+        """The driver board a diagnostic command for ``target`` goes to, once it may be sent.
 
-        A board lost mid-session stays lost until LumaViewPro restarts, as
-        every other command treats it, so a diagnostic is answered with the
-        loss rather than sent to a port that is closed.
-        """
-        return board is not None and getattr(board, 'found', False) and board.is_connected()
+        The board's presence is the question every command for it asks, in
+        the same words: a board lost mid-session stays lost until
+        LumaViewPro restarts, so the command is refused rather than sent to
+        a port that is closed.
 
-    def _diagnostic_target_board(self, target: str):
-        """Resolve a diagnostic-target string ('led' | 'motor') to a driver board.
-
-        Internal helper for ``send_diagnostic_command*``. Raises
-        ``ValueError`` for an unknown target so a typo in tech-support
-        code fails loudly rather than silently picking the wrong board.
+        Raises:
+            ValueError: a motor command that moves a motor, or a target
+                that is neither ``'led'`` nor ``'motor'``.
+            HardwareCommandRefusedError: the board is not there, or takes
+                no text commands.
         """
         target = target.lower() if isinstance(target, str) else target
         if target == 'led':
-            return self._scope._led_driver
-        if target in ('motor', 'motion'):
-            return self._scope._motion_driver
-        raise ValueError(
-            f"send_diagnostic_command: unknown target {target!r} (expected 'led' or 'motor')"
-        )
+            self._scope.illumination.refuse_controller_not_connected(member)
+            board = self._scope._led_driver
+        elif target in ('motor', 'motion'):
+            _refuse_motor_verb(command)
+            self._scope.motion.refuse_absent(member)
+            board = self._scope._motion_driver
+        else:
+            raise ValueError(f"{member}: unknown target {target!r} (expected 'led' or 'motor')")
+        if not board.takes_text_commands:
+            part = MissingPart.TEXT_COMMANDS
+            raise HardwareCommandRefusedError(part.reason, member, missing=part)
+        return board

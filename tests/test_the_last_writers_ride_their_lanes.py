@@ -128,7 +128,9 @@ def _spy(sc, slot, method):
         lanes.append(_lane_now())
         return real(*a, **k)
 
-    return patch.object(driver, method, side_effect=_record), lanes
+    # A plain function, not a mock: the lane reads the action's declared
+    # budget off it, and a mock answers every attribute.
+    return patch.object(driver, method, _record), lanes
 
 
 @pytest.mark.parametrize(

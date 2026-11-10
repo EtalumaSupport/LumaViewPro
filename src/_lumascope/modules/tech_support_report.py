@@ -56,11 +56,7 @@ from _lumascope.modules.exceptions import (
     SupportReportNotSavedError,
 )
 from _lumascope.modules.lumascope_api.bring_up import CAUSE_PHRASES
-from _lumascope.modules.lumascope_api.diagnostics import (
-    LedCommandSet,
-    NOT_CONNECTED,
-    is_board_reply,
-)
+from _lumascope.modules.lumascope_api.diagnostics import LedCommandSet
 from _lumascope.modules.path_utils import (
     CaptureLocationError,
     folder_to_make,
@@ -835,6 +831,20 @@ def _unread_text(unread: dict) -> str:
 
 
 @dataclasses.dataclass(frozen=True)
+class _NotRead:
+    """A board command the hardware did not answer, in its words.
+
+    A type of its own, never a string, so a step that times, parses or
+    counts a reply tells it from one by what it is.
+    """
+
+    words: str
+
+    def __str__(self) -> str:
+        return f'not read: {self.words}'
+
+
+@dataclasses.dataclass(frozen=True)
 class _SkippedStep:
     """Why the report's hardware steps did not run, and what that meant for each."""
 
@@ -842,12 +852,16 @@ class _SkippedStep:
     consequence: str
 
 
-def _camera_reading(read: Callable[[], object]) -> object:
-    """A camera read's answer, or ``'not read: '`` and the camera's words when
-    the camera did not answer it (``FirmwareDiagnostics._what_the_hardware_said``)."""
+def _hardware_reading(read: Callable[[], object]) -> object:
+    """One hardware read of a step: its answer, or ``_NotRead`` with the hardware's words.
+
+    The report's one catch for a read (``FirmwareDiagnostics._what_the_hardware_said``):
+    a board or camera that did not answer, is not there or cannot carry the
+    command is written in the report, never lost with the whole report.
+    """
     answer = []
     said = FirmwareDiagnostics._what_the_hardware_said(lambda: answer.append(read()))
-    return answer[0] if said is None else f'not read: {said}'
+    return answer[0] if said is None else _NotRead(said)
 
 
 class FirmwareDiagnostics:
@@ -1008,7 +1022,7 @@ class FirmwareDiagnostics:
             logger.error(f'[TSR] LED engineering mode exit failed: {failed}')
 
     def _cmd(self, target, command, timeout_s=None):
-        """Send command and return response string, or error string.
+        """Send command and return the board's reply, or ``_NotRead``.
 
         Args:
             target: 'led' or 'motor' (or, for backward compat, a board
@@ -1016,24 +1030,21 @@ class FirmwareDiagnostics:
                 target string by introspection).
             command: Firmware command string.
             timeout_s: Per-call serial timeout in seconds.
-
-        Returns:
-            str: Response, or the diagnostics channel's stand-in for one.
         """
         target_str = self._target_str(target)
-        if target_str is None:
-            return NOT_CONNECTED
-        return self._scope.diagnostics.send_diagnostic_command(
-            target_str, command, timeout_s=timeout_s
+        return _hardware_reading(
+            lambda: self._scope.diagnostics.send_diagnostic_command(
+                target_str, command, timeout_s=timeout_s
+            )
         )
 
     def _read_multiline(self, target, command, timeout_s=60, end_markers=None):
-        """Send command and read multi-line response (for SELFTEST etc.)."""
+        """Send command and read multi-line response (for SELFTEST etc.), or ``_NotRead``."""
         target_str = self._target_str(target)
-        if target_str is None:
-            return NOT_CONNECTED
-        return self._scope.diagnostics.send_diagnostic_command_multiline(
-            target_str, command, timeout_s=timeout_s, end_markers=end_markers
+        return _hardware_reading(
+            lambda: self._scope.diagnostics.send_diagnostic_command_multiline(
+                target_str, command, timeout_s=timeout_s, end_markers=end_markers
+            )
         )
 
     def _target_str(self, target):
@@ -1107,7 +1118,7 @@ class FirmwareDiagnostics:
         if self._no_motor_text() is not None:
             return self._scope.diagnostics.get_motor_info().serial_number or 'UNKNOWN'
         fullinfo = self.get_motor_fullinfo()
-        if not is_board_reply(fullinfo):
+        if isinstance(fullinfo, _NotRead):
             return 'UNKNOWN'
         text = str(fullinfo)
 
@@ -1168,7 +1179,10 @@ class FirmwareDiagnostics:
         no_text = self._no_motor_text()
         if no_text is not None:
             return {'not_applicable': no_text}
-        return {ax: self._scope.diagnostics.read_motor_drv_status(ax) for ax in 'XYZT'}
+        return {
+            ax: _hardware_reading(lambda ax=ax: self._scope.diagnostics.read_motor_drv_status(ax))
+            for ax in 'XYZT'
+        }
 
     def get_motor_positions_all(self) -> dict:
         """Actual/target/status for all 4 axes.
@@ -1196,7 +1210,7 @@ class FirmwareDiagnostics:
         """
         if not self._scope:
             return None
-        rpm = self._scope.diagnostics.read_motor_fan_rpm()
+        rpm = _hardware_reading(self._scope.diagnostics.read_motor_fan_rpm)
         if rpm is None and self._no_motor_text() is not None:
             return 'Not applicable: this motor board reports no fan speed'
         return rpm
@@ -1264,9 +1278,9 @@ class FirmwareDiagnostics:
     ) -> dict:
         """Send a command N times and measure round-trip latency.
 
-        Only a board's reply is timed: the channel answers at once when no
-        board is there or a read times out, and timing that answer would
-        report a fast link that never carried a byte.
+        Only a board's reply is timed: a command refused with no board
+        there, or a read that timed out, would report a fast link that
+        never carried a byte.
 
         Returns dict with min/max/mean/std_dev in milliseconds, plus
         the raw timings list.
@@ -1277,10 +1291,10 @@ class FirmwareDiagnostics:
             t0 = time.monotonic()
             resp = self._cmd(target, command)
             t1 = time.monotonic()
-            if is_board_reply(resp):
-                timings.append((t1 - t0) * 1000)  # ms
-            else:
+            if isinstance(resp, _NotRead):
                 errors += 1
+            else:
+                timings.append((t1 - t0) * 1000)  # ms
         if not timings:
             return {'error': f'All {iterations} calls failed', 'errors': errors}
         return {
@@ -1397,7 +1411,9 @@ class FirmwareDiagnostics:
         if failed is not None:
             return {**results, 'supported': False, 'error': failed}
         time.sleep(spin['spin_up_s'])
-        rpm_50 = fan.read_motor_fan_rpm()
+        rpm_50 = _hardware_reading(fan.read_motor_fan_rpm)
+        if isinstance(rpm_50, _NotRead):
+            return {**results, 'supported': False, 'error': rpm_50.words}
 
         has_tach = rpm_50 is not None and rpm_50 > 100
         results['tests'].append(
@@ -1413,7 +1429,9 @@ class FirmwareDiagnostics:
         if failed is not None:
             return {**results, 'supported': False, 'error': failed}
         time.sleep(spin['spin_down_s'])
-        rpm_off = fan.read_motor_fan_rpm()
+        rpm_off = _hardware_reading(fan.read_motor_fan_rpm)
+        if isinstance(rpm_off, _NotRead):
+            return {**results, 'supported': False, 'error': rpm_off.words}
 
         results['tests'].append(
             {
@@ -1717,7 +1735,9 @@ class TechSupportReport:
             positions = self.diag.get_motor_positions_all()
             drvstat = self.diag.get_driver_status_all()
             with open(d / 'motor_status.txt', 'w', encoding='utf-8') as f:
-                _write_axis_section(f, 'Motor Positions', positions, json.dumps)
+                _write_axis_section(
+                    f, 'Motor Positions', positions, lambda v: json.dumps(v, default=str)
+                )
                 _write_axis_section(f, '\nTMC5072 Driver Status', drvstat)
             fan = self.diag.get_fan_status()
 
@@ -2157,15 +2177,15 @@ class TechSupportReport:
         # always had.
         info: dict = {
             'model': capabilities.camera_model,
-            'resolution': _camera_reading(frame_size),
-            'pixel_format': _camera_reading(camera.read_pixel_format),
-            'gain_db': _camera_reading(camera.read_gain_db),
-            'exposure_ms': _camera_reading(camera.read_exposure_ms),
+            'resolution': _hardware_reading(frame_size),
+            'pixel_format': _hardware_reading(camera.read_pixel_format),
+            'gain_db': _hardware_reading(camera.read_gain_db),
+            'exposure_ms': _hardware_reading(camera.read_exposure_ms),
             'max_gain_db': limits.gain_max_db if limits else None,
             'max_exposure_ms': limits.exposure_max_ms if limits else None,
         }
-        temperatures = _camera_reading(self.scope.diagnostics.get_camera_temperatures_degc)
-        if isinstance(temperatures, str):
+        temperatures = _hardware_reading(self.scope.diagnostics.get_camera_temperatures_degc)
+        if isinstance(temperatures, _NotRead):
             info['Temperatures'] = temperatures
         else:
             for name, temp_c in (temperatures or {}).items():

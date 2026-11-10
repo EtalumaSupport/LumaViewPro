@@ -185,7 +185,9 @@ def test_a_lost_board_stays_lost_through_a_replug_and_a_diagnostic(scope, board)
         finds_it(scope)
     scope.simulation.replug(board)
 
-    assert scope.diagnostics.send_diagnostic_command(board, 'INFO') == 'Board not connected'
+    with pytest.raises(HardwareCommandRefusedError) as diagnostic:
+        scope.diagnostics.send_diagnostic_command(board, 'INFO')
+    assert diagnostic.value.reason == 'not_connected'
     assert connected(scope) is False
     with pytest.raises(HardwareCommandRefusedError) as refused:
         finds_it(scope)

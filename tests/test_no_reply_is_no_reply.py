@@ -21,7 +21,6 @@ from _lumascope.drivers.ledboard import LEDBoard
 from _lumascope.drivers.motorboard import MotorBoard
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.drivers.sim_wire.backend import LedBoardSpec, MotorBoardSpec, SimWireBackend
-from _lumascope.modules.lumascope_api.diagnostics import NO_REPLY, DiagnosticsAPI
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tools import firmware_tools
 
@@ -136,13 +135,6 @@ def test_a_version_query_on_a_closed_port_is_the_port_s_failure(motor):
     board._close_driver()
     with pytest.raises(BoardPortFailedError, match=r'^INFO: the port is closed$'):
         board.detect_firmware_version()
-
-
-@pytest.mark.slow
-def test_a_diagnostic_command_with_no_reply_is_no_reply(motor):
-    board, sim = motor
-    sim.drop_next_reply()
-    assert DiagnosticsAPI._exchange_command_impl(board, 'motor', 'ACTUAL_RZ') == NO_REPLY
 
 
 @pytest.mark.slow
