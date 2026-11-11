@@ -27,6 +27,8 @@ import sys
 
 import pytest
 
+from _lumascope.lvp_logger import LOG_CAPS
+
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
 # Spelled here, not read from _lumascope.modules.log_stamp, so a wrong date format there
@@ -89,7 +91,7 @@ def test_every_log_starts_its_record_with_the_full_date_and_time(probe_lines):
         if not stamped or abs((now - stamped).total_seconds()) > 60:
             wrong[name] = lines
 
-    assert len(probe_lines) == 10
+    assert set(probe_lines) == set(LOG_CAPS)
     assert not wrong, f'a log whose record does not start with the date and time: {wrong}'
 
 
