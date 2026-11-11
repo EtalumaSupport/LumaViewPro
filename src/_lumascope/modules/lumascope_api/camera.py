@@ -157,10 +157,12 @@ class _AutoGainArm:
     ceiling_ms: float | None
 
 
-@api_fields('auto_gain', 'auto_gain_settings', 'exposure_ms', 'gain_db')
 @dataclasses.dataclass(frozen=True)
 class ChannelCameraRequest:
     """A channel's stored camera settings, read from its store, for the camera to take.
+
+    Built only by ``CameraAPI._channel_request``, from the channel alone, so
+    no caller hands the camera settings the channel does not have stored.
 
     Attributes:
         gain_db: The channel's stored gain, in dB.
@@ -175,22 +177,6 @@ class ChannelCameraRequest:
     exposure_ms: float
     auto_gain: bool
     auto_gain_settings: dict
-
-
-@api_fields('channel', 'request')
-@dataclasses.dataclass(frozen=True)
-class ChannelHold:
-    """A channel and its stored camera settings, for a capture to hold: the pair
-    ``CameraAPI.hold_channel`` takes, in one value so neither travels without
-    the other. The Session reads ``request`` from the channel's store.
-
-    Attributes:
-        channel: The channel's key.
-        request: The channel's stored camera settings.
-    """
-
-    channel: str
-    request: ChannelCameraRequest
 
 
 @dataclasses.dataclass(frozen=True)
@@ -4131,23 +4117,66 @@ class CameraAPI:
                 self._report_refused_write(rejected)
 
     # --- Camera config orchestration ---
-    def hold_channel(self, channel: str, request: ChannelCameraRequest) -> dict | None:
+    def hold_channel(self, channel: str) -> dict | None:
         """Put ``channel``'s stored settings on the camera unless it holds them, and wait.
 
         See ``_hold_channel_impl``; this adds the dispatch described on
-        ``_dispatch_camera``. In-process only: the Session reads the channel's
-        store and hands it in.
+        ``_dispatch_camera``. The settings are the channel's stored ones,
+        read here (``_channel_request``), never a caller's.
+
+        Raises:
+            As ``_channel_request`` says, before anything is written; then
+            as ``_hold_channel_impl`` says.
         """
-        # Judged only for a channel that arms auto-gain, as ``apply`` judges it:
-        # a channel with auto-gain off never hands the camera these settings.
-        if request.auto_gain:
-            _refuse_unless_auto_gain_settings(request.auto_gain_settings, 'auto_gain_settings')
+        request = self._channel_request(channel, 'hold_channel')
         return self._dispatch_camera(
             self._hold_channel_impl,
             'hold_channel',
             args=(channel, request),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+
+    def _channel_request(self, channel: str, member: str) -> ChannelCameraRequest:
+        """``channel``'s stored gain, exposure and auto-gain, with the auto-gain
+        bounds its channel class and the installation's override give it.
+
+        The one builder of a hold's request, on the calling thread. The
+        channel's block is read in one call, so its gain, exposure and
+        auto-gain come from one moment; the bounds are judged only for a
+        channel that arms auto-gain, as ``apply`` judges them: a channel with
+        auto-gain off never hands the camera these settings.
+
+        Raises:
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is no
+                channel; or the stored bounds, read under
+                ``protocol.autogain``, are ones the arm cannot read
+                (``_refuse_unless_auto_gain_settings``).
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope
+                has no ``channel``, naming ``member``.
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's
+                channels could not be resolved.
+        """
+        import _lumascope.modules.config_helpers as config_helpers
+
+        scope = self._scope
+        scope.channel_identity.refuse_unless_on_scope(channel, member, then='be held')
+        stored = scope.read_setting(channel)
+        auto_gain_settings = scope.read_setting('protocol.autogain')
+        auto_gain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
+            channel, scope.read_setting('ag_ae_max_exposure_ms')
+        )
+        # The floor rides beside the ceiling so an auto-gain lock can say
+        # whether exposure bottomed out of the usable range (AT_MINIMUM).
+        auto_gain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(channel)
+        request = ChannelCameraRequest(
+            gain_db=stored['gain_db'],
+            exposure_ms=stored['exposure_ms'],
+            auto_gain=stored['auto_gain'],
+            auto_gain_settings=auto_gain_settings,
+        )
+        if request.auto_gain:
+            _refuse_unless_auto_gain_settings(request.auto_gain_settings, 'protocol.autogain')
+        return request
 
     def get_held_channel(self) -> str | None:
         """The channel whose stored settings the camera holds, read from the record.

@@ -31,7 +31,6 @@ from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.image_save import save_image
 from _lumascope.modules.image_utils import ImageStatistics
 from _lumascope.modules.channel_record import ChannelColors
-from _lumascope.modules.lumascope_api.camera import ChannelCameraRequest
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill, FrameRecord
 from _lumascope.modules.lumascope_api.illumination import lit_other_than
 from _lumascope.modules.recording_frames import frame_fact
@@ -114,8 +113,6 @@ class ManualCaptureController:
         shown_channel: Reads the session's shown channel, on the camera
             lane as the frame is taken: it is the still's channel when no
             LED is lit.
-        channel_camera_request: Reads a channel's stored camera settings from
-            the session's store, on the camera lane, for the camera to hold.
         engineering_mode: Reads the session's engineering mode, once per
             capture, when the capture is asked for: a plugin may turn it on
             after the controller is built.
@@ -131,7 +128,6 @@ class ManualCaptureController:
         scope: Any,
         settings_snapshot: Callable[[], dict],
         shown_channel: Callable[[], str],
-        channel_camera_request: Callable[[str], ChannelCameraRequest],
         engineering_mode: Callable[[], bool],
         channel_colors: Callable[[], ChannelColors],
         on_saved: Callable[[pathlib.Path], None],
@@ -140,7 +136,6 @@ class ManualCaptureController:
         self._scope = scope
         self._settings_snapshot = settings_snapshot
         self._shown_channel = shown_channel
-        self._channel_camera_request = channel_camera_request
         self._engineering_mode = engineering_mode
         self._channel_colors = channel_colors
         # Held from the call until the camera-lane body has finished, so a
@@ -322,7 +317,6 @@ class ManualCaptureController:
             # the still it waits for.
             still = scope.imaging.capture_holding_channel_on_lane(
                 channel,
-                self._channel_camera_request(channel),
                 _MEMBER,
                 force_to_8bit=capture_config.capture_depth == 8,
                 all_ones_check=True,

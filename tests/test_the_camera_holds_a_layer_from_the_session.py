@@ -20,7 +20,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from _lumascope.modules.acquire_mode import AcquireMode
-from _lumascope.modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    CameraSettingRejected,
+    HardwareCommandRefusedError,
+)
 from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import channel_reading, home_sim_scope
@@ -209,6 +213,38 @@ class TestTheMember:
         assert refused.value.reason == 'not_on_this_scope'
         assert _camera(session) == before
 
+    def test_no_door_below_the_session_holds_a_channel_the_scope_lacks(self, session):
+        """The hold is built from the channel alone, and the channel is checked first.
+
+        Each door below the Session once took a caller-built hold, so a hold
+        for no channel at a gain nobody stored was recorded as held.
+        """
+        camera = session.scope.camera
+        session.apply_channel_camera(LED0)
+        doors = {
+            'camera.hold_channel': camera.hold_channel,
+            'imaging.capture_still': lambda channel: session.scope.imaging.capture_still(
+                channel, timeout_s=5.0
+            ),
+        }
+        heard = {}
+        for door, call in doors.items():
+            for channel in ('Nonsense', 'Lumi'):
+                try:
+                    call(channel)
+                except (ArgumentRefusedError, HardwareCommandRefusedError) as refused:
+                    heard[door, channel] = refused.reason
+                else:
+                    heard[door, channel] = 'taken'
+
+        assert heard == {
+            (door, channel): reason
+            for door in doors
+            for channel, reason in (('Nonsense', 'channel_unknown'), ('Lumi', 'not_on_this_scope'))
+        }
+        assert camera.get_held_channel() == LED0
+        assert _camera(session) == (_BLUE['exposure_ms'], _BLUE['gain_db'])
+
     def test_a_held_scope_refuses_the_apply(self, session):
         before = _camera(session)
         held = session._activity_claim.try_claim('diagnostic')
@@ -222,7 +258,10 @@ class TestTheMember:
     def test_the_auto_gain_cap_carries_the_installations_override(self, session, monkeypatch):
         session.update_settings('ag_ae_max_exposure_ms.fluorescence', 123.0)
         applied = MagicMock(return_value=None)
-        monkeypatch.setattr(session.scope.camera, 'hold_channel', applied)
+        # a stand-in by design: the simulated camera accepts the auto-exposure
+        # ceiling for interface parity and keeps none, so the request is read
+        # where the camera takes it
+        monkeypatch.setattr(session.scope.camera, '_hold_channel_impl', applied)
 
         session.apply_channel_camera(LED0)
 

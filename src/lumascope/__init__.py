@@ -289,8 +289,6 @@ from _lumascope.modules.lumascope_api.camera import (
     AutoGainLock,
     CameraAPI,
     CameraAutoMode,
-    ChannelCameraRequest,
-    ChannelHold,
     ExposureChanged,
     GainChanged,
 )
@@ -593,8 +591,6 @@ __all__ = [
     'Change',
     'ChannelBlockSupersededNotice',
     'ChannelBlockUnusableNotice',
-    'ChannelCameraRequest',
-    'ChannelHold',
     'ChannelIdentity',
     'ChannelRecord',
     'ChannelRowsSkippedNotice',

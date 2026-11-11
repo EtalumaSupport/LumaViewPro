@@ -104,7 +104,7 @@ from _lumascope.modules.lumascope_api.illumination import (
 from _lumascope.modules.lumascope_api.motion import HomeTarget
 from _lumascope.modules.finite_number import refuse_unless_wait_s
 from _lumascope.modules.frame_validity import FrameValiditySource
-from _lumascope.modules.lumascope_api.camera import CameraAPI, ChannelCameraRequest, ChannelHold
+from _lumascope.modules.lumascope_api.camera import CameraAPI
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from _lumascope.modules.lumascope_api.runtime_state import slots_holding
 from _lumascope.modules.manual_capture import ManualCaptureController
@@ -885,7 +885,6 @@ class ScopeSession:
             scope=scope,
             settings_snapshot=self.get_settings_snapshot,
             shown_channel=lambda: self._shown_channel,
-            channel_camera_request=self._channel_camera_request,
             engineering_mode=lambda: self.engineering_mode,
             channel_colors=self.channel_colors,
             on_saved=self._saved,
@@ -2917,10 +2916,7 @@ class ScopeSession:
         """
         if not self.scope.camera_connected:
             return None
-        self.scope.channel_identity.refuse_unless_on_scope(
-            channel, 'apply_channel_camera', then='be applied to the camera'
-        )
-        return self.scope.camera.hold_channel(channel, self._channel_camera_request(channel))
+        return self.scope.camera.hold_channel(channel)
 
     @api(in_process=True)
     def capture_still(
@@ -3014,16 +3010,16 @@ class ScopeSession:
         """
         for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
             refuse_unless_wait_s(value, name)
-        hold = None
         if channel is not None:
+            # Asked before the shown channel, which is always on this scope, so
+            # a channel that is not is told so rather than that it is not shown.
             self.scope.channel_identity.refuse_unless_on_scope(
                 channel, 'capture_still', then='be captured'
             )
             if channel != self._shown_channel:
                 raise HardwareCommandRefusedError('channel_not_shown', 'capture_still')
-            hold = ChannelHold(channel=channel, request=self._channel_camera_request(channel))
         still = self.scope.imaging.capture_still(
-            hold,
+            channel,
             force_to_8bit=force_to_8bit,
             accept_dark=accept_dark,
             exclude_sources=exclude_sources,
@@ -3039,31 +3035,6 @@ class ScopeSession:
         ):
             raise HardwareCommandRefusedError('other_led_lit', 'capture_still')
         return still
-
-    def _channel_camera_request(self, channel: str) -> ChannelCameraRequest:
-        """``channel``'s stored gain, exposure and auto-gain, with the auto-gain
-        bounds its channel class and the installation's override give it."""
-        import _lumascope.modules.config_helpers as config_helpers
-
-        with self.settings_lock:
-            stored = self._settings[channel]
-            gain_db = stored['gain_db']
-            exposure_ms = stored['exposure_ms']
-            auto_gain = stored['auto_gain']
-            auto_gain_settings = config_helpers.get_auto_gain_settings(self._settings)
-            ceilings = copy.deepcopy(self._settings['ag_ae_max_exposure_ms'])
-        auto_gain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
-            channel, ceilings
-        )
-        # The floor rides beside the ceiling so an auto-gain lock can say
-        # whether exposure bottomed out of the usable range (AT_MINIMUM).
-        auto_gain_settings['min_exposure_ms'] = config_helpers.get_ag_ae_min_exposure_ms(channel)
-        return ChannelCameraRequest(
-            gain_db=gain_db,
-            exposure_ms=exposure_ms,
-            auto_gain=auto_gain,
-            auto_gain_settings=auto_gain_settings,
-        )
 
     @api
     def new_protocol(

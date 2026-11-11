@@ -45,9 +45,7 @@ from _lumascope.modules.lumascope_api.camera import (
     AutoGainConvergence,
     AutoGainLock,
     ChannelCameraRequest,
-    ChannelHold,
     _camera_not_connected,
-    _refuse_unless_auto_gain_settings,
 )
 from _lumascope.modules.lumascope_api.frame_record import (
     BLOWN_FRACTION,
@@ -1303,7 +1301,7 @@ class ImagingAPI:
         )
 
     def capture_holding_channel_on_lane(
-        self, channel: str, request: ChannelCameraRequest, member: str, **capture
+        self, channel: str, member: str, **capture
     ) -> CapturedStill:
         """``_capture_still_impl``, with the camera holding ``channel``'s stored settings.
 
@@ -1312,8 +1310,23 @@ class ImagingAPI:
         the camera's hold for a capture (``CameraAPI._hold_channel_for_capture``)
         runs inline, as the capture body does, so neither is admitted again
         against whatever holds the scope now. ``capture`` is the capture
-        body's keyword arguments. A frame named and set for ``channel`` is lit
-        by no other LED, so another one lit refuses it before the hold.
+        body's keyword arguments. The settings held are the channel's stored
+        ones (``CameraAPI._channel_request``), never a caller's.
+
+        Raises:
+            As ``CameraAPI._channel_request`` says, and as
+            ``_capture_holding`` says.
+        """
+        request = self._camera._channel_request(channel, member)
+        return self._capture_holding(channel, request, member, **capture)
+
+    def _capture_holding(
+        self, channel: str, request: ChannelCameraRequest, member: str, **capture
+    ) -> CapturedStill:
+        """The capture with the camera holding ``request``, built from ``channel``'s store.
+
+        A frame named and set for ``channel`` is lit by no other LED, so
+        another one lit refuses it before the hold.
 
         Raises:
             HardwareCommandRefusedError: ``'other_led_lit'``, an LED other
@@ -1510,7 +1523,7 @@ class ImagingAPI:
     @api(in_process=True, engineering=True)
     def capture_still(
         self,
-        hold: ChannelHold | None = None,
+        channel: str | None = None,
         *,
         force_to_8bit: bool = True,
         accept_dark: bool = False,
@@ -1537,16 +1550,14 @@ class ImagingAPI:
         image (``CapturedStill``), so the record is the frame's and no later
         capture's; a caller that needs only the pixels reads ``.image``.
 
-        Given ``hold``, the camera holds that channel's stored settings for the
-        grab (``CameraAPI.hold_channel``), in the same camera-lane task; given
-        None, it captures with the camera as set. In-process only, as
-        ``hold_channel`` is: the Session reads the channel's store and hands it
-        in (``ScopeSession.capture_still``), so a still is held at no
-        settings but its channel's.
+        Given ``channel``, the camera holds that channel's stored settings for
+        the grab, read from its store (``CameraAPI.hold_channel``), in the same
+        camera-lane task, so a still is held at no settings but its channel's;
+        given None, it captures with the camera as set.
 
         Args:
-            hold: The channel whose stored settings the camera holds for the
-                grab, or None for the camera as set.
+            channel: The channel whose stored settings the camera holds for
+                the grab, or None for the camera as set.
             force_to_8bit: True for an 8-bit image; False for the camera's
                 own depth, in a uint16 array for a 12- or 16-bit camera.
             accept_dark: While a channel is lit (at a current above 0 mA), a
@@ -1602,11 +1613,18 @@ class ImagingAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming this
                 member, with no camera at the call or removed during the
                 capture; ``'camera_not_streaming'``, connected but not
-                grabbing; or, given ``hold``, a run, a diagnostic or a home
-                holds the scope, or ``'other_led_lit'``, an LED other than its
+                grabbing; or, given ``channel``, ``'not_on_this_scope'``, this
+                scope has no ``channel``, a run, a diagnostic or a home holds
+                the scope, or ``'other_led_lit'``, an LED other than its
                 channel's is lit.
-            CameraSettingRejected: given ``hold``, the camera did not take one
-                of its settings (its ``reason`` says how); nothing was
+            ArgumentRefusedError: given ``channel``, ``'channel_unknown'``,
+                ``channel`` is no channel; or its stored auto-gain bounds are
+                ones the arm cannot read. Nothing reached the camera.
+            ConfigurationDefectError: given ``channel``,
+                ``'channels_unresolved'``, this scope's channels could not be
+                resolved. Nothing reached the camera.
+            CameraSettingRejected: given ``channel``, the camera did not take
+                one of its settings (its ``reason`` says how); nothing was
                 captured.
         """
         wait_s = self._capture_wait_s(
@@ -1627,20 +1645,19 @@ class ImagingAPI:
             'sum_iteration_callback': sum_iteration_callback,
             'exposed_after_call': exposed_after_call,
         }
-        if hold is None:
+        if channel is None:
             return self._camera._dispatch_camera(
                 self._capture_still_impl,
                 'capture_still',
                 kwargs={'member': 'capture_still', **capture},
                 timeout_s=wait_s,
             )
-        if hold.request.auto_gain:
-            _refuse_unless_auto_gain_settings(hold.request.auto_gain_settings, 'hold')
+        request = self._camera._channel_request(channel, 'capture_still')
         # The hold's writes run in the same task, ahead of the capture.
         return self._camera._dispatch_camera(
-            self.capture_holding_channel_on_lane,
+            self._capture_holding,
             'capture_still',
-            args=(hold.channel, hold.request, 'capture_still'),
+            args=(channel, request, 'capture_still'),
             kwargs=capture,
             timeout_s=wait_s + self._camera._CAMERA_WRITE_TIMEOUT_S,
         )

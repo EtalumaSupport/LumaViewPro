@@ -44,8 +44,6 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`CellCountSizeScale`](#CellCountSizeScale)
 - [`CellCounts`](#CellCounts)
 - [`Change`](#Change)
-- [`ChannelCameraRequest`](#ChannelCameraRequest)
-- [`ChannelHold`](#ChannelHold)
 - [`ChannelIdentity`](#ChannelIdentity)
 - [`ChannelRecord`](#ChannelRecord)
 - [`ChannelSettings`](#ChannelSettings)
@@ -3975,7 +3973,6 @@ One still at a time, captured on the camera lane and saved.
 - `scope`: The Lumascope instance.
 - `settings_snapshot`: Returns a private copy of the session's settings; one is taken per capture, when the capture is asked for.
 - `shown_channel`: Reads the session's shown channel, on the camera lane as the frame is taken: it is the still's channel when no LED is lit.
-- `channel_camera_request`: Reads a channel's stored camera settings from the session's store, on the camera lane, for the camera to hold.
 - `engineering_mode`: Reads the session's engineering mode, once per capture, when the capture is asked for: a plugin may turn it on after the controller is built.
 - `channel_colors`: Reads every channel's colour, from the Session's one read of it, once per capture, when the capture is asked for.
 - `on_saved`: Told the folder of each still once its files are on disk, on the camera lane, before the caller is answered.
@@ -9894,35 +9891,6 @@ long after the change its frame came.
 - <a id="Change.skip"></a>`skip`: `int` -- The frames the change needed, its rule's count when it was recorded.
 - <a id="Change.source"></a>`source`: `FrameValiditySource` -- What changed.
 - <a id="Change.written_ns"></a>`written_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) when the change was recorded. Every recorder calls `invalidate` after a camera register or LED write returns, and before a move starts.
-
-<a id="ChannelCameraRequest"></a>
-## `lumascope.ChannelCameraRequest`
-
-A record: it crosses the wire as its data.  
-Held in: [`ChannelHold.request`](#ChannelHold.request).
-
-A channel's stored camera settings, read from its store, for the camera to take.
-
-**Fields**
-
-- <a id="ChannelCameraRequest.auto_gain"></a>`auto_gain`: `bool` -- Whether the channel's gain is set by auto-gain.
-- <a id="ChannelCameraRequest.auto_gain_settings"></a>`auto_gain_settings`: `dict` -- The auto-gain bounds the channel's class and the installation's override give it, with its exposure ceiling and floor.
-- <a id="ChannelCameraRequest.exposure_ms"></a>`exposure_ms`: `float` -- The channel's stored exposure, in ms.
-- <a id="ChannelCameraRequest.gain_db"></a>`gain_db`: `float` -- The channel's stored gain, in dB.
-
-<a id="ChannelHold"></a>
-## `lumascope.ChannelHold`
-
-A record: it crosses the wire as its data.
-
-A channel and its stored camera settings, for a capture to hold: the pair
-`CameraAPI.hold_channel` takes, in one value so neither travels without
-the other. The Session reads `request` from the channel's store.
-
-**Fields**
-
-- <a id="ChannelHold.channel"></a>`channel`: `str` -- The channel's key.
-- <a id="ChannelHold.request"></a>`request`: `ChannelCameraRequest` -- The channel's stored camera settings.
 
 <a id="ChannelIdentity"></a>
 ## `lumascope.ChannelIdentity`
