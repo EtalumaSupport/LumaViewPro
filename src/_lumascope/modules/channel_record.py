@@ -1151,16 +1151,13 @@ def resolve_channel_identity(
     models: Mapping[str, ScopeModel],
     catalogue: tuple[CatalogueChannel, ...],
     report: Callable[[Notice], None],
-    override_model: str | None = None,
 ) -> ChannelIdentity:
     """Resolve the unit's channel identity from the first authoritative source.
 
-    Precedence: an explicit `override_model` (a lab/engineering request
-    to impersonate a model for this session -- it wins over everything,
-    loudly, and is never persisted); else the unit's own motorconfig
-    Channels block with its Filterset, taken WHOLE (a block describes one
-    physical filterset assembly, so merging it field-by-field with model
-    data could describe hardware that does not exist); else the model's
+    Precedence: the unit's own motorconfig Channels block with its
+    Filterset, taken WHOLE (a block describes one physical filterset
+    assembly, so merging it field-by-field with model data could describe
+    hardware that does not exist); else the model's
     `scopes.json` rows, with the motor-reported model outranking the
     configured one because hardware truth beats a user selection; else,
     for a model the catalogue does not list, the stock optics module's
@@ -1186,8 +1183,7 @@ def resolve_channel_identity(
     ``motor_model`` is the name the board gives as its own, None where the
     scope has no board to name one (``ChannelIdentity.model_named_by_board``).
     """
-    # Decided here, where the board's name is weighed against the selection;
-    # an override impersonates a model and leaves this fact about the board.
+    # Decided here, where the board's name is weighed against the selection.
     named_by_board = bool(motor_model)
 
     def _from_model(model: str) -> ChannelIdentity:
@@ -1207,19 +1203,6 @@ def resolve_channel_identity(
             model=model,
             model_named_by_board=named_by_board,
         )
-
-    if override_model is not None:
-        logger.warning(
-            f'[CHANNEL_RECORD] identity override active: resolving as model '
-            f'{override_model!r} for this session'
-        )
-        identity = _from_model(override_model)
-        if identity.source == IdentitySource.UNRESOLVED:
-            logger.error(
-                f'[CHANNEL_RECORD] override model {override_model!r} has no scopes '
-                f'entry; identity is unresolved'
-            )
-        return identity
 
     # The configured model is consulted only when the hardware reports no
     # model at all. A motor-reported model with no scopes entry is an OEM

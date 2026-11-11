@@ -14347,18 +14347,22 @@ A refusal; bases `Refusal`, `RuntimeError`.
 A start a session makes once was asked of a session that has made it.
 
 A host's lifecycle call, refused before anything is started twice: a
-second plugin load would register every plugin again, and a second
+second plugin load would register every plugin again, a second
 metrics start would orphan the first schedule as untracked,
-forever-ticking events. Still a `RuntimeError`, as it was documented.
+forever-ticking events, and a scope's composition wiring, given again,
+would point it at a claim or settings its session does not hold. Still
+a `RuntimeError`, as it was documented.
 
 **Attributes**
 
-- `reason`: `'plugins_loaded'` -- this session already loaded its plugins; it never loads them again. `'metrics_running'` -- metrics are already running; `disable_metrics` lets them start again.
+- `reason`: `'plugins_loaded'` -- this session already loaded its plugins; it never loads them again. `'metrics_running'` -- metrics are already running; `disable_metrics` lets them start again. `'scope_composed'` -- this scope already has its session's activity claim or settings; it is given them once. `'bring_up_ended'` -- this scope's session has ended its bring-up; it is not configured again, and no write is made as bring-up's.
 
 | Reason | Cause | REST status |
 |---|---|---|
+| `bring_up_ended` | request | 422 |
 | `metrics_running` | state | 409 |
 | `plugins_loaded` | request | 422 |
+| `scope_composed` | request | 422 |
 
 <a id="ArgumentRefusedError"></a>
 ### `lumascope.ArgumentRefusedError`

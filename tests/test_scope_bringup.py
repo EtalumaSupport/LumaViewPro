@@ -21,7 +21,6 @@ from tests.settings_fixtures import complete_settings
 
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import (
-    bind_settings_like_a_session,
     build_scope,
     real_executor_bundle,
     spec_scope,
@@ -61,8 +60,8 @@ def _teardown_live_rigs():
 
 
 def _real_scope():
+    """A simulated scope no session has composed yet: the session binds it."""
     scope = build_scope(simulate=True)
-    bind_settings_like_a_session(scope)
     _LIVE.append(('scope', scope))
     return scope
 

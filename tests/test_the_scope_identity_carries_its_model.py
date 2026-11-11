@@ -14,6 +14,8 @@ The model lives on the identity, every reader takes it from there, and a new
 selection is saved for the next start without touching the running scope.
 """
 
+import ast
+
 import pytest
 
 from _lumascope.modules import channel_record
@@ -39,9 +41,6 @@ def _resolve(**kwargs):
 
 
 class TestEveryRungCarriesTheModel:
-    def test_the_override_rung(self):
-        assert _resolve(motor_model='LS850T', override_model='LS560').model == 'LS560'
-
     def test_the_board_block_rung_carries_the_boards_model(self):
         block = {'Channels': {}, 'Filterset': ''}
         assert _resolve(board_block=block, motor_model='LS850T').model == 'LS850T'
@@ -134,11 +133,31 @@ class TestAModelSelectionAppliesAtTheNextStart:
 
 
 class TestNothingReselectsARunningScope:
-    def test_a_running_scope_cannot_be_re_resolved_as_a_selected_model(self, ls620_session):
-        # Re-resolving the layers for a new selection is what split one scope
-        # into two models; the override stays for tests.
-        with pytest.raises(TypeError):
-            ls620_session.scope.refresh_channel_identity(configured_model='LS560')
+    def test_a_scopes_channels_are_resolved_only_when_it_is_built(self):
+        # Re-resolving the layers of a running scope is what split one scope
+        # into two models: its capabilities are fixed when it is built, so
+        # its channel identity is written there and nowhere else.
+        from tests.ast_seams import production_modules, walk_defs
+
+        writers = set()
+        for rel_path, tree in production_modules():
+            for qualname, fn in walk_defs(tree.body):
+                for node in ast.walk(fn):
+                    if isinstance(node, ast.Assign):
+                        targets = node.targets
+                    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                        targets = [node.target]
+                    else:
+                        continue
+                    if any(
+                        isinstance(t, ast.Attribute) and t.attr == 'channel_identity'
+                        for t in targets
+                    ):
+                        writers.add((rel_path, qualname))
+
+        assert writers == {
+            ('src/_lumascope/modules/lumascope_api/_lumascope.py', 'Lumascope.__init__')
+        }
 
     def test_the_selection_is_the_only_writer_of_the_stored_model(self):
         # Bring-up does not write it: the stored model is the selection, kept
@@ -148,21 +167,6 @@ class TestNothingReselectsARunningScope:
         assert writers_of_settings_keys({'microscope'}) == {
             ('src/_lumascope/modules/scope_session.py', 'ScopeSession.select_model'),
         }
-
-    def test_no_production_code_re_resolves_the_identity(self):
-        import ast
-
-        from tests.ast_seams import production_modules
-
-        callers = sorted(
-            rel_path
-            for rel_path, tree in production_modules()
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'refresh_channel_identity'
-        )
-        assert callers == []
 
     def test_the_model_label_shows_the_running_model_not_the_selection(self):
         import ast

@@ -42,20 +42,32 @@ def test_an_override_is_the_channels_colour_and_null_gives_the_release_back(sess
     assert session.channel_colors() == release
 
 
-def test_a_unit_colour_its_board_gives_is_the_channels_unless_overridden(session):
+def test_a_unit_colour_its_board_gives_is_the_channels_unless_overridden(tmp_path):
     # The board's own Channels block colours LED 0's channel cyan; a layer the block
     # leaves out keeps the release's colour, and the override wins over both.
-    release = channel_record.release_colors()
-    session.scope._motion_driver.motorconfig.update_from_board(
-        {'Channels': {LED0: {'led_channel': 0, 'excitation_nm': 405, 'display_color': '#00ffff'}}}
-    )
-    session.scope.refresh_channel_identity()
+    from _lumascope.modules.lumascope_api.simulation import SimulatedScope
+    from tests.test_a_simulated_scope_comes_up_as_a_units_own_config import FIELD_CONFIG
 
-    from_the_unit = session.channel_colors()
-    session.update_settings(f'{LED0}.display_color', MAGENTA)
+    release = channel_record.release_colors()
+    unit = {
+        **FIELD_CONFIG,
+        'Channels': {LED0: {'led_channel': 0, 'excitation_nm': 405, 'display_color': '#00ffff'}},
+    }
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), simulator_tier='firmware'),
+        simulate=True,
+        simulated=SimulatedScope(unit_config=unit),
+        warn_pre_release=False,
+    )
+    try:
+        from_the_unit = session.channel_colors()
+        session.update_settings(f'{LED0}.display_color', MAGENTA)
+        overridden = session.channel_colors()
+    finally:
+        session.shutdown()
 
     assert from_the_unit == {**release, LED0: (0.0, 1.0, 1.0)}
-    assert session.channel_colors() == {**release, LED0: (1.0, 0.0, 1.0)}
+    assert overridden == {**release, LED0: (1.0, 0.0, 1.0)}
 
 
 def test_a_colour_the_store_cannot_use_is_refused_at_the_write(session):

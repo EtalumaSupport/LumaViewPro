@@ -5297,6 +5297,7 @@ class ScopeSession:
             )
         self._tell_capped_channels()
         self._apply_bring_up_channel()
+        self.scope.end_bring_up()
 
     def _tell_capped_channels(self) -> None:
         """Tell, as one notice, every saved channel gain or exposure the attached camera cannot reach.

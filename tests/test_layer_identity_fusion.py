@@ -7,11 +7,10 @@ which addresses the board can DRIVE; the state store is keyed by address
 and names each through the identity at the read. These tests pin the
 seams that keep those from bleeding into each other: an ON request for a
 layer identity lacks fails loudly by name, an OFF stays a silent no-op,
-a no-LED layer resolves to no channel without being an error, and -- the
-load-bearing one -- an address that physically lit stays in the state
-store and is reported by its address when the CURRENT identity can no
-longer name it, so a mid-session identity change can never strand a lit
-LED outside the extinguish machinery.
+a no-LED layer resolves to no channel without being an error, and an
+address no identity names is held and reported by its address. A scope's
+identity is resolved once, when it is built, so each model is a scope
+built as that model.
 """
 
 import pytest
@@ -34,6 +33,14 @@ def scope():
     s.disconnect()
 
 
+@pytest.fixture
+def ls850_0():
+    """A simulated LS850-0: brightfield only, so no channel drives LED 1."""
+    s = build_scope(simulate=True, register_atexit=False, sim_model='LS850-0')
+    yield s
+    s.disconnect()
+
+
 class TestFusion:
     def test_identity_layer_on_drivable_channel_lights(self, scope):
         scope.illumination.led_on(channel=LED1, illumination_ma=50)
@@ -50,40 +57,31 @@ class TestFusion:
             call()
         assert (refused.value.reason, refused.value.value) == ('channel_unknown', 'Skylight')
 
-    def test_identity_narrowed_layer_on_raises_by_name(self, scope):
-        scope.refresh_channel_identity(override_model='LS850-0')
+    def test_a_layer_the_model_lacks_is_refused_on_by_name(self, ls850_0):
         with pytest.raises(HardwareCommandRefusedError, match=LED1) as refused:
-            scope.illumination.led_on(channel=LED1, illumination_ma=50)
+            ls850_0.illumination.led_on(channel=LED1, illumination_ma=50)
         assert refused.value.missing == MissingPart.led(LED1)
 
-    def test_identity_narrowed_layer_off_still_noops(self, scope):
-        scope.refresh_channel_identity(override_model='LS850-0')
-        scope.illumination.led_off(channel=LED1)
+    def test_a_layer_the_model_lacks_is_turned_off_as_a_no_op(self, ls850_0):
+        ls850_0.illumination.led_off(channel=LED1)
+        assert led_reading(ls850_0, 1).state is LedState.DARK
 
-    def test_no_led_layer_resolves_to_no_channel_without_error(self, scope):
-        scope.refresh_channel_identity(override_model='Lumi')
-        assert scope.channel_identity.find('Lumi') is not None
-        assert scope.illumination.led_address_of('Lumi') is None
-        scope.illumination.led_off(channel='Lumi')
+    def test_no_led_layer_resolves_to_no_channel_without_error(self):
+        lumi = build_scope(simulate=True, register_atexit=False, sim_model='Lumi')
+        try:
+            assert lumi.channel_identity.find('Lumi') is not None
+            assert lumi.illumination.led_address_of('Lumi') is None
+            lumi.illumination.led_off(channel='Lumi')
+        finally:
+            lumi.disconnect()
 
 
 class TestTwoResolverSplit:
-    def test_identity_answers_by_record(self, scope):
+    def test_identity_answers_by_record(self, scope, ls850_0):
         assert scope.illumination.led_address_of(LED1) == 1
         assert scope.channel_identity.key_at(1) == LED1
-        scope.refresh_channel_identity(override_model='LS850-0')
-        assert scope.illumination.led_address_of(LED1) is None
-        assert scope.channel_identity.key_at(1) is None
-
-    def test_lit_channel_stays_recorded_under_narrowed_identity(self, scope):
-        """An address lit before the identity narrowed stays in the state
-        store, reported by its address with no name, and the extinguish
-        that rides that record still reaches it."""
-        scope.illumination.led_on(channel=LED1, illumination_ma=50)
-        scope.refresh_channel_identity(override_model='LS850-0')
-        assert LedReading(1, None, LedState.LIT, 50.0) in scope.illumination.get_led_states()
-        scope.illumination.led_off_by_address(1)
-        assert led_reading(scope, 1).state is LedState.DARK
+        assert ls850_0.illumination.led_address_of(LED1) is None
+        assert ls850_0.channel_identity.key_at(1) is None
 
     def test_an_address_no_identity_names_is_reported_lit_by_address(self, scope):
         """With no layer identity every address is the board's: one lit,
@@ -97,27 +95,15 @@ class TestTwoResolverSplit:
         assert lit in scope.illumination.get_led_states()
         assert heard == [lit]
 
-    def test_a_light_the_narrowed_identity_lacks_is_refused(self, scope):
-        """Numbered, or replayed from a snapshot taken before the identity
-        narrowed, a light of an LED the model now lacks is refused and
-        lights nothing."""
+    def test_a_snapshot_lighting_an_led_the_model_lacks_is_refused(self, scope, ls850_0):
+        """Replayed from a snapshot taken on a scope that has the LED, a
+        light of an LED this model lacks is refused and lights nothing."""
         scope.illumination.led_on(channel=LED1, illumination_ma=50)
         snapshot = scope.illumination.get_led_states()
         scope.illumination.led_off(channel=LED1)
-        scope.refresh_channel_identity(override_model='LS850-0')
-        for light in (
-            lambda: scope.illumination.led_on_by_address(1, 50),
-            lambda: scope.illumination.restore_led_state(snapshot),
-        ):
-            with pytest.raises(HardwareCommandRefusedError) as refused:
-                light()
-            assert refused.value.missing == MissingPart.led_address(1)
-        assert led_reading(scope, 1).state is LedState.DARK
 
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            ls850_0.illumination.restore_led_state(snapshot)
 
-class TestOverrideScope:
-    def test_override_is_session_scoped_not_sticky(self, scope):
-        scope.refresh_channel_identity(override_model='LS850-0')
-        assert scope.channel_identity.find(LED1) is None
-        scope.refresh_channel_identity()
-        assert scope.channel_identity.find(LED1) is not None
+        assert refused.value.missing == MissingPart.led_address(1)
+        assert led_reading(ls850_0, 1).state is LedState.DARK

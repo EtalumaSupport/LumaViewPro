@@ -73,6 +73,7 @@ from _lumascope.drivers.registry import (
 )
 import _lumascope.modules.binning as binning
 from _lumascope.modules.exceptions import (
+    AlreadyStartedError,
     ArgumentRefusedError,
     BinningSubstitutedNotice,
     CameraConfigNotAppliedNotice,
@@ -653,6 +654,10 @@ class Lumascope:
         # home's until it ends. None on a scope no session composes: nothing
         # else there can hold the scope, so its homes take no claim.
         self._activity_claim: ActivityClaim | None = None
+        # Set by the session once its bring-up's last camera write is made
+        # (``end_bring_up``): from then on a bring-up write or a second
+        # configuration is refused, never recorded as bring-up's.
+        self._bring_up_ended = False
 
     def _frames_delivered(self) -> int:
         """Frames the camera's driver has handed over so far, for frame validity.
@@ -1429,7 +1434,7 @@ class Lumascope:
             except Exception as _e:
                 logger.warning(f'[SCOPE API ] atexit registration failed: {_e}')
 
-    def _resolve_channel_identity(self, override_model: str | None = None):
+    def _resolve_channel_identity(self):
         """Run the identity resolver against the current drivers and config."""
         from _lumascope.modules.channel_record import release_channels, resolve_channel_identity
 
@@ -1451,32 +1456,7 @@ class Lumascope:
             report=lambda notice: notifications.report_outcome(
                 notice, solicited=False, category='Illumination'
             ),
-            override_model=override_model,
         )
-
-    def refresh_channel_identity(self, override_model: str | None = None) -> 'ChannelIdentity':
-        """Re-resolve channel identity and atomically replace the snapshot.
-
-        Not how a model selection takes effect: the capabilities are fixed
-        at construction, so a running scope that re-resolved its channels for
-        a newly selected model would carry one model in its channels and
-        another in its capabilities and its files. A selection is saved
-        (`ScopeSession.select_model`), and a scope whose board does not
-        name its own model is brought up as it at its next start.
-
-        Args:
-            override_model: Resolve AS this model for this call only --
-                the lab/engineering escape hatch for exercising another
-                model's identity on whatever is attached. Session-scoped
-                by construction: it is never stored, so the next refresh
-                without it resolves the real unit again, and it is never
-                persisted anywhere.
-
-        Returns:
-            The new ChannelIdentity snapshot (also on `self.channel_identity`).
-        """
-        self.channel_identity = self._resolve_channel_identity(override_model=override_model)
-        return self.channel_identity
 
     def initialize(self, config: 'ScopeInitConfig') -> None:
         """Configure scope from connected to ready-to-use.
@@ -1499,7 +1479,13 @@ class Lumascope:
 
         Args:
             config: ScopeInitConfig instance with all scope-level settings.
+
+        Raises:
+            AlreadyStartedError: ``'bring_up_ended'``, the session that
+                composed this scope has ended its bring-up; refused before
+                anything is written.
         """
+        self._refuse_after_bring_up('initialize')
         self._motion_expected = config.expects_motion
         self._report_bring_up(config)
         if self.capabilities.has_turret:
@@ -1737,7 +1723,13 @@ class Lumascope:
         Returns:
             False when the camera left, so nothing more can be written to
             it; else True.
+
+        Raises:
+            AlreadyStartedError: ``'bring_up_ended'``, the session that
+                composed this scope has ended its bring-up, so a write here
+                would be kept on its record and told as bring-up's.
         """
+        self._refuse_after_bring_up('write_camera_at_bring_up')
         try:
             write()
         except (CameraSettingRejected, LaneCallStillRunningError) as fault:
@@ -1750,6 +1742,27 @@ class Lumascope:
             notifications.report_outcome(refusal, solicited=False, category='Camera')
             return False
         return True
+
+    def end_bring_up(self) -> None:
+        """Mark this scope's bring-up ended: its last camera write is made.
+
+        Composition wiring for the session, not part of the L2 API surface:
+        the session calls it once its bring-up's last camera write (the BF
+        hold) is made. From then on ``initialize`` and
+        ``write_camera_at_bring_up`` are refused.
+
+        Raises:
+            Nothing.
+        """
+        self._bring_up_ended = True
+
+    def _refuse_after_bring_up(self, member: str) -> None:
+        """Refuse ``member`` once the session has ended this scope's bring-up."""
+        if self._bring_up_ended:
+            raise AlreadyStartedError(
+                'bring_up_ended',
+                f'{member}: this scope is brought up; its bring-up is not made again',
+            )
 
     def _record_camera_problem(self, cause: str, fault: BaseException) -> None:
         """Keep a problem the camera met coming up on its part of the bring-up record.
@@ -1811,7 +1824,16 @@ class Lumascope:
         copy of the setting at a dotted path, as the session stores it;
         ``writer`` saves a batch of dotted paths to values at once, as the
         session's own members save them.
+
+        Raises:
+            AlreadyStartedError: ``'scope_composed'``, this scope is already
+                bound: a second binding would split the configuration it
+                acts on from the session's.
         """
+        if self._settings_reader is not None:
+            raise AlreadyStartedError(
+                'scope_composed', 'bind_settings: this scope is already bound to its settings'
+            )
         self._settings_reader = reader
         self._settings_writer = writer
 
@@ -1972,7 +1994,17 @@ class Lumascope:
         same claim, so a second session over this scope is refused there
         before it could point the homes at its own. Not part of the L2 API
         surface.
+
+        Raises:
+            AlreadyStartedError: ``'scope_composed'``, this scope already
+                has its claim: a second would point its homes, its camera's
+                and LEDs' guarded writes and its fences at a claim the
+                lanes and the session do not ask.
         """
+        if self._activity_claim is not None:
+            raise AlreadyStartedError(
+                'scope_composed', 'set_activity_claim: this scope already has its activity claim'
+            )
         self._activity_claim = claim
 
     # --- LED command API ---

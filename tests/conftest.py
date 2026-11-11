@@ -1329,6 +1329,21 @@ def pytest_collection_modifyitems(config, items):
 # ---------------------------------------------------------------------------
 
 
+def _fast_sim_scope(*, bound: bool):
+    """A simulated LS850 in fast timing mode, streaming; ``bound`` to the
+    template's settings first, as a session binds the scope it brings up."""
+    from tests.scope_fakes import bind_settings_like_a_session
+
+    s = build_scope(simulate=True, sim_model='LS850')
+    if bound:
+        bind_settings_like_a_session(s)
+    s._led_driver.set_timing_mode('fast')
+    s._motion_driver.set_timing_mode('fast')
+    s._camera_driver.set_timing_mode('fast')
+    s.imaging.enable_streaming()
+    return s
+
+
 @pytest.fixture
 def sim_scope():
     """Lumascope with simulated hardware in fast timing mode.
@@ -1339,15 +1354,17 @@ def sim_scope():
     settings, as a session binds the scope it brings up; a test names its
     own plate or objective with ``bind_settings_like_a_session``.
     """
+    s = _fast_sim_scope(bound=True)
+    yield s
+    s.imaging.disable_streaming()
+    s.disconnect()
 
-    from tests.scope_fakes import bind_settings_like_a_session
 
-    s = build_scope(simulate=True, sim_model='LS850')
-    bind_settings_like_a_session(s)
-    s._led_driver.set_timing_mode('fast')
-    s._motion_driver.set_timing_mode('fast')
-    s._camera_driver.set_timing_mode('fast')
-    s.imaging.enable_streaming()
+@pytest.fixture
+def sim_scope_a_session_composes():
+    """``sim_scope`` with no settings bound: for a test that composes a
+    ``ScopeSession`` around it, which binds its scope once itself."""
+    s = _fast_sim_scope(bound=False)
     yield s
     s.imaging.disable_streaming()
     s.disconnect()

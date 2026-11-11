@@ -4,10 +4,10 @@
 
 Pins the resolution contract: wholesale block-or-model (never a field
 merge), motor-first model precedence with the configured model only
-where hardware reports none, the explicit override, a board block's
-per-row loud skip (scope survives), a model row the catalogue cannot
-read refused, catalogue-positional ids, and the source tags that
-make degraded states visible instead of silent.
+where hardware reports none, a board block's per-row loud skip (scope
+survives), a model row the catalogue cannot read refused,
+catalogue-positional ids, and the source tags that make degraded states
+visible instead of silent.
 """
 
 import json
@@ -105,10 +105,6 @@ def _logged(caplog, level):
 
 def errors_logged(caplog):
     return _logged(caplog, logging.ERROR)
-
-
-def warnings_logged(caplog):
-    return _logged(caplog, logging.WARNING)
 
 
 REPORTED = []
@@ -351,26 +347,6 @@ class TestPrecedence:
         path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
         resolve(path, motor_model='LS850T')
         assert 'could not be read' not in errors_logged(caplog)
-
-
-class TestOverride:
-    def test_override_beats_block_and_motor_model(self, caplog, tmp_path):
-        path = write_scopes(
-            tmp_path,
-            {'LS850T': {'Layers': LS850T_ROWS}, 'LS560': {'Layers': LS560_ROWS}},
-        )
-        block = {'Channels': channels(LS850T_ROWS), 'Filterset': 'Stock'}
-        identity = resolve(path, board_block=block, motor_model='LS850T', override_model='LS560')
-        assert [r.key_name for r in identity.channels] == ['BF', LED1]
-        assert 'override' in warnings_logged(caplog)
-
-    def test_override_of_unknown_model_is_loud_and_unresolved(self, caplog, tmp_path):
-        path = write_scopes(tmp_path, {'LS850T': {'Layers': LS850T_ROWS}})
-        identity = resolve(path, motor_model='LS850T', override_model='LS9999')
-        assert identity.source == 'unresolved'
-        assert identity.channels == ()
-        assert identity.model == 'LS9999'
-        assert 'LS9999' in errors_logged(caplog)
 
 
 def _without(key):
@@ -690,19 +666,28 @@ class TestTheBoardsChannelBlock:
         assert [n.reason for n in REPORTED] == ['channel_block_superseded']
 
     def test_a_scope_whose_board_has_the_old_block_tells_its_outcome_listener(self, tmp_path):
+        from _lumascope.modules.lumascope_api.simulation import SimulatedScope
         from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
+        from tests.test_a_simulated_scope_comes_up_as_a_units_own_config import FIELD_CONFIG
 
-        session = ScopeSession.create(
-            complete_settings(microscope='LS850'), simulate=True, warn_pre_release=False
-        )
+        # An LS850 whose board still carries the old Layers block.
+        unit = {
+            **FIELD_CONFIG,
+            'Microscope': 'LS850',
+            'Layers': LS560_ROWS,
+            'Filterset': 'Custom-X',
+        }
         heard = []
-        session.add_outcome_listener(heard.append)
+        session = ScopeSession.create(
+            complete_settings(microscope='LS850', simulator_tier='firmware'),
+            simulate=True,
+            simulated=SimulatedScope(unit_config=unit),
+            outcome_listener=heard.append,
+            warn_pre_release=False,
+        )
         try:
-            session.scope._motion_driver.motorconfig.update_from_board(
-                {'Layers': LS560_ROWS, 'Filterset': 'Custom-X'}
-            )
-            identity = session.scope.refresh_channel_identity()
+            identity = session.scope.channel_identity
         finally:
             session.shutdown()
         assert (identity.source, identity.model) == ('scopes', 'LS850')

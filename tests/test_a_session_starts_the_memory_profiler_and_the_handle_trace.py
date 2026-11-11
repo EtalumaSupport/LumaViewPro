@@ -88,13 +88,15 @@ class _RecordingScheduler(ThreadingTimerScheduler):
         return None
 
 
-def test_the_sessions_metrics_take_the_settled_footprint_on_its_timer(sim_scope, snapshots):
+def test_the_sessions_metrics_take_the_settled_footprint_on_its_timer(
+    sim_scope_a_session_composes, snapshots
+):
     from tests.scope_fakes import real_executor_bundle
 
     scheduler = _RecordingScheduler()
     session = ScopeSession(
         settings=complete_settings(),
-        scope=sim_scope,
+        scope=sim_scope_a_session_composes,
         executor_bundle=real_executor_bundle(),
         scheduler=scheduler,
     )

@@ -64,18 +64,22 @@ def test_on_an_unresolved_identity_an_address_lights_and_reads_back_by_its_addre
     assert led_reading(scope, 6).state == LedState.DARK
 
 
-def test_an_address_the_model_does_not_drive_is_refused_naming_the_member(scope):
-    scope.refresh_channel_identity(override_model='LS850-0')  # LED 1's channel, address 1, gone
-
-    with pytest.raises(HardwareCommandRefusedError) as refused:
-        scope.illumination.led_on_by_address(1, 50.0)
+def test_an_address_the_model_does_not_drive_is_refused_naming_the_member():
+    # An LS850-0 is brightfield only: no channel drives address 1.
+    scope = build_scope(simulate=True, register_atexit=False, sim_model='LS850-0')
+    try:
+        with pytest.raises(HardwareCommandRefusedError) as refused:
+            scope.illumination.led_on_by_address(1, 50.0)
+        state = led_reading(scope, 1).state
+    finally:
+        scope.disconnect()
 
     assert (refused.value.reason, refused.value.member, refused.value.missing) == (
         'not_on_this_scope',
         'led_on_by_address',
         MissingPart.led_address(1),
     )
-    assert led_reading(scope, 1).state == LedState.DARK
+    assert state == LedState.DARK
 
 
 @pytest.mark.parametrize('member', ['led_on_by_address', 'led_off_by_address'])
