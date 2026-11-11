@@ -5,15 +5,16 @@ Before a long time-lapse, set up Windows 11 as below.
 
 ## Power {#sec-windows-power}
 
-While a protocol runs or a video records, LumaViewPro keeps the computer
-from going to sleep when it is left idle. The screen may still turn off,
-which does not affect the run. Closing a laptop's lid, choosing Sleep, or a
-restart for an update still interrupts the run.
+While LumaViewPro is open, it asks Windows to keep the computer and its
+screen awake. Closing LumaViewPro withdraws the request. Closing a laptop's
+lid, choosing Sleep, or a restart for an update still puts the computer to
+sleep.
 
-If LumaViewPro cannot keep the computer awake, it shows the notice
-"Computer may sleep" and the run goes on. Then open Settings (the Start
-button, then the gear), choose System, then Power & Battery, and set every
-sleep time to Never (@fig-windows-power).
+If the computer or its screen still goes to sleep during a run, or
+LumaViewPro shows the notice "Computer may sleep", set Windows to stay
+awake on its own: open Settings (the Start button, then the gear), choose
+System, then Power & Battery, and set the screen and sleep times to Never
+(@fig-windows-power).
 
 ![Windows 11 power settings](images/windows-power.jpg){#fig-windows-power width=80%}
 
