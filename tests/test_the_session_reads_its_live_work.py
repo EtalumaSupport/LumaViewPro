@@ -103,7 +103,7 @@ def test_a_run_lent_a_diagnostics_claim_is_named_beside_it(sim_session):
 def test_a_run_unwinding_after_its_claim_is_still_work(sim_session, monkeypatch):
     from _lumascope.modules.protocol_state_machine import ProtocolState
 
-    monkeypatch.setattr(sim_session.sequenced_capture_runner, '_state', ProtocolState.COMPLETING)
+    monkeypatch.setattr(sim_session._sequenced_capture_runner, '_state', ProtocolState.COMPLETING)
     assert _kinds(sim_session) == [live_work.WorkKind.PROTOCOL]
 
 
@@ -130,7 +130,7 @@ def test_a_live_recording_is_its_claim_not_its_finish(sim_session):
 
 def test_a_runs_video_finish_counts_its_frames(sim_session, monkeypatch):
     writer = MagicMock(video_busy=True, video_pending_writes=7)
-    monkeypatch.setattr(sim_session.sequenced_capture_runner, '_image_writer', writer)
+    monkeypatch.setattr(sim_session._sequenced_capture_runner, '_image_writer', writer)
     assert _item(sim_session, live_work.WorkKind.RUN_VIDEO_FINISH).left == 7
 
 
@@ -145,7 +145,7 @@ def test_only_the_video_finishes_are_discardable(sim_session, monkeypatch):
         is_recording=False, is_draining=True, pending_writes=3
     )
     writer = MagicMock(video_busy=True, video_pending_writes=4)
-    monkeypatch.setattr(sim_session.sequenced_capture_runner, '_image_writer', writer)
+    monkeypatch.setattr(sim_session._sequenced_capture_runner, '_image_writer', writer)
     try:
         work = sim_session.live_work.work
         assert {item.kind: item.discardable for item in work} == {
@@ -165,7 +165,7 @@ def test_a_finished_runs_images_count_down(sim_session):
     batch = RunWriteBatch(sim_session.file_io_executor)
     for _ in range(3):
         batch.submit(lambda: gate.wait(SETTLE_S), {}, what='an image', pace_until=None)
-    sim_session.sequenced_capture_runner._write_batch = batch
+    sim_session._sequenced_capture_runner._write_batch = batch
     batch.close()
     try:
         assert _item(sim_session, live_work.WorkKind.RUN_FILES).left == 3

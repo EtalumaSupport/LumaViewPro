@@ -60,7 +60,7 @@ def _finish_one_run(runner, run_parent, name, events=None):
     )
     result = outcome.result(timeout=WAIT_S)
     assert result is not None and result.status == 'completed', result
-    assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
+    assert runner.session._sequenced_capture_runner.wait_for_run_idle(WAIT_S)
 
 
 class TestRecoveringAStuckWriter:
@@ -130,7 +130,7 @@ class TestShuttingDownWithImagesStillWriting:
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             _finish_one_run(runner, run_parent, 'C1')
             assert started.acquire(timeout=WAIT_S)
-            batch = runner.sequenced_capture_runner.write_batch()
+            batch = runner.session._sequenced_capture_runner.write_batch()
             warned = []
             monkeypatch.setattr(
                 protocol_image_writer.logger, 'warning', lambda msg, *a, **k: warned.append(msg)
@@ -152,7 +152,7 @@ class TestShuttingDownWithImagesStillWriting:
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             _finish_one_run(runner, run_parent, 'C1')
             assert started.acquire(timeout=WAIT_S)
-            batch = runner.sequenced_capture_runner.write_batch()
+            batch = runner.session._sequenced_capture_runner.write_batch()
             assert batch.draining
             threading.Timer(0.3, release.set).start()
 
@@ -175,7 +175,7 @@ class TestShuttingDownWithImagesStillWriting:
                 parent_dir=str(tmp_path / 'runs'),
             )
             assert started.acquire(timeout=WAIT_S)
-            batch = runner.sequenced_capture_runner.write_batch()
+            batch = runner.session._sequenced_capture_runner.write_batch()
             assert batch.outcome is None and not batch.draining, 'the run was not live'
             threading.Timer(0.3, release.set).start()
 

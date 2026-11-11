@@ -70,7 +70,7 @@ def test_every_part_of_the_session_reads_the_scopes_catalogues(tmp_path):
         assert EXTRA_PLATE in scope.wellplate_loader.get_plate_list()
         # One object each, the scope's, wherever the session reaches one.
         assert session.autofocus_runner._scope is scope
-        assert session.sequenced_capture_runner._scope is scope
+        assert session._sequenced_capture_runner._scope is scope
         assert session.select_labware(EXTRA_PLATE) is not None
         assert session.source_path == root
     finally:

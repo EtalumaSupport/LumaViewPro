@@ -30,7 +30,7 @@ class TestALentRun:
             run = held.lend().try_claim('protocol', run=run_identity(Caller.REST))
             try:
                 assert session.live_work.has(live_work.WorkKind.PROTOCOL)
-                assert session.sequenced_capture_runner.run_started_by() == Caller.REST
+                assert session._sequenced_capture_runner.run_started_by() == Caller.REST
                 assert session._activity_claim.owner == 'diagnostic', (
                     'the holder stays the diagnostic, which a refusal names'
                 )
@@ -38,7 +38,7 @@ class TestALentRun:
             finally:
                 run.release()
             assert not session.live_work.has(live_work.WorkKind.PROTOCOL)
-            assert session.sequenced_capture_runner.run_started_by() is None
+            assert session._sequenced_capture_runner.run_started_by() is None
 
     def test_the_lend_and_the_return_are_each_announced(self):
         session = session_on_a_simulated_scope()
@@ -60,7 +60,7 @@ class TestALentRun:
         try:
             recording = run.lend().try_claim('recording')
             assert session.live_work.has(live_work.WorkKind.PROTOCOL)
-            assert session.sequenced_capture_runner.run_started_by() == Caller.GUI
+            assert session._sequenced_capture_runner.run_started_by() == Caller.GUI
             recording.release()
             assert session.live_work.has(live_work.WorkKind.PROTOCOL)
         finally:
@@ -100,8 +100,8 @@ class TestHeldByOther:
             asked.append(run)
             return True
 
-        monkeypatch.setattr(session.sequenced_capture_runner, 'held_by_other', _held_by_other)
-        engine = session.sequenced_capture_runner
+        monkeypatch.setattr(session._sequenced_capture_runner, 'held_by_other', _held_by_other)
+        engine = session._sequenced_capture_runner
         run = EngineRun(
             engine, PendingRunOutcome(), RunWriteBatch(session.file_io_executor)
         ).operation

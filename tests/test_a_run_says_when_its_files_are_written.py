@@ -134,7 +134,7 @@ def test_a_hyperstack_run_waits_for_its_build(tmp_path, monkeypatch):
                 sequenced_format=image_mode.OutputFormat.HYPERSTACK,
             )
             assert run.result(timeout=WAIT_S) is not None
-            assert session.sequenced_capture_runner.write_batch().wait_complete(WAIT_S)
+            assert session._sequenced_capture_runner.write_batch().wait_complete(WAIT_S)
             # The positive control: the images are down and the build is held.
             assert not built.is_set()
 

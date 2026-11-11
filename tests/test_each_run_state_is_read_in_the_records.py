@@ -60,22 +60,22 @@ def _a_run(session, monkeypatch):
     held = session._activity_claim.try_claim('protocol', run=run_identity())
     # The engine's phase, set as start() sets it once the claim is taken;
     # a run driven to this edge on the simulator would end before it is read.
-    monkeypatch.setattr(session.sequenced_capture_runner, '_state', ProtocolState.RUNNING)
+    monkeypatch.setattr(session._sequenced_capture_runner, '_state', ProtocolState.RUNNING)
     try:
         yield
     finally:
-        monkeypatch.setattr(session.sequenced_capture_runner, '_state', ProtocolState.IDLE)
+        monkeypatch.setattr(session._sequenced_capture_runner, '_state', ProtocolState.IDLE)
         held.release()
 
 
 @contextlib.contextmanager
 def _a_run_unwinding(session, monkeypatch):
     # After the run's release and before its cleanup ends.
-    monkeypatch.setattr(session.sequenced_capture_runner, '_state', ProtocolState.COMPLETING)
+    monkeypatch.setattr(session._sequenced_capture_runner, '_state', ProtocolState.COMPLETING)
     try:
         yield
     finally:
-        monkeypatch.setattr(session.sequenced_capture_runner, '_state', ProtocolState.IDLE)
+        monkeypatch.setattr(session._sequenced_capture_runner, '_state', ProtocolState.IDLE)
 
 
 @contextlib.contextmanager
@@ -88,11 +88,11 @@ def _a_diagnostic(session, monkeypatch):
 def _a_run_lent_a_diagnostics_claim(session, monkeypatch):
     with session.diagnostic_claim() as held:
         run = held.lend().try_claim('protocol', run=run_identity())
-        monkeypatch.setattr(session.sequenced_capture_runner, '_state', ProtocolState.RUNNING)
+        monkeypatch.setattr(session._sequenced_capture_runner, '_state', ProtocolState.RUNNING)
         try:
             yield
         finally:
-            monkeypatch.setattr(session.sequenced_capture_runner, '_state', ProtocolState.IDLE)
+            monkeypatch.setattr(session._sequenced_capture_runner, '_state', ProtocolState.IDLE)
             run.release()
 
 
@@ -123,7 +123,7 @@ def _a_finished_runs_files_writing(session, monkeypatch):
     batch = RunWriteBatch(session.file_io_executor)
     batch.submit(lambda: landing.wait(COMPLETION_TIMEOUT), {}, what='an image', pace_until=None)
     batch.submit(lambda: None, {}, what='an image', pace_until=None)
-    monkeypatch.setattr(session.sequenced_capture_runner, '_write_batch', batch)
+    monkeypatch.setattr(session._sequenced_capture_runner, '_write_batch', batch)
     batch.close()
     try:
         yield

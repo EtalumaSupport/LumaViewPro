@@ -670,7 +670,7 @@ def test_taking_back_an_ended_session_leaves_the_operators_run_begun_since(run_s
     with calling(Caller.GUI):
         run = _start_held(run_session, tmp_path)
 
-    run_session.sequenced_capture_runner.stop_the_run_taken_for(ended)
+    run_session._sequenced_capture_runner.stop_the_run_taken_for(ended)
     # The run stopped would end at its held move; let alone, it goes on to it.
     run_session.scope.simulation.clear()
 
@@ -696,7 +696,7 @@ class TestATakeWaitsForWhatIsStillFinishing:
             run = _scan(runner, tmp_path / 'runs', 'C1')
             assert run.result(timeout=WAIT_S) is not None
             assert session._activity_claim.holder is None
-            assert not session.sequenced_capture_runner.run_live
+            assert not session._sequenced_capture_runner.run_live
 
             with pytest.raises(ControlSessionRefusedError) as refused:
                 session.take_control('plate reader')
@@ -729,7 +729,7 @@ class TestATakeWaitsForWhatIsStillFinishing:
                     sequenced_format=image_mode.OutputFormat.HYPERSTACK,
                 )
                 assert run.result(timeout=WAIT_S) is not None
-                assert session.sequenced_capture_runner.write_batch().wait_complete(WAIT_S)
+                assert session._sequenced_capture_runner.write_batch().wait_complete(WAIT_S)
                 assert session._activity_claim.holder is None
 
                 with pytest.raises(ControlSessionRefusedError) as refused:
@@ -778,7 +778,7 @@ class TestATakeWaitsForWhatIsStillFinishing:
         # a stand-in by design: the simulator cannot yet hold a run's video
         # drain open past the run (the live-work tests' gap, the same one).
         writer = MagicMock(video_busy=True, video_pending_writes=4)
-        monkeypatch.setattr(sim_session.sequenced_capture_runner, '_image_writer', writer)
+        monkeypatch.setattr(sim_session._sequenced_capture_runner, '_image_writer', writer)
 
         with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.take_control('plate reader')

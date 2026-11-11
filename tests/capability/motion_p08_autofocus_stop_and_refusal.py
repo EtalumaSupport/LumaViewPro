@@ -8,7 +8,6 @@ start returned.
 
 from harness import REPO, check, run
 from _lumascope.modules.caller import Caller
-from _lumascope.modules.protocol_runner import ProtocolRunner
 from _lumascope.modules.run_events import RunEvents
 
 
@@ -17,7 +16,7 @@ def body(s):
     m.home('ALL')
     s.select_labware('96 well microplate')
     m.move_z(3000.0)
-    runner = ProtocolRunner(s)
+    runner = s.protocol_runner()
 
     # A first autofocus, run to its end: its handle is the stale one below.
     earlier = runner.start_autofocus(channel='BF')

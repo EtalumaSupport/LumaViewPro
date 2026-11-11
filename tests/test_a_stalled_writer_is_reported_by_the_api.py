@@ -52,7 +52,7 @@ def session():
     yield session
     # The planted writes went to a scripted lane that never runs them, so
     # nothing would ever land them; the session cannot close until they settle.
-    batch = session.sequenced_capture_runner.write_batch()
+    batch = session._sequenced_capture_runner.write_batch()
     if batch is not None:
         batch.abandon('the test is over')
         if batch.outcome is None:
@@ -63,7 +63,7 @@ def session():
 @pytest.fixture
 def scheduler(session):
     scheduler = _Scheduler()
-    session.sequenced_capture_runner.start_file_writer_check(scheduler)
+    session._sequenced_capture_runner.start_file_writer_check(scheduler)
     return scheduler
 
 
@@ -84,7 +84,7 @@ def _batch(
         batch.submit(lambda: None, {}, what=f'The image {i}', pace_until=None)
     if closed:
         batch.close()
-    session.sequenced_capture_runner._write_batch = batch
+    session._sequenced_capture_runner._write_batch = batch
     return batch
 
 
@@ -158,7 +158,7 @@ def test_the_refusal_and_the_report_offer_one_remedy_in_one_set_of_words(
     report = _stalls(centre_posts)[0]
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
-        session.sequenced_capture_runner.prepare(
+        session._sequenced_capture_runner.prepare(
             protocol=MagicMock(),
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='t',

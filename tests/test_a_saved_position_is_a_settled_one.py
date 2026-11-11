@@ -103,7 +103,7 @@ def test_every_member_that_keeps_the_live_position_refuses_while_z_moves(session
     assert session.bookmark == before['bookmark']
     assert session.saved_focus_z_um('BF') == before['focus']
     assert protocol.steps().to_dict('records') == before['steps']
-    assert not runner.sequenced_capture_runner.run_in_progress()
+    assert not runner.session._sequenced_capture_runner.run_in_progress()
 
 
 def test_a_z_bookmark_is_saved_while_x_moves_and_an_x_bookmark_is_not(session):

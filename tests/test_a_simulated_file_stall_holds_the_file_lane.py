@@ -84,7 +84,7 @@ class TestTheLaneIsHeld:
             batch = RunWriteBatch(session.file_io_executor)
             batch.submit(lambda: None, {}, what='The image', pace_until=None)
             batch.close()
-            session.sequenced_capture_runner._write_batch = batch
+            session._sequenced_capture_runner._write_batch = batch
 
             assert _wait_for(
                 lambda: any(n.reason == 'file_writer_stalled' for n in centre_posts), 5.0

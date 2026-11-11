@@ -498,7 +498,7 @@ class TestRunCleanupIsTheRunsOwnWork:
         from tests.scope_fakes import session_on_a_simulated_scope
 
         session = session_on_a_simulated_scope()
-        runner = session.sequenced_capture_runner
+        runner = session._sequenced_capture_runner
         seen = {}
         monkeypatch.setattr(
             runner,

@@ -14,11 +14,10 @@ from harness import make_session, banner
 session, live = make_session('afwb', home=True)
 try:
     import _lumascope.modules.config_helpers as config_helpers
-    from _lumascope.modules.protocol_runner import ProtocolRunner
     from _lumascope.modules.run_events import RunEvents
 
     settings = session.get_settings_snapshot()
-    runner = ProtocolRunner(session)
+    runner = session.protocol_runner()
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
         objective_helper=session.scope.objective_helper,

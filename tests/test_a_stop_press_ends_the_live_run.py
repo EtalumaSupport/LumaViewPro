@@ -250,7 +250,7 @@ def test_a_fault_that_ended_the_run_first_keeps_its_ending(session, tmp_path):
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
     held.result(_HOLD_WAIT_S)
-    session.sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
+    session._sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
 
     session.scope.motion.stop_motion()
     outcome = run.result(timeout=COMPLETION_TIMEOUT)

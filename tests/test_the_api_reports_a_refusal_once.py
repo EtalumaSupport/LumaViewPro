@@ -66,7 +66,7 @@ def test_the_sessions_listeners_hear_a_run_return_to_idle(tmp_path):
         session.add_run_state_listener(lambda: heard.append(True))
         heard.clear()  # the level republish on registering
 
-        session.sequenced_capture_runner._on_run_idle()
+        session._sequenced_capture_runner._on_run_idle()
 
         assert heard == [True], 'the idle edge must reach the run-state listeners'
     finally:

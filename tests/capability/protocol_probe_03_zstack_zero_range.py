@@ -13,9 +13,7 @@ session, live = make_session(
     zstack={'step_size': 0, 'range': 0, 'position': 'center'},
 )
 try:
-    from _lumascope.modules.protocol_runner import ProtocolRunner
-
-    runner = ProtocolRunner(session)
+    runner = session.protocol_runner()
     banner('start_zstack with range=0 step_size=0')
     try:
         outcome = runner.start_zstack(channel='BF')

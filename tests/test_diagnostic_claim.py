@@ -221,7 +221,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         from _lumascope.modules.protocol_state_machine import ProtocolState
 
         session = session_on_a_simulated_scope()
-        runner = session.sequenced_capture_runner
+        runner = session._sequenced_capture_runner
         monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
         monkeypatch.setattr(runner, 'wait_for_run_idle', lambda timeout_s: False)
         with pytest.raises(ClaimStillLentError) as kept, session.diagnostic_claim():
@@ -248,7 +248,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         from _lumascope.modules.protocol_state_machine import ProtocolState
 
         session = session_on_a_simulated_scope()
-        runner = session.sequenced_capture_runner
+        runner = session._sequenced_capture_runner
         monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
         monkeypatch.setattr(runner, 'wait_for_run_idle', lambda timeout_s: False)
 
@@ -266,7 +266,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         from _lumascope.modules.protocol_state_machine import ProtocolState
 
         session = session_on_a_simulated_scope()
-        runner = session.sequenced_capture_runner
+        runner = session._sequenced_capture_runner
         monkeypatch.setattr(runner, '_state', ProtocolState.RUNNING)
         monkeypatch.setattr(runner, 'wait_for_run_idle', lambda timeout_s: False)
 
@@ -285,7 +285,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
             order.append(('wait', session._activity_claim.owner))
             return True
 
-        monkeypatch.setattr(session.sequenced_capture_runner, 'wait_for_run_idle', _wait)
+        monkeypatch.setattr(session._sequenced_capture_runner, 'wait_for_run_idle', _wait)
         with session.diagnostic_claim():
             pass
         assert order == [('wait', 'diagnostic')], order

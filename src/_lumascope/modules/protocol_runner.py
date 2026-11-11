@@ -10,10 +10,9 @@ but both ultimately delegate to SequencedCaptureRunner.
 Usage
 -----
     from _lumascope.modules.scope_session import ScopeSession
-    from _lumascope.modules.protocol_runner import ProtocolRunner
 
     session = ScopeSession.create(settings=settings)
-    runner = ProtocolRunner(session)
+    runner = session.protocol_runner()
 
     protocol = session.load_protocol("my_protocol.tsv")
     run = runner.start_single_scan(protocol, sequence_name="test_scan")
@@ -52,13 +51,15 @@ class ProtocolRunner:
     claim.
     """
 
-    def __init__(self, session):
+    def __init__(self, session, *, engine: SequencedCaptureRunner):
         """
         Args:
-            session: ScopeSession providing the composed engine, scope,
-                settings, and executors. Must carry a protocol thread
-                (the factories and the GUI host both compose one); a
-                bare session cannot drive a scan loop.
+            session: ScopeSession providing the scope, settings, and
+                executors. Must carry a protocol thread (the factories and
+                the GUI host both compose one); a bare session cannot drive
+                a scan loop.
+            engine: The session's one run engine, handed over by the
+                session that composed it (``ScopeSession.protocol_runner``).
         """
         if session.protocol_thread is None:
             raise RuntimeError(
@@ -67,11 +68,7 @@ class ProtocolRunner:
                 'inject protocol_thread at session construction.'
             )
         self.session = session
-        self._executor = session.sequenced_capture_runner
-
-    @property
-    def sequenced_capture_runner(self) -> SequencedCaptureRunner:
-        return self._executor
+        self._executor = engine
 
     # ------------------------------------------------------------------
     # Run methods

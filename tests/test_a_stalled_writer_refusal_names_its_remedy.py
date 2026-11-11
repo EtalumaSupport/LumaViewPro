@@ -38,7 +38,7 @@ def session():
     yield session
     # The planted writes went to a scripted lane that never runs them, so
     # nothing would ever land them; the session cannot close until they settle.
-    batch = session.sequenced_capture_runner.write_batch()
+    batch = session._sequenced_capture_runner.write_batch()
     if batch is not None:
         batch.abandon('the test is over')
 
@@ -53,13 +53,13 @@ def _draining(session, *, stalled: bool, writes: int = 1) -> RunWriteBatch:
     for i in range(writes):
         batch.submit(lambda: None, {}, what=f'The image {i}', pace_until=None)
     batch.close()
-    session.sequenced_capture_runner._write_batch = batch
+    session._sequenced_capture_runner._write_batch = batch
     return batch
 
 
 def _refused_start(session, tmp_path) -> ProtocolRunRefusedError:
     with pytest.raises(ProtocolRunRefusedError) as refused:
-        session.sequenced_capture_runner.prepare(
+        session._sequenced_capture_runner.prepare(
             protocol=MagicMock(),
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             sequence_name='t',

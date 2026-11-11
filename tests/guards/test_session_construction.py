@@ -306,8 +306,8 @@ class TestTheLanesAreTheScopes:
                 (session.io_executor, session.camera_executor),
                 (session.executor_bundle.io_executor, session.executor_bundle.camera_executor),
                 (
-                    session.sequenced_capture_runner._io_executor,
-                    session.sequenced_capture_runner.camera_executor,
+                    session._sequenced_capture_runner._io_executor,
+                    session._sequenced_capture_runner.camera_executor,
                 ),
             ):
                 assert lanes == (scope.io_lane(), scope.camera_lane())

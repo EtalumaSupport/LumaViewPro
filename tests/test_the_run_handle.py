@@ -33,7 +33,7 @@ def test_a_woken_waiter_finds_the_scope_free_and_starts_the_next_run(tmp_path, m
     import time
 
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        engine = session.sequenced_capture_runner
+        engine = session._sequenced_capture_runner
         release = engine._release_activity_claim
 
         def slow_release():
@@ -56,7 +56,7 @@ def test_a_run_keeps_its_own_folder_after_the_next_run_starts(tmp_path):
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
         first = _scan(runner, run_parent, 'C1')
         assert first.result(timeout=WAIT_S) is not None
-        assert session.sequenced_capture_runner.write_batch().wait_complete(WAIT_S)
+        assert session._sequenced_capture_runner.write_batch().wait_complete(WAIT_S)
         first_dir = first.progress().run_dir
 
         second = _scan(runner, run_parent, 'C2')
@@ -97,7 +97,7 @@ def test_a_live_runs_progress_returns(tmp_path, monkeypatch):
     The run is held live in its teardown, before it lets go of the scope.
     """
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        engine = session.sequenced_capture_runner
+        engine = session._sequenced_capture_runner
         monkeypatch.setattr(engine, '_run_lock', _RunLockThatRefusesReentry())
         release = engine._release_activity_claim
         held = threading.Event()

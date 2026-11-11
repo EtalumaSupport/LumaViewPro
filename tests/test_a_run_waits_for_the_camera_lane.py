@@ -122,7 +122,7 @@ class TestAStillInFlightFinishesFirst:
 
         paths = still.result(timeout=RESULT_TIMEOUT_S)
         assert paths and paths[0].file.exists(), 'the still under a starting run saved nothing'
-        assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
+        assert session._sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result
         assert seen['still_in_flight'] is False, (
@@ -144,7 +144,7 @@ class TestAStillInFlightFinishesFirst:
             late.release()
         paths = still.result(timeout=RESULT_TIMEOUT_S)
         assert paths and paths[0].file.exists(), 'the run refused a still put on an idle lane'
-        assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
+        assert session._sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result
 
@@ -170,7 +170,7 @@ class TestAStillQueuedBehindCameraWork:
             still.result(timeout=RESULT_TIMEOUT_S)
         assert refused.value.reason == 'exclusive_activity_running'
         assert not session.manual_capture.in_flight, 'a refused still kept the guard'
-        assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
+        assert session._sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'completed', result
 
@@ -194,7 +194,7 @@ class TestAHeldLane:
             assert session._activity_claim.run_holder is not None
             # The run is waiting on the protocol thread; Stop it there.
             outcome.stop()
-            assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
+            assert session._sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         finally:
             hold.release()
         result = outcome.result(timeout=RESULT_TIMEOUT_S)
@@ -219,7 +219,7 @@ class TestAHeldLane:
                     parent_dir=str(tmp_path),
                     events=RunEvents(run_ended=lambda *ended: completions.append(ended)),
                 )
-                assert session.sequenced_capture_runner.wait_for_run_idle(
+                assert session._sequenced_capture_runner.wait_for_run_idle(
                     timeout_s=RESULT_TIMEOUT_S
                 )
         finally:
@@ -264,7 +264,7 @@ class TestATakeoverWriteThatRaises:
                 parent_dir=str(tmp_path),
                 events=RunEvents(run_ended=lambda *ended: completions.append(ended)),
             )
-            assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
+            assert session._sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
         result = outcome.result(timeout=RESULT_TIMEOUT_S)
         assert result is not None and result.status == 'failed', result
         assert result.reason == 'run_loop_crashed'

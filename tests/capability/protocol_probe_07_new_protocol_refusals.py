@@ -33,9 +33,8 @@ try:
         print(f'RAISED {type(e).__name__}: {e}')
 
     banner('does running an empty protocol get refused at the API?')
-    from _lumascope.modules.protocol_runner import ProtocolRunner
 
-    runner = ProtocolRunner(session)
+    runner = session.protocol_runner()
     try:
         out = runner.start_single_scan(
             p,

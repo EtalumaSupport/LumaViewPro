@@ -78,7 +78,7 @@ def test_an_autofocus_run_a_fault_ends_mid_sweep_puts_z_back(session, z_asked, c
     run = start_an_autofocus_held_mid_sweep(session)
     held_at = len(z_asked)
 
-    session.sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
+    session._sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
 
     assert (outcome.status, outcome.reason) == ('failed', 'camera_failure')

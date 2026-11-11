@@ -248,7 +248,7 @@ class TestACompositeMissingAChannel:
 
             def recorded(outcome, *a, **kw):
                 if isinstance(outcome, RunIncompleteError):
-                    states_at_report.append(session.sequenced_capture_runner._run_outcome.state)
+                    states_at_report.append(session._sequenced_capture_runner._run_outcome.state)
                 return report(outcome, *a, **kw)
 
             notifications.report_outcome = recorded

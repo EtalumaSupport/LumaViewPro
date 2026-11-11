@@ -783,7 +783,7 @@ class TestHeadlessSession:
         there are no Clock-schedule attributes to misconfigure."""
         session = ScopeSession.create(complete_settings(), simulate=True)
         runner = session.protocol_runner()
-        af = runner.sequenced_capture_runner._autofocus_runner
+        af = runner.session._sequenced_capture_runner._autofocus_runner
         assert not hasattr(af, '_clock_unschedule_fn')
         assert not hasattr(af, '_clock_schedule_interval_fn')
 
@@ -884,7 +884,7 @@ class TestRestAPIPrep:
         session = ScopeSession.create(complete_settings(), simulate=True)
         try:
             runner = session.protocol_runner()
-            af = runner.sequenced_capture_runner._autofocus_runner
+            af = runner.session._sequenced_capture_runner._autofocus_runner
             status = af.get_status()
             assert status['state'] == 'idle'
             assert status['in_progress'] is False
@@ -899,7 +899,7 @@ class TestRestAPIPrep:
         session = ScopeSession.create(complete_settings(), simulate=True)
         try:
             runner = session.protocol_runner()
-            af = runner.sequenced_capture_runner._autofocus_runner
+            af = runner.session._sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
@@ -931,7 +931,7 @@ class TestRestAPIPrep:
         park_z(session.scope, 3000.0)
         try:
             runner = session.protocol_runner()
-            af = runner.sequenced_capture_runner._autofocus_runner
+            af = runner.session._sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
@@ -973,7 +973,7 @@ class TestRestAPIPrep:
         park_z(session.scope, 7000.0)
         try:
             runner = session.protocol_runner()
-            af = runner.sequenced_capture_runner._autofocus_runner
+            af = runner.session._sequenced_capture_runner._autofocus_runner
             thread = AutofocusThread(afe=af)
             thread.start()
             try:

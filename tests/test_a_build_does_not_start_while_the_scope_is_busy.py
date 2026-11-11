@@ -49,7 +49,7 @@ def test_a_build_asked_while_a_runs_files_are_written_is_refused(session, tmp_pa
     # A stand-in by design: a closed batch whose write never runs is the
     # simulator's only drain that stays open; the session's close waits on
     # it, so the runner gets its own batch back.
-    runner = session.sequenced_capture_runner
+    runner = session._sequenced_capture_runner
     held, runner._write_batch = runner._write_batch, _a_closed_batch_still_writing()
     try:
         assert session.live_work.has(live_work.WorkKind.RUN_FILES)

@@ -27,7 +27,7 @@ FOCAL_Z_UM = 2000.0
 def _autofocus(session) -> float:
     """Run one autofocus through the run's autofocus thread; return its focus Z."""
     runner = session.protocol_runner()
-    af = runner.sequenced_capture_runner._autofocus_runner
+    af = runner.session._sequenced_capture_runner._autofocus_runner
     thread = AutofocusThread(afe=af)
     thread.start()
     try:

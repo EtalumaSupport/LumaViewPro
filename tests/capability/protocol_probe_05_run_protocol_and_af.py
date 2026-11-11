@@ -21,10 +21,9 @@ def images_under(d):
 session, live = make_session('runproto', home=True)
 try:
     import _lumascope.modules.config_helpers as config_helpers
-    from _lumascope.modules.protocol_runner import ProtocolRunner
 
     settings = session.get_settings_snapshot()
-    runner = ProtocolRunner(session)
+    runner = session.protocol_runner()
 
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,

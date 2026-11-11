@@ -904,7 +904,7 @@ class ScopeSession:
         self.autofocus_thread = autofocus_thread
         from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
-        self.sequenced_capture_runner = SequencedCaptureRunner(
+        self._sequenced_capture_runner = SequencedCaptureRunner(
             scope=scope,
             protocol_thread=self.protocol_thread,
             file_io_executor=self.file_io_executor,
@@ -1017,12 +1017,14 @@ class ScopeSession:
             block_raised = True
             raise
         finally:
-            if not self.sequenced_capture_runner.wait_for_run_idle(DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S):
+            if not self._sequenced_capture_runner.wait_for_run_idle(
+                DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S
+            ):
                 with self._release_at_run_idle_lock:
                     self._release_at_run_idle.append(held)
                 # The run can have ended between the wait and the hand-over,
                 # its idle already told: then nobody else will release it.
-                if not self.sequenced_capture_runner.run_in_progress():
+                if not self._sequenced_capture_runner.run_in_progress():
                     self._run_went_idle()
                 kept = ClaimStillLentError(DIAGNOSTIC_EXIT_RUN_IDLE_WAIT_S)
                 if not block_raised:
@@ -1078,7 +1080,7 @@ class ScopeSession:
             SessionClosingError: ``'session_closing'``, the session's close
                 is running or has finished.
         """
-        runner = self.sequenced_capture_runner
+        runner = self._sequenced_capture_runner
         controller = self._activity_claim.take_control(
             name,
             finishing=lambda: (
@@ -1151,7 +1153,7 @@ class ScopeSession:
         """
         # Ended before its work is stopped: the run or recording still holds
         # the slot until it unwinds, so nothing is taken in between.
-        self.sequenced_capture_runner.stop_the_run_taken_for(ended)
+        self._sequenced_capture_runner.stop_the_run_taken_for(ended)
         self.manual_recording.stop_the_recording_taken_for(ended)
 
     @api(in_process=True)
@@ -1256,7 +1258,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        return self.sequenced_capture_runner.held_by_other(run)
+        return self._sequenced_capture_runner.held_by_other(run)
 
     @api
     def last_run(self) -> 'Operation[RunOutcome] | None':
@@ -1278,7 +1280,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        return self.sequenced_capture_runner.last_run_operation()
+        return self._sequenced_capture_runner.last_run_operation()
 
     # ------------------------------------------------------------------
     # Run-state facts and derivations
@@ -1311,7 +1313,7 @@ class ScopeSession:
             Nothing.
         """
         work: list[WorkItem] = []
-        runner = self.sequenced_capture_runner
+        runner = self._sequenced_capture_runner
         holder = self._activity_claim.holder
         if holder is not None:
             work.append(WorkItem(holder.kind, the_holder_named(holder)))
@@ -1341,7 +1343,7 @@ class ScopeSession:
         can ask it under its own lock (``take_control``).
         """
         work: list[WorkItem] = []
-        runner = self.sequenced_capture_runner
+        runner = self._sequenced_capture_runner
         recording = self.manual_recording
         if recording.is_busy and not recording.is_recording:
             work.append(
@@ -1403,7 +1405,7 @@ class ScopeSession:
             'live_work': self.live_work,
             'lock': self.controls_lock,
             'control': self._activity_claim.control,
-            'run_refused': self.sequenced_capture_runner.state_refusal(self._activity_claim),
+            'run_refused': self._sequenced_capture_runner.state_refusal(self._activity_claim),
             'axes': self.scope.motion.axis_positions(),
             'turret': self.scope.motion.turret_status(),
             'parts': self.scope.bring_up_record().parts,
@@ -1475,7 +1477,7 @@ class ScopeSession:
             Nothing.
         """
         self.manual_recording.discard_pending()
-        self.sequenced_capture_runner.discard_video_pending()
+        self._sequenced_capture_runner.discard_video_pending()
 
     def _draining_batch(self) -> 'RunWriteBatch | None':
         """A finished run's write batch from the run's end until its last file is written; else None.
@@ -1483,7 +1485,7 @@ class ScopeSession:
         None while the run is live -- the run's own state answers then --
         and once its files are all on disk or given up on.
         """
-        batch = self.sequenced_capture_runner.write_batch()
+        batch = self._sequenced_capture_runner.write_batch()
         return batch if batch is not None and batch.draining else None
 
     @api
@@ -2207,7 +2209,7 @@ class ScopeSession:
             raise HardwareCommandRefusedError(
                 'exclusive_activity_running', 'recover_file_writer', holder
             )
-        batch = self.sequenced_capture_runner.write_batch()
+        batch = self._sequenced_capture_runner.write_batch()
         if batch is None or not batch.stalled(WRITE_STALL_FATAL_S):
             raise FileWriterNotStuckError(batch.pending if batch is not None else 0)
         # Given up on first, so the stuck write returning later counts
@@ -5332,7 +5334,7 @@ class ScopeSession:
         self.scope.imaging.start_stream_check(self._scheduler)
         # Likewise a finished run's file writer: nobody waits on its files
         # once the run has ended, so a stuck one is reported to every client.
-        self.sequenced_capture_runner.start_file_writer_check(self._scheduler)
+        self._sequenced_capture_runner.start_file_writer_check(self._scheduler)
         # Read once so a session that changes nothing still records the
         # scale it starts with (the read records the optics). An objective
         # not yet known (a turret not yet in a known slot, an objective
@@ -6393,7 +6395,9 @@ class ScopeSession:
         from _lumascope.modules.protocol_runner import ProtocolRunner
 
         if self._protocol_runner is None:
-            self._protocol_runner = ProtocolRunner(session=self)
+            self._protocol_runner = ProtocolRunner(
+                session=self, engine=self._sequenced_capture_runner
+            )
         return self._protocol_runner
 
     # ------------------------------------------------------------------
@@ -6546,7 +6550,7 @@ class ScopeSession:
         # unregister stops its own work and may wait for it.
         self.unload_plugins()
         self.disable_metrics()
-        runner = self.sequenced_capture_runner
+        runner = self._sequenced_capture_runner
         if runner is not None:
             runner.force_reset(reason='session close')
         if self.manual_recording.is_recording:

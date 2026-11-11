@@ -41,7 +41,7 @@ def _draining_run(session, writes=1):
     batch = RunWriteBatch(session.file_io_executor)
     for _ in range(writes):
         batch.submit(lambda: None, {}, what='an image', pace_until=None)
-    session.sequenced_capture_runner._write_batch = batch
+    session._sequenced_capture_runner._write_batch = batch
     batch.close()
     return batch
 
@@ -77,7 +77,7 @@ class TestDerivations:
         session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
         batch = RunWriteBatch(session.file_io_executor)
         batch.submit(lambda: None, {}, what='an image', pace_until=None)
-        session.sequenced_capture_runner._write_batch = batch
+        session._sequenced_capture_runner._write_batch = batch
         assert batch.pending == 1
 
         assert session.live_work.work == ()
@@ -104,12 +104,12 @@ class TestDerivations:
         session = session_on_a_simulated_scope()
         recording_engine = MagicMock()
         monkeypatch.setattr(session.manual_recording, '_engine', recording_engine)
-        monkeypatch.setattr(session, 'sequenced_capture_runner', MagicMock())
+        monkeypatch.setattr(session, '_sequenced_capture_runner', MagicMock())
 
         session.discard_close_drain()
 
         recording_engine.discard_pending.assert_called_once_with()
-        session.sequenced_capture_runner.discard_video_pending.assert_called_once_with()
+        session._sequenced_capture_runner.discard_video_pending.assert_called_once_with()
 
 
 class TestTransitionNotification:
@@ -139,7 +139,7 @@ class TestTransitionNotification:
         from _lumascope.modules.run_events import RunEvents
 
         session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
-        runner = session.sequenced_capture_runner
+        runner = session._sequenced_capture_runner
         # The run's fields start() sets that the completion captures.
         runner._events = RunEvents()
         runner._disable_saving_artifacts = True

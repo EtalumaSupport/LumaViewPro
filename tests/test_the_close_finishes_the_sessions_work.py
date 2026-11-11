@@ -125,7 +125,7 @@ def test_a_run_started_while_the_close_runs_is_never_left_live(tmp_path):
         box = _race_a_start_against_the_close(session, 0.002 * (trial % 3))
 
         assert session._activity_claim.holder is None, f'trial {trial}: the scope is still held'
-        assert not session.sequenced_capture_runner.run_live, f'trial {trial}: a run is live'
+        assert not session._sequenced_capture_runner.run_live, f'trial {trial}: a run is live'
         if 'run' in box:
             assert box['run'].result(timeout=SETTLE_S) is not None
 
@@ -305,7 +305,7 @@ def test_a_run_that_passed_its_checks_before_the_close_finished_is_refused_when_
     1 in 100 under load)."""
     session = _session(tmp_path)
     protocol = _one_step_protocol(session)
-    runner = session.sequenced_capture_runner
+    runner = session._sequenced_capture_runner
     prepare = runner.prepare
 
     # a stand-in by design: it places the close's end in the window between

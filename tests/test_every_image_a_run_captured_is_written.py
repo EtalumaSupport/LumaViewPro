@@ -112,7 +112,7 @@ class TestAShortRunWhileTheFileWorkerWaits:
                 )
                 result = outcome.result(timeout=WAIT_S)
                 assert result is not None and result.status == 'completed', result
-                assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
+                assert runner.session._sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             finally:
                 release.set()
 
@@ -166,7 +166,7 @@ class TestAnErrorAbort:
             result = outcome.result(timeout=WAIT_S)
             assert result is not None and result.status == 'failed', result
             assert result.reason == 'hardware_disconnected', result
-            assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
+            assert runner.session._sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             release.set()
             assert heard_events.files_done.wait(WAIT_S), 'files_written never came'
 
@@ -217,7 +217,7 @@ class TestAnErrorAbort:
             )
             result = outcome.result(timeout=WAIT_S)
             assert result is not None and result.status == 'failed', result
-            assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
+            assert runner.session._sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             assert not any(e[0] == 'record_complete' for e in heard_events.events), (
                 'the record was reconciled with a write still held'
             )
@@ -234,7 +234,7 @@ class TestBackToBackRuns:
         run_parent = tmp_path / 'runs'
         heard = []
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-            engine = runner.sequenced_capture_runner
+            engine = runner.session._sequenced_capture_runner
             for index in range(3):
                 heard_events = _Heard()
                 outcome = runner.start_single_scan(
@@ -278,7 +278,7 @@ class TestANewRunWhileTheLastRunsFilesWrite:
         release, started = _hold_saves(monkeypatch)
         heard_events = _Heard()
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            engine = runner.sequenced_capture_runner
+            engine = runner.session._sequenced_capture_runner
             outcome = runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
@@ -330,7 +330,7 @@ class TestTheRunsWritesCloseBeforeItEnds:
         release, started = _hold_saves(monkeypatch)
         seen = {}
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-            engine = runner.sequenced_capture_runner
+            engine = runner.session._sequenced_capture_runner
 
             def _closed():
                 batch = engine.write_batch()
@@ -379,7 +379,7 @@ class TestACleanupThatRaises:
         run_parent = tmp_path / 'runs'
         heard_events = _Heard()
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-            engine = runner.sequenced_capture_runner
+            engine = runner.session._sequenced_capture_runner
             runner.start_single_scan(
                 protocol=_protocol([_step('C1', 0, x=20.0, gain=1.0)]),
                 parent_dir=str(run_parent),
@@ -409,7 +409,7 @@ class TestAStartThatFails:
 
         heard_events = _Heard()
         with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-            engine = runner.sequenced_capture_runner
+            engine = runner.session._sequenced_capture_runner
             if where == 'the run folder':
 
                 def _no_folder():
@@ -457,7 +457,7 @@ class TestARunAfterAnErrorAbort:
         monkeypatch.setattr(protocol_image_writer.ProtocolImageWriter, 'capture', _disconnect_after)
         monkeypatch.setattr(protocol_run_loop, 'HW_CHECK_INTERVAL_S', -1)
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            engine = runner.sequenced_capture_runner
+            engine = runner.session._sequenced_capture_runner
             real_unconnected = session.scope.unconnected_parts
             monkeypatch.setattr(
                 session.scope,
@@ -527,7 +527,7 @@ class TestAWriteWhoseFailureReportRaises:
                 events=heard_events.as_events(),
             )
             assert outcome.result(timeout=WAIT_S) is not None
-            assert runner.sequenced_capture_runner.wait_for_run_idle(WAIT_S)
+            assert runner.session._sequenced_capture_runner.wait_for_run_idle(WAIT_S)
             assert heard_events.files_done.wait(WAIT_S), 'the failed write left the batch owing it'
             assert not session.live_work.has(live_work.WorkKind.RUN_FILES)
         assert reports, "the save's failure was never reported"

@@ -76,7 +76,7 @@ def test_a_run_waiting_form_refuses_its_wait_before_starting_the_run(session, tm
                 protocol=_build_real_protocol([step]), parent_dir=str(tmp_path), timeout_s=1e12
             )
         )
-        started = session.sequenced_capture_runner.run_in_progress()
+        started = session._sequenced_capture_runner.run_in_progress()
     finally:
         session.scope.simulation.clear()
 

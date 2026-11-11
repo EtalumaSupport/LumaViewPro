@@ -21,13 +21,12 @@ try:
     import pathlib as _pl
 
     import _lumascope.modules.config_helpers as config_helpers
-    from _lumascope.modules.protocol_runner import ProtocolRunner
     from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
     from _lumascope.modules.zstack_config import ZStackConfig
 
-    runner = ProtocolRunner(session)
+    runner = session.protocol_runner()
     settings = session.get_settings_snapshot()
-    engine = session.sequenced_capture_runner
+    engine = session._sequenced_capture_runner
 
     captured = {}
 

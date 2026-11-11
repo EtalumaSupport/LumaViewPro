@@ -176,7 +176,7 @@ class TestEveryObserverSeesTheOutcomeOnceTheRunLetGo:
             lambda op: probed.put(
                 (
                     op.result(0).status,
-                    runner.sequenced_capture_runner.run_in_progress(),
+                    runner.session._sequenced_capture_runner.run_in_progress(),
                     'run_ended_ended' in seen,
                 )
             )
@@ -197,7 +197,7 @@ class TestEveryObserverSeesTheOutcomeOnceTheRunLetGo:
             assert next(cf.as_completed([run], timeout=BOUND_S)) is run
 
         assert 'run_ended_ended' in seen, f'{observe} returned while run_ended was still running'
-        assert not runner.sequenced_capture_runner.run_in_progress()
+        assert not runner.session._sequenced_capture_runner.run_in_progress()
 
     def test_a_done_callback_that_waits_does_not_hold_the_next_run(self, scope):
         """A callback runs on the callback thread, never the run's own, so a
@@ -217,7 +217,7 @@ class TestEveryObserverSeesTheOutcomeOnceTheRunLetGo:
             # A scan that saves no images still writes its record row, and a
             # next run is refused until the last run's writes land; waited
             # for here so the next run meets only the blocked callback.
-            first_writes = runner.sequenced_capture_runner.write_batch()
+            first_writes = runner.session._sequenced_capture_runner.write_batch()
             assert first_writes.wait_complete(BOUND_S), "the first run's writes never landed"
             second = _scan(runner, runs, RunEvents(), save=False, sequence_name='second')
             assert second.progress().is_live or second.done()
@@ -288,7 +288,7 @@ class TestInsideItsOwnRunEnded:
         def _a_run_ended(*args):
             assert run_box['ready'].wait(BOUND_S)
             nested['a_thread'] = threading.current_thread()
-            a_writes = runner.sequenced_capture_runner.write_batch()
+            a_writes = runner.session._sequenced_capture_runner.write_batch()
             nested['a_writes_landed'] = a_writes.wait_complete(BOUND_S)
             with monkeypatch.context() as patched:
                 patched.setattr(Protocol, 'to_file', _copy_refused)

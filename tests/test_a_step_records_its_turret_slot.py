@@ -76,7 +76,7 @@ def _targets(session, protocol):
 
 
 def _prepare(session, protocol, tmp_path):
-    return session.sequenced_capture_runner.prepare(
+    return session._sequenced_capture_runner.prepare(
         protocol=protocol,
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='t',

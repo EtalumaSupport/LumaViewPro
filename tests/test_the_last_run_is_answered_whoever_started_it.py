@@ -122,7 +122,7 @@ def test_a_run_another_caller_started_is_one_job_whose_end_reaches_the_stream(se
         try:
             run = _start_a_scan(session, run_ended=run_ended)
             assert ending.wait(10)
-            assert not session.sequenced_capture_runner.run_live
+            assert not session._sequenced_capture_runner.run_live
             read = client.post('/api/v1/last_run')
             again = client.post('/api/v1/last_run')
         finally:

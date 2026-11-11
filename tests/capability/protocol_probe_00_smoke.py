@@ -15,7 +15,7 @@ try:
     print('discard_close_drain -> OK')
 
     banner('engine members (what the session reads)')
-    eng = session.sequenced_capture_runner
+    eng = session._sequenced_capture_runner
     print('type(engine.video_drain_busy)    :', type(eng.video_drain_busy))
     print('type(engine.video_pending_writes):', type(eng.video_pending_writes))
 finally:

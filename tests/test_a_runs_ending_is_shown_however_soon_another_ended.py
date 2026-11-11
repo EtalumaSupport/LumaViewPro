@@ -170,7 +170,7 @@ def _failed_mid_run(session, tmp_path, *, faults=1):
     )
     held.result(_HOLD_WAIT_S)
     for _ in range(faults):
-        session.sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
+        session._sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
     session.scope.motion.stop_motion()
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
     session.scope.simulation.clear()

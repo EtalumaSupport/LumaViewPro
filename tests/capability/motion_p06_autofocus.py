@@ -5,7 +5,6 @@ API member under test: src/_lumascope/modules/protocol_runner.py:281 ProtocolRun
 """
 
 from harness import check, run
-from _lumascope.modules.protocol_runner import ProtocolRunner
 from _lumascope.modules.exceptions import ArgumentRefusedError
 from _lumascope.modules.coord_transformations import PlateLocation
 
@@ -25,7 +24,7 @@ def body(s):
         camera.set_test_pattern(enabled=True, pattern='focus_target')
         camera.set_focal_z(3030.0)
 
-    runner = ProtocolRunner(s)
+    runner = s.protocol_runner()
     z_before = m.get_current_position('Z')
 
     pending = runner.start_autofocus(channel='BF')

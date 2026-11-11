@@ -47,7 +47,7 @@ def _one_step_protocol(session):
 
 def test_a_held_scope_is_refused_by_the_gates_as_by_a_start(make_session, tmp_path):
     session = make_session('LS850')
-    runner = session.sequenced_capture_runner
+    runner = session._sequenced_capture_runner
     protocol = _one_step_protocol(session)
 
     with session.diagnostic_claim():
@@ -63,7 +63,7 @@ def test_a_held_scope_is_refused_by_the_gates_as_by_a_start(make_session, tmp_pa
 
 def test_a_run_between_taking_the_scope_and_starting_is_already_running(make_session, tmp_path):
     session = make_session('LS850')
-    runner = session.sequenced_capture_runner
+    runner = session._sequenced_capture_runner
     heard = []
 
     def on_edge():
@@ -96,7 +96,7 @@ def test_a_part_not_connected_is_told_before_an_empty_protocol(make_session, tmp
         )
 
     assert refused.value.reason == 'not_connected'
-    assert session.sequenced_capture_runner.state_refusal(session._activity_claim).reason == (
+    assert session._sequenced_capture_runner.state_refusal(session._activity_claim).reason == (
         'not_connected'
     )
 
@@ -119,4 +119,4 @@ def test_a_scope_that_cannot_reach_the_wells_is_told_so_before_it_is_told_to_hom
         session.protocol_runner().start_single_scan(protocol, parent_dir=str(tmp_path))
 
     assert refused.value.reason == 'positions_unreachable'
-    assert session.sequenced_capture_runner.state_refusal(session._activity_claim) is None
+    assert session._sequenced_capture_runner.state_refusal(session._activity_claim) is None
