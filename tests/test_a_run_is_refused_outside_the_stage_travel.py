@@ -21,6 +21,9 @@ from _lumascope.modules.lumascope_api.bring_up import Part
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from _lumascope.modules.protocol import ProtocolFormatError
 from tests.scope_fakes import bind_settings_like_a_session
+from tests.test_a_scope_with_no_z_takes_no_autofocus import _session
+from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
+from tests.test_large_protocol_loads import refuse_walking_steps_as_rows
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import (
     NOT_CARRIED,
     NOT_ON_TURRET,
@@ -109,3 +112,28 @@ def test_glass_the_turret_does_not_carry_is_told_first(executor, scope, tmp_path
         [{'name': 'too_high', 'z': _past_z(scope), 'objective': NOT_ON_TURRET}]
     )
     assert _refusal(executor, protocol, tmp_path).reason == NOT_CARRIED
+
+
+def test_a_runs_start_walks_no_step_as_a_pandas_row(executor, scope, tmp_path, monkeypatch):
+    # The travel and camera-range checks walk every step at a run's start;
+    # an admitted run has been through both.
+    protocol = _make_multi_step_protocol([{'name': 'first'}, {'name': 'second', 'color': 'BF'}])
+    refuse_walking_steps_as_rows(monkeypatch)
+
+    _prepare(executor, protocol, tmp_path)
+
+
+def test_a_step_with_no_z_on_a_scope_with_no_z_is_inside_the_travel():
+    # The step holds NaN for the position it does not have; read as None,
+    # the Z it is not judged on would fail to read as a number.
+    session = _session('LS620')
+    try:
+        protocol = _empty_protocol_for_add()
+        session.add_step(protocol, before_step_index=0)
+        assert protocol.steps()['Z'].isna().all()
+
+        session.scope.protocols.refuse_positions_outside_travel(
+            protocol.steps(), protocol.labware_id()
+        )
+    finally:
+        session.shutdown()

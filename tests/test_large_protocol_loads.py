@@ -15,9 +15,12 @@ import pathlib
 import subprocess
 import sys
 
+import pandas as pd
 import pytest
 
 from _lumascope.modules import common_utils
+from _lumascope.modules.labware_loader import WellPlateLoader
+from _lumascope.modules.objectives_loader import ObjectiveLoader
 from _lumascope.modules.protocol import PROTOCOL_FILE_CEILING_BYTES, Protocol, ProtocolFormatError
 from tests.protocol_fixtures import protocol_from_file
 from tests.scope_fakes import home_sim_scope
@@ -25,6 +28,7 @@ from tests.test_protocol_roundtrip import (
     _build_protocol,
     _make_step,
 )
+from tests.test_step_label_ssot import _V7_TSV
 
 # Above the advisory threshold (PROTOCOL_SIZE_ADVISORY_STEPS, 10,000) and above
 # the step ceiling this suite exists to keep deleted.
@@ -162,3 +166,57 @@ def test_a_malformed_file_is_still_refused(tmp_path):
         protocol_from_file(
             file_path=junk,
         )
+
+
+def refuse_walking_steps_as_rows(monkeypatch) -> None:
+    """Make pandas' per-row walks fail the test wherever they are reached.
+
+    A pandas row built per step (``iterrows``, ``apply(axis=1)``) cost a
+    69,120-step load about 1.7 of its 2.5 s on the Mac, where the same rows
+    read a column at a time cost a tenth of it; on a field PC the load holds
+    the UI thread. Patched on the class, so pandas' own use of either is
+    caught too.
+    """
+
+    def walked(*_args, **_kwargs):
+        raise AssertionError('a steps table was walked as one pandas row per step')
+
+    monkeypatch.setattr(pd.DataFrame, 'iterrows', walked)
+    monkeypatch.setattr(pd.DataFrame, 'apply', walked)
+
+
+def test_a_load_and_its_run_check_walk_no_step_as_a_pandas_row(tmp_path, monkeypatch):
+    """The load names every step, keys its capture files and parses its video settings
+    by column, and the run's check of the loaded steps keys them the same way."""
+    path = tmp_path / 'protocol.tsv'
+    _build_protocol(
+        [
+            _make_step(well='A1'),
+            _make_step(well='A1'),
+            _make_step(well='A2', acquire='video', video_config={'duration': 5}),
+        ]
+    ).to_file(path)
+    refuse_walking_steps_as_rows(monkeypatch)
+
+    loaded = protocol_from_file(file_path=path)
+    errors = loaded.validate_for_run(
+        objective_helper=ObjectiveLoader(), wellplate_loader=WellPlateLoader(), led_max_ma=1000
+    )
+
+    assert list(loaded.steps()['Name']) == ['A1_BF_Z0', 'A1_BF_Z0', 'A2_BF_Z0']
+    assert loaded.steps()['Video Config'].iat[2] == {'duration': 5}
+    assert [e for e in errors if 'would save captures' in e] == [
+        "Steps 1, 2: each would save captures as 'A1_BF_Z0_...'. "
+        'Rename these steps so each produces a unique filename.'
+    ], errors
+
+
+def test_an_old_files_label_recovery_walks_no_step_as_a_pandas_row(tmp_path, monkeypatch):
+    """A file from before the Label column recovers each step's label by column."""
+    path = tmp_path / 'protocol_v7.tsv'
+    path.write_text(_V7_TSV)
+    refuse_walking_steps_as_rows(monkeypatch)
+
+    loaded = protocol_from_file(file_path=path)
+
+    assert list(loaded.steps()['Label']) == ['', 'Control_preDose', 'Treatment_10x', 'custom0001']

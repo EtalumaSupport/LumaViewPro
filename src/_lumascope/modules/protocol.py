@@ -318,6 +318,24 @@ def _refuse_unless_zstack_has_extent(zstack_params: dict) -> None:
         )
 
 
+def rows_by_column(steps: pd.DataFrame) -> Iterator[dict]:
+    """Every row of a steps frame, in order, as a plain dict keyed by its columns.
+
+    How a load and a run's start walk a steps table step by step. It is
+    read a column at a time: building a pandas row per step (``iterrows``,
+    ``apply(axis=1)``) costs about ten times as much on a large protocol,
+    and a load and a run's start walk every step. ``.tolist()`` boxes a
+    numeric column to Python scalars, the values a row would hold.
+
+    The rows are yielded one at a time: a list of every row is a second
+    copy of the table, about 0.8 KB a step at a load's peak.
+    """
+    columns = {column: steps[column].tolist() for column in steps.columns}
+    keys = tuple(columns)
+    for values in zip(*columns.values(), strict=True):
+        yield dict(zip(keys, values, strict=True))
+
+
 def axes_outside_travel(
     position: dict,
     axis_limits: 'Mapping[str, AxisLimits]',
@@ -2064,13 +2082,17 @@ class Protocol:
         Objective column (see _capture_collision_key) instead of baking a
         token into the base that non-turret filenames never carry.
         """
-        return steps_df.apply(
-            lambda row: common_utils.build_step_name(
-                common_utils.step_components(
-                    row, post=('video',) if row.get('Acquire') == AcquireMode.VIDEO else ()
+        return pd.Series(
+            [
+                common_utils.build_step_name(
+                    common_utils.step_components(
+                        row, post=('video',) if row.get('Acquire') == AcquireMode.VIDEO else ()
+                    )
                 )
-            ),
-            axis=1,
+                for row in rows_by_column(steps_df)
+            ],
+            index=steps_df.index,
+            dtype=str,
         )
 
     @classmethod
@@ -2817,7 +2839,7 @@ class Protocol:
         steps['Name'] = pd.Series(
             [
                 common_utils.build_step_name(common_utils.step_components(row))
-                for _, row in steps.iterrows()
+                for row in rows_by_column(steps)
             ],
             index=steps.index,
             dtype=self._create_empty_steps_df().dtypes['Name'],
@@ -3058,20 +3080,11 @@ class Protocol:
         """Every step, in order, as a plain dict keyed by the steps table's columns.
 
         What ``step_row`` answers for each step -- Python scalars, None for
-        no position -- read a column at a time: building one row at a time
-        costs about ten times as much on a large protocol, and a run's
-        start reads every step.
-
-        ``.tolist()`` boxes a numeric column to Python scalars, but it leaves
-        a numpy scalar sitting in an object column as it is. No stored frame
+        no position -- read by ``rows_by_column``. ``.tolist()`` leaves a
+        numpy scalar sitting in an object column as it is; no stored frame
         holds one: ``_set_steps`` reads every cell by its column's reader.
         """
-        steps = self._config['steps']
-        columns = {column: steps[column].tolist() for column in steps.columns}
-        rows = [
-            dict(zip(columns, values, strict=True))
-            for values in zip(*columns.values(), strict=True)
-        ]
+        rows = list(rows_by_column(self._config['steps']))
         for row in rows:
             _no_position_as_none(row)
         return rows
@@ -4264,8 +4277,8 @@ class Protocol:
                 f'Converting loaded protocol from {config["version"]} to {cls.CURRENT_VERSION}'
             )
 
-        def _parse_config_per_row(position, row, column):
-            """One row's config cell, read by the step reader.
+        def _parse_config_cell(position, value, column):
+            """One step's config cell, read by the step reader.
 
             Parsed here rather than in the constructor because the legacy
             repairs below need the dict. A cell that is not a config refuses
@@ -4273,12 +4286,13 @@ class Protocol:
             it as read.
             """
             try:
-                return _dict_cell(row[column])
+                return _dict_cell(value)
             except ValueError as e:
                 if not runnable:
-                    return row[column]
+                    return value
+                name = protocol_df['Name'].iat[position]
                 raise ProtocolFormatError(
-                    f'step {position + 1} ({row["Name"]}) has {column} {row[column]!r}, which {e}.',
+                    f'step {position + 1} ({name}) has {column} {value!r}, which {e}.',
                     file=file_path,
                 ) from None
 
@@ -4311,8 +4325,8 @@ class Protocol:
         else:
             protocol_df['Video Config'] = _typed_column(
                 (
-                    _with_video_defaults(_parse_config_per_row(position, row, 'Video Config'))
-                    for position, (_, row) in enumerate(protocol_df.iterrows())
+                    _with_video_defaults(_parse_config_cell(position, value, 'Video Config'))
+                    for position, value in enumerate(protocol_df['Video Config'].tolist())
                 ),
                 object,
             )
@@ -4355,7 +4369,9 @@ class Protocol:
             # yield their machine base, anything else is user text kept
             # verbatim). Files that also predate the auto/user flag take the
             # flag from the same classification; a stored flag is kept as-is.
-            recovered = [common_utils.recover_step_label(row) for _, row in protocol_df.iterrows()]
+            recovered = [
+                common_utils.recover_step_label(row) for row in rows_by_column(protocol_df)
+            ]
             protocol_df['Label'] = _typed_column((label for label, _ in recovered), str)
             if 'Auto_Named' not in protocol_df.columns:
                 protocol_df['Auto_Named'] = _typed_column(

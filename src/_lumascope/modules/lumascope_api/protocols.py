@@ -1247,7 +1247,7 @@ class ProtocolsAPI:
             ConfigError: No session has bound the scope, so it has no
                 stage offset to judge X/Y with.
         """
-        from _lumascope.modules.protocol import axes_outside_travel
+        from _lumascope.modules.protocol import axes_outside_travel, rows_by_column
 
         axis_limits = self._travel_limits()
         plate = {}
@@ -1257,7 +1257,7 @@ class ProtocolsAPI:
                 'stage_offset': self._scope.runtime_state.get_stage_offset(),
             }
         outside = []
-        for idx, step in steps.iterrows():
+        for idx, step in zip(steps.index, rows_by_column(steps), strict=True):
             axes = axes_outside_travel(
                 {axis: step[axis] for axis in StageAxis}, axis_limits, **plate
             )
@@ -1298,6 +1298,8 @@ class ProtocolsAPI:
             ProtocolRunRefusedError: A step's gain or exposure is outside the
                 camera's range.
         """
+        from _lumascope.modules.protocol import rows_by_column
+
         limits = self._scope.capabilities.camera_limits
         checks = (
             (
@@ -1316,7 +1318,7 @@ class ProtocolsAPI:
             ),
         )
         problems = []
-        for _, step in steps.iterrows():
+        for step in rows_by_column(steps):
             for column, word, unit, low, high in checks:
                 value = float(step[column])
                 # A blank cell reads as NaN; it asks the camera for nothing.
