@@ -41,11 +41,15 @@ def test_a_second_settings_binding_is_refused_and_the_sessions_stay(session):
     def another_writer(updates):
         raise AssertionError('the scope saved to settings its session does not hold')
 
+    def another_set_aside():
+        raise AssertionError('the scope read a set-aside file its session does not hold')
+
     with pytest.raises(AlreadyStartedError) as refused:
-        session.scope.bind_settings(another_reader, another_writer)
+        session.scope.bind_settings(another_reader, another_writer, another_set_aside)
 
     assert refused.value.reason == 'scope_composed'
     assert session.scope.read_setting('objective_id') == session.settings['objective_id']
+    assert session.scope.bring_up_record() == session.bring_up_record()
 
 
 def test_after_bring_up_nothing_is_written_or_recorded_as_bring_ups(session):

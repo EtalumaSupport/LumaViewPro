@@ -97,6 +97,7 @@ from _lumascope.modules.lumascope_api.bring_up import (
     BringUpRecord,
     Part,
     PartStatus,
+    SettingsSetAside,
     Substitution,
     connecting,
     report_step,
@@ -614,6 +615,7 @@ class Lumascope:
         self._camera_driver = None
         self._settings_reader: Callable[[str], Any] | None = None
         self._settings_writer: Callable[[dict[str, Any]], None] | None = None
+        self._settings_set_aside: Callable[[], SettingsSetAside | None] | None = None
         # Where the FX2's USB bindings are read, whether or not an FX2 came
         # up: the host's, unless bring-up simulates the scope.
         self._read_fx2_bindings: Callable[[str], list | None] = _host_fx2_bindings
@@ -1814,7 +1816,10 @@ class Lumascope:
             )
 
     def bind_settings(
-        self, reader: 'Callable[[str], Any]', writer: 'Callable[[dict[str, Any]], None]'
+        self,
+        reader: 'Callable[[str], Any]',
+        writer: 'Callable[[dict[str, Any]], None]',
+        set_aside: 'Callable[[], SettingsSetAside | None]',
     ) -> None:
         """Read and save the configuration this scope acts on in a session's settings.
 
@@ -1823,7 +1828,9 @@ class Lumascope:
         refused a second session over the same scope. ``reader`` answers a
         copy of the setting at a dotted path, as the session stores it;
         ``writer`` saves a batch of dotted paths to values at once, as the
-        session's own members save them.
+        session's own members save them; ``set_aside`` answers the user's
+        settings file the session set aside, or None, when asked, since a
+        person's choice to start over clears it while the scope runs.
 
         Raises:
             AlreadyStartedError: ``'scope_composed'``, this scope is already
@@ -1836,6 +1843,7 @@ class Lumascope:
             )
         self._settings_reader = reader
         self._settings_writer = writer
+        self._settings_set_aside = set_aside
 
     def _store_settings(self, updates: dict[str, Any]) -> None:
         """Save ``updates``, dotted paths to values, to the session this scope is bound to.
@@ -1879,17 +1887,30 @@ class Lumascope:
         return self._settings_reader(path)
 
     def bring_up_record(self) -> BringUpRecord:
-        """What this scope's bring-up found and substituted.
+        """What this scope's bring-up found, substituted and set aside.
 
-        Composition wiring for the session, not part of the L2 API surface:
-        the session adds what it knows (the settings file set aside) and
-        offers the whole as ``ScopeSession.bring_up_record``. Before
-        ``initialize`` every part is expected, as an unconfigured scope is
-        held to every board.
+        The record ``ScopeSession.bring_up_record`` offers: the parts and
+        substitutions are this scope's, the settings file set aside is read
+        from its session's settings as it stands now (``bind_settings``).
+        Before ``initialize`` every part is expected, as an unconfigured
+        scope is held to every board.
+
+        Raises:
+            ConfigurationDefectError: ``'scope_not_composed'``, no session
+                has bound this scope's settings, so whether a settings file
+                was set aside is unknown.
         """
+        if self._settings_set_aside is None:
+            raise ConfigurationDefectError(
+                'scope_not_composed',
+                'this scope has no settings to say whether a settings file was set aside: '
+                'compose it into a ScopeSession (ScopeSession.create) before reading its '
+                'bring-up record',
+            )
         return BringUpRecord(
             parts=tuple(self._bring_up_parts.values()),
             substitutions=tuple(self._bring_up_substitutions),
+            settings_set_aside=self._settings_set_aside(),
         )
 
     def _report_bring_up(self, config) -> None:

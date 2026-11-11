@@ -190,7 +190,7 @@ _CHANNEL_SETTINGS_KEYS = (
 # for the annotation without a runtime import.
 if TYPE_CHECKING:
     from _lumascope.modules.lumascope_api import Lumascope
-    from _lumascope.modules.lumascope_api.bring_up import BringUpRecord
+    from _lumascope.modules.lumascope_api.bring_up import BringUpRecord, SettingsSetAside
     from _lumascope.modules.lumascope_api.diagnostics import UsbIdentityBindings
     from _lumascope.modules.lumascope_api.camera import AutoGainLock
     from _lumascope.modules.lumascope_api.simulation import SimulatedScope
@@ -849,10 +849,13 @@ class ScopeSession:
         self._camera_override_key = self.camera_executor.ask_claim(self._activity_claim)
         # The scope reads the configuration it acts on -- labware, stage
         # offset, turret map, objective, scale bar -- from these settings,
-        # their one store, so it holds no copy to keep in step. After the
-        # claim: the lanes refuse a second session over this scope there,
-        # before it could point the scope at its own settings.
-        scope.bind_settings(self._read_stored_setting, self._store_settings)
+        # their one store, so it holds no copy to keep in step; and the
+        # settings file set aside the same way, for its bring-up record.
+        # After the claim: the lanes refuse a second session over this scope
+        # there, before it could point the scope at its own settings.
+        scope.bind_settings(
+            self._read_stored_setting, self._store_settings, self._settings_set_aside
+        )
         # Service the scope NOW, before any collaborator is composed: the
         # temperature log reads the camera under the key, and the protocol
         # constructors resolve their data files from the source path.
@@ -5370,13 +5373,21 @@ class ScopeSession:
         Raises:
             Nothing.
         """
+        return self.scope.bring_up_record()
+
+    @staticmethod
+    def _settings_set_aside() -> 'SettingsSetAside | None':
+        """The user's settings file set aside and why, or None while it is in use.
+
+        Read from settings_init, its one store, each time: the person's
+        choice to start over (``retire_rejected_settings``) clears it.
+        """
         from _lumascope.modules.lumascope_api.bring_up import SettingsSetAside
 
         rejected = settings_init.rejected_current_json
-        set_aside = (
+        return (
             None if rejected is None else SettingsSetAside(pathlib.Path(rejected[0]), rejected[1])
         )
-        return dataclasses.replace(self.scope.bring_up_record(), settings_set_aside=set_aside)
 
     @api
     @slow_task_budget(SUPPORT_REPORT_SLOW_TASK_S)

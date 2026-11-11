@@ -609,6 +609,7 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     scope.bind_settings(
         functools.partial(ScopeSession._read_stored_setting, holder),
         functools.partial(ScopeSession._store_settings, holder),
+        ScopeSession._settings_set_aside,
     )
     return settings
 

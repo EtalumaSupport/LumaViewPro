@@ -31,6 +31,7 @@ from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from _lumascope.modules.exceptions import (
     BinningSubstitutedNotice,
     CameraNotAvailableError,
+    ConfigurationDefectError,
     FrameRefittedNotice,
     LedBoardUnavailableError,
     LedSafetyOffNotTakenError,
@@ -681,6 +682,40 @@ class TestTheSettingsFileSetAside:
             )
         finally:
             session.shutdown()
+
+    def test_the_scope_s_record_is_the_session_s_through_a_start_over(self, tmp_path, monkeypatch):
+        """The scope's own record names the file set aside, and stops naming it once retired.
+
+        One holder for the fact: the scope reads it from its session's
+        settings when asked, so the person's choice to start over clears it
+        on both records at once, with nothing handed over to fall behind.
+        """
+        current = tmp_path / 'current.json'
+        current.write_text('{not json')
+        monkeypatch.setattr(
+            settings_init, 'rejected_current_json', (str(current), 'not valid JSON')
+        )
+        session = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
+        )
+        try:
+            set_aside = SettingsSetAside(current, 'not valid JSON')
+            assert session.scope.bring_up_record().settings_set_aside == set_aside
+            assert session.scope.bring_up_record() == session.bring_up_record()
+
+            session.retire_rejected_settings()
+
+            assert session.scope.bring_up_record().settings_set_aside is None
+            assert session.bring_up_record().settings_set_aside is None
+        finally:
+            session.shutdown()
+
+    def test_a_scope_no_session_composed_refuses_its_record(self, no_hardware_scope):
+        """Unbound, whether a settings file was set aside is unknown, so no record is answered."""
+        with pytest.raises(ConfigurationDefectError) as refused:
+            no_hardware_scope.bring_up_record()
+
+        assert refused.value.reason == 'scope_not_composed'
 
     def test_the_host_s_question_reads_the_reason_from_the_record(self):
         fn = find_def('lumaviewpro.py', '_ask_about_rejected_settings', class_name='LumaViewProApp')
