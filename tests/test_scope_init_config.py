@@ -14,7 +14,7 @@ import pytest
 from _lumascope.modules.channel_record import load_scope_models
 from _lumascope.modules.scope_init_config import ScopeInitConfig
 from _lumascope.modules.lumascope_api._constants import ACCELERATION_PCT_MAX
-from tests.scope_fakes import build_scope, identity_with_layers
+from tests.scope_fakes import bind_settings_like_a_session, build_scope, identity_with_layers
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -116,6 +116,8 @@ class TestAccelerationBound:
     def test_the_api_refuses_on_the_same_bound(self):
         """from_settings and the motion API read the one check."""
         scope = build_scope(simulate=True)
+        # Bound as a session binds it: the limit the board takes is stored there.
+        bind_settings_like_a_session(scope)
         with pytest.raises(ValueError):
             scope.motion.set_acceleration_limit(limit_pct=ACCELERATION_PCT_MAX + 1)
         scope.motion.set_acceleration_limit(limit_pct=ACCELERATION_PCT_MAX)

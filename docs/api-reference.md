@@ -2909,8 +2909,9 @@ Route: `PUT /api/v1/acceleration_limit_pct`.
 
 Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
 
-The one writer of `motion.acceleration_max_pct`, stored once the
-motor controller took the value.
+The member that sets `motion.acceleration_max_pct`. The motion API
+stores it once the motor controller took the value, so the board and
+the stored limit cannot disagree.
 
 **Args**
 

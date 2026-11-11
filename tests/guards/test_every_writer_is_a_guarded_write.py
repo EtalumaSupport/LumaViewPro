@@ -7,7 +7,7 @@ before it writes, and a write running is counted so no take lands mid-way
 guard would write past the session: its setting writes are refused by the
 store's own check but not counted, and its file writes not refused at all.
 
-So the walk follows each public member of the four owners of such writes,
+So the walk follows each public member of the five owners of such writes,
 through the same-class members it names (``self._x(...)``, and
 ``IOTask(action=self._x)`` alike), to the writes themselves -- the settings
 stores, a protocol file, an edit of a protocol a caller holds, a recording's
@@ -27,7 +27,7 @@ from tests.ast_seams import parse_module
 _WRITES = {
     '_store_setting': "the Session's settings store, one leaf",
     '_store_settings': "the Session's settings store, several leaves",
-    'store_settings': "the camera's writes into the Session's store",
+    'store_settings': "the camera's and the motion API's writes into the Session's store",
     'to_file': 'a protocol file',
     'discard_pending': "a recording's pending frames given up",
     'replace_stuck_worker': "the file writer's recovery, which gives up its queued files",
@@ -52,6 +52,7 @@ _OWNERS = (
     ('src/_lumascope/modules/lumascope_api/camera.py', 'CameraAPI'),
     ('src/_lumascope/modules/manual_recording.py', 'ManualRecordingController'),
     ('src/_lumascope/modules/lumascope_api/protocols.py', 'ProtocolsAPI'),
+    ('src/_lumascope/modules/lumascope_api/motion.py', 'MotionAPI'),
 )
 
 # Public members that reach a write unguarded, each with why that is right.

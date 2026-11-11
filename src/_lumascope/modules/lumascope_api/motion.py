@@ -70,6 +70,7 @@ from _lumascope.modules.activity_claim import (
     acting,
     activity_taking,
     current_taking,
+    guarded_write,
 )
 from _lumascope.modules.caller import current_caller
 from _lumascope.modules.operation import Operation, refuse_waiting_on_ui_thread
@@ -144,6 +145,10 @@ _PLATE_AXES = ('X', 'Y')
 # Match _lumascope.py's module-level _api_log channel so relocated
 # bodies log to the same handler chain.
 _api_log = _logging.getLogger('LVP.api')
+
+# A motion member that stores what it sets, admitted and counted by the
+# session's claim (``guarded_write``); a scope no session composes has none.
+_guarded_write = guarded_write(lambda motion: motion._scope._activity_claim)
 
 from _lumascope.lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
 from _lumascope.modules.axes import Axis, StageAxis
@@ -1782,8 +1787,13 @@ class MotionAPI:
             resp[axis] = self.get_limit_switch_status(axis=axis)
         return resp
 
+    @_guarded_write
     def set_acceleration_limit(self, limit_pct: int) -> None:
-        """Set the motor controller acceleration limit (percent of max).
+        """Set the motor controller acceleration limit (percent of max), and store it.
+
+        Stored (``motion.acceleration_max_pct``) in the same lane task, once
+        the motor controller took it, so the board and the stored limit the
+        next bring-up gives it cannot disagree, whoever sets it.
 
         Firmware that does not implement the AMAX / DMAX query needs no
         handling here: the driver's own read already answers with a default
@@ -1808,13 +1818,20 @@ class MotionAPI:
                 its write; the limits written before it stand.
             BoardPortFailedError: the board's port is closed, or failed
                 before a command was sent.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session
+                has bound this scope, so it has no settings to store the
+                limit in; the board has taken it.
         """
         return self._dispatch_motion(
-            self._set_acceleration_limit_impl,
+            self._set_and_store_acceleration_limit_impl,
             'set_acceleration_limit',
             kwargs={'limit_pct': limit_pct},
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
+
+    def _set_and_store_acceleration_limit_impl(self, limit_pct: int) -> None:
+        self._set_acceleration_limit_impl(limit_pct=limit_pct)
+        self._scope.store_settings({'motion.acceleration_max_pct': limit_pct})
 
     def _set_acceleration_limit_impl(self, limit_pct: int) -> None:
         self.refuse_absent('set_acceleration_limit')

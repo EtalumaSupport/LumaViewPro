@@ -499,6 +499,19 @@ def test_an_acceleration_with_no_motor_controller_is_refused_and_not_stored(sess
     assert session.settings['motion']['acceleration_max_pct'] == 37
 
 
+def test_an_acceleration_the_motion_api_sets_is_the_one_stored(session):
+    """The board and the store cannot disagree, whichever member sets the limit.
+
+    The limit is stored where the motor controller takes it, so a caller of
+    the scope's motion member leaves the session reading, and the next
+    bring-up giving the board, the limit it has.
+    """
+    session.set_acceleration_limit(100)
+    session.scope.motion.set_acceleration_limit(limit_pct=37)
+    assert session.acceleration_limit_pct == 37
+    assert session.settings['motion']['acceleration_max_pct'] == 37
+
+
 def test_a_bookmark_is_the_live_position_in_the_go_to_frame(session):
     session.scope.motion.home('ALL')
     saved = session.save_bookmark(('X', 'Y', 'Z'))

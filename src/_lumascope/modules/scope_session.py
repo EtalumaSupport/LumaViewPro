@@ -6343,8 +6343,9 @@ class ScopeSession:
     def set_acceleration_limit(self, limit_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
 
-        The one writer of ``motion.acceleration_max_pct``, stored once the
-        motor controller took the value.
+        The member that sets ``motion.acceleration_max_pct``. The motion API
+        stores it once the motor controller took the value, so the board and
+        the stored limit cannot disagree.
 
         Args:
             limit_pct: The limit, a percent of the firmware's maximum
@@ -6358,8 +6359,6 @@ class ScopeSession:
                 the motion API accepts (a ValueError). Nothing is stored.
         """
         self.scope.motion.set_acceleration_limit(limit_pct=limit_pct)
-        with self.settings_lock:
-            self._store_setting('motion.acceleration_max_pct', limit_pct)
 
     # --- Hardware commands: NOT forwarded ---
     # The Session surface deliberately carries no hardware-command

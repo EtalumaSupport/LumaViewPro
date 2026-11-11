@@ -19,12 +19,15 @@ reported, and a driver that simply completes is still fine.
 
 import pytest
 
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
 @pytest.fixture
 def scope():
-    return build_scope(simulate=True)
+    # Bound as a session binds it: the limit the board takes is stored there.
+    scope = build_scope(simulate=True)
+    bind_settings_like_a_session(scope)
+    return scope
 
 
 def test_a_driver_refusal_is_raised_to_the_caller(scope, monkeypatch):
