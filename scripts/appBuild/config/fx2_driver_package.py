@@ -1,16 +1,17 @@
 """The FX2 driver package's ``DriverVer`` (LS460, LS560, LS620, LS720).
 
-The INF lives in the repo. ``write_driver_ver`` writes its ``DriverVer`` in
-place when ``build.ps1 -SignClassicDriver`` signs the package for commit:
-the signing day's date and the installer version, refusing one the INF
-already has, since the driver step finds our current package by its
-``DriverVer``. Until the signed pair is committed, the INF holds a
-placeholder and a signed build stamps a copy (``stamp_driver_package``).
+The INF lives in the repo. ``write_driver_ver`` writes its ``DriverVer`` when
+``build.ps1 -SignClassicDriver`` signs the package, in the build's own
+clone: the signing day's date and the installer version, refusing an
+installer version not greater than the INF's, since the driver step finds
+our current package by its ``DriverVer``. Until the signed pair is
+committed, the INF holds a placeholder and a signed build stamps a copy
+(``stamp_driver_package``).
 
 Run by ``build.ps1``::
 
     python fx2_driver_package.py <source.inf> <output dir> <installer version>
-    python fx2_driver_package.py sign <repo inf> <installer version>
+    python fx2_driver_package.py sign <the clone's inf> <installer version>
 
 Each prints what it wrote: the stamped INF's path, or the new ``DriverVer``.
 """
@@ -65,15 +66,19 @@ def stamp_driver_package(
     return stamped
 
 
+def _parts(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split('.'))
+
+
 def write_driver_ver(inf_path: str, installer_version: str, sign_date: datetime.date) -> str:
-    """Write the repo INF's ``DriverVer`` in place, for the catalog signed over it.
+    """Write the INF's ``DriverVer`` in place, for the catalog signed over it.
 
     Only the value changes: the catalog is made from the INF's bytes as
     committed.
 
     Args:
-        inf_path: The repo's INF.
-        installer_version: The installer's four-part version (``4.0.0.44``).
+        inf_path: The INF in the build's clone.
+        installer_version: The installer's four-part version (``4.0.0.48``).
         sign_date: The signing day (UTC).
 
     Returns:
@@ -81,9 +86,12 @@ def write_driver_ver(inf_path: str, installer_version: str, sign_date: datetime.
 
     Raises:
         SystemExit: The version is not four numeric parts, the INF does not
-            hold one ``DriverVer`` line, or it already holds this one: two
-            signed packages with one ``DriverVer`` would let the driver step
-            keep a stale package and delete the shipped one as older.
+            hold one ``DriverVer`` line, or its version is not below this
+            one. The driver step keeps the package with our current
+            ``DriverVer`` and deletes our others, so two signed packages
+            with one ``DriverVer`` would let it keep a stale one; a greater
+            version is new whatever the day, where the same version on a
+            later day could still equal a ``DriverVer`` a build stamped.
     """
     if not _INSTALLER_VERSION.match(installer_version):
         raise SystemExit(
@@ -96,12 +104,15 @@ def write_driver_ver(inf_path: str, installer_version: str, sign_date: datetime.
         raise SystemExit(
             f'FATAL: FX2 driver package: {inf_path} holds {len(lines)} DriverVer lines, not one'
         )
+    current = lines[0][1].strip()
+    if current != PLACEHOLDER:
+        current_version = current.partition(',')[2].strip()
+        if _parts(installer_version) <= _parts(current_version):
+            raise SystemExit(
+                f'FATAL: FX2 driver package: {inf_path} is already {current}: sign at an '
+                f'installer version greater than {current_version}'
+            )
     written = f'{sign_date:%m/%d/%Y},{installer_version}'
-    if lines[0][1].strip() == written:
-        raise SystemExit(
-            f'FATAL: FX2 driver package: {inf_path} is already {written}: sign a new version, '
-            'or on a later day'
-        )
     text = _DRIVER_VER_LINE.sub(lambda m: m.group(1) + written, text, count=1)
     with open(inf_path, 'wb') as f:
         f.write(text.encode('ascii'))

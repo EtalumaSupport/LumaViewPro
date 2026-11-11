@@ -11,9 +11,10 @@
 # USAGE:
 #   .\build.ps1                          # interactive branch selection
 #   .\build.ps1 -Branch 4.0.0-beta      # specific branch
-#   .\build.ps1 -SignClassicDriver C:\src\LumaViewPro
-#                                        # sign the Classic driver package in
-#                                        # that checkout, for commit; no build
+#   .\build.ps1 -Sign                    # a signed build (thumbprint.txt)
+#   .\build.ps1 -SignClassicDriver       # sign the Classic driver package in
+#                                        # the branch's fresh clone and leave
+#                                        # it in exe_artifacts; no build
 #
 # Output: <build_dir>\exe_artifacts\LumaViewPro-X.X.X\
 
@@ -21,7 +22,8 @@ param(
     [string]$Branch = "",
     [ValidateSet("Dev", "Release")]
     [string]$BuildType = "",
-    [string]$SignClassicDriver = ""
+    [switch]$Sign,
+    [switch]$SignClassicDriver
 )
 
 $ErrorActionPreference = "Stop"
@@ -82,7 +84,15 @@ $ErrorActionPreference = "Stop"
 # a Classic PC is left on LumaView's driver until Repair. -SignClassicDriver
 # <checkout> signs the Classic driver package in a local checkout, for
 # commit, and builds nothing.
-$script_version = 9
+#
+# v10: a build is signed only when asked (-Sign, or yes at the question an
+# interactive run asks when thumbprint.txt is present); v9 signed every build
+# while the file was on the box, spending signatures on every bench build.
+# -SignClassicDriver is a switch that signs the package in the build's own
+# clone of the selected branch, verifies it, and leaves it in exe_artifacts,
+# where v9 needed a checkout kept by hand and left its INF dated after a
+# failed signature.
+$script_version = 10
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -171,21 +181,35 @@ if ($change -eq "y" -or $change -eq "Y") {
 # Save preference
 Set-Content $config_file $build_dir
 
-$build_type_prompt = $BuildType
-if (-not $build_type_prompt -and -not $SignClassicDriver) {
-    Write-Host "`nPackage type:"
-    Write-Host "  [1] Dev package (reuse cached build environment when possible)"
-    Write-Host "  [2] Release package (recreate build environment from scratch)"
-    $build_type_choice = Read-Host -Prompt "Select package type [1/2] (default 1)"
+# The package type and the signing choice belong to a build: the signing
+# mode builds nothing and asks neither. $BuildType is assigned only a value
+# its ValidateSet accepts; an empty assignment to it throws.
+$signing_file = Join-Path $script_dir "dependencies\signing\thumbprint.txt"
+$sign_build = [bool]$Sign
+if (-not $SignClassicDriver) {
+    $build_type_given = [bool]$BuildType
+    if (-not $build_type_given) {
+        Write-Host "`nPackage type:"
+        Write-Host "  [1] Dev package (reuse cached build environment when possible)"
+        Write-Host "  [2] Release package (recreate build environment from scratch)"
+        $build_type_choice = Read-Host -Prompt "Select package type [1/2] (default 1)"
 
-    switch ($build_type_choice) {
-        "2" { $build_type_prompt = "Release" }
-        default { $build_type_prompt = "Dev" }
+        switch ($build_type_choice) {
+            "2" { $BuildType = "Release" }
+            default { $BuildType = "Dev" }
+        }
     }
-}
+    Write-Host "Package type: $BuildType"
 
-$BuildType = $build_type_prompt
-Write-Host "Package type: $BuildType"
+    # Each signed build spends signatures from the certificate's monthly
+    # allowance, so an interactive run asks, default no; a run given its
+    # package type on the command line is signed only by -Sign.
+    if (-not $sign_build -and -not $build_type_given -and (Test-Path $signing_file)) {
+        $sign_choice = Read-Host -Prompt "Sign this build? [y/N]"
+        $sign_build = $sign_choice -match '^(y|yes)$'
+    }
+    Write-Host "Signed build: $(if ($sign_build) {'yes'} else {'no'})"
+}
 
 # All build paths relative to build_dir
 $tmp = Join-Path $build_dir "_tmp"
@@ -239,7 +263,7 @@ Write-Host "================================================================"
 # ---------------------------------------------------------------------------
 # Select branch
 # ---------------------------------------------------------------------------
-if (-not $Branch -and -not $SignClassicDriver) {
+if (-not $Branch) {
     # Built from the live remote, never hardcoded. The previous hardcoded
     # four offered 4.0.0-wave7-decomp and 4.1.0-dev, neither of which
     # exists on origin -- two of four entries failed at the clone.
@@ -474,27 +498,31 @@ Write-Host "  Build Python: $($python.Version) [$($python.Executable)]"
 $wix_exe = (Get-Command wix).Source
 
 # ---------------------------------------------------------------------------
-# Code signing (optional)
+# Code signing (when asked)
 # ---------------------------------------------------------------------------
 # A certificate is configured by its SHA-1 thumbprint in
 # dependencies\signing\thumbprint.txt; the certificate and its key are in the
 # build account's certificate store, where the CA's cloud signing tool puts
-# them. With one, every file Windows checks the publisher of is signed and the
-# installer carries the Lumascope Classic driver, as it carries Basler's and
-# IDS's. Without one, the build is unsigned and leaves the Classic driver out,
-# since Windows accepts a driver package only with a signed catalog: no build
-# requires the certificate.
+# them. The file is read only for a signed run (-Sign, the yes above, or
+# -SignClassicDriver): a configured box still builds unsigned unless asked.
+# A signed build signs every file Windows checks the publisher of and carries
+# the Lumascope Classic driver, as it carries Basler's and IDS's; an unsigned
+# one leaves the Classic driver out, since Windows accepts a driver package
+# only with a signed catalog: no build requires the certificate.
 $signing_thumbprint = ""
 $signtool = ""
 $inf2cat = ""
 $timestamp_url = "http://timestamp.digicert.com"
-$signing_file = Join-Path $deps "signing\thumbprint.txt"
-if (Test-Path $signing_file) {
+if ($sign_build -or $SignClassicDriver) {
+    if (-not (Test-Path $signing_file)) {
+        Write-Host "ERROR: signing was asked for and dependencies\signing\thumbprint.txt is not there. Put the certificate's thumbprint in it, or build unsigned."
+        Exit 1
+    }
     $signing_thumbprint = ([System.IO.File]::ReadAllText($signing_file) -replace '\s', '').ToUpper()
     $signing_cert = Get-ChildItem Cert:\CurrentUser\My, Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
         Where-Object { $_.Thumbprint -eq $signing_thumbprint -and $_.HasPrivateKey } | Select-Object -First 1
     if (-not $signing_cert) {
-        Write-Host "ERROR: dependencies\signing\thumbprint.txt names $signing_thumbprint, and no certificate with that thumbprint and its key is in CurrentUser\My or LocalMachine\My. Sign in to the CA's signing tool, or remove the file for an unsigned build."
+        Write-Host "ERROR: dependencies\signing\thumbprint.txt names $signing_thumbprint, and no certificate with that thumbprint and its key is in CurrentUser\My or LocalMachine\My. Sign in to the CA's signing tool, or build unsigned."
         Exit 1
     }
     # Newest SDK and Driver Kit first: their version folders sort by name.
@@ -503,13 +531,13 @@ if (Test-Path $signing_file) {
         Where-Object { $_.FullName -like '*\x64\*' } | Sort-Object FullName -Descending | Select-Object -First 1).FullName
     $inf2cat = (Get-ChildItem $kits -Recurse -Filter Inf2Cat.exe -ErrorAction SilentlyContinue |
         Sort-Object FullName -Descending | Select-Object -First 1).FullName
-    if (-not $signtool) { Write-Host "ERROR: signing is configured and signtool.exe is not under $kits. Install the Windows SDK (its Signing Tools)."; Exit 1 }
-    if (-not $inf2cat) { Write-Host "ERROR: signing is configured and Inf2Cat.exe is not under $kits. Install the Windows Driver Kit."; Exit 1 }
+    if (-not $signtool) { Write-Host "ERROR: signing was asked for and signtool.exe is not under $kits. Install the Windows SDK (its Signing Tools)."; Exit 1 }
+    if (-not $inf2cat) { Write-Host "ERROR: signing was asked for and Inf2Cat.exe is not under $kits. Install the Windows Driver Kit."; Exit 1 }
     Write-Host "  Signing: $($signing_cert.Subject) ($signing_thumbprint)"
     Write-Host "  signtool: $signtool"
     Write-Host "  Inf2Cat: $inf2cat"
 } else {
-    Write-Host "  Signing: none (no dependencies\signing\thumbprint.txt) - unsigned build, Lumascope Classic driver NOT included"
+    Write-Host "  Signing: not asked for - unsigned build, Lumascope Classic driver NOT included"
 }
 
 # A configured certificate that fails to sign a file stops the build: an
@@ -521,34 +549,6 @@ function Invoke-Sign([string]$path) {
         Set-Location $build_dir
         Exit 1
     }
-}
-
-# ---------------------------------------------------------------------------
-# -SignClassicDriver: the Lumascope Classic driver package signed for commit
-# ---------------------------------------------------------------------------
-# Run when the INF changes. In the named checkout (a fresh clone has no .git
-# to commit from), the INF's DriverVer is written with today's date and the
-# checkout's installer version, refused when unchanged, then its catalog is
-# made and signed with a timestamp, which keeps it valid after the
-# certificate's year ends. The two files are committed from that checkout.
-if ($SignClassicDriver) {
-    if (-not $signing_thumbprint) { Write-Host "ERROR: -SignClassicDriver needs a signing certificate (dependencies\signing\thumbprint.txt)."; Exit 1 }
-    if (-not (Test-Path (Join-Path $SignClassicDriver ".git"))) { Write-Host "ERROR: $SignClassicDriver is not a LumaViewPro checkout."; Exit 1 }
-    $checkout = (Resolve-Path $SignClassicDriver).Path
-    $sign_python = Get-BuildPython
-    if (-not $sign_python) { Write-Host "ERROR: Python 3.12 or newer not found."; Exit 1 }
-    $sign_version = (Get-Content (Join-Path $checkout "version.txt") -TotalCount 1).Trim()
-    $sign_wix_ver = Get-InstallerVersion $sign_version
-    $fx2_package_dir = Join-Path $checkout "scripts\appBuild\build_exe\fx2_driver"
-    & $sign_python.Command @($sign_python.Args + @(
-        (Join-Path $checkout "scripts\appBuild\config\fx2_driver_package.py"), "sign",
-        (Join-Path $fx2_package_dir "Lumascope_Classic.inf"), $sign_wix_ver))
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: the Classic driver's DriverVer was not written"; Exit 1 }
-    & $inf2cat "/driver:$fx2_package_dir" "/os:10_X64"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Inf2Cat could not make the Classic driver's catalog (exit $LASTEXITCODE)"; Exit 1 }
-    Invoke-Sign (Join-Path $fx2_package_dir "Lumascope_Classic.cat")
-    Write-Host "Signed: commit Lumascope_Classic.inf and Lumascope_Classic.cat in $fx2_package_dir"
-    Exit 0
 }
 
 # ---------------------------------------------------------------------------
@@ -620,6 +620,44 @@ if (-not $git_sha) {
 # ---------------------------------------------------------------------------
 $ver_raw = (Get-Content "$clone\version.txt" -TotalCount 1).Trim()
 if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR: Can't parse version.txt"; Exit 1 }
+
+# ---------------------------------------------------------------------------
+# -SignClassicDriver: the Lumascope Classic driver package signed for commit
+# ---------------------------------------------------------------------------
+# Run when the INF changes. The package is signed in this run's own clone,
+# which the next run deletes, so a failed signature leaves nothing behind:
+# the INF's DriverVer is written with today's date and the branch's installer
+# version (refused unless greater than the INF's own), its catalog is made and
+# signed with a timestamp, which keeps it valid after the certificate's year
+# ends, and the pair is verified. Only a verified pair is copied out, the
+# catalog named as the INF's CatalogFile names it (Inf2Cat writes the name in
+# lower case), into its own folder under exe_artifacts, for commit.
+if ($SignClassicDriver) {
+    Write-Phase "Lumascope Classic driver package"
+    $sign_wix_ver = Get-InstallerVersion $version
+    $fx2_package_dir = Join-Path $clone "scripts\appBuild\build_exe\fx2_driver"
+    $fx2_package_inf = Join-Path $fx2_package_dir "Lumascope_Classic.inf"
+    $fx2_package_cat = Join-Path $fx2_package_dir "Lumascope_Classic.cat"
+    & $python.Command @($python.Args + @(
+        (Join-Path $clone "scripts\appBuild\config\fx2_driver_package.py"), "sign",
+        $fx2_package_inf, $sign_wix_ver))
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: the Classic driver's DriverVer was not written"; Exit 1 }
+    & $inf2cat "/driver:$fx2_package_dir" "/os:10_X64"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Inf2Cat could not make the Classic driver's catalog (exit $LASTEXITCODE)"; Exit 1 }
+    Invoke-Sign $fx2_package_cat
+    # The signer's chain and the timestamp, which no check off Windows can
+    # read: the catalog holds the INF's hashes signed or not.
+    & $signtool verify /pa /tw /hash SHA256 /c $fx2_package_cat $fx2_package_inf
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: the signed Classic driver package did not verify (signtool exit $LASTEXITCODE)"; Exit 1 }
+    $fx2_package_out = Join-Path $artifacts "classic_driver_$($sign_wix_ver)_$build_log_ts"
+    New-Item $fx2_package_out -ItemType Directory -Force | Out-Null
+    Copy-Item $fx2_package_inf -Destination (Join-Path $fx2_package_out "Lumascope_Classic.inf")
+    Copy-Item $fx2_package_cat -Destination (Join-Path $fx2_package_out "Lumascope_Classic.cat")
+    Write-Host "Signed and verified: commit Lumascope_Classic.inf and Lumascope_Classic.cat from $fx2_package_out"
+    Copy-Item $build_log -Destination (Join-Path $fx2_package_out "sign.log") -Force
+    Stop-Transcript | Out-Null
+    Exit 0
+}
 
 # Stamp a real BUILD identity. version.txt lines 2-3 are written by the
 # pre-commit hook and identify a COMMIT (line 3's "GUID" is random per
@@ -1211,7 +1249,7 @@ $dep_receipt = @(
     "Pylon=$(if ($pylon_msi) {'bundled'} else {'NOT BUNDLED'})"
     "VCRedist=$(if ($vc_redist_exe) {'bundled'} else {'NOT BUNDLED'})"
     "IDS=$(if ($ids_peak_exe -and $ids_peak_iss) {'bundled'} else {'NOT BUNDLED'})"
-    "ClassicDriver=$(if ($signing_thumbprint) {'bundled'} else {'NOT BUNDLED (no signing certificate)'})"
+    "ClassicDriver=$(if ($signing_thumbprint) {'bundled'} else {'NOT BUNDLED (unsigned build)'})"
 ) -join '  '
 Write-Host "  Drivers:  $dep_receipt"
 Write-Host "  Signed:   $(if ($signing_thumbprint) {"yes ($signing_thumbprint)"} else {'NO'})"

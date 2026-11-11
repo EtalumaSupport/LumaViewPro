@@ -256,40 +256,95 @@ def test_signing_again_writes_over_the_last_signings_driver_ver(tmp_path):
     assert _read_inf(inf)['Version']['DriverVer'].strip() == written == '12/01/2026,4.0.0.45'
 
 
-def test_signing_refuses_a_driver_ver_the_inf_already_has(tmp_path):
-    # The driver step finds our current package by its DriverVer, so two
-    # signed packages with one DriverVer would let it keep a stale one and
-    # delete the shipped one as older.
+def test_signing_refuses_an_installer_version_not_greater_than_the_infs(tmp_path):
+    # The driver step keeps the package with our current DriverVer and
+    # removes our others, so two signed packages with one DriverVer would let
+    # it keep a stale one. A later day at the same version is refused too:
+    # every signed build before the pair was committed stamped its own date
+    # and version, so only a greater version is sure to be new.
     inf = _repo_inf_copy(tmp_path)
-    fx2_driver_package.write_driver_ver(str(inf), '4.0.0.44', datetime.date(2026, 11, 9))
+    fx2_driver_package.write_driver_ver(str(inf), '4.0.0.48', datetime.date(2026, 11, 12))
     signed = inf.read_bytes()
 
-    with pytest.raises(SystemExit, match=r'already 11/09/2026,4\.0\.0\.44'):
-        fx2_driver_package.write_driver_ver(str(inf), '4.0.0.44', datetime.date(2026, 11, 9))
-    assert inf.read_bytes() == signed
+    for version, day in (
+        ('4.0.0.48', datetime.date(2026, 11, 13)),
+        ('4.0.0.47', datetime.date(2026, 11, 14)),
+    ):
+        with pytest.raises(
+            SystemExit,
+            match=r'already 11/12/2026,4\.0\.0\.48: sign at an installer version greater than 4\.0\.0\.48',
+        ):
+            fx2_driver_package.write_driver_ver(str(inf), version, day)
+        assert inf.read_bytes() == signed
 
 
-def test_sign_classic_driver_signs_the_named_checkouts_package_and_builds_nothing():
+def _build_script() -> str:
+    return (REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1').read_text(encoding='utf-8')
+
+
+def _block(text: str, opener: str) -> str:
+    """The top-level block ``opener`` begins, to its closing brace."""
+    block = text[text.index(opener) :]
+    return block[: block.index('\n}\n')]
+
+
+def test_sign_classic_driver_signs_in_the_builds_own_clone_and_copies_out_only_a_verified_pair():
     # pin-justified: build.ps1 runs on the Windows build box, not here. The
-    # mode signs the package in a checkout for commit (a fresh clone has no
-    # .git to commit from), through the build's one certificate lookup and
-    # one signer, and the four-part version the installer uses.
-    build = (REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1').read_text(encoding='utf-8')
+    # mode signs in the clone the next run deletes, so a failed signature
+    # leaves no INF dated and no checkout is needed; the catalog holds the
+    # INF's hashes signed or not, so only signtool's verify can pass the pair
+    # out; and the transcript is closed, or it records what is typed next.
+    build = _build_script()
 
-    assert '[string]$SignClassicDriver = ""' in build
-    mode = build[build.index('if ($SignClassicDriver) {\n') :]
-    mode = mode[: mode.index('\n}\n')]
-    assert build.index('function Invoke-Sign(') < build.index('if ($SignClassicDriver) {\n')
-    assert build.index('if ($SignClassicDriver) {\n') < build.index(
-        '# Clean previous temp, clone fresh'
+    assert '[switch]$SignClassicDriver' in build
+    mode = _block(build, 'if ($SignClassicDriver) {\n    Write-Phase')
+    assert build.index('git clone --depth 1 --branch $Branch $repo_url $clone') < build.index(mode)
+    assert build.index('$version = $matches[0]') < build.index(mode)
+    assert 'Join-Path $clone "scripts\\appBuild\\config\\fx2_driver_package.py"' in mode
+    assert '"sign"' in mode and 'Get-InstallerVersion $version' in mode
+    sign = mode.index('Invoke-Sign $fx2_package_cat')
+    verify = mode.index(
+        '& $signtool verify /pa /tw /hash SHA256 /c $fx2_package_cat $fx2_package_inf'
     )
-    assert 'config\\fx2_driver_package.py' in mode and '"sign"' in mode
-    assert 'Get-InstallerVersion' in mode
-    assert '& $inf2cat "/driver:$fx2_package_dir" "/os:10_X64"' in mode
-    assert 'Invoke-Sign (Join-Path $fx2_package_dir "Lumascope_Classic.cat")' in mode
-    assert mode.rstrip().endswith('Exit 0')
+    copy = mode.index('Copy-Item $fx2_package_inf')
+    assert mode.index('& $inf2cat "/driver:$fx2_package_dir" "/os:10_X64"') < sign < verify < copy
+    assert 'Join-Path $artifacts "classic_driver_$($sign_wix_ver)_$build_log_ts"' in mode
+    assert '-Destination (Join-Path $fx2_package_out "Lumascope_Classic.cat")' in mode
+    assert mode.rstrip().endswith('Stop-Transcript | Out-Null\n    Exit 0')
     assert build.count('$wix_ver = Get-InstallerVersion $version') == 1
     assert build.count("-match '^(\\d+\\.\\d+\\.\\d+)-beta(\\d+)$'") == 1
+
+
+def test_the_signing_mode_asks_the_branch_and_never_assigns_the_package_type():
+    # pin-justified: build.ps1 runs on the Windows build box, not here. An
+    # empty assignment to the ValidateSet-checked $BuildType throws, which
+    # stopped -SignClassicDriver run alone; the mode clones a branch, so it
+    # asks for one as a build does.
+    build = _build_script()
+
+    assert 'if (-not $Branch) {' in build
+    questions = _block(build, 'if (-not $SignClassicDriver) {')
+    assert '$BuildType = "Release"' in questions and '$BuildType = "Dev"' in questions
+    assignments = re.findall(r'^\s*\$BuildType = .*$|\{ \$BuildType = [^}]*\}', build, re.MULTILINE)
+    assert assignments == ['{ $BuildType = "Release" }', '{ $BuildType = "Dev" }']
+
+
+def test_a_build_reads_the_certificate_only_when_signing_is_asked_for():
+    # pin-justified: build.ps1 runs on the Windows build box, not here. Each
+    # signed build spends signatures from a monthly allowance, so the
+    # certificate's file on the box never signs a build by being there: -Sign
+    # or a yes at the interactive question does, default no.
+    build = _build_script()
+
+    lookup = _block(build, 'if ($sign_build -or $SignClassicDriver) {')
+    assert 'ReadAllText($signing_file)' in lookup
+    assert build.count('ReadAllText($signing_file)') == 1
+    assert '[switch]$Sign,' in build and '$sign_build = [bool]$Sign' in build
+    questions = _block(build, 'if (-not $SignClassicDriver) {')
+    ask = 'if (-not $sign_build -and -not $build_type_given -and (Test-Path $signing_file)) {'
+    assert ask in questions
+    assert 'Read-Host -Prompt "Sign this build? [y/N]"' in questions
+    assert "$sign_build = $sign_choice -match '^(y|yes)$'" in questions
 
 
 def test_a_signed_build_alone_carries_the_classic_driver_and_the_installer_only_uninstalls_it():

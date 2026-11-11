@@ -222,10 +222,14 @@ order and that `requirements.txt` does not currently carry. IDS renumbered
 releases from `2.x` to `YY.MM` (2.21 → 26.06), so any "runtime ≥ 2.18"
 guidance predates the change and cannot be compared numerically.
 
-#### Code Signing Certificate (optional; it also decides the Lumascope Classic driver)
+#### Code Signing Certificate (optional; a signed build also carries the Lumascope Classic driver)
 
-With no certificate configured the build is unsigned and leaves the Lumascope
-Classic driver out of the installer (below). To sign:
+A build is signed only when asked for: `.\build.ps1 -Sign`, or yes at the
+"Sign this build? [y/N]" question an interactive run asks when a certificate
+is configured (default no; a run given `-BuildType` on the command line is
+signed only by `-Sign`). Each signed build spends signatures from the
+certificate's monthly allowance. An unsigned build leaves the Lumascope
+Classic driver out of the installer (below). To configure signing:
 
 1. Buy an OV code-signing certificate issued to Etaluma, with the CA's cloud
    signing (SSL.com eSigner, Certum SimplySign, or Sectigo through a reseller),
@@ -238,7 +242,7 @@ Classic driver out of the installer (below). To sign:
    `dependencies\signing\thumbprint.txt`
    (`Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert` lists it).
 
-The build then signs `LumaViewPro.exe`, `lvp_fx2_driver_step.exe`, the
+A signed build signs `LumaViewPro.exe`, `lvp_fx2_driver_step.exe`, the
 Classic driver's catalog, the MSI, and the bundle's engine and the bundle,
 each with a timestamp, and stops if any file fails to sign. Its receipt says
 `Signed: yes (<thumbprint>)`, or `Signed: NO`.
@@ -247,17 +251,19 @@ The Lumascope Classic driver package is signed once and committed, not at
 each build: run, from the build folder, with the certificate configured,
 
 ```powershell
-.\build.ps1 -SignClassicDriver C:\src\LumaViewPro
+.\build.ps1 -SignClassicDriver
 ```
 
-naming a local checkout of the branch (a build's fresh clone has no `.git`
-to commit from). It writes the INF's `DriverVer` (today's date and the
-checkout's installer version), makes the catalog with `Inf2Cat` and signs it
-with a timestamp, and builds nothing; then commit
-`scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf` and
-`Lumascope_Classic.cat` from that checkout. Run it again only when the INF
-changes. It refuses a `DriverVer` the INF already has (the same version on
-the same day): the driver step finds our current package by it.
+and pick the branch at its question (or add `-Branch <name>`). In that
+run's own fresh clone it writes the INF's `DriverVer` (today's date and the
+branch's installer version), makes the catalog with `Inf2Cat`, signs it with
+a timestamp and verifies it with `signtool verify`, then copies the INF and
+`Lumascope_Classic.cat` into `exe_artifacts\classic_driver_<version>_<time>\`
+with the run's log, and builds nothing. Those two files are committed to
+`scripts\appBuild\build_exe\fx2_driver\` byte for byte. Run it again only
+when the INF changes, at an installer version greater than the committed
+INF's (it refuses any other): the driver step finds our current package by
+its `DriverVer`.
 
 #### FX2 WinUSB Driver (Lumascope Classic: LS460 / LS560 / LS620 / LS720)
 
@@ -272,7 +278,7 @@ the output folder's `fx2_driver\`, makes its catalog with `Inf2Cat` and signs
 it, and the MSI installs both to `<InstallFolder>\drivers\fx2\`. Windows ranks
 equally signed packages for one device by that date, so the stamp is what
 lets ours outrank an older Zadig binding. An unsigned build leaves them out
-and its receipt says `ClassicDriver=NOT BUNDLED (no signing certificate)`:
+and its receipt says `ClassicDriver=NOT BUNDLED (unsigned build)`:
 Windows accepts a driver package only with a signed catalog.
 
 The setup bundle binds the driver at install. After the MSI it runs
@@ -357,6 +363,8 @@ The script asks for:
      it when the branch's `requirements*.txt` differ from the ones it was
      built from (the log says why).
    - `Release` deletes and recreates `buildvenv` for a clean package.
+   Then, when a certificate is configured, whether to sign the build
+   (default no; see Code Signing Certificate).
 3. Branch to build. The interactive picker offers:
    - `[1] 4.0.0-beta` — current shipping beta line
    - `[2] 4.1.0-dev` — active development
