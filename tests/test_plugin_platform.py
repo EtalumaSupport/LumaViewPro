@@ -652,6 +652,31 @@ def test_load_plugins_refuses_a_plugin_older_than_the_hosts_minimum(harness_ctx,
     assert [(f.name, f.reason) for f in outcome.failures] == [('etaluma_engineering', reason)]
 
 
+def test_a_known_plugin_with_no_spec_is_refused_as_older_than_the_hosts_minimum(harness_ctx):
+    """Every version of a known plugin at or above its minimum declares a
+    PluginSpec, so one found with none is older than the minimum and is told
+    so, not called something that is not a LumaViewPro plugin. The shape is
+    the engineering plugin up to 1.0.185: its spec import from the old layout
+    failed inside a try and left spec None."""
+    mod = types.ModuleType('etaluma_engineering')
+    mod.spec = None
+    mod.register = lambda ctx: None
+    eps = [_FakeEntryPoint('etaluma_engineering', mod)]
+    with (
+        patch.dict(
+            '_lumascope.modules.plugins.MINIMUM_PLUGIN_VERSIONS', {'etaluma_engineering': '1.0.6'}
+        ),
+        patch('importlib.metadata.entry_points', return_value=eps),
+        patch('_lumascope.modules.plugins.notifications.report_outcome') as report,
+    ):
+        harness_ctx.plugins.load(harness_ctx, '4.0.0')
+    report.assert_called_once()
+    outcome = report.call_args.args[0]
+    assert [(f.name, f.reason) for f in outcome.failures] == [
+        ('etaluma_engineering', 'it is older than the 1.0.6 this LumaViewPro needs')
+    ]
+
+
 @pytest.mark.parametrize('version', ['1.0.6', '1.1.0'])
 def test_load_plugins_loads_a_plugin_at_or_above_the_hosts_minimum(harness_ctx, version):
     mod = _make_plugin_module('etaluma_engineering', version=version)

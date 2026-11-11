@@ -843,9 +843,15 @@ class PluginRegistry:
         """Register one plugin module with *host*; 1 if it loaded, 0 if not."""
         spec = _extract_spec(module)
         if spec is None:
-            self.record_load_failure(
-                found_as, '', 'it has no module-level PluginSpec, so it is not a LumaViewPro plugin'
-            )
+            # Every version of a known plugin at or above its minimum declares
+            # a spec, so a known one without it is older than the minimum: the
+            # person is told to update it, not that it is no plugin at all.
+            minimum = MINIMUM_PLUGIN_VERSIONS.get(found_as)
+            if minimum is not None:
+                reason = f'it is older than the {minimum} this LumaViewPro needs'
+            else:
+                reason = 'it has no module-level PluginSpec, so it is not a LumaViewPro plugin'
+            self.record_load_failure(found_as, '', reason)
             return 0
 
         minimum = MINIMUM_PLUGIN_VERSIONS.get(spec.name)
