@@ -3780,7 +3780,9 @@ class HardwareCommandRefusedError(Refusal, Exception):
             asked for. ``'not_on_this_scope'`` -- the scope does not have
             another part asked for, such as an LED channel or fan control.
             ``'activity_ended'`` -- the command was made under an activity
-            that has ended. ``'other_led_lit'`` -- a capture held at a channel
+            that has ended. ``'not_the_activity'`` -- a stop that only the
+            activity holding the scope makes (the scope's own ``halt``) was
+            made by a caller outside it. ``'other_led_lit'`` -- a capture held at a channel
             would be lit by another LED, which ``RecordingRefusedError``
             explains as the same fact. ``'channel_not_shown'`` -- a still was
             asked of a channel other than the shown one.
@@ -3820,6 +3822,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'axis_absent': RefusalCause.REQUEST,
         'not_on_this_scope': RefusalCause.REQUEST,
         'activity_ended': RefusalCause.REQUEST,
+        'not_the_activity': RefusalCause.REQUEST,
         'other_led_lit': RefusalCause.STATE,
         'channel_not_shown': RefusalCause.STATE,
     }
@@ -3829,6 +3832,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
     # microscope being busy; one for the hardware's state names that state.
     _TITLES: ClassVar[dict[str, str]] = {
         'activity_ended': 'Microscope Busy',
+        'not_the_activity': 'Stage Not Halted',
         'capture_in_flight': 'Microscope Busy',
         'exclusive_activity_running': 'Microscope Busy',
         'home_in_flight': 'Microscope Busy',
@@ -4047,6 +4051,11 @@ def _command_refused_sentence(reason: str, holder: Holder | None) -> str:
         return 'This microscope cannot stop a home; the home runs to its end.'
     if reason == 'activity_ended':
         return 'The activity that sent this command has ended, so the command was not sent.'
+    if reason == 'not_the_activity':
+        return (
+            'Only the activity using the microscope halts the stage this way, '
+            'so nothing was sent. Stop the stage instead.'
+        )
     if reason == 'scope_disconnected':
         return 'The microscope has been disconnected, so the command was not sent.'
     if reason == 'monitor_ended':

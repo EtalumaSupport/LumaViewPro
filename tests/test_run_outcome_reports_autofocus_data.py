@@ -155,6 +155,10 @@ class _AfRig:
         self.af_thread.start()
 
         swap_lanes(self.scope, io=self.io_executor, camera=self.camera_executor)
+        # One claim for the scope and its runner, as a session composes them:
+        # the run's halt is admitted only under the scope's own claim.
+        claim = ActivityClaim()
+        self.scope.set_activity_claim(claim)
         self.runner = SequencedCaptureRunner(
             on_saved=lambda folder: None,
             save_channel_focus=lambda channel, z_um: None,
@@ -162,7 +166,7 @@ class _AfRig:
             protocol_thread=self.protocol_thread,
             file_io_executor=self.file_io_executor,
             autofocus_thread=self.af_thread,
-            activity_claim=ActivityClaim(),
+            activity_claim=claim,
             autofocus_runner=self.af_runner,
             channel_colors=release_colors,
             post_processing=no_post_run_builds(),

@@ -2543,7 +2543,7 @@ standard startup orchestration without copy-pasting from the App.
 
 **Refusals**
 
-- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`, `other_led_lit`, `channel_not_shown`, `axis_absent`, `not_on_this_scope`, `activity_ended`, `scope_disconnected`, `monitor_ended`, `not_connected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`, `other_led_lit`, `channel_not_shown`, `axis_absent`, `not_on_this_scope`, `activity_ended`, `not_the_activity`, `scope_disconnected`, `monitor_ended`, `not_connected`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `wait_on_ui_thread`
 
 <a id="ScopeSession.save_all_bookmarks"></a>
@@ -15864,7 +15864,7 @@ log.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code. `'exclusive_activity_running'`, `'not_connected'`, `'camera_not_streaming'` and `'lid_open_before_motion'` are explained by `ProtocolRunRefusedError`, which carries them as the same fact. `'capture_in_flight'` -- an earlier still has not finished. `'home_in_flight'` -- another home holds the scope. `'home_not_stoppable'` -- a home drives on a motor controller that cannot stop one. `'scope_disconnected'` -- the scope's lanes are closed, so it takes no command until the application restarts. `'monitor_ended'` -- the motion monitor has ended, so nothing would judge the move. `'position_unread'` -- the move's drive needs a position the motor controller did not report: the relative base, or Z for the backlash approach. `'stage_unpowered_before_motion'` -- the stage has no power, so its interlock refuses to move it. `'axis_absent'` -- the scope does not have the motion part asked for. `'not_on_this_scope'` -- the scope does not have another part asked for, such as an LED channel or fan control. `'activity_ended'` -- the command was made under an activity that has ended. `'other_led_lit'` -- a capture held at a channel would be lit by another LED, which `RecordingRefusedError` explains as the same fact. `'channel_not_shown'` -- a still was asked of a channel other than the shown one.
+- `reason`: Machine-readable refusal code. `'exclusive_activity_running'`, `'not_connected'`, `'camera_not_streaming'` and `'lid_open_before_motion'` are explained by `ProtocolRunRefusedError`, which carries them as the same fact. `'capture_in_flight'` -- an earlier still has not finished. `'home_in_flight'` -- another home holds the scope. `'home_not_stoppable'` -- a home drives on a motor controller that cannot stop one. `'scope_disconnected'` -- the scope's lanes are closed, so it takes no command until the application restarts. `'monitor_ended'` -- the motion monitor has ended, so nothing would judge the move. `'position_unread'` -- the move's drive needs a position the motor controller did not report: the relative base, or Z for the backlash approach. `'stage_unpowered_before_motion'` -- the stage has no power, so its interlock refuses to move it. `'axis_absent'` -- the scope does not have the motion part asked for. `'not_on_this_scope'` -- the scope does not have another part asked for, such as an LED channel or fan control. `'activity_ended'` -- the command was made under an activity that has ended. `'not_the_activity'` -- a stop that only the activity holding the scope makes (the scope's own `halt`) was made by a caller outside it. `'other_led_lit'` -- a capture held at a channel would be lit by another LED, which `RecordingRefusedError` explains as the same fact. `'channel_not_shown'` -- a still was asked of a channel other than the shown one.
 - `member`: The member or task that was refused, for the log.
 - `holder`: The kind of activity holding the scope, when known.
 - `holder_trigger`: The holding run's starter, for a run (`'gui'`, `'rest'`, `'api'`); None otherwise.
@@ -15892,6 +15892,7 @@ log.
 | `monitor_ended` | restart | 503 |
 | `not_connected` | restart | 503 |
 | `not_on_this_scope` | request | 422 |
+| `not_the_activity` | request | 422 |
 | `other_led_lit` | state | 409 |
 | `position_unread` | state | 409 |
 | `scope_disconnected` | restart | 503 |

@@ -154,3 +154,26 @@ def test_a_stop_halts_the_move_while_a_video_step_s_frames_still_drain(
         disk.set()
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
     assert (outcome.status, outcome.reason) == ('aborted', 'stopped')
+
+
+def test_only_the_run_halts_its_move(session, tmp_path):
+    """``halt`` from outside the run is refused before anything is sent.
+
+    The halt skips the press listeners, so it is the run's alone: a caller
+    acting under no taking while the run holds the scope is refused
+    ``'not_the_activity'``, and the run's move keeps the step's target. Its
+    stop is ``stop_motion``, which the run hears.
+    """
+    from _lumascope.modules.exceptions import HardwareCommandRefusedError
+
+    run, target = _start_held(session, tmp_path)
+
+    with pytest.raises(HardwareCommandRefusedError) as refused:
+        session.scope.motion.halt()
+
+    assert refused.value.reason == 'not_the_activity'
+    assert _where_the_board_drives_x(session) == pytest.approx(target), (
+        "a refused halt stopped the run's move"
+    )
+    run.stop()
+    assert run.result(timeout=COMPLETION_TIMEOUT).status == 'aborted'

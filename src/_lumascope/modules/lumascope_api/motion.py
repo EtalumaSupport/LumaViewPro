@@ -1040,10 +1040,26 @@ class MotionAPI:
         its move here and then puts the stage back, and those moves were
         asked at the run's start, before the halt.
 
+        Only the activity holding the scope halts it, acting under its
+        taking: a stop that skips the press listeners is the holder's own,
+        and anyone else's stop goes through ``stop_motion``, which the
+        holder hears. Refused before anything is sent otherwise -- the scope
+        idle, another activity or the controller holding it, an activity
+        that has ended, a scope no session composes.
+
         Raises:
-            HardwareCommandRefusedError: as ``stop_motion``.
+            HardwareCommandRefusedError: ``'not_the_activity'``, the caller
+                does not act under the activity holding the scope; else as
+                ``stop_motion``.
             MotorStopFailedError: as ``stop_motion``.
         """
+        activity = activity_taking(current_taking())
+        if (
+            activity is None
+            or not activity.holds
+            or activity.claim is not self._scope._activity_claim
+        ):
+            raise HardwareCommandRefusedError('not_the_activity', 'halt')
         self._stop_motion_while(lambda: True, marks=False)
 
     def _stop_motion_while(
