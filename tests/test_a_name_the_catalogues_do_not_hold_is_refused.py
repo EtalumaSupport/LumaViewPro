@@ -209,17 +209,16 @@ def test_a_reason_without_words_is_refused_at_the_raise():
         CatalogueNameRefusedError('no_such_reason', argument='labware_id', value='x', offered=())
 
 
-def test_none_is_refused_when_the_active_objective_is_already_unknown(tmp_path):
-    """An unknown active objective is None, so a None asked for once matched it.
+def test_none_is_refused_by_both_objective_doors(tmp_path):
+    """None names no objective, so both doors refuse it before any compare.
 
-    The no-op compare ran before the owner, so ``select_objective(None)``
-    returned False and ``confirm_objective(None)`` recorded the objective as
-    confirmed with none named. The door now refuses the None first.
+    A no-op compare that ran first matched a None against an unknown active
+    objective: ``select_objective(None)`` returned False and
+    ``confirm_objective(None)`` recorded the objective as confirmed with none
+    named. The refusal comes first, so nothing is confirmed.
     """
-    s = _session(tmp_path, 'LS850')
+    s = _session(tmp_path, 'LS850', objective_confirmed=None)
     try:
-        s.settings['objective_id'] = None
-        s.settings['objective_confirmed'] = None
         for call in (lambda: s.select_objective(None), lambda: s.confirm_objective(None)):
             with pytest.raises(ArgumentTypeRefusedError) as refused:
                 call()

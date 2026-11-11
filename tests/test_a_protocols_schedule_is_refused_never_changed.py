@@ -234,8 +234,8 @@ class TestAValueInItsUnits:
 
 def _acquire_only_bf(session):
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = None
-    session.settings['BF']['acquire'] = 'image'
+        session.set_channel_acquire(layer, None)
+    session.set_channel_acquire('BF', 'image')
 
 
 class TestTheSession:
@@ -248,8 +248,8 @@ class TestTheSession:
 
     def test_new_with_no_schedule_takes_the_stored_default(self, session):
         _acquire_only_bf(session)
-        session.settings['protocol']['period'] = 4
-        session.settings['protocol']['duration'] = 6
+        session.update_settings('protocol.period', 4)
+        session.update_settings('protocol.duration', 6)
 
         protocol = session.new_protocol()
 

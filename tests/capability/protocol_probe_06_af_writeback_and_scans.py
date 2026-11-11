@@ -17,7 +17,7 @@ try:
     from _lumascope.modules.protocol_runner import ProtocolRunner
     from _lumascope.modules.run_events import RunEvents
 
-    settings = session.settings
+    settings = session.get_settings_snapshot()
     runner = ProtocolRunner(session)
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,

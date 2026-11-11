@@ -21,11 +21,10 @@ try:
     from _lumascope.modules import config_helpers
 
     lay = LED0
-    with s.settings_lock:
-        s.settings['stimulation_enabled'] = True
-        s.settings[lay]['acquire'] = 'image'
-        s.settings[lay]['stim_config']['enabled'] = True  # the GUI forbids this pair
-        s.settings[LED1]['acquire'] = 'image'
+    s.update_settings('stimulation_enabled', True)
+    s.set_channel_acquire(lay, 'image')
+    s.update_settings(f'{lay}.stim_config.enabled', True)  # the GUI forbids this pair
+    s.set_channel_acquire(LED1, 'image')
     snap = s.get_settings_snapshot()[lay]
     print(
         f'1: stored pair -> acquire={snap["acquire"]!r} '
@@ -33,7 +32,7 @@ try:
     )
     print('2: session.get_channel_configs:', s.get_channel_configs([lay])[lay]['acquire'])
     cfg = config_helpers.get_composite_capture_config_from_settings(
-        s.settings, s.scope.objective_helper, position=s.get_current_plate_position()
+        s.get_settings_snapshot(), s.scope.objective_helper, position=s.get_current_plate_position()
     )
     proto = s.scope.protocols.create_protocol(input_config=cfg)
     steps = proto.steps()

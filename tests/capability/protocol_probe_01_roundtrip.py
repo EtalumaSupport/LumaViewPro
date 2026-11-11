@@ -18,7 +18,7 @@ try:
 
     banner('1. create a protocol (no GUI)')
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
-        session.settings,
+        session.get_settings_snapshot(),
         objective_helper=session.scope.objective_helper,
         wellplate_loader=session.scope.wellplate_loader,
         current_z=session.get_current_plate_position().z_um,

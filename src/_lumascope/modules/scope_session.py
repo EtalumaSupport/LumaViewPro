@@ -28,7 +28,7 @@ import stat
 import threading
 import time
 import typing
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 import _lumascope.modules.settings_init as settings_init
@@ -571,6 +571,83 @@ class LiveFolderEntry:
     modified: datetime.datetime
 
 
+class _ReadOnlySettings(Mapping):
+    """The live settings, or a block of them, readable and never writable.
+
+    A block or a list it hands out is a view too, so a write at any depth
+    raises rather than reaching the store past
+    ``update_settings``, which refuses a value out of range, a path that is
+    no setting and a write while another holds the control session.
+    ``copy.deepcopy`` of a view answers plain dicts and lists, for a caller
+    that edits its own copy.
+    """
+
+    __slots__ = ('_store',)
+
+    def __init__(self, store: dict):
+        self._store = store
+
+    def __getitem__(self, key):
+        return _read_only(self._store[key])
+
+    def __iter__(self):
+        return iter(self._store)
+
+    def __len__(self):
+        return len(self._store)
+
+    def __contains__(self, key):
+        return key in self._store
+
+    def __deepcopy__(self, memo):
+        return copy.deepcopy(self._store, memo)
+
+    def __repr__(self):
+        return f'{type(self).__name__}({self._store!r})'
+
+
+class _ReadOnlySettingsList(Sequence):
+    """A list in the live settings, readable and never writable.
+
+    It equals the list it reads, so a block holding it still equals a
+    plain copy of that block.
+    """
+
+    __slots__ = ('_store',)
+
+    def __init__(self, store: list):
+        self._store = store
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [_read_only(item) for item in self._store[index]]
+        return _read_only(self._store[index])
+
+    def __len__(self):
+        return len(self._store)
+
+    def __eq__(self, other):
+        if isinstance(other, (list, _ReadOnlySettingsList)):
+            return list(self) == list(other)
+        return NotImplemented
+
+    __hash__ = None
+
+    def __deepcopy__(self, memo):
+        return copy.deepcopy(self._store, memo)
+
+    def __repr__(self):
+        return f'{type(self).__name__}({self._store!r})'
+
+
+def _read_only(value):
+    if isinstance(value, dict):
+        return _ReadOnlySettings(value)
+    if isinstance(value, list):
+        return _ReadOnlySettingsList(value)
+    return value
+
+
 @api_fields('manual_capture', 'manual_recording', 'post_processing', 'scope')
 @host_wiring(
     'io_executor',
@@ -617,12 +694,9 @@ class ScopeSession:
         engineering_mode: bool = False,
         no_engineering: bool = False,
     ):
-        self.settings = settings
-        # The lock lives with the dict it guards. Every host hands the same
-        # dict to whatever else it composes, so a lock held anywhere else
-        # can only guard one of the aliases -- which is no guard at all.
-        # Readers on other threads take a snapshot; writers use
-        # update_settings.
+        self._settings = settings
+        # The lock lives with the store it guards. Readers on other threads
+        # take a snapshot; every write is update_settings' or a member's.
         self._settings_listeners: list = []
         self.settings_lock = SettingsLock(self._tell_settings_changed)
         # The plugins this session hosts, or None until its host asks for
@@ -2277,7 +2351,7 @@ class ScopeSession:
         for channel in specific_channels or ():
             refuse_unknown_channel(channel)
 
-        channel_configs = config_helpers.get_channel_configs(self.settings, specific_channels)
+        channel_configs = config_helpers.get_channel_configs(self._settings, specific_channels)
         self._read_autofocus_as_off_without_z(channel_configs.values())
         return channel_configs
 
@@ -2311,7 +2385,7 @@ class ScopeSession:
         from _lumascope.modules.exceptions import FocusNotSavedError
 
         refuse_unknown_channel(channel)
-        focus = self.settings[channel]['focus']
+        focus = self._settings[channel]['focus']
         if focus is None:
             raise FocusNotSavedError(channel)
         return focus
@@ -2339,7 +2413,7 @@ class ScopeSession:
         for record in self.scope.channel_identity.channels:
             colors[record.key_name] = parse_display_color(record.display_color)
         with self.settings_lock:
-            overrides = {key: self.settings[key]['display_color'] for key in colors}
+            overrides = {key: self._settings[key]['display_color'] for key in colors}
         for key, override in overrides.items():
             if override is not None:
                 colors[key] = parse_display_color(override)
@@ -2376,7 +2450,7 @@ class ScopeSession:
     def get_auto_gain_settings(self) -> dict:
         import _lumascope.modules.config_helpers as config_helpers
 
-        return config_helpers.get_auto_gain_settings(self.settings)
+        return config_helpers.get_auto_gain_settings(self._settings)
 
     def get_sequenced_capture_config(
         self,
@@ -2503,7 +2577,7 @@ class ScopeSession:
             return
         template = self.scope.settings_template
         with self.settings_lock:
-            blocks = {stock: copy.deepcopy(self.settings[stock]) for stock in placed}
+            blocks = {stock: copy.deepcopy(self._settings[stock]) for stock in placed}
             for stock, unit in placed.items():
                 self._store_setting(unit, blocks[stock])
             for stock in set(placed) - set(placed.values()):
@@ -2529,11 +2603,11 @@ class ScopeSession:
         present = self._channels_on_scope()
         with self.settings_lock:
             for name in common_utils.get_channels():
-                if name in present or self.settings[name].get('acquire') is None:
+                if name in present or self._settings[name].get('acquire') is None:
                     continue
                 logger.warning(
                     f'[Session   ] {name} was set to acquire '
-                    f'{self.settings[name]["acquire"]!r}, but this scope '
+                    f'{self._settings[name]["acquire"]!r}, but this scope '
                     f'({self.scope.channel_identity.model}) has no {name} channel; '
                     'it is set to acquire nothing.'
                 )
@@ -2623,7 +2697,7 @@ class ScopeSession:
         records = {}
         with self.settings_lock:
             for name in common_utils.get_channels():
-                channel = self.settings[name]
+                channel = self._settings[name]
                 if channel['acquire'] is None:
                     continue
                 records[name] = ChannelSettings(
@@ -2680,13 +2754,13 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
         """
         refuse_unknown_channel(channel)
-        mode = self.settings[channel]['acquire']
+        mode = self._settings[channel]['acquire']
         return None if mode is None else AcquireMode(mode)
 
     def _write_channel_acquire(self, channel: str, mode: AcquireMode | None) -> None:
         """Under ``settings_lock``: ``channel`` acquires ``mode``, and stops stimulating if it does."""
         self._store_setting(f'{channel}.acquire', mode)
-        if mode is not None and self.settings[channel].get('stim_config') is not None:
+        if mode is not None and self._settings[channel].get('stim_config') is not None:
             self._store_setting(f'{channel}.stim_config.enabled', False)
 
     @api(sets='channel_auto_gain', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
@@ -2774,7 +2848,7 @@ class ScopeSession:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
         """
         refuse_unknown_channel(channel)
-        return self.settings[channel]['auto_gain']
+        return self._settings[channel]['auto_gain']
 
     @api(reads=True)
     def channel_auto_gain_lock(self, channel: str) -> 'AutoGainLock | None':
@@ -2965,12 +3039,12 @@ class ScopeSession:
         import _lumascope.modules.config_helpers as config_helpers
 
         with self.settings_lock:
-            stored = self.settings[channel]
+            stored = self._settings[channel]
             gain_db = stored['gain_db']
             exposure_ms = stored['exposure_ms']
             auto_gain = stored['auto_gain']
-            auto_gain_settings = config_helpers.get_auto_gain_settings(self.settings)
-            ceilings = copy.deepcopy(self.settings['ag_ae_max_exposure_ms'])
+            auto_gain_settings = config_helpers.get_auto_gain_settings(self._settings)
+            ceilings = copy.deepcopy(self._settings['ag_ae_max_exposure_ms'])
         auto_gain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
             channel, ceilings
         )
@@ -3164,7 +3238,7 @@ class ScopeSession:
             import _lumascope.modules.config_helpers as config_helpers
 
             with self.settings_lock:
-                zstack_params = config_helpers.get_zstack_params_from_settings(self.settings)
+                zstack_params = config_helpers.get_zstack_params_from_settings(self._settings)
         return self.scope.protocols.add_step(
             protocol,
             channel_configs=channel_configs,
@@ -3372,7 +3446,7 @@ class ScopeSession:
             self.scope.motion.refuse_absent('save_bookmark', axis)
         # Only the axes kept are read, so a Z bookmark is saved while X moves.
         position = config_helpers.kept_plate_position(
-            self.scope, self.settings['protocol']['labware'], axes, then='save the bookmark'
+            self.scope, self._settings['protocol']['labware'], axes, then='save the bookmark'
         )
         saved = PlateLocation(
             x_mm=position.x_mm if 'X' in axes else None,
@@ -3398,7 +3472,7 @@ class ScopeSession:
             Nothing.
         """
         with self.settings_lock:
-            stored = self.settings['bookmark']
+            stored = self._settings['bookmark']
             return PlateLocation(x_mm=stored['x'], y_mm=stored['y'], z_um=stored['z'])
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
@@ -3756,9 +3830,9 @@ class ScopeSession:
         self.scope.protocols.apply_tiling(
             protocol,
             tiling,
-            frame_dimensions=config_helpers.get_frame_dimensions_from_settings(self.settings),
-            binning_size=config_helpers.get_binning_from_settings(self.settings),
-            overlap_percent=self.settings['tiling_overlap_percent'],
+            frame_dimensions=config_helpers.get_frame_dimensions_from_settings(self._settings),
+            binning_size=config_helpers.get_binning_from_settings(self._settings),
+            overlap_percent=self._settings['tiling_overlap_percent'],
         )
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
@@ -3977,7 +4051,7 @@ class ScopeSession:
         # channel, lit or dark as its LED reads, back to it when another was shown.
         was_lit = self._channel_lit(self._shown_channel)
         moves_light = shows or self._shown_channel != step['channel']
-        lit = self.settings['protocol_led_on'] if shows else was_lit
+        lit = self._settings['protocol_led_on'] if shows else was_lit
         address = self._led_address(step['channel'])
         if moves_light and lit and address is not None:
             # A preview that would light needs the LED controller, asked
@@ -4066,7 +4140,7 @@ class ScopeSession:
     def _show_leds(self, channel: str, lit: bool) -> None:
         """``channel``'s LED lit at its stored current when ``lit``, every other LED dark."""
         with self.settings_lock:
-            illumination_ma = self.settings[channel]['illumination_ma']
+            illumination_ma = self._settings[channel]['illumination_ma']
         self._show_leds_at(channel, illumination_ma, lit)
 
     def _show_leds_at(self, channel: str, illumination_ma: float, lit: bool) -> None:
@@ -4392,7 +4466,7 @@ class ScopeSession:
         from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
 
         run_settings = config_helpers.get_sequenced_run_settings(
-            self.settings, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
+            self._settings, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
         )
         return protocol.size_advisory(
             video_as_frames=run_settings['video_as_frames'],
@@ -4401,6 +4475,16 @@ class ScopeSession:
                 self.scope.imaging.get_delivered_rate().frame_rate_fps,
             ),
         )
+
+    @property
+    def settings(self) -> Mapping:
+        """The live settings, read where they are, for the host's own reads.
+
+        Read-only at every depth: a write into it raises, and every write
+        is ``update_settings``' or a Session member's. A caller that edits a
+        copy takes ``copy.deepcopy`` of it, a plain dict.
+        """
+        return _ReadOnlySettings(self._settings)
 
     @api(in_process=True, reads=True)
     def get_settings_snapshot(self) -> dict:
@@ -4427,7 +4511,7 @@ class ScopeSession:
         # The store as it is, for the file: on a turret scope its objective_id
         # is the pick a turretless scope proposes, never the slot's answer.
         with self.settings_lock:
-            return copy.deepcopy(self.settings)
+            return copy.deepcopy(self._settings)
 
     @api(reads=True)
     def get_setting(self, path: str) -> 'SettingValue':
@@ -4467,7 +4551,7 @@ class ScopeSession:
         # The store's own value: the scope's reader, from which the active
         # objective is derived, so it cannot be the derived answer.
         with self.settings_lock:
-            value = self.settings
+            value = self._settings
             for segment in path.split('.'):
                 if not isinstance(value, dict) or segment not in value:
                     raise ArgumentRefusedError('not_a_setting', argument='path', value=path)
@@ -4575,7 +4659,7 @@ class ScopeSession:
             with self.settings_lock:
                 self._store_setting(path, value)
                 if path.startswith('logging.'):
-                    _apply_logging(self.settings)
+                    _apply_logging(self._settings)
             self._put_written_setting_on_the_camera(path, channel)
 
     def _an_activity_holds_the_scope(self) -> bool:
@@ -4608,7 +4692,7 @@ class ScopeSession:
         from the store.
         """
         with self.settings_lock:
-            auto_gain = self.settings[channel]['auto_gain']
+            auto_gain = self._settings[channel]['auto_gain']
         camera = path in (f'{channel}.gain_db', f'{channel}.exposure_ms') or (
             auto_gain and path.startswith(('protocol.autogain.', 'ag_ae_max_exposure_ms'))
         )
@@ -4857,7 +4941,7 @@ class ScopeSession:
                 kept.
         """
         with self.settings_lock:
-            file_path = self.settings['protocol']['filepath']
+            file_path = self._settings['protocol']['filepath']
         # Asked before any path test: Path('') is the working folder, which
         # exists, so an empty path would be loaded and fail as a fault.
         if not file_path:
@@ -4906,7 +4990,7 @@ class ScopeSession:
             if session is not None:
                 raise control_refused(session)
         *blocks, leaf = path.split('.')
-        holder = self.settings
+        holder = self._settings
         for block in blocks:
             holder = holder[block]
         holder[leaf] = python_values(value)
@@ -5030,7 +5114,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        return self.settings['microscope']
+        return self._settings['microscope']
 
     @api
     @property
@@ -5051,7 +5135,7 @@ class ScopeSession:
         identity = self.scope.channel_identity
         if identity.model_named_by_board:
             return None
-        saved = self.settings['microscope']
+        saved = self._settings['microscope']
         return None if saved == identity.model else saved
 
     def _put_a_stageless_scope_on_center_plate(self) -> None:
@@ -5066,7 +5150,7 @@ class ScopeSession:
 
         if self.scope.capabilities.has_xy_stage:
             return
-        stored = self.settings['protocol']['labware']
+        stored = self._settings['protocol']['labware']
         if not self.select_labware(CENTER_PLATE):
             return
         logger.info(
@@ -5090,7 +5174,7 @@ class ScopeSession:
         """
         from _lumascope.modules.labware_loader import CENTER_PLATE
 
-        stored = self.settings['protocol']['labware']
+        stored = self._settings['protocol']['labware']
         if self.scope.wellplate_loader.is_known_plate(stored):
             return []
         # A scope with no XY stage has one plate, which no stored value
@@ -5124,7 +5208,7 @@ class ScopeSession:
         """
         if self.scope.capabilities.has_turret:
             return []
-        stored = self.settings.get('objective_id')
+        stored = self._settings.get('objective_id')
         try:
             self.scope.objective_helper.get_objective_info(objective_id=stored)
         except ConfigError:
@@ -5203,7 +5287,7 @@ class ScopeSession:
         # The motor driver caches its identity at connect, so the read is
         # synchronous; no board (or a board with no model) reports None.
         detected = self.scope.diagnostics.get_motor_info().model
-        stored = self.settings.get('microscope')
+        stored = self._settings.get('microscope')
         if detected is None:
             if stored not in scope_models:
                 # A board that reports a model, an OEM name included,
@@ -5234,7 +5318,7 @@ class ScopeSession:
         self._date_an_undated_objective_confirmation()
         replaced.extend(self._replace_an_unknown_stored_objective())
         config = ScopeInitConfig.from_settings(
-            self.settings,
+            self._settings,
             scope_config=scope_config,
             channel_identity=self.scope.channel_identity,
         )
@@ -5273,10 +5357,10 @@ class ScopeSession:
         with self.settings_lock:
             for record in self.scope.channel_identity.channels:
                 channel = record.key_name
-                gain = camera.applied_gain_db_for(self.settings[channel]['gain_db'])
+                gain = camera.applied_gain_db_for(self._settings[channel]['gain_db'])
                 if gain.capped:
                     capped.append((channel, 'gain_db', gain.stored_db, gain.applied_db))
-                exposure = camera.applied_exposure_ms_for(self.settings[channel]['exposure_ms'])
+                exposure = camera.applied_exposure_ms_for(self._settings[channel]['exposure_ms'])
                 if exposure.capped:
                     capped.append((channel, 'exposure_ms', exposure.stored_ms, exposure.applied_ms))
         if not capped:
@@ -5703,7 +5787,7 @@ class ScopeSession:
         """
         has_turret = self.scope.capabilities.has_turret
         unconfirmed = not self.scope.runtime_state.objective_confirmed()
-        slots = self.settings['turret_objectives']
+        slots = self._settings['turret_objectives']
         slot = self.scope.motion.turret_status().slot if has_turret else None
         # A known slot with no assignment owes the question. An unknown slot
         # alone does not: it is unknown during every turret move, and asking
@@ -5773,8 +5857,8 @@ class ScopeSession:
     def _objective_question_at(self, slot: 'int | None') -> ObjectiveQuestion:
         # The one proposal rule for both reads; slot is None only on a
         # turretless scope.
-        slots = self.settings['turret_objectives']
-        confirmed = self.settings['objective_confirmed']
+        slots = self._settings['turret_objectives']
+        confirmed = self._settings['objective_confirmed']
         choices = tuple(self.scope.objective_helper.get_objectives_list())
         # The slot's own assignment names glass someone confirmed. On a
         # turretless scope the stored objective_id does once a confirmation
@@ -5785,7 +5869,7 @@ class ScopeSession:
         if slot is not None:
             proposed = slots.get(slot)
         else:
-            proposed = self.settings['objective_id'] if confirmed is not None else None
+            proposed = self._settings['objective_id'] if confirmed is not None else None
         if proposed not in choices:
             from _lumascope.modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
 
@@ -5942,12 +6026,12 @@ class ScopeSession:
         # turret and turretless asks. Only bring-up knows which this scope is
         # (``has_turret`` is fixed when the scope is built). Without a turret
         # it vouches for the objective stored beside it.
-        if self.settings['objective_confirmed'] is not True:
+        if self._settings['objective_confirmed'] is not True:
             return
         if self.scope.capabilities.has_turret:
             dated = OBJECTIVE_CONFIRMED_ON_A_TURRET
         else:
-            dated = self.settings['objective_id']
+            dated = self._settings['objective_id']
         with self.settings_lock:
             self._store_setting('objective_confirmed', dated)
         logger.info(f'[Session  ] objective confirmation recorded as {dated!r}')
@@ -5974,7 +6058,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        return self.settings['protocol']['labware']
+        return self._settings['protocol']['labware']
 
     @api(sets='labware_id', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
@@ -6016,7 +6100,7 @@ class ScopeSession:
             raise HardwareCommandRefusedError(
                 'axis_absent', 'select_labware', missing=MissingPart.XY_STAGE
             )
-        if labware_id == self.settings['protocol']['labware']:
+        if labware_id == self._settings['protocol']['labware']:
             # A holder is refused only a different plate: the GUI re-selects
             # the current one whenever its panels redraw, under any hold.
             return False
@@ -6049,13 +6133,13 @@ class ScopeSession:
         self._refuse_without_a_turret('assign_turret_objective')
         refuse_unless_turret_slot(slot)
         self.scope.objective_helper.get_objective_info(objective_id=objective_id)
-        if self.settings['turret_objectives'].get(slot) == objective_id:
+        if self._settings['turret_objectives'].get(slot) == objective_id:
             return
         self._refuse_configuration_change_while_held('assign_turret_objective')
         with self.settings_lock:
             # The slots are keyed by integer, which a dotted path cannot
             # name, so the slot map is stored whole.
-            slots = {**self.settings['turret_objectives'], slot: objective_id}
+            slots = {**self._settings['turret_objectives'], slot: objective_id}
             self._store_setting('turret_objectives', slots)
 
     @api(reads=True)
@@ -6075,7 +6159,7 @@ class ScopeSession:
         """
         self._refuse_without_a_turret('turret_objective')
         refuse_unless_turret_slot(slot)
-        return self.settings['turret_objectives'][slot]
+        return self._settings['turret_objectives'][slot]
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
@@ -6099,10 +6183,10 @@ class ScopeSession:
         """
         self._refuse_without_a_turret('clear_turret_objective')
         refuse_unless_turret_slot(slot)
-        if self.settings['turret_objectives'].get(slot) is not None:
+        if self._settings['turret_objectives'].get(slot) is not None:
             self._refuse_configuration_change_while_held('clear_turret_objective')
         with self.settings_lock:
-            slots = {**self.settings['turret_objectives'], slot: None}
+            slots = {**self._settings['turret_objectives'], slot: None}
             self._store_setting('turret_objectives', slots)
         logger.info(
             f'[Session  ] Turret slot {slot} cleared; the active objective is now '
@@ -6168,7 +6252,7 @@ class ScopeSession:
         import _lumascope.modules.config_helpers as config_helpers
 
         return config_helpers.kept_plate_position(
-            self.scope, self.settings['protocol']['labware'], tuple(StageAxis), then='try again'
+            self.scope, self._settings['protocol']['labware'], tuple(StageAxis), then='try again'
         )
 
     def plate_position_on(self, labware_id: str) -> PlateLocation:
@@ -6218,7 +6302,7 @@ class ScopeSession:
                 ``enabled`` is not the setting now: each is captured under the
                 setting it started with. Nothing is written.
         """
-        if enabled == self.settings['scale_bar']['enabled']:
+        if enabled == self._settings['scale_bar']['enabled']:
             # The objective's and the plate's rule: a write that changes
             # nothing is admitted under any hold.
             return
@@ -6234,7 +6318,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        return self.settings['scale_bar']['enabled']
+        return self._settings['scale_bar']['enabled']
 
     @api
     @property
@@ -6247,7 +6331,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        return self.settings['motion']['acceleration_max_pct']
+        return self._settings['motion']['acceleration_max_pct']
 
     @api(sets='acceleration_limit_pct', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
@@ -6352,7 +6436,7 @@ class ScopeSession:
         # file and the flag disagree on exactly the machines that care. A host
         # loads its plugins before it starts metrics.
         start_kwargs = {}
-        interval_s = self.settings['profiling']['metrics_interval_s']
+        interval_s = self._settings['profiling']['metrics_interval_s']
         if interval_s is not None:
             start_kwargs['system_metrics_interval_s'] = float(interval_s)
         elif self.engineering_mode:

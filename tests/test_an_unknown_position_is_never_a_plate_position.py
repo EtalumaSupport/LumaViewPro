@@ -35,11 +35,6 @@ def make_session(tmp_path):
         session.shutdown()
 
 
-def _focus(session, layer, z):
-    with session.settings_lock:
-        session.settings[layer]['focus'] = z
-
-
 # --- The plate read ------------------------------------------------------------------
 
 
@@ -80,8 +75,7 @@ def test_before_a_home_the_config_carries_no_z(make_session):
 
 
 def test_new_with_an_unfocused_layer_before_a_home_is_refused(make_session):
-    session = make_session('LS850', homed=False, acquiring=('BF',))
-    _focus(session, 'BF', None)
+    session = make_session('LS850', homed=False, acquiring=('BF',), BF={'focus': None})
 
     with pytest.raises(AxisStateUnknownError) as exc:
         session.new_protocol()
@@ -90,8 +84,7 @@ def test_new_with_an_unfocused_layer_before_a_home_is_refused(make_session):
 
 
 def test_new_with_every_layer_focused_builds_before_a_home(make_session):
-    session = make_session('LS850', homed=False, acquiring=('BF',))
-    _focus(session, 'BF', 4321.0)
+    session = make_session('LS850', homed=False, acquiring=('BF',), BF={'focus': 4321.0})
 
     protocol = session.new_protocol()
 
@@ -99,8 +92,7 @@ def test_new_with_every_layer_focused_builds_before_a_home(make_session):
 
 
 def test_after_a_home_new_takes_the_z_the_scope_read(make_session):
-    session = make_session('LS850', acquiring=('BF',))
-    _focus(session, 'BF', None)
+    session = make_session('LS850', acquiring=('BF',), BF={'focus': None})
     session.scope.motion.move_z(3000.0)
     z = session.scope.motion.axis_positions()['Z'].position_um
 
@@ -111,8 +103,7 @@ def test_after_a_home_new_takes_the_z_the_scope_read(make_session):
 
 @pytest.mark.parametrize('model', ['LS620', 'LS560'])
 def test_a_scope_with_no_z_motor_builds_as_it_did(make_session, model):
-    session = make_session(model, acquiring=('BF',))
-    _focus(session, 'BF', None)
+    session = make_session(model, acquiring=('BF',), BF={'focus': None})
 
     protocol = session.new_protocol()
 

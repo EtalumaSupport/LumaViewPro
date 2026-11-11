@@ -366,9 +366,7 @@ class TestAGeneratedProtocolKeepsAPositionTogether:
         self, session
     ):
         for layer in config_helpers.get_channel_configs(session.settings):
-            session.settings[layer]['acquire'] = None
-        for layer in ('BF', LED1):
-            session.set_channel_acquire(layer, 'image')
+            session.set_channel_acquire(layer, 'image' if layer in ('BF', LED1) else None)
         protocol = session.new_protocol(tiling='2x2')
         steps = protocol.steps()
 
@@ -400,9 +398,7 @@ class TestAHyperstackAfterApplyTiling:
         # and the stack grouped by tile group, so every stack held one image
         # and was skipped: a tiled-at-New protocol built them, this built none.
         for layer in config_helpers.get_channel_configs(session.settings):
-            session.settings[layer]['acquire'] = None
-        session.settings['BF']['acquire'] = 'image'
-        session.settings[LED1]['acquire'] = 'image'
+            session.set_channel_acquire(layer, 'image' if layer in ('BF', LED1) else None)
         session.scope.motion.move_xy(x_um=20000)
         session.scope.motion.move_xy(y_um=40000)
         session.scope.motion.move_z(5000.0)

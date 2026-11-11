@@ -11,7 +11,7 @@ session, live = make_session('applyzs', home=True, zstack=dict(ZS))
 try:
     import _lumascope.modules.config_helpers as config_helpers
 
-    settings = session.settings
+    settings = session.get_settings_snapshot()
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
         objective_helper=session.scope.objective_helper,

@@ -8,10 +8,9 @@ from tests.stock_channels import LED0, LED1
 s, live = harness.make_session('p7')
 try:
     # two channels acquiring an image is the composite's own precondition
-    with s.settings_lock:
-        for lay in (LED0, LED1):
-            s.settings[lay]['acquire'] = 'image'
-            s.settings[lay]['illumination_ma'] = 50
+    for lay in (LED0, LED1):
+        s.set_channel_acquire(lay, 'image')
+        s.update_settings(f'{lay}.illumination_ma', 50)
     runner = s.protocol_runner()
     parent = pathlib.Path(live) / 'Manual' / 'Composites'
     # (a) not streaming -- does the ENGINE refuse, or only the GUI pre-check?

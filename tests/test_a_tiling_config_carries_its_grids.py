@@ -144,10 +144,11 @@ def test_a_grid_handed_out_is_a_copy(tmp_path):
 def test_a_protocol_built_after_an_edit_takes_the_grids_the_session_offers(tmp_path):
     """A tiling.json edited mid-session reaches no protocol: one session, one set of grids."""
     data = _installation(tmp_path)
-    session = ScopeSession.create(complete_settings(), source_path=str(tmp_path), simulate=True)
+    session = ScopeSession.create(
+        complete_settings(BF={'acquire': 'image'}), source_path=str(tmp_path), simulate=True
+    )
     try:
         home_sim_scope(session.scope)
-        session.settings['BF']['acquire'] = 'image'
         session.scope.motion.move_xy(x_um=20000, y_um=40000)
         _write(data, {'metadata': {'default': '1x1'}, 'data': {'1x1': {'m': 1, 'n': 1}}})
         protocol = session.create_empty_protocol()

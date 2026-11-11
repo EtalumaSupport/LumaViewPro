@@ -26,11 +26,18 @@ _FOCUS_UM = {'BF': 8000.0, LED0: 7990.0, LED1: 7980.0}
 def _acquiring(session):
     """BF and the stock 405 and 488 channels acquire, each at its own saved focus."""
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = None
-        session.settings[layer]['autofocus'] = False
+        session.set_channel_acquire(layer, None)
+        session.update_settings(f'{layer}.autofocus', False)
     for layer, focus in _FOCUS_UM.items():
-        session.settings[layer]['acquire'] = 'image'
+        session.set_channel_acquire(layer, 'image')
         session.save_channel_focus(layer, focus)
+
+
+def _stacked_ten_um_by_five(session):
+    """A stack 10 um deep in 5 um steps, centred on each step's Z."""
+    session.update_settings('zstack.range', 10.0)
+    session.update_settings('zstack.step_size', 5.0)
+    session.update_settings('zstack.position', 'center')
 
 
 def _drawer_order() -> list[str]:
@@ -58,7 +65,7 @@ def test_the_drawers_put_405_before_488():
 )
 def test_every_new_runs_a_places_channels_in_drawer_order(session, tiling, use_zstacking):
     _acquiring(session)
-    session.settings['zstack'] = {'range': 10.0, 'step_size': 5.0, 'position': 'center'}
+    _stacked_ten_um_by_five(session)
 
     protocol = session.new_protocol(tiling=tiling, use_zstacking=use_zstacking)
 
@@ -71,7 +78,7 @@ def test_every_new_runs_a_places_channels_in_drawer_order(session, tiling, use_z
 
 def test_a_stack_runs_slice_by_slice_from_the_lowest(session):
     _acquiring(session)
-    session.settings['zstack'] = {'range': 10.0, 'step_size': 5.0, 'position': 'center'}
+    _stacked_ten_um_by_five(session)
 
     protocol = session.new_protocol(use_zstacking=True)
 

@@ -19,6 +19,7 @@ import logging
 import pytest
 
 import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
@@ -51,8 +52,7 @@ def session(tmp_path):
 
 def _acquire_bf_only(session):
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = None
-    session.settings['BF']['acquire'] = 'image'
+        session.set_channel_acquire(layer, AcquireMode.IMAGE if layer == 'BF' else None)
 
 
 def _a_step_at_each_slot(session, slots=(1, 2)):

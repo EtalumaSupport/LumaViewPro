@@ -194,7 +194,7 @@ def test_an_update_from_a_layer_that_stimulates_and_acquires_nothing_is_refused(
     ls850.add_step(protocol)
     before = protocol.steps()
     ls850.set_channel_acquire(LED0, None)
-    ls850.settings[LED0]['stim_config']['enabled'] = True
+    ls850.update_settings(f'{LED0}.stim_config.enabled', True)
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         ls850.update_step(protocol, 0, channel=LED0)

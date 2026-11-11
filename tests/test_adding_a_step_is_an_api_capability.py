@@ -19,6 +19,7 @@ import logging
 import pytest
 
 import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
 from _lumascope.modules.lumascope_api import AxisState
 from _lumascope.modules.scope_session import ScopeSession
@@ -169,9 +170,7 @@ def session():
 
 class TestAScriptAddsAStepThroughTheSession:
     def test_the_session_composes_the_add_from_its_own_settings(self, session):
-        for layer in config_helpers.get_channel_configs(session.settings):
-            session.settings[layer]['acquire'] = None
-        session.settings['BF']['acquire'] = 'image'
+        _only_acquiring(session, 'BF')
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()
         )
@@ -187,10 +186,8 @@ class TestAScriptAddsAStepThroughTheSession:
         # The viewed channel's focus is the better guess for every channel,
         # and each saved focus stays where New starts the next protocol.
         saved = {'BF': 7000.0, LED0: 8000.0, LED1: 9000.0}
-        for layer in config_helpers.get_channel_configs(session.settings):
-            session.settings[layer]['acquire'] = None
+        _only_acquiring(session, *saved)
         for layer, focus in saved.items():
-            session.settings[layer]['acquire'] = 'image'
             session.save_channel_focus(layer, focus)
         session.scope.motion.move_z(5000.0)
         protocol = session.scope.protocols.create_protocol(
@@ -207,8 +204,7 @@ class TestAScriptAddsAStepThroughTheSession:
     def test_a_script_adds_the_layers_it_names_where_it_names_without_changing_the_settings(
         self, session
     ):
-        for layer in config_helpers.get_channel_configs(session.settings):
-            session.settings[layer]['acquire'] = None
+        _only_acquiring(session)
         before = config_helpers.get_channel_configs(session.settings)
         protocol = session.create_empty_protocol()
         at = PlateLocation(x_mm=20.0, y_mm=15.0, z_um=6000.0)
@@ -223,8 +219,7 @@ class TestAScriptAddsAStepThroughTheSession:
         assert config_helpers.get_channel_configs(session.settings) == before
 
     def test_the_session_forwards_the_refusal(self, session, centre_posts):
-        for layer in config_helpers.get_channel_configs(session.settings):
-            session.settings[layer]['acquire'] = None
+        _only_acquiring(session)
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()
         )
@@ -240,15 +235,13 @@ class TestAScriptAddsAStepThroughTheSession:
 
 def _only_acquiring(session, *layers):
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = 'image' if layer in layers else None
+        session.set_channel_acquire(layer, AcquireMode.IMAGE if layer in layers else None)
 
 
 def _stack_settings(session, *, range_um, step_size_um):
-    session.settings['zstack'] = {
-        'range': range_um,
-        'step_size': step_size_um,
-        'position': 'center',
-    }
+    session.update_settings('zstack.range', range_um)
+    session.update_settings('zstack.step_size', step_size_um)
+    session.update_settings('zstack.position', 'center')
 
 
 class TestAnAddCanBeAZStack:

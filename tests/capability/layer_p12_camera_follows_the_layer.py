@@ -79,9 +79,9 @@ def body(session):
         )
 
     for layer in layers:
-        settings[layer]['acquire'] = None
-    settings['BF']['acquire'] = 'image'
-    settings[LED0]['acquire'] = 'image'
+        session.set_channel_acquire(layer, None)
+    session.set_channel_acquire('BF', 'image')
+    session.set_channel_acquire(LED0, 'image')
     protocol = scope.protocols.create_protocol(empty_config=session.get_sequenced_capture_config())
     session.add_step(protocol, before_step_index=0)
     colors = [protocol.step_row(step_index=i)['channel'] for i in range(protocol.num_steps())]

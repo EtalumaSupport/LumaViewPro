@@ -155,6 +155,18 @@ def no_motor_session():
 
 
 @pytest.fixture
+def stimulating_session():
+    """Homed, with BF acquiring nothing, stimulating, and focused at 7000 um."""
+    built = ScopeSession.create(
+        complete_settings(BF={'acquire': None, 'stim_config': {'enabled': True}, 'focus': 7000.0}),
+        simulate=True,
+    )
+    home_sim_scope(built.scope)
+    yield built
+    _close(built)
+
+
+@pytest.fixture
 def turret_session():
     settings = complete_settings(microscope='LS850T')
     settings['turret_objectives'] = dict(TEST_TURRET_OBJECTIVES)
@@ -364,13 +376,13 @@ class TestOneTargetComputation:
 
 
 class TestTheStepIntoItsLayer:
-    def test_the_layer_takes_the_steps_values_and_acquires_as_the_step_does(self, session):
+    def test_the_layer_takes_the_steps_values_and_acquires_as_the_step_does(
+        self, stimulating_session
+    ):
+        session = stimulating_session
         step = _step(60.0, 40.0, 5000.0, _objective_of(session))
         step.update({'Gain': 7.0, 'Exposure': 33.0, 'Illumination': 120.0, 'Acquire': 'video'})
         protocol = _protocol(_PLATE, step)
-        session.settings['BF']['acquire'] = None
-        session.settings['BF']['stim_config'] = {'enabled': True}
-        session.settings['BF']['focus'] = 7000.0
 
         session.go_to_step(protocol, 0)
 
@@ -414,7 +426,7 @@ class TestTheStepIntoItsLayer:
         )
         stimulating = [
             layer
-            for layer, values in no_motor_session.settings.items()
+            for layer, values in no_motor_session.get_settings_snapshot().items()
             if isinstance(values, dict) and values.get('stim_config') is not None
         ]
         for layer in stimulating:
@@ -443,7 +455,7 @@ class TestTheLedPreview:
         }
 
     def test_going_to_a_step_lights_its_channel_when_the_preview_is_on(self, session):
-        session.settings['protocol_led_on'] = True
+        session.update_settings('protocol_led_on', True)
         protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
 
         session.go_to_step(protocol, 0)
@@ -451,7 +463,7 @@ class TestTheLedPreview:
         assert self._lit(session) == {'BF'}
 
     def test_going_to_a_step_darkens_everything_when_the_preview_is_off(self, session):
-        session.settings['protocol_led_on'] = False
+        session.update_settings('protocol_led_on', False)
         session.scope.illumination.led_on(LED0, 50.0)
         protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
 
@@ -460,7 +472,7 @@ class TestTheLedPreview:
         assert self._lit(session) == set()
 
     def test_re_selecting_the_same_step_leaves_a_user_lit_channel_lit(self, session):
-        session.settings['protocol_led_on'] = True
+        session.update_settings('protocol_led_on', True)
         protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
         session.go_to_step(protocol, 0)
         session.scope.illumination.led_on(LED0, 50.0)
@@ -473,7 +485,7 @@ class TestTheLedPreview:
     def test_a_re_selected_step_after_a_raw_leds_off_is_shown_dark(self, session):
         """A re-click moves the shown channel back to the step's layer lit as the
         LEDs read: dark after a raw ``leds_off``, though the session lit it."""
-        session.settings['protocol_led_on'] = True
+        session.update_settings('protocol_led_on', True)
         protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
         session.go_to_step(protocol, 0)
         session.show_channel(LED0)
@@ -484,7 +496,7 @@ class TestTheLedPreview:
         assert self._lit(session) == set()
 
     def test_a_different_step_previews_again(self, session):
-        session.settings['protocol_led_on'] = True
+        session.update_settings('protocol_led_on', True)
         objective = _objective_of(session)
         protocol = _protocol(
             _PLATE, _step(60.0, 40.0, 5000.0, objective), _step(61.0, 40.0, 5000.0, objective)
@@ -497,7 +509,7 @@ class TestTheLedPreview:
         assert self._lit(session) == {'BF'}
 
     def test_a_run_transition_forgets_the_last_step(self, session):
-        session.settings['protocol_led_on'] = True
+        session.update_settings('protocol_led_on', True)
         protocol = _protocol(_PLATE, _step(60.0, 40.0, 5000.0, _objective_of(session)))
         session.go_to_step(protocol, 0)
         session.scope.illumination.led_off('BF')
@@ -552,7 +564,7 @@ class TestEveryStepValueReachesTheLayer:
         assert layer['video_config']['duration'] == 30
 
     def test_a_scope_with_no_motor_previews_the_step(self, no_motor_session):
-        no_motor_session.settings['protocol_led_on'] = True
+        no_motor_session.update_settings('protocol_led_on', True)
         protocol = _protocol(
             'Center Plate', _step(10.0, 10.0, 0.0, _objective_of(no_motor_session))
         )

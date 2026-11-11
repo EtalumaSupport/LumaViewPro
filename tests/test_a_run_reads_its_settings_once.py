@@ -114,19 +114,19 @@ class TestEveryRunKindTakesItsSettingsFromOneSnapshot:
 
 @pytest.fixture
 def session(tmp_path):
-    built = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
+    built = ScopeSession.create(
+        complete_settings(**_settings(tmp_path), BF={'autofocus': False}), simulate=True
+    )
     home_sim_scope(built.scope)
     yield built
     built.shutdown()
 
 
 def test_a_layers_autofocus_switched_during_a_run_is_still_switched_after_it(session, tmp_path):
-    session.settings['BF']['autofocus'] = False
     files_written = threading.Event()
 
     def users_switch(*_scan):
-        with session.settings_lock:
-            session.settings['BF']['autofocus'] = True
+        session.update_settings('BF.autofocus', True)
 
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(
@@ -147,7 +147,16 @@ def test_a_layers_autofocus_switched_during_a_run_is_still_switched_after_it(ses
 
 @pytest.fixture
 def unhomed_session(tmp_path):
-    built = ScopeSession.create(complete_settings(**_settings(tmp_path)), simulate=True)
+    acquiring = {
+        layer: {'acquire': 'image' if layer in ('BF', LED1) else None}
+        for layer in config_helpers.get_channel_configs(complete_settings())
+    }
+    built = ScopeSession.create(
+        complete_settings(
+            **_settings(tmp_path), **acquiring, zstack={'range': 20.0, 'step_size': 5.0}
+        ),
+        simulate=True,
+    )
     yield built
     built.shutdown()
 
@@ -156,10 +165,6 @@ def unhomed_session(tmp_path):
 def test_before_a_home_the_run_is_refused_as_not_homed(unhomed_session, member):
     """The position is read on the snapshot's plate without asking about
     the axes; the run's own gate answers, as it does for every run kind."""
-    settings = unhomed_session.settings
-    for layer in config_helpers.get_channel_configs(settings):
-        settings[layer]['acquire'] = 'image' if layer in ('BF', LED1) else None
-    settings['zstack'].update({'range': 20.0, 'step_size': 5.0})
     runner = unhomed_session.protocol_runner()
     with pytest.raises(ProtocolRunRefusedError) as refused:
         _MEMBERS[member](runner)

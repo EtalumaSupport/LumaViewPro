@@ -39,8 +39,8 @@ def reported(monkeypatch):
 def _three_bf_steps(session):
     """Three BF steps, at X = 10000, 20000 and 30000 um."""
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = None
-    session.settings['BF']['acquire'] = 'image'
+        session.set_channel_acquire(layer, None)
+    session.set_channel_acquire('BF', 'image')
     protocol = session.create_empty_protocol()
     for x_um in (10000, 20000, 30000):
         session.scope.motion.move_xy(x_um=x_um)

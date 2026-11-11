@@ -166,7 +166,7 @@ def test_every_event_of_a_home_and_a_run_matches_its_component(session):
             ),
         ).items()
     }
-    session.settings['BF']['acquire'] = 'image'
+    session.set_channel_acquire('BF', 'image')
     with _serving(session, app) as client, _reading(client) as stream:
         seen = stream.until('status')
         assert (

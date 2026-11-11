@@ -599,7 +599,7 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
     from _lumascope.modules.scope_session import SettingsLock
 
     holder = types.SimpleNamespace(
-        settings=settings,
+        _settings=settings,
         # The store's own lock, which records what _store_setting stores; told to no one.
         settings_lock=SettingsLock(lambda paths: None),
         _settings_saver=None,

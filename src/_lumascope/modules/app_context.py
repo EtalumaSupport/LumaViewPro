@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -163,8 +164,8 @@ class AppContext:
     # writers off the host thread use update_settings().
 
     @property
-    def settings(self) -> dict:
-        """The live settings dict, owned by the session."""
+    def settings(self) -> Mapping:
+        """The live settings, read-only, owned by the session."""
         return self._require_session().settings
 
     @property

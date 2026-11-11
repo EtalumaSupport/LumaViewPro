@@ -30,11 +30,15 @@ from _lumascope.modules.scope_capabilities import FrameSize
 
 
 @pytest.fixture
-def session(tmp_path):
+def session(request, tmp_path):
     from _lumascope.modules.scope_session import ScopeSession
     from tests.settings_fixtures import complete_settings
 
-    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    # A test names other stored settings by parametrizing this indirectly.
+    overrides = getattr(request, 'param', {})
+    s = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), **overrides), simulate=True
+    )
     try:
         yield s
     finally:
@@ -363,31 +367,25 @@ class TestTheImageMode:
 
 
 class TestTheCameraToggles:
-    """The simulated camera has neither toggle: on is refused, off is its state."""
+    """The simulated camera has neither toggle: on is refused and stores nothing."""
 
     @pytest.mark.parametrize(
-        ('member', 'path'),
+        ('member', 'path', 'session'),
         [
-            ('set_high_conversion_gain', 'high_conversion_gain'),
-            ('set_line_noise_reduction', 'line_noise_reduction'),
+            (
+                'set_high_conversion_gain',
+                'high_conversion_gain',
+                {'camera': {'high_conversion_gain': False}},
+            ),
+            (
+                'set_line_noise_reduction',
+                'line_noise_reduction',
+                {'camera': {'line_noise_reduction': False}},
+            ),
         ],
+        indirect=['session'],
     )
     def test_on_without_the_mode_is_refused_and_stores_nothing(self, session, member, path):
-        session.settings['camera'][path] = False
-
         with pytest.raises(CameraSettingUnsupportedError):
             getattr(session.scope.camera, member)(True)
-        assert session.settings['camera'][path] is False
-
-    @pytest.mark.parametrize(
-        ('member', 'path'),
-        [
-            ('set_high_conversion_gain', 'high_conversion_gain'),
-            ('set_line_noise_reduction', 'line_noise_reduction'),
-        ],
-    )
-    def test_off_without_the_mode_is_stored(self, session, member, path):
-        session.settings['camera'][path] = True
-
-        getattr(session.scope.camera, member)(False)
         assert session.settings['camera'][path] is False

@@ -30,7 +30,7 @@ class TestThePlateHasOneWriter:
         assert session.settings['protocol'] == stored
 
     def test_the_protocol_block_is_not_written_whole(self, session):
-        stored = session.settings['protocol']
+        stored = dict(session.settings['protocol'])
         with pytest.raises(SettingRefusedError, match='block'):
             session.update_settings('protocol', {**stored, 'labware': 'nonexistent'})
-        assert session.settings['protocol'] is stored
+        assert session.settings['protocol'] == stored

@@ -51,12 +51,16 @@ def ctx(monkeypatch):
         led_connected=True,
         motor_connected=True,
     )
+    # The one dict the stand-in holds: the context's read of it, and the
+    # store a Session method handed this stand-in as self reads.
+    stored = {LED1: {'illumination_ma': 120.0, 'focus': 4321.0}}
     context = SimpleNamespace(
         scope=scope,
         lumaview=SimpleNamespace(scope=scope),
         io_executor=object(),
         camera_executor=object(),
-        settings={LED1: {'illumination_ma': 120.0, 'focus': 4321.0}},
+        settings=stored,
+        _settings=stored,
         session=SimpleNamespace(
             controls_locked=False,
             light_shown_channel=MagicMock(),

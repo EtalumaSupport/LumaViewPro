@@ -9,6 +9,7 @@ checks, because they all reach the same member. Its read by path,
 ``get_setting``, refuses a path that names no setting.
 """
 
+import copy
 import math
 import os
 import re
@@ -29,6 +30,7 @@ from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.lumascope_api.camera import CameraAPI
 from _lumascope.modules.scope_session import ScopeSession
 from tests.installation_fixtures import copy_installation_files
+from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0
 
@@ -353,6 +355,58 @@ def test_a_snapshot_never_sees_a_write_half_done(session):
         stop.set()
         writer.join()
     assert torn == []
+
+
+def test_a_write_into_the_live_settings_raises_at_any_depth_and_changes_nothing(tmp_path):
+    """The live settings a host reads are read-only: a write through them,
+    which would skip the range, the not-a-setting refusal and a held control
+    session, raises, and neither the store nor a still sees it."""
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), BF={'gain_db': 3.0, 'auto_gain': False}),
+        simulate=True,
+    )
+    try:
+        home_sim_scope(session.scope)
+        live = session.settings
+        writes = {
+            'a leaf': lambda: live['BF'].__setitem__('gain_db', 5.0),
+            'a delete': lambda: live['BF'].__delitem__('sum'),
+            'a list': lambda: live['rest_api']['allowed_clients'].append('10.0.0.9'),
+            'a block': lambda: live.__setitem__('BF', {}),
+        }
+        let_through = []
+        for name, write in writes.items():
+            try:
+                write()
+            except (TypeError, AttributeError):
+                continue
+            let_through.append(name)
+
+        assert let_through == []
+        assert session.get_setting('BF.gain_db') == 3.0
+        assert session.settings['rest_api']['allowed_clients'] == []
+        assert session.capture_still('BF').record.gain_db == 3.0
+    finally:
+        session.shutdown()
+
+
+def test_a_copy_of_the_live_settings_is_a_plain_dict_its_holder_may_edit(session):
+    session.update_settings('BF.sum', 2)
+
+    copied = copy.deepcopy(session.settings['BF'])
+    copied['sum'] = 7
+
+    assert type(copied) is dict
+    assert session.get_setting('BF.sum') == 2
+
+
+def test_a_write_into_a_channel_config_changes_no_setting(session):
+    session.update_settings('BF.video_config.duration', 5)
+
+    configs = session.get_channel_configs(['BF'])
+    configs['BF']['video_config']['duration'] = 999
+
+    assert session.get_setting('BF.video_config.duration') == 5
 
 
 @pytest.mark.parametrize('path', ['bogus', 'BF.bogus', 'BF.gain_db.deeper', ''])

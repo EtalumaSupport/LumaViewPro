@@ -174,7 +174,7 @@ def _scan_leg(session, runner):
     # The protocol's plate is the session's, so the steps' plate positions
     # are the live position's frame; its own steps are replaced by two.
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
-        session.settings,
+        session.get_settings_snapshot(),
         objective_helper=session.scope.objective_helper,
         wellplate_loader=session.scope.wellplate_loader,
         current_z=start.z_um,

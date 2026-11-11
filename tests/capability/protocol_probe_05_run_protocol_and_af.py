@@ -23,7 +23,7 @@ try:
     import _lumascope.modules.config_helpers as config_helpers
     from _lumascope.modules.protocol_runner import ProtocolRunner
 
-    settings = session.settings
+    settings = session.get_settings_snapshot()
     runner = ProtocolRunner(session)
 
     cfg = config_helpers.get_sequenced_capture_config_from_settings(

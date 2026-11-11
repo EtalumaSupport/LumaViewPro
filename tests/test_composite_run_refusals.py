@@ -86,7 +86,7 @@ def _plain_scan_protocol(session):
     import _lumascope.modules.config_helpers as config_helpers
 
     input_config = config_helpers.get_composite_capture_config_from_settings(
-        session.settings,
+        session.get_settings_snapshot(),
         session.scope.objective_helper,
         position=session.get_current_plate_position(),
     )

@@ -71,4 +71,5 @@ def test_the_host_s_own_fields_reach_the_context(session):
     ctx = AppContext.over_session(session, stage=stage, version='4.0.0', live_view_fps=12)
 
     assert (ctx.stage, ctx.version, ctx.live_view_fps) == (stage, '4.0.0', 12)
-    assert ctx.settings is session.settings
+    session.update_settings('video.max_fps', 14)
+    assert ctx.settings['video']['max_fps'] == 14

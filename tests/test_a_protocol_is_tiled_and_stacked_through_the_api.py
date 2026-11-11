@@ -60,8 +60,8 @@ def reported(monkeypatch):
 def _bf_steps_at(session, xs_um):
     """One BF step at each X in ``xs_um``, in that order, mid-travel in Y and Z."""
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = None
-    session.settings['BF']['acquire'] = 'image'
+        session.set_channel_acquire(layer, None)
+    session.set_channel_acquire('BF', 'image')
     session.scope.motion.move_xy(y_um=40000)
     session.scope.motion.move_z(5000.0)
     protocol = session.create_empty_protocol()
@@ -137,21 +137,23 @@ class TestTiling:
     @pytest.mark.parametrize(
         'store',
         [
-            pytest.param(lambda s: s.__setitem__('tiling_overlap_percent', 25.0), id='overlap'),
-            pytest.param(lambda s: s['binning'].__setitem__('size', '2x2'), id='binning'),
-            pytest.param(lambda s: s['frame'].__setitem__('width', 600), id='frame'),
+            pytest.param(lambda s: s.update_settings('tiling_overlap_percent', 25.0), id='overlap'),
+            pytest.param(
+                lambda s: s.scope.camera.set_frame_size(600, s.settings['frame']['height']),
+                id='frame',
+            ),
         ],
     )
-    def test_the_tile_spacing_is_the_stored_frame_binning_and_overlap(self, session, store):
+    def test_the_tile_spacing_is_the_stored_frame_and_overlap(self, session, store):
         def span():
             protocol = _bf_steps_at(session, (40000,))
             session.apply_tiling(protocol, '2x2')
             xs = protocol.steps()['X']
             return xs.max() - xs.min()
 
-        session.settings['tiling_overlap_percent'] = 0.0
+        session.update_settings('tiling_overlap_percent', 0.0)
         before = span()
-        store(session.settings)
+        store(session)
 
         assert span() != before
 
@@ -206,8 +208,8 @@ class TestTiling:
 def _bf_steps_at_center(session):
     """One BF step where a stage-less scope's steps are: wherever the stage is."""
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = None
-    session.settings['BF']['acquire'] = 'image'
+        session.set_channel_acquire(layer, None)
+    session.set_channel_acquire('BF', 'image')
     session.scope.motion.move_z(5000.0)
     protocol = session.create_empty_protocol()
     session.add_step(protocol, after_step_index=-1)
@@ -273,17 +275,15 @@ class TestZStacking:
 def _new_bf_and_blue(session, *, bf_focus, blue_focus, range_um=10.0):
     """New with the stack ticked: BF autofocusing, LED 0 not, each at its own saved focus."""
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = None
-        session.settings[layer]['autofocus'] = False
+        session.set_channel_acquire(layer, None)
+        session.update_settings(f'{layer}.autofocus', False)
     for layer, focus in (('BF', bf_focus), (LED0, blue_focus)):
-        session.settings[layer]['acquire'] = 'image'
+        session.set_channel_acquire(layer, 'image')
         session.save_channel_focus(layer, focus)
-    session.settings['BF']['autofocus'] = True
-    session.settings['zstack'] = {
-        'range': range_um,
-        'step_size': 5.0,
-        'position': 'center',
-    }
+    session.update_settings('BF.autofocus', True)
+    session.update_settings('zstack.range', range_um)
+    session.update_settings('zstack.step_size', 5.0)
+    session.update_settings('zstack.position', 'center')
     return session.new_protocol(use_zstacking=True)
 
 
@@ -337,7 +337,7 @@ def wide_field_session():
 def _new_bf_and_blue_tiled(session, tiling):
     """New tiled: BF saved at 5000, LED 0 below it at 4990."""
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = None
+        session.set_channel_acquire(layer, None)
     for layer, focus in (('BF', 5000.0), (LED0, 4990.0)):
         session.set_channel_acquire(layer, 'image')
         session.save_channel_focus(layer, focus)

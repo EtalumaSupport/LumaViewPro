@@ -49,10 +49,10 @@ def test_steps_are_never_built_without_an_objective(tmp_path):
     # A run config whose objective is missing must not become steps stamped
     # with nothing: the builder refuses rather than record no objective.
     session = ScopeSession.create(
-        complete_settings(live_folder=str(tmp_path), microscope='LS850'), simulate=True
+        complete_settings(live_folder=str(tmp_path), microscope='LS850', BF={'acquire': 'image'}),
+        simulate=True,
     )
     try:
-        session.settings['BF']['acquire'] = 'image'
         config = session.get_sequenced_capture_config()
         config['objective_id'] = None
         with pytest.raises(ProtocolRunRefusedError) as refused:

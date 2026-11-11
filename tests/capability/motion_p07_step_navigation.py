@@ -30,7 +30,7 @@ def body(s):
 
     # --- build a two-position protocol and navigate to a step by hand ---
     cfg = config_helpers.get_standalone_capture_config_from_settings(
-        s.settings,
+        s.get_settings_snapshot(),
         s.scope.objective_helper,
         s.scope.wellplate_loader,
         channel='BF',

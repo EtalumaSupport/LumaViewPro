@@ -12,6 +12,7 @@ channel order.
 import pytest
 
 from _lumascope.modules import config_helpers
+from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.exceptions import ProtocolError
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -39,9 +40,9 @@ def _protocol(session):
 
 def test_steps_added_with_no_place_follow_the_last_step_in_channel_order(session):
     protocol = _protocol(session)
-    session.settings[LED0]['acquire'] = 'image'
+    session.set_channel_acquire(LED0, AcquireMode.IMAGE)
     first = session.add_step(protocol)
-    session.settings['BF']['acquire'] = 'image'
+    session.set_channel_acquire('BF', AcquireMode.IMAGE)
 
     second = session.add_step(protocol)
 
@@ -53,7 +54,7 @@ def test_the_protocols_own_insert_names_its_place(session):
     # The placement primitive has no default of its own: one that put a
     # step first would contradict the API's "add goes last".
     protocol = _protocol(session)
-    session.settings['BF']['acquire'] = 'image'
+    session.set_channel_acquire('BF', AcquireMode.IMAGE)
     session.add_step(protocol)
     step = protocol.step_row(step_index=0)
 
@@ -73,7 +74,7 @@ def test_the_protocols_own_insert_names_its_place(session):
 
 def test_a_place_on_both_sides_is_still_refused(session):
     protocol = _protocol(session)
-    session.settings['BF']['acquire'] = 'image'
+    session.set_channel_acquire('BF', AcquireMode.IMAGE)
     session.add_step(protocol)
 
     with pytest.raises(ProtocolError):

@@ -53,8 +53,14 @@ def _file_with_block(tmp_path, *rows, header=BLOCK_HEADER):
 
 
 def _set_layer(session, layer, **values):
-    with session.settings_lock:
-        session.settings[layer].update(values)
+    # Each value through the writer a caller uses: acquire and auto-gain
+    # have their own members, the rest are written by path.
+    members = {'acquire': session.set_channel_acquire, 'auto_gain': session.set_channel_auto_gain}
+    for key, value in values.items():
+        if key in members:
+            members[key](layer, value)
+        else:
+            session.update_settings(f'{layer}.{key}', value)
 
 
 def _layer_fields(session, layer):

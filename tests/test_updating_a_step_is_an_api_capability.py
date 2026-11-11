@@ -18,6 +18,7 @@ import logging
 import pytest
 
 import _lumascope.modules.config_helpers as config_helpers
+from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
 from _lumascope.modules.lumascope_api import AxisState
 from _lumascope.modules.protocol import StepNotFoundError
@@ -178,8 +179,8 @@ def session():
 
 def _session_protocol(session):
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = None
-    session.settings['BF']['acquire'] = 'image'
+        session.set_channel_acquire(layer, None)
+    session.set_channel_acquire('BF', AcquireMode.IMAGE)
     protocol = session.scope.protocols.create_protocol(
         empty_config=session.get_sequenced_capture_config()
     )

@@ -108,30 +108,6 @@ class TestSelectingAPlate:
         assert session.settings['protocol']['labware'] == OTHER_PLATE
 
 
-class TestTheSettingsStoreIsNotAProxyForTheScope:
-    """The no-op gate reads the settings store, so a writer that gets there
-    first can make the member believe there is nothing to do.
-
-    This is not hypothetical: loading a protocol used to write the labware
-    key and only then set the spinner text, and the spinner's text event is
-    what reaches this member. The member saw its own answer already stored,
-    reported no change, and left the scope on the previous plate -- settings
-    naming one plate while every well position came from another.
-    """
-
-    def test_a_settings_write_that_beats_the_member_does_not_silence_it(self, sessions):
-        session = sessions()
-        assert _runtime_plate(session) == _expected_plate(STARTING_PLATE)
-
-        # Exactly what the out-of-band writer did, one line ahead of the call.
-        session.settings['protocol']['labware'] = OTHER_PLATE
-        session.select_labware(OTHER_PLATE)
-
-        assert _runtime_plate(session) == _expected_plate(OTHER_PLATE), (
-            'the scope is still on the old plate while settings name the new one'
-        )
-
-
 class TestRefusals:
     def test_an_unknown_plate_is_refused_and_moves_nothing(self, sessions):
         session = sessions()

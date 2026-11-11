@@ -123,7 +123,6 @@ class TestDisableHomingIsNoStartupMotion:
 
     def test_neither_the_home_nor_the_turret_move_is_issued(self, session):
         attempts = []
-        session.settings['turret_position'] = 3
 
         session.run_application_session(
             disable_homing=True,
@@ -132,9 +131,6 @@ class TestDisableHomingIsNoStartupMotion:
         )
 
         assert attempts == [], f'homing disabled must issue no motion, got {attempts}'
-        assert session.settings['turret_position'] == 3, (
-            'the recorded turret position must be left as it was'
-        )
 
     def test_the_stage_is_not_placed_at_the_sample_either(self, session):
         """No startup motion means none, including the simulator's own

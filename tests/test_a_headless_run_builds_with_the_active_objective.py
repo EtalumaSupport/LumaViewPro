@@ -29,13 +29,19 @@ class _BuiltError(Exception):
     ids=['composite', 'autofocus', 'zstack'],
 )
 def test_the_protocol_names_the_slots_objective(tmp_path, monkeypatch, start):
-    with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+    settings = headless_settings(tmp_path)
+    # The stored objective: a turret objective other than the one stored as
+    # the fixture's, left over from a pick the turret no longer holds.
+    stale = next(
+        obj
+        for obj in TEST_TURRET_OBJECTIVES.values()
+        if obj not in (None, settings['objective_id'])
+    )
+    settings['objective_id'] = stale
+    with open_composite_session(settings) as (session, runner):
         slot = session.scope.motion.turret_status().slot
         in_light_path = TEST_TURRET_OBJECTIVES[slot]
-        stale = next(
-            obj for obj in TEST_TURRET_OBJECTIVES.values() if obj not in (None, in_light_path)
-        )
-        session.settings['objective_id'] = stale
+        assert stale != in_light_path, 'the stored objective must not be the one in the light path'
         built = []
 
         def _record(input_config):

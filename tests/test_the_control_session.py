@@ -248,13 +248,16 @@ class TestTheActivitySlot:
 
 
 @pytest.fixture
-def sim_session(tmp_path):
-    """A simulated, homed scope."""
+def sim_session(request, tmp_path):
+    """A simulated, homed scope; a test names other stored settings by parametrizing it indirectly."""
     from _lumascope.modules.scope_session import ScopeSession
     from tests.scope_fakes import home_sim_scope
     from tests.settings_fixtures import complete_settings
 
-    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    overrides = getattr(request, 'param', {})
+    s = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), **overrides), simulate=True
+    )
     try:
         home_sim_scope(s.scope)
         yield s
@@ -510,9 +513,9 @@ class TestTheSessionsMembers:
             'only the taker holds the id: a plugin reading session.control could act as the holder'
         )
 
+    # Never confirmed for this light path, so the question is owed.
+    @pytest.mark.parametrize('sim_session', [{'objective_confirmed': None}], indirect=True)
     def test_the_objective_question_is_put_to_the_holder_and_not_to_anyone_else(self, sim_session):
-        # Never confirmed for this light path, so the question is owed.
-        sim_session.settings['objective_confirmed'] = None
         assert sim_session.objective_question() is not None
         with calling(Caller.REST):
             session_id = sim_session.take_control('plate reader')

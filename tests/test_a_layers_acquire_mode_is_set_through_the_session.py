@@ -38,16 +38,14 @@ class TestTheSessionSetsTheMode:
 
     @pytest.mark.parametrize('mode', ['image', 'video'])
     def test_a_layer_set_to_acquire_stops_stimulating(self, session, mode):
-        with session.settings_lock:
-            session.settings[LED1]['stim_config']['enabled'] = True
+        session.update_settings(f'{LED1}.stim_config.enabled', True)
 
         session.set_channel_acquire(LED1, mode)
 
         assert _stim(session, LED1) is False
 
     def test_a_layer_set_to_nothing_keeps_its_stimulation(self, session):
-        with session.settings_lock:
-            session.settings[LED1]['stim_config']['enabled'] = True
+        session.update_settings(f'{LED1}.stim_config.enabled', True)
 
         session.set_channel_acquire(LED1, None)
 

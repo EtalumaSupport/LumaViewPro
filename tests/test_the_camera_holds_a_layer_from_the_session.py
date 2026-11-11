@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
 from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.scope_session import ScopeSession
@@ -56,9 +57,9 @@ def session():
 def _two_step_protocol(session):
     """A BF step and an LED 0 step at the current position, from the layers' settings."""
     for layer in session.get_channel_configs():
-        session.settings[layer]['acquire'] = None
-    session.settings['BF']['acquire'] = 'image'
-    session.settings[LED0]['acquire'] = 'image'
+        session.set_channel_acquire(layer, None)
+    session.set_channel_acquire('BF', AcquireMode.IMAGE)
+    session.set_channel_acquire(LED0, AcquireMode.IMAGE)
     protocol = session.scope.protocols.create_protocol(
         empty_config=session.get_sequenced_capture_config()
     )
@@ -178,7 +179,7 @@ class TestGoingToAStep:
         once the loop is off. Written before the loop was turned off, the
         camera stayed at the loop's value and the gate expected nothing.
         """
-        session.settings[LED0]['auto_gain'] = True
+        session.set_channel_auto_gain(LED0, True)
         protocol, bf_idx, blue_idx = _two_step_protocol(session)
 
         session.go_to_step(protocol, blue_idx)
@@ -219,7 +220,7 @@ class TestTheMember:
         assert _camera(session) == before
 
     def test_the_auto_gain_cap_carries_the_installations_override(self, session, monkeypatch):
-        session.settings['ag_ae_max_exposure_ms'] = {'fluorescence': 123.0}
+        session.update_settings('ag_ae_max_exposure_ms.fluorescence', 123.0)
         applied = MagicMock(return_value=None)
         monkeypatch.setattr(session.scope.camera, 'hold_channel', applied)
 
@@ -252,7 +253,7 @@ class TestTheHeldLayer:
 
     def test_a_store_change_is_written_although_the_layer_is_held(self, session):
         session.apply_channel_camera(LED0)
-        session.settings[LED0]['exposure_ms'] = 55.0
+        session.update_settings(f'{LED0}.exposure_ms', 55.0)
 
         session.apply_channel_camera(LED0)
 

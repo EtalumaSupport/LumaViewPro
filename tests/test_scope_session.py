@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import pathlib
 import threading
+from collections.abc import Mapping, MutableMapping
 
 import pytest
 
@@ -110,14 +111,15 @@ class TestCreateHeadlessComposesARealSession:
     def test_source_path_is_registered(self, headless_session):
         assert headless_session.source_path == pathlib.Path('.')
 
-    def test_settings_is_a_dict(self, headless_session):
+    def test_settings_are_a_read_only_mapping(self, headless_session):
         """Resolved from current.json, then settings.json, then empty.
 
         Only the type is asserted: the CONTENT depends on what the
         machine running the suite has on disk, so asserting values here
         would make the test pass or fail on local state.
         """
-        assert isinstance(headless_session.settings, dict)
+        settings = headless_session.settings
+        assert isinstance(settings, Mapping) and not isinstance(settings, MutableMapping)
 
 
 class TestExecutorLifecycle:

@@ -124,7 +124,7 @@ def test_a_build_with_an_unsaved_channel_and_no_current_z_is_refused(scale_capab
 def test_the_saved_focus_of_a_channel_never_saved_is_refused():
     from _lumascope.modules.scope_session import ScopeSession
 
-    session = SimpleNamespace(settings={LED0: {'focus': None}, 'BF': {'focus': 5998.6}})
+    session = SimpleNamespace(_settings={LED0: {'focus': None}, 'BF': {'focus': 5998.6}})
 
     assert ScopeSession.saved_focus_z_um(session, 'BF') == 5998.6
     with pytest.raises(FocusNotSavedError, match=f'No focus is saved for {LED0}'):

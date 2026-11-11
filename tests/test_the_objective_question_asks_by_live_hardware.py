@@ -39,8 +39,12 @@ from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 
 @pytest.fixture
-def session(tmp_path):
-    s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+def session(request, tmp_path):
+    # A test names other stored settings by parametrizing this indirectly.
+    overrides = getattr(request, 'param', {})
+    s = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), **overrides), simulate=True
+    )
     yield s
     s.shutdown()
 
@@ -133,12 +137,20 @@ def test_a_turret_scope_whose_board_did_not_come_up_has_a_turret_in_no_known_slo
 
 
 class TestTheQuestionUsesIt:
+    @pytest.mark.parametrize(
+        'session',
+        [
+            {
+                'objective_confirmed': False,
+                'turret_objectives': {1: None, 2: None, 3: None, 4: None},
+            }
+        ],
+        indirect=True,
+    )
     def test_the_question_asks_for_a_slot_when_the_board_reports_a_turret(
         self, session, monkeypatch
     ):
         """A turret scope with an empty slot: the question must name a position."""
-        session.settings['objective_confirmed'] = False
-        session.settings['turret_objectives'] = {1: None, 2: None, 3: None, 4: None}
         _board(session, has_turret=True)
         # The question names the live slot, the one motion reports. A
         # stand-in by design: the simulated board has no turret to stand at
@@ -156,8 +168,8 @@ class TestTheQuestionUsesIt:
             'the question must name the slot the answer will be assigned to'
         )
 
+    @pytest.mark.parametrize('session', [{'objective_confirmed': False}], indirect=True)
     def test_no_slot_is_named_when_the_board_reports_no_turret(self, session, monkeypatch):
-        session.settings['objective_confirmed'] = False
         _board(session, has_turret=False)
         monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
         monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))

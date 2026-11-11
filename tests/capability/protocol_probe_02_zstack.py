@@ -26,7 +26,7 @@ try:
     from _lumascope.modules.zstack_config import ZStackConfig
 
     runner = ProtocolRunner(session)
-    settings = session.settings
+    settings = session.get_settings_snapshot()
     engine = session.sequenced_capture_runner
 
     captured = {}

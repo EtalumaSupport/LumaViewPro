@@ -269,7 +269,6 @@ class TestSettingsSnapshot:
         session = self._session({'live_folder': str(tmp_path)})
         ctx = AppContext(session=session)
 
-        assert ctx.settings is session.settings
         assert ctx.settings_lock is session.settings_lock
 
         ctx.update_settings('video.max_fps', 14)

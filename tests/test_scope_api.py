@@ -443,7 +443,7 @@ class TestScopeSession:
             scope=scope,
             executor_bundle=real_executor_bundle(),
         )
-        assert session.settings is settings
+        assert session.settings == settings
         assert session.scope is scope
         assert session.io_executor is io
         assert session.camera_executor is cam

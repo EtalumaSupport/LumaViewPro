@@ -31,11 +31,11 @@ PLACE_COLUMNS = ('X', 'Y', 'Objective', 'Turret Slot')
 def session():
     settings = complete_settings(objective_id='10x Oly')
     settings['protocol']['labware'] = 'Center Plate'
+    for layer in config_helpers.get_channel_configs(settings):
+        settings[layer]['acquire'] = None
     session = ScopeSession.create(settings, simulate=True)
     try:
         home_sim_scope(session.scope)
-        for layer in config_helpers.get_channel_configs(session.settings):
-            session.settings[layer]['acquire'] = None
         for layer, focus in (('BF', 5000.0), (LED0, 5020.0)):
             session.set_channel_acquire(layer, 'image')
             session.save_channel_focus(layer, focus)

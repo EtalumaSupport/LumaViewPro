@@ -106,7 +106,7 @@ def _old_file(session, path: pathlib.Path, colors, *, rename=_AS_EARLIER):
 
 def _lit_by_going_to_each_step(session, protocol) -> list[int]:
     """The LED address each step lights when gone to with the preview on."""
-    session.settings['protocol_led_on'] = True
+    session.update_settings('protocol_led_on', True)
     lit = []
     for index in range(protocol.num_steps()):
         session.go_to_step(protocol, index)

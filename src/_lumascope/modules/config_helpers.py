@@ -7,6 +7,7 @@ and scope objects without any Kivy/GUI dependencies. They can be
 used by LumaViewPro, the REST API, or standalone scripts.
 """
 
+import copy
 import dataclasses
 import pathlib
 import typing
@@ -91,7 +92,8 @@ def get_channel_configs(settings: dict, specific_channels: list | None = None) -
         channel_config = settings[channel]
 
         acquire = channel_config['acquire']
-        video_config = channel_config['video_config']
+        # A copy: the answer is the caller's, and the block is the store's.
+        video_config = copy.deepcopy(channel_config['video_config'])
 
         autofocus = channel_config['autofocus']
         false_color = channel_config['false_color']

@@ -22,7 +22,7 @@ from tests.test_run_refusal_contract import _capture_notifications
 
 def _set_acquire(session, **acquire_by_layer):
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.settings[layer]['acquire'] = acquire_by_layer.get(layer)
+        session.set_channel_acquire(layer, acquire_by_layer.get(layer))
 
 
 class TestTheSessionBuilds:

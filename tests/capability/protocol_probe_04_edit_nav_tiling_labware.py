@@ -10,7 +10,7 @@ session, live = make_session('edit', home=True)
 try:
     import _lumascope.modules.config_helpers as config_helpers
 
-    settings = session.settings
+    settings = session.get_settings_snapshot()
     banner('base protocol')
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,

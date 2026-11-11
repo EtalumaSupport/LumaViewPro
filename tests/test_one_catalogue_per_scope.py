@@ -89,7 +89,7 @@ def test_a_protocol_is_built_and_validated_against_the_scopes_catalogues(tmp_pat
         # The plate position is read only once the scope knows it.
         home_sim_scope(session.scope)
         config = config_helpers.get_sequenced_capture_config_from_settings(
-            session.settings,
+            session.get_settings_snapshot(),
             objective_helper=session.scope.objective_helper,
             wellplate_loader=session.scope.wellplate_loader,
             current_z=session.get_current_plate_position().z_um,
