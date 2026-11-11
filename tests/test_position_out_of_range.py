@@ -51,17 +51,17 @@ def test_it_is_a_valueerror_subclass():
     assert issubclass(PositionOutOfRangeError, ValueError)
 
 
-def test_the_message_names_the_axis_the_request_and_the_range():
-    """The executor shows str(exception) verbatim as the popup body."""
-    err = PositionOutOfRangeError('Y', 200000.0, 0.0, 80000.0)
+def test_the_message_names_the_axis_the_request_and_the_range(motion):
+    """The popup shows str(exception) verbatim: a whole number reads as one.
 
-    text = str(err)
+    The attributes keep the request exact, so a caller reading the
+    published fields corrects the move without parsing the sentence.
+    """
+    with pytest.raises(PositionOutOfRangeError) as caught:
+        motion.move_xy(y_um=200000.0)
 
-    assert 'Y' in text
-    assert '200000.0' in text
-    assert '80000.0' in text
-    assert err.axis == 'Y'
-    assert err.position == 200000.0
+    assert str(caught.value) == 'Y position 200000 is outside the travel range 0 to 80000.'
+    assert (caught.value.axis, caught.value.position) == ('Y', 200000.0)
 
 
 @pytest.mark.parametrize(
@@ -145,7 +145,7 @@ def test_a_slot_the_turret_does_not_have_is_refused_before_z_is_parked(motion, s
         slot,
         'turret slots',
     )
-    assert '1 to 4' in str(caught.value)
+    assert f'slot {slot} is outside the turret slots 1 to 4' in str(caught.value)
     assert 'travel range' not in str(caught.value)
     assert 'safety limit' not in str(caught.value)
     assert motion.get_current_position('Z') == pytest.approx(1000.0, abs=1.0)

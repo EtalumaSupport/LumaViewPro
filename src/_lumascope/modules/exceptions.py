@@ -7,6 +7,8 @@ For driver-layer hardware exceptions (HardwareError), see src/_lumascope/drivers
 
 import datetime
 import errno
+import math
+import numbers
 import pathlib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -4699,7 +4701,10 @@ class PositionOutOfRangeError(Refusal, ValueError):
     written to catch ValueError from this call keep working.
 
     The message reaches the user verbatim, so it names the axis, the
-    request, and the range that refused it.
+    request, and the range that refused it, each a whole number as one and
+    any other to two decimals: a plate position converted from a click is
+    a float of sixteen digits, and the range it is refused against is
+    rounded to two. The attributes keep the exact values.
 
     ``bound`` names WHICH limit refused, because two of them can: the
     axis's own travel, and the coarse safety ceiling that rejects a
@@ -4741,7 +4746,10 @@ class PositionOutOfRangeError(Refusal, ValueError):
         bound: str = 'travel range',
         quantity: str = 'position',
     ):
-        super().__init__(f'{axis} {quantity} {position} is outside the {bound} {low} to {high}.')
+        super().__init__(
+            f'{axis} {quantity} {_as_stated(position)} is outside the {bound} '
+            f'{_as_stated(low)} to {_as_stated(high)}.'
+        )
         self.axis = Axis(axis)
         self.position = position
         self.limits = (low, high)
@@ -4753,6 +4761,23 @@ class PositionOutOfRangeError(Refusal, ValueError):
 # rather than imported: AxisState lives in the lumascope_api package, whose
 # import pulls in modules that import this one.
 _AXIS_HOMING = 'homing'
+
+
+def _as_stated(value: object) -> str:
+    """A number as a refusal's sentence states it: a whole number as one, any other to two decimals.
+
+    Anything that is not a number, a bool included (an int in Python, so
+    ``True`` would read as 1), is stated as given: a turret slot is refused
+    whatever was sent for it.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return str(value)
+    if isinstance(value, numbers.Integral):
+        return str(int(value))
+    number = float(value)
+    if math.isfinite(number) and number.is_integer():
+        return str(int(number))
+    return f'{number:.2f}'
 
 
 def _names(names: list[str]) -> str:

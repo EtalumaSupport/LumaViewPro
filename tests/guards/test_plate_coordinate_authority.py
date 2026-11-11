@@ -74,6 +74,20 @@ class TestRefusalNamesWhatTheUserTyped:
         assert exc.value.quantity == 'plate position'
         assert scope.motion.get_target_positions()['Y'] == target_before
 
+    def test_a_clicked_coordinate_is_stated_as_the_range_is(self, scope):
+        """A plate point from a click is a float of sixteen digits; the
+        sentence states it to two decimals, as it states the band, and the
+        published position keeps it exact."""
+        clicked = 1.4752919691773196
+
+        with pytest.raises(PositionOutOfRangeError) as exc:
+            scope.motion.move_to_plate(PlateLocation(x_mm=clicked, y_mm=None, z_um=None))
+
+        assert str(exc.value) == (
+            'X plate position 1.48 is outside the reachable range 2.26 to 122.26.'
+        )
+        assert exc.value.position == clicked
+
     def test_the_bound_is_reachable_not_the_labware_extent(self, scope):
         """85.0 is ON the plate (extent 85.48) and past what Y can reach.
 

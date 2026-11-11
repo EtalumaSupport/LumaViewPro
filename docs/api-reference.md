@@ -16730,7 +16730,10 @@ kind of bad argument as a non-numeric one, and callers already
 written to catch ValueError from this call keep working.
 
 The message reaches the user verbatim, so it names the axis, the
-request, and the range that refused it.
+request, and the range that refused it, each a whole number as one and
+any other to two decimals: a plate position converted from a click is
+a float of sixteen digits, and the range it is refused against is
+rounded to two. The attributes keep the exact values.
 
 `bound` names WHICH limit refused, because two of them can: the
 axis's own travel, and the coarse safety ceiling that rejects a
