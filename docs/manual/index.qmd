@@ -20,9 +20,9 @@ what each model has.
 |:---|:---:|:---:|:---:|:---|
 | LS820 | yes | no | no | Brightfield, Phase Contrast, Darkfield, 405 nm, 488 nm, 589 nm |
 | LS850 | yes | yes | no | Brightfield, Phase Contrast, Darkfield, 405 nm, 488 nm, 589 nm |
-| LS850-0 | yes | yes | no | Brightfield |
+| LS850-0 | yes | yes | no | Brightfield, Phase Contrast, Darkfield |
 | LS850T | yes | yes | yes | Brightfield, Phase Contrast, Darkfield, 405 nm, 488 nm, 589 nm |
-| LS850T-0 | yes | yes | yes | Brightfield, Phase Contrast |
+| LS850T-0 | yes | yes | yes | Brightfield, Phase Contrast, Darkfield |
 | | | | | |
 | Lumi | yes | no | no | Brightfield, Phase Contrast, Darkfield, Lumi |
 | | | | | |

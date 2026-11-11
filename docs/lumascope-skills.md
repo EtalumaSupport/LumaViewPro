@@ -75,9 +75,9 @@ sensor, not the scope: every FX2 model answers `MT9P031-LS620`.
 |---|---|---|---|---|---|
 | LS820 | yes | -- | -- | BF, PC, DF, Ex405, Ex488, Ex589 | EL-0940 |
 | LS850 | yes | yes | -- | BF, PC, DF, Ex405, Ex488, Ex589 | EL-0940 |
-| LS850-0 | yes | yes | -- | BF | EL-0940 |
+| LS850-0 | yes | yes | -- | BF, PC, DF | EL-0940 |
 | LS850T | yes | yes | yes | BF, PC, DF, Ex405, Ex488, Ex589 | EL-0940 |
-| LS850T-0 | yes | yes | yes | BF, PC | EL-0940 |
+| LS850T-0 | yes | yes | yes | BF, PC, DF | EL-0940 |
 | Lumi | yes | -- | -- | BF, PC, DF, Lumi | EL-0940 |
 | LS560 | -- | -- | -- | BF, Ex488 | FX2 |
 | LS460 | -- | -- | -- | BF | FX2 |
