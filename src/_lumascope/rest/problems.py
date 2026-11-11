@@ -38,6 +38,7 @@ from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.api_surface import Admission, raises_of
 from _lumascope.modules.exceptions import RefusalCause, ServerRefusedError, UnfitArgument
 from _lumascope.modules.notification_center import OutcomeKind, outcome_of
+from _lumascope.modules.post_processing_api import PostProcessingAPI
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from _lumascope.rest.routes import wire_form
 
@@ -82,6 +83,7 @@ DOORS: dict[Admission, object] = {
     Admission.LANE_OVERRIDE: SequentialIOExecutor.call_overriding,
     Admission.LANE_SUBMIT: SequentialIOExecutor.submit,
     Admission.GUARDED_WRITE: ActivityClaim.enter_guarded_write,
+    Admission.POST_PROCESSING: PostProcessingAPI._refuse_while_busy,
 }
 
 # What each cause of a refusal, quiet outcome or raised notice answers: a

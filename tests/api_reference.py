@@ -79,7 +79,7 @@ Every member and field of the API, rendered from the source: a member is API whe
 
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 
-A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
+A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 """
 
 

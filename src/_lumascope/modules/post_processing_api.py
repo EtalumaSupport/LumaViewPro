@@ -54,7 +54,7 @@ from _lumascope.modules.live_work import WorkItem
 from _lumascope.modules.sequential_io_executor import IOTask
 from _lumascope.modules.stitch_mode import StitchAlgorithm, StitchMode
 from _lumascope.modules.zproject_method import ZProjectMethod
-from _lumascope.modules.api_surface import FilePath, api, api_fields, host_wiring
+from _lumascope.modules.api_surface import Admission, FilePath, api, api_fields, host_wiring
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -799,7 +799,9 @@ class PostProcessingAPI:
                 (``ProtocolPostProcessor``): ``'protocol_data_unreadable'``,
                 ``'no_images'``, ``'unsupported_source_format'``,
                 ``'output_outside_folder'``, ``'collision'``,
-                ``'excluded_inputs'`` or ``'no_data'``.
+                ``'excluded_inputs'`` or ``'no_data'``; or
+                ``'names_exhausted'``, a manual recording's every numbered
+                video name is taken.
             PostProcessingFailedError: some groups could not be built; the
                 files that were are named.
         """
@@ -815,7 +817,7 @@ class PostProcessingAPI:
             on_progress=on_progress,
         )
 
-    @api
+    @api(admitted_by=(Admission.POST_PROCESSING,))
     def build(
         self,
         folder: FilePath,
@@ -872,10 +874,15 @@ class PostProcessingAPI:
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 *folder*; ``'not_a_folder'``, a file is.
-            PostProcessingRefusedError: reason ``invalid_setting``, no build
-                is chosen, or a chosen build's setting is one its own member
+            PostProcessingRefusedError: ``'invalid_setting'``, no build is
+                chosen, or a chosen build's setting is one its own member
                 refuses, before anything is queued; or the refusal of the
-                build that stopped the call (its ``operation`` names it).
+                build that stopped the call, its ``operation`` naming it:
+                ``'protocol_data_unreadable'``, ``'no_images'``,
+                ``'unsupported_source_format'``, ``'output_outside_folder'``,
+                ``'collision'``, ``'excluded_inputs'`` or
+                ``'names_exhausted'``. A build with nothing to do is
+                skipped, never raised.
             PostProcessingFailedError: the build that stopped the call did not
                 produce everything; its ``operation`` names it.
         """
@@ -1132,7 +1139,7 @@ class PostProcessingAPI:
             channel_colors=self._channel_colors(),
         )
 
-    @api
+    @api(admitted_by=(Admission.POST_PROCESSING,))
     def enhance(
         self,
         target: FilePath,
@@ -1349,7 +1356,7 @@ class PostProcessingAPI:
             ),
         )
 
-    @api
+    @api(admitted_by=(Admission.POST_PROCESSING,))
     def count_cells(
         self,
         folder: FilePath,
@@ -1488,7 +1495,7 @@ class PostProcessingAPI:
         table = None if results is None else _results_table(results)
         return _figure(table, x, y, trendline, x_label, y_label, title)
 
-    @api
+    @api(admitted_by=(Admission.POST_PROCESSING,))
     def graph(
         self,
         results: FilePath | None,

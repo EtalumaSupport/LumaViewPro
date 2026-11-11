@@ -3,7 +3,8 @@
 
 A hardware lane that asks the scope's activity claim refuses a call while a
 run, a diagnostic or a home holds the scope, or while a control session is
-held by someone else; a guarded write refuses the second. The reference
+held by someone else; a guarded write refuses the second; a post-processing
+build's admission refuses a build while the scope's work needs the host. The reference
 states those refusals once, so no member's ``Raises:`` lists them, and a
 route's description adds them from the member's mark,
 ``@api(admitted_by=(...))``, each door's own ``Raises:`` read through
@@ -13,7 +14,8 @@ every member a REST route serves:
 
 1. **Named.** A member whose walk reaches a door names it: a call landing on
    ``SequentialIOExecutor.call``, ``.call_overriding`` or ``.submit`` of a
-   lane that asks the claim, or on ``ActivityClaim.enter_guarded_write``.
+   lane that asks the claim, on ``ActivityClaim.enter_guarded_write``, or
+   on ``PostProcessingAPI._refuse_while_busy``.
 2. **Not stale.** A member whose walk resolves every call it makes names no
    door the walk does not reach.
 

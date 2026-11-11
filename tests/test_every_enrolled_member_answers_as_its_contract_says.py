@@ -14,6 +14,8 @@ file it cannot use and a simulated board that never answers. For each:
   are as they were.
 - **An injected fault** (``scope.simulation``) answers the class its
   contract names.
+- **A held scope** refuses each post-processing route as the door it
+  enters says, the contract being the member's own section and its doors'.
 - **Over REST** the same call answers the status and the problem body the
   server makes of the Python answer (``_lumascope.rest.problems.answered_by_member``).
 
@@ -45,7 +47,7 @@ from _lumascope.drivers.registry import DriverNotLiveError
 from _lumascope.drivers.sim_wire.backend import SimWireBackend
 from _lumascope.drivers.simulated_tmcm6110 import SimulatedTmcm6110Backend
 from _lumascope.modules import wire_encoding
-from _lumascope.modules.api_surface import _function_of
+from _lumascope.modules.api_surface import _function_of, admitted_by_of, raises_of
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     CameraSettingRejected,
@@ -59,10 +61,10 @@ from _lumascope.modules.exceptions import (
     PostProcessingRefusedError,
 )
 from _lumascope.modules.cell_count_method import CellCountMethod
-from _lumascope.modules.post_processing_api import Stitch, Video, ZProject
+from _lumascope.modules.post_processing_api import PostProcessingAPI, Stitch, Video, ZProject
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app
-from _lumascope.rest.problems import answered_by_member
+from _lumascope.rest.problems import DOORS, answered_by_member
 from tests.guards.test_every_member_states_its_contract import (
     _ENTRY,
     _ROOT,
@@ -149,15 +151,23 @@ class Fault:
 
 
 def _contract(member: str) -> dict[str, str]:
-    """``{class name: entry words}`` of the member's ``Raises:`` section."""
+    """``{class name: entry words}`` of the member's ``Raises:`` section and of each door it enters.
+
+    A door's refusals are stated once, in the door's own section, and are
+    the member's contract as much as its own entries, as a route's
+    description says (``_lumascope.rest.problems.declared``).
+    """
     owner, name = member.split('.')
     cls = wire_encoding.project_classes()[owner]
-    doc = inspect.getdoc(_function_of(vars(cls)[name])) or ''
-    section = _SECTION.search(doc)
+    function = _function_of(vars(cls)[name])
+    docs = [inspect.getdoc(function) or '']
+    docs += [inspect.getdoc(DOORS[door]) or '' for door in admitted_by_of(function)]
     entries: dict[str, str] = {}
-    # A class may have several entries, one per condition: each is read.
-    for name, words in _ENTRY.findall(section.group(1)) if section else ():
-        entries[name] = entries.get(name, '') + words
+    for doc in docs:
+        section = _SECTION.search(doc)
+        # A class may have several entries, one per condition: each is read.
+        for name, words in _ENTRY.findall(section.group(1)) if section else ():
+            entries[name] = entries.get(name, '') + words
     return entries
 
 
@@ -917,6 +927,18 @@ def _bad_rows() -> list[Bad]:
                     (route, lambda s, given=given, extra=wire_chosen: {'folder': given, **extra}),
                 )
             )
+    # A folder a build cannot build from stops the call with that build's
+    # own refusal, unchanged.
+    rows.append(
+        Bad(
+            'stitch a folder no run saved',
+            'PostProcessingAPI.build',
+            lambda s: pp(s).build(s.live / 'images', stitch=Stitch()),
+            PostProcessingRefusedError,
+            'protocol_data_unreadable',
+            (route, lambda s: {'folder': 'images', 'stitch': {'mode': 'quality'}}),
+        )
+    )
     rows.append(
         Bad(
             'video an unusable frame_rate_fps',
@@ -1108,6 +1130,76 @@ def test_every_enrolled_member_answers_as_its_contract_says(scopes, run_folders)
                     wrong.append(f'{row.case}: {differs}')
         else:
             wrong.append(f'{row.case}: was not refused')
+    assert wrong == [], '\n'.join(wrong)
+
+
+def test_build_names_every_refusal_its_builds_pass_on():
+    # ``build`` raises a stopped build's refusal unchanged and skips one with
+    # nothing to do, so its section quotes each build's reasons but
+    # ``no_data``, beside its own ``invalid_setting``.
+    def refusals(member: str) -> set[str]:
+        doc = inspect.getdoc(_function_of(vars(PostProcessingAPI)[member])) or ''
+        return {
+            reason
+            for name, quoted in raises_of(doc)
+            if name == 'PostProcessingRefusedError'
+            for reason in quoted
+        }
+
+    passed_on = set().union(*(refusals(m) for m in ('zproject', 'stitch', 'composite', 'video')))
+    assert refusals('build') == (passed_on - {'no_data'}) | {'invalid_setting'}
+
+
+def test_a_build_asked_while_the_scope_is_held_answers_as_its_contract_says(scopes):
+    # Each post-processing route enters the build's admission, whose own
+    # ``Raises:`` states the refusal; the hold spans the Python call and the
+    # wire's, so each is asked while the scope is held.
+    scope = scopes(protocol=False)
+    method = CellCountMethod()
+    asked = (
+        (
+            'PostProcessingAPI.build',
+            lambda: pp(scope).build(scope.live / 'images', stitch=Stitch()),
+            ('/api/v1/post_processing/build', {'folder': 'images', 'stitch': {'mode': 'quality'}}),
+        ),
+        (
+            'PostProcessingAPI.enhance',
+            lambda: pp(scope).enhance(scope.live / 'images' / 'frame.tif'),
+            ('/api/v1/post_processing/enhance', {'target': 'images/frame.tif'}),
+        ),
+        (
+            'PostProcessingAPI.count_cells',
+            lambda: pp(scope).count_cells(scope.live / 'images', method=method),
+            (
+                '/api/v1/post_processing/count_cells',
+                {'folder': 'images', 'method': method.to_dict()},
+            ),
+        ),
+        (
+            'PostProcessingAPI.graph',
+            lambda: pp(scope).graph(
+                scope.live / 'results.csv', scope.live / 'g.png', x='count', y='mean_area'
+            ),
+            (
+                '/api/v1/post_processing/graph',
+                {'results': 'results.csv', 'path': 'g.png', 'x': 'count', 'y': 'mean_area'},
+            ),
+        ),
+    )
+    wrong = []
+    with scope.session.diagnostic_claim():
+        for member, call, (route, body) in asked:
+            try:
+                call()
+            except PostProcessingRefusedError as raised:
+                if raised.reason != 'scope_held':
+                    wrong.append(f'{member}: refused {raised.reason!r}, not scope_held')
+                    continue
+                said = _undeclared(member, raised) or _wire_matches(scope, route, body, raised)
+                if said:
+                    wrong.append(f'{member}: {said}')
+            else:
+                wrong.append(f'{member}: was not refused')
     assert wrong == [], '\n'.join(wrong)
 
 

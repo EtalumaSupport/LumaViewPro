@@ -6,7 +6,7 @@ Every member and field of the API, rendered from the source: a member is API whe
 
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 
-A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
+A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
 
 ## Contents
 
@@ -4281,6 +4281,7 @@ def build(
 ) -> BuildsResult
 ```
 
+Marks: enters: `post_processing`.  
 Route: `POST /api/v1/post_processing/build`.
 
 Run the chosen builds over *folder* in one call, in the order that
@@ -4323,12 +4324,13 @@ the members one by one.
 **Raises**
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *folder*; `'not_a_folder'`, a file is.
-- `PostProcessingRefusedError`: reason `invalid_setting`, no build is chosen, or a chosen build's setting is one its own member refuses, before anything is queued; or the refusal of the build that stopped the call (its `operation` names it).
+- `PostProcessingRefusedError`: `'invalid_setting'`, no build is chosen, or a chosen build's setting is one its own member refuses, before anything is queued; or the refusal of the build that stopped the call, its `operation` naming it: `'protocol_data_unreadable'`, `'no_images'`, `'unsupported_source_format'`, `'output_outside_folder'`, `'collision'`, `'excluded_inputs'` or `'names_exhausted'`. A build with nothing to do is skipped, never raised.
 - `PostProcessingFailedError`: the build that stopped the call did not produce everything; its `operation` names it.
 
 **Refusals by REST status**
 
-- 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `invalid_setting`
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`
+- 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `invalid_setting`, `protocol_data_unreadable`, `no_images`, `unsupported_source_format`, `output_outside_folder`, `collision`, `excluded_inputs`
 - 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
 <a id="PostProcessingAPI.cell_count_size_scale"></a>
@@ -4382,6 +4384,7 @@ def count_cells(
 ) -> CellCountResult
 ```
 
+Marks: enters: `post_processing`.  
 Route: `POST /api/v1/post_processing/count_cells`.
 
 Count the cells in the images directly in *folder* by *method*,
@@ -4414,7 +4417,7 @@ The results table, the method file, how many images were counted, each image lef
 
 **Refusals by REST status**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `method_invalid`, `protocol_data_unreadable`, `no_data`
 - 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
@@ -4494,6 +4497,7 @@ def enhance(
 ) -> EnhanceResult
 ```
 
+Marks: enters: `post_processing`.  
 Route: `POST /api/v1/post_processing/enhance`.
 
 Quick Enhance *target* -- one image, or every image in a folder --
@@ -4523,6 +4527,7 @@ Each derived file, the folder they are in, and the outcome in words.
 
 **Refusals by REST status**
 
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
 - 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `unreadable`, `no_data`
 - 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
@@ -4544,6 +4549,7 @@ def graph(
 ) -> GraphResult
 ```
 
+Marks: enters: `post_processing`.  
 Route: `POST /api/v1/post_processing/graph`.
 
 Save the graph of column *y* against column *x* of the cell-count
@@ -4573,6 +4579,7 @@ The PNG written and the outcome in words.
 
 **Refusals by REST status**
 
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
 - 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_file`, `wrong_extension`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `graph_incomplete`, `results_unreadable`, `axis_not_plottable`, `fit_impossible`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`
 - 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
