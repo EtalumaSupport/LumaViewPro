@@ -12,6 +12,7 @@ ids.log when those land).
 """
 
 import collections
+import enum
 import logging
 import threading
 
@@ -124,16 +125,78 @@ class _LinesBeforeAWarning(logging.Handler):
             self._file.handle(line)
 
 
+class LogWindow(enum.Enum):
+    """A stretch of the trace logs' traffic a support read opens first, kept in its own file.
+
+    The rolling trace logs keep whatever the traffic after it left room
+    for: on a long run, bring-up and the run's start are rotated away hours
+    before a bundle is taken. Each window's file holds the serial, camera
+    and api lines from its opening to its end, at VERBOSE whatever the
+    session's level (DEBUG under debug_mode). The value is its file's name.
+    """
+
+    BRING_UP = 'bringup.log'
+
+
+class _Window(logging.Handler):
+    """One window: the trace loggers' records written to its file while it is open.
+
+    It is open from ``open_window`` until ``end_window``, or until it has
+    written ``budget_bytes``, whichever comes first, since an end can be far
+    off or never come (a bring-up that never reaches its startup motion).
+    A window that spends its budget writes one line saying so, the last of
+    that window. Each opening writes a header naming what opened it. The
+    file is appended to across openings and processes, and rotates at its
+    cap as every log does.
+    """
+
+    def __init__(self, window: LogWindow, file_handler: logging.Handler, budget_bytes: int):
+        super().__init__(level=logging.NOTSET)
+        self._window = window
+        self._file = file_handler
+        self._budget_bytes = budget_bytes
+        self._open = False
+        self._written = 0
+
+    def _write(self, message: str) -> None:
+        self._file.handle(
+            logging.makeLogRecord(
+                {'name': 'LVP', 'msg': message, 'levelno': logging.INFO, 'levelname': 'INFO'}
+            )
+        )
+
+    def open(self, opened_by: str) -> None:
+        with self.lock:
+            self._open = True
+            self._written = 0
+            self._write(f'{self._window.value} window opened: {opened_by}')
+
+    def end(self) -> bool:
+        """End the window; whether it was open."""
+        with self.lock:
+            was_open, self._open = self._open, False
+            return was_open
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not self._open:
+            return
+        self._file.handle(record)
+        self._written += len(self._file.format(record)) + 1
+        if self._written >= self._budget_bytes:
+            self._open = False
+            self._write(
+                f'{self._window.value} window closed: it wrote its budget of '
+                f'{self._budget_bytes} bytes before its end'
+            )
+
+
 # Each trace logger and the file it writes, whose levels apply_session_level sets.
 _trace_files: dict[logging.Logger, logging.Handler] = {}
 
-# Whether bring-up is still running: until the startup motion has ended, the
-# trace logs are written at VERBOSE whatever the session's level (DEBUG under
-# debug_mode), so a field log holds the board and camera exchanges of every
-# bring-up. Each session opens it when it is created (begin_bring_up), so a
-# process that builds a second session writes that bring-up at VERBOSE too;
-# a bring-up that never reaches its startup motion leaves it open.
-_bring_up_running = True
+# Each window this process writes; empty when logging was declined, so an
+# opening or an end does nothing.
+_windows: dict[LogWindow, _Window] = {}
+
 _session_level = logging.INFO
 _levels_lock = threading.Lock()
 
@@ -149,14 +212,46 @@ def write_trace_log(
     apply_session_level(_session_level)
 
 
+def write_window(
+    window: LogWindow,
+    file_handler: logging.Handler,
+    *,
+    trace_loggers: tuple[logging.Logger, ...],
+    budget_bytes: int,
+) -> None:
+    """Give a window its file, written from the trace loggers while the window is open.
+
+    One handler on every trace logger, which do not propagate, so each
+    record is written once, in the order it was logged.
+    """
+    keeper = _Window(window, file_handler, budget_bytes)
+    for trace_logger in trace_loggers:
+        trace_logger.addHandler(keeper)
+    with _levels_lock:
+        _windows[window] = keeper
+
+
+def open_window(window: LogWindow, opened_by: str) -> None:
+    """Write the trace loggers' lines to the window's file from here; nothing when it has none."""
+    keeper = _windows.get(window)
+    if keeper is not None:
+        keeper.open(opened_by)
+
+
+def end_window(window: LogWindow) -> bool:
+    """Write no more to the window's file; whether it was open."""
+    keeper = _windows.get(window)
+    return keeper is not None and keeper.end()
+
+
 def apply_session_level(level: int | str) -> None:
     """Put the session's log level on every log that follows it.
 
     The 'LVP' parent (every LVP.* logger without a level of its own: the
     GUI interaction and protocol logs among them) and lvp_logger's own
-    logger take it, as do the trace logs' files; while bring-up runs, those
-    files take VERBOSE when the level is above it. The trace loggers pass
-    VERBOSE whatever the level, so a file at INFO still has its held lines.
+    logger take it, as do the trace logs' files. The trace loggers pass
+    VERBOSE whatever the level, so a file at INFO still has its held lines
+    and an open window (``LogWindow``) has every line.
     """
     global _session_level
     level = logging.getLevelName(level.upper()) if isinstance(level, str) else level
@@ -164,29 +259,20 @@ def apply_session_level(level: int | str) -> None:
         _session_level = level
         logging.getLogger('LVP').setLevel(level)
         logger.setLevel(level)
-        written = min(level, VERBOSE) if _bring_up_running else level
         for trace_logger, file_handler in _trace_files.items():
             trace_logger.setLevel(min(level, VERBOSE))
-            file_handler.setLevel(written)
+            file_handler.setLevel(level)
 
 
 def begin_bring_up() -> None:
-    """Write the trace logs at VERBOSE until bring-up ends; a session is being brought up."""
-    global _bring_up_running
-    with _levels_lock:
-        _bring_up_running = True
-    apply_session_level(_session_level)
+    """A session is being brought up: its trace traffic is kept in ``bringup.log`` until it ends."""
+    open_window(LogWindow.BRING_UP, 'a session is being brought up')
 
 
 def end_bring_up() -> None:
-    """Write the trace logs at the session's level from now on; bring-up has ended."""
-    global _bring_up_running
-    with _levels_lock:
-        if not _bring_up_running:
-            return
-        _bring_up_running = False
-    apply_session_level(_session_level)
-    logger.info(
-        f'[Logger    ] Bring-up has ended: the serial, camera and api logs are written at '
-        f'{logging.getLevelName(_session_level)} from here'
-    )
+    """Bring-up has ended: ``bringup.log`` takes no more of it."""
+    if end_window(LogWindow.BRING_UP):
+        logger.info(
+            f'[Logger    ] Bring-up has ended: its serial, camera and api lines are in '
+            f'{LogWindow.BRING_UP.value}'
+        )

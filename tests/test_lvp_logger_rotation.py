@@ -60,12 +60,13 @@ def test_every_shipped_log_names_its_backups_by_the_one_namer():
         'from logging.handlers import RotatingFileHandler\n'
         'handlers = [v for v in vars(_lumascope.lvp_logger).values() if isinstance(v, RotatingFileHandler)]\n'
         "namer = getattr(_lumascope.lvp_logger, 'rotated_log_name', None)\n"
-        'print(json.dumps([len(handlers), all(h.namer is namer for h in handlers)]))\n'
+        'print(json.dumps([len(handlers), len(_lumascope.lvp_logger.LOG_CAPS),'
+        ' all(h.namer is namer for h in handlers)]))\n'
     )
 
-    count, one_namer = _run(code)
+    count, rows, one_namer = _run(code)
 
-    assert count == 10
+    assert count == rows
     assert one_namer
 
 

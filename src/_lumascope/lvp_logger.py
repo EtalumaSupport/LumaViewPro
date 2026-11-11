@@ -51,7 +51,12 @@ from _lumascope.modules.path_utils import (
 )
 
 from _lumascope.modules.api_surface import api
-from _lumascope.modules.log_stamp import MAIN_LAYOUT, TRACE_LAYOUT, make_formatter
+from _lumascope.modules.log_stamp import MAIN_LAYOUT, TRACE_LAYOUT, WINDOW_LAYOUT, make_formatter
+
+# The main and camera loggers are named in src/_lumascope/lib/log_helpers, where the drivers
+# and src/_lumascope/lib/ take them without importing this module; this module's start configures them.
+from _lumascope.lib import log_helpers
+from _lumascope.lib.log_helpers import camera_logger, logger
 
 version, build_timestamp = read_version()
 
@@ -78,6 +83,7 @@ CAMERA_LOG_FILE = os.path.join(log_dir, 'camera.log')
 GUI_LOG_FILE = os.path.join(log_dir, 'gui_interactions.log')
 METRICS_LOG_FILE = os.path.join(log_dir, 'metrics.log')
 PROTOCOL_LOG_FILE = os.path.join(log_dir, 'protocol.log')
+BRINGUP_LOG_FILE = os.path.join(log_dir, log_helpers.LogWindow.BRING_UP.value)
 
 _MB = 1024 * 1024
 
@@ -98,11 +104,12 @@ LOG_CAPS = {
     'autofocus.log': (5 * _MB, 1),
     'gui_interactions.log': (2 * _MB, 2),
     'metrics.log': (2 * _MB, 1),
+    log_helpers.LogWindow.BRING_UP.value: (2 * _MB, 2),
 }
 
 # The table's sum, every log at its cap with all its backups. A cap raised
 # past it fails the budget test, so the bundle's size is revisited with it.
-LOG_BUDGET_BYTES = 113 * _MB
+LOG_BUDGET_BYTES = 119 * _MB
 
 
 def minimize_logger_window() -> None:
@@ -167,11 +174,6 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
         sys.__stderr__.write(''.join(_traceback.format_exception_only(exc_type, exc_value)))
         sys.__stderr__.flush()
 
-
-# The main and camera loggers are named in src/_lumascope/lib/log_helpers, where the drivers
-# and src/_lumascope/lib/ take them without importing this module; this module's start configures them.
-from _lumascope.lib import log_helpers
-from _lumascope.lib.log_helpers import camera_logger, logger
 
 _lvp_parent = logging.getLogger('LVP')
 
@@ -257,6 +259,10 @@ class RestAPIFilter(logging.Filter):
 
 # How many lines each trace log keeps before a warning.
 _HELD_LINES = 200
+
+# The most one opening of a window writes. A simulated bring-up writes
+# about 4 KB; the budget ends one that never reaches its end.
+_BRING_UP_BUDGET_BYTES = 1 * _MB
 
 # The lanes: each writes its own file and the errors log, and none reaches the
 # main log (start_logging sets each one's propagate False). The loggers are
@@ -376,7 +382,7 @@ def _open_the_files(*, take_root: bool) -> None:
     when the program owns the process, else on LumaViewPro's own loggers."""
     global debug, file_handler, error_file_handler, rest_api_handler, serial_file_handler
     global camera_file_handler, metrics_file_handler, protocol_file_handler
-    global _af_file_handler, _api_file_handler, gui_handler
+    global _af_file_handler, _api_file_handler, gui_handler, bringup_file_handler
 
     os.makedirs(log_dir, exist_ok=True)
 
@@ -487,6 +493,18 @@ def _open_the_files(*, take_root: bool) -> None:
     _api_file_handler = _rotating_handler(API_LOG_FILE, layout=TRACE_LAYOUT, delay=True)
     _api_file_handler.addFilter(ThreadPauseFilter())
     log_helpers.write_trace_log(api_logger, _api_file_handler, held_lines=_HELD_LINES)
+
+    # Bring-up's serial, camera and api traffic, kept apart from the rolling
+    # trace logs, which rotate it away on a long run. Not created until a
+    # session is brought up.
+    bringup_file_handler = _rotating_handler(BRINGUP_LOG_FILE, layout=WINDOW_LAYOUT, delay=True)
+    bringup_file_handler.addFilter(ThreadPauseFilter())
+    log_helpers.write_window(
+        log_helpers.LogWindow.BRING_UP,
+        bringup_file_handler,
+        trace_loggers=(serial_logger, camera_logger, api_logger),
+        budget_bytes=_BRING_UP_BUDGET_BYTES,
+    )
 
     # Only the REST sink is logger-specific; the bundle file handlers live on
     # their owners (below) and are reached by propagation.

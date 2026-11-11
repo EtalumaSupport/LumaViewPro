@@ -731,7 +731,7 @@ def _no_log_setting_outlives_its_test():
     A session puts its settings' level on the 'LVP' and 'lvp_logger'
     loggers and turns the score log on or off, process-wide; left in place,
     what a red's captured log holds would depend on what ran before it on
-    the worker. The session's level, whether bring-up is running and the
+    the worker. The session's level, the log windows and the
     trace logs it sets (``_lumascope.lib.log_helpers``) are put back the same way.
     """
     from _lumascope.lib import log_helpers
@@ -739,13 +739,16 @@ def _no_log_setting_outlives_its_test():
     loggers = [logging.getLogger(name) for name in ('LVP', 'lvp_logger')]
     levels = [lg.level for lg in loggers]
     trace_files = dict(log_helpers._trace_files)
-    session_level, bring_up_running = log_helpers._session_level, log_helpers._bring_up_running
+    windows = dict(log_helpers._windows)
+    session_level = log_helpers._session_level
     autofocus = sys.modules.get('_lumascope.modules.autofocus_functions')
     score_log = autofocus._enable_af_score_logging if autofocus is not None else False
     yield
     log_helpers._trace_files.clear()
     log_helpers._trace_files.update(trace_files)
-    log_helpers._session_level, log_helpers._bring_up_running = session_level, bring_up_running
+    log_helpers._windows.clear()
+    log_helpers._windows.update(windows)
+    log_helpers._session_level = session_level
     for lg, level in zip(loggers, levels, strict=True):
         lg.setLevel(level)
     autofocus = sys.modules.get('_lumascope.modules.autofocus_functions')

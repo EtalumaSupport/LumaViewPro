@@ -1814,8 +1814,8 @@ class ScopeSession:
         from _lumascope.lib import log_helpers
 
         # This session's bring-up starts here, whatever an earlier session in
-        # the process left: its trace logs are written at VERBOSE until its
-        # own startup motion ends.
+        # the process left: its serial, camera and api traffic is kept in
+        # bringup.log until its own startup motion ends.
         log_helpers.begin_bring_up()
         _apply_logging(settings)
         _apply_profile_trace(settings)
@@ -6633,8 +6633,8 @@ class ScopeSession:
         operation with it.
 
         The motion's end, however it ends, and a skip end bring-up's log
-        window: the serial, camera and api logs are written at VERBOSE until
-        then, and at the session's level after (``log_helpers.end_bring_up``).
+        window: the serial, camera and api traffic until then is kept in
+        ``bringup.log`` (``log_helpers.end_bring_up``).
 
         ``disable_homing=True`` skips every step: no startup motion on any
         axis. The turret is left where it is, like the stage axes, in no
