@@ -310,8 +310,9 @@ def test_token_shaped_label_survives_protocol_roundtrip(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Post-record: a v1 file loads, back-fills Label, and is rewritten in place
-# as v2 so appended rows cannot misalign under the old header.
+# Post-record: a v1 file loads and back-fills Label, and is rewritten in place
+# as the current version when its first output is recorded, so appended rows
+# cannot misalign under the old header.
 # ---------------------------------------------------------------------------
 
 _POST_V1_HEADER = (
@@ -343,19 +344,11 @@ def test_post_record_v1_upgrades_in_place_and_appends_aligned(tmp_path):
     assert list(df['Label']) == ['', 'Treatment_10x']
     assert list(df['Name']) == ['A2_BF', 'Treatment_10x']
 
-    # The on-disk file was rewritten as v2 with the Label column, rows intact.
-    lines = record_path.read_text().splitlines()
-    assert lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}', lines[1]
-    header_idx = lines.index('Images') + 1
-    columns = lines[header_idx].split('\t')
-    assert columns == list(ProtocolPostRecord.COLUMNS)
-    label_idx = columns.index('Label')
-    rows = [line.split('\t') for line in lines[header_idx + 1 :] if line]
-    assert len(rows) == 2
-    assert [row[0] for row in rows] == ['img1.tiff', 'img2.tiff']
-    assert [row[label_idx] for row in rows] == ['', 'Treatment_10x']
+    # Loading writes nothing: a build that records no output leaves the file as it was.
+    assert record_path.read_text() == _POST_V1_HEADER + _POST_V1_ROWS
 
-    # add_record on the upgraded instance appends a correctly-aligned row.
+    # The first output recorded rewrites the file as the current version, the
+    # old rows intact and the new row aligned under the current header.
     record.add_record(
         root_path=tmp_path,
         file_path=pathlib.Path('stitched.tiff'),
@@ -379,8 +372,15 @@ def test_post_record_v1_upgrades_in_place_and_appends_aligned(tmp_path):
     record.complete()
 
     lines = record_path.read_text().splitlines()
+    assert lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}', lines[1]
+    header_idx = lines.index('Images') + 1
+    columns = lines[header_idx].split('\t')
+    assert columns == list(ProtocolPostRecord.COLUMNS)
+    label_idx = columns.index('Label')
     rows = [line.split('\t') for line in lines[header_idx + 1 :] if line]
     assert len(rows) == 3
+    assert [row[0] for row in rows[:2]] == ['img1.tiff', 'img2.tiff']
+    assert [row[label_idx] for row in rows[:2]] == ['', 'Treatment_10x']
     appended = rows[2]
     assert len(appended) == len(columns), (
         f'appended row has {len(appended)} cells for {len(columns)} columns'
@@ -681,8 +681,8 @@ def test_insert_step_refuses_name_that_sanitizes_to_empty():
 
 # ---------------------------------------------------------------------------
 # Fix 6: a header-only (zero-row) v1 post-record is a legitimate state --
-# it loads, upgrades in place to v2 with the Label column, and stays
-# appendable.
+# it loads, and its first recorded output upgrades it in place to the
+# current version with the Label column.
 # ---------------------------------------------------------------------------
 
 _POST_V1_EMPTY = (
@@ -702,14 +702,6 @@ def test_header_only_v1_post_record_loads_and_upgrades(tmp_path):
     record = ProtocolPostRecord.from_file(file_path=record_path)
     assert len(record.records()) == 0
 
-    lines = record_path.read_text().splitlines()
-    assert lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}', lines[1]
-    header_idx = lines.index('Images') + 1
-    columns = lines[header_idx].split('\t')
-    assert columns == list(ProtocolPostRecord.COLUMNS)
-    assert 'Label' in columns
-
-    # The upgraded empty record accepts an aligned append.
     record.add_record(
         root_path=tmp_path,
         file_path=pathlib.Path('out.tiff'),
@@ -732,6 +724,11 @@ def test_header_only_v1_post_record_loads_and_upgrades(tmp_path):
     )
     record.complete()
 
+    lines = record_path.read_text().splitlines()
+    assert lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}', lines[1]
+    header_idx = lines.index('Images') + 1
+    assert lines[header_idx].split('\t') == list(ProtocolPostRecord.COLUMNS)
+
     record2 = ProtocolPostRecord.from_file(file_path=record_path)
     df = record2.records()
     assert len(df) == 1
@@ -742,8 +739,9 @@ def test_header_only_v1_post_record_loads_and_upgrades(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Fix 7: the v1 -> v2 rewrite is atomic -- an exception mid-rewrite leaves
-# the original file byte-identical and removes the temp file.
+# Fix 7: the upgrade rewrite, run when the first output is recorded, is
+# atomic -- an exception mid-rewrite leaves the original file byte-identical
+# and removes the temp file.
 # ---------------------------------------------------------------------------
 
 
@@ -752,12 +750,32 @@ def test_rewrite_failure_preserves_original_and_removes_tmp(tmp_path, monkeypatc
     original_text = _POST_V1_HEADER + _POST_V1_ROWS
     record_path.write_text(original_text)
 
-    def _boom(self, **kwargs):
+    def _boom(**kwargs):
         raise RuntimeError('disk full mid-rewrite')
 
-    monkeypatch.setattr(ProtocolPostRecord, '_add_record_to_file', _boom)
+    record = ProtocolPostRecord.from_file(file_path=record_path)
+    monkeypatch.setattr(ProtocolPostRecord, '_add_record_to_file', staticmethod(_boom))
     with pytest.raises(RuntimeError, match='disk full mid-rewrite'):
-        ProtocolPostRecord.from_file(file_path=record_path)
+        record.add_record(
+            root_path=tmp_path,
+            file_path=pathlib.Path('stitched.tiff'),
+            timestamp=datetime.datetime(2026, 6, 1, 10, 5, 0),
+            name='A2_BF_stitched',
+            label='',
+            scan_count=0,
+            x=1.0,
+            y=2.0,
+            z=3.0,
+            z_slice=-1,
+            well='A2',
+            color='BF',
+            objective='4x',
+            tile_group_id=-1,
+            tile='',
+            custom_step=False,
+            channel_group_id=-1,
+            derivation=_STITCHED,
+        )
 
     assert record_path.read_text() == original_text, (
         'a failed rewrite must leave the original v1 file untouched'
@@ -809,9 +827,31 @@ def test_unreadable_post_record_moved_aside_and_fresh_record_started(tmp_path, m
     assert preserved.exists()
     assert preserved.read_text() == corrupt_text
 
-    # A fresh current-version record replaced it at the default location,
-    # written out once the caller the load hands it to completes it.
-    result['protocol_post_record'].complete()
+    # A fresh record replaced it at the default location: nothing is written
+    # there until an output is recorded, then it is a current-version file.
+    fresh = result['protocol_post_record']
+    assert not corrupt_path.exists()
+    fresh.add_record(
+        root_path=tmp_path,
+        file_path=pathlib.Path('stitched.tiff'),
+        timestamp=datetime.datetime(2026, 6, 1, 10, 5, 0),
+        name='A2_BF_stitched',
+        label='',
+        scan_count=0,
+        x=1.0,
+        y=2.0,
+        z=3.0,
+        z_slice=-1,
+        well='A2',
+        color='BF',
+        objective='4x',
+        tile_group_id=-1,
+        tile='',
+        custom_step=False,
+        channel_group_id=-1,
+        derivation=_STITCHED,
+    )
+    fresh.complete()
     fresh_lines = corrupt_path.read_text().splitlines()
     assert fresh_lines[0] == ProtocolPostRecord.FILE_HEADER
     assert fresh_lines[1] == f'Version\t{ProtocolPostRecord.CURRENT_VERSION}'

@@ -62,17 +62,11 @@ class ProtocolPostRecord:
     CURRENT_VERSION = 5
     DEFAULT_FILENAME = 'protocol_post_record.tsv'
 
-    def __del__(self):
-        try:
-            self._close_outfile()
-        except Exception:
-            pass
-
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._close_outfile()
+        self.complete()
         return False
 
     COLUMNS = (
@@ -95,15 +89,28 @@ class ProtocolPostRecord:
         'Derivation',
     )
 
-    def __init__(self, file_loc: pathlib.Path, records: pd.DataFrame | None = None):
+    def __init__(
+        self,
+        file_loc: pathlib.Path,
+        records: pd.DataFrame | None = None,
+        file_version: int | None = None,
+    ):
+        """A record of the outputs built in a run folder.
+
+        A build loads its record before it knows whether it will build
+        anything, so the record writes its file only when an output is
+        recorded (``add_record``) or a replaced row is due (``complete``),
+        and holds no handle on it between writes: a refused build leaves
+        the folder's file as it found it.
+
+        Args:
+            file_version: The version *file_loc* was read in
+                (``from_file``); None for a record not read from a file.
+        """
         self._name = self.__class__.__name__
 
         self._file_loc = file_loc
-
-        if not self._file_loc.exists():
-            self._initialize_outfile(outfile=self._file_loc)
-        else:
-            self._reopen_outfile(outfile=self._file_loc)
+        self._file_version = file_version
 
         if records is None:
             self._records = self._create_empty_df()
@@ -115,32 +122,18 @@ class ProtocolPostRecord:
         # complete(), however many rows were replaced.
         self._rewrite_due = False
 
-    def _initialize_outfile(self, outfile: pathlib.Path):
-        self._outfile_fp = open(outfile, 'w', encoding='utf-8')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
-        self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
-        self._outfile_csv.writerow([self.FILE_HEADER])
-        self._outfile_csv.writerow(['Version', self.CURRENT_VERSION])
-        self._outfile_csv.writerow([])
-        self._outfile_csv.writerow(['Images'])
-        self._outfile_csv.writerow(self.COLUMNS)
-
-    def _reopen_outfile(self, outfile: pathlib.Path):
-        self._outfile_fp = open(outfile, 'a', encoding='utf-8')  # noqa: SIM115 -- instance-lifetime handle closed in _close_outfile()
-        self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
+    @classmethod
+    def _write_header(cls, writer) -> None:
+        writer.writerow([cls.FILE_HEADER])
+        writer.writerow(['Version', cls.CURRENT_VERSION])
+        writer.writerow([])
+        writer.writerow(['Images'])
+        writer.writerow(cls.COLUMNS)
 
     def complete(self) -> None:
         if self._rewrite_due:
             self._rewrite_outfile()
             self._rewrite_due = False
-        self._close_outfile()
-
-    def _close_outfile(self):
-        if self._outfile_fp is None:
-            return
-
-        self._outfile_fp.close()
-        self._outfile_fp = None
-        self._outfile_csv = None
 
     @staticmethod
     def _create_empty_df() -> pd.DataFrame:
@@ -310,28 +303,44 @@ class ProtocolPostRecord:
         if replacing:
             return
 
-        self._add_record_to_file(
-            file_path=file_path,
-            timestamp=timestamp,
-            name=name,
-            label=label,
-            scan_count=scan_count,
-            x=x,
-            y=y,
-            z=z,
-            z_slice=z_slice,
-            well=well,
-            color=color,
-            objective=objective,
-            tile_group_id=tile_group_id,
-            tile=tile,
-            custom_step=custom_step,
-            channel_group_id=channel_group_id,
-            derivation=derivation,
-        )
+        if self._file_version is not None and self._file_version < self.CURRENT_VERSION:
+            # Rows are written in the current column order, so an older file
+            # is upgraded before its first new row: appending under its old
+            # header would misalign every column after Name. The rewrite
+            # writes every record, this one among them, so it is not also
+            # appended.
+            self._rewrite_outfile()
+            return
 
+        new_file = not self._file_loc.exists()
+        with open(self._file_loc, 'a', encoding='utf-8') as fp:
+            writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
+            if new_file:
+                self._write_header(writer)
+            self._add_record_to_file(
+                writer=writer,
+                file_path=file_path,
+                timestamp=timestamp,
+                name=name,
+                label=label,
+                scan_count=scan_count,
+                x=x,
+                y=y,
+                z=z,
+                z_slice=z_slice,
+                well=well,
+                color=color,
+                objective=objective,
+                tile_group_id=tile_group_id,
+                tile=tile,
+                custom_step=custom_step,
+                channel_group_id=channel_group_id,
+                derivation=derivation,
+            )
+
+    @staticmethod
     def _add_record_to_file(
-        self,
+        writer,
         file_path: pathlib.Path,
         timestamp: datetime.datetime,
         name: str,
@@ -351,7 +360,7 @@ class ProtocolPostRecord:
         derivation: str,
     ) -> None:
 
-        self._outfile_csv.writerow(
+        writer.writerow(
             [
                 file_path,
                 timestamp.strftime(ProtocolExecutionRecord.TIMESTAMP_FORMAT),
@@ -372,7 +381,6 @@ class ProtocolPostRecord:
                 derivation,
             ]
         )
-        self._outfile_fp.flush()
 
     @classmethod
     def read_rows(cls, file_path: pathlib.Path) -> pd.DataFrame:
@@ -384,19 +392,11 @@ class ProtocolPostRecord:
     @classmethod
     def from_file(cls, file_path: pathlib.Path) -> 'ProtocolPostRecord':
         df, file_version = cls._parse(file_path)
-        record = ProtocolPostRecord(
+        return ProtocolPostRecord(
             file_loc=file_path,
             records=df,
+            file_version=file_version,
         )
-
-        if file_version < cls.CURRENT_VERSION:
-            # The instance appends rows in the current column order, so
-            # an older file must be upgraded in place; appending
-            # current-format rows under an old header would silently
-            # misalign every column after Name.
-            record._rewrite_outfile()
-
-        return record
 
     @classmethod
     def _parse(cls, file_path: pathlib.Path) -> tuple[pd.DataFrame, int]:
@@ -506,34 +506,34 @@ class ProtocolPostRecord:
         so a crash or error mid-rewrite cannot truncate the record -- the
         old file survives intact until the new one is complete.
         """
-        self._close_outfile()
         tmp_loc = self._file_loc.with_name(self._file_loc.name + '.tmp')
         try:
-            self._initialize_outfile(outfile=tmp_loc)
-            for _, row in self.records().iterrows():
-                self._add_record_to_file(
-                    file_path=row['Filepath'],
-                    timestamp=row['Timestamp'],
-                    name=row['Name'],
-                    label=row['Label'],
-                    scan_count=row['Scan Count'],
-                    x=row['X'],
-                    y=row['Y'],
-                    z=row['Z'],
-                    z_slice=row['Z-Slice'],
-                    well=row['Well'],
-                    color=row['channel'],
-                    objective=row['Objective'],
-                    tile_group_id=row['Tile Group ID'],
-                    tile=row['Tile'],
-                    custom_step=row['Custom Step'],
-                    channel_group_id=row['Channel Group ID'],
-                    derivation=row['Derivation'],
-                )
-            self._close_outfile()
+            with open(tmp_loc, 'w', encoding='utf-8') as fp:
+                writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
+                self._write_header(writer)
+                for _, row in self.records().iterrows():
+                    self._add_record_to_file(
+                        writer=writer,
+                        file_path=row['Filepath'],
+                        timestamp=row['Timestamp'],
+                        name=row['Name'],
+                        label=row['Label'],
+                        scan_count=row['Scan Count'],
+                        x=row['X'],
+                        y=row['Y'],
+                        z=row['Z'],
+                        z_slice=row['Z-Slice'],
+                        well=row['Well'],
+                        color=row['channel'],
+                        objective=row['Objective'],
+                        tile_group_id=row['Tile Group ID'],
+                        tile=row['Tile'],
+                        custom_step=row['Custom Step'],
+                        channel_group_id=row['Channel Group ID'],
+                        derivation=row['Derivation'],
+                    )
             os.replace(tmp_loc, self._file_loc)
         except Exception:
-            self._close_outfile()
             tmp_loc.unlink(missing_ok=True)
             raise
-        self._reopen_outfile(outfile=self._file_loc)
+        self._file_version = self.CURRENT_VERSION

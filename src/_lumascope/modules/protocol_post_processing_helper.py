@@ -448,9 +448,9 @@ class ProtocolPostProcessingHelper:
                 logger.info(f'Loaded existing protocol post record {run.post_record_file}')
             except Exception as e:
                 # An unreadable record must be moved aside, not appended to:
-                # constructing a fresh ProtocolPostRecord on it reopens it in
-                # append mode, and current-format rows under its old header
-                # would misalign every column on the next load.
+                # a fresh ProtocolPostRecord on it appends its first row to
+                # it, and current-format rows under its old header would
+                # misalign every column on the next load.
                 record_loc = run.post_record_file
                 try:
                     preserved_loc = path_utils.move_aside(record_loc, '.unreadable')

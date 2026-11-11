@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import hashlib
 import inspect
 import math
 import pathlib
@@ -61,6 +62,7 @@ from _lumascope.modules.exceptions import (
     PostProcessingRefusedError,
 )
 from _lumascope.modules.cell_count_method import CellCountMethod
+from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.post_processing_api import PostProcessingAPI, Stitch, Video, ZProject
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app
@@ -136,6 +138,9 @@ class Bad:
     refusal: type
     reason: str
     wire: tuple[str, Callable[[Scope], dict]] | None = None
+    # Puts in the live folder what the call refuses, before the folder is
+    # read for what the refusal must leave as it was.
+    prepare: Callable[[Scope], object] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -191,9 +196,14 @@ def _undeclared(member: str, raised: BaseException) -> str | None:
     return None
 
 
-def _state(scope: Scope) -> tuple[dict, list[str]]:
-    """What a refused call must leave as it was: the settings and the live folder."""
-    files = sorted(str(p.relative_to(scope.live)) for p in scope.live.rglob('*'))
+def _state(scope: Scope) -> tuple[dict, dict[str, str]]:
+    """What a refused call must leave as it was: the settings and the live folder, each file by its contents."""
+    files = {
+        str(p.relative_to(scope.live)): (
+            hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else 'folder'
+        )
+        for p in scope.live.rglob('*')
+    }
     return copy.deepcopy(scope.session.settings), files
 
 
@@ -317,7 +327,7 @@ def _saved(live: pathlib.Path, start: Callable[[], object]) -> pathlib.Path:
 
 @pytest.fixture(scope='module')
 def run_folders(tmp_path_factory):
-    """Run folders the simulator saved: a 2x2 BF and LED 0 scan, a three-slice BF Z-stack, a three-scan time-lapse.
+    """Run folders the simulator saved: a 2x2 BF and LED 0 scan, a three-slice BF Z-stack, a three-scan time-lapse, a 1x1 BF and LED 0 scan saved as JPG.
 
     Made on a session of their own, so the walk's scope keeps its settings.
     """
@@ -355,7 +365,12 @@ def run_folders(tmp_path_factory):
                 protocol=scan('1x1'), sequence_name='timelapse', **launch
             ),
         )
-        yield {'tiled': tiled, 'zstack': zstack, 'timelapse': timelapse}
+        session.update_settings('image_output_format.sequenced', OutputFormat.JPG)
+        jpg = _saved(
+            live,
+            lambda: runner.start_single_scan(protocol=scan('1x1'), sequence_name='jpg', **launch),
+        )
+        yield {'tiled': tiled, 'zstack': zstack, 'timelapse': timelapse, 'jpg': jpg}
     finally:
         session.shutdown()
 
@@ -939,6 +954,19 @@ def _bad_rows() -> list[Bad]:
             (route, lambda s: {'folder': 'images', 'stitch': {'mode': 'quality'}}),
         )
     )
+    # A refused build writes nothing in the folder it read, so the same
+    # build asked again over REST is refused the same way.
+    rows.append(
+        Bad(
+            'stitch a run saved as JPG',
+            'PostProcessingAPI.build',
+            lambda s: pp(s).build(s.live / 'stitch_jpg', stitch=Stitch()),
+            PostProcessingRefusedError,
+            'unsupported_source_format',
+            (route, lambda s: {'folder': 'stitch_jpg', 'stitch': {'mode': 'quality'}}),
+            prepare=lambda s: shutil.copytree(s.runs['jpg'], s.live / 'stitch_jpg'),
+        )
+    )
     rows.append(
         Bad(
             'video an unusable frame_rate_fps',
@@ -1108,6 +1136,8 @@ def test_every_enrolled_member_answers_as_its_contract_says(scopes, run_folders)
             if answer.status_code != 200:
                 wrong.append(f'{row.case}: over REST answered {answer.status_code} {answer.json()}')
     for row in _bad_rows():
+        if row.prepare is not None:
+            row.prepare(scope)
         before = _state(scope)
         try:
             row.call(scope)
@@ -1128,6 +1158,10 @@ def test_every_enrolled_member_answers_as_its_contract_says(scopes, run_folders)
                 differs = _wire_matches(scope, route, body(scope), raised)
                 if differs:
                     wrong.append(f'{row.case}: {differs}')
+                if _state(scope) != before:
+                    wrong.append(
+                        f'{row.case}: the refusal over REST changed the settings or the live folder'
+                    )
         else:
             wrong.append(f'{row.case}: was not refused')
     assert wrong == [], '\n'.join(wrong)
