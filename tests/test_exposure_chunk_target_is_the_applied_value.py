@@ -8,12 +8,13 @@ carrying the applied value, missed the 2.0 us tolerance by 4 us, and was
 rejected -- ten captures in a row, with no value the camera would ever produce
 that could close the gate.
 
-The clamp is correct and stays. What must hold is that the target follows the
-applied value through it. The tests set the exposure through the public
-setter on a simulated scope and read the real owner, ``FrameValidity``,
-through ``target`` and ``chunk_match``. The simulated camera applies every
-in-range request exactly, so each test scripts the driver's answer on the
-scope's own camera.
+No driver clamps an exposure now, but a body still applies something other
+than the request when it quantizes onto an increment or a row grid. What must
+hold is that the target follows the applied value. The tests set the
+exposure through the public setter on a simulated scope and read the real
+owner, ``FrameValidity``, through ``target`` and ``chunk_match``. The
+simulated camera applies every in-range request exactly, so each test
+scripts the driver's answer on the scope's own camera.
 """
 
 import pytest

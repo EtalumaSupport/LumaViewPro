@@ -1315,8 +1315,9 @@ class Camera(ABC):
         """Set exposure time and report the value actually in effect.
 
         A driver may not be able to honor the request exactly: the node
-        has a minimum it clamps up to, an increment it snaps to, or a
-        row-time grid it quantizes onto. The caller records a chunk-match
+        has an increment it snaps to, or a row-time grid it quantizes onto.
+        The range is the API's to judge; a driver never moves a request
+        into it. The caller records a chunk-match
         target from the return, so a driver that reports the request
         instead of what it applied makes every subsequent frame fail the
         match and be rejected forever.
@@ -1536,8 +1537,8 @@ class Camera(ABC):
         an optional profile field, so returns None when the profile carries
         no floor and the caller should fall back. Drivers whose SDK exposes a
         LIVE node minimum override `get_min_exposure` to report it: the node
-        floor can drift above the connect-time value once other settings
-        change, so a cached value goes stale.
+        floor can move from the connect-time value as the frame changes, so a
+        cached value goes stale.
         """
         if self.profile and self.profile.exposure_min_us:
             return self.profile.exposure_min_us / 1000.0

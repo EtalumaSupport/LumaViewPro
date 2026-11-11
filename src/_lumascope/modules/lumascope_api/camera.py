@@ -1274,8 +1274,8 @@ class CameraAPI:
         Returns:
             float | None: The exposure in milliseconds now in effect --
                 converted from the driver's microseconds when it reports
-                them, since a body that clamps to its floor or quantizes onto
-                a row grid applies something other than the request, else the
+                them, since a body that quantizes onto an increment or a row
+                grid applies something other than the request, else the
                 request. ``None`` when no camera is active.
 
         Raises:
@@ -1639,9 +1639,9 @@ class CameraAPI:
 
         Returns:
             float | None: The exposure in milliseconds now in effect, which
-                differs from the request when the camera clamped it to its
-                floor or quantized it. ``None`` when the camera's teardown
-                landed after the lane asked for it.
+                differs from the request when the camera quantized it.
+                ``None`` when the camera's teardown landed after the lane
+                asked for it.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the exposure is not a
@@ -3339,10 +3339,11 @@ class CameraAPI:
         is queued there, up to 170 s, which a long summed capture or an
         engineering diagnostic ahead of it can outlast.
 
-        On IDS bodies the floor rises above the value read at connect
-        (``capabilities.camera_limits.exposure_min_ms``) as the pixel clock,
-        frame rate and frame size change, and this reads the camera's live
-        floor; every other driver answers the floor it read at connect.
+        On IDS bodies the floor moves from the value read at connect
+        (``capabilities.camera_limits.exposure_min_ms``) as the frame
+        changes (it falls at binning 2 on the U3-34LxXLS-M), and this reads
+        the camera's live floor; every other driver answers the floor it
+        read at connect.
 
         Returns:
             float | None: The floor; None when the camera declares

@@ -2785,40 +2785,23 @@ class IDSCamera(Camera):
         the stale exposure with no downstream backstop; the caller needs the
         failure signal.
 
-        The applied value is returned rather than a bare success flag because
-        the request is clamped up to the live node minimum below: a caller that
-        recorded the REQUEST as its chunk-match target would reject every frame
-        the camera then stamped with the clamped value.
+        The range is the API's to judge (``CameraAPI.set_exposure_ms``); the
+        request is written as asked, and a value the camera will not take is
+        refused by the SDK (OUT_OF_RANGE) and answered ``False``.
 
         Raises:
             CameraNoAnswerError: the camera did not answer the ExposureTime
-                write, so whether it was applied is not known; or did not
-                answer the read of the node's minimum the write is clamped
-                to, so nothing was written."""
+                write, so whether it was applied is not known."""
         if not self.active:
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
-            return False
-
-        if exposure_ms > self.max_exposure:
-            _cam_log.warning(
-                f'[CAM Class ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)'
-            )
             return False
 
         # IDS allows changing exposure while acquisition is running --
         # no need for update_camera_config() stop/start cycle.
         access = 'read'
         try:
-            # Clamp UP to the live node minimum, mirroring the Pylon driver.
-            # The live-view slider initializes to its 0.01ms default and is
-            # applied at startup before the saved exposure loads; that 10us
-            # request is below the camera's live ExposureTime.Minimum() (which
-            # also drifts up as AOI / frame rate change), and an unclamped
-            # SetValue throws OUT_OF_RANGE. Reconcile the request to the
-            # hardware's reported floor so it lands at the nearest valid value
-            # instead of erroring. The max bound stays a reject above.
             exp_node = self.remote_nodemap.FindNode('ExposureTime')
-            us_value = max(float(exposure_ms) * 1000, exp_node.Minimum())
+            us_value = float(exposure_ms) * 1000
             access = 'write'
             exp_node.SetValue(us_value)
             self._last_exposure_ms = us_value / 1000.0
@@ -2849,9 +2832,10 @@ class IDSCamera(Camera):
     def get_min_exposure(self) -> float | None:
         """Return the camera's LIVE minimum exposure in milliseconds.
 
-        The ExposureTime node minimum drifts above the connect-time value once
-        other settings change (pixel clock, frame rate, AOI), so read it live
-        each call rather than trusting the value cached in the profile at
+        The ExposureTime node minimum moves with the frame: on the
+        U3-34LxXLS-M it fell below the connect-time value at binning 2 and never
+        rose above it over every frame size and binning LVP writes, so it is
+        read live each call rather than taken from the profile cached at
         connect. A read that fails raises: the cached floor in its place
         would be answered as the live one, and could be the stale value the
         live read exists to replace.

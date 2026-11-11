@@ -5616,10 +5616,11 @@ Runs on the camera lane, admitted whatever holds the scope, behind what
 is queued there, up to 170 s, which a long summed capture or an
 engineering diagnostic ahead of it can outlast.
 
-On IDS bodies the floor rises above the value read at connect
-(`capabilities.camera_limits.exposure_min_ms`) as the pixel clock,
-frame rate and frame size change, and this reads the camera's live
-floor; every other driver answers the floor it read at connect.
+On IDS bodies the floor moves from the value read at connect
+(`capabilities.camera_limits.exposure_min_ms`) as the frame
+changes (it falls at binning 2 on the U3-34LxXLS-M), and this reads
+the camera's live floor; every other driver answers the floor it
+read at connect.
 
 **Returns**
 
@@ -6028,7 +6029,7 @@ stored setting (`ScopeSession.update_settings('<channel>.exposure_ms', ...)`).
 
 **Returns**
 
-float | None: The exposure in milliseconds now in effect, which differs from the request when the camera clamped it to its floor or quantized it. `None` when the camera's teardown landed after the lane asked for it.
+float | None: The exposure in milliseconds now in effect, which differs from the request when the camera quantized it. `None` when the camera's teardown landed after the lane asked for it.
 
 **Raises**
 

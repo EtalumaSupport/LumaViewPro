@@ -376,11 +376,10 @@ class TestGainDbConversion:
         assert cam.profile.gain.total_min_db == pytest.approx(0.0, abs=0.01)
         assert cam.profile.gain.total_max_db == pytest.approx(30.0, abs=0.1)
 
-    def test_exposure_below_live_min_clamps_to_floor(self):
-        # The live-view slider's 0.01ms startup default is applied before the
-        # saved exposure loads; 10us is below the camera's live minimum and an
-        # unclamped SetValue throws OUT_OF_RANGE. exposure_t reconciles it UP to
-        # the node Minimum() (mirroring the Pylon driver) and applies the floor.
+    def test_an_exposure_below_the_floor_reaches_the_camera_as_asked(self):
+        """The driver encodes; the API judges. A request below the node's
+        minimum is written as asked, never raised to the floor: the range is
+        ``CameraAPI.set_exposure_ms``'s to refuse."""
         cam = bare_ids_camera()
         cam.profile = CameraProfile()
         cam.active = MagicMock()
@@ -388,14 +387,32 @@ class TestGainDbConversion:
         cam.remote_nodemap = _RecordingNodemap(
             {'ExposureTime': _RecordingNode(value=1e4, minimum=31.245791, maximum=2e6)}
         )
-        # The clamped microseconds are RETURNED, not a bare success flag: the
-        # caller stamps them as its frame-validity chunk target, and a target
-        # taken from the 10us request would miss every frame the camera then
-        # reports at 31.2us.
-        assert cam.exposure_t(0.01) == pytest.approx(31.245791)
-        node = cam.remote_nodemap.nodes['ExposureTime']
-        assert node.value == pytest.approx(31.245791)
-        assert cam._last_exposure_ms == pytest.approx(31.245791 / 1000)
+        cam.exposure_t(0.01)
+        assert cam.remote_nodemap.nodes['ExposureTime'].value == pytest.approx(10.0)
+
+    def test_an_exposure_the_camera_refuses_is_answered_refused(self):
+        """A value the camera will not take is refused by the SDK and answered
+        ``False``, the camera keeping the exposure it had: the caller records
+        no chunk-match target for a value the camera never took."""
+
+        class _RangedNode(_RecordingNode):
+            # a stand-in by design: the SDK's own range check, which no
+            # simulated IDS body runs.
+            def SetValue(self, v):
+                if not self._min <= v <= self._max:
+                    raise RuntimeError('OUT_OF_RANGE')
+                super().SetValue(v)
+
+        cam = bare_ids_camera()
+        cam.profile = CameraProfile()
+        cam.active = MagicMock()
+        cam.cam_image_handler = None
+        cam.remote_nodemap = _RecordingNodemap(
+            {'ExposureTime': _RangedNode(value=1e4, minimum=31.245791, maximum=2e6)}
+        )
+        assert cam.exposure_t(0.01) is False
+        assert cam.exposure_t(3000.0) is False
+        assert cam.remote_nodemap.nodes['ExposureTime'].value == pytest.approx(1e4)
 
     def test_exposure_above_live_min_passes_through(self):
         cam = bare_ids_camera()
@@ -2282,14 +2299,9 @@ class TestASettingWriteTheCameraDoesNotAnswer:
         # setting's own node, what it raises). Gain's selector is written before
         # its range is read, since the range is the selected amplifier's; Gain
         # is not.
+        # exposure_t reads nothing ahead of its write: the request is written
+        # as asked.
         reads = {
-            'exposure_t': (
-                'ExposureTime',
-                'Minimum',
-                lambda cam: cam.exposure_t(10.0),
-                'ExposureTime',
-                CameraNoAnswerError,
-            ),
             'gain': ('Gain', 'Maximum', lambda cam: cam.gain(6.0), 'Gain', CameraNoAnswerError),
             'set_frame_size': (
                 'Width',
