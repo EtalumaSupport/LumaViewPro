@@ -220,9 +220,7 @@ if __name__ == '__main__':
     # as a deliberate stop and shows nothing for.
     from _lumascope.modules.settings_init import load_lvp_settings
 
-    load_lvp_settings(logger, source_path)
-
-    from _lumascope.modules.settings_init import settings
+    settings = load_lvp_settings(logger, source_path)
 
     import _lumascope.modules.app_context as app_context
     import _lumascope.modules.common_utils as common_utils
@@ -992,13 +990,9 @@ class LumaViewProApp(TooltipMixin, App):
             CatalogueNameRefusedError,
             ObjectiveUnknownError,
         ) as unusable:
-            # Republishes the store IN PLACE and marks the session
-            # provisional, so `settings` below is the template and every
-            # save raises until the user resolves it. Reassigning the name
-            # here instead would strand every other holder of this dict on
-            # the rejected values.
-            fall_back_to_template(logger, source_path, str(unusable))
-            return _compose(settings)
+            # The template, with the session marked provisional, so every
+            # save raises until the user resolves it.
+            return _compose(fall_back_to_template(logger, source_path, str(unusable)))
 
     def _show_bring_up_step(self, percent: float, step: str | None) -> None:
         """Show bring-up's step on the bring-up view, and in the close's popup while a close waits on it."""
@@ -1076,7 +1070,7 @@ class LumaViewProApp(TooltipMixin, App):
         # scratch in the live folder; sweep it before anything records.
         from _lumascope.modules.manual_recording import sweep_recording_scratch
 
-        sweep_recording_scratch(settings['live_folder'])
+        sweep_recording_scratch(session.get_setting('live_folder'))
 
         # Create AppContext -- central service registry over the session.
         ctx = AppContext.over_session(

@@ -132,7 +132,6 @@ def test_a_session_naming_no_file_writes_none_not_even_the_one_it_was_read_from(
     shutil.copy(os.path.join(REPO_ROOT, 'data', 'settings.json'), data / 'settings.json')
     shutil.copy(os.path.join(REPO_ROOT, 'data', 'settings.json'), data / 'current.json')
     copy_installation_files(data)
-    monkeypatch.setattr(settings_init, 'settings', None)
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
     before = (data / 'current.json').read_text()
     settings = ScopeSession.load_user_settings(str(tmp_path))
@@ -152,7 +151,6 @@ def test_the_named_user_settings_file_is_the_one_the_next_launch_reads(tmp_path,
     shutil.copy(os.path.join(REPO_ROOT, 'data', 'settings.json'), data / 'settings.json')
     shutil.copy(os.path.join(REPO_ROOT, 'data', 'settings.json'), data / 'current.json')
     copy_installation_files(data)
-    monkeypatch.setattr(settings_init, 'settings', None)
     monkeypatch.setattr(settings_init, 'rejected_current_json', None)
     settings = ScopeSession.load_user_settings(str(tmp_path))
     # The shipped template's firmware tier costs seconds and is not the claim.

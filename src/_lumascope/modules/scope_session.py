@@ -1667,11 +1667,13 @@ class ScopeSession:
         ``shutdown()``.
 
         Args:
-            settings: The user configuration the session holds and configures
-                the scope from (``load_user_settings`` reads the
-                installation's). It is completed from the shipped template
-                as a stored file is, and every value in it is held to the
-                ranges a write is.
+            settings: The user configuration the session configures the
+                scope from (``load_user_settings`` reads the installation's).
+                The session holds its own copy: the dict stays the caller's,
+                unchanged, and a write into it afterwards changes no setting
+                (``update_settings`` does). The copy is completed from the
+                shipped template as a stored file is, and every value in it
+                is held to the ranges a write is.
             source_path: The data folder the factory builds the scope on;
                 None (the default) is the installation's own folder.
             simulate: build a simulated scope (the model from
@@ -1797,11 +1799,13 @@ class ScopeSession:
         # The one preparation every settings dict gets: a dict a caller
         # hands in is completed from the shipped template as the file is,
         # so nothing below hedges for a key it lacks, and is held to the
-        # writer's ranges as a write is.
+        # writer's ranges as a write is. On a copy: the store is the
+        # session's alone, so a write into the caller's dict reaches no
+        # setting past update_settings' checks.
         root = get_source_root(source_path)
         template = settings_init.load_template(logger, str(root / 'data' / 'settings.json'))
         settings = settings_init.prepare_loaded(
-            logger, settings, template, str(root), source='settings', handed=True
+            logger, copy.deepcopy(settings), template, str(root), source='settings', handed=True
         )
         # Taken before the dict is any session's store: the preparation's
         # record of the old channel blocks it renamed, for the bring-up to
@@ -1991,8 +1995,8 @@ class ScopeSession:
         Args:
             source_path: The installation folder whose settings are read:
                 its ``current.json`` first, else its shipped ``settings.json``.
-                In a process that has already prepared its settings (the
-                GUI's), those are answered and ``source_path`` is not read.
+                Each call prepares them afresh, so the dict is the caller's;
+                a running session's values are its ``get_setting``'s.
 
         Raises:
             ArgumentRefusedError: ``'not_an_installation'``, ``source_path``
@@ -2003,16 +2007,12 @@ class ScopeSession:
                 its ``settings.json`` template, is missing or unusable.
         """
         from _lumascope.lvp_logger import start_session_logging
-        from _lumascope.modules.settings_init import settings as default_settings
 
         # A session's first call starts the log folder, so the repairs and
         # merges the preparation below logs are in the bundle.
         start_session_logging()
-        if default_settings is not None:
-            return default_settings.copy()
-        # Settings not loaded yet (e.g. headless/test usage) -- resolve
-        # the same file the GUI reads (current.json first, then
-        # settings.json) so headless state matches the running app,
+        # The same file the GUI reads (current.json first, then
+        # settings.json), so a headless session matches the running app,
         # instead of hardcoding settings.json and ignoring live state.
         # The same preparation the GUI runs -- shape check, folds,
         # repairs, default merge -- not just the file read. Reading

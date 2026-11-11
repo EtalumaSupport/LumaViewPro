@@ -28,23 +28,16 @@ TEMPLATE = os.path.join(REPO_ROOT, 'data', 'settings.json')
 
 @pytest.fixture(autouse=True)
 def _restore_settings_globals():
-    """Put settings_init's module globals back after every test here.
+    """Put settings_init's provisional verdict back after every test here.
 
-    ``load_lvp_settings`` writes ``settings_init.settings`` and
-    ``rejected_current_json`` and leaves them set for the rest of the
-    process. Other tests read that first global: a simulated Lumascope
-    takes its model from ``settings.get('microscope', 'LS850T')``, so
-    leaking a loaded config downgrades the simulated scope from the
-    turret-bearing default to whatever the template ships, and turret
-    tests fail depending on collection order rather than on their own
-    subject.
+    ``load_lvp_settings`` writes ``rejected_current_json`` and leaves it
+    set for the rest of the process, where it would make a later session
+    provisional.
     """
-    saved_settings = settings_init.settings
     saved_rejected = settings_init.rejected_current_json
     try:
         yield
     finally:
-        settings_init.settings = saved_settings
         settings_init.rejected_current_json = saved_rejected
 
 
@@ -105,8 +98,7 @@ def _appdata_with(tmp_dir, bf_layer):
 def test_gui_load_carries_layer_values(bf_layer, expected_illumination, expected_exposure, why):
     with tempfile.TemporaryDirectory() as tmp_dir:
         _appdata_with(tmp_dir, bf_layer)
-        settings_init.load_lvp_settings(MagicMock(), tmp_dir)
-        loaded = settings_init.settings['BF']
+        loaded = settings_init.load_lvp_settings(MagicMock(), tmp_dir)['BF']
 
     assert loaded['illumination_ma'] == expected_illumination, why
     assert loaded['exposure_ms'] == expected_exposure, why

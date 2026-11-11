@@ -64,12 +64,9 @@ def test_every_preparation_path_gives_every_key_a_block_and_holds_no_defaults(tm
     assert rejected is not None
 
     shutil.copy(SHIPPED_TEMPLATE, data / 'current.json')
-    settings_init.load_lvp_settings(logger, str(tmp_path))
     try:
-        settings_init.fall_back_to_template(logger, str(tmp_path), 'a late rejection')
-        late = settings_init.settings
+        late = settings_init.fall_back_to_template(logger, str(tmp_path), 'a late rejection')
     finally:
-        settings_init.settings = None
         settings_init.rejected_current_json = None
 
     for name, prepared in (('fresh', fresh), ('corrupt', corrupt), ('late', late)):

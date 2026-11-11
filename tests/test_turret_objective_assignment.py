@@ -270,9 +270,7 @@ class TestBothHostsAgreeOnTheSlotKeyType:
             '"4": "60x w/collar", "3": "4x Oly", "2": "20x Oly", '
             '"1": "1.25x Oly"}}'
         )
-        # load_user_settings reuses these module globals when they are populated,
-        # and would then never read the file written above.
-        monkeypatch.setattr(si, 'settings', None)
+        # A verdict left by an earlier load would make the session provisional.
         monkeypatch.setattr(si, 'rejected_current_json', None)
 
         session = ScopeSession.create(

@@ -26,8 +26,9 @@ fall back to the template and ask, it refuses: a `current.json` it cannot use is
 `SettingsFileError`, and a folder that is no installation `'not_an_installation'`.
 A source copy that LumaViewPro has never run has no `current.json`: the
 template is read instead, and the first saved write creates the file.
-Called inside a running LumaViewPro, by a plugin, it answers the settings
-LumaViewPro already prepared. Settings are an argument of `create`, never read
+Each call reads the files afresh, so the dict it answers is yours; a plugin
+inside a running LumaViewPro reads the session's settings with
+`session.get_setting(path)`. Settings are an argument of `create`, never read
 behind your back.
 
 ```python bringup
@@ -53,12 +54,15 @@ if question is not None:                     # until answered, a saved still and
 [its reference's](../api-reference.md#ScopeSession.create).
 `run_application_session(disable_homing=True)` runs no startup motion at all.
 
-**What `create` reads from the settings.** A dict you build yourself is
+**What `create` reads from the settings.** The session holds its own copy of
+the dict you pass: `create` changes nothing in it, and a write into it afterwards
+changes no setting; `session.update_settings(path, value)` does. The copy is
 completed from the template, and each of its values is judged as a write of it
 would be: a value outside its range is refused (`SettingRefusedError`, naming
 the path), never clamped. When the motor board reports a model the catalogue
-knows and it differs from `settings['microscope']`, bring-up writes the board's
-model into the dict you passed: the hardware outranks the stored selection.
+knows and it differs from `settings['microscope']`, bring-up stores the board's
+model, `session.get_setting('microscope')`: the hardware outranks the stored
+selection.
 `settings['simulator_tier']` picks the simulator's fidelity
 ([The simulator](simulator.md#the-simulator)).
 

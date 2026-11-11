@@ -21,8 +21,6 @@ from _lumascope.modules.python_values import python_values
 # A setting's value: what one leaf of the settings file holds.
 type SettingValue = str | int | float | bool | list | dict | None
 
-settings = None
-
 # The stored values the last preparation replaced, as notices not yet
 # reported. The preparation runs before any host has a listener to show them
 # to, so the Session reports them once it has one.
@@ -376,10 +374,10 @@ def migrate_video_key_names_dict(settings_dict: dict) -> bool:
 # decides what to do about it.
 #
 # Read it as `settings_init.rejected_current_json`, never via
-# `from _lumascope.modules.settings_init import rejected_current_json`. Several modules
-# import `settings` that second way, which copies the value at import time --
-# for a dict that is harmless, for a flag that changes during startup it would
-# freeze the answer to whatever it was before the settings even loaded.
+# `from _lumascope.modules.settings_init import rejected_current_json`: that
+# second way copies the value at import time, and for a flag that changes
+# during startup it would freeze the answer to whatever it was before the
+# settings even loaded.
 rejected_current_json = None
 
 
@@ -1027,29 +1025,32 @@ def prepare_loaded(
     return loaded
 
 
-def load_lvp_settings(logger: logging.Logger, lvp_appdata: str) -> None:
-    """Prepare the settings and publish them as this process's module state.
+def load_lvp_settings(logger: logging.Logger, lvp_appdata: str) -> dict:
+    """Prepare the app's settings, on the shipped template if current.json is unusable.
 
     The preparation itself is prepare_settings, which every host shares.
-    What is specific to the app is the publishing: the GUI and the modules
-    it imports read `settings_init.settings` directly, so a load has to
-    land there as well as be returned.
+    What is specific to the app is the fallback and its verdict: a
+    current.json it cannot use is answered with the template, and
+    ``rejected_current_json`` says so, which makes the session provisional.
+
+    Returns:
+        The prepared settings: the dict the app hands to
+        ``ScopeSession.create``, which takes its own copy.
     """
-    global settings, rejected_current_json
+    global rejected_current_json
 
     # Reset per call: a second load (tests) must not inherit the first's
-    # verdict, and a load that raises must not leave the previous dict in
-    # place looking like a successful one.
-    settings = None
+    # verdict.
     rejected_current_json = None
 
     settings, rejected_current_json = prepare_settings(
         logger, lvp_appdata, fall_back_to_template=True
     )
+    return settings
 
 
-def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str) -> None:
-    """Republish the store from the shipped template after a LATE rejection.
+def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str) -> dict:
+    """The shipped template, prepared, after a LATE rejection of current.json.
 
     ``prepare_settings`` already runs this recovery for a current.json that
     will not parse or whose containers are the wrong kind. A value that
@@ -1058,16 +1059,16 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
     caught there: it is only discovered later, when something tries to
     configure a scope from it. Same policy, later trigger.
 
-    The store is mutated IN PLACE rather than rebound. The GUI and the
-    modules it imports each hold their own name bound to this one dict, so
-    rebinding here would leave every one of them on the rejected values
-    while only this module saw the template -- the divergence the single
-    store exists to prevent.
+    The caller composes its session from the dict returned; the session
+    takes its own copy, so nothing else holds the rejected values.
 
     Setting ``rejected_current_json`` is the half that keeps the promise:
     it makes the session provisional, so the session saves nothing and
     says so, instead of writing template values over the only copy of the
     user's configuration. The file itself is not touched.
+
+    Returns:
+        The shipped template, prepared as a stored file is.
     """
     global rejected_current_json
 
@@ -1083,10 +1084,8 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
     prepared = prepare_loaded(
         logger, copy.deepcopy(template), template, lvp_appdata, source=template_path, handed=False
     )
-
-    settings.clear()
-    settings.update(prepared)
     rejected_current_json = (current_path, reason)
+    return prepared
 
 
 def retire_rejected_current_json() -> pathlib.Path | None:

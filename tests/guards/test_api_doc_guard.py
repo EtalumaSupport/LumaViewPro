@@ -88,6 +88,7 @@ import enum
 import importlib
 import inspect
 import json
+import pathlib
 import re
 import shlex
 import subprocess
@@ -914,7 +915,6 @@ class _ChapterSessions:
 
         A failure line when the bring-up does not run, else None.
         """
-        from _lumascope.modules import settings_init
         from _lumascope.modules.scope_session import ScopeSession
 
         if self._key is not None and 'tier' not in options and 'model' not in options:
@@ -922,13 +922,15 @@ class _ChapterSessions:
         tier, model = options.get('tier', _DEFAULT_TIER), options.get('model')
         if (tier, model) == self._key:
             return None
-        overrides = {'simulator_tier': tier, 'objective_confirmed': None}
+        overrides = {'simulator_tier': tier, 'objective_confirmed': None, 'lvp_lock_port': 0}
         if model is not None:
             overrides['microscope'] = model
-        # The bring-up's load_user_settings answers what this process
-        # prepared, as a plugin's does: the chapter's board as a new install,
-        # never this machine's current.json.
-        settings_init.settings = complete_settings(**overrides)
+        # The bring-up's load_user_settings reads the installation the
+        # chapter runs from, as a reader's does: the chapter's board as a new
+        # install, never this machine's current.json.
+        pathlib.Path('data', 'current.json').write_text(
+            json.dumps(complete_settings(**overrides)), encoding='utf-8'
+        )
         # The bring-up rebinds the namespace's names; a session made under
         # them is kept here, or nothing would shut it down.
         self._made.extend(v for v in self._namespace.values() if isinstance(v, ScopeSession))
@@ -1037,23 +1039,17 @@ def guide_fence_failures(guide, bringup):
     here and still resolved and bound by the checks above. A fence that
     raises ends the chapter: what follows it assumed it ran.
     """
-    from _lumascope.modules import settings_init
-
-    prepared = settings_init.settings
-    try:
-        alone = _chapter_failure(bringup.label, [], bringup)
-        if alone:
-            return [f'{alone}  (the bring-up, run on its own: no chapter ran)']
-        failures = []
-        for label, text in guide:
-            for heading, fences in guide_chapters(text):
-                runnable = [f for f in fences if f[1] == 'python' and not f[2].get('norun')]
-                failure = runnable and _chapter_failure(label, runnable, bringup)
-                if failure:
-                    failures.append(f'{failure}  (chapter "{heading}")')
-        return failures
-    finally:
-        settings_init.settings = prepared
+    alone = _chapter_failure(bringup.label, [], bringup)
+    if alone:
+        return [f'{alone}  (the bring-up, run on its own: no chapter ran)']
+    failures = []
+    for label, text in guide:
+        for heading, fences in guide_chapters(text):
+            runnable = [f for f in fences if f[1] == 'python' and not f[2].get('norun')]
+            failure = runnable and _chapter_failure(label, runnable, bringup)
+            if failure:
+                failures.append(f'{failure}  (chapter "{heading}")')
+    return failures
 
 
 # A bring-up as the guide's teaches it, for the planted guides: a new install
@@ -1345,23 +1341,17 @@ def _walk(text, label):
     a question a new install asks is the walkthrough's own to answer."""
     from fastapi.testclient import TestClient
 
-    from _lumascope.modules import settings_init
     from _lumascope.modules.scope_session import ScopeSession
     from _lumascope.rest.app import build_app
 
-    prepared = settings_init.settings
     settings = complete_settings(simulator_tier=_DEFAULT_TIER, objective_confirmed=None)
-    settings_init.settings = settings
+    session = ScopeSession.create(settings, simulate=True, warn_pre_release=False)
     try:
-        session = ScopeSession.create(settings.copy(), simulate=True, warn_pre_release=False)
-        try:
-            session.run_application_session()
-            with TestClient(build_app(session)) as client:
-                return walkthrough_failures(text, label, client)
-        finally:
-            session.shutdown()
+        session.run_application_session()
+        with TestClient(build_app(session)) as client:
+            return walkthrough_failures(text, label, client)
     finally:
-        settings_init.settings = prepared
+        session.shutdown()
 
 
 class TestLumascopeSkillsWalkthroughRuns:

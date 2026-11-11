@@ -476,15 +476,8 @@ class TestOneSessionFactory:
         param = inspect.signature(ScopeSession.create).parameters['settings']
         assert param.default is inspect.Parameter.empty
 
-    def test_load_user_settings_refuses_a_directory_that_is_not_an_installation(
-        self, monkeypatch, tmp_path
-    ):
-        import _lumascope.modules.settings_init as settings_init
+    def test_load_user_settings_refuses_a_directory_that_is_not_an_installation(self, tmp_path):
         from _lumascope.modules.exceptions import ArgumentRefusedError
-
-        # No settings loaded in this process: the resolver, not the store,
-        # answers.
-        monkeypatch.setattr(settings_init, 'settings', None)
 
         with pytest.raises(ArgumentRefusedError) as refused:
             ScopeSession.load_user_settings(str(tmp_path))

@@ -428,7 +428,6 @@ class TestProvisionalSettings:
         # The factory builds the session's helpers from this root and refuses
         # to configure the scope without them.
         copy_installation_files(data)
-        monkeypatch.setattr(settings_init, 'settings', None)
         monkeypatch.setattr(settings_init, 'rejected_current_json', None)
         session = ScopeSession.create(
             ScopeSession.load_user_settings(str(tmp_path)),

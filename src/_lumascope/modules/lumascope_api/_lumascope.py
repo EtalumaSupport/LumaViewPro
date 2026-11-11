@@ -850,8 +850,7 @@ class Lumascope:
                 no turret, an LS850T does -- so capabilities.axes reflect
                 the chosen model end to end. Ignored when simulate is
                 False; defaults to ``configured_model``, then the
-                'microscope' setting (the shipped template's when no
-                settings are bound).
+                shipped template's 'microscope'.
             configured_model: The scope model selected in settings, for
                 units whose hardware cannot report one (the Classic/FX2
                 line has no motor board to ask). Optional: a
@@ -968,9 +967,7 @@ class Lumascope:
         # Decided here, before anything is started, for the same reason: a
         # model the catalogue does not list refuses before a lane exists.
         if simulate:
-            from _lumascope.modules.settings_init import settings
-
-            default_model = (settings or self._settings_template)['microscope']
+            default_model = self._settings_template['microscope']
             model = sim_model or configured_model or default_model
             # A simulated board built as the selection only echoes it back:
             # the name it gives is the selection's, never one of its own, so

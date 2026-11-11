@@ -55,17 +55,14 @@ def appdata(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _clean_module_state():
-    """Put back every process global these tests disturb.
+    """Put back the provisional verdict, the one process global these tests disturb.
 
-    load_lvp_settings writes settings_init.settings, and unrelated tests
-    read it -- a simulated scope built after this file ran would otherwise
-    be configured from a temp directory's copy.
+    load_lvp_settings writes settings_init.rejected_current_json, which
+    would make a later test's session provisional.
     """
-    saved_settings = settings_init.settings
     saved_flag = settings_init.rejected_current_json
     settings_init.rejected_current_json = None
     yield
-    settings_init.settings = saved_settings
     settings_init.rejected_current_json = saved_flag
 
 
@@ -100,15 +97,15 @@ class TestTheFileSurvives:
     @pytest.mark.parametrize('how', ['unparseable', 'missing_required', 'toplevel_list'])
     def test_app_comes_up_on_the_template(self, appdata, how):
         _break(appdata, how)
-        settings_init.load_lvp_settings(__import__('logging').getLogger('t'), str(appdata))
+        loaded = settings_init.load_lvp_settings(__import__('logging').getLogger('t'), str(appdata))
         # The user's marker is gone -- that is the whole hazard, and why
         # saving is refused until they are told.
-        assert settings_init.settings['live_folder'] != '/the-users-own-folder'
+        assert loaded['live_folder'] != '/the-users-own-folder'
 
     def test_a_healthy_file_is_not_provisional(self, appdata):
-        settings_init.load_lvp_settings(__import__('logging').getLogger('t'), str(appdata))
+        loaded = settings_init.load_lvp_settings(__import__('logging').getLogger('t'), str(appdata))
         assert not settings_init.settings_are_provisional()
-        assert settings_init.settings['live_folder'] == '/the-users-own-folder'
+        assert loaded['live_folder'] == '/the-users-own-folder'
 
     def test_a_second_load_does_not_inherit_the_verdict(self, appdata):
         log = __import__('logging').getLogger('t')
@@ -271,22 +268,18 @@ class TestALateRejectionGetsTheSamePolicy:
     the reason strings below are samples of that trigger's message.
     """
 
-    def test_the_store_is_mutated_in_place_not_rebound(self, appdata):
-        # THE load-bearing property. The GUI and the modules it imports each
-        # bind their own name to this one dict at startup. Rebinding here
-        # would leave all of them holding the rejected values while only
-        # settings_init saw the template -- one store with two contents.
-        settings_init.load_lvp_settings(logging.getLogger('t'), str(appdata))
-        store = settings_init.settings
-        assert store['live_folder'] == '/the-users-own-folder'
+    def test_it_answers_the_template_not_the_rejected_values(self, appdata):
+        # The host composes its session from what this returns, so the
+        # session comes up on the template, never on the rejected file.
+        loaded = settings_init.load_lvp_settings(logging.getLogger('t'), str(appdata))
+        assert loaded['live_folder'] == '/the-users-own-folder'
 
-        settings_init.fall_back_to_template(
+        fallen_back = settings_init.fall_back_to_template(
             logging.getLogger('t'), str(appdata), "binning size is not square: '2x4'"
         )
 
-        assert settings_init.settings is store, 'the store was rebound; aliases now diverge'
-        assert store['live_folder'] != '/the-users-own-folder', (
-            'the store still holds the rejected configuration'
+        assert fallen_back['live_folder'] != '/the-users-own-folder', (
+            'the fallback answered the rejected configuration'
         )
 
     def test_it_marks_the_session_provisional(self, appdata):

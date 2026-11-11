@@ -7781,10 +7781,8 @@ class TestHeadlessSettingsResolutionMatchesGui:
         import json
         import pathlib
 
-        import _lumascope.modules.settings_init as settings_init
         from _lumascope.modules.scope_session import ScopeSession
 
-        monkeypatch.setattr(settings_init, 'settings', None)
         (tmp_path / 'data').mkdir()
         # Both files are real settings files carrying a marker, not bare
         # marker dicts: headless preparation validates and shape-checks the

@@ -1093,7 +1093,7 @@ then the camera start gate released) and is torn down by
 
 **Args**
 
-- `settings`: The user configuration the session holds and configures the scope from (`load_user_settings` reads the installation's). It is completed from the shipped template as a stored file is, and every value in it is held to the ranges a write is.
+- `settings`: The user configuration the session configures the scope from (`load_user_settings` reads the installation's). The session holds its own copy: the dict stays the caller's, unchanged, and a write into it afterwards changes no setting (`update_settings` does). The copy is completed from the shipped template as a stored file is, and every value in it is held to the ranges a write is.
 - `source_path`: The data folder the factory builds the scope on; None (the default) is the installation's own folder.
 - `simulate`: build a simulated scope (the model from `settings['microscope']`, the motor board's tier from `settings['simulator_tier']`).
 - `warn_pre_release`: whether this construction fires the pre-release FutureWarning -- the factory's own call and the scope constructor's. A host that ships with the API passes False; a separately shipped caller leaves the default.
@@ -1872,7 +1872,7 @@ called first opens no file.
 
 **Args**
 
-- `source_path`: The installation folder whose settings are read: its `current.json` first, else its shipped `settings.json`. In a process that has already prepared its settings (the GUI's), those are answered and `source_path` is not read.
+- `source_path`: The installation folder whose settings are read: its `current.json` first, else its shipped `settings.json`. Each call prepares them afresh, so the dict is the caller's; a running session's values are its `get_setting`'s.
 
 **Raises**
 

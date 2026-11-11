@@ -44,10 +44,8 @@ def _data_dir(tmp_path, live_folder=None):
 
 @pytest.fixture(autouse=True)
 def _clean_module_state():
-    saved_settings = settings_init.settings
     saved_flag = settings_init.rejected_current_json
     yield
-    settings_init.settings = saved_settings
     settings_init.rejected_current_json = saved_flag
 
 
@@ -148,10 +146,11 @@ def test_a_handed_folder_that_cannot_be_created_is_warned_about_at_create(tmp_pa
 
 def test_the_late_fall_back_to_the_template_brings_the_folder_up_too(tmp_path):
     directory = _data_dir(tmp_path, live_folder=str(tmp_path / 'the_users'))
-    settings_init.load_lvp_settings(logging.getLogger('t'), str(directory))
 
-    settings_init.fall_back_to_template(logging.getLogger('t'), str(directory), 'a test')
+    fallen_back = settings_init.fall_back_to_template(
+        logging.getLogger('t'), str(directory), 'a test'
+    )
 
     expected = (directory / 'capture').resolve()
-    assert settings_init.settings['live_folder'] == str(expected)
+    assert fallen_back['live_folder'] == str(expected)
     assert expected.is_dir()

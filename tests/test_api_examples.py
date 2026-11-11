@@ -17,9 +17,9 @@ rather than matching text. A ban on a spelling would be fooled by an
 alias import and would mis-fire on the first real-hardware example.
 
 Each example is the SAME code path both ways. In-suite, the conftest's
-heavy-dep mocks serve the imports and the settings the process prepared
-are the fast tier's; standalone, the real installed deps and the user's
-settings do. The subprocess witness proves the standalone form still works
+heavy-dep mocks serve the imports and the installation each test runs from
+holds the fast tier's settings; standalone, the real installed deps and the
+user's settings do. The subprocess witness proves the standalone form still works
 outside the suite's mock environment; one witness suffices because the
 import environment is the only thing that differs between the two forms.
 
@@ -42,6 +42,7 @@ import pytest
 from tests.ast_seams import REPO_ROOT, tracked_files
 from tests.case_walk import failing_cases
 from tests.guards.test_api_doc_guard import ShellRun, curl_failures
+from tests.installation_fixtures import an_installation_holding
 from tests.settings_fixtures import complete_settings
 
 EXAMPLES_DIR = REPO_ROOT / 'docs' / 'api_examples'
@@ -57,30 +58,23 @@ _SENTINEL = object()
 
 
 @pytest.fixture(autouse=True)
-def prepared_settings(tmp_path):
-    """The settings this process prepared, as an example reads them, for the test's length.
+def prepared_settings(tmp_path, monkeypatch):
+    """The settings an example reads, for the test's length.
 
-    ``load_user_settings()`` answers the settings a process has prepared, as
-    the GUI's own scripts read them, and only an unprepared process reads
-    ``data/current.json`` -- gitignored and per-machine. So the test prepares
+    An example reads ``load_user_settings('.')``, the installation it is run
+    from, and the checkout's own ``data/current.json`` is gitignored and
+    per-machine. So each test runs from an installation of its own holding
     them: the shipped template on the fast tier, the live folder in the
     test's own directory. A shipped script carries no test-only parameter,
-    and what it saves is the test's to read. The suite's later simulated
-    scopes read the same globals for their model, so they are restored.
+    and what it saves is the test's to read.
 
     They are a new install's, as the reader's first run is: nobody has told
     the scope which objective is mounted, so each example, and each twin
     through ``served``, answers that itself or is refused.
     """
-    from _lumascope.modules import settings_init
-
-    saved = {name: getattr(settings_init, name) for name in ('settings', 'rejected_current_json')}
-    settings_init.settings = complete_settings(
-        live_folder=str(tmp_path / 'live'), objective_confirmed=None
-    )
-    yield settings_init.settings
-    for name, value in saved.items():
-        setattr(settings_init, name, value)
+    settings = complete_settings(live_folder=str(tmp_path / 'live'), objective_confirmed=None)
+    monkeypatch.chdir(an_installation_holding(tmp_path / 'run_from', settings))
+    return settings
 
 
 def _run_example(name):

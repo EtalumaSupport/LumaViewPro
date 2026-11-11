@@ -1,4 +1,4 @@
-"""No module the run engine imports reads either process-wide global.
+"""No module the run engine imports reads the application context.
 
 The run engine and the collaborators it composes used to take thirteen
 values from two process globals -- the GUI's application context and the
@@ -9,18 +9,15 @@ different root, dropped an exposure ceiling, lost filename tokens, omitted
 the image scale, swallowed the autofocus restore and resolved a different
 output encoding.
 
-Every one of those reads is now gone, and this guard keeps them gone. It walks
-the engine's import graph from the sequenced-capture runner and asserts the
-two reaches it still contains against an allowlist derived from the record:
-the telemetry module that reads the context (executor queue sizes for the
-memory metrics -- guarded, empty when unset, and headless already gets the
-right answer; the metrics logger left the engine's graph when the session
-took it over from the scope), and the one startup
-composition read of the settings binding (the simulator's default model). A
-third name in either list is a regression.
+Every one of those reads is now gone. The settings module's binding no
+longer exists, so no import of it can be written; the context remains, and
+this guard keeps the engine off it. It walks the engine's import graph from
+the sequenced-capture runner and asserts its reaches of the context against
+an allowlist derived from the record (empty: the metrics telemetry, its
+last reader, is handed what it logs). A name in the list is a regression.
 
-What this guard claims, exactly: no module the run engine IMPORTS reads either
-global. It cannot see a read in a module outside the walk, and is not meant
+What this guard claims, exactly: no module the run engine IMPORTS reads the
+context. It cannot see a read in a module outside the walk, and is not meant
 to -- the GUI post-processing resolver for the live image mode lives in such
 a module by design.
 """
@@ -35,9 +32,6 @@ ENGINE_ROOT_MODULE = '_lumascope.modules.sequenced_capture_runner'
 # The engine set reaches the application context nowhere: the metrics
 # telemetry, its last reader, is handed what it logs.
 ALLOWED_CONTEXT_READERS: frozenset[str] = frozenset()
-# The one import-time binding of the settings module the engine set may keep:
-# the simulated motor board's default model, read once at scope construction.
-ALLOWED_SETTINGS_BINDERS = frozenset({'_lumascope.modules.lumascope_api._lumascope'})
 
 
 def _rel_path(name: str) -> str:
@@ -82,18 +76,6 @@ def _reaches_context(name: str) -> bool:
     return False
 
 
-def _binds_settings(name: str) -> bool:
-    """``from _lumascope.modules.settings_init import settings`` -- a BIND of the global,
-    not a function that re-reads the settings FILE, which imports a different
-    name from the same module."""
-    return any(
-        isinstance(node, ast.ImportFrom)
-        and node.module == '_lumascope.modules.settings_init'
-        and any(alias.name == 'settings' for alias in node.names)
-        for node in _import_nodes(name)
-    )
-
-
 def engine_set() -> set[str]:
     """The modules reachable from the engine root through ``modules.*`` imports
     that resolve to a file."""
@@ -134,12 +116,4 @@ def test_only_the_allowed_modules_reach_the_application_context():
     assert readers == set(ALLOWED_CONTEXT_READERS), (
         f'engine-set modules reaching _lumascope.modules.app_context: {sorted(readers)}; '
         f'allowed: {sorted(ALLOWED_CONTEXT_READERS)}'
-    )
-
-
-def test_only_the_allowed_module_binds_the_settings_global():
-    binders = {name for name in engine_set() if _binds_settings(name)}
-    assert binders == set(ALLOWED_SETTINGS_BINDERS), (
-        f'engine-set modules binding settings_init.settings: {sorted(binders)}; '
-        f'allowed: {sorted(ALLOWED_SETTINGS_BINDERS)}'
     )

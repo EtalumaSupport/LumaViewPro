@@ -30,6 +30,20 @@ def copy_installation_files(data: pathlib.Path) -> None:
         shutil.copy(SHIPPED_DATA / name, pathlib.Path(data) / name)
 
 
+def an_installation_holding(directory: pathlib.Path, settings: dict) -> pathlib.Path:
+    """An installation at ``directory`` whose user settings are ``settings``.
+
+    The shipped installation files, and ``settings`` as its
+    ``data/current.json``, so ``ScopeSession.load_user_settings(directory)``
+    reads them as it reads a user's installation. Returns ``directory``.
+    """
+    data = pathlib.Path(directory) / 'data'
+    data.mkdir(parents=True, exist_ok=True)
+    copy_installation_files(data)
+    (data / 'current.json').write_text(json.dumps(settings), encoding='utf-8')
+    return pathlib.Path(directory)
+
+
 @functools.cache
 def shipped_grids():
     """The shipped tiling.json's grids, read as a scope reads them at bring-up.

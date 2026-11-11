@@ -84,7 +84,7 @@ class TestTheSettings:
         stored = sim_session.get_setting('video.max_fps')
         assert (type(stored), stored) == (int, 25)
 
-    def test_a_handed_dict_is_stored_as_python_in_the_same_object(self, tmp_path):
+    def test_a_handed_dicts_numpy_values_are_stored_as_python(self, tmp_path):
         from _lumascope.modules.scope_session import ScopeSession
 
         handed = complete_settings(live_folder=str(tmp_path))
@@ -95,9 +95,8 @@ class TestTheSettings:
             handed, simulate=True, settings_file=str(tmp_path / 'saved.json')
         )
         try:
-            assert session.settings is handed
-            assert type(handed['BF']['gain']) is float
-            assert type(handed['video']['max_fps']) is int
+            assert type(session.get_setting('BF.gain')) is float
+            assert type(session.get_setting('video.max_fps')) is int
         finally:
             session.shutdown()
 

@@ -44,13 +44,11 @@ def session_log(caplog):
 
 
 class TestASimulatedScopeReportsItsDeclaredModel:
-    def test_configured_model_outranks_the_module_global(self, monkeypatch):
-        import _lumascope.modules.settings_init as settings_init
-
-        monkeypatch.setattr(settings_init, 'settings', {'microscope': 'LS850T'})
-        scope = _sim_scope(configured_model='LS850')
+    def test_configured_model_outranks_the_templates(self):
+        # The shipped template declares LS850.
+        scope = _sim_scope(configured_model='LS850T')
         try:
-            assert scope.diagnostics.get_motor_info().model == 'LS850'
+            assert scope.diagnostics.get_motor_info().model == 'LS850T'
         finally:
             scope.disconnect()
 
