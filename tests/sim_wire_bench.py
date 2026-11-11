@@ -171,7 +171,13 @@ def replay(session) -> dict:
                 continue
             call = _call(session.scope, record)
             started = time.perf_counter()
-            reply = call()
+            try:
+                reply = call()
+            except ValueError as refused:
+                # A command the diagnostics channel now refuses, which the
+                # bench sent before it did: the refusal is the replayed
+                # answer, compared with the board's like any other.
+                reply = refused
             results[index] = (reply, (time.perf_counter() - started) * 1000.0)
             if record['kind'] == 'stop_move_start':
                 time.sleep(_STOP_AFTER_S)
@@ -211,6 +217,13 @@ def groups(group_of) -> dict:
 LED_ON_RECORDED_BEFORE_ITS_RETURN = (
     'the bench recording predates led_on returning the commanded current; re-record at the '
     'next bench'
+)
+# The bench probed a bad LED channel with LED9_10, a set command the
+# diagnostics channel now refuses; the board characterization probes with
+# LEDREAD9 since, so a re-recorded run has no such call.
+LED_SET_PROBE_RECORDED_BEFORE_ITS_REFUSAL = (
+    'the bench recording predates the diagnostics channel refusing an LED set command; '
+    're-record at the next bench'
 )
 
 

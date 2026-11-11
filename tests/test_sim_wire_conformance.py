@@ -48,6 +48,7 @@ from tests.sim_wire_bench import (
     BENCH,
     FRESH,
     LED_ON_RECORDED_BEFORE_ITS_RETURN,
+    LED_SET_PROBE_RECORDED_BEFORE_ITS_REFUSAL,
     RUNS,
     groups,
     marked,
@@ -182,6 +183,8 @@ _REPLY_GAPS = {
     'simulator does not have',
     # Not the model's: the recording is older than the return it compares.
     'LED led_on': LED_ON_RECORDED_BEFORE_ITS_RETURN,
+    # Not the model's: the recording is older than the refusal.
+    'LED error_probe LED9_10': LED_SET_PROBE_RECORDED_BEFORE_ITS_REFUSAL,
 }
 # A gap whose outcome varies from run to run cannot be strict.
 _STOP_REST = (

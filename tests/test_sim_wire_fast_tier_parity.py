@@ -24,6 +24,7 @@ from tests.sim_wire_bench import (
     BENCH,
     FRESH,
     LED_ON_RECORDED_BEFORE_ITS_RETURN,
+    LED_SET_PROBE_RECORDED_BEFORE_ITS_REFUSAL,
     groups,
     marked,
     replay,
@@ -67,7 +68,7 @@ _GAPS = {
     'LED query INFO': _LED_ECHO,
     **{f'LED query LEDREAD{channel}': _LED_ECHO for channel in range(6)},
     'LED error_probe NOSUCHCMD': _LED_ECHO,
-    'LED error_probe LED9_10': _LED_ECHO,
+    'LED error_probe LED9_10': LED_SET_PROBE_RECORDED_BEFORE_ITS_REFUSAL,
 }
 
 

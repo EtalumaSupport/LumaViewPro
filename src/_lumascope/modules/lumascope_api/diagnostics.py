@@ -50,6 +50,24 @@ _MOTOR_VERBS_ANYWHERE = ('ACTUAL_W', 'TARGET_W')
 # TMC5072 read half; bit 7 set is a register write) and a decimal payload.
 _SPI_READ = re.compile(r'SPI[A-Z]0X([0-7][0-9A-F])\d+')
 
+# LED-board commands that change what an LED emits: a channel's light, off
+# or output enable, a raw DAC value, the selftest's and calibration's ramps,
+# a calibration write, which changes what a current lights, and the
+# bootloader reboot. Sent raw they change the board behind IlluminationAPI,
+# which then reports LEDs lit or dark that are not. Matched as each firmware
+# dispatches them, after upper-casing and stripping the command: the v2
+# firmware compares the selftest, calibration and reboot whole and reads a
+# channel command from its LED or RAW prefix; the field firmware finds LED,
+# RAW, FIGHT and its legacy {TON / {TOF anywhere in the command.
+_LED_VERBS_WHOLE = frozenset(
+    {'SELFTEST', 'SELFTESTSLOW', 'CALIBRATE', 'CALSAVE', 'CALCLEAR', 'FWUPDATE'}
+)
+_LED_VERBS_ANYWHERE = ('LED', 'RAW', 'FIGHT', '{TON', '{TOF')
+# The one LED form carried: a channel read. Its R sits where both firmwares
+# read a set command's channel, and no channel is named R, so a firmware
+# that does not take it as a read refuses it without lighting anything.
+_LED_READ = re.compile(r'LEDREAD(\d*|S)')
+
 # What the camera benchmarks take: generous for any characterization, and
 # short of a lane wait the host cannot hold (a huge one overflowed it).
 _BENCHMARK_CYCLES = (1, 10_000)
@@ -256,6 +274,19 @@ def _refuse_motor_verb(command: str) -> None:
             f'{command!r} moves, stops or repositions a motor and is not carried by '
             f'the diagnostics channel: use the motion API (home, move_turret, '
             f'move_xy, move_z, stop_motion), which keeps the axis and turret record'
+        )
+
+
+def _refuse_led_verb(command: str) -> None:
+    """Raise if ``command`` would change what an LED emits."""
+    verb = command.strip().upper()
+    if verb in _LED_VERBS_WHOLE or (
+        any(v in verb for v in _LED_VERBS_ANYWHERE) and not _LED_READ.fullmatch(verb)
+    ):
+        raise ValueError(
+            f'{command!r} changes what an LED emits and is not carried by the '
+            f'diagnostics channel: use the illumination API (led_on, led_off, '
+            f'leds_off) or run_led_selftest, which keep the LED record'
         )
 
 
@@ -1096,8 +1127,10 @@ class DiagnosticsAPI:
 
         Raises:
             ValueError: A motor command that moves, stops or repositions a
-                motor, which the motion API carries; or a target that is
-                neither ``'led'`` nor ``'motor'``. Nothing was sent.
+                motor, which the motion API carries; an LED command that
+                changes what an LED emits, which the illumination API and
+                ``run_led_selftest`` carry; or a target that is neither
+                ``'led'`` nor ``'motor'``. Nothing was sent.
             HardwareCommandRefusedError: a run, a diagnostic or a home holds the
                 scope and this call is not made under its taking. Or the
                 board is not there, as every command for it is refused:
@@ -1148,7 +1181,7 @@ class DiagnosticsAPI:
     ) -> str | list[str]:
         """Send a firmware diagnostic command expected to return multiple lines.
 
-        For SELFTEST, INFO with multi-line output, etc. Wraps the driver's
+        For INFO with multi-line output, LEDREADS, etc. Wraps the driver's
         ``exchange_multiline`` with API-layer logging.
 
         Args:
@@ -1163,9 +1196,10 @@ class DiagnosticsAPI:
             as it sent it: a firmware ``ERROR:`` line is a reply.
 
         Raises:
-            ValueError: A motor command that moves, stops or repositions a
-                motor, which the motion API carries; or a target that is
-                neither ``'led'`` nor ``'motor'``. Nothing was sent.
+            ValueError: As ``send_diagnostic_command``: a motor command that
+                moves a motor, an LED command that changes what an LED
+                emits, or a target that is neither ``'led'`` nor
+                ``'motor'``. Nothing was sent.
             HardwareCommandRefusedError: as ``send_diagnostic_command``: the
                 scope held by another activity, the board not there, or a
                 board that takes no text commands. Nothing was sent.
@@ -1493,8 +1527,7 @@ class DiagnosticsAPI:
         its all-off is written through the LED owner: the board and the
         API's record agree that every LED is dark, and a frame taken under
         the ramp does not count. Both are written even when the selftest
-        raised, since one cut short can leave a channel lit. The caller
-        enters engineering mode where its firmware asks for it.
+        raised, since one cut short can leave a channel lit.
 
         Args:
             timeout_s: Max seconds to wait for the whole selftest.
@@ -1518,7 +1551,7 @@ class DiagnosticsAPI:
                 of the three.
         """
         refuse_unless_wait_s(timeout_s, 'timeout_s')
-        board = self._diagnostic_board('led', 'SELFTEST', 'run_led_selftest')
+        board = self._led_text_board('run_led_selftest')
         return self._scope.motion._dispatch_motion(
             self._run_led_selftest_impl,
             'run_led_selftest',
@@ -1633,21 +1666,34 @@ class DiagnosticsAPI:
         a port that is closed.
 
         Raises:
-            ValueError: a motor command that moves a motor, or a target
-                that is neither ``'led'`` nor ``'motor'``.
+            ValueError: a motor command that moves a motor, an LED command
+                that changes what an LED emits, or a target that is neither
+                ``'led'`` nor ``'motor'``.
             HardwareCommandRefusedError: the board is not there, or takes
                 no text commands.
         """
         target = target.lower() if isinstance(target, str) else target
         if target == 'led':
-            self._scope.illumination.refuse_controller_not_connected(member)
-            board = self._scope._led_driver
-        elif target in ('motor', 'motion'):
+            _refuse_led_verb(command)
+            return self._led_text_board(member)
+        if target in ('motor', 'motion'):
             _refuse_motor_verb(command)
             self._scope.motion.refuse_absent(member)
-            board = self._scope._motion_driver
-        else:
-            raise ValueError(f"{member}: unknown target {target!r} (expected 'led' or 'motor')")
+            return self._text_board(self._scope._motion_driver, member)
+        raise ValueError(f"{member}: unknown target {target!r} (expected 'led' or 'motor')")
+
+    def _led_text_board(self, member: str):
+        """The LED board, once a command may be sent to it: connected, and taking text.
+
+        Raises:
+            HardwareCommandRefusedError: the board is not there, or takes
+                no text commands.
+        """
+        self._scope.illumination.refuse_controller_not_connected(member)
+        return self._text_board(self._scope._led_driver, member)
+
+    @staticmethod
+    def _text_board(board, member: str):
         if not board.takes_text_commands:
             part = MissingPart.TEXT_COMMANDS
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
