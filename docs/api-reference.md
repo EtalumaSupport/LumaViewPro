@@ -85,6 +85,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`LiveFolderEntry`](#LiveFolderEntry)
 - [`LiveProcessingRegistry`](#LiveProcessingRegistry)
 - [`LiveWork`](#LiveWork)
+- [`MissingPart`](#MissingPart)
 - [`MotorBoardInfo`](#MotorBoardInfo)
 - [`NamespaceHealth`](#NamespaceHealth)
 - [`Notification`](#Notification)
@@ -2805,7 +2806,7 @@ on one would image one field under every well's name.
 **Raises**
 
 - `CatalogueNameRefusedError`: `'labware_unknown'`, the labware catalogue has no plate by that name. Nothing is written.
-- `HardwareCommandRefusedError`: `'axis_absent'`, this scope has no XY stage and `labware_id` is not Center Plate (`missing` is `MissingPart.XY_STAGE`). A run, a diagnostic or a recording holds the scope and `labware_id` is not the plate in place (`'exclusive_activity_running'`): each states its positions against the plate it started with. Nothing is written.
+- `HardwareCommandRefusedError`: `'axis_absent'`, this scope has no XY stage and `labware_id` is not Center Plate (`missing` is `MissingPart(Part.XY_STAGE)`). A run, a diagnostic or a recording holds the scope and `labware_id` is not the plate in place (`'exclusive_activity_running'`): each states its positions against the plate it started with. Nothing is written.
 
 **Refusals by REST status**
 
@@ -4898,7 +4899,7 @@ Nothing.
 ### `Lumascope.unconnected_parts`
 
 ```python
-def unconnected_parts(self) -> tuple[Part, ...]
+def unconnected_parts(self) -> tuple[Board, ...]
 ```
 
 Marks: reads (changes nothing).  
@@ -9012,7 +9013,7 @@ are stored at once.
 ### `SimulationAPI.delay_reply`
 
 ```python
-def delay_reply(self, board: Part, delay_s: float) -> None
+def delay_reply(self, board: Board, delay_s: float) -> None
 ```
 
 Marks: enters: `guarded_write`.  
@@ -9030,7 +9031,7 @@ board did what it was told, and the host was not told so.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Part`; `'fault_unknown'` for a board this scope lacks; `'not_a_number'` or `'fault_bound'` for a delay not above 0 or past 30 days, the longest wait every host can hold; `'not_injectable_on_board'` on every board but a firmware board, the only one with a link to delay.
+- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Board`; `'fault_unknown'` for a board this scope lacks; `'not_a_number'` or `'fault_bound'` for a delay not above 0 or past 30 days, the longest wait every host can hold; `'not_injectable_on_board'` on every board but a firmware board, the only one with a link to delay.
 
 **Refusals by REST status**
 
@@ -9043,7 +9044,7 @@ board did what it was told, and the host was not told so.
 ```python
 def drop_replies(
     self,
-    board: Part,
+    board: Board,
     count: int | None = 1,
     command: str | None = None,
 ) -> None
@@ -9062,7 +9063,7 @@ The board answers nothing to its next `count` commands.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Part`; `'fault_unknown'` for a board this scope lacks; `'fault_bound'` for a count below 1; `'argument_not_on_board'` for a count of None on a firmware board; `'not_injectable_on_board'` on the fast LED board, which has no link to drop a reply on, and on a Classic model's boards, which have `silence`; `'argument_not_on_board'` for a command on a firmware board.
+- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Board`; `'fault_unknown'` for a board this scope lacks; `'fault_bound'` for a count below 1; `'argument_not_on_board'` for a count of None on a firmware board; `'not_injectable_on_board'` on the fast LED board, which has no link to drop a reply on, and on a Classic model's boards, which have `silence`; `'argument_not_on_board'` for a command on a firmware board.
 
 **Refusals by REST status**
 
@@ -9245,7 +9246,7 @@ validity record nothing. `exposed_under` names it in each frame's
 ### `SimulationAPI.reboot`
 
 ```python
-def reboot(self, board: Part, booting_for_s: float = 0.0) -> None
+def reboot(self, board: Board, booting_for_s: float = 0.0) -> None
 ```
 
 Marks: enters: `guarded_write`.  
@@ -9263,7 +9264,7 @@ again once it has booted.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Part`; `'fault_unknown'`; `'not_a_number'` or `'fault_bound'` for a negative boot or one past 30 days; `'not_injectable_on_board'` on every board but a firmware board, the only one with firmware to restart.
+- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Board`; `'fault_unknown'`; `'not_a_number'` or `'fault_bound'` for a negative boot or one past 30 days; `'not_injectable_on_board'` on every board but a firmware board, the only one with firmware to restart.
 
 **Refusals by REST status**
 
@@ -9426,7 +9427,7 @@ as nothing brings back a removed real camera but a new session.
 ### `SimulationAPI.replug`
 
 ```python
-def replug(self, board: Part) -> None
+def replug(self, board: Board) -> None
 ```
 
 Marks: enters: `guarded_write`.  
@@ -9440,7 +9441,7 @@ The board's cable goes back in: it is found again.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Part`; `'fault_unknown'`; `'not_injectable_on_board'` where `unplug` is, and on the FX2, which re-enumerates on its own.
+- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Board`; `'fault_unknown'`; `'not_injectable_on_board'` where `unplug` is, and on the FX2, which re-enumerates on its own.
 
 **Refusals by REST status**
 
@@ -9451,7 +9452,7 @@ The board's cable goes back in: it is found again.
 ### `SimulationAPI.silence`
 
 ```python
-def silence(self, board: Part) -> None
+def silence(self, board: Board) -> None
 ```
 
 Marks: enters: `guarded_write`.  
@@ -9465,7 +9466,7 @@ The board answers no command from now on, until `unsilence`.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Part`; `'fault_unknown'`; `'not_injectable_on_board'` on the fast LED board and a firmware board, whose silence is `unplug`.
+- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Board`; `'fault_unknown'`; `'not_injectable_on_board'` on the fast LED board and a firmware board, whose silence is `unplug`.
 
 **Refusals by REST status**
 
@@ -9502,7 +9503,7 @@ The camera's stream delivers no frame for a while, staying connected and grabbin
 ### `SimulationAPI.unplug`
 
 ```python
-def unplug(self, board: Part) -> None
+def unplug(self, board: Board) -> None
 ```
 
 Marks: enters: `guarded_write`.  
@@ -9516,7 +9517,7 @@ The board's cable is pulled: its port fails from the next command.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Part`; `'fault_unknown'`; `'not_injectable_on_board'` on the fast LED board, which has no link to lose.
+- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Board`; `'fault_unknown'`; `'not_injectable_on_board'` on the fast LED board, which has no link to lose.
 
 **Refusals by REST status**
 
@@ -9527,7 +9528,7 @@ The board's cable is pulled: its port fails from the next command.
 ### `SimulationAPI.unsilence`
 
 ```python
-def unsilence(self, board: Part) -> None
+def unsilence(self, board: Board) -> None
 ```
 
 Marks: enters: `guarded_write`.  
@@ -9541,7 +9542,7 @@ The board answers again after `silence`.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Part`; `'fault_unknown'`; `'not_injectable_on_board'` where `silence` is, and on the FX2, whose stream does not resume.
+- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_offered'`, `board` is not a `Board`; `'fault_unknown'`; `'not_injectable_on_board'` where `silence` is, and on the FX2, whose stream does not resume.
 
 **Refusals by REST status**
 
@@ -10035,7 +10036,7 @@ told it is missing hardware.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, naming the channel (`MissingPart.channel`).
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, naming the channel (`Part.CHANNEL`).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this unit's channels could not be resolved, so `channel` cannot `then`.
 
 **Refusals**
@@ -10938,6 +10939,34 @@ slightly different moments; the close waits until a read finds none.
 - <a id="LiveWork.closing"></a>`closing`: `bool` -- True while the session's close runs: nothing new takes the scope, and the close waits for this work.
 - <a id="LiveWork.work"></a>`work`: `tuple[WorkItem, ...]` -- The work still under way, in the order the session asked: what holds the scope first, then what finishes after.
 
+<a id="MissingPart"></a>
+## `lumascope.MissingPart`
+
+A record: it crosses the wire as its data.  
+Held in: [`HardwareCommandRefusedError.missing`](#HardwareCommandRefusedError.missing).
+
+The part a refused command needed that the scope does not have.
+
+The refusal's reason and its sentence are the part's (`Part`), so no
+raise words its own: a board the model has is not connected, a motion
+part -- the motors, a stage axis's motor, the turret, the XY stage --
+is absent, and every other part -- a channel, a channel's LED, an LED
+address, a feature a board lacks -- is not on this scope. A part that
+is one of several says which beside it: a stage axis's motor its
+`axis`, a channel and a channel's LED their `channel`, an LED board
+address its `address`; every other part carries none.
+
+**Raises**
+
+- `TypeError`: a part given a qualifier it does not take, or not given the one it takes.
+
+**Fields**
+
+- <a id="MissingPart.address"></a>`address`: `int | None` -- The LED board address, as the command named it, for `Part.LED_ADDRESS`; None for every other part.
+- <a id="MissingPart.axis"></a>`axis`: `StageAxis | None` -- The stage axis, for `Part.AXIS`; None for every other part.
+- <a id="MissingPart.channel"></a>`channel`: `str | None` -- The channel, as the command named it, for `Part.CHANNEL` and `Part.CHANNEL_LED`; None for every other part.
+- <a id="MissingPart.part"></a>`part`: `Part` -- The part.
+
 <a id="MotorBoardInfo"></a>
 ## `lumascope.MotorBoardInfo`
 
@@ -11238,7 +11267,7 @@ One part of the scope at bring-up.
 - <a id="PartStatus.cause"></a>`cause`: `str | None` -- Why it is not up, as a code from `CAUSE_PHRASES`; or, on a part that is up, a problem it met coming up (the LED board's safety LEDs-off not confirmed; the camera's stream that did not start, which a later start that succeeds does not clear, a setting it did not take, or its leaving, the camera keeping the one of these a person acts on first; the motor controller's stored acceleration limit not taken). None when nothing is wrong.
 - <a id="PartStatus.detail"></a>`detail`: `str` -- The driver's or the error's own words, for the log and the record, each problem's joined with "; "; empty when there are none.
 - <a id="PartStatus.expected"></a>`expected`: `bool` -- Whether this scope's model has one. A manual scope has no motor board, so its absence is not a failure; until the model is known every part is expected.
-- <a id="PartStatus.part"></a>`part`: `Part` -- Which part.
+- <a id="PartStatus.part"></a>`part`: `Board` -- Which board.
 - <a id="PartStatus.up"></a>`up`: `bool` -- Whether a real driver came up for it.
 
 <a id="PartStatus.describe"></a>
@@ -13657,6 +13686,24 @@ darkfield is transmitted light on a dark field.
 - `bright`
 - `dark`
 
+<a id="Board"></a>
+### `lumascope.Board`
+
+Returned by: [`Lumascope.unconnected_parts`](#Lumascope.unconnected_parts).  
+Held in: [`PartStatus.part`](#PartStatus.part).  
+Taken by: [`SimulationAPI.delay_reply`](#SimulationAPI.delay_reply), [`SimulationAPI.drop_replies`](#SimulationAPI.drop_replies), [`SimulationAPI.reboot`](#SimulationAPI.reboot), [`SimulationAPI.replug`](#SimulationAPI.replug), [`SimulationAPI.silence`](#SimulationAPI.silence), [`SimulationAPI.unplug`](#SimulationAPI.unplug), [`SimulationAPI.unsilence`](#SimulationAPI.unsilence).
+
+A board a scope is brought up from, in the order bring-up connects them.
+
+The parts that connect, and so the ones that can be not connected: the
+bring-up record's parts, `Lumascope.unconnected_parts()`, and the
+boards a simulated fault targets. Each is also a `Part`, by the same
+value, so `Part(board)` is the board's part.
+
+- `motor`
+- `led`
+- `camera`
+
 <a id="Caller"></a>
 ### `lumascope.Caller`
 
@@ -14067,15 +14114,30 @@ per-well stack build.
 <a id="Part"></a>
 ### `lumascope.Part`
 
-Returned by: [`Lumascope.unconnected_parts`](#Lumascope.unconnected_parts).  
-Held in: [`PartStatus.part`](#PartStatus.part).  
-Taken by: [`SimulationAPI.delay_reply`](#SimulationAPI.delay_reply), [`SimulationAPI.drop_replies`](#SimulationAPI.drop_replies), [`SimulationAPI.reboot`](#SimulationAPI.reboot), [`SimulationAPI.replug`](#SimulationAPI.replug), [`SimulationAPI.silence`](#SimulationAPI.silence), [`SimulationAPI.unplug`](#SimulationAPI.unplug), [`SimulationAPI.unsilence`](#SimulationAPI.unsilence).
+Held in: [`MissingPart.part`](#MissingPart.part).
 
-The parts a scope is made of, in the order the record lists them.
+A part of a scope that a command can need and the scope can lack.
+
+A board, by its board's value; a motion part: the motors, a stage
+axis's motor (`AXIS`, its axis beside it), the turret, the XY stage;
+a channel and a channel's LED (their channel beside them); an LED board
+address (its address beside it); and the features a board may not
+have: fan control, LED engineering mode, text commands. A refusal names
+the one it lacked as a `MissingPart`.
 
 - `motor`
 - `led`
 - `camera`
+- `motors`
+- `axis`
+- `turret`
+- `xy_stage`
+- `channel`
+- `channel_led`
+- `led_address`
+- `fan_control`
+- `led_engineering_mode`
+- `text_commands`
 
 <a id="PostProcessingOperation"></a>
 ### `lumascope.PostProcessingOperation`
@@ -14207,7 +14269,7 @@ The slide a simulated scope is brought up with.
 ### `lumascope.StageAxis`
 
 Returned by: [`MotionAPI.axis_positions`](#MotionAPI.axis_positions), [`MotionAPI.get_target_positions`](#MotionAPI.get_target_positions), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep).  
-Held in: [`PositionChanged.axis`](#PositionChanged.axis), [`Status.axes`](#Status.axes).  
+Held in: [`MissingPart.axis`](#MissingPart.axis), [`PositionChanged.axis`](#PositionChanged.axis), [`Status.axes`](#Status.axes).  
 Taken by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener), [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep), [`MotionAPI.remove_position_listener`](#MotionAPI.remove_position_listener), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`ScopeSession.go_to_bookmark`](#ScopeSession.go_to_bookmark), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark).
 
 A stage axis, X, Y or Z: an axis with a position in um.
@@ -15929,15 +15991,16 @@ log.
 - `member`: The member or task that was refused, for the log.
 - `holder`: The kind of activity holding the scope, when known.
 - `holder_trigger`: The holding run's starter, for a run (`'gui'`, `'rest'`, `'api'`); None otherwise.
-- `missing`: The part the command needed and the scope does not have, for `'not_connected'`, `'axis_absent'` and `'not_on_this_scope'`; None otherwise.
+- `missing`: The part the command needed and the scope does not have, for `'not_connected'`, `'axis_absent'` and `'not_on_this_scope'`: its `part`, with the axis, channel or address that says which where it is one of several; None otherwise.
 - `title`: The heading shown with the sentence, which follows the reason: nothing connected is not a busy microscope.
 
-`holder` and `holder_trigger` are published.
+`holder`, `holder_trigger` and `missing` are published.
 
 **Fields**
 
 - <a id="HardwareCommandRefusedError.holder"></a>`holder`: `Holder | None` -- The kind of activity holding the scope, when known.
 - <a id="HardwareCommandRefusedError.holder_trigger"></a>`holder_trigger`: `Caller | None` -- The holding run's starter, for a run (`'gui'`, `'rest'`, `'api'`); None otherwise.
+- <a id="HardwareCommandRefusedError.missing"></a>`missing`: `MissingPart | None` -- The part the command needed and the scope does not have, for `'not_connected'`, `'axis_absent'` and `'not_on_this_scope'`: its `part`, with the axis, channel or address that says which where it is one of several; None otherwise.
 
 | Reason | Cause | REST status |
 |---|---|---|

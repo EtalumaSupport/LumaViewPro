@@ -30,6 +30,7 @@ from _lumascope.modules.exceptions import (
     MoveFaultError,
     SessionClosingError,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.tech_support_report import FirmwareDiagnostics, TechSupportReport
 from tests.settings_fixtures import complete_settings
 
@@ -190,7 +191,7 @@ def test_a_lost_motor_board_is_written_in_the_refusals_words_and_the_report_goes
     finally:
         lost.shutdown()
 
-    words = MissingPart.MOTOR_CONTROLLER.sentence
+    words = MissingPart(Part.MOTOR).sentence
     for rel in ('firmware_info/motor_info.txt', 'firmware_info/motor_status.txt'):
         text = (tmp_path / rel).read_text()
         assert f'not read: {words}' in text, (rel, text)

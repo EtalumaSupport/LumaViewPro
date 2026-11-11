@@ -14,7 +14,7 @@ import time
 import pytest
 
 from _lumascope.drivers.exceptions import BoardNoReplyError
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
     COMPLETION_TIMEOUT,
@@ -99,7 +99,7 @@ def test_a_run_a_fault_ended_is_torn_down_once(executor, scope, tmp_path, monkey
     monkeypatch.setattr(
         executor._scope,
         'unconnected_parts',
-        lambda: (Part.CAMERA,) if unplugged.is_set() else unconnected(),
+        lambda: (Board.CAMERA,) if unplugged.is_set() else unconnected(),
     )
     run = _start_run(executor, tmp_path, threading.Event())
 

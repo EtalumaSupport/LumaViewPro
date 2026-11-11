@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session, _spy_wire
 from tests.test_tsr_cluster_fix import _make_motor_with_responses
@@ -45,8 +46,8 @@ def test_a_controller_without_fan_control_is_refused_and_sent_nothing(make_sessi
     refusal = _refused(lambda: scope.diagnostics.set_motor_fan_duty(50))
 
     assert refusal.reason == 'not_on_this_scope'
-    assert refusal.missing is MissingPart.FAN_CONTROL
-    assert str(refusal) == MissingPart.FAN_CONTROL.sentence
+    assert refusal.missing == MissingPart(Part.FAN_CONTROL)
+    assert str(refusal) == MissingPart(Part.FAN_CONTROL).sentence
     assert not [c for c in sent if str(c).startswith('FAN')]
 
 
@@ -66,7 +67,7 @@ def test_firmware_without_the_fan_commands_is_the_same_refusal():
 
     refusal = _refused(lambda: DiagnosticsAPI._set_motor_fan_duty_impl(board, 50))
 
-    assert refusal.missing is MissingPart.FAN_CONTROL
+    assert refusal.missing == MissingPart(Part.FAN_CONTROL)
     assert sent == ['FANSPEED'], 'only the read-only probe reaches the board'
 
 
@@ -75,7 +76,7 @@ def test_a_manual_scope_is_told_it_has_no_motors(make_session):
 
     refusal = _refused(lambda: scope.diagnostics.set_motor_fan_duty(50))
 
-    assert refusal.missing is MissingPart.MOTORS
+    assert refusal.missing == MissingPart(Part.MOTORS)
     assert str(refusal) == 'This microscope has no motors.'
 
 

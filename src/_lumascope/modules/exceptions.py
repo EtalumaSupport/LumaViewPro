@@ -25,9 +25,11 @@ from _lumascope.drivers.exceptions import (
     MotionInterlockError,
 )
 from _lumascope.modules.api_surface import api_fields
-from _lumascope.modules.axes import Axis
+from _lumascope.modules import scope_parts
+from _lumascope.modules.axes import Axis, StageAxis
 from _lumascope.modules.caller import Caller
 from _lumascope.modules.live_work import SCOPE_HOLDERS
+from _lumascope.modules.scope_parts import MISSING_PART_REASONS, Board, Part
 from _lumascope.modules.run_outcome import ENDING_TITLES, FAILURE_REASONS
 
 if TYPE_CHECKING:
@@ -1455,7 +1457,7 @@ class LedBoardUnavailableError(Fault, BringUpError):
             on this installation.
     """
 
-    title = 'LED Board Unavailable'
+    title = f'{Board.LED.label} Unavailable'
 
     _ADVICE: ClassVar[dict[str, str]] = {
         'not_detected': (
@@ -1508,7 +1510,7 @@ class MotorBoardUnavailableError(Fault, BringUpError):
             explains them.
     """
 
-    title = 'Motor Controller Unavailable'
+    title = f'{Board.MOTOR.label} Unavailable'
 
     _ADVICE: ClassVar[dict[str, str]] = {
         'not_detected': (
@@ -3715,7 +3717,7 @@ class PluginProcessorSkippedError(Fault, PluginError):
         self.folder = folder
 
 
-@api_fields('holder', 'holder_trigger')
+@api_fields('holder', 'holder_trigger', 'missing')
 class HardwareCommandRefusedError(Refusal, Exception):
     """A hardware command was refused: something else has the scope, the lane is closed, or nothing is connected to take it.
 
@@ -3794,15 +3796,18 @@ class HardwareCommandRefusedError(Refusal, Exception):
             ``'rest'``, ``'api'``); None otherwise.
         missing: The part the command needed and the scope does not have,
             for ``'not_connected'``, ``'axis_absent'`` and
-            ``'not_on_this_scope'``; None otherwise.
+            ``'not_on_this_scope'``: its ``part``, with the axis, channel
+            or address that says which where it is one of several; None
+            otherwise.
         title: The heading shown with the sentence, which follows the reason:
             nothing connected is not a busy microscope.
 
-    ``holder`` and ``holder_trigger`` are published.
+    ``holder``, ``holder_trigger`` and ``missing`` are published.
     """
 
     holder: Holder | None
     holder_trigger: Caller | None
+    missing: 'MissingPart | None'
 
     # A part the scope does not have is never found by asking again, and a
     # task made under a taking that has ended is never sent under it. A
@@ -3861,7 +3866,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         missing: 'MissingPart | None' = None,
         holder_trigger: Caller | None = None,
     ):
-        if (missing is None) != (reason not in _MISSING_PART_REASONS):
+        if (missing is None) != (reason not in MISSING_PART_REASONS):
             raise TypeError(f'a {reason!r} refusal takes missing= exactly when it names a part')
         if missing is not None and missing.reason != reason:
             raise TypeError(f'{missing} is refused as {missing.reason!r}, not {reason!r}')
@@ -3891,138 +3896,73 @@ INTERLOCK_REASONS = frozenset(REFUSED_BEFORE_MOTION.values())
 HARDWARE_STATE_REASONS = frozenset({'not_connected', 'position_unread'}) | INTERLOCK_REASONS
 
 
+@api_fields('address', 'axis', 'channel', 'part')
 @dataclass(frozen=True)
 class MissingPart:
-    """The hardware a refused command needed that the scope does not have.
+    """The part a refused command needed that the scope does not have.
 
-    The refusal's reason and its sentence are the part's, so no raise words
-    its own: a controller the model has is not connected, and every other
-    part -- a motor, the turret, an LED -- is not on this scope. The motion
-    parts, the LED controller and the camera are the class's constants; an LED is named
-    when it is refused, by the channel's name (``MissingPart.led``) or by its
-    board address (``MissingPart.led_address``) as the command named it, and
-    a channel by name (``MissingPart.channel``).
+    The refusal's reason and its sentence are the part's (``Part``), so no
+    raise words its own: a board the model has is not connected, a motion
+    part -- the motors, a stage axis's motor, the turret, the XY stage --
+    is absent, and every other part -- a channel, a channel's LED, an LED
+    address, a feature a board lacks -- is not on this scope. A part that
+    is one of several says which beside it: a stage axis's motor its
+    ``axis``, a channel and a channel's LED their ``channel``, an LED board
+    address its ``address``; every other part carries none.
 
     Attributes:
-        name: The part, for the log.
-        reason: ``'not_connected'`` for a controller, ``'axis_absent'``
-            for a motion part (the motors, an axis, the turret, the XY
-            stage), ``'not_on_this_scope'`` for any other part (a channel, an LED,
-            fan control, LED engineering mode, a controller's text commands).
-        sentence: What the person at the scope is told.
+        part: The part.
+        axis: The stage axis, for ``Part.AXIS``; None for every other part.
+        channel: The channel, as the command named it, for ``Part.CHANNEL``
+            and ``Part.CHANNEL_LED``; None for every other part.
+        address: The LED board address, as the command named it, for
+            ``Part.LED_ADDRESS``; None for every other part.
+
+    Raises:
+        TypeError: a part given a qualifier it does not take, or not given
+            the one it takes.
     """
 
-    name: str
-    reason: str
-    sentence: str
+    part: Part
+    axis: StageAxis | None = None
+    channel: str | None = None
+    address: int | None = None
 
-    MOTOR_CONTROLLER: ClassVar['MissingPart']
-    MOTORS: ClassVar['MissingPart']
-    X: ClassVar['MissingPart']
-    Y: ClassVar['MissingPart']
-    Z: ClassVar['MissingPart']
-    TURRET: ClassVar['MissingPart']
-    XY_STAGE: ClassVar['MissingPart']
-    LED_CONTROLLER: ClassVar['MissingPart']
-    CAMERA: ClassVar['MissingPart']
-    FAN_CONTROL: ClassVar['MissingPart']
-    LED_ENGINEERING_MODE: ClassVar['MissingPart']
-    TEXT_COMMANDS: ClassVar['MissingPart']
+    def __post_init__(self) -> None:
+        takes = scope_parts.words_of(self.part).takes
+        given = [q for q in ('axis', 'channel', 'address') if getattr(self, q) is not None]
+        if given != ([takes] if takes else []):
+            raise TypeError(
+                f'the {self.part} part takes {takes or "no qualifier"}, given {", ".join(given) or "none"}'
+            )
 
     @classmethod
-    def axis(cls, axis: str) -> 'MissingPart':
-        """The part for a motion axis name, ``'X'``, ``'Y'``, ``'Z'`` or ``'T'``.
+    def of_axis(cls, axis: str) -> 'MissingPart':
+        """The part for a motion axis name, ``'X'``, ``'Y'``, ``'Z'`` or ``'T'`` (the turret).
 
         Raises:
             ValueError: ``axis`` is not one of them.
         """
-        try:
-            return _AXIS_PARTS[axis]
-        except KeyError:
-            raise ValueError(f'{axis!r} is not a motion axis') from None
+        part, stage_axis = scope_parts.axis_part(axis)
+        return cls(part, axis=stage_axis)
 
-    @classmethod
-    def channel(cls, channel: str) -> 'MissingPart':
-        """The part for a channel of this release that this scope's model does not have.
+    @property
+    def reason(self) -> str:
+        """What the part's absence is refused as."""
+        return scope_parts.words_of(self.part).reason
 
-        For a command that takes a channel rather than lights an LED: a
-        channel's settings, its focus, a still named for it. Lumi has no LED,
-        so "no Lumi LED" would be true and beside the point.
-        """
-        return cls(
-            f'{channel} channel', 'not_on_this_scope', f'This microscope has no {channel} channel.'
-        )
+    @property
+    def name(self) -> str:
+        """The part as a sentence and the log name it: ``Ex589 LED``."""
+        return self._worded(scope_parts.words_of(self.part).noun)
 
-    @classmethod
-    def led(cls, channel: str) -> 'MissingPart':
-        """The part for a channel's LED that this scope's model does not have."""
-        return cls(f'{channel} LED', 'not_on_this_scope', f'This microscope has no {channel} LED.')
+    @property
+    def sentence(self) -> str:
+        """What the person at the scope is told."""
+        return self._worded(scope_parts.words_of(self.part).sentence)
 
-    @classmethod
-    def led_address(cls, address: int) -> 'MissingPart':
-        """The part for an LED board address no channel of this scope's model drives."""
-        return cls(
-            f'LED address {address}',
-            'not_on_this_scope',
-            f'This microscope has no LED at address {address}.',
-        )
-
-
-# A part that is not connected stays so until LumaViewPro restarts: nothing
-# reconnects a board or a camera during a session, so each sentence names the
-# restart, as the bring-up words for the same parts do.
-MissingPart.MOTOR_CONTROLLER = MissingPart(
-    'motor controller',
-    'not_connected',
-    'The motor controller is not connected. Check the USB cable and that '
-    'no other program is holding the port, then restart LumaViewPro.',
-)
-MissingPart.MOTORS = MissingPart('motors', 'axis_absent', 'This microscope has no motors.')
-MissingPart.X = MissingPart('X', 'axis_absent', 'This microscope has no X motor.')
-MissingPart.Y = MissingPart('Y', 'axis_absent', 'This microscope has no Y motor.')
-MissingPart.Z = MissingPart('Z', 'axis_absent', 'This microscope has no Z motor.')
-MissingPart.TURRET = MissingPart('T', 'axis_absent', 'This microscope has no turret.')
-MissingPart.XY_STAGE = MissingPart(
-    'XY stage',
-    'axis_absent',
-    'This microscope has no XY stage, so it has one field and no wells to move '
-    'between: its plate is Center Plate.',
-)
-MissingPart.LED_CONTROLLER = MissingPart(
-    'LED controller',
-    'not_connected',
-    'The LED controller is not connected. Check the USB cable and 24V power, '
-    'then restart LumaViewPro.',
-)
-MissingPart.CAMERA = MissingPart(
-    'camera',
-    'not_connected',
-    'The camera is not connected. Check its cable, then restart LumaViewPro.',
-)
-MissingPart.FAN_CONTROL = MissingPart(
-    'fan control',
-    'not_on_this_scope',
-    "This microscope's motor controller does not support fan control.",
-)
-MissingPart.LED_ENGINEERING_MODE = MissingPart(
-    'LED engineering mode',
-    'not_on_this_scope',
-    "This microscope's LED controller has no engineering mode.",
-)
-MissingPart.TEXT_COMMANDS = MissingPart(
-    'text commands',
-    'not_on_this_scope',
-    "This microscope's controller takes no text commands.",
-)
-_AXIS_PARTS = {
-    'X': MissingPart.X,
-    'Y': MissingPart.Y,
-    'Z': MissingPart.Z,
-    'T': MissingPart.TURRET,
-}
-
-
-_MISSING_PART_REASONS = frozenset({'not_connected', 'axis_absent', 'not_on_this_scope'})
+    def _worded(self, words: str) -> str:
+        return words.format(axis=self.axis, channel=self.channel, address=self.address)
 
 
 _HOLDER_NOUNS = {

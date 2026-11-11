@@ -174,6 +174,7 @@ from _lumascope.modules.exceptions import (
     LiveFolderFileNotWrittenError,
     LiveFolderPathRefusedError,
     LoggingStartRefusedError,
+    MissingPart,
     MotorBoardUnavailableError,
     MotorStopFailedError,
     MoveFaultError,
@@ -276,7 +277,6 @@ from _lumascope.modules.lumascope_api._lumascope import (
 )
 from _lumascope.modules.lumascope_api.bring_up import (
     BringUpRecord,
-    Part,
     PartStatus,
     SettingsSetAside,
     Substitution,
@@ -452,6 +452,10 @@ from _lumascope.modules.scope_capabilities import (
     ScopeCapabilities,
     StageDistance,
 )
+from _lumascope.modules.scope_parts import (
+    Board,
+    Part,
+)
 from _lumascope.modules.scope_session import (
     ControlsLock,
     EntryKind,
@@ -534,6 +538,7 @@ __all__ = [
     'Background',
     'BinningSubstitutedNotice',
     'BlockingCallRefusedError',
+    'Board',
     'BoardNoReplyError',
     'BoardPortFailedError',
     'BoardReplyUnreadableError',
@@ -699,6 +704,7 @@ __all__ = [
     'LumascopeError',
     'ManualCaptureController',
     'ManualRecordingController',
+    'MissingPart',
     'Modality',
     'MotionAPI',
     'MotionInterlockError',

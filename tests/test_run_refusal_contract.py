@@ -50,7 +50,7 @@ from tests.settings_fixtures import complete_settings
 from tests.protocol_drives import bare_capture_runner, run_identity, scr_run_kwargs
 
 
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.activity_claim import acting
 from _lumascope.modules.caller import Caller, calling
 from _lumascope.modules.autofocus_thread import AutofocusSweep
@@ -869,7 +869,7 @@ class TestTheRefusalFunnel:
             return protocol
 
         def not_connected(mp):
-            mp.setattr(scope, 'unconnected_parts', lambda: (Part.CAMERA,))
+            mp.setattr(scope, 'unconnected_parts', lambda: (Board.CAMERA,))
             return _make_single_step_protocol()
 
         def camera_not_streaming(mp):

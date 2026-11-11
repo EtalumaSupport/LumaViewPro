@@ -32,6 +32,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -117,7 +118,10 @@ def test_a_write_whose_read_fails_with_the_camera_gone_is_not_connected(session)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         session.scope.camera.set_binning(2)
 
-    assert (refused.value.reason, refused.value.missing) == ('not_connected', MissingPart.CAMERA)
+    assert (refused.value.reason, refused.value.missing) == (
+        'not_connected',
+        MissingPart(Part.CAMERA),
+    )
 
 
 def test_a_resend_whose_read_fails_is_the_unanswered_write(session):

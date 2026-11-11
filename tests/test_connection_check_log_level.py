@@ -17,7 +17,7 @@ from contextlib import contextmanager
 import pytest
 
 from _lumascope.modules.lumascope_api import _lumascope as lumascope_mod
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 from tests.scope_fakes import build_scope
 
 
@@ -56,5 +56,5 @@ def test_a_missing_camera_is_answered_without_a_line(sim_scope, caplog):
     with _lines_logged_on_this_thread(caplog) as lines:
         missing = sim_scope.unconnected_parts()
 
-    assert missing == (Part.CAMERA,)
+    assert missing == (Board.CAMERA,)
     assert lines == [], f'the read logged: {lines}'

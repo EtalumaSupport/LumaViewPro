@@ -20,6 +20,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.channel_record import UNRESOLVED
 from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
 from tests.scope_fakes import build_scope, channel_reading, led_reading
@@ -60,7 +61,7 @@ class TestFusion:
     def test_a_layer_the_model_lacks_is_refused_on_by_name(self, ls850_0):
         with pytest.raises(HardwareCommandRefusedError, match=LED1) as refused:
             ls850_0.illumination.led_on(channel=LED1, illumination_ma=50)
-        assert refused.value.missing == MissingPart.led(LED1)
+        assert refused.value.missing == MissingPart(Part.CHANNEL_LED, channel=LED1)
 
     def test_a_layer_the_model_lacks_is_turned_off_as_a_no_op(self, ls850_0):
         ls850_0.illumination.led_off(channel=LED1)
@@ -105,5 +106,5 @@ class TestTwoResolverSplit:
         with pytest.raises(HardwareCommandRefusedError) as refused:
             ls850_0.illumination.restore_led_state(snapshot)
 
-        assert refused.value.missing == MissingPart.led_address(1)
+        assert refused.value.missing == MissingPart(Part.LED_ADDRESS, address=1)
         assert led_reading(ls850_0, 1).state is LedState.DARK

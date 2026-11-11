@@ -61,7 +61,7 @@ from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.api_surface import api, api_fields
 
 if TYPE_CHECKING:
-    from _lumascope.modules.lumascope_api.bring_up import Part
+    from _lumascope.modules.scope_parts import Board
 
 
 class RunStatus(enum.StrEnum):
@@ -179,7 +179,7 @@ class RunEnding:
         return ENDING_TITLES[self.reason]
 
 
-def hardware_disconnected_ending(parts: tuple[Part, ...]) -> RunEnding:
+def hardware_disconnected_ending(parts: tuple[Board, ...]) -> RunEnding:
     """The ending of a run whose hardware left it, in one set of words.
 
     Whichever site finds it -- the run loop's connection check, or a step
@@ -195,7 +195,7 @@ def hardware_disconnected_ending(parts: tuple[Part, ...]) -> RunEnding:
     )
 
 
-def hardware_disconnected_at_start_ending(parts: tuple[Part, ...]) -> RunEnding:
+def hardware_disconnected_at_start_ending(parts: tuple[Board, ...]) -> RunEnding:
     """The ending of a run whose hardware left before it began.
 
     The run start's counterpart of ``hardware_disconnected_ending``: the

@@ -37,6 +37,7 @@ from _lumascope.modules.exceptions import (
     NoHardwareDetectedNotice,
     ProtocolRunRefusedError,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession, ShownChannel
@@ -116,8 +117,8 @@ def _camera_posts(posts) -> list:
 
 
 def _assert_names_the_camera(refusal: HardwareCommandRefusedError) -> None:
-    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.CAMERA)
-    assert str(refusal) == MissingPart.CAMERA.sentence
+    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart(Part.CAMERA))
+    assert str(refusal) == MissingPart(Part.CAMERA).sentence
 
 
 def _camera_store(session) -> dict:
@@ -182,7 +183,11 @@ def _not_named_as_the_camera(commands: dict, target) -> dict:
             answer = command(target)
         except HardwareCommandRefusedError as refusal:
             words = (refusal.reason, refusal.missing, str(refusal))
-            if words != ('not_connected', MissingPart.CAMERA, MissingPart.CAMERA.sentence):
+            if words != (
+                'not_connected',
+                MissingPart(Part.CAMERA),
+                MissingPart(Part.CAMERA).sentence,
+            ):
                 wrong[name] = words
         else:
             wrong[name] = f'answered {answer!r}'
@@ -521,7 +526,7 @@ def test_a_camera_removed_during_the_write_is_refused_as_an_absent_one(make_sess
         try:
             {**REFUSED, **IMAGE_MODE}[name](session.scope)
         except HardwareCommandRefusedError as refusal:
-            if (refusal.reason, refusal.missing) != ('not_connected', MissingPart.CAMERA):
+            if (refusal.reason, refusal.missing) != ('not_connected', MissingPart(Part.CAMERA)):
                 answered[name] = f'refused {refusal.reason} {refusal.missing}'
         except Exception as other:  # the defect under test: any other answer
             answered[name] = repr(other)
@@ -577,7 +582,7 @@ def test_a_write_that_raises_as_the_camera_leaves_is_refused_as_an_absent_one(
 
     refusal = _refused(lambda: session.scope.camera.set_gain_db(9.0))
 
-    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.CAMERA)
+    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart(Part.CAMERA))
     assert isinstance(refusal.__cause__, CameraWriteFailedError)
 
 
@@ -665,7 +670,7 @@ def test_a_camera_removed_during_bring_up_is_reported_once_and_the_scope_comes_u
     session = make_session('LS850')
 
     assert session.scope.camera.camera_removed
-    assert [n.message for n in _camera_posts(centre_posts)] == [MissingPart.CAMERA.sentence]
+    assert [n.message for n in _camera_posts(centre_posts)] == [MissingPart(Part.CAMERA).sentence]
 
 
 class _CameraControls:

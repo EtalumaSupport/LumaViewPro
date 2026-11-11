@@ -869,6 +869,7 @@ OPEN_STRINGS: dict[str, str] = {
     'Lumascope.objectives return': _OBJECTIVE,
     'Lumascope.scope_models return': _MODEL,
     'ManualRecordingController.end_reason return': _REASON,
+    'MissingPart.channel field': _CHANNEL,
     'MotionAPI.move_to_well parameter well': _WELL,
     'MotionAPI.start_move_to_well parameter well': _WELL,
     'MotorBoardInfo.firmware_date field': _BOARD,

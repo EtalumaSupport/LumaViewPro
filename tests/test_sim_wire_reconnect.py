@@ -27,6 +27,7 @@ from _lumascope.modules.exceptions import (
     MissingPart,
     MoveFaultError,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
 from _lumascope.modules.lumascope_api.diagnostics import MotorBoardInfo
 from _lumascope.modules.notification_center import Severity
@@ -160,7 +161,7 @@ def test_a_board_lost_while_every_axis_is_idle_reads_as_lost(model):
             motion.interlocks()
         assert (refused.value.reason, refused.value.missing) == (
             'not_connected',
-            MissingPart.MOTOR_CONTROLLER,
+            MissingPart(Part.MOTOR),
         )
         assert scope.diagnostics.get_motor_info() == MotorBoardInfo(None, None, None, None, None)
     finally:

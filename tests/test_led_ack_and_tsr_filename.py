@@ -228,11 +228,12 @@ class TestTsrLedEngineeringRoutesThroughDriver:
     def test_enter_engineering_answers_the_refusals_words_when_led_absent(self):
         """No LED board connected: the member's own refusal is the answer, in its words."""
         from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+        from _lumascope.modules.scope_parts import Part
         from _lumascope.modules.tech_support_report import FirmwareDiagnostics
 
         diag = FirmwareDiagnostics.__new__(FirmwareDiagnostics)
         fake_scope = MagicMock()
-        part = MissingPart.LED_CONTROLLER
+        part = MissingPart(Part.LED)
         fake_scope.diagnostics.enter_led_engineering_mode.side_effect = HardwareCommandRefusedError(
             part.reason, 'enter_led_engineering_mode', missing=part
         )

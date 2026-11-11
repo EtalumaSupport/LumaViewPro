@@ -28,6 +28,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app
@@ -98,7 +99,10 @@ def test_a_scope_with_no_camera_is_refused_naming_the_camera():
     finally:
         session.shutdown()
 
-    assert (refused.value.reason, refused.value.missing) == ('not_connected', MissingPart.CAMERA)
+    assert (refused.value.reason, refused.value.missing) == (
+        'not_connected',
+        MissingPart(Part.CAMERA),
+    )
 
 
 def test_a_setting_the_camera_has_answers_its_value_and_unit_on_its_map(named):

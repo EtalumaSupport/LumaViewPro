@@ -29,6 +29,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api.illumination import LedState, LedTransition, LedTransitionCtx
 from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import fx2_stream
@@ -121,7 +122,7 @@ def test_a_gain_written_after_the_removal_is_refused_and_reads_unknown(session):
     with pytest.raises(HardwareCommandRefusedError) as exc:
         scope.camera.set_gain_db(before + 6.0)
 
-    assert exc.value.missing == MissingPart.CAMERA
+    assert exc.value.missing == MissingPart(Part.CAMERA)
     assert scope.camera.gain_db is None
 
 
@@ -143,7 +144,7 @@ def test_a_write_to_a_camera_removed_while_it_is_not_streaming_is_refused_not_co
             scope.camera.set_gain_db(before + 6.0)
 
         assert refused.value.reason == 'not_connected'
-        assert refused.value.missing == MissingPart.CAMERA
+        assert refused.value.missing == MissingPart(Part.CAMERA)
         assert scope.camera_connected is False
         assert scope.led_connected is False
         assert scope.camera.gain_db is None
@@ -172,7 +173,7 @@ def test_a_stream_start_on_a_camera_removed_while_it_is_not_streaming_is_refused
             scope.imaging.enable_streaming()
 
         assert refused.value.reason == 'not_connected'
-        assert refused.value.missing == MissingPart.CAMERA
+        assert refused.value.missing == MissingPart(Part.CAMERA)
         assert scope.camera_connected is False
     finally:
         session.shutdown()
@@ -188,7 +189,7 @@ def test_the_grab_benchmark_on_a_camera_removed_under_it_is_refused_not_connecte
             scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2)
 
         assert refused.value.reason == 'not_connected'
-        assert refused.value.missing == MissingPart.CAMERA
+        assert refused.value.missing == MissingPart(Part.CAMERA)
     finally:
         session.shutdown()
 
@@ -220,7 +221,7 @@ def test_an_led_on_that_finds_the_device_unplugged_is_refused_not_connected():
             scope.illumination.led_on('BF', 10.0)
 
         assert refused.value.reason == 'not_connected'
-        assert refused.value.missing == MissingPart.LED_CONTROLLER
+        assert refused.value.missing == MissingPart(Part.LED)
         assert scope.led_connected is False
     finally:
         session.shutdown()
@@ -279,7 +280,7 @@ def test_a_lease_release_that_finds_the_device_unplugged_is_refused_and_its_led_
             lease.release()
 
         assert refused.value.reason == 'not_connected'
-        assert refused.value.missing == MissingPart.LED_CONTROLLER
+        assert refused.value.missing == MissingPart(Part.LED)
         assert channel_reading(scope.illumination, 'BF').state is LedState.LIT
     finally:
         session.shutdown()
@@ -310,7 +311,7 @@ def test_a_gain_written_before_the_teardown_ends_is_refused_and_reads_unknown(se
     with pytest.raises(HardwareCommandRefusedError) as exc:
         scope.camera.set_gain_db(before + 6.0)
 
-    assert exc.value.missing == MissingPart.CAMERA
+    assert exc.value.missing == MissingPart(Part.CAMERA)
     assert scope.camera.gain_db is None
 
 

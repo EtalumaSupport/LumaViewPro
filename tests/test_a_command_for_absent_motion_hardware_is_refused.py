@@ -29,6 +29,8 @@ from _lumascope.modules.exceptions import (
     MissingPart,
     ProtocolRunRefusedError,
 )
+from _lumascope.modules.scope_parts import Part
+from _lumascope.modules.axes import StageAxis
 from _lumascope.modules.lumascope_api._constants import AxisState
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
@@ -122,11 +124,11 @@ _MANUAL_REFUSES = {
 
 # The commands a Z-only scope refuses, each with the part it names.
 _Z_ONLY_REFUSES = {
-    'move_x': (lambda m: m.move_xy(x_um=1000.0), MissingPart.X),
-    'move_y': (lambda m: m.start_move_xy_by(dy_um=10.0), MissingPart.Y),
-    'move_turret': (lambda m: m.move_turret(2), MissingPart.TURRET),
-    'home_t': (lambda m: m.home('T'), MissingPart.TURRET),
-    'limits_x': (lambda m: m.get_axis_limits('X'), MissingPart.X),
+    'move_x': (lambda m: m.move_xy(x_um=1000.0), MissingPart(Part.AXIS, axis=StageAxis.X)),
+    'move_y': (lambda m: m.start_move_xy_by(dy_um=10.0), MissingPart(Part.AXIS, axis=StageAxis.Y)),
+    'move_turret': (lambda m: m.move_turret(2), MissingPart(Part.TURRET)),
+    'home_t': (lambda m: m.home('T'), MissingPart(Part.TURRET)),
+    'limits_x': (lambda m: m.get_axis_limits('X'), MissingPart(Part.AXIS, axis=StageAxis.X)),
 }
 
 
@@ -149,7 +151,7 @@ def _refused_otherwise(commands: dict, motion) -> dict:
 @pytest.mark.parametrize('model', MANUAL)
 def test_a_manual_scope_has_no_motors(make_session, model):
     scope = make_session(model).scope
-    expected = ('axis_absent', MissingPart.MOTORS, 'This microscope has no motors.')
+    expected = ('axis_absent', MissingPart(Part.MOTORS), 'This microscope has no motors.')
 
     commands = {name: (command, expected) for name, command in _MANUAL_REFUSES.items()}
     assert _refused_otherwise(commands, scope.motion) == {}
@@ -188,13 +190,45 @@ def test_the_travel_of_an_axis_the_tmcm_stage_lacks_is_refused_over_the_wire(mak
     session = make_session('LS720', homed=False)
     with pytest.raises(HardwareCommandRefusedError) as python:
         session.scope.motion.get_axis_limits('T')
-    assert (python.value.reason, python.value.missing) == ('axis_absent', MissingPart.TURRET)
+    assert (python.value.reason, python.value.missing) == ('axis_absent', MissingPart(Part.TURRET))
 
     with TestClient(build_app(session)) as client:
         answer = client.get('/api/v1/scope/motion/get_axis_limits', params={'axis': 'T'})
 
     assert answer.status_code == 422
     assert (answer.json()['reason'], answer.json()['detail']) == ('axis_absent', str(python.value))
+
+
+def test_a_wire_client_is_told_which_part_is_missing(make_session):
+    """The problem body names the missing part as data, the axis beside it, as Python's refusal does:
+    a client branches on the part, not on the sentence."""
+    session = make_session('LS820')
+
+    with TestClient(build_app(session)) as client:
+        answer = client.post('/api/v1/scope/motion/move_xy', json={'x_um': 1000.0})
+
+    assert answer.status_code == 422
+    assert answer.json()['missing'] == {
+        'part': 'axis',
+        'axis': 'X',
+        'channel': None,
+        'address': None,
+    }
+
+
+def test_a_part_is_built_with_exactly_the_qualifier_it_takes():
+    """A stage axis's motor names its axis, a channel's LED its channel, an LED address its address,
+    and every other part none: a missing part that does not say which, or says which of a part
+    there is one of, is not built."""
+    assert MissingPart(Part.AXIS, axis=StageAxis.Z).sentence == 'This microscope has no Z motor.'
+    for wrong in (
+        lambda: MissingPart(Part.AXIS),
+        lambda: MissingPart(Part.CHANNEL_LED),
+        lambda: MissingPart(Part.LED_ADDRESS, channel='BF'),
+        lambda: MissingPart(Part.TURRET, axis=StageAxis.X),
+    ):
+        with pytest.raises(TypeError):
+            wrong()
 
 
 # parametrize-justified: each model brings up its own scope and motion boards
@@ -218,7 +252,7 @@ def test_a_pulled_cable_refuses_the_move_and_shutdown_closes_clean(make_session,
 
     refusal = _refused(lambda: scope.motion.move_xy(x_um=1000.0))
 
-    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.MOTOR_CONTROLLER)
+    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart(Part.MOTOR))
     assert 'Check the USB cable' in str(refusal)
     assert sent == []
     session.shutdown()
@@ -233,7 +267,7 @@ def test_go_to_step_on_a_scope_whose_board_did_not_come_up_is_refused(make_sessi
 
     refusal = _refused(lambda: session.start_go_to_step(protocol, 0))
 
-    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.MOTOR_CONTROLLER)
+    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart(Part.MOTOR))
 
 
 # parametrize-justified: each model brings up its own scope and motion boards

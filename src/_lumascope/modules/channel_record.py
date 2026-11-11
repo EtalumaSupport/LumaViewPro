@@ -43,6 +43,7 @@ from _lumascope.modules.exceptions import (
     Notice,
     ScopeModelUnknownError,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.path_utils import read_installation_file, resolve_data_file
 from _lumascope.modules.api_surface import api, api_fields
 from _lumascope.modules.closed_sets import member_of
@@ -339,7 +340,7 @@ class ChannelIdentity:
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, naming the
-                channel (``MissingPart.channel``).
+                channel (``Part.CHANNEL``).
             ConfigurationDefectError: ``'channels_unresolved'``, this unit's
                 channels could not be resolved, so ``channel`` cannot ``then``.
         """
@@ -347,7 +348,7 @@ class ChannelIdentity:
         if self.find(channel) is not None:
             return
         if self.channels:
-            part = MissingPart.channel(channel)
+            part = MissingPart(Part.CHANNEL, channel=channel)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
         raise ConfigurationDefectError(
             'channels_unresolved',

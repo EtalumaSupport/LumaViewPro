@@ -1625,8 +1625,6 @@ _TAUGHT_SEED: dict[tuple[str, str], int] = {
     ('docs/api-reference.md', 'Lumascope.disconnect'): 2,
     ('docs/api-reference.md', 'Lumascope.initialize'): 1,
     ('docs/api-reference.md', 'MetricsLogger.start'): 1,
-    ('docs/api-reference.md', 'MissingPart.XY_STAGE'): 1,
-    ('docs/api-reference.md', 'MissingPart.channel'): 1,
     ('docs/api-reference.md', 'ObjectiveLoader.get_objective_info'): 1,
     ('docs/api-reference.md', 'ObjectiveLoader.objectives'): 1,
     ('docs/api-reference.md', 'Operation.all_of'): 3,

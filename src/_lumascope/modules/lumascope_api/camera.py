@@ -46,6 +46,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.activity_claim import ActivityHolder, current_taking, guarded_write
 from _lumascope.modules.live_work import WorkKind
 from _lumascope.modules.frame_validity import FrameValidity, FrameValiditySource
@@ -92,7 +93,7 @@ def _camera_not_connected(member: str) -> HardwareCommandRefusedError:
     Built from the asker's own answer, never a second poll: a camera that
     answered connected on a re-ask would leave the refusal unraised.
     """
-    part = MissingPart.CAMERA
+    part = MissingPart(Part.CAMERA)
     return HardwareCommandRefusedError(part.reason, member, missing=part)
 
 
@@ -1477,7 +1478,7 @@ class CameraAPI:
             try:
                 return impl(*args, **kwargs)
             except HardwareCommandRefusedError as refusal:
-                if refused_when_absent or refusal.missing is not MissingPart.CAMERA:
+                if refused_when_absent or refusal.missing != MissingPart(Part.CAMERA):
                     raise
                 return satisfied_when_absent
             except Fault as fault:

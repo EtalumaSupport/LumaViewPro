@@ -21,6 +21,7 @@ from _lumascope.modules.exceptions import (
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import direct_call_names, find_def, parse_module, walk_defs
 from tests.settings_fixtures import complete_settings
@@ -79,7 +80,7 @@ def test_a_z_that_is_not_a_number_is_refused_as_one_and_nothing_written(session,
 def test_a_layer_this_scope_does_not_have_is_refused(session):
     with pytest.raises(HardwareCommandRefusedError) as refused:
         session.save_channel_focus('Lumi', 1000.0)
-    assert refused.value.missing == MissingPart.channel('Lumi')
+    assert refused.value.missing == MissingPart(Part.CHANNEL, channel='Lumi')
 
 
 def test_a_scope_with_no_z_refuses_a_focus(tmp_path):

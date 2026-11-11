@@ -21,7 +21,7 @@ from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedErro
 from _lumascope.drivers.fx2driver import FX2LEDController
 from _lumascope.drivers.sim_wire.port import EmulatedPort
 from _lumascope.modules.exceptions import LedSafetyOffNotTakenError
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -109,7 +109,7 @@ def test_a_safety_off_not_taken_is_told_once_and_leaves_every_led_unknown(
         warn_pre_release=False,
     )
     try:
-        led = next(p for p in session.bring_up_record().parts if p.part == Part.LED)
+        led = next(p for p in session.bring_up_record().parts if p.part == Board.LED)
         assert (led.up, led.cause) == (True, 'safety_off_failed')
         assert led.detail.startswith(f'{fault.__name__}: ')
         told = [n for n in centre_posts if n.reason == 'safety_off_failed']

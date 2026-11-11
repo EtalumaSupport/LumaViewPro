@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 from _lumascope.modules.exceptions import HardwareCommandRefusedError, HomingFaultError, MissingPart
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -49,9 +50,7 @@ def test_no_motor_controller_is_shown_once_as_not_connected(session, centre_post
     turret = []
     session.run_application_session(
         home_fn=_raises(
-            HardwareCommandRefusedError(
-                'not_connected', 'home', missing=MissingPart.MOTOR_CONTROLLER
-            )
+            HardwareCommandRefusedError('not_connected', 'home', missing=MissingPart(Part.MOTOR))
         ),
         turret_fn=turret.append,
     )

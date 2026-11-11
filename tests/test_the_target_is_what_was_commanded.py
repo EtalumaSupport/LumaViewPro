@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.modules.exceptions import MoveNotCompletedError, PositionOutOfRangeError
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.lumascope_api.motion import AxisState
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app
@@ -125,7 +125,7 @@ def test_a_lost_motor_board_leaves_no_axis_a_target(session):
     the axis store: every axis answers None, as ``axis_positions`` does."""
     motion = session.scope.motion
     motion.move_z(100.0)
-    session.scope.simulation.unplug(Part.MOTOR)
+    session.scope.simulation.unplug(Board.MOTOR)
     with pytest.raises(HardwareError):
         motion.get_actual_position('Z')
 

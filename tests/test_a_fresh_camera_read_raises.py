@@ -28,6 +28,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api.camera import CameraAPI
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -112,7 +113,7 @@ def test_with_no_camera_every_fresh_read_is_refused_naming_it(no_hardware_scope)
         try:
             answered[read] = getattr(no_hardware_scope.camera, read)()
         except HardwareCommandRefusedError as refusal:
-            if (refusal.reason, refusal.missing) != ('not_connected', MissingPart.CAMERA):
+            if (refusal.reason, refusal.missing) != ('not_connected', MissingPart(Part.CAMERA)):
                 answered[read] = refusal
     assert answered == {}
 

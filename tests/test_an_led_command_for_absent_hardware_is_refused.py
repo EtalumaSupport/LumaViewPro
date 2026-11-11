@@ -29,6 +29,7 @@ from _lumascope.modules.exceptions import (
     MissingPart,
     ProtocolRunRefusedError,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api.illumination import (
     LedReading,
     LedState,
@@ -102,8 +103,14 @@ def test_with_its_board_an_led_lights_and_goes_dark_as_before(make_session, capl
 
 
 _LIGHTS = {
-    f'the name {LED2}': (lambda il: il.led_on(LED2, 10.0), MissingPart.led(LED2)),
-    'the address 2': (lambda il: il.led_on_by_address(2, 10.0), MissingPart.led_address(2)),
+    f'the name {LED2}': (
+        lambda il: il.led_on(LED2, 10.0),
+        MissingPart(Part.CHANNEL_LED, channel=LED2),
+    ),
+    'the address 2': (
+        lambda il: il.led_on_by_address(2, 10.0),
+        MissingPart(Part.LED_ADDRESS, address=2),
+    ),
 }
 
 
@@ -135,7 +142,7 @@ def test_a_restore_of_an_address_the_model_lacks_is_refused_naming_the_restore(
     assert (refusal.reason, refusal.member, refusal.missing) == (
         'not_on_this_scope',
         'restore_led_state',
-        MissingPart.led_address(2),
+        MissingPart(Part.LED_ADDRESS, address=2),
     )
     assert sent == []
 
@@ -190,8 +197,8 @@ def test_without_its_board_a_light_is_refused_and_an_off_is_satisfied(
         lambda: illumination.apply_transition(LedTransition.MANUAL_STEP, _preview(True)),
     ):
         refusal = _refused(light)
-        assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.LED_CONTROLLER)
-        assert str(refusal) == MissingPart.LED_CONTROLLER.sentence
+        assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart(Part.LED))
+        assert str(refusal) == MissingPart(Part.LED).sentence
     illumination.led_off('BF')
     illumination.leds_off()
     illumination.apply_transition(LedTransition.MANUAL_STEP, _preview(False))
@@ -300,7 +307,7 @@ def test_go_to_step_without_the_board_moves_only_when_its_preview_is_dark(
         assert scope.motion.get_current_position('Z') == pytest.approx(3000.0, abs=1.0)
     else:
         refusal = _refused(lambda: session.start_go_to_step(_protocol(), 0))
-        assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.LED_CONTROLLER)
+        assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart(Part.LED))
         assert scope.motion.get_current_position('Z') == before
 
 

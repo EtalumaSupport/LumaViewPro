@@ -353,13 +353,14 @@ class TestLumascopeLedAPI:
         # no-op at the driver while the state cache went on claiming the
         # channel was on.
         from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+        from _lumascope.modules.scope_parts import Part
 
         scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
         with pytest.raises(HardwareCommandRefusedError) as refused:
             scope.illumination.led_on_by_address(0, 50)
         assert (refused.value.reason, refused.value.missing) == (
             'not_connected',
-            MissingPart.LED_CONTROLLER,
+            MissingPart(Part.LED),
         )
         assert len(io_ex.submitted) == 1
         assert scope.illumination._led_state == {}

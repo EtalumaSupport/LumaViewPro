@@ -18,6 +18,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.channel_record import UNRESOLVED
 from _lumascope.modules.lumascope_api.illumination import LedReading, LedState
 from tests.scope_fakes import build_scope, led_reading
@@ -77,7 +78,7 @@ def test_an_address_the_model_does_not_drive_is_refused_naming_the_member():
     assert (refused.value.reason, refused.value.member, refused.value.missing) == (
         'not_on_this_scope',
         'led_on_by_address',
-        MissingPart.led_address(1),
+        MissingPart(Part.LED_ADDRESS, address=1),
     )
     assert state == LedState.DARK
 

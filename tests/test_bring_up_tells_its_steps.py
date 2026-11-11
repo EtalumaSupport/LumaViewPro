@@ -26,7 +26,7 @@ MODELS = ('LS850', 'LS850T', 'LS820', 'Lumi', 'LS620', 'LS560')
 
 STEPS = [
     (0.0, 'Connecting the Motor Controller'),
-    (25.0, 'Connecting the LED Board'),
+    (25.0, 'Connecting the LED Controller'),
     (50.0, 'Connecting the Camera'),
     (75.0, 'Configuring the scope'),
 ]

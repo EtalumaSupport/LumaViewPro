@@ -26,6 +26,7 @@ from _lumascope.modules.exceptions import (
     MissingPart,
     ProtocolRunRefusedError,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.channel_record import UNRESOLVED
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -91,7 +92,7 @@ def test_new_and_add_build_no_step_for_a_layer_this_scope_lacks(ls850):
 def test_a_layer_this_scope_lacks_is_refused_acquire_and_allowed_nothing(ls850):
     with pytest.raises(HardwareCommandRefusedError) as refused:
         ls850.set_channel_acquire('Lumi', 'image')
-    assert refused.value.missing == MissingPart.channel('Lumi')
+    assert refused.value.missing == MissingPart(Part.CHANNEL, channel='Lumi')
     assert ls850.settings['Lumi']['acquire'] is None
 
     ls850.set_channel_acquire('Lumi', None)

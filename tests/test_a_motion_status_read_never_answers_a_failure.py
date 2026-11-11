@@ -28,6 +28,7 @@ from _lumascope.modules.exceptions import (
     MissingPart,
     MoveNotCompletedError,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api._constants import AxisState
 from tests.log_capture import messages, records_of
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
@@ -69,7 +70,7 @@ def test_a_turret_the_scope_lacks_is_refused(make_session, member):
 
     refusal = _refused(_status_reads(scope.motion, 'T')[member])
 
-    assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart.TURRET)
+    assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart(Part.TURRET))
 
 
 @pytest.mark.parametrize('member', ['get_target_status', 'get_limit_switch_status'])
@@ -78,7 +79,7 @@ def test_a_manual_scope_has_no_motors_to_read(make_session, member):
 
     refusal = _refused(_status_reads(scope.motion, 'Z')[member])
 
-    assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart.MOTORS)
+    assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart(Part.MOTORS))
 
 
 @pytest.mark.parametrize('member', ['get_target_status', 'get_limit_switch_status'])
@@ -88,7 +89,7 @@ def test_a_pulled_cable_is_refused(make_session, monkeypatch, member):
 
     refusal = _refused(_status_reads(scope.motion, 'Z')[member])
 
-    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart.MOTOR_CONTROLLER)
+    assert (refusal.reason, refusal.missing) == ('not_connected', MissingPart(Part.MOTOR))
 
 
 def test_every_switch_with_a_pulled_cable_is_refused(make_session, monkeypatch):

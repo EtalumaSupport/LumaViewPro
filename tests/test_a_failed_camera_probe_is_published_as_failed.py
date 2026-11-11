@@ -37,7 +37,7 @@ from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules import scope_capabilities
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app
@@ -113,7 +113,7 @@ def test_a_failed_toggle_probe_keeps_the_saved_setting_and_is_on_the_record(togg
     assert scope.camera.high_conversion_gain is None, 'what the camera holds is not known'
     assert toggles.written == []
 
-    camera_part = next(p for p in toggles.session.bring_up_record().parts if p.part == Part.CAMERA)
+    camera_part = next(p for p in toggles.session.bring_up_record().parts if p.part == Board.CAMERA)
     assert camera_part.cause == 'settings_not_applied'
     assert (
         "CameraReadFailedError: The camera's conversion gain probe failed when it came up; "

@@ -22,6 +22,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera, grab_a_frame_made_after_now
 from tests.settings_fixtures import complete_settings
@@ -108,7 +109,7 @@ def test_with_no_active_camera_the_range_read_is_refused_naming_it(sim_scope):
         pytest.raises(HardwareCommandRefusedError) as exc,
     ):
         sim_scope.camera.get_black_level_range()
-    assert (exc.value.reason, exc.value.missing) == ('not_connected', MissingPart.CAMERA)
+    assert (exc.value.reason, exc.value.missing) == ('not_connected', MissingPart(Part.CAMERA))
 
 
 @pytest.fixture(scope='module')

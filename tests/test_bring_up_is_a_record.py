@@ -39,10 +39,10 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.lumascope_api.bring_up import (
     CAUSE_PHRASES,
-    Part,
     PartStatus,
     SettingsSetAside,
 )
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.notification_center import OutcomeKind
 from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import find_def
@@ -128,7 +128,7 @@ class TestEachPartNamesItsCause:
         # one would raise where bring-up reports the camera that failed.
         missing = sorted(set(CameraNotAvailableError._WORDS) - set(CAUSE_PHRASES))
         assert missing == []
-        assert PartStatus(Part.CAMERA, up=False, cause='camera_firmware_missing').describe() == (
+        assert PartStatus(Board.CAMERA, up=False, cause='camera_firmware_missing').describe() == (
             'Camera (firmware file missing)'
         )
 
@@ -142,7 +142,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            motor = _status(s.bring_up_record(), Part.MOTOR)
+            motor = _status(s.bring_up_record(), Board.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, True, 'port_in_use')
             assert motor.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
@@ -217,7 +217,7 @@ class TestEachPartNamesItsCause:
             microscope='LS620',
         )
         try:
-            motor = _status(s.bring_up_record(), Part.MOTOR)
+            motor = _status(s.bring_up_record(), Board.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, 'not_detected')
             assert not motor.missing
             assert s.bring_up_record().missing == ()
@@ -242,7 +242,7 @@ class TestEachPartNamesItsCause:
         )
         try:
             assert s.scope.channel_identity.source == 'stock'
-            led = _status(s.bring_up_record(), Part.LED)
+            led = _status(s.bring_up_record(), Board.LED)
             assert (led.up, led.expected, led.cause) == (False, True, 'port_in_use')
             assert led in s.bring_up_record().missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
@@ -263,7 +263,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            led = _status(s.bring_up_record(), Part.LED)
+            led = _status(s.bring_up_record(), Board.LED)
             assert (led.up, led.cause) == (False, 'not_responding')
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason) for n in faults] == [
@@ -284,7 +284,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            camera = _status(s.bring_up_record(), Part.CAMERA)
+            camera = _status(s.bring_up_record(), Board.CAMERA)
             assert (camera.up, camera.cause) == (False, 'port_in_use')
             assert 'PermissionError' in camera.detail
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
@@ -340,7 +340,7 @@ class TestASimulatedManualScope:
             warn_pre_release=False,
         )
         try:
-            motor = _status(s.bring_up_record(), Part.MOTOR)
+            motor = _status(s.bring_up_record(), Board.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, None)
             assert s.bring_up_record().missing == ()
             assert centre_posts == []
@@ -397,7 +397,7 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
             monkeypatch, tmp_path, camera=_no_camera_with_the_fx2_declined(), microscope='LS850T'
         )
         try:
-            camera = _status(s.bring_up_record(), Part.CAMERA)
+            camera = _status(s.bring_up_record(), Board.CAMERA)
             assert camera.cause == 'not_detected'
             # The record still names the driver that did not load.
             assert 'fx2: pyusb is not installed' in camera.detail
@@ -438,8 +438,8 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
         )
         try:
             record = s.bring_up_record()
-            assert _status(record, Part.CAMERA).cause == 'camera_driver_unavailable'
-            assert _status(record, Part.LED).cause == 'led_driver_unavailable'
+            assert _status(record, Board.CAMERA).cause == 'camera_driver_unavailable'
+            assert _status(record, Board.LED).cause == 'led_driver_unavailable'
             assert _told(centre_posts) == [
                 ('Camera', 'camera_driver_unavailable'),
                 ('Illumination', 'led_driver_unavailable'),
@@ -459,7 +459,7 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
             microscope='LS850T',
         )
         try:
-            assert _status(s.bring_up_record(), Part.LED).cause == 'not_detected'
+            assert _status(s.bring_up_record(), Board.LED).cause == 'not_detected'
             assert _told(centre_posts) == [('Illumination', 'not_detected')]
         finally:
             s.shutdown()
@@ -479,8 +479,8 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
         )
         try:
             record = s.bring_up_record()
-            assert _status(record, Part.LED).cause == 'port_in_use'
-            assert _status(record, Part.CAMERA).cause == 'not_detected'
+            assert _status(record, Board.LED).cause == 'port_in_use'
+            assert _status(record, Board.CAMERA).cause == 'not_detected'
             assert _told(centre_posts) == [
                 ('Camera', 'not_detected'),
                 ('Illumination', 'port_in_use'),
@@ -496,7 +496,7 @@ class TestAProblemOnAPartThatCameUp:
     ):
         s = _bring_up(monkeypatch, tmp_path, led=_FirstAllOffUnanswered(), microscope='LS850T')
         try:
-            led = _status(s.bring_up_record(), Part.LED)
+            led = _status(s.bring_up_record(), Board.LED)
             assert (led.up, led.cause) == (True, 'safety_off_failed')
             assert led.detail == 'BoardNoReplyError: LEDS_OFF: no reply from the board'
             assert not led.missing
@@ -516,7 +516,7 @@ class TestAProblemOnAPartThatCameUp:
         )
         s = _bring_up(monkeypatch, tmp_path, motor=board, microscope='LS850T')
         try:
-            motor = _status(s.bring_up_record(), Part.MOTOR)
+            motor = _status(s.bring_up_record(), Board.MOTOR)
             assert (motor.up, motor.cause) == (True, 'acceleration_not_set')
             assert motor.detail == 'BoardNoReplyError: AMAXX: no reply from the board'
             assert not motor.missing

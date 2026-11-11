@@ -34,6 +34,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.channel_record import IdentitySource, refuse_unknown_channel
 from _lumascope.modules.sequential_io_executor import IOTask
 from _lumascope.modules.api_surface import Admission, api, api_fields
@@ -549,7 +550,7 @@ class IlluminationAPI:
         self._refuse_not_a_board_address(address, 'address')
         identity = self._scope.channel_identity
         if identity.source != IdentitySource.UNRESOLVED and identity.key_at(address) is None:
-            part = MissingPart.led_address(address)
+            part = MissingPart(Part.LED_ADDRESS, address=address)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
 
     def _drivable_address(self, channel: str) -> int | None:
@@ -582,7 +583,7 @@ class IlluminationAPI:
         self.refuse_controller_not_connected(member)
         address = self._drivable_address(channel)
         if address is None:
-            part = MissingPart.led(channel)
+            part = MissingPart(Part.CHANNEL_LED, channel=channel)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
         return address
 
@@ -604,7 +605,7 @@ class IlluminationAPI:
                 controller. Nothing was sent.
         """
         if not self._scope.led_connected:
-            part = MissingPart.LED_CONTROLLER
+            part = MissingPart(Part.LED)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
 
     def _has_board(self) -> bool:
@@ -1262,7 +1263,7 @@ class IlluminationAPI:
                 ``led_on`` says. Nothing was sent.
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
                 controller connected; ``'not_on_this_scope'``
-                (``MissingPart.led_address``) for an address this model does
+                (``Part.LED_ADDRESS``) for an address this model does
                 not drive; ``'exclusive_activity_running'``, another activity
                 holds the scope or the LEDs, or a manual recording runs and
                 ``illumination_ma`` is above 0 mA while the address is not lit

@@ -251,13 +251,16 @@ homing.result(timeout=120)
 
 **Parts a scope does not have.** A command for hardware the scope lacks is
 refused before anything moves, lights or is written, and its `missing`
-(a `MissingPart`) names the part:
+(a `MissingPart`) names the part, in Python and in the REST problem body:
+its `part` (a `Part`), with the `axis`, `channel` or `address` that says
+which where the part is one of several. A missing Ex589 LED is
+`{"part": "channel_led", "channel": "Ex589", "axis": null, "address": null}`.
 
 | Reason | Means |
 |---|---|
 | `'axis_absent'` | The scope has no such motion part: an axis, the turret, or no motors at all on a manual model. |
 | `'not_on_this_scope'` | The scope has no such part: an LED, a channel, fan control. |
-| `'not_connected'` | The part exists but is not connected: never came up, or its cable was pulled. |
+| `'not_connected'` | A board the model has (a `Board`: the motor controller, the LED controller, the camera) is not connected: it never came up, or its cable was pulled. A board is also a `Part`, by the same value. |
 
 ```python raises=HardwareCommandRefusedError:axis_absent
 scope.motion.move_turret(2)                 # this scope has no turret: axis_absent

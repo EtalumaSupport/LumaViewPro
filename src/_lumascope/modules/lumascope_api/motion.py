@@ -64,6 +64,7 @@ from _lumascope.modules.exceptions import (
     MoveWaitExpiredError,
     PositionOutOfRangeError,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.activity_claim import (
     Taking,
@@ -822,9 +823,9 @@ class MotionAPI:
         """
         self.refuse_controller_not_connected(member)
         if not self._scope.motor_connected:
-            part = MissingPart.MOTORS
+            part = MissingPart(Part.MOTORS)
         elif axis is not None and axis not in self._scope.capabilities.axes:
-            part = MissingPart.axis(axis)
+            part = MissingPart.of_axis(axis)
         else:
             return
         raise HardwareCommandRefusedError(part.reason, member, missing=part)
@@ -859,7 +860,7 @@ class MotionAPI:
     @staticmethod
     def _controller_not_connected(member: str) -> HardwareCommandRefusedError:
         """The refusal of ``member`` because the motor controller is not connected."""
-        part = MissingPart.MOTOR_CONTROLLER
+        part = MissingPart(Part.MOTOR)
         return HardwareCommandRefusedError(part.reason, member, missing=part)
 
     def _position_unread(self, member: str) -> HardwareCommandRefusedError:

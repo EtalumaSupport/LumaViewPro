@@ -3052,15 +3052,17 @@ class TestPylonDiagnosticProbe:
     def test_no_camera_is_refused_naming_it(self):
         """With no camera the probe is refused, naming the camera."""
         from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+        from _lumascope.modules.scope_parts import Part
 
         scope = self._make_scope_with_fake_camera(None)
         with pytest.raises(HardwareCommandRefusedError) as exc:
             scope.diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
-        assert exc.value.missing == MissingPart.CAMERA
+        assert exc.value.missing == MissingPart(Part.CAMERA)
 
     def test_an_inactive_camera_is_refused_naming_it(self):
         """Camera object exists but inactive: no camera is connected."""
         from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+        from _lumascope.modules.scope_parts import Part
 
         class _Fake:
             active = None
@@ -3069,7 +3071,7 @@ class TestPylonDiagnosticProbe:
             self._make_scope_with_fake_camera(_Fake()).diagnostics.run_pylon_diagnostic_probe(
                 duration_s=0.0
             )
-        assert exc.value.missing == MissingPart.CAMERA
+        assert exc.value.missing == MissingPart(Part.CAMERA)
 
     def test_no_read_diagnostic_snapshot_method(self):
         """If the driver does not implement read_diagnostic_snapshot at

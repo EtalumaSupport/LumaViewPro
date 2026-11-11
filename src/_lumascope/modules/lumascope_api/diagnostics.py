@@ -30,6 +30,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.axes import Axis
 from _lumascope.drivers import host_clock
 from _lumascope.modules import wall_time
@@ -1135,9 +1136,9 @@ class DiagnosticsAPI:
                 scope and this call is not made under its taking. Or the
                 board is not there, as every command for it is refused:
                 ``'not_connected'``, naming the motor or LED controller;
-                ``'axis_absent'``, ``MissingPart.MOTORS``, for a motor
+                ``'axis_absent'``, ``MissingPart(Part.MOTORS)``, for a motor
                 command on a manual scope. Or ``'not_on_this_scope'``,
-                ``MissingPart.TEXT_COMMANDS``: the board takes no text
+                ``MissingPart(Part.TEXT_COMMANDS)``: the board takes no text
                 commands (a TMCM-6110, a Classic's FX2 LED controller).
                 Nothing was sent.
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
@@ -1256,7 +1257,7 @@ class DiagnosticsAPI:
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name; nothing was read.
             HardwareCommandRefusedError: ``'not_connected'`` (the motor
-                controller), or ``'axis_absent'``, ``MissingPart.MOTORS`` on
+                controller), or ``'axis_absent'``, ``MissingPart(Part.MOTORS)`` on
                 a manual scope; nothing was read.
         """
         self._scope.motion.refuse_absent('read_motor_drv_status')
@@ -1274,7 +1275,7 @@ class DiagnosticsAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` (the motor
-                controller), or ``'axis_absent'``, ``MissingPart.MOTORS`` on
+                controller), or ``'axis_absent'``, ``MissingPart(Part.MOTORS)`` on
                 a manual scope; nothing was read.
         """
         self._scope.motion.refuse_absent('read_motor_fan_rpm')
@@ -1313,8 +1314,8 @@ class DiagnosticsAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` (the motor
-                controller); ``'axis_absent'``, ``MissingPart.MOTORS`` on a
-                manual scope; or ``'not_on_this_scope'``, ``MissingPart.FAN_CONTROL``
+                controller); ``'axis_absent'``, ``MissingPart(Part.MOTORS)`` on a
+                manual scope; or ``'not_on_this_scope'``, ``MissingPart(Part.FAN_CONTROL)``
                 for a controller without fan control. Nothing was sent.
             ArgumentRefusedError: ``'fan_duty_out_of_range'``, ``duty_pct``
                 is outside 0..100. Asked after the hardware, before anything
@@ -1338,7 +1339,7 @@ class DiagnosticsAPI:
     def _set_motor_fan_duty_impl(drv, duty_pct: int) -> None:
         # Asked on the lane: the support probe is a board exchange.
         if not drv.supports_fan():
-            part = MissingPart.FAN_CONTROL
+            part = MissingPart(Part.FAN_CONTROL)
             raise HardwareCommandRefusedError(part.reason, 'set_motor_fan_duty', missing=part)
         drv.set_fan_duty(duty_pct)
 
@@ -1359,7 +1360,7 @@ class DiagnosticsAPI:
         """
         self._scope.illumination.refuse_controller_not_connected(member)
         if not hasattr(self._scope._led_driver, 'enter_engineering_mode'):
-            part = MissingPart.LED_ENGINEERING_MODE
+            part = MissingPart(Part.LED_ENGINEERING_MODE)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
 
     @api(in_process=True, engineering=True)
@@ -1373,7 +1374,7 @@ class DiagnosticsAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` (the LED
                 controller) or ``'not_on_this_scope'``
-                (``MissingPart.LED_ENGINEERING_MODE``, a controller without
+                (``MissingPart(Part.LED_ENGINEERING_MODE)``, a controller without
                 the handshake). Nothing was sent.
             BoardNoReplyError: ``'board_no_reply'``, the board did not answer
                 FACTORY.
@@ -1539,7 +1540,7 @@ class DiagnosticsAPI:
             HardwareCommandRefusedError: a run, a diagnostic or a home holds
                 the scope and this call is not made under its taking; or
                 ``'not_connected'`` (the LED controller); or
-                ``'not_on_this_scope'``, ``MissingPart.TEXT_COMMANDS``: a
+                ``'not_on_this_scope'``, ``MissingPart(Part.TEXT_COMMANDS)``: a
                 board that takes no text commands. Nothing was sent.
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
@@ -1695,6 +1696,6 @@ class DiagnosticsAPI:
     @staticmethod
     def _text_board(board, member: str):
         if not board.takes_text_commands:
-            part = MissingPart.TEXT_COMMANDS
+            part = MissingPart(Part.TEXT_COMMANDS)
             raise HardwareCommandRefusedError(part.reason, member, missing=part)
         return board

@@ -29,6 +29,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 
@@ -112,7 +113,7 @@ class TestOnlyAConfirmedRejectionRaises:
         for write in (lambda: camera.set_gain_db(7.0), lambda: camera.set_exposure_ms(25.0)):
             with pytest.raises(HardwareCommandRefusedError) as exc:
                 write()
-            assert exc.value.missing == MissingPart.CAMERA
+            assert exc.value.missing == MissingPart(Part.CAMERA)
 
 
 class TestARefusalIsNotRecordedAsTruth:

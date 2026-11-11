@@ -19,6 +19,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -57,6 +58,6 @@ def test_with_no_camera_nothing_is_binned_and_the_binning_reads_unknown(session,
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
         session.scope.camera.set_binning(1)
-    assert exc.value.missing == MissingPart.CAMERA
+    assert exc.value.missing == MissingPart(Part.CAMERA)
 
     assert session.scope.camera.binning is None

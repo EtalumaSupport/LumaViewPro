@@ -28,7 +28,7 @@ from _lumascope.modules.protocol_run_loop import ProtocolRunLoop
 
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.lumascope_api import Lumascope
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
@@ -1634,7 +1634,7 @@ class SequencedCaptureRunner:
         except CameraReadFailedError as unread:
             logger.error(f'[{self.LOGGER_NAME} ] The camera snapshot could not be read: {unread}')
             if self._scope.camera.camera_removed:
-                return hardware_disconnected_at_start_ending((Part.CAMERA,))
+                return hardware_disconnected_at_start_ending((Board.CAMERA,))
             return RunEnding(
                 RunStatus.FAILED_AT_START,
                 'camera_read_failed',
@@ -1648,14 +1648,14 @@ class SequencedCaptureRunner:
             if unanswered.reason == 'call_overran':
                 return _CAMERA_LANE_STALLED
             # 'lane_closed': the scope disconnected while the snapshot was read.
-            return hardware_disconnected_at_start_ending((Part.CAMERA,))
+            return hardware_disconnected_at_start_ending((Board.CAMERA,))
         except HardwareCommandRefusedError as refused:
             # The camera left, or the scope disconnected, while the snapshot
             # waited on the lane.
             if refused.reason not in ('not_connected', 'scope_disconnected'):
                 raise
             logger.error(f'[{self.LOGGER_NAME} ] The camera snapshot was refused: {refused}')
-            return hardware_disconnected_at_start_ending((Part.CAMERA,))
+            return hardware_disconnected_at_start_ending((Board.CAMERA,))
         self._original_led_states = self._scope.illumination.get_led_states()
         # No target brightness is written here: every step that arms
         # auto-gain, and every one-shot, hands the camera its target in the

@@ -42,10 +42,11 @@ from _lumascope.modules.exceptions import (
     Refusal,
     RefusalCause,
 )
+from _lumascope.modules.scope_parts import MISSING_PART_REASONS, Part
+from _lumascope.modules.axes import StageAxis
 from tests import ast_seams
 from tests.guards.test_every_refusal_states_its_reason import _base_name, _classes
 from tests.case_walk import failing_cases
-from tests.stock_channels import LED2
 
 
 def _types_mixing_in(mixin):
@@ -105,7 +106,9 @@ def test_a_mixed_types_cause_follows_its_reason():
     assert HardwareCommandRefusedError('exclusive_activity_running', 'm').cause == (
         RefusalCause.STATE
     )
-    absent = HardwareCommandRefusedError('axis_absent', 'm', missing=MissingPart.X)
+    absent = HardwareCommandRefusedError(
+        'axis_absent', 'm', missing=MissingPart(Part.AXIS, axis=StageAxis.X)
+    )
     assert absent.cause == RefusalCause.REQUEST
     assert LiveFolderPathRefusedError('capture_location_unusable', 'n', 'm').cause == (
         RefusalCause.STATE
@@ -116,9 +119,7 @@ def test_a_mixed_types_cause_follows_its_reason():
 
 
 def _missing_part_reasons():
-    parts = [p for p in vars(MissingPart).values() if isinstance(p, MissingPart)]
-    parts += [MissingPart.led(LED2), MissingPart.led_address(1)]
-    return {p.reason for p in parts}
+    return MISSING_PART_REASONS
 
 
 class _RaisedReasons(ast.NodeVisitor):

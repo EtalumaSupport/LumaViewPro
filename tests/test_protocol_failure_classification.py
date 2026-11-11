@@ -34,7 +34,7 @@ fires the regression.
 from __future__ import annotations
 
 from _lumascope.drivers.exceptions import BoardPortFailedError
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 
 
 class TestRunLoopInnerClassifiesByConnection:
@@ -60,7 +60,7 @@ class TestRunLoopInnerClassifiesByConnection:
         runner = run_loop_ready_runner(protocol_step())
         runner._protocol.step_row.side_effect = BoardPortFailedError('serial dropped mid-step')
         runner._scope.unconnected_parts = MagicMock(
-            return_value=() if connected else (Part.CAMERA,)
+            return_value=() if connected else (Board.CAMERA,)
         )
         runner._run_loop_executor.run_loop(runner._last_run())
         captured = [

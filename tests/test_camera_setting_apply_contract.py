@@ -40,6 +40,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.notification_center import Severity
 from tests.test_camera_getter_sentinel_containment import (
     GOOD_ROUND,
@@ -253,7 +254,7 @@ def test_set_pixel_format_driver_raise_becomes_typed_rejection(centre_posts):
 def _refused_for_the_camera(apply) -> None:
     with pytest.raises(HardwareCommandRefusedError) as exc:
         apply()
-    assert exc.value.missing == MissingPart.CAMERA
+    assert exc.value.missing == MissingPart(Part.CAMERA)
 
 
 def test_absent_camera_setters_are_refused_and_post_nothing(centre_posts):

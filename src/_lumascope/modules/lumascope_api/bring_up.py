@@ -10,52 +10,27 @@ from these facts once, through the reporter, and this is what stays behind.
 
 from __future__ import annotations
 
-import enum
 import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.api_surface import ProgressCallback, api, api_fields
-from _lumascope.modules.exceptions import MissingPart
+from _lumascope.modules.scope_parts import Board
 
 if TYPE_CHECKING:
     from _lumascope.modules.settings_init import SettingValue
 
 
-class Part(enum.StrEnum):
-    """The parts a scope is made of, in the order the record lists them."""
-
-    MOTOR = 'motor'
-    LED = 'led'
-    CAMERA = 'camera'
-
-    @property
-    def noun(self) -> str:
-        """The part as a sentence names it: the LED controller is not connected."""
-        return _PART_NOUNS[self]
+def connecting(board: Board) -> str:
+    """The bring-up step that connects ``board``, as its progress report words it."""
+    return f'Connecting the {board.label}'
 
 
-# A part's noun is the one its refusal names (``MissingPart``), so a run's
-# ending and a command's refusal word one part alike.
-_PART_NOUNS = {
-    Part.MOTOR: MissingPart.MOTOR_CONTROLLER.name,
-    Part.LED: MissingPart.LED_CONTROLLER.name,
-    Part.CAMERA: MissingPart.CAMERA.name,
-}
-
-PART_LABELS = {Part.MOTOR: 'Motor Controller', Part.LED: 'LED Board', Part.CAMERA: 'Camera'}
-
-
-def connecting(part: Part) -> str:
-    """The bring-up step that connects ``part``, as its progress report words it."""
-    return f'Connecting the {PART_LABELS[part]}'
-
-
-# Bring-up's steps, in the order they run: each part connected, in the
+# Bring-up's steps, in the order they run: each board connected, in the
 # record's order, then the scope configured. Their words are the progress
-# report's status lines, so a part is named one way.
+# report's status lines, so a board is named one way.
 CONFIGURING = 'Configuring the scope'
-STEPS = (*(connecting(part) for part in Part), CONFIGURING)
+STEPS = (*(connecting(board) for board in Board), CONFIGURING)
 
 
 def report_step(on_progress: ProgressCallback | None, step: str) -> None:
@@ -98,7 +73,7 @@ class PartStatus:
     """One part of the scope at bring-up.
 
     Attributes:
-        part: Which part.
+        part: Which board.
         up: Whether a real driver came up for it.
         expected: Whether this scope's model has one. A manual scope has no
             motor board, so its absence is not a failure; until the model is
@@ -116,7 +91,7 @@ class PartStatus:
             none.
     """
 
-    part: Part
+    part: Board
     up: bool
     expected: bool = True
     cause: str | None = None
@@ -139,7 +114,7 @@ class PartStatus:
         Raises:
             Nothing.
         """
-        label = PART_LABELS[self.part]
+        label = self.part.label
         if self.cause is None:
             return label
         return f'{label} ({CAUSE_PHRASES[self.cause]})'

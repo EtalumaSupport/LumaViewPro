@@ -14,6 +14,7 @@ import pytest
 
 from _lumascope.drivers.exceptions import BoardNoReplyError
 from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -62,7 +63,10 @@ def test_a_board_that_does_not_answer_raises(scope_of):
 def test_a_manual_scope_is_refused_a_motor_read_for_its_missing_motors(scope_of, send):
     with pytest.raises(HardwareCommandRefusedError) as refused:
         send(scope_of('LS620').diagnostics)
-    assert (refused.value.reason, refused.value.missing) == ('axis_absent', MissingPart.MOTORS)
+    assert (refused.value.reason, refused.value.missing) == (
+        'axis_absent',
+        MissingPart(Part.MOTORS),
+    )
 
 
 def test_a_board_without_text_commands_is_refused_text(scope_of):
@@ -70,7 +74,7 @@ def test_a_board_without_text_commands_is_refused_text(scope_of):
         scope_of('LS720').diagnostics.send_diagnostic_command('motor', 'INFO')
     assert (refused.value.reason, refused.value.missing) == (
         'not_on_this_scope',
-        MissingPart.TEXT_COMMANDS,
+        MissingPart(Part.TEXT_COMMANDS),
     )
 
 

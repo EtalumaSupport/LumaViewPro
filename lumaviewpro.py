@@ -748,7 +748,7 @@ class LumaViewProApp(TooltipMixin, App):
         walk's answer, not by bring-up: a walk of that question is the
         one that answers it, so a popup up is bring-up waiting on the walk.
         """
-        from _lumascope.modules.lumascope_api.bring_up import Part
+        from _lumascope.modules.scope_parts import Board
         from ui.sim_walk import open_popups
 
         owed = []
@@ -756,7 +756,10 @@ class LumaViewProApp(TooltipMixin, App):
             owed.append('initialization')
         if not self._persisted_protocol_loaded and not open_popups():
             owed.append('the saved protocol load')
-        if Part.CAMERA not in ctx.scope.unconnected_parts() and ctx.scope_display.frames_shown == 0:
+        if (
+            Board.CAMERA not in ctx.scope.unconnected_parts()
+            and ctx.scope_display.frames_shown == 0
+        ):
             owed.append('a displayed frame')
         return owed
 

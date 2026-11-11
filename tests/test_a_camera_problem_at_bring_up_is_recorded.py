@@ -32,6 +32,7 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     MissingPart,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api import camera as camera_api
 from _lumascope.modules.lumascope_api.simulation import SimulatedCameraWriteRefusal as Refusal
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
@@ -214,7 +215,7 @@ def test_a_camera_not_on_the_bus_is_recorded_not_detected_and_told_once(microsco
             session.scope.camera.read_gain_db()
         assert (refused.value.reason, refused.value.missing) == (
             'not_connected',
-            MissingPart.CAMERA,
+            MissingPart(Part.CAMERA),
         )
     finally:
         session.shutdown()
@@ -227,7 +228,7 @@ def test_a_camera_not_on_the_bus_is_recorded_not_detected_and_told_once(microsco
         (
             'LS720',
             True,
-            [('Camera', 'Camera not detected'), ('Illumination', 'LED Board Unavailable')],
+            [('Camera', 'Camera not detected'), ('Illumination', 'LED Controller Unavailable')],
         ),
     ],
     ids=['manual', 'motorized'],

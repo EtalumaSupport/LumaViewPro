@@ -349,6 +349,7 @@ def test_an_autofocus_and_a_z_stack_run_on_a_scope_without_a_stage(make_session,
 
 def test_a_plate_with_wells_is_refused_where_it_is_selected_without_a_stage(make_session):
     from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+    from _lumascope.modules.scope_parts import Part
     from _lumascope.modules.labware_loader import CENTER_PLATE
 
     session = make_session('LS820')
@@ -356,5 +357,8 @@ def test_a_plate_with_wells_is_refused_where_it_is_selected_without_a_stage(make
     with pytest.raises(HardwareCommandRefusedError) as refused:
         session.select_labware('96 well microplate')
 
-    assert (refused.value.reason, refused.value.missing) == ('axis_absent', MissingPart.XY_STAGE)
+    assert (refused.value.reason, refused.value.missing) == (
+        'axis_absent',
+        MissingPart(Part.XY_STAGE),
+    )
     assert session.settings['protocol']['labware'] == CENTER_PLATE

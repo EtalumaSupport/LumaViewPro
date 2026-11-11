@@ -38,7 +38,7 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.image_save import save_image
 from _lumascope.modules.channel_record import ChannelColors
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
@@ -1208,7 +1208,7 @@ class ProtocolImageWriter:
                 f'[PROTOCOL] Capture failed for step {curr_step + 1} ({step.get("Name", "?")}), '
                 f'scan {scan_count + 1} -- the camera was removed'
             )
-            ending = hardware_disconnected_ending((Part.CAMERA,))
+            ending = hardware_disconnected_ending((Board.CAMERA,))
             self._end_run_fatally(ending.reason, ending.message)
             return
         self._consecutive_capture_failures += 1

@@ -85,12 +85,13 @@ class TestSeamBehaviour:
 
     def test_led_on_unknown_colour_names_the_colour(self, sim_scope):
         from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+        from _lumascope.modules.scope_parts import Part
 
         board = _FourColourRecordingBoard()
         sim_scope._led_driver = board
         with pytest.raises(HardwareCommandRefusedError, match='Lumi') as refused:
             sim_scope.illumination.led_on(channel='Lumi', illumination_ma=50)
-        assert refused.value.missing == MissingPart.led('Lumi')
+        assert refused.value.missing == MissingPart(Part.CHANNEL_LED, channel='Lumi')
         assert board.commands == [], 'no command may reach the driver'
 
     def test_led_off_unknown_colour_is_noop(self, sim_scope):

@@ -114,7 +114,7 @@ it is doing while it runs -- a progress bar, a status line -- pass
 `on_progress=`, the same callback the support report takes: it is called
 before each step, on the thread that called `create`, with the percentage of
 the steps already done (0, 25, 50, 75) and the step's words (`Connecting the Motor Controller`,
-`Connecting the LED Board`, `Connecting the Camera`, `Configuring the scope`).
+`Connecting the LED Controller`, `Connecting the Camera`, `Configuring the scope`).
 LumaViewPro calls `create` on a thread of its own and shows these steps while
 its window stays live.
 

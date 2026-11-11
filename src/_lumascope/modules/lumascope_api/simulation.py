@@ -43,7 +43,7 @@ from _lumascope.modules.closed_sets import refuse_unless_offered
 from _lumascope.modules.exceptions import ArgumentRefusedError, HoldEndedError
 from _lumascope.modules.finite_number import WAIT_S, refuse_unless_finite_number
 from _lumascope.modules.axes import Axis
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.operation import Operation
 
 if TYPE_CHECKING:
@@ -329,7 +329,7 @@ class SimulationAPI:
         self._scope = scope
         self._boards = {
             name: board
-            for name, board in ((Part.MOTOR, motor), (Part.LED, led))
+            for name, board in ((Board.MOTOR, motor), (Board.LED, led))
             if board is not None
         }
         self._camera = camera
@@ -342,7 +342,7 @@ class SimulationAPI:
         if not self._scope._simulated:
             raise ArgumentRefusedError('needs_simulated_scope', argument=member, value=None)
 
-    def _board(self, member: str, board: Part) -> object:
+    def _board(self, member: str, board: Board) -> object:
         """The simulated board named ``board``, on a simulated scope.
 
         Raises:
@@ -365,10 +365,10 @@ class SimulationAPI:
         """
         self._refuse_unless_simulated(member)
         if self._camera is None:
-            raise self._absent(Part.CAMERA)
+            raise self._absent(Board.CAMERA)
         return self._camera
 
-    def _absent(self, board: Part) -> ArgumentRefusedError:
+    def _absent(self, board: Board) -> ArgumentRefusedError:
         """The refusal of a fault on ``board``, a board this scope lacks: the boards it has are offered."""
         return ArgumentRefusedError(
             'fault_unknown', argument='board', value=board, offered=tuple(self._boards)
@@ -393,7 +393,7 @@ class SimulationAPI:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def drop_replies(self, board: Part, count: int | None = 1, command: str | None = None) -> None:
+    def drop_replies(self, board: Board, count: int | None = 1, command: str | None = None) -> None:
         """The board answers nothing to its next ``count`` commands.
 
         Args:
@@ -409,7 +409,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'not_offered'``, ``board`` is not a ``Part``;
+                ``'not_offered'``, ``board`` is not a ``Board``;
                 ``'fault_unknown'`` for a board this scope lacks;
                 ``'fault_bound'`` for a count below 1;
                 ``'argument_not_on_board'`` for a count of None on a
@@ -459,7 +459,7 @@ class SimulationAPI:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def delay_reply(self, board: Part, delay_s: float) -> None:
+    def delay_reply(self, board: Board, delay_s: float) -> None:
         """The board's next reply comes ``delay_s`` seconds late.
 
         A reply later than the driver waits for is no reply to it: the
@@ -471,7 +471,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'not_offered'``, ``board`` is not a ``Part``;
+                ``'not_offered'``, ``board`` is not a ``Board``;
                 ``'fault_unknown'`` for a board this scope lacks;
                 ``'not_a_number'`` or ``'fault_bound'`` for a delay not
                 above 0 or past 30 days, the longest wait every host can
@@ -489,7 +489,7 @@ class SimulationAPI:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def silence(self, board: Part) -> None:
+    def silence(self, board: Board) -> None:
         """The board answers no command from now on, until ``unsilence``.
 
         Args:
@@ -497,7 +497,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'not_offered'``, ``board`` is not a ``Part``;
+                ``'not_offered'``, ``board`` is not a ``Board``;
                 ``'fault_unknown'``; ``'not_injectable_on_board'`` on the
                 fast LED board and a firmware board, whose silence is
                 ``unplug``.
@@ -518,7 +518,7 @@ class SimulationAPI:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def unsilence(self, board: Part) -> None:
+    def unsilence(self, board: Board) -> None:
         """The board answers again after ``silence``.
 
         Args:
@@ -526,7 +526,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'not_offered'``, ``board`` is not a ``Part``;
+                ``'not_offered'``, ``board`` is not a ``Board``;
                 ``'fault_unknown'``; ``'not_injectable_on_board'`` where
                 ``silence`` is, and on the FX2, whose stream does not
                 resume.
@@ -541,7 +541,7 @@ class SimulationAPI:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def unplug(self, board: Part) -> None:
+    def unplug(self, board: Board) -> None:
         """The board's cable is pulled: its port fails from the next command.
 
         Args:
@@ -549,7 +549,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'not_offered'``, ``board`` is not a ``Part``;
+                ``'not_offered'``, ``board`` is not a ``Board``;
                 ``'fault_unknown'``; ``'not_injectable_on_board'`` on the
                 fast LED board, which has no link to lose.
         """
@@ -569,7 +569,7 @@ class SimulationAPI:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def replug(self, board: Part) -> None:
+    def replug(self, board: Board) -> None:
         """The board's cable goes back in: it is found again.
 
         Args:
@@ -577,7 +577,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'not_offered'``, ``board`` is not a ``Part``;
+                ``'not_offered'``, ``board`` is not a ``Board``;
                 ``'fault_unknown'``; ``'not_injectable_on_board'`` where
                 ``unplug`` is, and on the FX2, which re-enumerates on its
                 own.
@@ -592,7 +592,7 @@ class SimulationAPI:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def reboot(self, board: Part, booting_for_s: float = 0.0) -> None:
+    def reboot(self, board: Board, booting_for_s: float = 0.0) -> None:
         """The board's firmware restarts and forgets everything it knew.
 
         Its port fails at once, as USB re-enumerates, and the board is found
@@ -605,7 +605,7 @@ class SimulationAPI:
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
-                ``'not_offered'``, ``board`` is not a ``Part``;
+                ``'not_offered'``, ``board`` is not a ``Board``;
                 ``'fault_unknown'``; ``'not_a_number'`` or ``'fault_bound'``
                 for a negative boot or one past 30 days;
                 ``'not_injectable_on_board'`` on every
@@ -645,7 +645,7 @@ class SimulationAPI:
                 cannot show (it has ``'switch_never_trips'``).
         """
         self._refuse_unless_simulated('fail_home')
-        target = self._board('fail_home', Part.MOTOR)
+        target = self._board('fail_home', Board.MOTOR)
         if isinstance(target, EmulatedBoard):
             target.inject(axis, how)
             undo = lambda: target.clear(axis, how)
@@ -695,7 +695,7 @@ class SimulationAPI:
         """
         self._refuse_unless_simulated('hold_axis')
         self._bound('at_fraction', at_fraction, 'above 0 and below 1', 0 < at_fraction < 1)
-        target = self._board('hold_axis', Part.MOTOR)
+        target = self._board('hold_axis', Board.MOTOR)
         if not isinstance(target, SimulatedMotorBoard):
             raise self._not_injectable('hold_axis', target)
         halted: Operation[None] = Operation()
@@ -729,7 +729,7 @@ class SimulationAPI:
                 ``'not_injectable_on_board'`` on every board but the
                 TMCM-6110, the only one with interlock inputs.
         """
-        target = self._board('interlock', Part.MOTOR)
+        target = self._board('interlock', Board.MOTOR)
         if not isinstance(target, SimulatedTmcm6110):
             raise self._not_injectable('interlock', target)
         if lid_open is not None:
@@ -764,7 +764,7 @@ class SimulationAPI:
                 motor board: the firmware boards and the TMCM-6110 answer
                 with the model they were built as.
         """
-        target = self._board('answer_model', Part.MOTOR)
+        target = self._board('answer_model', Board.MOTOR)
         if not isinstance(target, SimulatedMotorBoard):
             raise self._not_injectable('answer_model', target)
         self._record('answer_model', target.report_model(model), model=model)
@@ -1099,7 +1099,7 @@ class SimulationAPI:
                 write; ``'not_injectable_on_board'`` on any LED board but
                 the FX2.
         """
-        target = self._board('refuse_led_write', Part.LED)
+        target = self._board('refuse_led_write', Board.LED)
         self._bound('count', count, 'a number of writes, 1 or more', count >= 1)
         if not isinstance(target, SimulatedFX2):
             raise self._not_injectable('refuse_led_write', target)

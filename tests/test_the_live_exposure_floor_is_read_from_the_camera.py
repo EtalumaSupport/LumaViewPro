@@ -14,6 +14,7 @@ import pytest
 
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.exceptions import HardwareCommandRefusedError, MissingPart
+from _lumascope.modules.scope_parts import Part
 
 
 def test_a_connected_camera_answers_its_floor(sim_scope):
@@ -25,7 +26,7 @@ def test_with_no_camera_the_read_is_refused_naming_it(sim_scope):
     sim_scope._camera_driver.active = False
     with pytest.raises(HardwareCommandRefusedError) as exc:
         sim_scope.camera.read_exposure_min_ms()
-    assert (exc.value.reason, exc.value.missing) == ('not_connected', MissingPart.CAMERA)
+    assert (exc.value.reason, exc.value.missing) == ('not_connected', MissingPart(Part.CAMERA))
 
 
 def test_a_failed_read_raises(sim_scope):

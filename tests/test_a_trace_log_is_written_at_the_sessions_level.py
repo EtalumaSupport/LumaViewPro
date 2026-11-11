@@ -21,7 +21,7 @@ import pytest
 from _lumascope.drivers.exceptions import BoardNoReplyError
 from _lumascope.lib import log_helpers
 from _lumascope.lib.log_helpers import VERBOSE, LogWindow
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -151,7 +151,7 @@ def test_the_commands_before_a_missed_reply_are_written_before_its_warning(sim_s
     try:
         for command in ('INFO', 'STATUS', 'FULLINFO'):
             sim_scope.diagnostics.send_diagnostic_command('motor', command)
-        sim_scope.simulation.drop_replies(Part.MOTOR, count=2, command='ACTUAL')
+        sim_scope.simulation.drop_replies(Board.MOTOR, count=2, command='ACTUAL')
         for _ in range(2):
             with pytest.raises(BoardNoReplyError):
                 sim_scope.diagnostics.send_diagnostic_command('motor', 'ACTUAL R X')

@@ -25,6 +25,7 @@ from _lumascope.modules.exceptions import (
     MissingPart,
     Refusal,
 )
+from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.image_mode import ImageMode
 from _lumascope.modules.scope_capabilities import FrameSize
 
@@ -49,7 +50,7 @@ def _gone_before_the_body(member):
     """A camera write body whose camera went away after the lane asked for it."""
 
     def refused(*_args):
-        part = MissingPart.CAMERA
+        part = MissingPart(Part.CAMERA)
         raise HardwareCommandRefusedError(part.reason, member, missing=part)
 
     return refused
@@ -176,7 +177,7 @@ class TestTheFrame:
 
         with pytest.raises(HardwareCommandRefusedError) as exc:
             session.scope.camera.set_frame_size(1200, 800)
-        assert exc.value.missing == MissingPart.CAMERA
+        assert exc.value.missing == MissingPart(Part.CAMERA)
         assert requests == [], 'the driver must never be reached without a camera'
         assert _stored_frame(session) == before
 

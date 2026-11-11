@@ -88,6 +88,7 @@ from _lumascope.modules.exceptions import (
     SettingsFileNotWrittenError,
     SettingsNotSavedNotice,
 )
+from _lumascope.modules.scope_parts import Board, Part
 from _lumascope.modules.ui_queue import UiDispatcher
 from _lumascope.modules.keep_awake import KeepAwake
 from _lumascope.modules.live_work import LiveWork, WorkItem, WorkKind
@@ -6006,7 +6007,7 @@ class ScopeSession:
         # judged: a slot write on a turretless scope lay in the settings until
         # a change of model made it a turret's assignment.
         if not self.scope.capabilities.has_turret:
-            turret = MissingPart.axis('T')
+            turret = MissingPart(Part.TURRET)
             raise HardwareCommandRefusedError(turret.reason, member, missing=turret)
 
     # ------------------------------------------------------------------
@@ -6052,7 +6053,7 @@ class ScopeSession:
                 catalogue has no plate by that name. Nothing is written.
             HardwareCommandRefusedError: ``'axis_absent'``, this scope has no
                 XY stage and ``labware_id`` is not Center Plate
-                (``missing`` is ``MissingPart.XY_STAGE``). A run, a diagnostic
+                (``missing`` is ``MissingPart(Part.XY_STAGE)``). A run, a diagnostic
                 or a recording holds the scope and ``labware_id`` is not the
                 plate in place (``'exclusive_activity_running'``): each states
                 its positions against the plate it started with. Nothing is
@@ -6063,7 +6064,7 @@ class ScopeSession:
         labware_id = self.scope.wellplate_loader.resolve_plate_key(labware_id)
         if not self.scope.capabilities.has_xy_stage and labware_id != CENTER_PLATE:
             raise HardwareCommandRefusedError(
-                'axis_absent', 'select_labware', missing=MissingPart.XY_STAGE
+                'axis_absent', 'select_labware', missing=MissingPart(Part.XY_STAGE)
             )
         if labware_id == self._settings['protocol']['labware']:
             # A holder is refused only a different plate: the GUI re-selects
@@ -6727,12 +6728,11 @@ class ScopeSession:
             return skipped('homing disabled; the turret is left where it is')
         if not self.scope.motion_expected:
             return skipped('this scope model has no motor board')
-        from _lumascope.modules.lumascope_api.bring_up import Part
 
         # Bring-up has already reported the missing board once, in its own
         # report; homing it would only have the home refused as "not
         # connected" and show the same absence a second time.
-        if any(status.part == Part.MOTOR for status in self.scope.bring_up_record().missing):
+        if any(status.part == Board.MOTOR for status in self.scope.bring_up_record().missing):
             return skipped('the motor board did not come up at bring-up')
 
         if home_fn is None:

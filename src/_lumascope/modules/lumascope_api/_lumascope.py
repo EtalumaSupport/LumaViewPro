@@ -95,13 +95,13 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.lumascope_api.bring_up import (
     BringUpRecord,
-    Part,
     PartStatus,
     SettingsSetAside,
     Substitution,
     connecting,
     report_step,
 )
+from _lumascope.modules.scope_parts import Board, Part
 from _lumascope.modules.frame_validity import FrameValidity, FrameValiditySource
 from _lumascope.modules.fx2_driver_step import repair_refusal
 from _lumascope.modules.channel_record import LedBoardFamily, MotorBoardFamily
@@ -436,7 +436,7 @@ def _no_fx2_bindings(identity: str) -> None:
     return None
 
 
-def _board_status(part: Part, fallback) -> 'PartStatus':
+def _board_status(part: Board, fallback) -> 'PartStatus':
     """The record of a board the registry built, real or null by its ``fallback``."""
     if fallback is not None:
         return PartStatus(part, up=False, cause=fallback.cause, detail=fallback.detail)
@@ -1035,7 +1035,7 @@ class Lumascope:
         # the capture's (_focusing_event, _camera_temp_event,
         # _camera_temp_unschedule_fn) on ImagingAPI; frame_validity here.
 
-        report_step(on_progress, connecting(Part.MOTOR))
+        report_step(on_progress, connecting(Board.MOTOR))
 
         # ----- Motion Control Board -----
         # Constructed BEFORE MotionAPI so MotionAPI._driver resolves on
@@ -1054,14 +1054,14 @@ class Lumascope:
             )
             # A simulated manual scope gets the null board, as the bench
             # finds none: not up, and not missing once the model says so.
-            parts[Part.MOTOR] = PartStatus(Part.MOTOR, up=sim_motor_board is not None)
+            parts[Board.MOTOR] = PartStatus(Board.MOTOR, up=sim_motor_board is not None)
         else:
             self._motion_driver, fallback = motor_registry.create_with_fallback(
                 'auto',
                 absence_expected=motor_absence_expected,
                 motorconfig_defaults=motorconfig_defaults,
             )
-            parts[Part.MOTOR] = _board_status(Part.MOTOR, fallback)
+            parts[Board.MOTOR] = _board_status(Board.MOTOR, fallback)
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.
@@ -1091,7 +1091,7 @@ class Lumascope:
         self._board_names_its_model = board_names_its_model
         self.channel_identity = self._resolve_channel_identity()
 
-        report_step(on_progress, connecting(Part.LED))
+        report_step(on_progress, connecting(Board.LED))
 
         # ----- LED Control Board -----
         # Same selection as motion: the simulated board on the session's tier.
@@ -1219,7 +1219,7 @@ class Lumascope:
                 logger.info(f'[SCOPE API ] {absent}')
                 self._led_driver: LEDBoardProtocol = NullLEDBoard()
                 led_fallback = DriverFallback('not_detected', ('FX2LEDController',))
-                parts[Part.LED] = _board_status(Part.LED, led_fallback)
+                parts[Board.LED] = _board_status(Board.LED, led_fallback)
             else:
                 self._led_driver = FX2LEDController(
                     connection=fx2_connection, debug_wire=fx2_debug_wire
@@ -1227,18 +1227,18 @@ class Lumascope:
                 logger.info(
                     f'[SCOPE API ] Using the FX2 LED driver on a SIMULATED FX2 (model={model})'
                 )
-                parts[Part.LED] = PartStatus(Part.LED, up=True)
+                parts[Board.LED] = PartStatus(Board.LED, up=True)
                 simulated_led = simulated_camera = sim_fx2
         elif simulate:
             self._led_driver, simulated_led = self._build_simulated_led_board(model, sim_tier)
-            parts[Part.LED] = PartStatus(Part.LED, up=True)
+            parts[Board.LED] = PartStatus(Board.LED, up=True)
             # A simulated scope never reads the host's bus.
             self._read_fx2_bindings = _no_fx2_bindings
         else:
             self._led_driver, led_fallback = led_registry.create_with_fallback(
                 'auto', debug_wire=fx2_debug_wire
             )
-            parts[Part.LED] = _board_status(Part.LED, led_fallback)
+            parts[Board.LED] = _board_status(Board.LED, led_fallback)
 
         # ----- IlluminationAPI, and the LED safety off -----
         # The LEDs are turned off as soon as the board is up, before the
@@ -1258,13 +1258,13 @@ class Lumascope:
         try:
             self.illumination._safety_off()
         except Fault as fault:
-            parts[Part.LED] = dataclasses.replace(
-                parts[Part.LED],
+            parts[Board.LED] = dataclasses.replace(
+                parts[Board.LED],
                 cause='safety_off_failed',
                 detail=f'{type(fault).__name__}: {fault}',
             )
 
-        report_step(on_progress, connecting(Part.CAMERA))
+        report_step(on_progress, connecting(Board.CAMERA))
 
         # ----- Camera -----
         # The registry picks the camera for the scope's mode, in priority
@@ -1316,7 +1316,7 @@ class Lumascope:
                 if simulate:
                     simulated_camera = self._camera_driver
                     logger.info('[SCOPE API ] Using SIMULATED Camera')
-            parts[Part.CAMERA] = PartStatus(Part.CAMERA, up=True)
+            parts[Board.CAMERA] = PartStatus(Board.CAMERA, up=True)
         except Exception as _cam_exc:
             self._camera_failure = _cam_exc
         camera_up = self._camera_failure is None
@@ -1324,14 +1324,14 @@ class Lumascope:
         # the LED board's and the no-hardware notice each read it.
         self._fx2_could_be_this_scope = _a_declined_fx2_could_be_this_scope(camera_up, led_fallback)
         if not camera_up:
-            parts[Part.CAMERA] = PartStatus(
-                Part.CAMERA,
+            parts[Board.CAMERA] = PartStatus(
+                Board.CAMERA,
                 up=False,
                 cause=_camera_failure_cause(self._camera_failure, self._fx2_could_be_this_scope),
                 detail=f'{type(self._camera_failure).__name__}: {self._camera_failure}',
             )
         if self._fx2_could_be_this_scope:
-            parts[Part.LED] = dataclasses.replace(parts[Part.LED], cause='led_driver_unavailable')
+            parts[Board.LED] = dataclasses.replace(parts[Board.LED], cause='led_driver_unavailable')
         self._bring_up_parts = parts
         self._bring_up_substitutions: list[Substitution] = []
 
@@ -1688,8 +1688,8 @@ class Lumascope:
             try:
                 self.motion._set_acceleration_limit_impl(limit_pct=config.acceleration_pct)
             except HardwareError as fault:
-                self._bring_up_parts[Part.MOTOR] = dataclasses.replace(
-                    self._bring_up_parts[Part.MOTOR],
+                self._bring_up_parts[Board.MOTOR] = dataclasses.replace(
+                    self._bring_up_parts[Board.MOTOR],
                     cause='acceleration_not_set',
                     detail=f'{type(fault).__name__}: {fault}',
                 )
@@ -1738,7 +1738,7 @@ class Lumascope:
             self._record_camera_problem('settings_not_applied', fault)
             notifications.report_outcome(fault, solicited=False, category='Camera')
         except HardwareCommandRefusedError as refusal:
-            if refusal.missing is not MissingPart.CAMERA:
+            if refusal.missing != MissingPart(Part.CAMERA):
                 raise
             self._record_camera_problem('camera_left', refusal)
             notifications.report_outcome(refusal, solicited=False, category='Camera')
@@ -1780,12 +1780,12 @@ class Lumascope:
                 ``'camera_left'``.
             fault: What the camera's write or start raised.
         """
-        camera = self._bring_up_parts[Part.CAMERA]
+        camera = self._bring_up_parts[Board.CAMERA]
         words = f'{type(fault).__name__}: {fault}'
         held = camera.cause
         if held is not None and _CAMERA_CAUSE_ORDER.index(held) > _CAMERA_CAUSE_ORDER.index(cause):
             cause = held
-        self._bring_up_parts[Part.CAMERA] = dataclasses.replace(
+        self._bring_up_parts[Board.CAMERA] = dataclasses.replace(
             camera,
             cause=cause,
             detail=f'{camera.detail}; {words}' if camera.detail else words,
@@ -1926,8 +1926,8 @@ class Lumascope:
         as the scope it stands in for.
         """
         parts = self._bring_up_parts
-        parts[Part.MOTOR] = dataclasses.replace(parts[Part.MOTOR], expected=config.expects_motion)
-        parts[Part.LED] = dataclasses.replace(parts[Part.LED], expected=config.expects_led)
+        parts[Board.MOTOR] = dataclasses.replace(parts[Board.MOTOR], expected=config.expects_motion)
+        parts[Board.LED] = dataclasses.replace(parts[Board.LED], expected=config.expects_led)
         if self._no_hardware:
             # The one notice says the camera too.
             self._camera_failure = None
@@ -1939,7 +1939,7 @@ class Lumascope:
             )
             return
         self._report_camera()
-        led = parts[Part.LED]
+        led = parts[Board.LED]
         if led.missing:
             notifications.report_outcome(
                 LedBoardUnavailableError(led.cause), solicited=False, category='Illumination'
@@ -1948,7 +1948,7 @@ class Lumascope:
             notifications.report_outcome(
                 LedSafetyOffNotTakenError(led.detail), solicited=False, category='Illumination'
             )
-        motor = parts[Part.MOTOR]
+        motor = parts[Board.MOTOR]
         if motor.missing:
             notifications.report_outcome(
                 MotorBoardUnavailableError(motor.cause), solicited=False, category='Motion'
@@ -1968,7 +1968,7 @@ class Lumascope:
         if failure is None:
             return
         self._camera_failure = None
-        camera = self._bring_up_parts[Part.CAMERA]
+        camera = self._bring_up_parts[Board.CAMERA]
         if camera.up:
             reported = failure
         else:
@@ -2510,7 +2510,7 @@ class Lumascope:
         return not self.unconnected_parts()
 
     @api(reads=True)
-    def unconnected_parts(self) -> tuple[Part, ...]:
+    def unconnected_parts(self) -> tuple[Board, ...]:
         """The parts this scope needs that are not connected.
 
         Each term is the one the matching single-board question asks, so
@@ -2537,7 +2537,7 @@ class Lumascope:
         camera = self.camera_connected
         return tuple(
             part
-            for part, connected in ((Part.LED, led), (Part.MOTOR, motion), (Part.CAMERA, camera))
+            for part, connected in ((Board.LED, led), (Board.MOTOR, motion), (Board.CAMERA, camera))
             if not connected
         )
 

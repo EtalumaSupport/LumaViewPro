@@ -23,7 +23,7 @@ from unittest import mock
 import pytest
 
 from _lumascope.modules import protocol_run_loop
-from _lumascope.modules.lumascope_api.bring_up import Part
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.protocol_run_loop import ProtocolRunLoop
 from _lumascope.modules.protocol_state_machine import ProtocolState
 from _lumascope.modules.run_events import RunEvents
@@ -251,7 +251,7 @@ def test_a_board_lost_during_a_long_wait_ends_the_run_at_the_next_check():
     # Scan 1 ends at 40 s.
     p = _make_parent(clock, n_scans=2, period_s=3600.0)
     lost_at = 41.0
-    p._scope.unconnected_parts.side_effect = lambda: (Part.CAMERA,) if clock.t >= lost_at else ()
+    p._scope.unconnected_parts.side_effect = lambda: (Board.CAMERA,) if clock.t >= lost_at else ()
     ending = _run(clock, p)
 
     assert len(p.capture_times) == 1
