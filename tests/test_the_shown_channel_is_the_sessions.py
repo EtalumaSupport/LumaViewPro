@@ -121,15 +121,6 @@ def test_lighting_the_shown_channel_leaves_the_camera_on_its_layer(session):
     assert round(camera.read_exposure_ms(), 3) == session.settings['BF']['exposure_ms']
 
 
-def test_bring_up_again_shows_bf_dark(session):
-    session.show_channel(LED0)
-    session.light_shown_channel(True)
-
-    session.configure_scope()
-
-    assert session.shown_channel == ShownChannel('BF', lit=False)
-
-
 def _run_one_blue_step(built, tmp_path):
     from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
     from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol

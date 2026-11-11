@@ -1085,8 +1085,8 @@ called first starts it earlier, or opens no file. The settings' log
 level and autofocus score log are applied to the process's logging
 first, so every host logs as its settings say, bring-up included.
 
-The scope is brought up before this returns (`configure_scope`,
-then the camera start gate released) and is torn down by
+The scope is brought up before this returns (configured from the
+settings, then the camera start gate released) and is torn down by
 `shutdown()`.
 
 **Args**

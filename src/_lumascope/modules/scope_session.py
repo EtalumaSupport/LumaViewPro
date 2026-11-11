@@ -1740,8 +1740,8 @@ class ScopeSession:
         level and autofocus score log are applied to the process's logging
         first, so every host logs as its settings say, bring-up included.
 
-        The scope is brought up before this returns (``configure_scope``,
-        then the camera start gate released) and is torn down by
+        The scope is brought up before this returns (configured from the
+        settings, then the camera start gate released) and is torn down by
         ``shutdown()``.
 
         Args:
@@ -5205,20 +5205,16 @@ class ScopeSession:
         )
         return [('objective_id', stored, shipped)]
 
-    @_guarded_write
-    def configure_scope(self) -> None:
-        """Configure the scope from this session's settings -- the bring-up.
+    def _configure_scope(self, replaced: list[tuple[str, object, object]]) -> None:
+        """Configure the scope from this session's settings -- the bring-up, once, from ``create``.
 
-        Once, after construction, on a real scope: configure for the model
-        the scope runs as (``scope.channel_identity.model``: a model the
-        board reports outranks the stored selection, which is left as it
-        is, for a scope that does not report its own; with no motor board
-        to ask, the stored one must be a model the catalogue lists),
-        normalize the turret slot
-        keys a caller-supplied dict may still carry as JSON strings,
-        resolve the model's catalogue entry, replace a stored plate the
-        catalogue cannot resolve with the shipped one (told once, as a
-        ``StoredSettingReplacedNotice``), build the init config and run
+        Configure for the model the scope runs as
+        (``scope.channel_identity.model``: a model the board reports
+        outranks the stored selection, which is left as it is, for a scope
+        that does not report its own; with no motor board to ask, the stored
+        one must be a model the catalogue lists), resolve the model's
+        catalogue entry, replace a stored plate the catalogue cannot resolve
+        with the shipped one, build the init config and run
         ``Lumascope.initialize`` -- which refuses a stored objective the
         catalogue does not have on a scope with no turret; on a turreted
         scope the objective stays unknown until the turret is in a known
@@ -5227,37 +5223,19 @@ class ScopeSession:
         settings (``apply_channel_camera``), the one step that waits on the
         camera lane; a setting it does not take, a write that outlasts the
         lane's bound and a camera that leaves are kept on the bring-up
-        record and told once, and the bring-up goes on. The
-        factories run this for the scope they build; a host that constructs
-        the session directly, or hands ``create`` its own scope, calls it
-        once itself. Every other step runs on the calling thread.
+        record and told once, and the bring-up goes on. Every other step
+        runs on the calling thread. What it replaces is added to
+        ``replaced``, which ``create`` tells once.
 
         Raises:
             ConfigError: a settings key ``initialize`` cannot do without is
                 missing (``frame``; ``objective_id`` on a scope with no
                 turret); or that ``objective_id`` names no shipped objective.
-            HardwareCommandRefusedError: a run, a diagnostic or a recording
-                holds the scope. The configuration rewrites the LEDs, the
-                camera geometry and acceleration under whatever holds it,
-                and its writes run inline, where no lane refuses them.
             ScopeModelUnknownError: the motor board reports no model and the
                 stored ``microscope`` is one the catalogue does not list.
         """
-        replaced: list[tuple[str, object, object]] = []
-        try:
-            self._configure_scope(replaced)
-        finally:
-            _tell_stored_replacements(replaced)
-
-    def _configure_scope(self, replaced: list[tuple[str, object, object]]) -> None:
-        """``configure_scope``'s steps, adding what they replace to ``replaced``."""
         from _lumascope.modules.scope_init_config import ScopeInitConfig
 
-        holder = self._activity_claim.holder
-        if holder is not None:
-            raise HardwareCommandRefusedError(
-                'exclusive_activity_running', 'configure_scope', holder.kind
-            )
         scope_models = self.scope.scope_models
         # The stored selection is never replaced by the board's model: it is
         # the model chosen for a scope that does not report its own, and a

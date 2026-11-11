@@ -993,7 +993,7 @@ def get_selected_labware_from_settings(
             a plate the catalogue does not have; ``offered`` carries the
             plates it has. No other plate is substituted: a different plate's geometry puts
             every well position in the wrong place while the protocol reads
-            as if it ran normally. Bring-up (``ScopeSession.configure_scope``)
+            as if it ran normally. Bring-up (``ScopeSession.create``)
             replaces a stored plate the catalogue cannot resolve; this
             reader still refuses one in settings no bring-up has read.
     """

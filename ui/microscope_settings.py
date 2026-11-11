@@ -264,7 +264,7 @@ class MicroscopeSettings(BoxLayout):
         # the stored value agree the first time they are drawn. Its
         # explicit apply is a no-op here (the channels are still initializing
         # from construction); the startup push to the camera is bring-up's
-        # (ScopeSession.configure_scope applies BF).
+        # (ScopeSession.create's bring-up applies BF).
         ctx.image_settings.reconcile_channels_to_camera_caps()
 
         for channel in common_utils.get_channels():
