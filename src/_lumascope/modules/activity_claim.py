@@ -121,6 +121,19 @@ def activity_taking(taking: 'Taking | ControllerTaking | None') -> 'Taking | Non
     return taking if isinstance(taking, (HeldClaim, _Borrowing)) else None
 
 
+def acts_for_the_holder(claim: 'ActivityClaim | None') -> bool:
+    """Whether this thread acts under the activity holding ``claim``.
+
+    True under its held claim or a live borrowing of it. False with no
+    taking, under the controller's (no activity's), under an activity that
+    has let go or holds another claim, and for a scope no session composes
+    (``claim`` None). The one test of a member only the holder may call: a
+    stop or an off that skips what every other caller of its kind is told.
+    """
+    activity = activity_taking(current_taking())
+    return claim is not None and activity is not None and activity.holds and activity.claim is claim
+
+
 @contextlib.contextmanager
 def acting(taking: 'Taking | ControllerTaking | None') -> Iterator[None]:
     """Act under ``taking`` on this thread for the length of a ``with`` block.

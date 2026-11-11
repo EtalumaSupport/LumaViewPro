@@ -27,7 +27,6 @@ from _lumascope.modules.exceptions import (
     AutofocusOutOfTravelError,
     AxisStateUnknownError,
     CameraSettingRejected,
-    HardwareCommandRefusedError,
 )
 from _lumascope.modules.lumascope_api.illumination import (
     FIRE_AND_FORGET_TRANSITIONS,
@@ -675,18 +674,14 @@ class ProtocolStepRunner:
     # ------------------------------------------------------------------
 
     def leds_off(self) -> None:
-        """Turn all LEDs off on the io lane; if the lane refuses, off regardless.
+        """Turn all LEDs off on the io lane, under the run's taking.
 
-        A darken never waits for permission: a refused one would leave the
-        sample lit, so it falls to the lease-bypassing safety off. UI update
-        is handled by the LED observer -- no manual callback needed.
+        The lane refuses the run only once its taking has let go of the
+        scope, and then the LEDs are no longer the run's to darken: the
+        refusal raises to the step. UI update is handled by the LED
+        observer -- no manual callback needed.
         """
-        p = self._p
-        try:
-            p._scope.illumination.leds_off()
-        except HardwareCommandRefusedError as refused:
-            logger.warning(f'[{p.LOGGER_NAME}] leds_off refused ({refused}); forcing all off')
-            p._scope.illumination.force_off()
+        self._p._scope.illumination.leds_off()
 
     def apply_led_transition(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
         """Drive an LED lifecycle transition through the run's LED authority.

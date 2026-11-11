@@ -69,6 +69,7 @@ from _lumascope.modules.activity_claim import (
     Taking,
     acting,
     activity_taking,
+    acts_for_the_holder,
     current_taking,
     guarded_write,
 )
@@ -1053,12 +1054,7 @@ class MotionAPI:
                 ``stop_motion``.
             MotorStopFailedError: as ``stop_motion``.
         """
-        activity = activity_taking(current_taking())
-        if (
-            activity is None
-            or not activity.holds
-            or activity.claim is not self._scope._activity_claim
-        ):
+        if not acts_for_the_holder(self._scope._activity_claim):
             raise HardwareCommandRefusedError('not_the_activity', 'halt')
         self._stop_motion_while(lambda: True, marks=False)
 

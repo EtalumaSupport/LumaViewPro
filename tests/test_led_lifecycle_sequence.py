@@ -33,7 +33,7 @@ here -- it stays pinned by test_issue_671_added_location_led_ordering.py.
 """
 
 from __future__ import annotations
-from tests.protocol_drives import no_post_run_builds
+from tests.protocol_drives import a_claim_its_scope_asks, no_post_run_builds
 
 import datetime
 import logging
@@ -46,7 +46,6 @@ import pytest
 from _lumascope.modules.lumascope_api.illumination import LedState
 
 
-from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.exceptions import HardwareCommandRefusedError
 from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules import common_utils
@@ -314,7 +313,7 @@ def _make_runner(scope, execs):
         protocol_thread=execs['protocol'],
         file_io_executor=execs['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(scope),
         autofocus_runner=_mock_af_runner(),
         channel_colors=release_colors,
         post_processing=no_post_run_builds(),

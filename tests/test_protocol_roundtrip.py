@@ -27,7 +27,6 @@ import pytest
 
 from _lumascope.modules.lumascope_api.illumination import LedState
 
-from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules.labware_loader import WellPlateLoader
@@ -44,6 +43,7 @@ from _lumascope.modules.executor_registry import session_lane_closed
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import build_scope, channel_reading, home_sim_scope, swap_lanes
 from tests.protocol_drives import (
+    a_claim_its_scope_asks,
     StepHeartbeat,
     wait_for_run_end,
 )
@@ -234,7 +234,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(scope),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
         post_processing=no_post_run_builds(),
@@ -266,7 +266,7 @@ def real_executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(scope),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
         post_processing=no_post_run_builds(),

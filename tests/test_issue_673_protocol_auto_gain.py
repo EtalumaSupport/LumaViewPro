@@ -28,7 +28,7 @@ protocol's `save_camera_state -> restore_camera_state` window.
 
 from __future__ import annotations
 from _lumascope.lib.log_helpers import VERBOSE
-from tests.protocol_drives import no_post_run_builds
+from tests.protocol_drives import a_claim_its_scope_asks, no_post_run_builds
 
 import datetime
 import logging
@@ -38,7 +38,6 @@ from unittest.mock import MagicMock
 import pytest
 
 
-from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.image_mode import ImageCaptureConfig
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from _lumascope.modules.protocol import Protocol
@@ -174,7 +173,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(scope),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
         post_processing=no_post_run_builds(),

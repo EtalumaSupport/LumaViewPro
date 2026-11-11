@@ -22,7 +22,7 @@ import threading
 import time
 from unittest.mock import MagicMock
 
-from _lumascope.modules.activity_claim import ActivityClaim, RunIdentity
+from _lumascope.modules.activity_claim import ActivityClaim, RunIdentity, acting
 from _lumascope.modules.caller import Caller
 from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules.run_outcome import CaptureTally
@@ -36,6 +36,32 @@ def held_run_claim():
     lease is taken under. Each call is a fresh claim, so two leases never
     share one; release() it to strand a lease taken under it."""
     return ActivityClaim().try_claim('protocol', run=run_identity())
+
+
+def a_claim_its_scope_asks(scope) -> ActivityClaim:
+    """The claim a runner takes, given to its scope too, as a session composes them.
+
+    A session hands its scope and its runner one claim, so the run's taking
+    acts for the scope's holder: the members only the holder may call (the
+    scope's ``halt``, its ``force_off``) admit the run's own threads. A rig
+    that gave the runner a claim its scope never asked built a pairing no
+    session builds, and the run's fault paths were refused.
+    """
+    claim = ActivityClaim()
+    scope.set_activity_claim(claim)
+    return claim
+
+
+def fault_the_live_run(session, reason: str, message: str) -> None:
+    """Meet a fatal fault in the session's live run, as the run's own threads meet one.
+
+    The run loop and the run's writer reach the fatal funnel acting under
+    the run's taking; the funnel's off is the holder's alone, so a fault
+    injected from the test thread acts under the same taking.
+    """
+    runner = session._sequenced_capture_runner
+    with acting(runner._held_claim):
+        runner.abort_run_fatal(reason, message)
 
 
 def lent_run_claim():
@@ -177,6 +203,8 @@ def bare_capture_runner(**overrides):
         'post_processing': no_post_run_builds(),
     }
     kwargs.update(overrides)
+    # The scope asks the runner's claim, as a session composes them.
+    kwargs['scope'].set_activity_claim(kwargs['activity_claim'])
     if 'scope' not in overrides:
         # A run is refused, and a capture raises, while any axis position is
         # unknown; a bare mock answers that question with a truthy mock, so

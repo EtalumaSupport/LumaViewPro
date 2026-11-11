@@ -27,7 +27,7 @@ from _lumascope.modules.lumascope_api.illumination import LedState
 # tests/conftest.py at module-import time.
 
 
-from _lumascope.modules.activity_claim import ActivityClaim
+from tests.protocol_drives import a_claim_its_scope_asks
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from _lumascope.modules.protocol_state_machine import ProtocolState
 from _lumascope.modules.run_events import RunEvents
@@ -357,7 +357,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(scope),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
         post_processing=no_post_run_builds(),

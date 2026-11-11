@@ -7,9 +7,9 @@ raised ``CameraWriteFailedError``, "The camera did not take the
 VR_I2C_WRITE write". The LED's write now raises the faults every LED board
 raises, ``BoardPortFailedError`` for a write not taken, and the device
 staying on the bus leaves the LED connected for the next command. The
-scope's unblockable all-off, ``force_off``, answers that fault as it answers
-a board that did not answer, False, and a lit LED it could not darken is
-still believed lit.
+holder's lease-bypassing all-off, ``force_off``, answers that fault as it
+answers a board that did not answer, False, and a lit LED it could not
+darken is still believed lit.
 """
 
 from __future__ import annotations
@@ -54,7 +54,8 @@ def test_a_refused_force_off_answers_false_and_its_lit_led_is_still_believed_lit
     ls620.scope.illumination.led_on(LED0, 10.0)
     ls620.scope.simulation.refuse_led_write()
 
-    assert ls620.scope.illumination.force_off() is False
+    with ls620.diagnostic_claim():
+        assert ls620.scope.illumination.force_off() is False
 
     lit = [r.state for r in ls620.scope.illumination.get_led_states() if r.name == LED0]
     assert lit == [LedState.LIT]

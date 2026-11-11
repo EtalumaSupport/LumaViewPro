@@ -16,7 +16,7 @@ end from the recording's manifest.
 import json
 
 import _lumascope.modules.manual_recording as manual_recording_module
-from _lumascope.modules.activity_claim import ActivityClaim
+from tests.protocol_drives import a_claim_its_scope_asks
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.manual_recording import ManualRecordingController
 from _lumascope.modules.scheduler import ThreadingTimerScheduler
@@ -71,7 +71,7 @@ def test_a_manual_recordings_last_frame_held_on_its_way_is_kept(
         ),
         shown_channel=lambda: 'BF',
         channel_colors=release_colors,
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(sim_scope),
         scheduler=scheduler,
         post_processing=post_processing,
     )

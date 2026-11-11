@@ -1840,6 +1840,8 @@ def _make_capture_runner(**overrides):
         'post_processing': no_post_run_builds(),
     }
     kwargs.update(overrides)
+    # The scope asks the runner's claim, as a session composes them.
+    kwargs['scope'].set_activity_claim(kwargs['activity_claim'])
     # The engine reads IO and CAMERA from its scope; a test that passes its
     # own lane puts it there.
     swap_lanes(

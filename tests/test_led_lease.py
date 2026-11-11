@@ -5,8 +5,8 @@ While a lease is held, only that lease object may drive the LEDs -- its
 purpose label grants nothing -- and a second acquire is refused. Autofocus
 running inside a protocol step takes a child lease the parent must outlive.
 Release turns off the channels the lease lit by default so the end-state is a
-property of the release. force_off is the unblockable bypass
-for emergency / error paths; a lease wedged by a provably-dead owner is
+property of the release. force_off is the holder's bypass of
+every lease, for its fault and its end; a lease wedged by a provably-dead owner is
 reclaimed with evidence inside the next acquire, never reset by a caller.
 
 These exercise the primitive in isolation -- no production caller acquires a
@@ -21,7 +21,8 @@ import pytest
 from _lumascope.modules.lumascope_api.illumination import LedState
 
 from _lumascope.modules.exceptions import HardwareCommandRefusedError
-from tests.protocol_drives import held_run_claim
+from _lumascope.modules.activity_claim import ActivityClaim, acting
+from tests.protocol_drives import held_run_claim, run_identity
 from tests.scope_fakes import build_scope, led_reading
 
 
@@ -117,9 +118,14 @@ def test_double_release_is_noop(scope):
 
 
 def test_force_off_bypasses_lease_and_logs(scope, caplog):
-    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
+    # The scope asks the run's claim, as a session wires it; the run's
+    # taking holds it, and the off is made under that taking.
+    claim = ActivityClaim()
+    scope.set_activity_claim(claim)
+    held = claim.try_claim('protocol', run=run_identity())
+    lease = scope.illumination.acquire_led_lease('protocol', claim=held)
     scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
-    with caplog.at_level(logging.WARNING, logger='LVP.api'):
+    with caplog.at_level(logging.WARNING, logger='LVP.api'), acting(held):
         scope.illumination.force_off()
     assert not _lit(scope, 0)
     # The lease is left intact -- the holder still releases normally.
@@ -191,13 +197,6 @@ def test_owner_write_during_own_lease_is_allowed(scope):
     # Writing as the lease object itself is permitted.
     scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
     assert _lit(scope, 0)
-
-
-def test_force_off_still_works_under_enforcement(scope):
-    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
-    scope.illumination.force_off()
-    assert not _lit(scope, 0)
 
 
 def test_leds_off_turns_off_during_a_held_lease(scope):

@@ -31,7 +31,7 @@ import pytest
 from tests.protocol_drives import lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
 from _lumascope.modules.protocol_image_writer import RunWriteBatch
-from _lumascope.modules.activity_claim import ActivityClaim
+from tests.protocol_drives import a_claim_its_scope_asks
 from _lumascope.modules.exceptions import ConfigError
 from _lumascope.modules.image_mode import (
     ImageCaptureConfig,
@@ -178,7 +178,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(scope),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
         post_processing=no_post_run_builds(),

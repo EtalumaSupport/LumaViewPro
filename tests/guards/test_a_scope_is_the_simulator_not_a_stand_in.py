@@ -171,7 +171,7 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 88
+ALLOWED_ENTRIES = 87
 ALLOWED = frozenset(
     {
         'tests/camera_fakes.py::bare_ids_camera',
@@ -187,7 +187,6 @@ ALLOWED = frozenset(
         'tests/test_a_refused_frame_listener_is_raised.py::TestAFailingHandlerIsBounded.test_a_handler_that_recovers_before_k_is_kept',
         'tests/test_a_refused_frame_listener_is_raised.py::TestARemovalIsReportedAndStopsCalls.test_an_over_budget_removal_is_one_warning_and_no_traceback',
         'tests/test_a_run_reads_its_settings_once.py::_runner_over_a_store_edited_after_the_first_read',
-        'tests/test_a_runs_writes_run_on_its_lanes.py::test_a_step_darken_the_lane_refuses_falls_to_the_safety_off',
         'tests/test_a_stalled_writer_is_reported_by_the_api.py::session',
         'tests/test_a_stalled_writer_refusal_names_its_remedy.py::session',
         'tests/test_a_timelapse_keeps_its_period.py::_make_parent',

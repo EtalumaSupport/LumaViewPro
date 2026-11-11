@@ -48,7 +48,7 @@ _purge_kivy_from_sys_modules()
 
 
 # Now import the protocol execution chain -- these MUST not require Kivy
-from _lumascope.modules.activity_claim import ActivityClaim
+from tests.protocol_drives import a_claim_its_scope_asks
 from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
@@ -260,7 +260,7 @@ class TestHeadlessProtocolExecution:
                     protocol_thread=execs['protocol'],
                     file_io_executor=execs['file_io'],
                     autofocus_thread=MagicMock(in_flight_sweep=None),
-                    activity_claim=ActivityClaim(),
+                    activity_claim=a_claim_its_scope_asks(scope),
                     autofocus_runner=mock_af,
                     channel_colors=release_colors,
                     post_processing=no_post_run_builds(),

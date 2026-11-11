@@ -20,6 +20,7 @@ import threading
 
 import pytest
 
+from tests.protocol_drives import fault_the_live_run
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT
 from tests.test_a_stop_press_ends_the_live_run import (  # noqa: F401 (the fixture)
     session,
@@ -78,7 +79,7 @@ def test_an_autofocus_run_a_fault_ends_mid_sweep_puts_z_back(session, z_asked, c
     run = start_an_autofocus_held_mid_sweep(session)
     held_at = len(z_asked)
 
-    session._sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
+    fault_the_live_run(session, 'camera_failure', 'The camera failed.')
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
 
     assert (outcome.status, outcome.reason) == ('failed', 'camera_failure')

@@ -25,7 +25,8 @@ import pytest
 from _lumascope.modules.lumascope_api.illumination import LedEndPolicy, LedState
 
 import _lumascope.modules.sequenced_capture_runner as scr
-from tests.protocol_drives import held_run_claim
+from _lumascope.modules.activity_claim import acting
+from tests.protocol_drives import a_claim_its_scope_asks, run_identity
 from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
 from tests.scope_fakes import build_scope, channel_reading
 from tests.stock_channels import LED0
@@ -71,10 +72,17 @@ def _make_runner_stub(scope, *, lease):
     return stub
 
 
-def _run_cleanup_inner(stub, ending=None):
+def _the_runs_taking(scope):
+    """The run's taking of the claim its scope asks, as a session composes them."""
+    return a_claim_its_scope_asks(scope).try_claim('protocol', run=run_identity())
+
+
+def _run_cleanup_inner(stub, ending=None, *, taking=None):
+    """Run the cleanup as the run's cleanup runs: under the run's taking."""
     if ending is None:
         ending = RunEnding('failed', 'run_loop_crashed', 'died')
-    scr.SequencedCaptureRunner._cleanup_inner(stub, ending, stub.run_outcome(), [])
+    with acting(taking):
+        scr.SequencedCaptureRunner._cleanup_inner(stub, ending, stub.run_outcome(), [])
 
 
 def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
@@ -82,14 +90,15 @@ def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
     # the exact case a lit-by-lease-scoped darken misses.
     scope.illumination.led_on(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
-    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
+    taking = _the_runs_taking(scope)
+    lease = scope.illumination.acquire_led_lease('protocol', claim=taking)
     assert lease is not None
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(side_effect=RuntimeError('cleanup died')))
     stub = _make_runner_stub(scope, lease=lease)
 
     with pytest.raises(RuntimeError):
-        _run_cleanup_inner(stub)
+        _run_cleanup_inner(stub, taking=taking)
 
     assert not _lit(scope), (
         'a raise before the RUN_END transition leaves the end-state '
@@ -101,13 +110,14 @@ def test_run_cleanup_raise_darkens_before_release(scope, monkeypatch):
 def test_run_cleanup_undecided_return_darkens(scope, monkeypatch):
     scope.illumination.led_on(LAYER, ILLUMINATION_MA)
     assert _lit(scope), 'precondition: lit before the fault'
-    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
+    taking = _the_runs_taking(scope)
+    lease = scope.illumination.acquire_led_lease('protocol', claim=taking)
     assert lease is not None
 
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(return_value=False))
     stub = _make_runner_stub(scope, lease=lease)
 
-    _run_cleanup_inner(stub)
+    _run_cleanup_inner(stub, taking=taking)
 
     assert not _lit(scope), (
         'a cancelled or failed RUN_END restore returns undecided; '

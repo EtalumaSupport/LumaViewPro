@@ -17,7 +17,8 @@ import time
 
 import pytest
 
-from _lumascope.modules.activity_claim import ActivityClaim
+from tests.protocol_drives import a_claim_its_scope_asks
+
 import _lumascope.modules.manual_recording as manual_recording_module
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.manual_recording import ManualRecordingController
@@ -50,7 +51,7 @@ def test_manual_recording_ends_within_the_stall_bound(
         settings_snapshot=lambda: settings,
         shown_channel=lambda: 'BF',
         channel_colors=release_colors,
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(sim_scope),
         scheduler=scheduler,
         post_processing=post_processing,
     )

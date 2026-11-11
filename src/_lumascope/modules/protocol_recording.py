@@ -37,7 +37,7 @@ import numpy as np
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Frame
 from _lumascope.lvp_logger import logger, version as lvp_version
-from _lumascope.modules.activity_claim import BorrowedClaim
+from _lumascope.modules.activity_claim import BorrowedClaim, Taking, acting, current_taking
 from _lumascope.modules.common_utils import (
     DISK_FLOOR_CHECK_INTERVAL_S,
     MIN_PER_WRITE_DISK_MB,
@@ -458,6 +458,7 @@ class ProtocolVideoStep:
 
         self._finish_thread = threading.Thread(
             target=self._finish_after_drain,
+            args=(current_taking(),),
             name='ProtocolVideoFinish',
             daemon=True,
         )
@@ -735,8 +736,12 @@ class ProtocolVideoStep:
 
         self._engine = None
 
-    def _finish_after_drain(self) -> None:
-        """Run the finish, then say it ended, whatever it raised.
+    def _finish_after_drain(self, taking: Taking | None) -> None:
+        """Run the finish under the run's taking, then say it ended, whatever it raised.
+
+        The finish is the run's own work, so it acts under the taking the
+        step ran under: a fault it meets ends the run through the fatal
+        funnel, whose off is the holder's alone.
 
         The end changes the Session's run state (its live_work) with
         nothing else marking it: the recording returned its borrowing when
@@ -744,7 +749,8 @@ class ProtocolVideoStep:
         announces it, through the claim it was lent.
         """
         try:
-            self._finish()
+            with acting(taking):
+                self._finish()
         finally:
             self._finishing = False
             self._run_claim.announce()

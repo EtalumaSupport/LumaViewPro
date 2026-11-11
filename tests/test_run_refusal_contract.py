@@ -36,7 +36,7 @@ running-state only between prepare and start, inside the shared
 refusal boundary) is locked by tests/test_protocol_start_refusal_ui_gate.py.
 """
 
-from tests.protocol_drives import no_post_run_builds
+from tests.protocol_drives import a_claim_its_scope_asks, no_post_run_builds
 import ast
 import datetime
 import threading
@@ -51,7 +51,7 @@ from tests.protocol_drives import bare_capture_runner, run_identity, scr_run_kwa
 
 
 from _lumascope.modules.lumascope_api.bring_up import Part
-from _lumascope.modules.activity_claim import ActivityClaim, acting
+from _lumascope.modules.activity_claim import acting
 from _lumascope.modules.caller import Caller, calling
 from _lumascope.modules.autofocus_thread import AutofocusSweep
 from _lumascope.modules.exceptions import (
@@ -239,7 +239,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         autofocus_thread=MagicMock(in_flight_sweep=None),
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(scope),
         autofocus_runner=mock_af,
         channel_colors=release_colors,
         post_processing=no_post_run_builds(),

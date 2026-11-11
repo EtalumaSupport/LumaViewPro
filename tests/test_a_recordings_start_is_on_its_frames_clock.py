@@ -21,7 +21,7 @@ import threading
 import time
 
 import _lumascope.modules.manual_recording as manual_recording_module
-from _lumascope.modules.activity_claim import ActivityClaim
+from tests.protocol_drives import a_claim_its_scope_asks
 from _lumascope.modules.image_utils import read_file_record, stated_frame_time
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.manual_recording import ManualRecordingController
@@ -91,7 +91,7 @@ def test_a_manual_recordings_first_frame_is_not_moved_by_a_step_of_the_wall_cloc
         ),
         shown_channel=lambda: 'BF',
         channel_colors=release_colors,
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(sim_scope),
         scheduler=ManualFireScheduler(),
         post_processing=post_processing,
         clock=_stepped_wall_clock,

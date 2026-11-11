@@ -54,6 +54,8 @@ from _lumascope.modules.activity_claim import (
     BorrowedClaim,
     ControlSession,
     FalsifyingChangeInFlightError,
+    Taking,
+    acting,
     the_holder_named,
 )
 from _lumascope.modules.exceptions import CaptureFailedError, RecordingRefusedError
@@ -536,7 +538,10 @@ class VideoRecordingEngine:
                 self._result = None
                 self._selection_closed_ns = None
                 self._writer_thread = threading.Thread(
-                    target=self._drain_loop, name='VideoRecordingWriter', daemon=True
+                    target=self._drain_under,
+                    args=(held,),
+                    name='VideoRecordingWriter',
+                    daemon=True,
                 )
                 self._writer_thread.start()
             except BaseException:
@@ -734,6 +739,17 @@ class VideoRecordingEngine:
         # marks it. Selection is open only while this engine holds its
         # taking, so the taking is here to announce through.
         self._held_claim.claim.announce()
+
+    def _drain_under(self, taking: Taking) -> None:
+        """Run the writer lane under the recording's taking.
+
+        Each write is the recording's own work, so it acts under the taking
+        the recording holds: a fault a write meets that ends the activity
+        (a protocol step's disk floor reaching the run's fatal funnel) acts
+        as that activity, whose off is the holder's alone.
+        """
+        with acting(taking):
+            self._drain_loop()
 
     def _drain_loop(self) -> None:
         """Writer lane: pop each frame and write it as its final artifact.

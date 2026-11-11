@@ -21,7 +21,7 @@ import pytest
 
 import _lumascope.modules.autofocus_functions as autofocus_functions
 import _lumascope.modules.manual_recording as manual_recording_module
-from _lumascope.modules.activity_claim import ActivityClaim
+from tests.protocol_drives import fault_the_live_run, a_claim_its_scope_asks
 from _lumascope.modules.exceptions import ProtocolNotSavedError, RunEndedByStopNotice
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.manual_recording import ManualRecordingController
@@ -170,7 +170,7 @@ def _failed_mid_run(session, tmp_path, *, faults=1):
     )
     held.result(_HOLD_WAIT_S)
     for _ in range(faults):
-        session._sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
+        fault_the_live_run(session, 'camera_failure', 'The camera failed.')
     session.scope.motion.stop_motion()
     outcome = run.result(timeout=COMPLETION_TIMEOUT)
     session.scope.simulation.clear()
@@ -207,7 +207,7 @@ def test_two_recordings_stopped_by_a_full_disk_both_say_so(
         ),
         shown_channel=lambda: 'BF',
         channel_colors=release_colors,
-        activity_claim=ActivityClaim(),
+        activity_claim=a_claim_its_scope_asks(sim_scope),
         scheduler=scheduler,
         post_processing=post_processing,
     )

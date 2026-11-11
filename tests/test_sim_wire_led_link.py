@@ -40,9 +40,8 @@ pytestmark = pytest.mark.firmware_tier
 
 
 @pytest.fixture
-def scope(centre_posts):
-    """(the illumination API, the simulated LED board, the centre's posts,
-    the scope's faults)."""
+def wire_session():
+    """A session over the firmware-tier LED board, its oracle on."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             sim_backend, 'LedBoardSpec', functools.partial(sim_backend.LedBoardSpec, oracle=True)
@@ -53,14 +52,21 @@ def scope(centre_posts):
             warn_pre_release=False,
         )
     try:
-        yield (
-            session.scope.illumination,
-            session.scope._led_driver._backend.led_board,
-            centre_posts,
-            session.scope.simulation,
-        )
+        yield session
     finally:
         session.shutdown()
+
+
+@pytest.fixture
+def scope(wire_session, centre_posts):
+    """(the illumination API, the simulated LED board, the centre's posts,
+    the scope's faults)."""
+    return (
+        wire_session.scope.illumination,
+        wire_session.scope._led_driver._backend.led_board,
+        centre_posts,
+        wire_session.scope.simulation,
+    )
 
 
 def _warnings(posts) -> list:
@@ -213,11 +219,12 @@ def test_an_all_off_the_board_did_not_answer_raises_and_every_led_is_unknown(sco
     assert _states(illumination) == {LedState.UNKNOWN}
 
 
-def test_the_safety_off_the_board_did_not_answer_says_so_without_raising(scope):
+def test_the_safety_off_the_board_did_not_answer_says_so_without_raising(scope, wire_session):
     illumination, _board, _posts, simulation = scope
     illumination.led_on_by_address(0, 10)
     simulation.delay_reply('led', 0.5)
-    assert illumination.force_off() is False
+    with wire_session.diagnostic_claim():
+        assert illumination.force_off() is False
     assert _states(illumination) == {LedState.UNKNOWN}
 
 

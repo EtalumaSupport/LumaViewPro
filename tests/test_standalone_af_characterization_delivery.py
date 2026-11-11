@@ -27,7 +27,7 @@ import datetime
 import threading
 
 
-from _lumascope.modules.activity_claim import ActivityClaim
+from tests.protocol_drives import a_claim_its_scope_asks
 from _lumascope.modules.image_mode import ImageCaptureConfig
 from tests.scope_fakes import build_scope, home_sim_scope, swap_lanes
 from _lumascope.modules.protocol import Protocol
@@ -129,7 +129,7 @@ class TestStandaloneAfDeliversCharacterizationData:
             protocol_thread=protocol_thread,
             file_io_executor=file_io_executor,
             autofocus_thread=af_thread,
-            activity_claim=ActivityClaim(),
+            activity_claim=a_claim_its_scope_asks(scope),
             autofocus_runner=af_runner,
             channel_colors=release_colors,
             post_processing=no_post_run_builds(),

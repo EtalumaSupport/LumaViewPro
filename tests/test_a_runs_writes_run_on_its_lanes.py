@@ -25,6 +25,7 @@ import pytest
 from _lumascope.modules.lumascope_api.illumination import LedState
 
 import _lumascope.modules.sequenced_capture_runner as scr
+from _lumascope.modules.activity_claim import acting
 from _lumascope.modules.exceptions import HardwareCommandRefusedError
 from _lumascope.modules.run_outcome import RunEnding
 from _lumascope.modules.run_events import RunEvents
@@ -145,22 +146,15 @@ def test_every_instrument_write_of_a_run_executes_on_its_lane(sim_session, tmp_p
 def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeypatch):
     """An undecided LED end-state is darkened owner-blind at once, while the
     IO lane is still busy -- a move holds the worker until it arrives, and
-    a darken queued behind it would leave the sample lit for as long."""
+    a darken queued behind it would leave the sample lit for as long.
+
+    The cleanup acts under the taking that holds the session's claim, as a
+    run's cleanup does: the safety off is the holder's alone."""
     scope = sim_session.scope
     layer = LED0
     scope.illumination.led_on(layer, 10.0)
     assert channel_reading(scope.illumination, layer).state is LedState.LIT, 'precondition: lit'
-    lease = scope.illumination.acquire_led_lease('protocol', claim=held_run_claim())
-    assert lease is not None
     monkeypatch.setattr(scr, 'run_cleanup', MagicMock(side_effect=RuntimeError('cleanup died')))
-    stub = _make_runner_stub(scope, lease=lease)
-    # The owner-blind safety off, which says in the log that it bypassed
-    # the lease: the darken a reader of a post-mortem looks for.
-    forced = []
-    real_force_off = scope.illumination.force_off
-    monkeypatch.setattr(
-        scope.illumination, 'force_off', lambda: forced.append(1) or real_force_off()
-    )
 
     busy_release = threading.Event()
     busy_running = threading.Event()
@@ -170,33 +164,45 @@ def test_the_safety_darken_does_not_wait_for_a_busy_io_lane(sim_session, monkeyp
         busy_release.wait(RESULT_TIMEOUT_S)
 
     sim_session.io_executor.put(IOTask(action=_busy))
-    assert busy_running.wait(5.0), 'the IO lane never started the busy task'
-    finished = threading.Event()
-
-    def _cleanup():
-        try:
-            # The pass is the current run's: a pass for any other run
-            # returns before touching the LEDs.
-            scr.SequencedCaptureRunner._cleanup_inner(
-                stub,
-                RunEnding('failed', 'run_loop_crashed', 'died'),
-                stub.run_outcome(),
-                [],
-            )
-        except RuntimeError as died:
-            # The cleanup this test makes raise, so the undecided path runs.
-            assert str(died) == 'cleanup died'
-        finally:
-            finished.set()
-
-    threading.Thread(target=_cleanup, daemon=True).start()
     try:
-        assert finished.wait(5.0), 'cleanup waited on the busy IO lane'
-        assert channel_reading(scope.illumination, layer).state is LedState.DARK, (
-            'the undecided end-state must be dark before the busy lane frees'
-        )
-        assert forced == [1], 'the undecided end-state must be darkened by the safety off'
-        assert busy_running.is_set() and not busy_release.is_set()
+        assert busy_running.wait(5.0), 'the IO lane never started the busy task'
+        with sim_session.diagnostic_claim() as held:
+            lease = scope.illumination.acquire_led_lease('protocol', claim=held)
+            assert lease is not None
+            stub = _make_runner_stub(scope, lease=lease)
+            # The owner-blind safety off, which says in the log that it
+            # bypassed the lease: the darken a reader of a post-mortem looks for.
+            forced = []
+            real_force_off = scope.illumination.force_off
+            monkeypatch.setattr(
+                scope.illumination, 'force_off', lambda: forced.append(1) or real_force_off()
+            )
+            finished = threading.Event()
+
+            def _cleanup():
+                try:
+                    # The pass is the current run's: a pass for any other run
+                    # returns before touching the LEDs.
+                    with acting(held):
+                        scr.SequencedCaptureRunner._cleanup_inner(
+                            stub,
+                            RunEnding('failed', 'run_loop_crashed', 'died'),
+                            stub.run_outcome(),
+                            [],
+                        )
+                except RuntimeError as died:
+                    # The cleanup this test makes raise, so the undecided path runs.
+                    assert str(died) == 'cleanup died'
+                finally:
+                    finished.set()
+
+            threading.Thread(target=_cleanup, daemon=True).start()
+            assert finished.wait(5.0), 'cleanup waited on the busy IO lane'
+            assert channel_reading(scope.illumination, layer).state is LedState.DARK, (
+                'the undecided end-state must be dark before the busy lane frees'
+            )
+            assert forced == [1], 'the undecided end-state must be darkened by the safety off'
+            assert busy_running.is_set() and not busy_release.is_set()
     finally:
         busy_release.set()
 
@@ -348,29 +354,6 @@ def test_the_run_door_refuses_the_lender_of_a_borrowed_run():
         run.release()
         diagnostic.release()
         lane.shutdown()
-
-
-def test_a_step_darken_the_lane_refuses_falls_to_the_safety_off():
-    from types import SimpleNamespace
-
-    from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
-
-    illumination = MagicMock()
-    parent = SimpleNamespace(
-        LOGGER_NAME='test',
-        _io_executor=MagicMock(),
-        _scope=SimpleNamespace(illumination=illumination),
-    )
-    runner = ProtocolStepRunner(parent)
-
-    runner.leds_off()
-    illumination.leds_off.assert_called_once_with()
-    illumination.force_off.assert_not_called()
-
-    illumination.leds_off.side_effect = HardwareCommandRefusedError('activity_ended', 'leds_off')
-    runner.leds_off()
-    illumination.force_off.assert_called_once_with()
-    parent._io_executor.protocol_put.assert_not_called()
 
 
 def test_the_run_takes_a_standing_arm_through_the_public_member():

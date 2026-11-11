@@ -20,6 +20,7 @@ from _lumascope.modules.exceptions import MotorStopFailedError
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
+from tests.protocol_drives import fault_the_live_run
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.test_a_run_needs_every_axis_position import COMPLETION_TIMEOUT, _settings
@@ -250,7 +251,7 @@ def test_a_fault_that_ended_the_run_first_keeps_its_ending(session, tmp_path):
         protocol=_build_real_protocol(_steps(60.0)), parent_dir=str(tmp_path)
     )
     held.result(_HOLD_WAIT_S)
-    session._sequenced_capture_runner.abort_run_fatal('camera_failure', 'The camera failed.')
+    fault_the_live_run(session, 'camera_failure', 'The camera failed.')
 
     session.scope.motion.stop_motion()
     outcome = run.result(timeout=COMPLETION_TIMEOUT)

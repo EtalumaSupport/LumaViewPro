@@ -27,7 +27,7 @@ from _lumascope.lib import profile_trace
 from _lumascope.lib.log_helpers import VERBOSE
 from _lumascope.lib.lumascope_error import Fault
 from _lumascope.modules.finite_number import refuse_unless_finite_number
-from _lumascope.modules.activity_claim import ActivityHolder, current_taking
+from _lumascope.modules.activity_claim import ActivityHolder, acts_for_the_holder, current_taking
 from _lumascope.modules.live_work import WorkKind
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
@@ -1815,18 +1815,31 @@ class IlluminationAPI:
             )
 
     def force_off(self) -> bool:
-        """Turn off all LEDs unconditionally, bypassing any held lease.
+        """Turn off all LEDs now, on this thread, bypassing any held lease.
 
-        Internal lease-bypassing safety off for the writer path -- not
-        part of the L2 API surface (clients use ``leds_off``).
+        Internal lease-bypassing safety off -- not part of the L2 API surface
+        (clients use ``leds_off``).
 
-        The unblockable safety path for emergency / error / shutdown
-        callers: an idempotent off must never be refused because another
-        subsystem holds the lease. When a lease is held this logs loudly so
-        the bypass is visible in post-mortem; the lease itself is left
-        intact, so its holder still releases normally. With no LED
-        controller connected it writes nothing and is not refused (the
-        scope's own off asks presence first).
+        The holder's own off, for a run's fault and end, and the close's: it
+        skips the io lane, so it is not queued behind a wedged write, and
+        no lease within the activity can refuse it. When a lease is held
+        this logs loudly so the bypass is visible in post-mortem; the lease
+        itself is left intact, so its holder still releases normally. With
+        no LED controller connected it writes nothing and is not refused
+        (the scope's own off asks presence first).
+
+        Admitted only to a caller acting under the activity holding the
+        scope, or while the session's close runs (``ActivityClaim.closing``):
+        an off past every lease and lane belongs to the activity whose
+        sample it darkens. Anyone else turns the LEDs off with ``leds_off``,
+        which the holder's lane admits or refuses.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_the_activity'``, the caller
+                does not act under the activity holding the scope and no
+                close runs -- the scope idle, another activity or the
+                controller holding it, an activity that has ended, a scope
+                no session composes. Nothing was sent.
 
         Returns:
             True when the all-off was written; False when no LED controller
@@ -1835,6 +1848,9 @@ class IlluminationAPI:
             then unknown, or its port failed during it, each address then
             believed as it was (``_write_leds_off``).
         """
+        claim = self._scope._activity_claim
+        if not (acts_for_the_holder(claim) or (claim is not None and claim.closing)):
+            raise HardwareCommandRefusedError('not_the_activity', 'force_off')
         held = self.led_lease_purpose
         if held is not None:
             _api_log.warning('force_off bypassing the held %r LED lease', held)
