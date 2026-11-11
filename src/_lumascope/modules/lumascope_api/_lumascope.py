@@ -820,6 +820,7 @@ class Lumascope:
         sim_focal_spread_um: float = 0.0,
         sim_camera_present: bool = True,
         sim_slide: Slide = Slide.CELLS,
+        sim_conversion_gain_mode: bool = False,
         sim_unit_config: Mapping[str, object] | None = None,
         on_progress: ProgressCallback | None = None,
     ):
@@ -912,6 +913,10 @@ class Lumascope:
                 stage whether or not a camera is there, so with
                 ``sim_camera_present`` False it is accepted and nothing images
                 it. Refused on real hardware.
+            sim_conversion_gain_mode: Whether the simulated camera has a
+                switchable conversion gain, as an IDS on firmware 3.95 does.
+                False (the default) is the stock dart, which has none.
+                Refused like ``sim_camera_stall``.
             sim_unit_config: A unit's own motorconfig.json, which the
                 simulated motor firmware boots in place of the model's own
                 board, so the scope comes up under the unit's name, on its
@@ -927,9 +932,10 @@ class Lumascope:
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``, a simulator
                 argument given for a real scope; ``'needs_simulated_camera'``,
-                ``sim_camera_stall`` or a ``sim_focal_spread_um`` given for a
-                scope whose camera is not the simulated camera, or with
-                ``sim_camera_present`` False, a camera that is not there;
+                ``sim_camera_stall``, a ``sim_focal_spread_um`` or
+                ``sim_conversion_gain_mode`` given for a scope whose camera
+                is not the simulated camera, or with ``sim_camera_present``
+                False, a camera that is not there;
                 ``'needs_simulated_firmware'``, ``sim_unit_config`` for a
                 scope whose motor board is not the simulated motor firmware;
                 ``'missing_key'`` or ``'wrong_kind'``, a ``sim_unit_config``
@@ -947,6 +953,7 @@ class Lumascope:
             ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
             ('sim_camera_present', sim_camera_present, not sim_camera_present),
             ('sim_slide', sim_slide, sim_slide != Slide.CELLS),
+            ('sim_conversion_gain_mode', sim_conversion_gain_mode, sim_conversion_gain_mode),
             ('sim_unit_config', sim_unit_config, sim_unit_config is not None),
         ):
             if given and not simulate:
@@ -980,6 +987,11 @@ class Lumascope:
                 for argument, value, given in (
                     ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
                     ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),
+                    (
+                        'sim_conversion_gain_mode',
+                        sim_conversion_gain_mode,
+                        sim_conversion_gain_mode,
+                    ),
                 ):
                     if given:
                         raise ArgumentRefusedError(
@@ -1274,6 +1286,7 @@ class Lumascope:
             camera_kwargs['focal_spread_um'] = sim_focal_spread_um
             camera_kwargs['on_bus'] = sim_camera_present
             camera_kwargs['slide'] = sim_slide
+            camera_kwargs['conversion_gain_mode'] = sim_conversion_gain_mode
         # The exception a camera raised while connecting, kept until bring-up
         # reports it so the report carries the backend's own traceback.
         self._camera_failure: BaseException | None = None

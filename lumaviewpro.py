@@ -129,13 +129,15 @@ if __name__ == '__main__':
     except ValueError as _refused_error:
         sys.exit(f'--sim-refused-camera-write=NODE,ANSWER[,COUNT]: {_refused_error}')
     # --sim-camera=absent brings the simulated scope up with its camera
-    # unplugged, so a launch with no camera is shown without hardware.
+    # unplugged, so a launch with no camera is shown without hardware;
+    # --sim-camera=hcg with a camera that has a switchable conversion gain,
+    # so its toggle and a run in each mode are shown without one.
     try:
         _camera = take_sim_launch_value(sys.argv, 'sim-camera', simulate=simulate_mode)
-        if _camera not in (None, 'absent'):
-            raise ValueError(f'{_camera!r} is not absent')
+        if _camera not in (None, 'absent', 'hcg'):
+            raise ValueError(f'{_camera!r} is not absent or hcg')
     except ValueError as _camera_error:
-        sys.exit(f'--sim-camera=absent: {_camera_error}')
+        sys.exit(f'--sim-camera=absent|hcg: {_camera_error}')
     # --sim-unit-config=<file> brings the simulated scope up as the unit whose
     # motorconfig.json the file is, an OEM unit's included, on the simulated
     # motor firmware: the unit's name, axes and optics are shown without it.
@@ -160,7 +162,8 @@ if __name__ == '__main__':
             camera_stall=sim_camera_stall,
             focal_spread_um=sim_focal_spread_um,
             file_stall=sim_file_stall,
-            camera_present=_camera is None,
+            camera_present=_camera != 'absent',
+            conversion_gain_mode=_camera == 'hcg',
             unit_config=sim_unit_config,
         )
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up

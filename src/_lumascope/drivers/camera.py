@@ -1901,6 +1901,34 @@ class Camera(ABC):
         """
         return False
 
+    def set_conversion_gain_mode(self, mode: str) -> bool:
+        """Set the sensor conversion gain mode, ``'High'`` or ``'Low'``.
+
+        Called only when ``supports_conversion_gain_mode`` is True.
+
+        Returns:
+            bool: True when the camera is in ``mode``; False is the
+                camera's refusal, or the camera lost.
+
+        Raises:
+            HardwareError: The write failed.
+        """
+        raise NotImplementedError(f'{type(self).__name__} offers no conversion gain mode')
+
+    def set_line_noise_reduction(self, enabled: bool, strength: float = 0.5) -> bool:
+        """Turn the line-noise-reduction filter on at ``strength`` (0.0-1.0), or off.
+
+        Called only when ``supports_line_noise_reduction`` is True.
+
+        Returns:
+            bool: True when the filter is as asked; False is the camera's
+                refusal, or the camera lost.
+
+        Raises:
+            HardwareError: The write failed.
+        """
+        raise NotImplementedError(f'{type(self).__name__} offers no line noise reduction')
+
     # Black level is the camera's own offset parameter, in the camera's own
     # units (Basler's step in DN differs by model and sensor bit depth; IDS
     # states DN of the current format), never converted to output DN here:

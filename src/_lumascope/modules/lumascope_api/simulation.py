@@ -174,6 +174,7 @@ type BoardConfigValue = str | int | float | bool | list | dict | None
     'file_stall',
     'camera_present',
     'slide',
+    'conversion_gain_mode',
     'unit_config',
 )
 @dataclasses.dataclass(frozen=True)
@@ -225,6 +226,11 @@ class SimulatedScope:
             the session: the cell specimen, or a Ronchi ruling, the target
             the bench measures a camera's move count on. Either simulated
             camera takes it. The cell specimen is the default.
+        conversion_gain_mode: Whether the scope's camera has a switchable
+            conversion gain, as an IDS on firmware 3.95 does, so the
+            Advanced Settings toggle and a run in each mode are shown
+            without one; the simulated camera's alone. False is the stock
+            dart, which has none.
         unit_config: A unit's own motorconfig.json, as its board's CONFIG
             answers it, which the simulated motor firmware boots: the scope
             comes up as that unit does, under the name its board reports,
@@ -246,6 +252,7 @@ class SimulatedScope:
     file_stall: SimulatedStall | None = None
     camera_present: bool = True
     slide: Slide = Slide.CELLS
+    conversion_gain_mode: bool = False
     unit_config: Mapping[str, BoardConfigValue] | None = None
 
 

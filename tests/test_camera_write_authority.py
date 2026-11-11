@@ -70,33 +70,25 @@ _AUTO_GAIN_SETTINGS = {
 
 
 class _CamWriteCapableSim(SimulatedCamera):
-    """SimulatedCamera plus the two Pylon-only SDK setters and the probes
-    that declare them, so the success path of set_high_conversion_gain /
-    set_line_noise_reduction is exercisable in the sim."""
+    """SimulatedCamera plus the Pylon-only line-noise setter and the probe
+    that declares it, so the success path of set_line_noise_reduction is
+    exercisable in the sim."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._conversion_gain_mode = 'Low'
         self._line_noise_reduction = False
-
-    def set_conversion_gain_mode(self, mode: str) -> bool:
-        self._conversion_gain_mode = mode
-        return True
 
     def set_line_noise_reduction(self, enabled: bool) -> bool:
         self._line_noise_reduction = enabled
-        return True
-
-    def supports_conversion_gain_mode(self) -> bool:
         return True
 
     def supports_line_noise_reduction(self) -> bool:
         return True
 
 
-def _sim_camera():
+def _sim_camera(**simulated):
     """The camera API of a simulated scope, bound to the shipped settings."""
-    scope = build_scope(simulate=True)
+    scope = build_scope(simulate=True, **simulated)
     bind_settings_like_a_session(scope)
     return scope.camera
 
@@ -117,14 +109,16 @@ def plain_scope():
 
 @pytest.fixture
 def camera_capable(monkeypatch):
-    """A simulated scope's camera API, on a camera with every camera setter."""
+    """A simulated scope's camera API, on a camera with every camera setter:
+    the simulated camera built with its conversion gain mode, and the line
+    noise filter added."""
 
     def _capable_camera(name='auto', *, simulate=False, **kwargs):
         return _CamWriteCapableSim(**kwargs)
 
-    # a stand-in by design: SimulatedCamera has no conversion-gain or line-noise-reduction node (Pylon-only); the simulator's gap, and this subclass goes when it has them
+    # a stand-in by design: SimulatedCamera has no line-noise-reduction node (Pylon-only); the simulator's gap, and this subclass goes when it has one
     monkeypatch.setattr(_lumascope.camera_registry, 'create', _capable_camera)
-    return _sim_camera()
+    return _sim_camera(sim_conversion_gain_mode=True)
 
 
 def _read_fails(*_args):

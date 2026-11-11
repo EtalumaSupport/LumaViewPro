@@ -408,10 +408,17 @@ class SimulatedCamera(Camera):
         timing: str = 'fast',
         on_bus: bool = True,
         slide: Slide = Slide.CELLS,
+        conversion_gain_mode: bool = False,
     ):
         # Whether the camera is on the bus for connect() to find: False is a
         # camera unplugged before the scope came up, which no connect finds.
         self._on_bus = on_bus
+        # Whether the body has a switchable conversion gain, as an IDS on
+        # firmware 3.95 and some Basler bodies do; the stock dart has none,
+        # so the default camera has none. The mode is held, not drawn: the
+        # simulated noise is the same in both.
+        self._has_conversion_gain_mode = conversion_gain_mode
+        self._conversion_gain_mode = 'Low'
         # Each input's values as it changed, oldest first: (host monotonic
         # ns, the value from then on), by input name.
         self._input_history: dict[str, collections.deque] = {}
@@ -654,6 +661,7 @@ class SimulatedCamera(Camera):
         # user set.
         self._black_level = 0.0
         self._binning = 1
+        self._conversion_gain_mode = 'Low'
 
     # ------------------------------------------------------------------
     # Grabbing
@@ -1772,6 +1780,30 @@ class SimulatedCamera(Camera):
         with self._lock:
             self._black_level = float(value)
         return float(value)
+
+    # ------------------------------------------------------------------
+    # Conversion gain: on a camera built with the mode, 'High' or 'Low',
+    # back to 'Low' at every connect.
+    # ------------------------------------------------------------------
+    def supports_conversion_gain_mode(self) -> bool:
+        return bool(self.active) and self._has_conversion_gain_mode
+
+    def set_conversion_gain_mode(self, mode: str) -> bool:
+        """Set the conversion gain mode; returns as the Pylon driver's does.
+
+        Returns:
+            bool: True when the camera is in ``mode``. False when no camera
+                is active, the mode is neither ``'High'`` nor ``'Low'``, or
+                the camera was built without the mode.
+        """
+        if not self.active or not self._has_conversion_gain_mode:
+            return False
+        if mode not in ('Low', 'High'):
+            logger.error(f'[CAM Sim   ] Unsupported conversion gain mode: {mode}')
+            return False
+        with self._lock:
+            self._conversion_gain_mode = mode
+        return True
 
     def gain(self, value: float) -> float | bool | None:
         """Set the simulated camera gain.

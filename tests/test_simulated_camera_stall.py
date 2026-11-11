@@ -53,13 +53,14 @@ class TestAStallIsRefusedWhereItCannotHappen:
             'sim_camera_stall',
         )
 
-    def test_a_scope_simulated_without_its_camera_refuses_a_stall_and_a_focal_spread(self):
-        # Both are the simulated camera's; refused before anything starts.
+    def test_a_scope_simulated_without_its_camera_refuses_each_of_the_cameras_options(self):
+        # Each is the simulated camera's; refused before anything starts.
         before = set(threading.enumerate())
         refused = {}
         for argument, value in (
             ('sim_camera_stall', SimulatedStall(0.0, 1.0)),
             ('sim_focal_spread_um', 25.0),
+            ('sim_conversion_gain_mode', True),
         ):
             with pytest.raises(ArgumentRefusedError) as raised:
                 build_scope(simulate=True, sim_camera_present=False, **{argument: value})
@@ -67,6 +68,7 @@ class TestAStallIsRefusedWhereItCannotHappen:
         assert refused == {
             'sim_camera_stall': ('needs_simulated_camera', 'sim_camera_stall'),
             'sim_focal_spread_um': ('needs_simulated_camera', 'sim_focal_spread_um'),
+            'sim_conversion_gain_mode': ('needs_simulated_camera', 'sim_conversion_gain_mode'),
         }
         assert [t for t in threading.enumerate() if t not in before] == []
 

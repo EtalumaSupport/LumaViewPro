@@ -1799,10 +1799,11 @@ class ScopeSession:
                 without ``simulate``: a real scope's file lane writes to a
                 real drive, and only a simulated scope's boards and camera
                 take a fault. ``'needs_simulated_camera'``, the record's
-                ``camera_stall`` or ``focal_spread_um`` for a model
-                simulated with an FX2 or with ``camera_present`` False
-                (``argument`` names the scope's ``sim_camera_stall`` or
-                ``sim_focal_spread_um``).
+                ``camera_stall``, ``focal_spread_um`` or
+                ``conversion_gain_mode`` for a model simulated with an FX2
+                or with ``camera_present`` False (``argument`` names the
+                scope's ``sim_camera_stall``, ``sim_focal_spread_um`` or
+                ``sim_conversion_gain_mode``).
                 ``'not_injectable_on_board'``, its ``model_answer``,
                 ``refused_stream_starts`` or ``refused_camera_writes`` for a
                 scope whose board or camera cannot show it;
@@ -1934,6 +1935,7 @@ class ScopeSession:
                 sim_focal_spread_um=simulated.focal_spread_um,
                 sim_camera_present=simulated.camera_present,
                 sim_slide=simulated.slide,
+                sim_conversion_gain_mode=simulated.conversion_gain_mode,
                 sim_unit_config=simulated.unit_config,
                 on_progress=on_progress,
             )
