@@ -135,14 +135,14 @@ def test_every_saving_setter_saves_on_the_camera_lane_inside_its_own_task(sessio
     """
     camera = session.scope.camera
     saves: list[tuple[str, object]] = []
-    store = session.scope.store_settings
+    store = session.scope._store_settings
     calling: list[str] = []
 
     def spying(updates):
         saves.append((calling[-1], getattr(sequential_io_executor._lane_worker, 'executor', None)))
         store(updates)
 
-    monkeypatch.setattr(session.scope, 'store_settings', spying)
+    monkeypatch.setattr(session.scope, '_store_settings', spying)
     for name, call in (
         ('set_image_mode', lambda: camera.set_image_mode('12bit_scientific')),
         ('set_binning', lambda: camera.set_binning(2)),
@@ -181,7 +181,7 @@ def test_a_restore_that_changed_nothing_saves_nothing(session, monkeypatch):
     camera = session.scope.camera
     snapshot = camera.save_camera_state('test')
     saved = []
-    monkeypatch.setattr(session.scope, 'store_settings', saved.append)
+    monkeypatch.setattr(session.scope, '_store_settings', saved.append)
 
     camera.restore_camera_state(snapshot)
 

@@ -27,7 +27,6 @@ from tests.ast_seams import parse_module
 _WRITES = {
     '_store_setting': "the Session's settings store, one leaf",
     '_store_settings': "the Session's settings store, several leaves",
-    'store_settings': "the camera's and the motion API's writes into the Session's store",
     'to_file': 'a protocol file',
     'discard_pending': "a recording's pending frames given up",
     'replace_stuck_worker': "the file writer's recovery, which gives up its queued files",

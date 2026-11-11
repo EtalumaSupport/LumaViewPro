@@ -1847,7 +1847,7 @@ class MotionAPI:
 
     def _set_and_store_acceleration_limit_impl(self, limit_pct: int) -> None:
         self._set_acceleration_limit_impl(limit_pct=limit_pct)
-        self._scope.store_settings({'motion.acceleration_max_pct': limit_pct})
+        self._scope._store_settings({'motion.acceleration_max_pct': limit_pct})
 
     def _set_acceleration_limit_impl(self, limit_pct: int) -> None:
         self.refuse_absent('set_acceleration_limit')

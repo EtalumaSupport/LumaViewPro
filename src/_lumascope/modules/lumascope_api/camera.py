@@ -2181,7 +2181,7 @@ class CameraAPI:
         def write_then_save(*args):
             if not impl(*args):
                 raise _camera_not_connected(member)
-            self._scope.store_settings(updates)
+            self._scope._store_settings(updates)
 
         return write_then_save
 
@@ -2298,7 +2298,7 @@ class CameraAPI:
             capture_depth, self._scope.capabilities.camera_pixel_formats
         )
         if target is None:
-            self._scope.store_settings({'image_mode': mode})
+            self._scope._store_settings({'image_mode': mode})
             return
         self._dispatch_camera(
             self._saved_after(self._set_pixel_format_impl, 'set_image_mode', {'image_mode': mode}),
@@ -2368,7 +2368,7 @@ class CameraAPI:
         saved = {'binning.size': binning.binning_size_int_to_str(size)}
         if held is not None:
             saved.update({'frame.width': int(held['width']), 'frame.height': int(held['height'])})
-        self._scope.store_settings(saved)
+        self._scope._store_settings(saved)
         return self._apply_frame_impl(native, self._target_frame(native, size))
 
     @api(sets='frame_size', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
@@ -2566,7 +2566,7 @@ class CameraAPI:
             delivered = self._set_frame_size_impl(target['width'], target['height'])
             if delivered is None:
                 return None
-        self._scope.store_settings(
+        self._scope._store_settings(
             {
                 'frame.native_width': int(native['width']),
                 'frame.native_height': int(native['height']),
@@ -2654,7 +2654,7 @@ class CameraAPI:
         }
         if changed:
             logger.info(f'[SCOPE API ] the camera holds {changed}; saved')
-            self._scope.store_settings(changed)
+            self._scope._store_settings(changed)
 
     def _max_frame_unbinned(self) -> dict | None:
         """The largest frame the scope delivers, unbinned

@@ -1793,7 +1793,7 @@ class Lumascope:
             absent.append(('camera.line_noise_reduction', 'line noise reduction'))
         if not absent:
             return
-        self.store_settings({path: False for path, _feature in absent})
+        self._store_settings({path: False for path, _feature in absent})
         for path, feature in absent:
             self._bring_up_substitutions.append(Substitution(path, saved=True, used=False))
             notifications.report_outcome(
@@ -1815,7 +1815,7 @@ class Lumascope:
         self._settings_reader = reader
         self._settings_writer = writer
 
-    def store_settings(self, updates: dict[str, Any]) -> None:
+    def _store_settings(self, updates: dict[str, Any]) -> None:
         """Save ``updates``, dotted paths to values, to the session this scope is bound to.
 
         A consult seam for the sub-APIs, not part of the L2 API surface: the
