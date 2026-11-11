@@ -51,7 +51,7 @@ class TestTheSetterAnswersWithTheValueInEffect:
 
         assert camera.set_gain_db(12.5) == pytest.approx(12.4)
         assert camera.gain_db == pytest.approx(12.4)
-        assert camera.frame_validity.target('gain') == pytest.approx(12.4)
+        assert camera._frame_validity.target('gain') == pytest.approx(12.4)
         assert pytest.approx(12.4) in heard
 
     def test_an_exposure_answers_in_milliseconds(self, sim_camera):

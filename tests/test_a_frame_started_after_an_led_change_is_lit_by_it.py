@@ -27,7 +27,7 @@ def test_a_frame_started_after_an_led_change_is_recorded_is_lit_by_it(sim_scope,
     scope = sim_scope
     scope.illumination.led_on('BF', 50.0)
     mapping = scope.imaging.capture_still().record.clock_mapping
-    fv = scope.frame_validity
+    fv = scope._frame_validity
     invalidate = fv.invalidate
     recorded = []
 

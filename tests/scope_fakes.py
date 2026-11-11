@@ -303,9 +303,9 @@ def give_camera_and_imaging(scope):
     from _lumascope.modules.objectives_loader import ObjectiveLoader
 
     scope.objective_helper = ObjectiveLoader()
-    scope.frame_validity = FrameValidity(Lumascope._frames_delivered.__get__(scope))
-    scope.camera = CameraAPI(scope, scope.frame_validity)
-    scope.imaging = ImagingAPI(scope, scope.camera, scope.frame_validity)
+    scope._frame_validity = FrameValidity(Lumascope._frames_delivered.__get__(scope))
+    scope.camera = CameraAPI(scope, scope._frame_validity)
+    scope.imaging = ImagingAPI(scope, scope.camera, scope._frame_validity)
     return scope.camera
 
 

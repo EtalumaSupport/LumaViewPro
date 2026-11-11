@@ -185,7 +185,7 @@ class TestGoingToAStep:
         session.go_to_step(protocol, bf_idx)
 
         assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
-        assert session.scope.imaging.frame_validity.target('gain') == _BF['gain_db']
+        assert session.scope.imaging._frame_validity.target('gain') == _BF['gain_db']
 
     def test_a_camera_refusal_is_raised_once_the_stage_has_arrived(self, session, monkeypatch):
         protocol, _bf_idx, blue_idx = _two_step_protocol(session)
@@ -244,11 +244,11 @@ class TestTheHeldLayer:
         imaging = session.scope.imaging
         session.apply_channel_camera(LED0)
         imaging.capture_still(timeout_s=5.0)
-        before = imaging.frame_validity.invalidation_counts
+        before = imaging._frame_validity.invalidation_counts
 
         session.apply_channel_camera(LED0)
 
-        assert imaging.frame_validity.invalidation_counts == before
+        assert imaging._frame_validity.invalidation_counts == before
 
     def test_a_store_change_is_written_although_the_layer_is_held(self, session):
         session.apply_channel_camera(LED0)
@@ -351,7 +351,7 @@ class TestAWriteToTheShownLayer:
         """A slider tick on the shown manual layer writes the one setting it
         changed: a capture after it waits out that setting's change alone, as
         after a raw write of it, never the layer's whole apply."""
-        validity = session.scope.imaging.frame_validity
+        validity = session.scope.imaging._frame_validity
         before = validity.invalidation_counts
 
         session.update_settings(path, value)

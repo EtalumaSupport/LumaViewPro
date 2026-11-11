@@ -189,7 +189,7 @@ def _imaging(validity):
     collaborator is the real ``ImagingAPI.changes_in_force`` on a self that
     holds only the one store it reads.
     """
-    owner = SimpleNamespace(frame_validity=validity)
+    owner = SimpleNamespace(_frame_validity=validity)
     return SimpleNamespace(changes_in_force=functools.partial(ImagingAPI.changes_in_force, owner))
 
 

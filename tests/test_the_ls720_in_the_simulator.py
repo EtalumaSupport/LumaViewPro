@@ -144,7 +144,7 @@ def test_a_home_asked_as_the_lid_stops_a_move_is_refused_for_the_lid(homed, monk
     x = homed.motion.start_move_xy(x_um=100_000)
     homed.simulation.interlock(lid_open=True)
     x_ended = []
-    frame_validity = homed.imaging.frame_validity
+    frame_validity = homed.imaging._frame_validity
     invalidate = frame_validity.invalidate
 
     def _held_until_x_ends(source, *, began_ns):

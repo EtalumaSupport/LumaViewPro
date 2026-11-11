@@ -856,7 +856,7 @@ class IlluminationAPI:
         # The change is recorded once the store holds it: a frame counts for
         # it by when it began against the record, and the light it is made
         # under is the store's (the simulated sensor reads it).
-        self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
+        self._scope._frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
         self._fire_led_listeners(reading)
         return commanded_ma
 
@@ -936,7 +936,7 @@ class IlluminationAPI:
             self._led_state.pop(address, None)
             self._lit_by.pop(address, None)
             reading = self._reading(address)
-        self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
+        self._scope._frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
         self._fire_led_listeners(reading)
 
     def _leds_off_impl(self) -> None:
@@ -1098,7 +1098,7 @@ class IlluminationAPI:
             self._lit_by.clear()
             self._led_state.clear()
             readings = self._readings()
-        self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
+        self._scope._frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
         _api_log.info('leds_off')
         for reading in readings:
             self._fire_led_listeners(reading)
@@ -1513,7 +1513,7 @@ class IlluminationAPI:
             with self._led_state_lock:
                 self._lit_by.pop(address, None)
                 self._led_state.pop(address, None)
-            self._scope.frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
+            self._scope._frame_validity.invalidate(FrameValiditySource.LED, began_ns=began_ns)
             _api_log.log(VERBOSE, f'led_off ch={address} (release of the {lease.purpose!r} lease)')
             with self._led_state_lock:
                 reading = self._reading(address)

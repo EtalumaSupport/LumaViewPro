@@ -261,7 +261,7 @@ class TestFrameValidityDuringHoming:
     def test_zhome_marks_frame_invalid_during_motion(self):
         scope = build_scope(simulate=True)
         bind_settings_like_a_session(scope)
-        validity = scope.imaging.frame_validity
+        validity = scope.imaging._frame_validity
         captured = {}
 
         def fake_zhome():
@@ -286,7 +286,7 @@ class TestFrameValidityDuringHoming:
     def test_home_marks_frame_invalid_during_motion_full_xyz(self):
         scope = build_scope(simulate=True)
         bind_settings_like_a_session(scope)
-        validity = scope.imaging.frame_validity
+        validity = scope.imaging._frame_validity
         present = scope._motion_driver.detect_present_axes()
         assert 'X' in present and 'Y' in present and 'Z' in present
         captured = {}
@@ -318,7 +318,7 @@ class TestFrameValidityDuringHoming:
 
         scope = build_scope(simulate=True)
         bind_settings_like_a_session(scope)
-        validity = scope.imaging.frame_validity
+        validity = scope.imaging._frame_validity
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         # Rebuild the capability snapshot after patching the driver --
         # post-B7, `axes_present()` reads from `capabilities.axes` (a
@@ -353,7 +353,7 @@ class TestFrameValidityDuringHoming:
         # `home(axis='T')` correctly no-ops there.
         scope = build_scope(simulate=True, sim_model='LS850T')
         bind_settings_like_a_session(scope)
-        validity = scope.imaging.frame_validity
+        validity = scope.imaging._frame_validity
         assert 'T' in scope._motion_driver.detect_present_axes()
         # Homed first: a turret home is refused while any axis is unhomed.
         home_sim_scope(scope)

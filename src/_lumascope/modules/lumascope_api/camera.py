@@ -747,7 +747,7 @@ class CameraAPI:
         self._scope = scope
         # The one frame validity, built by the scope and shared with the
         # capture: every camera write invalidates it, the capture drains it.
-        self.frame_validity = frame_validity
+        self._frame_validity = frame_validity
 
         # _state_lock guards _auto_gain_arm and _held_channel. The camera
         # driver itself is serialized by the camera lane: every read and
@@ -944,7 +944,7 @@ class CameraAPI:
         driver = self._driver
         if driver is None:
             return None
-        armed = self.frame_validity.changes().get(FrameValiditySource.AUTO_GAIN)
+        armed = self._frame_validity.changes().get(FrameValiditySource.AUTO_GAIN)
         frame = driver.grab()
         deadline = time.monotonic() + self._grab_wait_s()
         while armed is not None and (frame is None or frame.seq <= armed.at_seq):
@@ -1087,9 +1087,9 @@ class CameraAPI:
                 refused = refusal()
                 raise self._read_failed(member, refused.setting, refused.requested) from ex
             for source, _value in targets:
-                self.frame_validity.set_target(source, None)
+                self._frame_validity.set_target(source, None)
             for source in invalidates:
-                self.frame_validity.invalidate(source, began_ns=began_ns)
+                self._frame_validity.invalidate(source, began_ns=began_ns)
             unknown = (*(cache_update or ()), *holds)
             if unknown:
                 self._commit_camera_writes(dict.fromkeys(unknown))
@@ -1104,15 +1104,15 @@ class CameraAPI:
             raise refusal() from ex
         finally:
             for source in force_invalidate:
-                self.frame_validity.invalidate(source, began_ns=began_ns)
+                self._frame_validity.invalidate(source, began_ns=began_ns)
             for source in force_clear:
-                self.frame_validity.set_target(source, None)
+                self._frame_validity.set_target(source, None)
         if refusal is not None and self.camera_removed:
             raise _camera_not_connected(member)
         if result is False:
             raise refusal()
         for source in invalidates:
-            self.frame_validity.invalidate(source, began_ns=began_ns)
+            self._frame_validity.invalidate(source, began_ns=began_ns)
         for source, value in targets:
             if (
                 source in target_from_result
@@ -1124,7 +1124,7 @@ class CameraAPI:
                 # every frame -- the failure this parameter exists to
                 # prevent, reintroduced by the check meant to prevent it.
                 value = float(result)
-            self.frame_validity.set_target(source, value)
+            self._frame_validity.set_target(source, value)
         if cache_update:
             self._commit_camera_writes(cache_update)
         return result

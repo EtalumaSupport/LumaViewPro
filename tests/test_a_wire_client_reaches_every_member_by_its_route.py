@@ -310,7 +310,7 @@ def _black_level_in_force(client) -> bool:
 
 def _black_level_waiting(session, count: int) -> None:
     """A black-level change from now on waits ``count`` frames, and one is made."""
-    frame_validity = session.scope.imaging.frame_validity
+    frame_validity = session.scope.imaging._frame_validity
     rules = dict(frame_validity.rules())
     rules['black_level'] = FrameRule(count=count, provenance=None)
     frame_validity.use_rules(rules)

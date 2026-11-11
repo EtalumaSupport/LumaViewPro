@@ -44,11 +44,11 @@ def test_clamped_write_targets_the_applied_value_not_the_request(sim_camera, mon
 
     camera.set_exposure_ms(REQUEST_MS)
 
-    assert camera.frame_validity.target('exposure') == 50.0, (
+    assert camera._frame_validity.target('exposure') == 50.0, (
         'the chunk target must be the applied microseconds; recording the '
         'request is what rejected every frame at the bench'
     )
-    assert camera.frame_validity.chunk_match('exposure', 50.0), (
+    assert camera._frame_validity.chunk_match('exposure', 50.0), (
         'a frame carrying the applied exposure must pass the gate'
     )
 
@@ -63,7 +63,7 @@ def test_refused_write_records_no_target(sim_camera, monkeypatch):
         camera.set_exposure_ms(REQUEST_MS)
 
     assert caught.value.setting == 'exposure_ms'
-    assert camera.frame_validity.target('exposure') == 2500.0, (
+    assert camera._frame_validity.target('exposure') == 2500.0, (
         'a refused write must not claim a target the camera never took'
     )
 
@@ -77,7 +77,7 @@ def test_driver_reporting_no_value_falls_back_to_the_request(sim_camera, monkeyp
 
     camera.set_exposure_ms(REQUEST_MS)
 
-    assert camera.frame_validity.target('exposure') == REQUEST_US
+    assert camera._frame_validity.target('exposure') == REQUEST_US
 
 
 def test_a_bare_true_is_not_mistaken_for_microseconds(sim_camera, monkeypatch):
@@ -88,6 +88,6 @@ def test_a_bare_true_is_not_mistaken_for_microseconds(sim_camera, monkeypatch):
 
     camera.set_exposure_ms(REQUEST_MS)
 
-    assert camera.frame_validity.target('exposure') == REQUEST_US, (
+    assert camera._frame_validity.target('exposure') == REQUEST_US, (
         'True is applied-but-unknown, not a 1 microsecond exposure'
     )

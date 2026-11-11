@@ -42,7 +42,7 @@ def test_a_gain_above_the_maximum_is_refused_naming_the_range(sim_camera, monkey
     assert f'{minimum:g} to {maximum:g} dB' in str(refusal)
     assert written == [], 'nothing reaches the camera'
     assert camera.gain_db == 3.0
-    assert camera.frame_validity.target('gain') == 3.0
+    assert camera._frame_validity.target('gain') == 3.0
 
 
 def test_a_gain_below_a_declared_floor_is_refused(sim_camera, monkeypatch):

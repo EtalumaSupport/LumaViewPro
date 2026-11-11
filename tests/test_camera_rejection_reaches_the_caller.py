@@ -136,7 +136,7 @@ class TestARefusalIsNotRecordedAsTruth:
             camera.set_gain_db(9.0)
 
         assert camera.gain_db == 3.0
-        assert camera.frame_validity.target('gain') == 3.0
+        assert camera._frame_validity.target('gain') == 3.0
 
     def test_an_applied_gain_moves_both(self, sim_scope):
         camera = sim_scope.camera
@@ -145,7 +145,7 @@ class TestARefusalIsNotRecordedAsTruth:
         camera.set_gain_db(9.0)
 
         assert camera.gain_db == 9.0
-        assert camera.frame_validity.target('gain') == 9.0
+        assert camera._frame_validity.target('gain') == 9.0
 
     def test_a_driver_that_cannot_confirm_is_believed(self, sim_scope):
         """``None`` is not a refusal, so the request IS recorded -- that is the
@@ -224,7 +224,7 @@ class TestARaisingWriteIsARejection:
         assert not escaped, f'a raising write did not reach the caller as a rejection: {escaped}'
 
     def test_a_raising_gain_write_still_marks_readiness_stale(self, sim_scope):
-        validity = sim_scope.imaging.frame_validity
+        validity = sim_scope.imaging._frame_validity
         before = validity.invalidation_counts.get('gain', 0)
         sim_scope.simulation.refuse_camera_write('gain', 'raise')
 
@@ -240,7 +240,7 @@ class TestARaisingWriteIsARejection:
             raise TypeError('scripted defect')
 
         monkeypatch.setattr(sim_scope._camera_driver, 'gain', defect)
-        validity = sim_scope.imaging.frame_validity
+        validity = sim_scope.imaging._frame_validity
         before = validity.invalidation_counts.get('gain', 0)
 
         with pytest.raises(TypeError, match='scripted defect'):
@@ -258,7 +258,7 @@ class TestAWriteTheCameraDidNotAnswer:
         sim_scope.simulation.refuse_camera_write('gain', 'no_answer')
 
         assert sim_scope.camera.set_gain_db(9.0) == 9.0
-        assert sim_scope.imaging.frame_validity.target('gain') == 9.0
+        assert sim_scope.imaging._frame_validity.target('gain') == 9.0
 
     def test_two_unanswered_raise_no_answer_and_clear_the_target(self, sim_scope, centre_posts):
         camera = sim_scope.camera
@@ -277,7 +277,7 @@ class TestAWriteTheCameraDidNotAnswer:
         assert type(rejected.value.__cause__).__name__ == 'CameraNoAnswerError'
         # Whether the camera took 9 dB is not known: no gain target is kept, so
         # the next captures settle by frame count rather than match 3 dB.
-        assert camera.frame_validity.target('gain') is None
+        assert camera._frame_validity.target('gain') is None
         assert not _errors(centre_posts), 'the raise is the report'
 
     def test_a_refused_write_is_not_sent_again(self, sim_scope):

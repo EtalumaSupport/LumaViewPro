@@ -74,12 +74,12 @@ class TestSetGainAlwaysInvalidatesDespiteStaleCache:
     def test_desynced_cache_still_records_the_change(self, sim_camera):
         camera, cam = sim_camera
         camera.set_gain_db(0.0)
-        before = camera.frame_validity.invalidation_counts
+        before = camera._frame_validity.invalidation_counts
         # Fault injection, as above: hardware drifted behind the cache.
         with cam._lock:
             cam._gain = 10.8
         camera.set_gain_db(0.0)
-        assert _recorded_once(camera.frame_validity, before, 'gain'), (
+        assert _recorded_once(camera._frame_validity, before, 'gain'), (
             'set_gain_db must record its change with frame validity even '
             'when the cache already reads the requested value'
         )
@@ -103,12 +103,12 @@ class TestSetExposureAlwaysInvalidatesDespiteStaleCache:
     def test_desynced_cache_still_records_the_change(self, sim_camera):
         camera, cam = sim_camera
         camera.set_exposure_ms(0.1)
-        before = camera.frame_validity.invalidation_counts
+        before = camera._frame_validity.invalidation_counts
         # Fault injection, as above.
         with cam._lock:
             cam._exposure_us = 14.0
         camera.set_exposure_ms(0.1)
-        assert _recorded_once(camera.frame_validity, before, 'exposure'), (
+        assert _recorded_once(camera._frame_validity, before, 'exposure'), (
             'set_exposure_ms must record its change with frame validity even '
             'when the cache already reads the requested value'
         )
@@ -122,7 +122,7 @@ class TestAutoGainOnceInvalidates:
 
     def test_auto_gain_once_records_its_changes(self, sim_camera):
         camera, _cam = sim_camera
-        fv = camera.frame_validity
+        fv = camera._frame_validity
         camera.set_gain_db(5.0)
         camera.set_exposure_ms(10.0)
         assert fv.target('gain') is not None and fv.target('exposure') is not None
@@ -176,7 +176,7 @@ class TestMotionValiditySources:
         self, sim_turreted_session, axis, source
     ):
         motion = sim_turreted_session.scope.motion
-        fv = sim_turreted_session.scope.imaging.frame_validity
+        fv = sim_turreted_session.scope.imaging._frame_validity
         target = self._middle_of_travel(motion, axis)
         axis_move(motion, axis, target - 500.0)
         before = fv.invalidation_counts
@@ -200,7 +200,7 @@ class TestMotionValiditySources:
         self, sim_turreted_session, axis, source
     ):
         motion = sim_turreted_session.scope.motion
-        fv = sim_turreted_session.scope.imaging.frame_validity
+        fv = sim_turreted_session.scope.imaging._frame_validity
         axis_move(motion, axis, self._middle_of_travel(motion, axis))
         before = fv.invalidation_counts
 
@@ -219,7 +219,7 @@ class TestMotionValiditySources:
         """The turret's move records 'turret', never 'xy_move'. Its Z park
         and restore are Z moves of their own and record 'z_move'."""
         motion = sim_turreted_session.scope.motion
-        fv = sim_turreted_session.scope.imaging.frame_validity
+        fv = sim_turreted_session.scope.imaging._frame_validity
         slot = 2 if motion.turret_status().slot != 2 else 1
         before = fv.invalidation_counts
 
@@ -238,25 +238,25 @@ class TestGeometryFormatInvalidates:
 
     def test_set_frame_size_records_its_change(self, sim_camera):
         camera, _cam = sim_camera
-        before = camera.frame_validity.invalidation_counts
+        before = camera._frame_validity.invalidation_counts
         camera.set_frame_size(640, 480)
-        assert _recorded_once(camera.frame_validity, before, 'frame_size')
+        assert _recorded_once(camera._frame_validity, before, 'frame_size')
 
     def test_set_pixel_format_records_its_change(self, sim_camera):
         camera, _cam = sim_camera
-        before = camera.frame_validity.invalidation_counts
+        before = camera._frame_validity.invalidation_counts
         # A pixel format is set only through the image mode; 12-bit
         # scientific selects Mono12 on the simulated camera.
         camera.set_image_mode('12bit_scientific')
         assert camera.pixel_format == 'Mono12'
-        assert _recorded_once(camera.frame_validity, before, 'pixel_format')
+        assert _recorded_once(camera._frame_validity, before, 'pixel_format')
 
     def test_set_binning_records_its_change(self, sim_camera):
         camera, _cam = sim_camera
-        before = camera.frame_validity.invalidation_counts
+        before = camera._frame_validity.invalidation_counts
         camera.set_binning(2)
         assert camera.read_binning() == 2
-        assert _recorded_once(camera.frame_validity, before, 'binning')
+        assert _recorded_once(camera._frame_validity, before, 'binning')
 
 
 class TestSaturationGuard:
@@ -348,7 +348,7 @@ class TestEveryLedWriteRecordsItsChange:
 
     def test_each_led_mutator_records_an_led_change(self, sim_scope):
         illum = sim_scope.illumination
-        validity = sim_scope.imaging.frame_validity
+        validity = sim_scope.imaging._frame_validity
         mutator_calls = {
             'led_on': lambda: illum.led_on(channel=LED0, illumination_ma=10),
             'led_off': lambda: illum.led_off(channel=LED0),

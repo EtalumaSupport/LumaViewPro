@@ -72,7 +72,7 @@ def test_a_capture_no_frame_counts_for_raises_naming_the_change(sim_scope, monke
     bound passes with none counting the capture raises ``no_fresh_frame``
     naming the change's source, its words saying the change as a person
     does, never returning the old frame."""
-    frame_validity = sim_scope.imaging.frame_validity
+    frame_validity = sim_scope.imaging._frame_validity
     sim_scope.motion.home()
     sim_scope.motion.move_z(sim_scope.motion.get_current_position('Z') + 50.0)
     judgments = frame_validity.judgments
@@ -97,7 +97,7 @@ def test_a_capture_no_frame_counts_for_raises_naming_the_change(sim_scope, monke
 def test_a_frame_an_excluded_change_does_not_count_for_is_kept(sim_scope, monkeypatch):
     """A capture that excludes a source keeps a frame that change does not
     count for: the frame can predate it, as the exclusion says."""
-    frame_validity = sim_scope.imaging.frame_validity
+    frame_validity = sim_scope.imaging._frame_validity
     sim_scope.motion.home()
     sim_scope.motion.move_z(sim_scope.motion.get_current_position('Z') + 50.0)
     judgments = frame_validity.judgments

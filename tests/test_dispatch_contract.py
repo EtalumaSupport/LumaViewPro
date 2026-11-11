@@ -280,8 +280,8 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
     camera = sim_scope.camera
     recorded = {}
     # Settle work pending at submit, so the validity term is not zero.
-    imaging.frame_validity.invalidate('auto_gain', began_ns=None)
-    pending = imaging.frame_validity.owed().frames
+    imaging._frame_validity.invalidate('auto_gain', began_ns=None)
+    pending = imaging._frame_validity.owed().frames
     assert pending > 0
 
     class _RecordingFuture:

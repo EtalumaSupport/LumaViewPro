@@ -632,7 +632,7 @@ class Lumascope:
         # invalidate it, and the capture drains it. Built before any sub-API,
         # so each is handed it or reaches it here. The frame count is read
         # late, through the method: the driver slot is assigned after this.
-        self.frame_validity = FrameValidity(self._frames_delivered)
+        self._frame_validity = FrameValidity(self._frames_delivered)
 
         # The scope's two lanes, built and started here and shut by
         # disconnect(). Every LED, motion and camera command goes through
@@ -1145,7 +1145,7 @@ class Lumascope:
             # file: at module scope it closes an import cycle.
             from _lumascope.modules.lumascope_api.illumination import live_lit_pairs
 
-            changes = self.frame_validity.changes()
+            changes = self._frame_validity.changes()
 
             def settled_at(source: FrameValiditySource) -> int | None:
                 change = changes.get(source)
@@ -1333,7 +1333,7 @@ class Lumascope:
             scope_models=self._scope_models,
             timing_record=self._read_camera_timing(),
         )
-        self.frame_validity.use_rules(self.capabilities.frame_rules)
+        self._frame_validity.use_rules(self.capabilities.frame_rules)
 
         # ----- Sub-API wiring -----
         # motion and illumination were constructed above (motion so
@@ -1347,8 +1347,8 @@ class Lumascope:
         from _lumascope.modules.lumascope_api.runtime_state import RuntimeState
         from _lumascope.modules.lumascope_api.simulation import SimulationAPI
 
-        self.camera = CameraAPI(self, self.frame_validity)
-        self.imaging = ImagingAPI(self, self.camera, self.frame_validity)
+        self.camera = CameraAPI(self, self._frame_validity)
+        self.imaging = ImagingAPI(self, self.camera, self._frame_validity)
         self.diagnostics = DiagnosticsAPI(self)
         self.protocols = ProtocolsAPI(self)
         self.runtime_state = RuntimeState(self)
@@ -1403,7 +1403,7 @@ class Lumascope:
                 return self.motion.get_axis_state('T') in idle_or_absent
             return True
 
-        self.frame_validity.set_settle_check(_motion_settle_check)
+        self._frame_validity.set_settle_check(_motion_settle_check)
 
         # LVP-A-7: register the emergency-shutdown atexit hook so EVERY
         # Lumascope user (Kivy app, REST server, headless tests, CLI

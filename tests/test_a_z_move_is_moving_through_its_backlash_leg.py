@@ -35,7 +35,7 @@ def session(tmp_path):
 def test_every_reader_sees_the_leg_as_the_move(session):
     motion = session.scope.motion
     driver = motion._driver
-    validity = session.scope.imaging.frame_validity
+    validity = session.scope.imaging._frame_validity
     driver.set_timing_mode('fast')
     motion.move_z(3000.0)
     driver.set_timing_mode('realistic')

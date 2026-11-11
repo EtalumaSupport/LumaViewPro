@@ -440,7 +440,7 @@ class ImagingAPI:
         # save?" The scope builds the one instance and hands it to the camera,
         # which invalidates it on every write, and to the capture, which
         # drains it.
-        self.frame_validity = frame_validity
+        self._frame_validity = frame_validity
         # The stream check's state (start_stream_check). The watch and its
         # bound are written only on the scheduler's thread, by _check_stream.
         self._stream_check_scheduler: Scheduler | None = None
@@ -482,7 +482,7 @@ class ImagingAPI:
         """
         if not chunks:
             return None
-        fv = self.frame_validity
+        fv = self._frame_validity
         for source in fv.CHUNK_VALIDATABLE_SOURCES:
             key = fv.CHUNK_KEY_FOR_SOURCE.get(source)
             value = chunks.get(key) if key else None
@@ -959,7 +959,7 @@ class ImagingAPI:
         # Past the refusals, so a refused capture records nothing, and
         # before the deadline is frozen, so it budgets the change's frames.
         if exposed_after_call:
-            self.frame_validity.invalidate(
+            self._frame_validity.invalidate(
                 FrameValiditySource.CALLER, began_ns=host_clock.steady_ns()
             )
 
@@ -993,7 +993,7 @@ class ImagingAPI:
 
         def _deadline_expired() -> bool:
             now = time.monotonic()
-            if not self.frame_validity.owed(exclude_sources=exclude_sources).moving:
+            if not self._frame_validity.owed(exclude_sources=exclude_sources).moving:
                 _clock['active'] += now - _clock['last']
             _clock['last'] = now
             return _clock['active'] > deadline_s
@@ -1062,7 +1062,7 @@ class ImagingAPI:
             # do this job).
             counts_before = {
                 s: c
-                for s, c in self.frame_validity.invalidation_counts.items()
+                for s, c in self._frame_validity.invalidation_counts.items()
                 if s not in exclude_sources
             }
 
@@ -1079,10 +1079,10 @@ class ImagingAPI:
                 drain_mark = _FeedMark.read(self._driver)
                 drained = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
                 if drained is not None:
-                    self.frame_validity.count_frame(drained.seq, by=Counter.DRAIN)
+                    self._frame_validity.count_frame(drained.seq, by=Counter.DRAIN)
                     drain_iterations += 1
                 else:
-                    owed = self.frame_validity.owed(exclude_sources=exclude_sources)
+                    owed = self._frame_validity.owed(exclude_sources=exclude_sources)
                     # The removal latch is set the moment a removal is seen;
                     # ``active`` is released later, off-thread.
                     removed = self._camera.camera_removed or not self._driver.active
@@ -1149,7 +1149,7 @@ class ImagingAPI:
             # key the snapshot lacks.
             counts_after = {
                 s: c
-                for s, c in self.frame_validity.invalidation_counts.items()
+                for s, c in self._frame_validity.invalidation_counts.items()
                 if s not in exclude_sources
             }
             if counts_after != counts_before:
@@ -1179,7 +1179,7 @@ class ImagingAPI:
                 # that handles a failed capture handles this one; one that
                 # failed because the camera left between the grab and the
                 # read is that removal.
-                judgments = self.frame_validity.judgments(grabbed.earliest)
+                judgments = self._frame_validity.judgments(grabbed.earliest)
                 # Its time is the first frame's start on the camera's clock,
                 # through the mapping its cycle took before the drain, the one
                 # its record carries; a camera without a latch, or a
@@ -1403,7 +1403,7 @@ class ImagingAPI:
         dispatcher's wait both read: the frames owed (``FrameValidity.owed``),
         each at ``frame_cost_s`` and the deadline's margin.
         """
-        owed = self.frame_validity.owed(exclude_sources=exclude_sources)
+        owed = self._frame_validity.owed(exclude_sources=exclude_sources)
         return owed.frames, owed.frames * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN
 
     def _settle_limit(
@@ -1463,7 +1463,7 @@ class ImagingAPI:
         Raises:
             Nothing.
         """
-        return self.frame_validity.owed(exclude_sources=exclude_sources).frames == 0
+        return self._frame_validity.owed(exclude_sources=exclude_sources).frames == 0
 
     def _black_level_for_record(self) -> float | None:
         """The black level a frame's record carries: a fresh read beside the
@@ -1651,7 +1651,7 @@ class ImagingAPI:
         )
         _, settle_s = self._settle_budget(exclude_sources, frame_cost_s)
         if exposed_after_call:
-            caller = self.frame_validity.rules()[FrameValiditySource.CALLER].count
+            caller = self._frame_validity.rules()[FrameValiditySource.CALLER].count
             settle_s += caller * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN
         wait_s = (
             self._CAPTURE_WAIT_TIMEOUT_S
@@ -1837,7 +1837,7 @@ class ImagingAPI:
                     else self._driver.grab()
                 )
                 if frame is not None:
-                    self.frame_validity.count_frame(frame.seq, by=Counter.GRAB)
+                    self._frame_validity.count_frame(frame.seq, by=Counter.GRAB)
 
                 if frame is None:
                     # A camera that is gone will not deliver; don't retry for
@@ -1860,7 +1860,7 @@ class ImagingAPI:
                 # A frame the one judgment does not count for some change was
                 # exposed before that change reached it: the next frame is
                 # taken, and every later check sees only a frame that counts.
-                unmet = judged.unmet(self.frame_validity, frame) if judged is not None else None
+                unmet = judged.unmet(self._frame_validity, frame) if judged is not None else None
                 if unmet is not None:
                     source = unmet.change.source
                     if host_clock.steady_ns() > stop_ns:
@@ -1900,7 +1900,7 @@ class ImagingAPI:
                         else self._driver.grab()
                     )
                     if retry is not None:
-                        self.frame_validity.count_frame(retry.seq, by=Counter.GRAB)
+                        self._frame_validity.count_frame(retry.seq, by=Counter.GRAB)
                     retry_saturation = (
                         self.saturated_fraction(retry.image, retry.significant_bits)
                         if retry is not None
@@ -1980,13 +1980,13 @@ class ImagingAPI:
                     if stale_source is not None:
                         if host_clock.steady_ns() > stop_ns:
                             chunks = frame.chunks or {}
-                            chunk_key = self.frame_validity.CHUNK_KEY_FOR_SOURCE.get(stale_source)
+                            chunk_key = self._frame_validity.CHUNK_KEY_FOR_SOURCE.get(stale_source)
                             logger.warning(
                                 f'[SCOPE API ] get_image: frame chunk for '
                                 f'{stale_source} never matched the requested '
                                 f'target within {timeout_s:.1f}s '
                                 f'(chunk={chunks.get(chunk_key)}, '
-                                f'target={self.frame_validity.target(stale_source)}) -- '
+                                f'target={self._frame_validity.target(stale_source)}) -- '
                                 f'either the camera is still delivering frames '
                                 f'exposed under the previous settings, or it '
                                 f'clamped the requested value. Capture rejected. '
@@ -2125,7 +2125,7 @@ class ImagingAPI:
         Raises:
             Nothing.
         """
-        return self.frame_validity.judgments(frame)
+        return self._frame_validity.judgments(frame)
 
     @api(in_process=True)
     def recorded_changes(self) -> dict[FrameValiditySource, Change]:
@@ -2139,7 +2139,7 @@ class ImagingAPI:
         Raises:
             Nothing.
         """
-        return self.frame_validity.changes()
+        return self._frame_validity.changes()
 
     @api(in_process=True)
     @contextlib.contextmanager
@@ -2181,11 +2181,11 @@ class ImagingAPI:
             ) from refused
         rules = FrameValidity.rules_from_record(record)
         with a_guarded_write(self._scope._activity_claim):
-            self.frame_validity.use_rules(rules)
+            self._frame_validity.use_rules(rules)
         try:
             yield
         finally:
-            self.frame_validity.use_rules(self._scope.capabilities.frame_rules)
+            self._frame_validity.use_rules(self._scope.capabilities.frame_rules)
 
     @api(in_process=True)
     def get_image(
@@ -2356,7 +2356,7 @@ class ImagingAPI:
         # capture accept a frame exposed under the previous gain/exposure/LED
         # state. The ordinal also keeps a frame this path grabbed before a
         # write from retiring any of that write's wait.
-        self.frame_validity.count_frame(frame.seq, by=Counter.PREVIEW)
+        self._frame_validity.count_frame(frame.seq, by=Counter.PREVIEW)
         if frame.seq == unless_seq:
             return None, frame.seq
         tmp = frame.image
@@ -2875,7 +2875,7 @@ class ImagingAPI:
             # exposure for a while after the write, and frames counted only
             # from its end hold the longer bound over a stall that begins
             # after the old frames have all come.
-            change = self.frame_validity.changes().get(FrameValiditySource.EXPOSURE)
+            change = self._frame_validity.changes().get(FrameValiditySource.EXPOSURE)
             if change is not None and driver.frames_delivered - change.at_seq < change.skip:
                 bound_s = held_s
         watch = self._stream_watch

@@ -84,7 +84,7 @@ def test_a_move_to_the_place_every_axis_holds_sends_nothing_and_leaves_frames_va
     motion.move_xy(x_um=_X_UM, y_um=_Y_UM)
     motion.move_z(_Z_UM)
     sent = _wire(scope._motion_driver)
-    before = scope.frame_validity.invalidation_counts
+    before = scope._frame_validity.invalidation_counts
 
     xy = motion.start_move_xy(x_um=_X_UM, y_um=_Y_UM)
     z = motion.start_move_z(_Z_UM)
@@ -92,7 +92,7 @@ def test_a_move_to_the_place_every_axis_holds_sends_nothing_and_leaves_frames_va
     assert xy.done() and z.done(), 'a move to the held target was handed back still running'
     assert xy.result() is None and z.result() is None
     assert [c for c in sent if c.startswith('TARGET_W')] == []
-    assert scope.frame_validity.invalidation_counts == before
+    assert scope._frame_validity.invalidation_counts == before
 
 
 def test_an_axis_whose_move_a_stop_ended_is_driven_to_that_target_again(scope):
@@ -115,16 +115,16 @@ def test_an_axis_whose_move_a_stop_ended_is_driven_to_that_target_again(scope):
 def test_an_axis_a_home_took_is_driven_to_its_old_target_again(scope):
     motion = scope.motion
     motion.move_z(_Z_UM)
-    before = scope.frame_validity.invalidation_counts[FrameValiditySource.Z_MOVE]
+    before = scope._frame_validity.invalidation_counts[FrameValiditySource.Z_MOVE]
     home_sim_scope(scope)
-    homed = scope.frame_validity.invalidation_counts[FrameValiditySource.Z_MOVE]
+    homed = scope._frame_validity.invalidation_counts[FrameValiditySource.Z_MOVE]
     sent = _wire(scope._motion_driver)
 
     motion.move_z(_Z_UM)
 
     assert _targets(sent, 'Z') != []
     assert homed > before
-    assert scope.frame_validity.invalidation_counts[FrameValiditySource.Z_MOVE] > homed
+    assert scope._frame_validity.invalidation_counts[FrameValiditySource.Z_MOVE] > homed
 
 
 def test_an_axis_that_moved_elsewhere_is_driven_back(scope):

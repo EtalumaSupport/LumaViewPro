@@ -72,7 +72,7 @@ class TestAStalledStream:
         # One fault, one reason: the drain leg and the grab leg once named
         # the same stall under different causes.
         if pending:
-            sim_scope.imaging.frame_validity.invalidate('exposure', began_ns=None)
+            sim_scope.imaging._frame_validity.invalidate('exposure', began_ns=None)
         sim_scope.simulation.stall_stream(0.0, 30.0)
 
         with pytest.raises(CaptureFailedError) as failed:
@@ -104,7 +104,7 @@ class TestAGiveUpStatesItsWait:
     ):
         sim_scope.imaging.capture_still(timeout_s=1.0)  # a frame stored before the hold
         if pending:
-            sim_scope.imaging.frame_validity.invalidate('exposure', began_ns=None)
+            sim_scope.imaging._frame_validity.invalidate('exposure', began_ns=None)
         sim_scope.simulation.stall_stream(0.0, 30.0)
         caplog.clear()
 

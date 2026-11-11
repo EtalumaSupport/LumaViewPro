@@ -87,4 +87,4 @@ def test_a_hold_is_refused_while_someone_else_holds_control_and_nothing_is_held(
         pass
 
     assert refused.value.reason == 'control_session_held'
-    assert sim_scope.imaging.frame_validity.rules() == sim_scope.capabilities.frame_rules
+    assert sim_scope.imaging._frame_validity.rules() == sim_scope.capabilities.frame_rules

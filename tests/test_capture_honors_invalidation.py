@@ -140,7 +140,7 @@ class TestMidWindowInvalidationHonored:
         landed = _during_the_first_grab(
             live_scope,
             monkeypatch,
-            lambda: live_scope.imaging.frame_validity.invalidate('z_move', began_ns=None),
+            lambda: live_scope.imaging._frame_validity.invalidate('z_move', began_ns=None),
         )
 
         out = live_scope.imaging.capture_still(timeout_s=1.0, exclude_sources=('z_move',)).image
@@ -162,7 +162,7 @@ class TestDrainDeadline:
         raises ``deadline_expired`` -- never a grab failure's ``no_frame``.
         Slow: the budget's floor is 3 s of wall time, and the timing is the
         subject."""
-        fv = live_scope.imaging.frame_validity
+        fv = live_scope.imaging._frame_validity
         real_grab_new_capture = live_scope._camera_driver.grab_new_capture
 
         def streaming_interference(timeout_s):
@@ -196,7 +196,7 @@ class TestDrainDeadline:
         # Settled before the capture under test, as a lit scope is: frames
         # still owed to the LED would size its budget past the dark wait.
         assert live_scope.imaging.capture_still(timeout_s=1.0).image is not None
-        validity = live_scope.imaging.frame_validity
+        validity = live_scope.imaging._frame_validity
 
         def a_turret_move_lands():
             # As the motion API records one: the change, then its in-force

@@ -184,7 +184,7 @@ def test_auto_gain_capture_locks_and_passes_the_gate():
     record = imaging._capture_still_impl(member='capture_still', timeout_s=1.0).record
     assert record.auto_gain is AutoGainConvergence.CONVERGED
     assert (record.exposure_ms, record.exposure_source) == (62.003, SettingSource.FRAME)
-    assert imaging.frame_validity.target('exposure') == 62003.0
+    assert imaging._frame_validity.target('exposure') == 62003.0
     assert cam._auto_gain_enabled is False
 
 
@@ -213,7 +213,7 @@ def test_auto_gain_capture_reports_at_minimum_below_class_floor():
     record = imaging._capture_still_impl(member='capture_still', timeout_s=1.0).record
     assert record.auto_gain is AutoGainConvergence.AT_MINIMUM
     assert record.exposure_ms == 0.4
-    assert imaging.frame_validity.target('exposure') == 400.0
+    assert imaging._frame_validity.target('exposure') == 400.0
 
 
 def test_lock_result_carries_the_value_to_store():
@@ -246,8 +246,8 @@ def test_auto_gain_capture_failed_readback_fails_the_capture(caplog):
         imaging._capture_still_impl(timeout_s=1.0, member='capture_still')
     assert failed.value.reason == 'record_read_failed'
     assert 'exposure' in str(failed.value.__cause__)
-    assert imaging.frame_validity.target('exposure') is None
-    assert imaging.frame_validity.target('gain') is None
+    assert imaging._frame_validity.target('exposure') is None
+    assert imaging._frame_validity.target('gain') is None
     assert any('[AG CONVERGE] locked: state=FAILED' in m for m in _logged(caplog, logging.WARNING))
 
 
@@ -258,7 +258,7 @@ def test_live_view_arm_resumes_after_capture():
     _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=True)
     assert imaging._capture_still_impl(timeout_s=1.0, member='capture_still').image is not None
     assert cam._auto_gain_enabled is True
-    assert imaging.frame_validity.owed().frames == 20
+    assert imaging._frame_validity.owed().frames == 20
 
     imaging, camera, cam = _build(ae_lands_on_ms=62.0)
     _arm(camera, AG_SETTINGS_TRANSMITTED, resume_after_capture=False)
@@ -415,7 +415,7 @@ def test_arm_clamps_exposure_above_the_class_cap(caplog):
     )
     assert cam._exposure_us == 50000.0
     assert camera.exposure_ms == 50.0
-    assert imaging.frame_validity.target('exposure') == 50000.0
+    assert imaging._frame_validity.target('exposure') == 50000.0
     clamp_lines = [m for m in _logged(caplog, logging.INFO) if '[AG ARM]' in m]
     assert len(clamp_lines) == 1, _logged(caplog, logging.INFO)
     assert '100' in clamp_lines[0] and '50' in clamp_lines[0]
@@ -488,7 +488,7 @@ def test_a_restore_that_disarms_puts_back_the_snapshots_gain():
 
     assert cam._auto_gain_enabled is False
     assert cam.get_gain() == 3.0
-    assert imaging.frame_validity.target('gain') == 3.0
+    assert imaging._frame_validity.target('gain') == 3.0
 
 
 def test_restore_re_arm_clamps_a_trimmed_snapshot():

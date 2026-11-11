@@ -1200,11 +1200,11 @@ class MotionAPI:
         stop_generation = self._stop_generation
         stops_asked = self._stops_asked
         if 'Z' in present_axes:
-            self._scope.frame_validity.invalidate(FrameValiditySource.Z_MOVE, began_ns=None)
+            self._scope._frame_validity.invalidate(FrameValiditySource.Z_MOVE, began_ns=None)
         if 'X' in present_axes or 'Y' in present_axes:
-            self._scope.frame_validity.invalidate(FrameValiditySource.XY_MOVE, began_ns=None)
+            self._scope._frame_validity.invalidate(FrameValiditySource.XY_MOVE, began_ns=None)
         if 'T' in present_axes:
-            self._scope.frame_validity.invalidate(FrameValiditySource.TURRET, began_ns=None)
+            self._scope._frame_validity.invalidate(FrameValiditySource.TURRET, began_ns=None)
         # One command, so the axes' changes come into force when it closes,
         # after the turret's slot is recorded: an axis saying IDLE first
         # would put the turret's change in force with no slot in the light
@@ -1433,7 +1433,9 @@ class MotionAPI:
                     self._set_axis_state('T', AxisState.HOMING)
                     # A homing turret is in no known slot until the home succeeds.
                     self._record_turret_slot(None)
-                    self._scope.frame_validity.invalidate(FrameValiditySource.TURRET, began_ns=None)
+                    self._scope._frame_validity.invalidate(
+                        FrameValiditySource.TURRET, began_ns=None
+                    )
                     homed = False
                     try:
                         self._driver.thome()
@@ -1894,7 +1896,7 @@ class MotionAPI:
                 moving_seen_ns = self._command_moving_seen_ns
             if closed:
                 closed_ns = host_clock.steady_ns()
-                frame_validity = self._scope.frame_validity
+                frame_validity = self._scope._frame_validity
                 for source, change in frame_validity.changes().items():
                     # motion_settled stamps only a change that waits on an
                     # axis now settled; an axis still moving is stamped by
@@ -2129,7 +2131,7 @@ class MotionAPI:
         self._set_axis_state('Z', AxisState.HOMING)
         stop_generation = self._stop_generation
         stops_asked = self._stops_asked
-        self._scope.frame_validity.invalidate(FrameValiditySource.Z_MOVE, began_ns=None)
+        self._scope._frame_validity.invalidate(FrameValiditySource.Z_MOVE, began_ns=None)
         # One command around the home and its put-back, so no frame is
         # counted at the home's height on the way back.
         with self._command():
@@ -4107,7 +4109,7 @@ class MotionAPI:
                             or moving_seen_ns > self._command_moving_seen_ns
                         ):
                             self._command_moving_seen_ns = moving_seen_ns
-                self._scope.frame_validity.motion_settled(
+                self._scope._frame_validity.motion_settled(
                     self._AXIS_VALIDITY_SOURCE.get(axis, FrameValiditySource.XY_MOVE),
                     settled_ns,
                     moving_seen_ns=moving_seen_ns,
@@ -4296,7 +4298,7 @@ class MotionAPI:
         state_before = self._axis_states((axis,))[axis]
         move = self._begin_move(axis, stop_generation)
         try:
-            self._scope.frame_validity.invalidate(
+            self._scope._frame_validity.invalidate(
                 self._AXIS_VALIDITY_SOURCE.get(axis, FrameValiditySource.XY_MOVE), began_ns=None
             )
             return move, send()

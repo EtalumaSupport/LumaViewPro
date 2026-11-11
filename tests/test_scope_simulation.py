@@ -162,7 +162,7 @@ def test_a_refused_gain_write_is_rejected_and_records_no_target(scope):
     with pytest.raises(CameraSettingRejected) as rejected:
         scope.camera.set_gain_db(9.0)
     assert rejected.value.setting == 'gain_db'
-    assert scope.imaging.frame_validity.target('gain') == 3.0
+    assert scope.imaging._frame_validity.target('gain') == 3.0
 
 
 def test_a_raising_binning_write_is_a_chained_rejection(scope):
@@ -180,7 +180,7 @@ def test_a_refused_write_is_one_write(scope):
     with pytest.raises(CameraSettingRejected):
         scope.camera.set_gain_db(9.0)
     scope.camera.set_gain_db(9.0)
-    assert scope.imaging.frame_validity.target('gain') == 9.0
+    assert scope.imaging._frame_validity.target('gain') == 9.0
 
 
 def test_a_refused_write_counted_twice_is_two_writes(scope):
@@ -189,7 +189,7 @@ def test_a_refused_write_counted_twice_is_two_writes(scope):
         with pytest.raises(CameraSettingRejected):
             scope.camera.set_gain_db(9.0)
     scope.camera.set_gain_db(9.0)
-    assert scope.imaging.frame_validity.target('gain') == 9.0
+    assert scope.imaging._frame_validity.target('gain') == 9.0
 
 
 @pytest.mark.parametrize('answer', ['failed', 'removed'])
@@ -300,7 +300,7 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     assert scope.simulation.injected() == ()
     assert scope.motion.get_actual_position('X') == pytest.approx(before, abs=0.1)
     scope.camera.set_gain_db(4.0)
-    assert scope.imaging.frame_validity.target('gain') == 4.0
+    assert scope.imaging._frame_validity.target('gain') == 4.0
     assert scope.camera.read_black_level() is not None
 
 

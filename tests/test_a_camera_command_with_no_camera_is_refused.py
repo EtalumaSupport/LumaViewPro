@@ -551,12 +551,12 @@ def test_a_write_the_camera_left_during_leaves_no_value_to_read(make_session):
     session = make_session('LS850')
     camera = session.scope.camera
     camera.set_gain_db(3.0)
-    target = camera.frame_validity.target('gain')
+    target = camera._frame_validity.target('gain')
     session.scope.simulation.refuse_camera_write('gain', 'removed')
 
     _refused(lambda: camera.set_gain_db(9.0))
 
-    assert (camera.gain_db, camera.frame_validity.target('gain')) == (None, target)
+    assert (camera.gain_db, camera._frame_validity.target('gain')) == (None, target)
 
 
 def test_a_write_that_raises_as_the_camera_leaves_is_refused_as_an_absent_one(

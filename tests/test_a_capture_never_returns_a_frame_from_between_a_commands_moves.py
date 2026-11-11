@@ -59,7 +59,7 @@ def _between(scope, monkeypatch, command) -> tuple[int, list[int]]:
     The changes are read as ``invalidate`` records them: a stand-in by
     design, an observer that passes each call through unchanged.
     """
-    fv = scope.frame_validity
+    fv = scope._frame_validity
     recorded = []
     invalidate = fv.invalidate
 
@@ -155,7 +155,7 @@ def test_centering_on_a_point_returns_no_frame_from_between_its_moves(scope, mon
 def test_a_command_gives_an_in_force_time_only_to_the_changes_it_held(scope):
     """A turret change's turret change, held while Z was put back, is given
     the close's time; the X and Y move before it keeps its own."""
-    fv = scope.frame_validity
+    fv = scope._frame_validity
     xy_before = fv.changes()['xy_move'].in_force_ns
     assert xy_before is not None
 
@@ -189,7 +189,7 @@ def _slot_when_the_turret_came_into_force(scope, monkeypatch, command) -> int | 
     The stamps are read as ``motion_settled`` is called: a stand-in by
     design, an observer that passes each call through unchanged.
     """
-    fv = scope.frame_validity
+    fv = scope._frame_validity
     slot_at = {}
     motion_settled = fv.motion_settled
 

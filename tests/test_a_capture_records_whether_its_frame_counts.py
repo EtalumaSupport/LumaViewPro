@@ -130,7 +130,7 @@ def test_a_frame_the_preview_counted_names_the_preview(sim_scope, caplog):
 
     imaging.add_frame_listener(on_frame, name='after the gain write')
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
-    change = imaging.frame_validity.changes()['gain']
+    change = imaging._frame_validity.changes()['gain']
     assert arrived.wait(5.0), 'no frame arrived after the gain write'
     imaging.remove_frame_listener(on_frame)
     imaging.get_image_from_buffer()
@@ -172,8 +172,8 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
     # A frame already on its way when the gain was written can be the one a
     # grab takes, and it does not count, so the grabs go on until the count
     # is met; a few spare grabs end the loop if grabs stop counting.
-    for _ in range(imaging.frame_validity.changes()['gain'].skip + 3):
-        if imaging.frame_validity.changes()['gain'].remaining == 0:
+    for _ in range(imaging._frame_validity.changes()['gain'].skip + 3):
+        if imaging._frame_validity.changes()['gain'].remaining == 0:
             break
         imaging.get_image(force_new_capture=True)
 
@@ -192,7 +192,7 @@ def test_a_move_is_in_force_when_its_axis_settles(sim_scope):
     motion.home()
     motion.move_z(motion.get_current_position('Z') + 100.0)
 
-    record_change = sim_scope.imaging.frame_validity.changes()['z_move']
+    record_change = sim_scope.imaging._frame_validity.changes()['z_move']
     z = _judgment(sim_scope.imaging.capture_still(accept_dark=True).record, 'z_move')
 
     assert record_change.in_force_ns is not None
@@ -277,7 +277,7 @@ def test_a_full_depth_file_carries_the_judgments_as_plain_words(sim_scope, tmp_p
 def test_a_listeners_frame_is_judged_through_the_api(sim_scope):
     imaging = sim_scope.imaging
     sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
-    at_seq = imaging.frame_validity.changes()['gain'].at_seq
+    at_seq = imaging._frame_validity.changes()['gain'].at_seq
     later = []
     arrived = threading.Event()
 

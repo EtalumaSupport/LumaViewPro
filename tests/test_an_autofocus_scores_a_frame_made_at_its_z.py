@@ -88,7 +88,7 @@ def test_the_scored_frame_is_drained_past_the_step_s_z_move():
         session.scope.camera.set_exposure_ms(2.0)
         _autofocus(session)
         info = session.scope.imaging.last_capture_info
-        z_skip = session.scope.imaging.frame_validity.SKIP_FRAMES['z_move']
+        z_skip = session.scope.imaging._frame_validity.SKIP_FRAMES['z_move']
 
     assert info is not None, 'the sweep never captured through capture_still'
     assert info['drained'] >= z_skip, (

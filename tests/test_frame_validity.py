@@ -417,7 +417,7 @@ class TestCaptureTimeChunkVerification:
         # Every frame names the exposure the camera runs at; a target it
         # never reaches makes each one stale.
         assert sim_scope.camera.exposure_ms != 3.73, 'precondition'
-        sim_scope.imaging.frame_validity.set_target('exposure', 3730.0)
+        sim_scope.imaging._frame_validity.set_target('exposure', 3730.0)
 
         with pytest.raises(CaptureFailedError) as refused:
             sim_scope.imaging.get_image(
@@ -427,7 +427,7 @@ class TestCaptureTimeChunkVerification:
 
     def test_no_targets_means_no_verification(self, sim_scope):
         """Hardware auto-gain clears targets; chunk mismatch must not block."""
-        fv = sim_scope.imaging.frame_validity
+        fv = sim_scope.imaging._frame_validity
         fv.set_target('gain', None)
         fv.set_target('exposure', None)
 
@@ -446,7 +446,7 @@ class TestCaptureTimeChunkVerification:
             complete_settings(microscope='LS620'), simulate=True, warn_pre_release=False
         )
         try:
-            session.scope.imaging.frame_validity.set_target('exposure', 3730.0)
+            session.scope.imaging._frame_validity.set_target('exposure', 3730.0)
 
             image = session.scope.imaging.get_image(
                 force_new_capture=True, verify_chunk_targets=True, timeout_s=0.5
@@ -458,7 +458,7 @@ class TestCaptureTimeChunkVerification:
     def test_default_get_image_unverified(self, sim_scope):
         """Without the flag the primitive stays ungated (live preview path)."""
         assert sim_scope.camera.exposure_ms != 3.73, 'precondition'
-        sim_scope.imaging.frame_validity.set_target('exposure', 3730.0)
+        sim_scope.imaging._frame_validity.set_target('exposure', 3730.0)
 
         image = sim_scope.imaging.get_image(force_new_capture=True, timeout_s=0.5)
         assert isinstance(image, np.ndarray)
@@ -662,22 +662,20 @@ class TestFramesOlderThanTheWriteDoNotCount:
             FrameValidity()
 
 
-class TestFrameValidityIsL2Stable:
-    """``scope.imaging.frame_validity`` is L2 API: plugin authors,
-    diagnostic tooling and custom capture loops may rely on the surface
-    below. ``owed`` is its one answer to what a capture still waits on,
-    and ``invalidation_counts`` its record of which sources were changed."""
-
-    L2_STABLE_FRAME_VALIDITY_SURFACE = (
-        'owed',
-        'invalidation_counts',
-        'invalidate',
-        'count_frame',
-    )
-
-    def test_frame_validity_exposes_l2_surface(self, sim_scope):
-        """Every L2 member is present on the scope's FrameValidity: this
-        catches an accidental retirement."""
-        fv = sim_scope.imaging.frame_validity
-        missing = [n for n in self.L2_STABLE_FRAME_VALIDITY_SURFACE if not hasattr(fv, n)]
-        assert not missing, f'L2 callers depend on FrameValidity.{missing}'
+def test_no_public_attribute_of_the_scope_hands_out_the_store(sim_scope):
+    """The store goes to no caller: only the changers inside the API record
+    a change or count a frame, so no caller can count a frame of its own
+    and make a stale frame count. A caller asks the imaging API's reads
+    (``changes_in_force``, ``changes_in_force_limit_s``, ``judge_frame``,
+    ``recorded_changes``). Walks the scope's public attributes and each
+    one's own, naming every one that is the store."""
+    offenders = []
+    for name, value in vars(sim_scope).items():
+        if name.startswith('_'):
+            continue
+        if isinstance(value, FrameValidity):
+            offenders.append(f'scope.{name}')
+        for inner_name, inner in getattr(value, '__dict__', {}).items():
+            if not inner_name.startswith('_') and isinstance(inner, FrameValidity):
+                offenders.append(f'scope.{name}.{inner_name}')
+    assert offenders == [], f'the frame-validity store is handed out at {offenders}'

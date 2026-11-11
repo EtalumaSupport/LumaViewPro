@@ -175,14 +175,14 @@ class TestARefusalIsNotRecordedAsTruth:
         camera, cam = pylon_camera
         camera.set_gain_db(3.0)
         assert camera.gain_db == 3.0, 'precondition: the applied write was recorded'
-        assert camera.frame_validity.target('gain') == 3.0
+        assert camera._frame_validity.target('gain') == 3.0
 
         cam.active.Gain.SetValue.side_effect = genicam.OutOfRangeException('out of range')
         with pytest.raises(CameraSettingRejected):
             camera.set_gain_db(30.0)
 
         assert camera.gain_db == 3.0, 'a refused gain must not be cached as truth'
-        assert camera.frame_validity.target('gain') == 3.0, (
+        assert camera._frame_validity.target('gain') == 3.0, (
             'a chunk target no frame can carry rejects every frame the camera produces'
         )
 

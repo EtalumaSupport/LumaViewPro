@@ -502,13 +502,13 @@ class TestTheStillIsMadeAfterThePendingWrites:
         # A first still drains whatever bring-up left pending, so the
         # second has the LED change alone to wait out.
         _capture(session)
-        imaging.frame_validity.invalidate('led', began_ns=None)
+        imaging._frame_validity.invalidate('led', began_ns=None)
 
         _capture(session)
 
         info = imaging.last_capture_info
         assert info is not None, 'the still was not captured through the drain'
-        assert info['drained'] >= imaging.frame_validity.SKIP_FRAMES['led'], (
+        assert info['drained'] >= imaging._frame_validity.SKIP_FRAMES['led'], (
             f'the still was not drained past the LED write: {info}'
         )
 

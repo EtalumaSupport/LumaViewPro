@@ -2562,7 +2562,7 @@ def _function_source(source: str, func_name: str) -> str:
     """Return the raw source text of a named top-level or method function.
 
     For substring assertions on chained-attribute calls that AST-walk would
-    miss (e.g. `self.frame_validity.invalidate(...)` -- the chained receiver
+    miss (e.g. `self._frame_validity.invalidate(...)` -- the chained receiver
     isn't a top-level `self.<method>` shape).
     """
     import ast

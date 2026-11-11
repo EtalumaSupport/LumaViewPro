@@ -99,10 +99,10 @@ class TestInitializeStaysOnTheCallingThread:
             monkeypatch.setattr(scope, '_led_driver', board)
             calls = []
             monkeypatch.setattr(board, 'leds_off', lambda: calls.append('leds_off'))
-            led_changes_before = scope.imaging.frame_validity.invalidation_counts.get('led', 0)
+            led_changes_before = scope.imaging._frame_validity.invalidation_counts.get('led', 0)
             settings = bind_settings_like_a_session(scope, **_settings())
             scope.initialize(ScopeInitConfig.from_settings(settings))
-            led_changes = scope.imaging.frame_validity.invalidation_counts.get('led', 0)
+            led_changes = scope.imaging._frame_validity.invalidation_counts.get('led', 0)
             assert led_changes == led_changes_before
             assert calls == []
         finally:
