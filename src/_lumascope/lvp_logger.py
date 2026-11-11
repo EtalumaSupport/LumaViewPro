@@ -86,12 +86,12 @@ _MB = 1024 * 1024
 # A support bundle carries the whole log folder and must stay small enough
 # to email, under 25 MB zipped. Measured over 34 field bundles, these logs
 # zip between 5:1 (autofocus) and 37:1 (errors), so the table at every cap
-# is about 13 MB zipped, leaving room for three installs' installer logs.
+# is at most about 13 MB zipped, leaving room for three installs' installer logs.
 LOG_CAPS = {
     'lumaviewpro.log': (10 * _MB, 3),
-    'serial.log': (5 * _MB, 2),
-    'camera.log': (5 * _MB, 2),
-    'api.log': (5 * _MB, 2),
+    'serial.log': (2 * _MB, 2),
+    'camera.log': (2 * _MB, 2),
+    'api.log': (2 * _MB, 2),
     'lumaviewpro_errors.log': (5 * _MB, 2),
     'lumaviewpro_rest_api.log': (5 * _MB, 1),
     'protocol.log': (5 * _MB, 1),
@@ -102,7 +102,7 @@ LOG_CAPS = {
 
 # The table's sum, every log at its cap with all its backups. A cap raised
 # past it fails the budget test, so the bundle's size is revisited with it.
-LOG_BUDGET_BYTES = 140 * _MB
+LOG_BUDGET_BYTES = 113 * _MB
 
 
 def minimize_logger_window() -> None:
