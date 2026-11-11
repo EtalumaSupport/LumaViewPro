@@ -60,8 +60,8 @@ def autofocus_score(
     """The score autofocus judges a frame by: its centre quarter's focus score.
 
     Every tool that measures what autofocus sees scores through here, so its
-    numbers are autofocus's own. Raises ``ValueError`` for a frame that is not
-    8-bit, as ``focus_function`` does.
+    numbers are autofocus's own. NaN for a centre with nothing in it, and
+    ``ValueError`` for a frame that is not 8-bit, as ``focus_function``.
     """
     height, width = image.shape
     centre = image[height // 4 : 3 * height // 4, width // 4 : 3 * width // 4]
@@ -74,6 +74,10 @@ def focus_function(
 ) -> float:
     """The focus score of an 8-bit frame, its saturated pixels masked.
 
+    NaN when no pixel is left above 0 -- every one black, or blown and
+    masked: the frame shows nothing to focus on. A number there would read
+    as a measurement, and a focus curve took it as far from focus.
+
     Raises:
         ValueError: the frame is not 8-bit. ``_mask_saturated`` takes 255 as
             saturation, so a native-depth frame's clipped pixels would be
@@ -82,7 +86,7 @@ def focus_function(
     if image.dtype != np.uint8:
         raise ValueError(f'focus_function scores 8-bit frames, got {image.dtype}')
     image = _mask_saturated(image)
-    score = _focus_function(image=image)
+    score = _focus_function(image=image) if image.any() else float('nan')
 
     if _enable_af_score_logging and not skip_score_logging:
         logger.info(f'[SCOPE API ] Focus Score: {score}')

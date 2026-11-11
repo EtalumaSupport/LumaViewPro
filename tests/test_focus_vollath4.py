@@ -76,3 +76,17 @@ def test_autofocus_judges_a_frame_by_its_centre_quarter():
 def test_default_focus_function_is_numpy():
     # The module default must be the numpy implementation (numba is gone).
     assert af._focus_function is focus_vollath4_original
+
+
+def test_a_frame_with_nothing_in_it_has_no_score():
+    """A frame whose every pixel is black, or blown and masked to black,
+    shows nothing to focus on, and its score says so: NaN, which every
+    reader of a focus curve passes over, not a 0 that reads as far from
+    focus. One dim grey level is something, and keeps its score."""
+    black = np.zeros((64, 64), dtype=np.uint8)
+    blown = np.full((64, 64), 255, dtype=np.uint8)
+    dim = np.ones((64, 64), dtype=np.uint8)
+
+    assert np.isnan(af.focus_function(image=black))
+    assert np.isnan(af.focus_function(image=blown))
+    assert af.focus_function(image=dim) == _reference_vollath4(dim)

@@ -906,8 +906,9 @@ class AutofocusRunner:
             self._is_focusing_event.clear()
             return
 
-        # Detect dark/blank frames -- would score 0, corrupting the curve.
-        # Retry once; if still dark, accept (may be genuinely dark sample).
+        # Detect dark/blank frames: one may be a frame taken before the
+        # light came up. Retry once; if still dark, accept (may be genuinely
+        # dark sample): one with nothing in it scores NaN, no point.
         # accept_dark here for the same reason as the grab loop above:
         # AF must accept a genuinely dark sample rather than reject the
         # frame.
@@ -983,7 +984,7 @@ class AutofocusRunner:
         # Pass is complete
         self._af_pass_num += 1
         n_pts = len(self._af_data_pass)
-        pass_scores = [d['score'] for d in self._af_data_pass]
+        pass_scores = [d['score'] for d in self._af_data_pass if np.isfinite(d['score'])]
         peak = max(pass_scores) if pass_scores else 0
         _af_log.info(
             f'  PASS {self._af_pass_num} complete: {n_pts} pts, '
