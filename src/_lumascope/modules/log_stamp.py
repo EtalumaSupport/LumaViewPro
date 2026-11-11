@@ -28,7 +28,7 @@ MAIN_LAYOUT = '[%(levelname)s] [%(threadName)s] - %(filename)s - %(message)s'
 # from one made beside it.
 TRACE_LAYOUT = '[%(threadName)s] %(message)s'
 
-# A window's file (bringup.log), which holds the serial, camera and api lines
+# A window's file (bringup.log, run_start.log), which holds the serial, camera and api lines
 # together in the order they were logged: each names the stream it came from.
 WINDOW_LAYOUT = '[%(name)s] [%(threadName)s] %(message)s'
 

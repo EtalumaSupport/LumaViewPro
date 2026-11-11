@@ -136,6 +136,9 @@ class LogWindow(enum.Enum):
     """
 
     BRING_UP = 'bringup.log'
+    # A protocol run's start (a full protocol or a single scan), to its
+    # outcome or its budget, whichever is first.
+    RUN_START = 'run_start.log'
 
 
 class _Window(logging.Handler):
@@ -145,9 +148,10 @@ class _Window(logging.Handler):
     written ``budget_bytes``, whichever comes first, since an end can be far
     off or never come (a bring-up that never reaches its startup motion).
     A window that spends its budget writes one line saying so, the last of
-    that window. Each opening writes a header naming what opened it. The
-    file is appended to across openings and processes, and rotates at its
-    cap as every log does.
+    that window. Each opening writes a header naming what opened it, and
+    only its owner ends it, so a run that ends after a successor opened the
+    window leaves the successor's open. The file is appended to across
+    openings and processes, and rotates at its cap as every log does.
     """
 
     def __init__(self, window: LogWindow, file_handler: logging.Handler, budget_bytes: int):
@@ -156,6 +160,7 @@ class _Window(logging.Handler):
         self._file = file_handler
         self._budget_bytes = budget_bytes
         self._open = False
+        self._owner: object = None
         self._written = 0
 
     def _write(self, message: str) -> None:
@@ -165,17 +170,20 @@ class _Window(logging.Handler):
             )
         )
 
-    def open(self, opened_by: str) -> None:
+    def open(self, opened_by: str, owner: object) -> None:
         with self.lock:
             self._open = True
+            self._owner = owner
             self._written = 0
             self._write(f'{self._window.value} window opened: {opened_by}')
 
-    def end(self) -> bool:
-        """End the window; whether it was open."""
+    def end(self, owner: object) -> bool:
+        """End the window if ``owner`` opened it; whether it was open and this owner's."""
         with self.lock:
-            was_open, self._open = self._open, False
-            return was_open
+            if not self._open or self._owner is not owner:
+                return False
+            self._open = False
+            return True
 
     def emit(self, record: logging.LogRecord) -> None:
         if not self._open:
@@ -231,17 +239,20 @@ def write_window(
         _windows[window] = keeper
 
 
-def open_window(window: LogWindow, opened_by: str) -> None:
-    """Write the trace loggers' lines to the window's file from here; nothing when it has none."""
+def open_window(window: LogWindow, opened_by: str, *, owner: object = None) -> None:
+    """Write the trace loggers' lines to the window's file from here, until ``owner`` ends it.
+
+    Nothing when the window has no file (logging declined).
+    """
     keeper = _windows.get(window)
     if keeper is not None:
-        keeper.open(opened_by)
+        keeper.open(opened_by, owner)
 
 
-def end_window(window: LogWindow) -> bool:
-    """Write no more to the window's file; whether it was open."""
+def end_window(window: LogWindow, *, owner: object = None) -> bool:
+    """Write no more to the window's file if ``owner`` opened it; whether it ended it."""
     keeper = _windows.get(window)
-    return keeper is not None and keeper.end()
+    return keeper is not None and keeper.end(owner)
 
 
 def apply_session_level(level: int | str) -> None:

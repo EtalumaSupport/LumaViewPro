@@ -84,6 +84,7 @@ GUI_LOG_FILE = os.path.join(log_dir, 'gui_interactions.log')
 METRICS_LOG_FILE = os.path.join(log_dir, 'metrics.log')
 PROTOCOL_LOG_FILE = os.path.join(log_dir, 'protocol.log')
 BRINGUP_LOG_FILE = os.path.join(log_dir, log_helpers.LogWindow.BRING_UP.value)
+RUN_START_LOG_FILE = os.path.join(log_dir, log_helpers.LogWindow.RUN_START.value)
 
 _MB = 1024 * 1024
 
@@ -105,11 +106,12 @@ LOG_CAPS = {
     'gui_interactions.log': (2 * _MB, 2),
     'metrics.log': (2 * _MB, 1),
     log_helpers.LogWindow.BRING_UP.value: (2 * _MB, 2),
+    log_helpers.LogWindow.RUN_START.value: (2 * _MB, 2),
 }
 
 # The table's sum, every log at its cap with all its backups. A cap raised
 # past it fails the budget test, so the bundle's size is revisited with it.
-LOG_BUDGET_BYTES = 119 * _MB
+LOG_BUDGET_BYTES = 125 * _MB
 
 
 def minimize_logger_window() -> None:
@@ -263,6 +265,9 @@ _HELD_LINES = 200
 # The most one opening of a window writes. A simulated bring-up writes
 # about 4 KB; the budget ends one that never reaches its end.
 _BRING_UP_BUDGET_BYTES = 1 * _MB
+# At a 22 h field run's rates (serial about 57 KB/min, api about 128, camera
+# about 25), about the run's first five minutes.
+_RUN_START_BUDGET_BYTES = 1 * _MB
 
 # The lanes: each writes its own file and the errors log, and none reaches the
 # main log (start_logging sets each one's propagate False). The loggers are
@@ -383,6 +388,7 @@ def _open_the_files(*, take_root: bool) -> None:
     global debug, file_handler, error_file_handler, rest_api_handler, serial_file_handler
     global camera_file_handler, metrics_file_handler, protocol_file_handler
     global _af_file_handler, _api_file_handler, gui_handler, bringup_file_handler
+    global run_start_file_handler
 
     os.makedirs(log_dir, exist_ok=True)
 
@@ -504,6 +510,16 @@ def _open_the_files(*, take_root: bool) -> None:
         bringup_file_handler,
         trace_loggers=(serial_logger, camera_logger, api_logger),
         budget_bytes=_BRING_UP_BUDGET_BYTES,
+    )
+
+    # A protocol run's start, kept the same way. Not created until one runs.
+    run_start_file_handler = _rotating_handler(RUN_START_LOG_FILE, layout=WINDOW_LAYOUT, delay=True)
+    run_start_file_handler.addFilter(ThreadPauseFilter())
+    log_helpers.write_window(
+        log_helpers.LogWindow.RUN_START,
+        run_start_file_handler,
+        trace_loggers=(serial_logger, camera_logger, api_logger),
+        budget_bytes=_RUN_START_BUDGET_BYTES,
     )
 
     # Only the REST sink is logger-specific; the bundle file handlers live on

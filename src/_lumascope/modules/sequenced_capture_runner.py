@@ -92,6 +92,7 @@ from _lumascope.modules.scheduler import Scheduler
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor, ask_now, asked_at
 from _lumascope.modules.video_cadence import video_sizing_fps
 from _lumascope.lvp_logger import logger
+from _lumascope.lib import log_helpers
 import threading
 
 import _lumascope.modules.stack_builder as stack_builder
@@ -1822,6 +1823,20 @@ class SequencedCaptureRunner:
             # and Stop, published with the outcome and the writes it waits on.
             handle = EngineRun(self, outcome, write_batch)
             self._run_handle = handle
+            # A protocol run's start is kept in run_start.log until its
+            # outcome settles (protocol_cleanup.send_run_ended): the rolling
+            # trace logs rotate it away on a long run. The one-position runs
+            # and the autofocus scan open none, so an autofocus pressed after
+            # a run leaves the run's start where it is.
+            if plan.run_mode in (
+                SequencedCaptureRunMode.FULL_PROTOCOL,
+                SequencedCaptureRunMode.SINGLE_SCAN,
+            ):
+                log_helpers.open_window(
+                    log_helpers.LogWindow.RUN_START,
+                    f'a {plan.run_mode.words} run of {plan.sequence_name!r} started',
+                    owner=handle,
+                )
 
             self._run_loop_future = None
             self._set_state(ProtocolState.RUNNING)

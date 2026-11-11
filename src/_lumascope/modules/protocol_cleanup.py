@@ -15,6 +15,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from _lumascope.lvp_logger import logger
+from _lumascope.lib import log_helpers
 
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.exceptions import (
@@ -62,10 +63,13 @@ def send_run_ended(
     fields are still its own: a successor started after the release
     replaces them. The delivery is the run's operation's settling: inside
     the handler its ``result()`` answers at once, and every other observer
-    sees the run done once the handler has returned.
+    sees the run done once the handler has returned. A protocol run's
+    ``run_start.log`` window ends here, before the delivery; a window a
+    successor has opened since is not this run's and stays open.
     """
 
     def _send(outcome) -> None:
+        log_helpers.end_window(log_helpers.LogWindow.RUN_START, owner=run)
         deliver(
             events,
             'run_ended',
