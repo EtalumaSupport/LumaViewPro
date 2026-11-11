@@ -439,9 +439,10 @@ class Stage(Widget):
         ctx = _app_ctx.ctx
         scope = ctx.scope
 
-        # Until the stage is homed there is no position to show, and a scope
-        # with no XY stage has none at all: the labware is drawn without the
-        # crosshair and the selected well. Gated on the stage capability, NOT
+        # The crosshair and the selected well show where the stage is in X
+        # and Y, so they are drawn only while X and Y both know their
+        # position; Z's state does not hide them. A scope with no XY stage
+        # has no position to show at all. Gated on the stage capability, NOT
         # the transient run lock -- the crosshair stays visible during a run.
         position_available = False
         x_target = None
@@ -449,16 +450,17 @@ class Stage(Widget):
         x_current = None
         y_current = None
 
-        if not scope.motion.axes_without_position().keys() - {'T'} and self._xy_stage_present():
-            # Position cache auto-refreshes on first read if stale (>80ms)
+        if self._xy_stage_present():
+            # An axis whose position is not known (UNKNOWN or HOMING, or every
+            # axis once the close installs the null board) answers None in
+            # both reads, so the None check is the whole gate. Each read
+            # answers for itself: the close can land between the two.
+            positions = scope.motion.axis_positions()
             targets = scope.motion.get_target_positions()
             x_target = targets.get('X')
             y_target = targets.get('Y')
-            x_current = scope.motion.get_current_position('X')
-            y_current = scope.motion.get_current_position('Y')
-            # Each read answers for itself: the close can install the null
-            # board after axes_without_position() answered, and its reads
-            # answer None.
+            x_current = positions['X'].position_um
+            y_current = positions['Y'].position_um
             position_available = None not in (x_target, y_target, x_current, y_current)
         gui_logger.display('STAGE_POSITION_SHOWN', position_available)
 

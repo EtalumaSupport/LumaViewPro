@@ -13,11 +13,15 @@ skip (the scope's labware lookup): reaching that step is "drawn", returning
 before it is "skipped".
 """
 
+import logging
 from types import SimpleNamespace
 
 import pytest
 
 import ui.stage as stage_module
+from _lumascope.modules import gui_logger
+from _lumascope.modules.exceptions import HomingFailedError
+from _lumascope.modules.lumascope_api import AxisPosition, AxisState
 from tests.scope_fakes import home_sim_scope
 from ui.stage import Stage
 
@@ -76,6 +80,39 @@ def test_after_the_position_was_unknown_the_same_position_is_drawn(stage, gui_ct
         stage.draw_labware_io_calculations()
 
 
+@pytest.fixture
+def shown(caplog):
+    """The stage map's STAGE_POSITION_SHOWN records, True or False, in order."""
+    gui_logger._shown.clear()
+    caplog.set_level(logging.DEBUG, logger='LVP.gui_interactions')
+
+    def records():
+        return [
+            r.getMessage().split()[-1]
+            for r in caplog.records
+            if r.name == 'LVP.gui_interactions' and 'STAGE_POSITION_SHOWN' in r.getMessage()
+        ]
+
+    yield records
+    gui_logger._shown.clear()
+
+
+def test_a_z_without_a_position_does_not_hide_the_xy_crosshair(stage, gui_ctx, shown):
+    """The crosshair shows where the stage is in X and Y: a Z whose home failed
+    leaves X and Y known, and the crosshair stays where it was drawn."""
+    scope = gui_ctx.scope
+    _home(scope)
+    scope.simulation.drop_replies('motor', count=None, command='ZHOME')
+    with pytest.raises(HomingFailedError):
+        scope.motion.home('Z')
+    assert scope.motion.axis_positions()['Z'].state == AxisState.UNKNOWN
+    assert scope.motion.axis_positions()['X'].state == AxisState.IDLE
+
+    # Known and unchanged since it was last drawn: the redraw skips.
+    assert stage.draw_labware_io_calculations() is None
+    assert shown() == ['True']
+
+
 class _Plate:
     name = 'plate'
 
@@ -90,8 +127,8 @@ class _Plate:
 def test_a_homed_stage_whose_position_the_api_no_longer_answers_draws_none(
     stage, gui_ctx, monkeypatch
 ):
-    """The close swaps in the null board between the redraw's axes_without_position() and
-    its position reads: the reads answer None, and the whole redraw runs,
+    """The close swaps in the null board during the redraw's position reads:
+    they answer None, and the whole redraw runs,
     hiding the crosshair, rather than raising on the Kivy clock."""
     scope = gui_ctx.scope
     _home(scope)
@@ -99,7 +136,11 @@ def test_a_homed_stage_whose_position_the_api_no_longer_answers_draws_none(
     # board swap between two reads of one redraw, so the reads answer as the
     # null board does.
     monkeypatch.setattr(scope.motion, 'get_target_positions', lambda: {})
-    monkeypatch.setattr(scope.motion, 'get_current_position', lambda axis: None)
+    monkeypatch.setattr(
+        scope.motion,
+        'axis_positions',
+        lambda: {a: AxisPosition(AxisState.UNKNOWN, None) for a in 'XYZ'},
+    )
     monkeypatch.setattr(scope.runtime_state, 'get_labware', lambda: _Plate())
     monkeypatch.setattr(stage_module, 'Clock', SimpleNamespace(schedule_once=lambda *a, **k: None))
     stage._cached_labware_name = 'plate'

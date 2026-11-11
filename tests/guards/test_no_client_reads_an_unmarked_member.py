@@ -75,7 +75,6 @@ _PINNED: dict[str, int] = {
     'Labware.get_well_label': 1,
     'LiveWork.has': 2,
     'Lumascope.camera_connected': 2,
-    'MotionAPI.get_current_position': 2,
     'PostProcessingAPI.composite': 1,
     'PostProcessingAPI.stitch': 1,
     'PostProcessingAPI.video': 1,
