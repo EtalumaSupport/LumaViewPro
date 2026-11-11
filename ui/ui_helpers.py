@@ -544,18 +544,39 @@ def move_z(position: float):
 def move_to_plate(label: str, at: 'PlateLocation') -> None:
     """Start X and Y moving to a plate position a person gave, in plate mm; started, not waited.
 
-    The API converts and bounds the number the person typed or clicked
+    The API converts and bounds the number the person typed
     (``MotionAPI.start_move_to_plate``), so a refusal names it in mm; an
     axis left None is not moved and not redrawn.
     """
     ctx = _app_ctx.ctx
-    axes = tuple(axis for axis, mm in (('X', at.x_mm), ('Y', at.y_mm)) if mm is not None)
     submit_move(
         label,
-        axes=axes,
+        axes=_plate_axes(at),
         call=lambda: ctx.scope.motion.start_move_to_plate(at),
         lane=ctx.io_executor,
     )
+
+
+def move_to_plate_nearest(label: str, at: 'PlateLocation') -> None:
+    """Start X and Y moving to a point a person picked on the plate, or as near it as the stage reaches; started, not waited.
+
+    As ``move_to_plate``, but a point past the stage's travel is moved to
+    by the API as near as it reaches, not refused
+    (``MotionAPI.start_move_to_plate_nearest``): the plate is drawn wider
+    than the stage reaches.
+    """
+    ctx = _app_ctx.ctx
+    submit_move(
+        label,
+        axes=_plate_axes(at),
+        call=lambda: ctx.scope.motion.start_move_to_plate_nearest(at),
+        lane=ctx.io_executor,
+    )
+
+
+def _plate_axes(at: 'PlateLocation') -> tuple[str, ...]:
+    """The axes a plate move of ``at`` moves and redraws: X and Y, each that is given."""
+    return tuple(axis for axis, mm in (('X', at.x_mm), ('Y', at.y_mm)) if mm is not None)
 
 
 def go_to_bookmark(label: str, axes: tuple[str, ...]) -> None:

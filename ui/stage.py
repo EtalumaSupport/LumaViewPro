@@ -10,7 +10,12 @@ import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules import gui_logger
 from ui.step_navigation import go_to_step
 from _lumascope.modules.coord_transformations import PlateLocation
-from ui.ui_helpers import find_nearest_step, move_to_plate, run_unasked, xy_gestures_offered
+from ui.ui_helpers import (
+    find_nearest_step,
+    move_to_plate_nearest,
+    run_unasked,
+    xy_gestures_offered,
+)
 
 logger = logging.getLogger('LVP.ui.stage')
 
@@ -181,9 +186,12 @@ class Stage(Widget):
                     f'left plate=({plate_x:.2f},{plate_y:.2f})',
                 )
                 # The click is already a plate coordinate; the API converts
-                # it. Recording the stage equivalent here would mean keeping
-                # a frame conversion in the widget to feed the log line.
-                move_to_plate('STAGE_CLICK', PlateLocation(x_mm=plate_x, y_mm=plate_y, z_um=None))
+                # it, and moves as near it as the stage reaches, logging the
+                # point used. Recording the stage equivalent here would mean
+                # keeping a frame conversion in the widget to feed the log line.
+                move_to_plate_nearest(
+                    'STAGE_CLICK', PlateLocation(x_mm=plate_x, y_mm=plate_y, z_um=None)
+                )
 
             elif touch.button == 'right':
                 logger.info(f'[Stage   ] Finding nearest step to {plate_x}, {plate_y}')

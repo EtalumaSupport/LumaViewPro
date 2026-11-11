@@ -345,8 +345,9 @@ class TestOneTargetComputation:
     def test_only_the_one_conversion_converts_a_step_position(self):
         # stage_targets decides which axes a step move drives; a step mover
         # converting through plate_to_stage itself would drive X and Y on a
-        # scope without them, as default_move did. The plate-frame move
-        # converts the one axis it was asked to drive.
+        # scope without them, as default_move did. The plate-frame moves
+        # (to a place, and to the nearest point) convert through their one
+        # conversion, the one axis they were asked to drive.
         callers = [
             f'{rel}::{qualname}'
             for rel, tree in production_modules()
@@ -365,7 +366,7 @@ class TestOneTargetComputation:
         ]
         assert set(callers) == {
             'src/_lumascope/modules/lumascope_api/protocols.py::ProtocolsAPI.stage_targets',
-            'src/_lumascope/modules/lumascope_api/motion.py::MotionAPI._plate_target_to_stage',
+            'src/_lumascope/modules/lumascope_api/motion.py::MotionAPI._plate_to_stage_um',
         }, callers
 
     def test_the_gui_navigation_moves_no_axis_itself(self):

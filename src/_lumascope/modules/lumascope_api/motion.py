@@ -173,6 +173,33 @@ if TYPE_CHECKING:
     from _lumascope.drivers.protocols import MotorBoardProtocol
 
 
+def _plate_axes_given(at: PlateLocation) -> tuple[tuple[str, float], ...]:
+    """The X and Y ``at`` gives, as ``(axis, mm)``, each refused unless it is a finite number; a Z is refused.
+
+    The one check of a plate move's argument, for every plate move.
+
+    Raises:
+        ArgumentRefusedError: ``'plate_frame_axis'``, a Z given: a plate
+            position has no Z; ``'not_a_number'``, an axis given is not a
+            finite number.
+    """
+    if at.z_um is not None:
+        raise ArgumentRefusedError(
+            'plate_frame_axis', argument='axis', value='Z', offered=_PLATE_AXES
+        )
+    given = tuple((axis, mm) for axis, mm in (('X', at.x_mm), ('Y', at.y_mm)) if mm is not None)
+    for axis, mm in given:
+        refuse_unless_finite_number(mm, f'at.{axis.lower()}_mm')
+    return given
+
+
+def _plate_point(at: PlateLocation) -> str:
+    """The X and Y of ``at`` as the API log states a plate point: each given axis, in mm to two decimals."""
+    return ', '.join(
+        f'{axis} {mm:.2f} mm' for axis, mm in (('X', at.x_mm), ('Y', at.y_mm)) if mm is not None
+    )
+
+
 class HomeTarget(enum.StrEnum):
     """What a home takes: Z, the turret, or every axis the board has.
 
@@ -2578,44 +2605,70 @@ class MotionAPI:
         the axis, so a coordinate past the plate becomes a target below
         zero, and the travel check then reported THAT number.
 
-        The bound checked here is the reachable band -- the set of plate
-        coordinates whose converted target lies within travel -- rather
-        than the labware extent, which is wider. An extent check would
-        pass a coordinate the stage still cannot serve and hand the user
-        a second refusal in the other frame for the same mistake.
-
-        The band is the inverse image of the travel interval under a
-        transform that is affine and strictly decreasing in the plate
-        coordinate, so refusing here rejects exactly what the travel
-        check downstream would reject, in the unit the caller gave.
+        The converted target is judged against the axis's travel, the
+        check the drive applies, so this refuses exactly what the drive
+        would; the refusal states the reachable band -- the plate
+        coordinates whose converted target lies within travel -- in the
+        unit the caller gave. The labware extent is wider than the band,
+        so checking it would pass a coordinate the stage still cannot
+        serve. The band is stated to two decimals and rounded inward, so
+        every number in the range a refusal states is one this accepts: at
+        a stage offset other than whole tens of um, an edge rounded to
+        nearest converts back a few um outside travel.
         """
-        # Each stage axis depends only on its own plate axis, so the one
-        # coordinate stands for both and the other half is not read.
-        converted = self._scope.runtime_state.plate_to_stage(plate_mm, plate_mm)
-        stage_position = converted.x_um if axis == 'X' else converted.y_um
+        stage_position = self._plate_to_stage_um(axis, plate_mm)
 
         limits = self.get_axis_limits(axis)
-        if limits is not None:
+        if limits is not None and not (limits.min_um <= stage_position <= limits.max_um):
             labware = self._scope.runtime_state.get_labware()
             dimension = labware.width_mm if axis == 'X' else labware.height_mm
             offset = self._scope.runtime_state.get_stage_offset()
             offset_mm = (offset.x_um if axis == 'X' else offset.y_um) / 1000
+
+            def reachable(edge_mm: float) -> bool:
+                return limits.min_um <= self._plate_to_stage_um(axis, edge_mm) <= limits.max_um
+
             # Inverting sx = (dimension - offset - px) * 1000: the map
             # decreases in px, so the travel MAXIMUM yields the plate
-            # minimum and vice versa.
+            # minimum and vice versa. Rounding moves an edge at most 5 um,
+            # so one 0.01 mm step inward brings it back inside travel.
             band_low = round(dimension - offset_mm - limits.max_um / 1000, 2)
+            if not reachable(band_low):
+                band_low = round(band_low + 0.01, 2)
             band_high = round(dimension - offset_mm - limits.min_um / 1000, 2)
-            if not (band_low <= plate_mm <= band_high):
-                raise PositionOutOfRangeError(
-                    axis,
-                    plate_mm,
-                    band_low,
-                    band_high,
-                    bound='reachable range',
-                    quantity='plate position',
-                )
+            if not reachable(band_high):
+                band_high = round(band_high - 0.01, 2)
+            raise PositionOutOfRangeError(
+                axis,
+                plate_mm,
+                band_low,
+                band_high,
+                bound='reachable range',
+                quantity='plate position',
+            )
 
         return stage_position
+
+    def _plate_to_stage_um(self, axis: str, plate_mm: float) -> float:
+        """``plate_mm`` on X or Y, on the selected plate at the live offset, as a stage target in um; not bounded."""
+        # Each stage axis depends only on its own plate axis, so the one
+        # coordinate stands for both and the other half is not read.
+        converted = self._scope.runtime_state.plate_to_stage(plate_mm, plate_mm)
+        return converted.x_um if axis == 'X' else converted.y_um
+
+    def _nearest_stage_um(self, axis: str, plate_mm: float) -> float:
+        """``plate_mm`` on X or Y as a stage target in um, moved to the nearer travel limit when outside it.
+
+        Judged in the stage frame, against the travel the drive checks,
+        never against the rounded plate band, whose edge converts back
+        outside travel at some offsets; so the target returned is one the
+        drive takes.
+        """
+        stage_um = self._plate_to_stage_um(axis, plate_mm)
+        limits = self.get_axis_limits(axis)
+        if limits is None:
+            return stage_um
+        return min(max(stage_um, limits.min_um), limits.max_um)
 
     def _move_absolute_impl(
         self,
@@ -3027,15 +3080,7 @@ class MotionAPI:
                 command;
                 ``'board_lost'``, the board is no longer connected.
         """
-        if at.z_um is not None:
-            raise ArgumentRefusedError(
-                'plate_frame_axis', argument='axis', value='Z', offered=_PLATE_AXES
-            )
-        targets = tuple(
-            (axis, value) for axis, value in (('X', at.x_mm), ('Y', at.y_mm)) if value is not None
-        )
-        for axis, value in targets:
-            refuse_unless_finite_number(value, f'at.{axis.lower()}_mm')
+        targets = _plate_axes_given(at)
         return self._start_plate_moves('start_move_to_plate', lambda: targets)
 
     @api(admitted_by=(Admission.LANE_CALL,))
@@ -3069,6 +3114,104 @@ class MotionAPI:
         """
         refuse_waiting_on_ui_thread('move_to_plate')
         self.start_move_to_plate(at).result()
+
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    def start_move_to_plate_nearest(self, at: PlateLocation) -> Operation[PlateLocation]:
+        """Start X and Y moving to ``at`` on the selected plate, or as near it as the stage reaches; return the started moves.
+
+        For a point a person picks on a picture of the plate, which is
+        drawn wider than the stage reaches: each axis given whose target is
+        outside its travel goes to the nearer travel limit instead of being
+        refused, and the API log states the point asked and the point used.
+        Every other refusal is ``start_move_to_plate``'s. A typed position,
+        a bookmark or a protocol step means that place and is refused when
+        the stage cannot reach it (``start_move_to_plate``).
+
+        Args:
+            at: Where X and Y go, in mm on the selected plate; an axis that is None is
+                left where it is.
+
+        Returns:
+            One ``Operation`` for the moves started, done once every one is;
+            its ``result()`` is the point on the plate the stage went to, in
+            mm, an axis not given None, or raises the first move's raise, as
+            ``start_move_to_plate``'s does.
+
+        Raises:
+            ArgumentRefusedError: ``'plate_frame_axis'`` or
+                ``'not_a_number'``, as ``start_move_to_plate``.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'lid_open_before_motion'`` or ``'monitor_ended'``, as
+                ``start_move_to_plate``.
+            AxisStateUnknownError: As ``start_move_to_plate``.
+            MoveFaultError: As ``start_move_to_plate``.
+        """
+        given = _plate_axes_given(at)
+        return self._dispatch_motion(
+            self._nearest_plate_moves_on_lane,
+            'start_move_to_plate_nearest',
+            args=(at, given),
+            timeout_s=self._MOTION_WAIT_BASE_S,
+        )
+
+    @api(admitted_by=(Admission.LANE_CALL,))
+    def move_to_plate_nearest(self, at: PlateLocation) -> PlateLocation:
+        """Move X and Y to ``at`` on the selected plate, or as near it as the stage reaches; return where they went, once arrived.
+
+        ``start_move_to_plate_nearest`` followed by its operation's ``result()``.
+
+        Args:
+            at: Where X and Y go, in mm on the selected plate; an axis that is None is
+                left where it is.
+
+        Returns:
+            The point on the plate the stage went to, in mm; an axis not
+            given is None.
+
+        Raises:
+            ArgumentRefusedError: ``'plate_frame_axis'`` or
+                ``'not_a_number'``, as ``start_move_to_plate``.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'lid_open_before_motion'`` or ``'monitor_ended'``, as
+                ``start_move_to_plate``.
+            AxisStateUnknownError: As ``start_move_to_plate``.
+            MoveFaultError: As ``move_to_plate``.
+            MoveStoppedError: As ``move_to_plate``.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_move_to_plate_nearest``.
+                Nothing was driven.
+        """
+        refuse_waiting_on_ui_thread('move_to_plate_nearest')
+        return self.start_move_to_plate_nearest(at).result()
+
+    def _nearest_plate_moves_on_lane(
+        self, at: PlateLocation, given: tuple[tuple[str, float], ...]
+    ) -> Operation[PlateLocation]:
+        """The lane half of ``start_move_to_plate_nearest``: every axis given converted, held to travel, then one XY request."""
+        member = 'start_move_to_plate_nearest'
+        for axis, _ in given:
+            self.refuse_absent(member, axis)
+        stage: dict[str, float] = {}
+        went_mm: dict[str, float] = {}
+        for axis, mm in given:
+            stage[axis] = self._nearest_stage_um(axis, mm)
+            # An axis that goes where it was asked states the number asked,
+            # not its round trip through the stage frame.
+            held = stage[axis] != self._plate_to_stage_um(axis, mm)
+            went_mm[axis] = self._stage_to_plate_mm(axis, stage[axis]) if held else mm
+        went = PlateLocation(x_mm=went_mm.get('X'), y_mm=went_mm.get('Y'), z_um=None)
+        if went != at:
+            _api_log.info(
+                f'{member}: plate {_plate_point(at)} is outside the travel; '
+                f'going to the nearest point it reaches, {_plate_point(went)}'
+            )
+        return Operation.all_of((self._drive_on_plate(member, stage),), result=went)
+
+    def _stage_to_plate_mm(self, axis: str, stage_um: float) -> float:
+        """``stage_um`` on X or Y as a plate coordinate in mm, on the selected plate at the live offset."""
+        # As _plate_to_stage_um: the one coordinate stands for both.
+        converted = self._scope.runtime_state.stage_to_plate(stage_um, stage_um)
+        return converted.x_mm if axis == 'X' else converted.y_mm
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_move_to_well(self, well: str) -> Operation[None]:
@@ -3160,6 +3303,10 @@ class MotionAPI:
         # Every target is converted before any axis moves, so a refusal of
         # one leaves the other where it was.
         stage = {axis: self._plate_target_to_stage(axis, mm) for axis, mm in given}
+        return self._drive_on_plate(member, stage)
+
+    def _drive_on_plate(self, member: str, stage: dict[str, float]) -> Operation:
+        """The plate move's drive: the converted ``stage`` targets, in um, as one XY request on one command."""
         with self.one_command(tuple(stage), then='move on the plate'):
             return self._move_xy_impl(member, stage.get('X'), stage.get('Y'), False)
 

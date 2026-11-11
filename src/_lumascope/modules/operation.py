@@ -236,10 +236,12 @@ class Operation[T](concurrent.futures.Future[T]):
         return op
 
     @classmethod
-    def all_of(cls, operations: 'tuple[Operation, ...]') -> 'Operation[None]':
+    def all_of[R](cls, operations: 'tuple[Operation, ...]', *, result: R = None) -> 'Operation[R]':
         """One operation for several started together: done once every one is, raising the first one's raise.
 
-        Its ``result()`` is None. ``stop()`` stops each one still under way.
+        Its ``result()`` is *result*, None unless the producer states what
+        the operations together did (a plate move to the nearest point gives
+        the point it went to). ``stop()`` stops each one still under way.
         With none, it is done at once. Once done it holds none of the
         operations it joined.
         """
@@ -257,7 +259,7 @@ class Operation[T](concurrent.futures.Future[T]):
 
         joined = cls(stop=stop)
         if not operations:
-            concurrent.futures.Future.set_result(joined, None)
+            concurrent.futures.Future.set_result(joined, result)
             return joined
         lock = threading.Lock()
         left = [len(operations)]
@@ -270,7 +272,7 @@ class Operation[T](concurrent.futures.Future[T]):
             settled, held[0] = held[0], ()
             raised = next((op.exception() for op in settled if op.exception() is not None), None)
             if raised is None:
-                concurrent.futures.Future.set_result(joined, None)
+                concurrent.futures.Future.set_result(joined, result)
             else:
                 concurrent.futures.Future.set_exception(joined, raised)
 

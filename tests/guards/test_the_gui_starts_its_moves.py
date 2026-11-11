@@ -4,12 +4,14 @@
 A person's gesture -- a jog, a scroll-wheel tick, a click on the stage or
 the image, a typed position -- returns at once, and a move that fails on
 the way is the motion monitor's to report. ``scope.motion.move_xy``,
-``move_xy_by``, ``move_z``, ``move_z_by``, ``move_to_plate`` and
-``move_to_well`` wait for the axes to arrive, so a gesture that
+``move_xy_by``, ``move_z``, ``move_z_by``, ``move_to_plate``,
+``move_to_plate_nearest`` and ``move_to_well`` wait for the axes to
+arrive, so a gesture that
 called them would hold the IO lane for the whole travel, serialise X and
 Y, and make each scroll tick wait for the last. The GUI calls the start
 members (``start_move_xy``, ``start_move_xy_by``, ``start_move_z``,
-``start_move_z_by``, ``start_move_to_plate``); a Session
+``start_move_z_by``, ``start_move_to_plate``,
+``start_move_to_plate_nearest``); a Session
 member that waits, such as ``go_to_step``, is submitted off the lane.
 
 The scan finds every call in ``ui/`` of a waited move member on an
@@ -25,7 +27,15 @@ from tests.ast_seams import MemberNames, iter_package_modules
 
 _WAITED = MemberNames(
     'src/_lumascope/modules/lumascope_api/motion.py',
-    {'move_xy', 'move_xy_by', 'move_z', 'move_z_by', 'move_to_plate', 'move_to_well'},
+    {
+        'move_xy',
+        'move_xy_by',
+        'move_z',
+        'move_z_by',
+        'move_to_plate',
+        'move_to_plate_nearest',
+        'move_to_well',
+    },
 )
 
 
@@ -63,6 +73,7 @@ def test_the_scan_sees_the_gesture_moves_it_was_written_for():
                     'start_move_z',
                     'start_move_z_by',
                     'start_move_to_plate',
+                    'start_move_to_plate_nearest',
                     'start_center_on',
                 }
                 and ast.unparse(node.func.value).split('.')[-1] == 'motion'

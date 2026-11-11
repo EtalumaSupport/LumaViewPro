@@ -136,6 +136,90 @@ class TestEquivalentToTheTravelCheck:
             )
 
 
+# The template's offset, and two a unit's calibration can give: at 5503 and
+# 5496 um an edge of the band rounded to nearest converts back 3-4 um outside
+# travel, so the band's words and the travel's judgment part.
+# parametrize-justified: each offset needs its own bring-up.
+@pytest.fixture(scope='module', params=[5500.0, 5503.0, 5496.0], ids=lambda um: f'offset{um:.0f}')
+def offset_scope(request, tmp_path_factory):
+    """A homed simulated LS850T with the template's plate, at the stage offset ``request.param`` on X (Y 1500 um less)."""
+    from _lumascope.modules.scope_session import ScopeSession
+    from tests.scope_fakes import home_sim_scope
+    from tests.settings_fixtures import complete_settings
+
+    settings = complete_settings(
+        microscope='LS850T',
+        stage_offset={'x': request.param, 'y': request.param - 1500.0},
+        live_folder=str(tmp_path_factory.mktemp('offset')),
+    )
+    session = ScopeSession.create(settings, simulate=True)
+    home_sim_scope(session.scope)
+    yield session.scope
+    session.shutdown()
+
+
+def _on(axis: str, plate_mm: float) -> PlateLocation:
+    return PlateLocation(
+        x_mm=plate_mm if axis == 'X' else None,
+        y_mm=plate_mm if axis == 'Y' else None,
+        z_um=None,
+    )
+
+
+class TestTheStatedRangeIsTheAcceptedOne:
+    @pytest.mark.parametrize('axis', ['X', 'Y'])
+    def test_every_edge_a_refusal_states_is_reached_at_any_offset(self, offset_scope, axis):
+        """A refusal states the band; typing either of its edges then
+        moves there, and a hundredth past either is refused in plate mm."""
+        motion = offset_scope.motion
+        with pytest.raises(PositionOutOfRangeError) as exc:
+            motion.move_to_plate(_on(axis, 9999.0))
+        low, high = exc.value.limits
+
+        for edge in (low, high):
+            motion.move_to_plate(_on(axis, edge))
+        for past in (round(low - 0.01, 2), round(high + 0.01, 2)):
+            with pytest.raises(PositionOutOfRangeError) as exc:
+                motion.move_to_plate(_on(axis, past))
+            assert (exc.value.bound, exc.value.limits) == ('reachable range', (low, high))
+
+
+class TestAPickedPointGoesAsNearAsTheStageReaches:
+    """``move_to_plate_nearest``, the plate click's move: a point past the
+    travel is not refused, the stage goes to the nearest point it reaches."""
+
+    @pytest.mark.parametrize(
+        'far', [-50.0, 500.0], ids=['past_the_low_corner', 'past_the_high_corner']
+    )
+    def test_a_point_past_both_axes_goes_to_the_travels_corner(self, offset_scope, far):
+        """The plate frame inverts both axes: a plate point below the plate is
+        past the travel's maximum, one beyond it below its minimum."""
+        motion = offset_scope.motion
+        limits = {axis: motion.get_axis_limits(axis) for axis in ('X', 'Y')}
+        corner = {
+            axis: (limit.max_um if far < 0 else limit.min_um) for axis, limit in limits.items()
+        }
+
+        went = motion.move_to_plate_nearest(PlateLocation(x_mm=far, y_mm=far, z_um=None))
+
+        targets = motion.get_target_positions()
+        assert (targets['X'], targets['Y']) == (corner['X'], corner['Y'])
+        on_plate = offset_scope.runtime_state.stage_to_plate(corner['X'], corner['Y'])
+        assert went == PlateLocation(x_mm=on_plate.x_mm, y_mm=on_plate.y_mm, z_um=None)
+
+    def test_a_point_it_reaches_is_gone_to_exactly(self, offset_scope):
+        """Inside the travel the move is ``move_to_plate``'s, and it states
+        the point asked, not its round trip through the stage frame."""
+        motion = offset_scope.motion
+        asked = PlateLocation(x_mm=40.123456789, y_mm=None, z_um=None)
+
+        went = motion.move_to_plate_nearest(asked)
+
+        assert went == asked
+        expected = offset_scope.runtime_state.plate_to_stage(asked.x_mm, asked.x_mm).x_um
+        assert motion.get_target_positions()['X'] == expected
+
+
 def _y(plate_mm: float) -> PlateLocation:
     return PlateLocation(x_mm=None, y_mm=plate_mm, z_um=None)
 

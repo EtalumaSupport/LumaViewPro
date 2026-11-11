@@ -7596,6 +7596,44 @@ Move X and Y to `at` on the selected plate, and return once they have arrived.
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
+<a id="MotionAPI.move_to_plate_nearest"></a>
+### `MotionAPI.move_to_plate_nearest`
+
+```python
+def move_to_plate_nearest(self, at: PlateLocation) -> PlateLocation
+```
+
+Marks: enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/move_to_plate_nearest`.
+
+Move X and Y to `at` on the selected plate, or as near it as the stage reaches; return where they went, once arrived.
+
+`start_move_to_plate_nearest` followed by its operation's `result()`.
+
+**Args**
+
+- `at`: Where X and Y go, in mm on the selected plate; an axis that is None is left where it is.
+
+**Returns**
+
+The point on the plate the stage went to, in mm; an axis not given is None.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'plate_frame_axis'` or `'not_a_number'`, as `start_move_to_plate`.
+- `HardwareCommandRefusedError`: `'not_connected'`, `'axis_absent'`, `'lid_open_before_motion'` or `'monitor_ended'`, as `start_move_to_plate`.
+- `AxisStateUnknownError`: As `start_move_to_plate`.
+- `MoveFaultError`: As `move_to_plate`.
+- `MoveStoppedError`: As `move_to_plate`.
+- `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_to_plate_nearest`. Nothing was driven.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+
 <a id="MotionAPI.move_to_well"></a>
 ### `MotionAPI.move_to_well`
 
@@ -8128,6 +8166,48 @@ One `Operation` for the moves started, done once every one is (`Operation.all_of
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+
+<a id="MotionAPI.start_move_to_plate_nearest"></a>
+### `MotionAPI.start_move_to_plate_nearest`
+
+```python
+def start_move_to_plate_nearest(self, at: PlateLocation) -> Operation[PlateLocation]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_call`.  
+Route: `POST /api/v1/scope/motion/start_move_to_plate_nearest`.
+
+Start X and Y moving to `at` on the selected plate, or as near it as the stage reaches; return the started moves.
+
+For a point a person picks on a picture of the plate, which is
+drawn wider than the stage reaches: each axis given whose target is
+outside its travel goes to the nearer travel limit instead of being
+refused, and the API log states the point asked and the point used.
+Every other refusal is `start_move_to_plate`'s. A typed position,
+a bookmark or a protocol step means that place and is refused when
+the stage cannot reach it (`start_move_to_plate`).
+
+**Args**
+
+- `at`: Where X and Y go, in mm on the selected plate; an axis that is None is left where it is.
+
+**Returns**
+
+One `Operation` for the moves started, done once every one is; its `result()` is the point on the plate the stage went to, in mm, an axis not given None, or raises the first move's raise, as `start_move_to_plate`'s does.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'plate_frame_axis'` or `'not_a_number'`, as `start_move_to_plate`.
+- `HardwareCommandRefusedError`: `'not_connected'`, `'axis_absent'`, `'lid_open_before_motion'` or `'monitor_ended'`, as `start_move_to_plate`.
+- `AxisStateUnknownError`: As `start_move_to_plate`.
+- `MoveFaultError`: As `start_move_to_plate`.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
 <a id="MotionAPI.start_move_to_well"></a>
@@ -10983,7 +11063,7 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 <a id="Operation"></a>
 ## `lumascope.Operation`
 
-Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
+Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
 Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
 
 One operation in flight: its outcome, its done-callbacks, its stop and its progress.
@@ -11193,8 +11273,8 @@ Nothing.
 ## `lumascope.PlateLocation`
 
 A record: it crosses the wire as its data.  
-Returned by: [`ScopeSession.bookmark`](#ScopeSession.bookmark), [`ScopeSession.get_current_plate_position`](#ScopeSession.get_current_plate_position), [`ScopeSession.save_all_bookmarks`](#ScopeSession.save_all_bookmarks), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark).  
-Taken by: [`MotionAPI.move_to_plate`](#MotionAPI.move_to_plate), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ScopeSession.add_step`](#ScopeSession.add_step).
+Returned by: [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`ScopeSession.bookmark`](#ScopeSession.bookmark), [`ScopeSession.get_current_plate_position`](#ScopeSession.get_current_plate_position), [`ScopeSession.save_all_bookmarks`](#ScopeSession.save_all_bookmarks), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark).  
+Taken by: [`MotionAPI.move_to_plate`](#MotionAPI.move_to_plate), [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ScopeSession.add_step`](#ScopeSession.add_step).
 
 Where the scope is on a plate, focus included: X and Y in mm on the plate, Z in um.
 
@@ -18219,6 +18299,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/motion/interlocks` | [`MotionAPI.interlocks`](#MotionAPI.interlocks) |
 | `GET` | `/api/v1/scope/motion/jog_step_um` | [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um) |
 | `POST` | `/api/v1/scope/motion/move_to_plate` | [`MotionAPI.move_to_plate`](#MotionAPI.move_to_plate) |
+| `POST` | `/api/v1/scope/motion/move_to_plate_nearest` | [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest) |
 | `POST` | `/api/v1/scope/motion/move_to_well` | [`MotionAPI.move_to_well`](#MotionAPI.move_to_well) |
 | `POST` | `/api/v1/scope/motion/move_turret` | [`MotionAPI.move_turret`](#MotionAPI.move_turret) |
 | `POST` | `/api/v1/scope/motion/move_xy` | [`MotionAPI.move_xy`](#MotionAPI.move_xy) |
@@ -18231,6 +18312,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/motion/start_home` | [`MotionAPI.start_home`](#MotionAPI.start_home) |
 | `POST` | `/api/v1/scope/motion/start_jog` | [`MotionAPI.start_jog`](#MotionAPI.start_jog) |
 | `POST` | `/api/v1/scope/motion/start_move_to_plate` | [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate) |
+| `POST` | `/api/v1/scope/motion/start_move_to_plate_nearest` | [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest) |
 | `POST` | `/api/v1/scope/motion/start_move_to_well` | [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well) |
 | `POST` | `/api/v1/scope/motion/start_move_xy` | [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy) |
 | `POST` | `/api/v1/scope/motion/start_move_xy_by` | [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by) |

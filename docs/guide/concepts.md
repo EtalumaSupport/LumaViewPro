@@ -381,3 +381,13 @@ scope.motion.move_to_well('B2')
 scope.motion.move_to_plate(PlateLocation(x_mm=23.38, y_mm=20.24, z_um=None))
 print(session.get_current_plate_position())                 # X, Y in plate mm; Z in um
 ```
+
+A plate is wider than the stage reaches, so `move_to_plate` refuses a point
+past the travel (`PositionOutOfRangeError`, stating the reachable range). For a
+point picked on a picture of the plate, `move_to_plate_nearest` goes as near
+it as the stage reaches instead, and returns the point it went to:
+
+```python
+went = scope.motion.move_to_plate_nearest(PlateLocation(x_mm=0.0, y_mm=0.0, z_um=None))
+print(went)                                                  # the nearest point reached, in plate mm
+```
