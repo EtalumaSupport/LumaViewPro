@@ -24,6 +24,10 @@ Then the bench measured a camera's move count on a Ronchi ruling, and the
 simulator had none: its cells saturated where the bench's Ronchi read in
 band, so the measurement could not be run as on the bench. A simulated
 scope can now be brought up with a Ronchi ruling at the bench's light.
+
+Then the ruling was the bench's 40 lines/mm only, so a run at another
+pitch had nothing to read. A record now gives the ruling its pitch, and
+refuses one that is not a ruling's.
 """
 
 from __future__ import annotations
@@ -179,12 +183,17 @@ def _least_difference(a: np.ndarray, b: np.ndarray, reach: int) -> float:
 
 
 @contextlib.contextmanager
-def _session(model: str, homed: bool = False, slide: Slide = Slide.CELLS):
-    """A simulated ``model``'s session with ``slide`` on its stage, homed when a test moves the stage, its camera focused where Z stands."""
+def _session(
+    model: str,
+    homed: bool = False,
+    slide: Slide = Slide.CELLS,
+    ronchi_lines_per_mm: float | None = None,
+):
+    """A simulated ``model``'s session with ``slide`` on its stage, a ruling at ``ronchi_lines_per_mm``, homed when a test moves the stage, its camera focused where Z stands."""
     session = ScopeSession.create(
         complete_settings(microscope=model),
         simulate=True,
-        simulated=SimulatedScope(slide=slide),
+        simulated=SimulatedScope(slide=slide, ronchi_lines_per_mm=ronchi_lines_per_mm),
         warn_pre_release=False,
     )
     try:
@@ -405,17 +414,56 @@ def test_the_ronchi_reads_at_the_move_count_s_start_as_the_bench_s_did():
 @pytest.mark.parametrize('model', ['LS850', 'LS620'])
 def test_the_ronchi_shows_its_25_um_bars_along_the_rows(model):
     with _session(model, slide=Slide.RONCHI) as session:
-        session.select_objective('20x Oly')
-        frame = _shown(session.scope, 'BF', 25.0, 25.0, 0.0).astype(np.float64)
-        um_per_px = _pixel_size(session.scope)
+        frame, um_per_px = _ruling_on_the_20x(session)
 
     across_each_row = float(np.ptp(frame, axis=1).max())
     assert across_each_row <= 1, f'a row varies {across_each_row} DN across its columns'
-    rows = frame.mean(axis=1)
-    spectrum = np.abs(np.fft.rfft(rows - rows.mean()))
-    period_um = len(rows) / (int(np.argmax(spectrum[1:])) + 1) * um_per_px
+    period_um = _bar_period_um(frame, um_per_px)
     # The spectrum's bins are a few per cent apart at a 20x frame's height.
     assert 0.95 < period_um / 25.0 < 1.05, f'the bars repeat every {period_um:.1f} um'
+
+
+def test_a_ruling_given_its_pitch_shows_its_bars_at_that_pitch():
+    """A 100 lines/mm ruling, given on the record, repeats every 10 um where the bench's 40 lines/mm repeats every 25."""
+    with _session('LS850', slide=Slide.RONCHI, ronchi_lines_per_mm=100.0) as session:
+        period_um = _bar_period_um(*_ruling_on_the_20x(session))
+
+    assert 0.95 < period_um / 10.0 < 1.05, f'the bars repeat every {period_um:.1f} um'
+
+
+def test_a_pitch_is_refused_unless_it_is_a_ruling_s_positive_pitch():
+    """A pitch of 0, a negative, a NaN, an infinity, or any pitch with the cells on the stage: no record is built."""
+    given = [
+        (Slide.RONCHI, 0.0, 'fault_bound'),
+        (Slide.RONCHI, -40.0, 'fault_bound'),
+        (Slide.RONCHI, float('nan'), 'not_a_number'),
+        (Slide.RONCHI, float('inf'), 'not_a_number'),
+        (Slide.CELLS, 40.0, 'fault_bound'),
+    ]
+    wrong = []
+    for slide, pitch, reason in given:
+        try:
+            SimulatedScope(slide=slide, ronchi_lines_per_mm=pitch)
+        except ArgumentRefusedError as refused:
+            if (refused.reason, refused.argument) != (reason, 'ronchi_lines_per_mm'):
+                wrong.append((slide, pitch, refused.reason, refused.argument))
+        else:
+            wrong.append((slide, pitch, 'built'))
+    assert not wrong, wrong
+
+
+def _ruling_on_the_20x(session) -> tuple[np.ndarray, float]:
+    """The session's brightfield frame of its ruling through the 20x, and the frame's pixel size in um."""
+    session.select_objective('20x Oly')
+    frame = _shown(session.scope, 'BF', 25.0, 25.0, 0.0).astype(np.float64)
+    return frame, _pixel_size(session.scope)
+
+
+def _bar_period_um(frame: np.ndarray, um_per_px: float) -> float:
+    """How often the bars along ``frame``'s rows repeat, in um, from the rows' strongest frequency."""
+    rows = frame.mean(axis=1)
+    spectrum = np.abs(np.fft.rfft(rows - rows.mean()))
+    return len(rows) / (int(np.argmax(spectrum[1:])) + 1) * um_per_px
 
 
 def test_a_real_scope_refuses_a_slide():

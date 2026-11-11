@@ -1933,7 +1933,7 @@ class ScopeSession:
                 sim_camera_stall=simulated.camera_stall,
                 sim_focal_spread_um=simulated.focal_spread_um,
                 sim_camera_present=simulated.camera_present,
-                sim_slide=simulated.slide,
+                sim_slide=simulated.slide_on_stage,
                 sim_conversion_gain_mode=simulated.conversion_gain_mode,
                 sim_unit_config=simulated.unit_config,
                 on_progress=on_progress,

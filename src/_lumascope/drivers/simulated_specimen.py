@@ -4,7 +4,8 @@
 A simulated scope is brought up with one of two slides (``Slide``) and its
 cameras image that slide for their life: the cell specimen, which every
 session shows unless it asks otherwise, or a Ronchi ruling, the target the
-bench measures a camera's move count on.
+bench measures a camera's move count on, at the bench's 40 lines/mm or the
+pitch its session gives (``RonchiRuling``).
 
 Both simulated cameras -- the stand-in ``SimulatedCamera`` and the simulated
 FX2's MT9P031 -- draw their frames from one sample, so a simulated
@@ -31,6 +32,7 @@ up, and a sweep found its peak there.
 from __future__ import annotations
 
 import collections
+import dataclasses
 import enum
 import math
 import threading
@@ -44,6 +46,26 @@ class Slide(enum.StrEnum):
 
     CELLS = 'cells'
     RONCHI = 'ronchi'
+
+
+# The bench's ruling, which ``Slide.RONCHI`` is when no pitch is given.
+BENCH_RONCHI_LINES_PER_MM = 40.0
+
+
+@dataclasses.dataclass(frozen=True)
+class RonchiRuling:
+    """A Ronchi ruling at its pitch, the slide the simulated cameras are handed.
+
+    Built from a session's record, whose own build refuses a pitch that is
+    not a ruling's, so the pitch here is positive and finite.
+    """
+
+    lines_per_mm: float
+
+    @property
+    def period_um(self) -> float:
+        """One bar and one gap, in um."""
+        return 1000.0 / self.lines_per_mm
 
 
 # The scale a frame is drawn at when no objective's is known: a camera with
@@ -316,7 +338,6 @@ class Specimen:
 
 # The Ronchi ruling: bars and gaps of equal width, gap to bar a Michelson
 # contrast of 0.9, the gap full scale.
-_RONCHI_PERIOD_UM = 25.0
 _RONCHI_GAP = 255
 _RONCHI_BAR = round(_RONCHI_GAP * (1 - 0.9) / (1 + 0.9))
 # The ruling's mean grey at brightness 1. It puts the transition stage's
@@ -336,10 +357,14 @@ class Ronchi:
     follows it. Its grey levels are full-range, and its transmittance
     brings it to the bench's light. It renders as lit under a fluorescence
     layer as under brightfield, which no ruling on the bench does; no stage
-    or test reads it under fluorescence.
+    or test reads it under fluorescence. Bars and gaps are equal at every
+    pitch, so its mean grey, and the light it passes, are the same at every pitch.
     """
 
     transmittance = _RONCHI_MEAN_GREY / ((_RONCHI_GAP + _RONCHI_BAR) / 2)
+
+    def __init__(self, ruling: RonchiRuling) -> None:
+        self._period_um = ruling.period_um
 
     def view(
         self,
@@ -362,7 +387,10 @@ class Ronchi:
         scale = NOMINAL_UM_PER_PX if um_per_px is None else float(um_per_px)
         top = round((y_um or 0.0) / scale) - h // 2 + shift[0]
         rows = np.arange(top - _TILE_MARGIN_PX, top + h + _TILE_MARGIN_PX, dtype=np.float64)
-        gap_share = (_gap_length(rows + 1, scale) - _gap_length(rows, scale)) / scale
+        gap_share = (
+            _gap_length(rows + 1, scale, self._period_um)
+            - _gap_length(rows, scale, self._period_um)
+        ) / scale
         profile = (_RONCHI_BAR + (_RONCHI_GAP - _RONCHI_BAR) * gap_share).astype(np.float32)
         # A column blurred down its length: the ruling's rows are each one grey.
         profile = cv2.GaussianBlur(profile.reshape(-1, 1), (0, 0), 0.8)[:, 0]
@@ -370,20 +398,27 @@ class Ronchi:
         return np.repeat(profile[:, None], w, axis=1)
 
 
-def _gap_length(rows: np.ndarray, scale: float) -> np.ndarray:
+def _gap_length(rows: np.ndarray, scale: float, period_um: float) -> np.ndarray:
     """The length of gap, in um, from stage 0 to the start of each plane row.
 
     Each period opens with its gap, half the period long.
     """
     y = rows * scale
-    periods = np.floor(y / _RONCHI_PERIOD_UM)
-    into = y - periods * _RONCHI_PERIOD_UM
-    return periods * _RONCHI_PERIOD_UM / 2 + np.minimum(into, _RONCHI_PERIOD_UM / 2)
+    periods = np.floor(y / period_um)
+    into = y - periods * period_um
+    return periods * period_um / 2 + np.minimum(into, period_um / 2)
 
 
-_THE_SLIDES: dict[Slide, Specimen | Ronchi] = {Slide.CELLS: Specimen(), Slide.RONCHI: Ronchi()}
+_THE_CELLS = Specimen()
 
 
-def the_slide(slide: Slide) -> Specimen | Ronchi:
-    """The process's one ``slide``, which every simulated camera brought up with it images."""
-    return _THE_SLIDES[slide]
+def the_slide(slide: Slide | RonchiRuling) -> Specimen | Ronchi:
+    """What every simulated camera brought up with ``slide`` images.
+
+    The cells are the process's one sample. ``Slide.RONCHI`` is the bench's
+    ruling; a ruling holds nothing a camera draws into, so each camera
+    draws its own.
+    """
+    if slide == Slide.CELLS:
+        return _THE_CELLS
+    return Ronchi(RonchiRuling(BENCH_RONCHI_LINES_PER_MM) if slide == Slide.RONCHI else slide)

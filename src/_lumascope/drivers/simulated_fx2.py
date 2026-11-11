@@ -61,7 +61,7 @@ from _lumascope.drivers.fx2driver import (
     frame_time_s,
     parse_intel_hex,
 )
-from _lumascope.drivers.simulated_specimen import DRIFT_STEPS, Slide, the_slide
+from _lumascope.drivers.simulated_specimen import DRIFT_STEPS, RonchiRuling, Slide, the_slide
 from _lumascope.drivers.usb_driver_binding import (
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
@@ -234,7 +234,7 @@ class SimulatedFX2Device:
         light_of: Callable[[int], float] | None = None,
         stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
         pixel_size: Callable[[], float | None] | None = None,
-        slide: Slide = Slide.CELLS,
+        slide: Slide | RonchiRuling = Slide.CELLS,
     ):
         if timing not in TIMINGS:
             raise ValueError(f'timing mode {timing!r} is not one of {TIMINGS}')
@@ -651,7 +651,7 @@ class SimulatedFX2:
         stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
         pixel_size: Callable[[], float | None] | None = None,
         on_bus: bool = True,
-        slide: Slide = Slide.CELLS,
+        slide: Slide | RonchiRuling = Slide.CELLS,
     ):
         self.device = SimulatedFX2Device(
             timing=timing,

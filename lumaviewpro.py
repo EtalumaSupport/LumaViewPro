@@ -138,6 +138,23 @@ if __name__ == '__main__':
             raise ValueError(f'{_camera!r} is not absent or hcg')
     except ValueError as _camera_error:
         sys.exit(f'--sim-camera=absent|hcg: {_camera_error}')
+    # --sim-slide=ronchi puts the bench's 40 lines/mm Ronchi ruling on the
+    # simulated stage in place of the cells, so a Ronchi run is shown without
+    # a bench; --sim-slide=ronchi:100 a ruling of that pitch. The record
+    # refuses a pitch that is not a ruling's.
+    sim_slide_usage = '--sim-slide=cells|ronchi[:LINES_PER_MM]'
+    sim_slide_fields = {}
+    try:
+        _slide = take_sim_launch_value(sys.argv, 'sim-slide', simulate=simulate_mode)
+        if _slide is not None:
+            from _lumascope.drivers.simulated_specimen import Slide
+
+            _slide_name, _, _pitch = _slide.partition(':')
+            sim_slide_fields['slide'] = Slide(_slide_name)
+            if _pitch:
+                sim_slide_fields['ronchi_lines_per_mm'] = float(_pitch)
+    except ValueError as _slide_error:
+        sys.exit(f'{sim_slide_usage}: {_slide_error}')
     # --sim-unit-config=<file> brings the simulated scope up as the unit whose
     # motorconfig.json the file is, an OEM unit's included, on the simulated
     # motor firmware: the unit's name, axes and optics are shown without it.
@@ -157,15 +174,19 @@ if __name__ == '__main__':
     if simulate_mode:
         from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 
-        simulated_scope = SimulatedScope(
-            refused_camera_writes=sim_refused_camera_writes,
-            camera_stall=sim_camera_stall,
-            focal_spread_um=sim_focal_spread_um,
-            file_stall=sim_file_stall,
-            camera_present=_camera != 'absent',
-            conversion_gain_mode=_camera == 'hcg',
-            unit_config=sim_unit_config,
-        )
+        try:
+            simulated_scope = SimulatedScope(
+                refused_camera_writes=sim_refused_camera_writes,
+                camera_stall=sim_camera_stall,
+                focal_spread_um=sim_focal_spread_um,
+                file_stall=sim_file_stall,
+                camera_present=_camera != 'absent',
+                conversion_gain_mode=_camera == 'hcg',
+                unit_config=sim_unit_config,
+                **sim_slide_fields,
+            )
+        except ValueError as _record_error:
+            sys.exit(f'{sim_slide_usage}: {_record_error}')
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
     # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
     # below). Simulator only: a walk on hardware would move a real stage.

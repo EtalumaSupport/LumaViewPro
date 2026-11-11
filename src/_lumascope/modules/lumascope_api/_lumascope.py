@@ -59,7 +59,7 @@ from _lumascope.drivers.pyloncamera import PylonCamera  # noqa: F401
 from _lumascope.drivers.simulated_camera import SimulatedCamera  # noqa: F401
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard  # noqa: F401
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard  # noqa: F401
-from _lumascope.drivers.simulated_specimen import Slide, the_slide
+from _lumascope.drivers.simulated_specimen import RonchiRuling, Slide, the_slide
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
@@ -819,7 +819,7 @@ class Lumascope:
         sim_camera_stall: 'SimulatedStall | None' = None,
         sim_focal_spread_um: float = 0.0,
         sim_camera_present: bool = True,
-        sim_slide: Slide = Slide.CELLS,
+        sim_slide: Slide | RonchiRuling = Slide.CELLS,
         sim_conversion_gain_mode: bool = False,
         sim_unit_config: Mapping[str, object] | None = None,
         on_progress: ProgressCallback | None = None,
@@ -909,7 +909,7 @@ class Lumascope:
                 hardware.
             sim_slide: The slide on the simulated stage, which every simulated
                 camera images for the scope's life: the cell specimen, or a
-                Ronchi ruling. Both simulated cameras take it; it lies on the
+                Ronchi ruling at its pitch. Both simulated cameras take it; it lies on the
                 stage whether or not a camera is there, so with
                 ``sim_camera_present`` False it is accepted and nothing images
                 it. Refused on real hardware.

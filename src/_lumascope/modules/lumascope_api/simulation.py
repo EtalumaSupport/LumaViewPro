@@ -35,7 +35,7 @@ from _lumascope.drivers.simulated_camera import SensorExposure, SimulatedCamera,
 from _lumascope.drivers.simulated_fx2 import SimulatedFX2
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
-from _lumascope.drivers.simulated_specimen import Slide
+from _lumascope.drivers.simulated_specimen import RonchiRuling, Slide
 from _lumascope.drivers.simulated_tmcm6110 import SimulatedTmcm6110
 from _lumascope.modules.activity_claim import guarded_write
 from _lumascope.modules.api_surface import Admission, api, api_fields
@@ -174,6 +174,7 @@ type BoardConfigValue = str | int | float | bool | list | dict | None
     'file_stall',
     'camera_present',
     'slide',
+    'ronchi_lines_per_mm',
     'conversion_gain_mode',
     'unit_config',
 )
@@ -226,6 +227,13 @@ class SimulatedScope:
             the session: the cell specimen, or a Ronchi ruling, the target
             the bench measures a camera's move count on. Either simulated
             camera takes it. The cell specimen is the default.
+        ronchi_lines_per_mm: The Ronchi ruling's pitch, in lines per mm,
+            given only with ``slide`` ``Slide.RONCHI``. None is the bench's
+            40. A pitch the objective cannot resolve is drawn, not refused:
+            its bars blur together, as on the bench. Given with the cells,
+            or not a positive finite number, the record is not built:
+            ``ArgumentRefusedError`` ``'fault_bound'`` or ``'not_a_number'``,
+            naming ``ronchi_lines_per_mm``.
         conversion_gain_mode: Whether the scope's camera has a switchable
             conversion gain, as an IDS on firmware 3.95 does, so the
             Advanced Settings toggle and a run in each mode are shown
@@ -254,6 +262,26 @@ class SimulatedScope:
     slide: Slide = Slide.CELLS
     conversion_gain_mode: bool = False
     unit_config: Mapping[str, BoardConfigValue] | None = None
+    ronchi_lines_per_mm: float | None = None
+
+    @property
+    def slide_on_stage(self) -> Slide | RonchiRuling:
+        """The one value the simulated cameras image: the cells, or the ruling at its pitch."""
+        if self.slide == Slide.RONCHI and self.ronchi_lines_per_mm is not None:
+            return RonchiRuling(self.ronchi_lines_per_mm)
+        return self.slide
+
+    def __post_init__(self) -> None:
+        if self.ronchi_lines_per_mm is not None:
+            # No member's argument check stands before a record's build, so
+            # a pitch that is not a number is refused before it is compared.
+            refuse_unless_finite_number(self.ronchi_lines_per_mm, 'ronchi_lines_per_mm')
+            SimulationAPI._bound(
+                'ronchi_lines_per_mm',
+                self.ronchi_lines_per_mm,
+                'a pitch above 0, given with slide Slide.RONCHI',
+                self.slide == Slide.RONCHI and self.ronchi_lines_per_mm > 0,
+            )
 
 
 # A real scope's member refuses ``needs_simulated_scope`` before any claim is

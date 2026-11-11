@@ -35,7 +35,7 @@ from _lumascope.drivers.exceptions import (
     PartAbsentError,
 )
 from _lumascope.drivers.registry import camera_registry
-from _lumascope.drivers.simulated_specimen import DRIFT_STEPS, Slide, the_slide
+from _lumascope.drivers.simulated_specimen import DRIFT_STEPS, RonchiRuling, Slide, the_slide
 
 # camera.log hookup: simulator records the same per-driver SDK-call
 # trace that real drivers (pyloncamera/idscamera/fx2driver) write, so
@@ -407,7 +407,7 @@ class SimulatedCamera(Camera):
         focal_spread_um: float = 0.0,
         timing: str = 'fast',
         on_bus: bool = True,
-        slide: Slide = Slide.CELLS,
+        slide: Slide | RonchiRuling = Slide.CELLS,
         conversion_gain_mode: bool = False,
     ):
         # Whether the camera is on the bus for connect() to find: False is a
