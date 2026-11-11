@@ -332,44 +332,43 @@ class FailedCapture:
     cause: str
 
 
-@api_fields('scan_index', 'step_index', 'step_name', 'blown', 'dark')
+@api_fields('step_index', 'step_name', 'count', 'first_scan_index')
 @dataclasses.dataclass(frozen=True)
-class TakenCapture:
-    """One capture a run was asked for that produced an image, and what its frame was.
+class StepFrames:
+    """One step's captures of one kind in a run: its blown frames, or its dark ones.
 
     Attributes:
-        scan_index: The scan it belonged to, counting from 0.
         step_index: The step's row in the protocol, counting from 0.
         step_name: The step's name, as the protocol has it.
-        blown: Whether the frame's record found it blown
-            (``FrameRecord.blown``); None when nothing judged it: a video
-            step, which has no one frame.
-        dark: Whether the frame's record found it dark (``FrameRecord.dark``);
-            None when nothing judged it: no LED on, or a video step.
+        count: How many of the step's captures were of the kind, one a scan
+            at most.
+        first_scan_index: The first scan with one, counting from 0.
     """
 
-    scan_index: int
     step_index: int
     step_name: str
-    blown: bool | None
-    dark: bool | None
+    count: int
+    first_scan_index: int
 
 
-@api_fields('scan_index', 'step_index', 'step_name', 'cause')
+@api_fields('step_index', 'step_name', 'count', 'first_scan_index', 'cause')
 @dataclasses.dataclass(frozen=True)
 class FocusFailure:
     """One step whose autofocus did not focus; the run went on at its fallback Z.
 
     Attributes:
-        scan_index: The scan it belonged to, counting from 0.
         step_index: The step's row in the protocol, counting from 0.
         step_name: The step's name, as the protocol has it.
-        cause: Why it did not focus, in the autofocus failure's words.
+        count: In how many scans it did not focus.
+        first_scan_index: The first scan it did not focus in, counting from 0.
+        cause: Why it did not focus in that scan, in the autofocus failure's
+            words.
     """
 
-    scan_index: int
     step_index: int
     step_name: str
+    count: int
+    first_scan_index: int
     cause: str
 
 
@@ -379,10 +378,10 @@ class CaptureTally:
     """The captures a run was asked for, and what became of each.
 
     Counted once per (scan, step): a scan that is run again after a
-    transient failure re-captures its earlier steps into the same slots,
-    so a retry never counts a capture twice. A blown or a dark frame is
-    captured -- the camera delivered it -- and is counted again among
-    ``saturated`` or ``dark``.
+    transient failure re-captures its earlier steps in place of the first
+    attempt's, so a retry never counts a capture twice. A blown or a dark
+    frame is captured -- the camera delivered it -- and is counted again,
+    by its step, among ``saturated`` or ``dark``.
 
     Attributes:
         asked: Captures the run was asked for: scans times steps for a run
@@ -391,16 +390,16 @@ class CaptureTally:
         captured: Captures that produced an image.
         failed: Captures that produced none, in the order they failed.
             ``asked - captured - len(failed)`` were never reached.
-        saturated: The captures whose frame was blown, in the order their
-            (scan, step) was first taken.
-        dark: The captures whose frame was dark, in the same order.
+        saturated: Each step with a blown frame and how many, in the order
+            of the scan they were first in, then of the step.
+        dark: Each step with a dark frame and how many, in the same order.
     """
 
     asked: int
     captured: int
     failed: tuple[FailedCapture, ...]
-    saturated: tuple[TakenCapture, ...]
-    dark: tuple[TakenCapture, ...]
+    saturated: tuple[StepFrames, ...]
+    dark: tuple[StepFrames, ...]
 
     @api
     @property
@@ -499,11 +498,12 @@ class RunOutcome:
             Not Saved'); the standalone autofocus chose no Z, or its save
             was refused (reported once, as the refusal).
         focus_failures: Each step whose autofocus did not focus, a flat
-            curve included, in the order they failed: a capture protocol
-            captured it at its fallback focus, an autofocus scan left its
-            focus as it was. Counted once per scan and step, so a scan run
-            again that focuses the step clears it. Empty when every
-            autofocus focused, and for a run with none.
+            curve included, once however many scans it did not focus in, in
+            the order of the scan it first did not, then of the step: a
+            capture protocol captured it at its fallback focus, an autofocus
+            scan left its focus as it was. A scan run again that focuses the
+            step clears that scan's failure. Empty when every autofocus
+            focused, and for a run with none.
         video_save_wait_s: Seconds the run's end waited for its video steps
             to finish saving, when every step finished having written every
             frame it kept; None when nothing was waited for, or when a step

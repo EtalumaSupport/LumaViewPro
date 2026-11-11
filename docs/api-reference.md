@@ -135,12 +135,12 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`StageOffset`](#StageOffset)
 - [`StagePosition`](#StagePosition)
 - [`Status`](#Status)
+- [`StepFrames`](#StepFrames)
 - [`StepRecord`](#StepRecord)
 - [`StepStarted`](#StepStarted)
 - [`Stitch`](#Stitch)
 - [`Substitution`](#Substitution)
 - [`SupportReportSaved`](#SupportReportSaved)
-- [`TakenCapture`](#TakenCapture)
 - [`TilingConfig`](#TilingConfig)
 - [`TurretChanged`](#TurretChanged)
 - [`TurretSlotQuestion`](#TurretSlotQuestion)
@@ -9721,18 +9721,18 @@ Held in: [`RunOutcome.captures`](#RunOutcome.captures).
 The captures a run was asked for, and what became of each.
 
 Counted once per (scan, step): a scan that is run again after a
-transient failure re-captures its earlier steps into the same slots,
-so a retry never counts a capture twice. A blown or a dark frame is
-captured -- the camera delivered it -- and is counted again among
-`saturated` or `dark`.
+transient failure re-captures its earlier steps in place of the first
+attempt's, so a retry never counts a capture twice. A blown or a dark
+frame is captured -- the camera delivered it -- and is counted again,
+by its step, among `saturated` or `dark`.
 
 **Fields**
 
 - <a id="CaptureTally.asked"></a>`asked`: `int` -- Captures the run was asked for: scans times steps for a run that saves images, 0 for one that saves none (an autofocus scan, a standalone autofocus).
 - <a id="CaptureTally.captured"></a>`captured`: `int` -- Captures that produced an image.
-- <a id="CaptureTally.dark"></a>`dark`: `tuple[TakenCapture, ...]` -- The captures whose frame was dark, in the same order.
+- <a id="CaptureTally.dark"></a>`dark`: `tuple[StepFrames, ...]` -- Each step with a dark frame and how many, in the same order.
 - <a id="CaptureTally.failed"></a>`failed`: `tuple[FailedCapture, ...]` -- Captures that produced none, in the order they failed. `asked - captured - len(failed)` were never reached.
-- <a id="CaptureTally.saturated"></a>`saturated`: `tuple[TakenCapture, ...]` -- The captures whose frame was blown, in the order their (scan, step) was first taken.
+- <a id="CaptureTally.saturated"></a>`saturated`: `tuple[StepFrames, ...]` -- Each step with a blown frame and how many, in the order of the scan they were first in, then of the step.
 
 <a id="CaptureTally.missing"></a>
 ### `CaptureTally.missing`
@@ -10343,8 +10343,9 @@ One step whose autofocus did not focus; the run went on at its fallback Z.
 
 **Fields**
 
-- <a id="FocusFailure.cause"></a>`cause`: `str` -- Why it did not focus, in the autofocus failure's words.
-- <a id="FocusFailure.scan_index"></a>`scan_index`: `int` -- The scan it belonged to, counting from 0.
+- <a id="FocusFailure.cause"></a>`cause`: `str` -- Why it did not focus in that scan, in the autofocus failure's words.
+- <a id="FocusFailure.count"></a>`count`: `int` -- In how many scans it did not focus.
+- <a id="FocusFailure.first_scan_index"></a>`first_scan_index`: `int` -- The first scan it did not focus in, counting from 0.
 - <a id="FocusFailure.step_index"></a>`step_index`: `int` -- The step's row in the protocol, counting from 0.
 - <a id="FocusFailure.step_name"></a>`step_name`: `str` -- The step's name, as the protocol has it.
 
@@ -12531,7 +12532,7 @@ shape for every run kind.
 - <a id="RunOutcome.artifact_path"></a>`artifact_path`: `pathlib.Path | None` -- Where it landed; None whenever merged is False.
 - <a id="RunOutcome.captures"></a>`captures`: `CaptureTally | None` -- What the run captured of what it was asked for. None only for a run settled before its cleanup counted -- a run torn down by a shutdown before it ended.
 - <a id="RunOutcome.cleanup_failures"></a>`cleanup_failures`: `tuple[str, ...] | None` -- The steps putting the scope back after the run that did not finish ('Restore LED states', 'Return to position', ...); empty when every one did, so the LEDs, camera settings and stage are as the run found them. None only for a run settled before its cleanup ran. A host's own display work at the run's end is its `run_ended` handler's, never a step here.
-- <a id="RunOutcome.focus_failures"></a>`focus_failures`: `tuple[FocusFailure, ...]` -- Each step whose autofocus did not focus, a flat curve included, in the order they failed: a capture protocol captured it at its fallback focus, an autofocus scan left its focus as it was. Counted once per scan and step, so a scan run again that focuses the step clears it. Empty when every autofocus focused, and for a run with none.
+- <a id="RunOutcome.focus_failures"></a>`focus_failures`: `tuple[FocusFailure, ...]` -- Each step whose autofocus did not focus, a flat curve included, once however many scans it did not focus in, in the order of the scan it first did not, then of the step: a capture protocol captured it at its fallback focus, an autofocus scan left its focus as it was. A scan run again that focuses the step clears that scan's failure. Empty when every autofocus focused, and for a run with none.
 - <a id="RunOutcome.focus_written"></a>`focus_written`: `bool | None` -- Whether the focus the run found was saved where it was asked to save it: an autofocus scan's into the protocol the caller named, a standalone autofocus's as the focus of the channel it focused. None for a run asked to save no focus, which includes a standalone autofocus lent a diagnostic's claim. False when it was asked and saved none, and the protocol or the channel's focus is unchanged: the scan did not complete, or the protocol's steps changed during it (reported once, as 'Focus Not Saved'); the standalone autofocus chose no Z, or its save was refused (reported once, as the refusal).
 - <a id="RunOutcome.merge_reason"></a>`merge_reason`: `str` -- Why the MERGE produced no file ('write_batch_timeout', 'write_batch_abandoned', 'write_batch_not_taken', 'write_batch_save_failed', 'write_batch_disk_full', 'write_batch_video_unfinished', 'no_run_dir', 'shutdown', ...). Empty on success and on every run that has no merge, so a caller can branch on merged and still log one field.
 - <a id="RunOutcome.merged"></a>`merged`: `bool` -- True only when an artifact was produced.
@@ -12982,6 +12983,21 @@ axis can read HOMING in `axes` a moment before the home appears in
 - <a id="Status.run_refused"></a>`run_refused`: `ProtocolRunRefusedError | None` -- The refusal a run would get now for the scope's state alone, None when the state refuses none (`SequencedCaptureRunner.state_refusal`). None does not promise a run starts: the protocol, an axis's position, the camera feed and the interlocks are judged when the run is asked.
 - <a id="Status.turret"></a>`turret`: `TurretStatus | None` -- The turret's state and slot (`MotionAPI.turret_status`), None on a scope with no turret.
 
+<a id="StepFrames"></a>
+## `lumascope.StepFrames`
+
+A record: it crosses the wire as its data.  
+Held in: [`CaptureTally.dark`](#CaptureTally.dark), [`CaptureTally.saturated`](#CaptureTally.saturated).
+
+One step's captures of one kind in a run: its blown frames, or its dark ones.
+
+**Fields**
+
+- <a id="StepFrames.count"></a>`count`: `int` -- How many of the step's captures were of the kind, one a scan at most.
+- <a id="StepFrames.first_scan_index"></a>`first_scan_index`: `int` -- The first scan with one, counting from 0.
+- <a id="StepFrames.step_index"></a>`step_index`: `int` -- The step's row in the protocol, counting from 0.
+- <a id="StepFrames.step_name"></a>`step_name`: `str` -- The step's name, as the protocol has it.
+
 <a id="StepRecord"></a>
 ## `lumascope.StepRecord`
 
@@ -13101,22 +13117,6 @@ The title the saved report's notice is shown under.
 **Raises**
 
 Nothing.
-
-<a id="TakenCapture"></a>
-## `lumascope.TakenCapture`
-
-A record: it crosses the wire as its data.  
-Held in: [`CaptureTally.dark`](#CaptureTally.dark), [`CaptureTally.saturated`](#CaptureTally.saturated).
-
-One capture a run was asked for that produced an image, and what its frame was.
-
-**Fields**
-
-- <a id="TakenCapture.blown"></a>`blown`: `bool | None` -- Whether the frame's record found it blown (`FrameRecord.blown`); None when nothing judged it: a video step, which has no one frame.
-- <a id="TakenCapture.dark"></a>`dark`: `bool | None` -- Whether the frame's record found it dark (`FrameRecord.dark`); None when nothing judged it: no LED on, or a video step.
-- <a id="TakenCapture.scan_index"></a>`scan_index`: `int` -- The scan it belonged to, counting from 0.
-- <a id="TakenCapture.step_index"></a>`step_index`: `int` -- The step's row in the protocol, counting from 0.
-- <a id="TakenCapture.step_name"></a>`step_name`: `str` -- The step's name, as the protocol has it.
 
 <a id="TilingConfig"></a>
 ## `lumascope.TilingConfig`

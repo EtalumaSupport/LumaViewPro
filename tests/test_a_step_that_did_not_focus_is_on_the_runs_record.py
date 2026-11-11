@@ -5,8 +5,8 @@ An autofocus scan, and a capture protocol with autofocus steps, carry on at
 the fallback Z when a step's autofocus fails -- and ended 'completed', "The
 run finished normally.", with nothing on the outcome to say which steps
 were captured, or left, at a focus nobody found. Now the outcome lists each
-such step (``RunOutcome.focus_failures``) and the ending's words name them;
-the status stays 'completed'.
+such step (``RunOutcome.focus_failures``), once however many scans it did
+not focus in, and the ending's words name them; the status stays 'completed'.
 """
 
 from __future__ import annotations
@@ -46,9 +46,10 @@ def test_an_autofocus_scan_names_the_step_whose_focus_was_not_updated(tmp_path, 
     assert outcome.message == (
         'The scan finished; autofocus did not focus 1 step, whose focus was not updated.'
     )
-    assert [(f.scan_index, f.step_index, f.step_name, f.cause) for f in outcome.focus_failures] == [
-        (0, 0, 'AF_test', FLAT)
-    ]
+    assert [
+        (f.step_index, f.step_name, f.count, f.first_scan_index, f.cause)
+        for f in outcome.focus_failures
+    ] == [(0, 'AF_test', 1, 0, FLAT)]
 
 
 def test_a_capture_protocol_captures_the_step_at_its_fallback_and_names_it(
@@ -70,6 +71,46 @@ def test_a_capture_protocol_captures_the_step_at_its_fallback_and_names_it(
     assert [(f.step_index, f.step_name, f.cause) for f in outcome.focus_failures] == [
         (0, 'C0', FLAT)
     ]
+
+
+def test_a_step_that_did_not_focus_in_every_scan_is_one_step(tmp_path, every_score_zero):
+    import datetime
+
+    import pandas as pd
+
+    from _lumascope.modules.protocol import Protocol
+    from tests.protocol_fixtures import protocol_of
+
+    period = datetime.timedelta(seconds=1.0)
+    protocol = protocol_of(
+        config={
+            'version': Protocol.CURRENT_VERSION,
+            'steps': pd.DataFrame(
+                [
+                    _step('C0', 0, x=20.0, gain=1.0, autofocus=True),
+                    _step('C1', 1, x=30.0, gain=1.0),
+                ]
+            ),
+            'period': period,
+            'duration': period * 2,
+            'labware_id': '6 well microplate',
+            'capture_root': '',
+            'tiling': '1x1',
+        },
+    )
+    with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+        pending = runner.start_protocol(protocol=protocol, parent_dir=str(tmp_path / 'runs'))
+        outcome = pending.result(timeout=COMPLETION_TIMEOUT)
+        assert pending.files.result(timeout=COMPLETION_TIMEOUT) is not None
+
+    assert outcome.message == (
+        'The run finished; autofocus did not focus 1 step, which was captured at its '
+        'fallback focus.'
+    )
+    assert [
+        (f.step_index, f.step_name, f.count, f.first_scan_index, f.cause)
+        for f in outcome.focus_failures
+    ] == [(0, 'C0', 2, 0, FLAT)]
 
 
 def test_a_file_taken_at_its_fallback_focus_says_so(tmp_path, every_score_zero):
@@ -121,7 +162,9 @@ def test_a_recorded_frame_taken_at_its_fallback_focus_says_so(tmp_path, every_sc
 def test_every_settle_path_carries_the_focus_failures():
     from _lumascope.modules.run_outcome import FocusFailure
 
-    failures = (FocusFailure(scan_index=0, step_index=1, step_name='B', cause='flat'),)
+    failures = (
+        FocusFailure(step_index=1, step_name='B', count=1, first_scan_index=0, cause='flat'),
+    )
     ending = RunEnding('completed', 'completed', 'm')
     for settle in (
         lambda pending: pending.resolve_if_pending(ending),

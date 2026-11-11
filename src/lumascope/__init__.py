@@ -442,7 +442,7 @@ from _lumascope.modules.run_outcome import (
     FocusFailure,
     RunOutcome,
     RunStatus,
-    TakenCapture,
+    StepFrames,
 )
 from _lumascope.modules.scope_capabilities import (
     CameraLimits,
@@ -837,6 +837,7 @@ __all__ = [
     'StagePosition',
     'Status',
     'StepEditRefusedError',
+    'StepFrames',
     'StepNotFoundError',
     'StepRecord',
     'StepStarted',
@@ -848,7 +849,6 @@ __all__ = [
     'SupportReportKind',
     'SupportReportNotSavedError',
     'SupportReportSaved',
-    'TakenCapture',
     'TilingConfig',
     'TimestampSource',
     'Trendline',

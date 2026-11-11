@@ -1616,7 +1616,6 @@ _TAUGHT_SEED: dict[tuple[str, str], int] = {
     ('docs/api-reference.md', 'CameraAPI.get_held_channel'): 1,
     ('docs/api-reference.md', 'CapturedStill.significant_bits'): 3,
     ('docs/api-reference.md', 'Clock.schedule_once'): 3,
-    ('docs/api-reference.md', 'FrameRecord.blown'): 1,
     ('docs/api-reference.md', 'FrameValidity.SKIP_FRAMES'): 1,
     ('docs/api-reference.md', 'FrameValidity.check_timing_record'): 1,
     ('docs/api-reference.md', 'FrameValidity.judge'): 1,

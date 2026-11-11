@@ -2331,10 +2331,10 @@ class SequencedCaptureRunner:
         """The run's one count of the blown and dark frames it kept, with
         their steps; each step's first was told as it was taken."""
         counts = []
-        for kind, captures in (('saturated', tally.saturated), ('dark', tally.dark)):
-            if captures:
-                steps = ', '.join(dict.fromkeys(capture.step_name for capture in captures))
-                counts.append(f'{len(captures)} {kind} (steps: {steps})')
+        for kind, by_step in (('saturated', tally.saturated), ('dark', tally.dark)):
+            if by_step:
+                steps = ', '.join(dict.fromkeys(step.step_name for step in by_step))
+                counts.append(f'{sum(step.count for step in by_step)} {kind} (steps: {steps})')
         if counts:
             logger.warning(f'[PROTOCOL] The run kept frames that were {"; ".join(counts)}')
 

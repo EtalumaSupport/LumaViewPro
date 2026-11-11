@@ -4,7 +4,7 @@
 The capture records what the frame was (``FrameRecord.saturated_fraction``,
 ``blown``, ``dark``) and tells no one: a soak at one warning per capture
 logged 135,793 of them. Whoever took the capture tells it -- a run once per
-step, counting the rest on its outcome (``captures.saturated``,
+step, counting each step's on its outcome (``captures.saturated``,
 ``captures.dark``) with one line at its end; a still once, itself.
 
 Driven on the simulated scope; only the frames' pixels are replaced.
@@ -91,12 +91,9 @@ def test_a_runs_blown_frames_are_told_once_per_step_and_counted(tmp_path, monkey
 
     captures = outcome.captures
     assert captures.captured == 4, outcome
-    assert sorted((c.scan_index, c.step_name) for c in captures.saturated) == [
-        (0, 'C1'),
-        (0, 'C2'),
-        (1, 'C1'),
-        (1, 'C2'),
-    ], captures
+    assert [
+        (s.step_index, s.step_name, s.count, s.first_scan_index) for s in captures.saturated
+    ] == [(0, 'C1', 2, 0), (1, 'C2', 2, 0)], captures
     per_step = [line for line in told if 'saturated --' in line]
     assert len(per_step) == 2, per_step
     assert any('Step 1 (C1), scan 1' in line for line in per_step), per_step
@@ -112,12 +109,66 @@ def test_a_runs_dark_frames_are_told_once_per_step_and_counted(tmp_path, monkeyp
     outcome, told = _run(tmp_path, monkeypatch, caplog, steps, scans=2, pixels_of=_dark)
 
     captures = outcome.captures
-    assert [(c.scan_index, c.step_name) for c in captures.dark] == [(0, 'C1'), (1, 'C1')], captures
+    assert [(s.step_index, s.step_name, s.count, s.first_scan_index) for s in captures.dark] == [
+        (0, 'C1', 2, 0)
+    ], captures
     assert captures.saturated == (), captures
     per_step = [line for line in told if 'the frame is dark' in line]
     assert len(per_step) == 1, per_step
     ends = [line for line in told if 'The run kept frames' in line]
     assert ends == ['[PROTOCOL] The run kept frames that were 2 dark (steps: C1)'], told
+
+
+def test_a_step_is_told_once_a_run_though_its_scan_was_run_again(tmp_path, monkeypatch, caplog):
+    """Step C0 is blown, its scan fails and is run again with C0 clean, then
+    C0 is blown in the next scan: told once in the run, and counted once,
+    for the scan whose capture stands."""
+    from _lumascope.modules.exceptions import MoveWaitExpiredError
+    from _lumascope.modules.run_events import RunEvents
+
+    steps = [_step('C0', 0, x=20.0, gain=1.0), _step('C1', 1, x=30.0, gain=1.0)]
+    attempts = []
+    step_now = []
+
+    def blown_in_attempts_1_and_3(frame):
+        if step_now and step_now[-1] == 0 and len(attempts) in (1, 3):
+            return _blown(frame)
+        return frame.image.copy()
+
+    with (
+        caplog.at_level(logging.WARNING),
+        open_composite_session(headless_settings(tmp_path)) as (session, runner),
+    ):
+        _frames_made(monkeypatch, session.scope._camera_driver, blown_in_attempts_1_and_3)
+        protocols = session.scope.protocols
+        real_targets = protocols.step_targets
+
+        def step_targets(protocol, step_index, **kwargs):
+            # A stand-in by design: the simulator cannot fail a scan and leave
+            # the scope positioned and connected, the transient case.
+            if len(attempts) == 1 and step_index == 1:
+                raise MoveWaitExpiredError('X', 'still_moving')
+            return real_targets(protocol, step_index, **kwargs)
+
+        monkeypatch.setattr(protocols, 'step_targets', step_targets)
+        pending = runner.start_protocol(
+            protocol=_protocol(steps, 2),
+            parent_dir=str(tmp_path / 'runs'),
+            events=RunEvents(
+                scan_started=lambda index, _left, _period: attempts.append(index),
+                step_started=step_now.append,
+            ),
+        )
+        outcome = pending.result(timeout=WAIT_S)
+        assert pending.files.result(timeout=WAIT_S) is not None, 'the run never finished'
+    told = [r.getMessage() for r in caplog.records if 'saturated --' in r.getMessage()]
+
+    assert attempts == [0, 0, 1], attempts
+    assert [
+        (s.step_index, s.step_name, s.count, s.first_scan_index) for s in outcome.captures.saturated
+    ] == [(0, 'C0', 1, 1)], outcome.captures
+    assert len(told) == 1, told
+    assert 'Step 1 (C0), scan 1' in told[0], told
 
 
 def test_a_blown_still_is_told_once_by_the_still(tmp_path, monkeypatch, caplog):

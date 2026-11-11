@@ -54,7 +54,7 @@ from _lumascope.modules.run_outcome import (
     FilesOutcome,
     RunEnding,
     RunStatus,
-    TakenCapture,
+    StepFrames,
     hardware_disconnected_ending,
 )
 from _lumascope.modules.sequential_io_executor import IOTask
@@ -636,6 +636,79 @@ def _capture_evidence(still: CapturedStill, capture_info: dict) -> str:
     return ' '.join(parts)
 
 
+class _Taken(NamedTuple):
+    """A step's capture in the scan in progress, and what its frame was."""
+
+    step_name: str
+    blown: bool
+    dark: bool
+
+
+class _Unfocused(NamedTuple):
+    """A step whose autofocus did not focus in the scan in progress, and why."""
+
+    step_name: str
+    cause: str
+
+
+def _counted(entries: dict, step_index: int, new):
+    """``entries`` with the step's entry counted once more, or ``new`` as its first."""
+    held = entries.get(step_index)
+    entries[step_index] = new if held is None else dataclasses.replace(held, count=held.count + 1)
+
+
+@dataclasses.dataclass
+class _Settled:
+    """What the scans before the one in progress settled of a run's captures.
+
+    By step, never by scan, so it is bounded by the protocol's steps, plus
+    one record per capture that failed.
+    """
+
+    captured: int = 0
+    failed: list[FailedCapture] = dataclasses.field(default_factory=list)
+    blown: dict[int, StepFrames] = dataclasses.field(default_factory=dict)
+    dark: dict[int, StepFrames] = dataclasses.field(default_factory=dict)
+    unfocused: dict[int, FocusFailure] = dataclasses.field(default_factory=dict)
+
+    def copy(self) -> _Settled:
+        return _Settled(
+            self.captured,
+            list(self.failed),
+            dict(self.blown),
+            dict(self.dark),
+            dict(self.unfocused),
+        )
+
+    def fold(
+        self,
+        scan_index: int,
+        captures: dict[int, _Taken | FailedCapture],
+        unfocused: dict[int, _Unfocused],
+    ) -> None:
+        """Count one scan's captures and autofocus failures in."""
+        for step_index, slot in captures.items():
+            if isinstance(slot, FailedCapture):
+                self.failed.append(slot)
+                continue
+            self.captured += 1
+            first = StepFrames(step_index, slot.step_name, 1, scan_index)
+            if slot.blown:
+                _counted(self.blown, step_index, first)
+            if slot.dark:
+                _counted(self.dark, step_index, first)
+        for step_index, failure in unfocused.items():
+            _counted(
+                self.unfocused,
+                step_index,
+                FocusFailure(step_index, failure.step_name, 1, scan_index, failure.cause),
+            )
+
+
+def _by_first_scan(entries: dict) -> tuple:
+    return tuple(sorted(entries.values(), key=lambda e: (e.first_scan_index, e.step_index)))
+
+
 class ProtocolImageWriter:
     """Handles image/video capture and file writing during protocol runs.
 
@@ -740,21 +813,31 @@ class ProtocolImageWriter:
         self._run_claim = run_claim
         self._labware = labware
         self._to_plate = to_plate
+        # The video steps still recording or finishing: one is dropped when
+        # the next is added, once it has finished, and whether it kept every
+        # frame is folded into the flag below first. Written by the protocol
+        # thread alone, as a new list, so a reader on another thread walks
+        # a list no one changes.
         self._video_steps: list[ProtocolVideoStep] = []
+        self._dropped_videos_kept_every_frame = True
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
-        # One entry per (scan, step) slot: its TakenCapture when it produced
-        # an image, its FailedCapture when it did not. A slot, not a count, so
-        # a scan run again after a transient failure overwrites its earlier
-        # steps instead of counting them twice. Written on the protocol
-        # thread, read by cleanup on whichever thread ended the run.
         self._captures_asked = captures_asked
-        self._capture_slots: dict[tuple[int, int], TakenCapture | FailedCapture] = {}
-        # The same shape for a step's autofocus: None when it focused, its
-        # FocusFailure when it did not, so a scan run again that focuses the
-        # step clears it. Under the capture slots' lock.
-        self._focus_slots: dict[tuple[int, int], FocusFailure | None] = {}
-        self._capture_slots_lock = threading.Lock()
+        # The scan in progress, by step: each capture's _Taken or
+        # FailedCapture, and each autofocus that did not focus. A slot, not a
+        # count, so a scan run again after a transient failure overwrites its
+        # earlier steps instead of counting them twice; only the scan in
+        # progress can be run again, so a write for a later scan settles it
+        # into _settled. Written on the protocol thread, read by cleanup on
+        # whichever thread ended the run, under the lock.
+        self._scan_held: int | None = None
+        self._scan_captures: dict[int, _Taken | FailedCapture] = {}
+        self._scan_unfocused: dict[int, _Unfocused] = {}
+        self._settled = _Settled()
+        # The steps whose first blown, and first dark, frame of the run was told.
+        self._told_blown: set[int] = set()
+        self._told_dark: set[int] = set()
+        self._tally_lock = threading.Lock()
 
     def _abort_run_fatal(self, reason: str, domain: str, message: str) -> None:
         """The one fatal-abort path: every run-killing fault routes here.
@@ -822,6 +905,23 @@ class ProtocolImageWriter:
             ends_a_run=True,
         )
 
+    def _hold_video_step(self, recorder: ProtocolVideoStep) -> None:
+        """Add the step about to record, and drop the steps that have finished.
+
+        Only here, on the protocol thread, when every earlier step has
+        returned from ``run_blocking``, so a step not busy now has finished
+        (``is_busy`` holds from before its finish thread starts), and its
+        ``kept_every_frame`` is final. Never from a reader: a step about to
+        record is not yet busy.
+        """
+        unfinished = []
+        for step in self._video_steps:
+            if step.is_busy:
+                unfinished.append(step)
+            elif not step.kept_every_frame:
+                self._dropped_videos_kept_every_frame = False
+        self._video_steps = [*unfinished, recorder]
+
     @property
     def video_busy(self) -> bool:
         """True while any video step's drain or post-drain finish runs."""
@@ -852,7 +952,8 @@ class ProtocolImageWriter:
         started = time.monotonic()
         deadline = started + timeout_s
         finished = True
-        for step in self._video_steps:
+        steps = self._video_steps
+        for step in steps:
             remaining = deadline - time.monotonic()
             if not step.wait_until_finished(max(0.0, remaining)):
                 logger.error(
@@ -861,7 +962,11 @@ class ProtocolImageWriter:
                 )
                 finished = False
         waited_s = time.monotonic() - started
-        if not finished or not all(step.kept_every_frame for step in self._video_steps):
+        if (
+            not finished
+            or not self._dropped_videos_kept_every_frame
+            or not all(step.kept_every_frame for step in steps)
+        ):
             return None
         return waited_s
 
@@ -984,48 +1089,64 @@ class ProtocolImageWriter:
         )
         self._leds_off()
 
+    def _hold_scan_locked(self, scan_count: int) -> None:
+        """Make ``scan_count`` the scan in progress, settling the one before it.
+
+        Under the tally lock. A scan only ever rises, and a scan run again
+        is the same scan, so a write for a later scan means the held one
+        can no longer change.
+        """
+        if scan_count == self._scan_held:
+            return
+        if self._scan_held is not None:
+            self._settled.fold(self._scan_held, self._scan_captures, self._scan_unfocused)
+        self._scan_held = scan_count
+        self._scan_captures = {}
+        self._scan_unfocused = {}
+
+    def _so_far(self) -> _Settled:
+        """The settled scans and the scan in progress, counted together."""
+        with self._tally_lock:
+            so_far = self._settled.copy()
+            if self._scan_held is not None:
+                so_far.fold(self._scan_held, self._scan_captures, self._scan_unfocused)
+        return so_far
+
     @property
     def capture_tally(self) -> CaptureTally:
         """What this run captured of what it was asked for, so far."""
-        with self._capture_slots_lock:
-            slots = list(self._capture_slots.values())
-        captured = [slot for slot in slots if isinstance(slot, TakenCapture)]
+        so_far = self._so_far()
         return CaptureTally(
             asked=self._captures_asked,
-            captured=len(captured),
-            failed=tuple(slot for slot in slots if isinstance(slot, FailedCapture)),
-            saturated=tuple(slot for slot in captured if slot.blown is True),
-            dark=tuple(slot for slot in captured if slot.dark is True),
+            captured=so_far.captured,
+            failed=tuple(so_far.failed),
+            saturated=_by_first_scan(so_far.blown),
+            dark=_by_first_scan(so_far.dark),
         )
 
     @property
     def focus_failures(self) -> tuple[FocusFailure, ...]:
         """Each step whose autofocus did not focus, so far."""
-        with self._capture_slots_lock:
-            return tuple(slot for slot in self._focus_slots.values() if slot is not None)
+        return _by_first_scan(self._so_far().unfocused)
 
     def note_autofocus(
         self, *, step_name: str, curr_step: int, scan_count: int, failed: BaseException | None
     ) -> None:
         """Record how a step's autofocus resolved: focused, or ``failed`` in its words."""
-        slot = (
-            None
-            if failed is None
-            else FocusFailure(
-                scan_index=scan_count,
-                step_index=curr_step,
-                step_name=step_name,
-                cause=str(failed),
-            )
-        )
-        with self._capture_slots_lock:
-            self._focus_slots[(scan_count, curr_step)] = slot
+        with self._tally_lock:
+            self._hold_scan_locked(scan_count)
+            if failed is None:
+                self._scan_unfocused.pop(curr_step, None)
+            else:
+                self._scan_unfocused[curr_step] = _Unfocused(step_name, str(failed))
 
     def _fallback_focus(self, scan_count: int, curr_step: int) -> str | None:
         """Why this step's autofocus did not focus in this scan, or None
         when it focused or was never asked to."""
-        with self._capture_slots_lock:
-            failure = self._focus_slots.get((scan_count, curr_step))
+        with self._tally_lock:
+            if scan_count != self._scan_held:
+                return None
+            failure = self._scan_unfocused.get(curr_step)
         return failure.cause if failure is not None else None
 
     def _note_captured(self, *, step, curr_step, scan_count, record: FrameRecord | None) -> None:
@@ -1035,35 +1156,31 @@ class ProtocolImageWriter:
 
         A blown or dark frame is kept and saved, so it is a fact to count,
         not a failure; one line per step says so, and the run's end gives
-        the count. Which is first is read from the slots, so a scan run
-        again does not tell its step twice.
+        the count. Told once a run, whatever scan is run again.
         """
-        key = (scan_count, curr_step)
-        captured = TakenCapture(
-            scan_index=scan_count,
-            step_index=curr_step,
+        captured = _Taken(
             step_name=str(step.get('Name', '?')),
-            blown=record.blown if record is not None else None,
-            dark=record.dark if record is not None else None,
+            blown=record is not None and record.blown is True,
+            dark=record is not None and record.dark is True,
         )
-        with self._capture_slots_lock:
-            # Read before the write: the slot this capture takes over, from a
-            # scan run again, is among the earlier ones.
-            earlier = [
-                slot
-                for slot in self._capture_slots.values()
-                if isinstance(slot, TakenCapture) and slot.step_index == curr_step
-            ]
-            self._capture_slots[key] = captured
+        with self._tally_lock:
+            self._hold_scan_locked(scan_count)
+            self._scan_captures[curr_step] = captured
+            tell_blown = captured.blown and curr_step not in self._told_blown
+            tell_dark = captured.dark and curr_step not in self._told_dark
+            if tell_blown:
+                self._told_blown.add(curr_step)
+            if tell_dark:
+                self._told_dark.add(curr_step)
         where = f'Step {curr_step + 1} ({captured.step_name}), scan {scan_count + 1}'
-        if captured.blown and not any(slot.blown for slot in earlier):
+        if tell_blown:
             logger.warning(
                 f'[PROTOCOL] {where}: the frame is {record.saturated_fraction * 100.0:.0f}% '
                 f'saturated -- likely over-exposure or a stale camera gain; the frame may '
                 f'be unusable. Later saturated frames of this step in this run are '
                 f'counted, not told.'
             )
-        if captured.dark and not any(slot.dark for slot in earlier):
+        if tell_dark:
             logger.warning(
                 f'[PROTOCOL] {where}: the frame is dark -- no pixel above the dark floor '
                 f'with illumination on -- and was saved. Later dark frames of this step '
@@ -1078,8 +1195,9 @@ class ProtocolImageWriter:
         short run would otherwise step through to a normal ending before a
         third strike.
         """
-        with self._capture_slots_lock:
-            self._capture_slots[(scan_count, curr_step)] = FailedCapture(
+        with self._tally_lock:
+            self._hold_scan_locked(scan_count)
+            self._scan_captures[curr_step] = FailedCapture(
                 scan_index=scan_count,
                 step_index=curr_step,
                 step_name=str(step.get('Name', '?')),
@@ -1488,7 +1606,7 @@ class ProtocolImageWriter:
                         labware=self._labware,
                         fallback_focus=self._fallback_focus(scan_count, curr_step),
                     )
-                    self._video_steps.append(recorder)
+                    self._hold_video_step(recorder)
                     try:
                         outcome = recorder.run_blocking()
                     except CameraSettingRejected as rejected:
