@@ -1160,7 +1160,7 @@ class FirmwareDiagnostics:
                 return (
                     f'The LED board did not enter engineering mode; SELFTEST was not run: {failed}'
                 )
-            return self._read_multiline(self.led_board, 'SELFTEST', timeout_s=90)
+            return _hardware_reading(lambda: self._scope.diagnostics.run_led_selftest(timeout_s=90))
         finally:
             self._exit_engineering()
 

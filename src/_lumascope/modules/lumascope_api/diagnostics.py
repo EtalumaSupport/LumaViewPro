@@ -1482,6 +1482,63 @@ class DiagnosticsAPI:
     def _read_led_currents_impl(drv) -> dict[int, float | None]:
         return {ch: drv.read_led_current(ch) for ch in drv.available_channels()}
 
+    @api(in_process=True, engineering=True)
+    def run_led_selftest(self, timeout_s: float = 90) -> str:
+        """Run the LED board's SELFTEST, leave every LED dark and able to light, and wait for it.
+
+        The v2 firmware's selftest ramps each channel up to 500 mA and
+        switches it off, a channel the API had lit included, and ends with
+        every channel's output disabled, which no later light enables. So
+        after it, in one IO-lane task, the board's outputs are enabled and
+        its all-off is written through the LED owner: the board and the
+        API's record agree that every LED is dark, and a frame taken under
+        the ramp does not count. Both are written even when the selftest
+        raised, since one cut short can leave a channel lit. The caller
+        enters engineering mode where its firmware asks for it.
+
+        Args:
+            timeout_s: Max seconds to wait for the whole selftest.
+
+        Returns:
+            str: The board's selftest output, as it sent it.
+
+        Raises:
+            HardwareCommandRefusedError: a run, a diagnostic or a home holds
+                the scope and this call is not made under its taking; or
+                ``'not_connected'`` (the LED controller); or
+                ``'not_on_this_scope'``, ``MissingPart.TEXT_COMMANDS``: a
+                board that takes no text commands. Nothing was sent.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
+                sent.
+            BoardNoReplyError: the board did not answer the selftest, the
+                enable or the all-off; after an all-off it did not answer,
+                whether each LED is lit is unknown.
+            BoardPortFailedError: the port is closed, or failed during one
+                of the three.
+        """
+        refuse_unless_wait_s(timeout_s, 'timeout_s')
+        board = self._diagnostic_board('led', 'SELFTEST', 'run_led_selftest')
+        return self._scope.motion._dispatch_motion(
+            self._run_led_selftest_impl,
+            'run_led_selftest',
+            args=(board, timeout_s),
+            timeout_s=timeout_s + self._BOARD_QUEUE_MARGIN_S,
+            slow_task_threshold_sec=timeout_s,
+        )
+
+    def _run_led_selftest_impl(self, drv, timeout_s: float) -> str:
+        try:
+            # The selftest's own last line; a channel's ERROR row is not the end.
+            return drv.exchange_multiline(
+                'SELFTEST', timeout=timeout_s, end_markers=['Self-Test Complete']
+            )
+        finally:
+            try:
+                drv.leds_enable()
+            finally:
+                self._scope.illumination._leds_off_impl()
+
     # --- Phase 5 helper forwarders (5b-introduced; bodies co-relocate 5c) ---
     # These four helpers are exclusive to diagnostic methods. 5b adds
     # forwarders so tests can target DiagnosticsAPI._X(...) directly;

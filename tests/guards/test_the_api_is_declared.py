@@ -836,6 +836,7 @@ OPEN_STRINGS: dict[str, str] = {
     'DiagnosticsAPI.motor_fan_spin_times return': _RECORD_KEYS,
     'DiagnosticsAPI.read_camera_node parameter name': _CAMERA,
     'DiagnosticsAPI.read_camera_node parameter node_map': _CAMERA,
+    'DiagnosticsAPI.run_led_selftest return': _BOARD,
     'DisplayRates.frame_interval_percentiles_ms return': _RECORD_KEYS,
     'EnhanceResult.message field': _PROSE,
     'FailedCapture.cause field': _REASON,
