@@ -16,8 +16,10 @@ its producer settles it, through the base class.
 
 import asyncio
 import concurrent.futures as cf
+import gc
 import queue
 import threading
+import weakref
 
 import pytest
 
@@ -207,6 +209,27 @@ class TestOneForSeveral:
 
     def test_with_none_it_is_done_at_once(self):
         assert Operation.all_of(()).result(0) is None
+
+    def test_a_settled_join_holds_none_of_the_operations_it_joined(self):
+        """Each new operation joined with the one before it, already settled,
+        as a move joins the settled operation an axis held in place hands
+        back: once nothing holds the older ones, they are gone, so a long
+        run's moves do not stay reachable from its newest."""
+        older = []
+        before = Operation()
+        cf.Future.set_result(before, None)
+        for _ in range(10):
+            new = Operation()
+            joined = Operation.all_of((before, new))
+            cf.Future.set_result(new, None)
+            assert joined.result(BOUND_S) is None
+            older.append(weakref.ref(before))
+            before = new
+        del new, joined
+
+        gc.collect()
+
+        assert [ref() for ref in older] == [None] * len(older)
 
 
 class TestFollowingALaneWaiter:

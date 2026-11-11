@@ -240,11 +240,19 @@ class Operation[T](concurrent.futures.Future[T]):
         """One operation for several started together: done once every one is, raising the first one's raise.
 
         Its ``result()`` is None. ``stop()`` stops each one still under way.
-        With none, it is done at once.
+        With none, it is done at once. Once done it holds none of the
+        operations it joined.
         """
+        # Let go of once the join settles. A settled Future keeps its
+        # done-callbacks, so each joined operation keeps ``one_ended``; and a
+        # move to the place an axis holds hands back that axis's settled
+        # operation, which joins it to the next move. Were the operations
+        # held after settling, every move of a run would stay reachable
+        # from the newest.
+        held = [operations]
 
         def stop() -> None:
-            for op in operations:
+            for op in held[0]:
                 op.stop()
 
         joined = cls(stop=stop)
@@ -259,7 +267,8 @@ class Operation[T](concurrent.futures.Future[T]):
                 left[0] -= 1
                 if left[0]:
                     return
-            raised = next((op.exception() for op in operations if op.exception() is not None), None)
+            settled, held[0] = held[0], ()
+            raised = next((op.exception() for op in settled if op.exception() is not None), None)
             if raised is None:
                 concurrent.futures.Future.set_result(joined, None)
             else:
