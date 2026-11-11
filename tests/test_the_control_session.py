@@ -438,6 +438,19 @@ class TestTheSessionsWrites:
             sim_session.save_protocol(protocol, target)
         assert not target.exists()
 
+    def test_a_non_holders_protocol_edit_beneath_the_session_changes_nothing(
+        self, sim_session, held
+    ):
+        """The scope's protocol editors refuse a non-holder as the Session's do."""
+        with sim_session.acting_in_control(held):
+            sim_session.set_channel_acquire('BF', 'image')
+            protocol = sim_session.create_empty_protocol()
+            sim_session.add_step(protocol, after_step_index=-1)
+        with pytest.raises(ControlSessionRefusedError) as refused:
+            sim_session.scope.protocols.delete_step(protocol, 0)
+        assert refused.value.reason == 'control_session_held'
+        assert protocol.num_steps() == 1
+
     def test_a_non_holders_camera_write_changes_nothing(self, sim_session, held):
         before = sim_session.scope.camera.frame_size
         with pytest.raises(ControlSessionRefusedError):

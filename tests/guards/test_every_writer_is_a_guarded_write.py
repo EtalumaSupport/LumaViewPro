@@ -7,11 +7,12 @@ before it writes, and a write running is counted so no take lands mid-way
 guard would write past the session: its setting writes are refused by the
 store's own check but not counted, and its file writes not refused at all.
 
-So the walk follows each public member of the three owners of such writes,
+So the walk follows each public member of the four owners of such writes,
 through the same-class members it names (``self._x(...)``, and
 ``IOTask(action=self._x)`` alike), to the writes themselves -- the settings
-stores, a protocol file, a recording's pending frames, the file writer's
-recovery, the driver install, the support artefacts -- and every member that
+stores, a protocol file, an edit of a protocol a caller holds, a recording's
+pending frames, the file writer's recovery, the driver install, the support
+artefacts -- and every member that
 reaches one is guarded, by the decorator or by ``a_guarded_write`` in its
 body, or named below with why not. A guarded member covers what it reaches.
 """
@@ -34,12 +35,23 @@ _WRITES = {
     'generate': 'a support report',
     'generate_logs_only': 'a logs zip',
     'write_new_file': 'a file put into the live folder',
+    'insert_step': 'a step added to a protocol',
+    'delete_step': 'a step removed from a protocol',
+    'modify_step': "a protocol step's settings",
+    'modify_name': "a protocol step's name",
+    'modify_labware': "a protocol's plate",
+    'modify_step_z_height': "a protocol step's Z",
+    'apply_tiling': "a protocol's steps tiled",
+    'apply_zstacking': "a protocol's steps stacked",
+    'set_turret_slot': "a protocol step's turret slot",
+    'apply_focus_all_channel_steps': "a protocol channel's steps' Z",
 }
 
 _OWNERS = (
     ('src/_lumascope/modules/scope_session.py', 'ScopeSession'),
     ('src/_lumascope/modules/lumascope_api/camera.py', 'CameraAPI'),
     ('src/_lumascope/modules/manual_recording.py', 'ManualRecordingController'),
+    ('src/_lumascope/modules/lumascope_api/protocols.py', 'ProtocolsAPI'),
 )
 
 # Public members that reach a write unguarded, each with why that is right.
@@ -49,6 +61,12 @@ _NOT_GUARDED = {
     ),
     'ScopeSession.make_logs_zip': (
         'writes a support artefact and changes no scope state; made by anyone'
+    ),
+    'ProtocolsAPI.create_protocol': (
+        'builds a protocol only its caller holds; edits nothing anyone else has'
+    ),
+    'ProtocolsAPI.load_protocol': (
+        'builds a protocol only its caller holds; edits nothing anyone else has'
     ),
 }
 
@@ -159,10 +177,10 @@ def _marked_a_read(marks: list[ast.expr]) -> bool:
 def test_every_session_member_given_a_protocol_reads_it_or_is_a_guarded_write():
     """An edit of a protocol is a write past a control session unless it is guarded.
 
-    A protocol's edits write no store the walk above follows -- they change
-    the object a caller holds -- so the rule is by what the member is
-    given: every ``@api`` Session member that takes a ``Protocol`` is marked
-    a read or is guarded, whatever its edit is named.
+    The walk above follows a protocol's edits by the ``Protocol`` member
+    each is named by; this rule is by what the member is given, so an edit
+    by any other name is caught too: every ``@api`` Session member that
+    takes a ``Protocol`` is marked a read or is guarded.
     """
     tree = parse_module('src/_lumascope/modules/scope_session.py')
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'ScopeSession')

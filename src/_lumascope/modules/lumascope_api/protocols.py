@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 import _lumascope.modules.common_utils as common_utils
 from _lumascope.lvp_logger import logger
 import _lumascope.modules.path_utils as path_utils
+from _lumascope.modules.activity_claim import guarded_write
 from _lumascope.modules.finite_number import refuse_unless_finite_number
 from _lumascope.modules.coord_transformations import AxisLimits, PlateLocation, StageOffset
 from _lumascope.modules.exceptions import (
@@ -59,6 +60,10 @@ if TYPE_CHECKING:
     from _lumascope.modules.tiling_config import TilingConfig, TilingGrids
 
 _api_log = logging.getLogger('LVP.api')
+
+# An edit of a protocol a caller holds, admitted and counted by the session's
+# claim (``guarded_write``); a scope no session composes has none.
+_guarded_write = guarded_write(lambda protocols: protocols._scope._activity_claim)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -109,6 +114,11 @@ class ProtocolsAPI:
     Hosts the in-process protocol builders (`load_protocol`,
     `create_protocol`) the session's ``new_protocol`` and ``load_protocol``
     call, and the installation data root both resolve against.
+
+    Every editor of a protocol the caller hands in is a guarded write: while
+    a control session is held, an edit that is not its holder's is refused
+    before it changes the protocol (``ControlSessionRefusedError``,
+    ``'control_session_held'``), as the session's own editors are.
     """
 
     def __init__(self, scope: Lumascope) -> None:
@@ -336,6 +346,7 @@ class ProtocolsAPI:
         protocol.record_saved(protocol.fingerprint(), None)
         return protocol
 
+    @_guarded_write
     def add_step(
         self,
         protocol: Protocol,
@@ -480,6 +491,7 @@ class ProtocolsAPI:
                 ),
             )
 
+    @_guarded_write
     def update_step(
         self,
         protocol: Protocol,
@@ -626,6 +638,7 @@ class ProtocolsAPI:
                 message=f'This scope has no motor for Z, so it cannot {then}.',
             )
 
+    @_guarded_write
     def set_step_z(self, protocol: Protocol, step_index: int, z: float) -> None:
         """Write ``z`` as step ``step_index``'s Z.
 
@@ -638,6 +651,7 @@ class ProtocolsAPI:
         self._refuse_no_focus_axis(then="set a step's Z")
         protocol.modify_step_z_height(step_index=step_index, z=z)
 
+    @_guarded_write
     def apply_focus_to_channel_steps(self, protocol: Protocol, channel: str, z: float) -> int:
         """Write ``z`` as the Z of every step of ``channel``; returns how many.
 
@@ -650,6 +664,7 @@ class ProtocolsAPI:
         """
         return protocol.apply_focus_all_channel_steps(channel=channel, z=z)
 
+    @_guarded_write
     def delete_step(self, protocol: Protocol, step_index: int) -> None:
         """Remove step ``step_index`` from ``protocol``; the steps after it move up one.
 
@@ -661,6 +676,7 @@ class ProtocolsAPI:
         protocol.delete_step(step_index=step_index)
         self._report_invalid_steps(protocol, solicited=True)
 
+    @_guarded_write
     def rename_step(self, protocol: Protocol, step_index: int, name: str) -> str:
         """Give step ``step_index`` the label ``name``, kept through later channel changes.
 
@@ -683,6 +699,7 @@ class ProtocolsAPI:
             self._report_invalid_steps(protocol, solicited=True)
         return after['Name']
 
+    @_guarded_write
     def set_labware(self, protocol: Protocol, labware_id: str) -> str:
         """Put ``protocol`` on the plate ``labware_id``; returns the key it took.
 
@@ -708,6 +725,7 @@ class ProtocolsAPI:
         protocol.modify_labware(labware_id=key)
         return key
 
+    @_guarded_write
     def apply_tiling(
         self,
         protocol: Protocol,
@@ -748,6 +766,7 @@ class ProtocolsAPI:
         )
         self._report_invalid_steps(protocol, solicited=True)
 
+    @_guarded_write
     def apply_zstacking(
         self,
         protocol: Protocol,
@@ -1433,6 +1452,7 @@ class ProtocolsAPI:
             for objective_id, (unchosen, reassigned) in asked.items()
         ]
 
+    @_guarded_write
     def point_steps_at_turret_slot(
         self, protocol: Protocol, objective_id: str, slot: int
     ) -> tuple[int, ...]:
