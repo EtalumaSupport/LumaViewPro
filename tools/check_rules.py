@@ -72,6 +72,9 @@ Firmware-only (doc_status family):
                 (WARN, diff-aware)
     handover_length -- a live docs/SESSION_HANDOVER_*.md a commit grows is
                 at most 150 words (WARN, diff-aware)
+    next_file_tiers -- every row of a docs/NEXT_*.md a commit touches
+                starts with its tier, (before 4.0), (after 4.0) or
+                (internal), and the rows run in that order (BLOCK)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -1176,6 +1179,61 @@ def _check_handover_length(content: str, path: str, added: set[int] | None) -> l
     ]
 
 
+_NEXT_FILE_RE = re.compile(r'(?:^|/)docs/NEXT_[^/]+\.md$')
+_NEXT_ROW_RE = re.compile(r'^- \[[ x]\] ')
+# A row's tier, in the order a Next file ranks them: the user-facing rows
+# needed before 4.0, the other user-facing rows, then the internal ones.
+_NEXT_TIERS = ('before 4.0', 'after 4.0', 'internal')
+_NEXT_TIER_RE = re.compile(r'^- \[[ x]\] \((' + '|'.join(map(re.escape, _NEXT_TIERS)) + r')\) ')
+
+
+def _check_next_file_tiers(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """BLOCK a commit to a track's Next file whose rows are untagged or out of tier order.
+
+    Each row starts ``- [ ] (<tier>) `` with a tier from ``_NEXT_TIERS``,
+    and no row sits above a row of an earlier tier, so a catchup reading
+    the file top to bottom never reaches an after-4.0 row while a
+    before-4.0 row remains. The order within a tier is the writer's
+    judgment and is not checked. Checked whole on any commit that touches
+    the file, since a row moved or added anywhere can break the order;
+    an untouched file stays silent.
+    """
+    if not _NEXT_FILE_RE.search(path.replace('\\', '/')) or not added:
+        return []
+    violations: list[Violation] = []
+    highest = 0
+    for ln, line in enumerate(content.splitlines(), start=1):
+        if not _NEXT_ROW_RE.match(line):
+            continue
+        m = _NEXT_TIER_RE.match(line)
+        if m is None:
+            violations.append(
+                Violation(
+                    path,
+                    ln,
+                    0,
+                    'next_file_tiers',
+                    'Next row has no tier: it starts `- [ ] (<tier>) ` with one of '
+                    f'{", ".join(_NEXT_TIERS)}',
+                )
+            )
+            continue
+        tier = _NEXT_TIERS.index(m.group(1))
+        if tier < highest:
+            violations.append(
+                Violation(
+                    path,
+                    ln,
+                    0,
+                    'next_file_tiers',
+                    f'`({m.group(1)})` row sits below a `({_NEXT_TIERS[highest]})` row; '
+                    f'a Next file ranks {" > ".join(_NEXT_TIERS)}',
+                )
+            )
+        highest = max(highest, tier)
+    return violations
+
+
 def _check_daily_log_ordering(content: str, path: str) -> list[Violation]:
     """BLOCK a DAILY_LOG or RETROSPECTIVES shard whose entry dates are not newest-first.
 
@@ -1408,6 +1466,7 @@ def check_doc(
     violations.extend(_check_daily_log_entries_kept(content, path, previous))
     violations.extend(_check_handover_shape(content, path, added))
     violations.extend(_check_handover_length(content, path, added))
+    violations.extend(_check_next_file_tiers(content, path, added))
     return violations
 
 
