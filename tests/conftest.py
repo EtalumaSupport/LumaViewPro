@@ -728,15 +728,14 @@ def _no_settings_replacement_outlives_its_test():
 def _no_log_setting_outlives_its_test():
     """Each test ends with the log levels and the autofocus score log as it found them.
 
-    A session puts its settings' level on the 'LVP' and 'lvp_logger'
-    loggers and turns the score log on or off, process-wide; left in place,
-    what a red's captured log holds would depend on what ran before it on
+    A session puts its settings' level on the 'LVP' logger and turns the
+    score log on or off, process-wide; left in place, what a red's captured log holds would depend on what ran before it on
     the worker. The session's level, the log windows and the
     trace logs it sets (``_lumascope.lib.log_helpers``) are put back the same way.
     """
     from _lumascope.lib import log_helpers
 
-    loggers = [logging.getLogger(name) for name in ('LVP', 'lvp_logger')]
+    loggers = [logging.getLogger('LVP')]
     levels = [lg.level for lg in loggers]
     trace_files = dict(log_helpers._trace_files)
     windows = dict(log_helpers._windows)
@@ -1115,8 +1114,23 @@ def pytest_configure(config):
     ).start()
 
 
-# The loggers the drivers write to (src/_lumascope/lib/log_helpers) and the protocol lane's.
-_DRIVER_LOG_NAMES = ('lvp_logger', 'LVP.camera', 'LVP.protocol')
+# The lanes the driver log keeps besides LumaViewPro's main logger, 'LVP': the
+# camera's (src/_lumascope/lib/log_helpers) and the protocol's.
+_DRIVER_LOG_LANES = ('LVP.camera', 'LVP.protocol')
+
+
+def _driver_loggers():
+    """'LVP', and each driver log lane whose records do not reach it.
+
+    A lane propagates to 'LVP' in the simulator suite (its log files
+    declined) and not in a bench run (the files started, each lane kept out
+    of the main log): a handler on 'LVP' and on a lane that propagates to it
+    would write each of the lane's lines twice, and one on 'LVP' alone would
+    miss a lane that does not. Both starts run at this conftest's import,
+    before ``pytest_configure`` reads this.
+    """
+    lanes = [logging.getLogger(name) for name in _DRIVER_LOG_LANES]
+    return [logging.getLogger('LVP')] + [lane for lane in lanes if not lane.propagate]
 
 
 def _enable_driver_logging(config):
@@ -1125,10 +1139,9 @@ def _enable_driver_logging(config):
     The suite's loggers go to each test's captured log, at the level the
     test's session set; a --run-ids-hardware bench test needs the driver's
     whole narrative at DEBUG, in a file kept with the run. A logger is found
-    by its name, so the handlers go on the named loggers the drivers write to
-    (src/_lumascope/lib/log_helpers: 'lvp_logger', 'LVP.camera') and the protocol lane's
-    ('LVP.protocol'), whoever imported them first. The bench tests that read
-    this build a driver, not a session, so no session's level lowers them.
+    by its name, so the handlers go on 'LVP' and the lanes that do not reach
+    it (``_driver_loggers``), whoever imported them first. The bench tests
+    that read this build a driver, not a session, so no session's level lowers them.
     Off by default (flag-gated).
     """
     import time
@@ -1142,7 +1155,7 @@ def _enable_driver_logging(config):
     file_handler.setFormatter(make_formatter('%(levelname)s %(message)s'))
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(logging.Formatter('[driver] %(message)s'))
-    loggers = [logging.getLogger(name) for name in _DRIVER_LOG_NAMES]
+    loggers = _driver_loggers()
     for driver_logger in loggers:
         driver_logger.setLevel(logging.DEBUG)
         driver_logger.addHandler(file_handler)

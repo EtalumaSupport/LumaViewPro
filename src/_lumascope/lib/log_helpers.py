@@ -25,11 +25,12 @@ import threading
 VERBOSE = 15
 logging.addLevelName(VERBOSE, 'VERBOSE')
 
-# The names are literal, never ``__name__``: lvp_logger's main-log floor passes
-# a record below INFO only from a logger named 'lvp_logger' or under 'LVP', and
-# the session sets the main log's level by those names, so a logger named for
-# this module would drop every driver's DEBUG line from lumaviewpro.log.
-logger = logging.getLogger('lvp_logger')
+# The names are literal, never ``__name__``: LumaViewPro's records are under one
+# logger, 'LVP', which is the main log's own. lvp_logger's main-log floor passes
+# a record below INFO only from under it, and the session sets the main log's
+# level on it, so a logger named for this module would drop every driver's
+# DEBUG line from lumaviewpro.log.
+logger = logging.getLogger('LVP')
 camera_logger = logging.getLogger('LVP.camera')
 
 
@@ -258,9 +259,9 @@ def end_window(window: LogWindow, *, owner: object = None) -> bool:
 def apply_session_level(level: int | str) -> None:
     """Put the session's log level on every log that follows it.
 
-    The 'LVP' parent (every LVP.* logger without a level of its own: the
-    GUI interaction and protocol logs among them) and lvp_logger's own
-    logger take it, as do the trace logs' files. The trace loggers pass
+    'LVP' takes it: the main log's logger, and so every LVP.* logger
+    without a level of its own (the GUI interaction and protocol logs
+    among them). The trace logs' files take it too; the trace loggers pass
     VERBOSE whatever the level, so a file at INFO still has its held lines
     and an open window (``LogWindow``) has every line.
     """
@@ -268,7 +269,6 @@ def apply_session_level(level: int | str) -> None:
     level = logging.getLevelName(level.upper()) if isinstance(level, str) else level
     with _levels_lock:
         _session_level = level
-        logging.getLogger('LVP').setLevel(level)
         logger.setLevel(level)
         for trace_logger, file_handler in _trace_files.items():
             trace_logger.setLevel(min(level, VERBOSE))

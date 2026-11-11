@@ -358,7 +358,7 @@ def test_a_simulated_ls620_stores_every_frame_whatever_its_delimiters(session, f
 
 
 def test_the_stream_and_stop_lines_say_how_often_the_delimiter_failed(session, caplog):
-    caplog.set_level(logging.INFO, logger='lvp_logger')
+    caplog.set_level(logging.INFO, logger='LVP')
     camera = session.scope._camera_driver
     camera.STATS_LOG_INTERVAL = 0.2
     transport = session.scope._led_driver._fx2._transport

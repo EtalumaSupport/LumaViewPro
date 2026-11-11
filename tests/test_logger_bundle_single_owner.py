@@ -2,7 +2,7 @@
 
 Bug shape (pre-fix): the same RotatingFileHandler instances that write the
 shared bundle (lvpmain.log / errors.log) were attached to the root logger AND
-to the LVP loggers (`lvp_logger`, `LVP`) AND to `kivy`. A record that
+to the LVP loggers AND to `kivy`. A record that
 propagated up to root was then written to the bundle a SECOND time through
 root's copy of the same handler. This was masked only by disabling propagation
 in non-debug, so a debug run -- exactly when the bundle matters for diagnosis --
@@ -10,10 +10,10 @@ doubled every LVP line.
 
 Fix: one owner holds the bundle handlers, and every ordinary logger reaches
 them by propagation. A LumaViewPro program's start hangs them on root; a
-session's start in an integrator's process hangs them on LumaViewPro's two
-logger roots, which still propagate to the integrator's root. In both, a
-warning from each of `LVP.*`, `lvp_logger` and (for a program) `kivy` lands
-once in the main log and once in the errors log.
+session's start in an integrator's process hangs them on LumaViewPro's one
+logger root, `LVP`, which still propagates to the integrator's root. In both,
+a warning from `LVP` itself, from a logger under it and (for a program) from
+`kivy` lands once in the main log and once in the errors log.
 
 Run in a child per shape: logging is process-wide, and the suite's process
 has started its own, with no files (``tests/conftest.py``).
@@ -34,7 +34,7 @@ import json, logging, sys
 sys.path.insert(0, 'src')
 from _lumascope import lvp_logger
 getattr(lvp_logger, sys.argv[1])()
-names = ['LVP.some_module', 'lvp_logger'] + (['kivy'] if sys.argv[1] == 'start_program_logging' else [])
+names = ['LVP.some_module', 'LVP'] + (['kivy'] if sys.argv[1] == 'start_program_logging' else [])
 for name in names:
     logging.getLogger(name).warning(f'once from {name}')
 for handler in (lvp_logger.file_handler, lvp_logger.error_file_handler):
@@ -59,7 +59,13 @@ def _bundle_counts(tmp_path, start):
     assert done.returncode == 0, done.stderr[-3000:]
     main, errors, names = json.loads(done.stdout.strip().splitlines()[-1])
     texts = [pathlib.Path(p).read_text(encoding='utf-8') for p in (main, errors)]
-    return {name: [text.count(f'once from {name}') for text in texts] for name in names}
+    # A whole line's end, not a substring: 'once from LVP' is inside 'once from LVP.some_module'.
+    return {
+        name: [
+            sum(line.endswith(f' once from {name}') for line in text.splitlines()) for text in texts
+        ]
+        for name in names
+    }
 
 
 def test_each_shape_writes_a_propagated_record_to_the_bundle_once(tmp_path):

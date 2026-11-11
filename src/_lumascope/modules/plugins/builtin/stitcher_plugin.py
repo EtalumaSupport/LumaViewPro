@@ -40,7 +40,7 @@ from _lumascope.modules.plugins import PluginSpec, ProcessorResult
 
 __version__ = '0.1.0'
 
-logger = logging.getLogger('lvp_logger')
+logger = logging.getLogger('LVP')
 
 
 # Module-level spec, read the same way whether the module is found as a

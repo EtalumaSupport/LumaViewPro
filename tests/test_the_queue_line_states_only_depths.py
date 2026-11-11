@@ -27,7 +27,7 @@ def _queue_line_pairs(caplog) -> dict[str, str]:
 
 
 def test_an_idle_sessions_line_states_depths_and_the_threads_in_words(sim_session, caplog):
-    caplog.set_level(logging.DEBUG, logger='lvp_logger')
+    caplog.set_level(logging.DEBUG, logger='LVP')
     sim_session.metrics_logger.tick_executor_watchdog()
 
     pairs = _queue_line_pairs(caplog)

@@ -21,7 +21,7 @@ from tests.settings_fixtures import complete_settings
 pytestmark = pytest.mark.xdist_group('log_settings_restore')
 
 _PRODUCTION_LOGGERS = {
-    'logger': 'lvp_logger',
+    'logger': 'LVP',
     'camera_logger': 'LVP.camera',
     'protocol_logger': 'LVP.protocol',
     'metrics_logger': 'LVP.metrics',
@@ -44,14 +44,11 @@ def test_a_line_through_each_production_logger_reaches_the_tests_captured_log(ca
 def test_a_session_at_debug_sets_the_main_log_to_debug_for_its_own_test():
     session = ScopeSession.create(complete_settings(debug_mode=True), simulate=True)
     try:
-        assert logging.getLogger('lvp_logger').level == logging.DEBUG
+        assert logging.getLogger('LVP').level == logging.DEBUG
     finally:
         session.shutdown()
 
 
 def test_the_next_test_starts_at_the_default_level():
     # After the test above on this worker: its session's DEBUG is gone.
-    assert (logging.getLogger('LVP').level, logging.getLogger('lvp_logger').level) == (
-        logging.NOTSET,
-        logging.NOTSET,
-    )
+    assert logging.getLogger('LVP').level == logging.NOTSET

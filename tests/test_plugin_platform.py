@@ -296,7 +296,7 @@ def test_an_auto_run_success_is_logged_with_what_it_made(harness_ctx, caplog, tm
     harness_ctx.plugins.post_processing.register(spec, stitches)
     harness_ctx.plugins._track('stitches', types.ModuleType('stitches'))
 
-    with caplog.at_level('INFO', logger='lvp_logger'):
+    with caplog.at_level('INFO', logger='LVP'):
         harness_ctx.plugins.run_protocol_complete_processors(
             input_dir='/in', manifest={}, output_dir='/out', files='written'
         )

@@ -72,7 +72,7 @@ if TYPE_CHECKING:
     from _lumascope.modules.lumascope_api.motion import MotionAPI
 
 # Under LVP, never ``__name__``: a session's logging hangs the bundle on
-# LumaViewPro's own loggers (LVP and lvp_logger), so a logger named for this
+# LumaViewPro's own logger, LVP, so a logger named for this
 # module would write nowhere a support bundle collects.
 logger = logging.getLogger('LVP.support_report')
 

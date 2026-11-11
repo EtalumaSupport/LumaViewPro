@@ -99,7 +99,7 @@ LS560_ROWS = [
 
 def _logged(caplog, level):
     return ' | '.join(
-        r.getMessage() for r in caplog.records if r.name == 'lvp_logger' and r.levelno == level
+        r.getMessage() for r in caplog.records if r.name == 'LVP' and r.levelno == level
     )
 
 

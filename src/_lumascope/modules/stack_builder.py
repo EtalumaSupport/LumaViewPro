@@ -25,7 +25,7 @@ from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 
 import logging
 
-logger = logging.getLogger('lvp_logger')
+logger = logging.getLogger('LVP')
 
 
 def build_hyperstacks_for_run(

@@ -42,7 +42,7 @@ from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import Closing, build_app
 from _lumascope.rest.served import Reach, judged
 
-_log = logging.getLogger('lvp_logger.rest')
+_log = logging.getLogger('LVP.rest')
 
 # Seconds the close waits for the calls' threads once the session has shut
 # down; a call still running then is logged by name and the server stops.

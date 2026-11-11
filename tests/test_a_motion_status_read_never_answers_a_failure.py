@@ -184,7 +184,7 @@ def test_a_home_records_a_switch_it_could_not_read_as_unread(make_session, caplo
     scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
 
     # The line is the product.
-    with caplog.at_level(logging.INFO, logger='lvp_logger'):
+    with caplog.at_level(logging.INFO, logger='LVP'):
         scope.motion.home()
 
     lines = messages(records_of(caplog, motion_module))

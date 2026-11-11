@@ -88,7 +88,7 @@ def test_a_camera_range_refusal_names_five_steps_then_the_rest(scope):
 
 @pytest.fixture
 def protocol_log(caplog):
-    caplog.set_level(logging.INFO, logger='lvp_logger')
+    caplog.set_level(logging.INFO, logger='LVP')
     return caplog
 
 

@@ -57,7 +57,7 @@ from _lumascope.drivers.exceptions import BoardNoReplyError, BoardPortFailedErro
 from _lumascope.drivers.serialboard import SerialBoard
 
 # Under LVP, never ``__name__``: a session's logging hangs the bundle on
-# LumaViewPro's own loggers (LVP and lvp_logger), so a logger named for this
+# LumaViewPro's own logger, LVP, so a logger named for this
 # module would write nowhere a support bundle collects.
 logger = logging.getLogger('LVP.firmware_updater')
 

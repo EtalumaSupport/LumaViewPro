@@ -231,10 +231,10 @@ def _apply_logging(settings: dict) -> None:
     Logging is process-wide, so the settings of the session a host builds
     decide it, on every host: applied when the session is created, before
     its scope is brought up, and again when either setting is written, so
-    the logger never disagrees with the store. The level goes on both
-    loggers that write the main log -- the 'LVP' parent of every module's
-    logger, and lvp_logger's own -- and on the serial, camera and api logs'
-    files (``log_helpers.apply_session_level``). ``debug_mode`` is the
+    the logger never disagrees with the store. The level goes on 'LVP',
+    the main log's logger and the parent of every module's logger, and on
+    the serial, camera and api logs' files
+    (``log_helpers.apply_session_level``). ``debug_mode`` is the
     installation's switch for a detailed log: on, the level is DEBUG, as
     lvp_logger set it from the first line; off, it is ``logging.default.level``.
     """

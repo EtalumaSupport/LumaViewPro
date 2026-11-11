@@ -13485,8 +13485,8 @@ A script logs by default: its first `ScopeSession.load_user_settings`
 or `ScopeSession.create` starts the log folder, so it leaves the support
 bundle. Call this before that only to catch what comes earlier, or with
 `log_files=False` to open no file at all. The files hang off
-LumaViewPro's own loggers (`LVP` and `lvp_logger`): the root logger,
-`logging.basicConfig()` and the script's own records stay the
+`LVP`, the one logger LumaViewPro logs everything under: the root
+logger, `logging.basicConfig()` and the script's own records stay the
 script's, and LumaViewPro's records also reach the script's logging as
 any library's do.
 

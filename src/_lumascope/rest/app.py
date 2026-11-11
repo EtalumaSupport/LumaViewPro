@@ -71,9 +71,9 @@ from _lumascope.rest.routes import (
 )
 from _lumascope.rest.served import Served, judged
 
-# The REST log: a child of lvp_logger's logger, whose REST handler keeps
-# only the records marked api_request.
-_request_log = logging.getLogger('lvp_logger.rest')
+# The REST log: a child of 'LVP', the main log's logger, whose REST handler
+# keeps only the records marked api_request.
+_request_log = logging.getLogger('LVP.rest')
 
 VERSION = 'v1'
 PREFIX = f'/api/{VERSION}'

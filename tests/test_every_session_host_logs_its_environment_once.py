@@ -78,7 +78,7 @@ import json, logging, sys
 sys.path.insert(0, 'src')
 import _lumascope.lvp_logger
 _lumascope.lvp_logger.start_program_logging()
-for name in ('', 'LVP', 'lvp_logger'):
+for name in ('', 'LVP'):
     logging.getLogger(name).setLevel(logging.DEBUG)
 heard = []
 handler = logging.Handler()

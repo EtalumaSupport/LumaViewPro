@@ -39,7 +39,7 @@ def _faults(caplog):
 
 
 def _plugin_logger_errors(caplog):
-    return [r for r in caplog.records if r.name == 'lvp_logger' and r.levelno >= logging.WARNING]
+    return [r for r in caplog.records if r.name == 'LVP' and r.levelno >= logging.WARNING]
 
 
 class _EntryPoint:
@@ -303,7 +303,7 @@ def _crash_guard(session):
         'ctx': types.SimpleNamespace(session=session),
         'sys': sys,
         'ExceptionManager': _ExceptionManager,
-        'logger': logging.getLogger('lvp_logger'),
+        'logger': logging.getLogger('LVP'),
     }
     module = ast.Module(body=[node], type_ignores=[])
     exec(compile(module, str(REPO_ROOT / 'lumaviewpro.py'), 'exec'), namespace)

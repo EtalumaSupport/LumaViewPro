@@ -107,15 +107,14 @@ def _route_lvp_logging_to_stdout() -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(fmt)
     handler.setLevel(logging.DEBUG)
-    # `lvp_logger` is the logger src/_lumascope/drivers/* import via `from _lumascope.lvp_logger import logger`.
-    # `LVP` is the parent for `LVP.camera` / `LVP.serial` / `LVP.autofocus`.
-    for name in ('lvp_logger', 'LVP'):
-        log = logging.getLogger(name)
-        log.setLevel(logging.DEBUG)
-        if not any(
-            isinstance(h, logging.StreamHandler) and h.stream is sys.stdout for h in log.handlers
-        ):
-            log.addHandler(handler)
+    # `LVP` is LumaViewPro's one logger root: the logger src/_lumascope/drivers/* import via
+    # `from _lumascope.lvp_logger import logger`, and the parent of every `LVP.*` logger.
+    log = logging.getLogger('LVP')
+    log.setLevel(logging.DEBUG)
+    if not any(
+        isinstance(h, logging.StreamHandler) and h.stream is sys.stdout for h in log.handlers
+    ):
+        log.addHandler(handler)
 
 
 # ---------------------------------------------------------------------------

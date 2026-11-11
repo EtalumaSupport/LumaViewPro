@@ -48,7 +48,7 @@ def session():
 @pytest.fixture
 def log(session, caplog):
     # After the session's bring-up, which sets the main log's level.
-    caplog.set_level(logging.INFO, logger='lvp_logger')
+    caplog.set_level(logging.INFO, logger='LVP')
     return caplog
 
 

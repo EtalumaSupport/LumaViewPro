@@ -1114,7 +1114,7 @@ def retire_rejected_current_json() -> pathlib.Path | None:
     except OSError as e:
         raise SettingsFileNotReplacedError(path, e) from e
     rejected_current_json = None
-    logging.getLogger('lvp_logger').warning(
+    logging.getLogger('LVP').warning(
         f'[Settings ] settings reset by user choice; previous file kept at {retired}'
     )
     return retired

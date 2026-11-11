@@ -177,9 +177,6 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
         sys.__stderr__.flush()
 
 
-_lvp_parent = logging.getLogger('LVP')
-
-
 def rotated_log_name(name: str) -> str:
     """Every log's backup name: ``lumaviewpro.log.1`` -> ``lumaviewpro.1.log``.
 
@@ -291,7 +288,7 @@ class _MainLogFloor(logging.Filter):
     """LVP's records at the level its loggers allow; anyone else's from INFO up."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        return record.levelno >= logging.INFO or record.name.split('.')[0] in ('LVP', logger.name)
+        return record.levelno >= logging.INFO or record.name.split('.')[0] == logger.name
 
 
 # debug_mode as the start read it from the installation; False until a start
@@ -300,7 +297,7 @@ debug = False
 
 # What this process's logging is, written by the start alone: None until one;
 # then 'declined' (no files), 'lumascope' (the files on LumaViewPro's own
-# loggers: an integrator's process) or 'root' (the files on root: a
+# logger, 'LVP': an integrator's process) or 'root' (the files on root: a
 # LumaViewPro program owns the process).
 _started: str | None = None
 _start_lock = threading.Lock()
@@ -314,8 +311,8 @@ def start_logging(*, log_files: bool = True) -> None:
     or ``ScopeSession.create`` starts the log folder, so it leaves the support
     bundle. Call this before that only to catch what comes earlier, or with
     ``log_files=False`` to open no file at all. The files hang off
-    LumaViewPro's own loggers (``LVP`` and ``lvp_logger``): the root logger,
-    ``logging.basicConfig()`` and the script's own records stay the
+    ``LVP``, the one logger LumaViewPro logs everything under: the root
+    logger, ``logging.basicConfig()`` and the script's own records stay the
     script's, and LumaViewPro's records also reach the script's logging as
     any library's do.
 
@@ -538,12 +535,11 @@ def _open_the_files(*, take_root: bool) -> None:
         _hang_the_bundle_on_root()
     else:
         # An integrator's process: root, its basicConfig() and its own records
-        # are the integrator's. The bundle hangs off LumaViewPro's two logger
-        # roots, which still propagate, so their records also reach the
+        # are the integrator's. The bundle hangs off LumaViewPro's one logger
+        # root, 'LVP', which still propagates, so its records also reach the
         # integrator's handlers, and none is written to the bundle twice.
-        for bundle_owner in (_lvp_parent, logger):
-            bundle_owner.addHandler(file_handler)
-            bundle_owner.addHandler(error_file_handler)
+        logger.addHandler(file_handler)
+        logger.addHandler(error_file_handler)
 
     # debug_mode is read once the log files are open, from the data folder an
     # installed build's first launch has not filled yet, so the shipped data
@@ -603,7 +599,6 @@ def _hang_the_bundle_on_root() -> None:
     # the bundle line twice, masked only by disabling propagation in non-debug,
     # which left debug runs -- when the bundle matters most -- double-logged.)
     logger.propagate = True
-    _lvp_parent.propagate = True
 
     # Route Kivy framework errors to LVP main log + errors log
     # Pin the level so Kivy does not inherit the root logger's DEBUG level (root
@@ -618,7 +613,7 @@ def _hang_the_bundle_on_root() -> None:
     # LVP loggers carried.
     kivy_logger.propagate = True
 
-    # LVP.* records reach the bundle by propagating through _lvp_parent to root
+    # LVP.* records reach the bundle by propagating through 'LVP' to root
     # (the single handler owner); no per-logger bundle handler is attached here.
     _root_logger = logging.getLogger()
     _root_logger.setLevel(logging.DEBUG)

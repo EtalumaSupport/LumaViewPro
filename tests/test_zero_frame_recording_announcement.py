@@ -42,7 +42,7 @@ def _healthy_disk(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _info_captured(caplog):
-    caplog.set_level(logging.INFO, logger='lvp_logger')
+    caplog.set_level(logging.INFO, logger='LVP')
 
 
 def _logged(caplog, *needles):
@@ -50,7 +50,7 @@ def _logged(caplog, *needles):
     return [
         r.getMessage()
         for r in caplog.records
-        if r.name == 'lvp_logger'
+        if r.name == 'LVP'
         and r.levelno in (logging.INFO, logging.WARNING)
         and any(n in r.getMessage() for n in needles)
     ]

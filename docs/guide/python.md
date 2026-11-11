@@ -78,14 +78,16 @@ the root logger and your own records stay yours. The session's first call
 (`load_user_settings` or `create`) starts LumaViewPro's log folder,
 `logs/LVP_Log` under the data root (the source folder, [Where it
 runs](#bringing-a-session-up-in-python)), so a script leaves the support bundle
-without a line of setup. The files hang off LumaViewPro's own loggers (`LVP`
-and `lvp_logger`), and their main-log records also reach your logging as any
-library's do. Their level is the setting `logging.default.level` (shipped
-`VERBOSE`), which `create` applies and the end of the startup motion applies
-again, so a `setLevel` on those loggers before then is replaced: to quiet them,
-set `logging.default.level` (a level's name, such as `WARNING`) in the settings
-handed to `create`. The trace lanes (serial, camera, protocol, ...) stay in
-their own files. Call
+without a line of setup. LumaViewPro logs everything under one logger, `LVP`;
+the files hang off it, and its main-log records also reach your logging as any
+library's do, so a handler on `LVP` captures them. Its level is the setting
+`logging.default.level` (shipped `VERBOSE`), which `create` applies and the end
+of the startup motion applies again, so a `setLevel` on `LVP` before then is
+replaced: to quiet it, set `logging.default.level` (a level's name, such as
+`WARNING`) in the settings handed to `create`. Seven trace areas under it write
+their own files and do not reach your handlers: `LVP.serial`, `LVP.camera`,
+`LVP.api`, `LVP.protocol`, `LVP.autofocus`, `LVP.metrics` and
+`LVP.gui_interactions`. Call
 `lumascope.start_logging(log_files=False)` before the first session call to
 open no file at all, or `lumascope.start_logging()` to start the folder before
 it. Logging starts once per process: a start asking for another logging than

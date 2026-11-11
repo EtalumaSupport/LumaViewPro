@@ -25,14 +25,14 @@ def _files_lines(caplog, levels=(logging.INFO, logging.WARNING)):
     return [
         r.getMessage()
         for r in caplog.records
-        if r.name == 'lvp_logger' and r.levelno in levels and "run's files" in r.getMessage()
+        if r.name == 'LVP' and r.levelno in levels and "run's files" in r.getMessage()
     ]
 
 
 def _one_run(tmp_path, caplog):
     files = []
     with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
-        caplog.set_level(logging.INFO, logger='lvp_logger')
+        caplog.set_level(logging.INFO, logger='LVP')
         outcome = runner.start_single_scan(
             protocol=_protocol(
                 [_step('C1', 0, x=20.0, gain=1.0), _step('C2', 1, x=20.0, gain=1.0)]
@@ -81,7 +81,7 @@ def test_a_run_that_saves_no_images_says_it_has_no_folder(tmp_path, caplog):
     the line says so rather than naming a folder called None."""
     from tests.test_run_outcome_reports_autofocus_data import _AfRig
 
-    caplog.set_level(logging.INFO, logger='lvp_logger')
+    caplog.set_level(logging.INFO, logger='LVP')
     rig = _AfRig()
     try:
         rig.run_autofocus(tmp_path / 'af', save_data=False)

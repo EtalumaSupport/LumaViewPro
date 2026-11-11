@@ -104,7 +104,7 @@ def _at_slot(session, slot):
 def _lines(caplog):
     """Every message the Session and its helpers put on the main log, at the
     level the session's settings set from its bring-up on (INFO here)."""
-    return [r.getMessage() for r in caplog.records if r.name == 'lvp_logger']
+    return [r.getMessage() for r in caplog.records if r.name == 'LVP']
 
 
 # ---------------------------------------------------------------------------

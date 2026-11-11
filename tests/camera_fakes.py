@@ -557,7 +557,7 @@ def stall_with_a_frame_buffered(scope, for_s: float = 600.0, wait_s: float = 10.
     """
     scope.imaging.get_image(force_to_8bit=False)
     watcher = _StreamStopped()
-    logger = logging.getLogger('lvp_logger')
+    logger = logging.getLogger('LVP')
     logger.addHandler(watcher)
     try:
         scope.simulation.stall_stream(0.0, for_s)

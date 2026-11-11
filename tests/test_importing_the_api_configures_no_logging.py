@@ -44,7 +44,7 @@ root_level = logging.getLogger().level
 logging.Logger.handle, logging.Logger.isEnabledFor = _handle, _enabled
 from _lumascope.modules.path_utils import get_log_dir
 state = {{
-    'ours': [n for n in seen if n.split('.')[0] in ('LVP', 'lvp_logger')],
+    'ours': [n for n in seen if n.split('.')[0] == 'LVP'],
     'root_handlers': len(logging.getLogger().handlers),
     'root_level_kept': logging.getLogger().level == root_level,
     'log_folder_made': get_log_dir().exists(),
@@ -112,7 +112,7 @@ from _lumascope.modules import tech_support_report
 firmware_updater.logger.info('a firmware updater line')
 tech_support_report.logger.info('a support report line')
 logging.getLogger('myapp').info('my record after the session')
-for owner in (logging.getLogger('LVP'), logging.getLogger('lvp_logger')):
+for owner in (logging.getLogger('LVP'),):
     for handler in owner.handlers:
         handler.flush()
 from _lumascope.modules.path_utils import get_log_dir

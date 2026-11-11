@@ -156,12 +156,12 @@ def _build(ae_lands_on_ms: float) -> tuple[ImagingAPI, CameraAPI, _ChunkAeSim]:
 
 @pytest.fixture(autouse=True)
 def _info_captured(caplog):
-    caplog.set_level(logging.INFO, logger='lvp_logger')
+    caplog.set_level(logging.INFO, logger='LVP')
 
 
 def _logged(caplog, level: int) -> list[str]:
     """Messages the production code put on the main log at ``level``."""
-    return [r.getMessage() for r in caplog.records if r.name == 'lvp_logger' and r.levelno == level]
+    return [r.getMessage() for r in caplog.records if r.name == 'LVP' and r.levelno == level]
 
 
 def _arm(camera, settings, *, resume_after_capture):

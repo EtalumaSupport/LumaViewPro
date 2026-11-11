@@ -47,7 +47,7 @@ from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.api_surface import FilePath, api, api_fields, host_wiring
 from _lumascope.modules.run_outcome import FilesOutcome
 
-logger = logging.getLogger('lvp_logger')
+logger = logging.getLogger('LVP')
 
 
 ENTRY_POINT_GROUP = 'lvp.plugins'
@@ -58,7 +58,7 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # fail mid-use. A host change the plugin must follow raises the value
 # here, in the same commit, to the plugin version that follows it.
 MINIMUM_PLUGIN_VERSIONS = {
-    'etaluma_engineering': '1.0.199',
+    'etaluma_engineering': '1.0.206',
 }
 
 # Etaluma's bench tool. Once installed it cannot be disabled any other way,
@@ -74,7 +74,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 83
+PLUGIN_API_LEVEL = 84
 # Published: ``from lumascope import PLUGIN_API_LEVEL`` (api_surface.CONSTANTS_ATTRIBUTE).
 _lvp_api_constants = ('PLUGIN_API_LEVEL',)
 

@@ -37,12 +37,12 @@ def _logged(caplog, request_id):
     return [
         r
         for r in caplog.records
-        if r.name == 'lvp_logger.rest' and getattr(r, 'request_id', None) == request_id
+        if r.name == 'LVP.rest' and getattr(r, 'request_id', None) == request_id
     ]
 
 
 def test_a_result_is_logged_once_by_the_id_its_answer_carries(client, caplog):
-    caplog.set_level(logging.INFO, logger='lvp_logger.rest')
+    caplog.set_level(logging.INFO, logger='LVP.rest')
 
     answer = client.get('/api/v1/app_version')
 
@@ -52,7 +52,7 @@ def test_a_result_is_logged_once_by_the_id_its_answer_carries(client, caplog):
 
 
 def test_a_problem_names_the_same_id_its_log_line_does(client, caplog):
-    caplog.set_level(logging.INFO, logger='lvp_logger.rest')
+    caplog.set_level(logging.INFO, logger='LVP.rest')
 
     answer = client.get('/api/v1/no_such_member')
 
@@ -63,7 +63,7 @@ def test_a_problem_names_the_same_id_its_log_line_does(client, caplog):
 
 
 def test_a_body_refused_by_its_route_is_logged_too(client, caplog):
-    caplog.set_level(logging.INFO, logger='lvp_logger.rest')
+    caplog.set_level(logging.INFO, logger='LVP.rest')
 
     answer = client.post(
         '/api/v1/scope/illumination/led_off',
@@ -79,10 +79,10 @@ def test_a_body_refused_by_its_route_is_logged_too(client, caplog):
 def test_the_rest_log_keeps_a_request_and_no_other_line(client, caplog):
     from _lumascope.lvp_logger import RestAPIFilter
 
-    caplog.set_level(logging.INFO, logger='lvp_logger.rest')
+    caplog.set_level(logging.INFO, logger='LVP.rest')
     answer = client.get('/api/v1/no_such_member')
     (request,) = _logged(caplog, answer.headers['X-Request-ID'])
-    other = logging.LogRecord('lvp_logger', logging.INFO, '', 0, 'a main-log line', (), None)
+    other = logging.LogRecord('LVP', logging.INFO, '', 0, 'a main-log line', (), None)
 
     keeps = RestAPIFilter()
     assert keeps.filter(request)
