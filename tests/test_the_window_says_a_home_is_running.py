@@ -68,7 +68,7 @@ def test_the_banner_names_a_home_while_it_holds_the_scope(session, monkeypatch):
 def test_no_other_holder_shows_it(session, kind):
     from tests.protocol_drives import run_identity
 
-    held = session.activity_claim.try_claim(
+    held = session._activity_claim.try_claim(
         kind, run=run_identity() if kind == 'protocol' else None
     )
     try:

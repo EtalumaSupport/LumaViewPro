@@ -54,9 +54,17 @@ class TestTheDiagnosticHoldsTheScope:
         session = session_on_a_simulated_scope()
         with session.diagnostic_claim() as held:
             assert held.holds
-            assert session.activity_claim.owner == 'diagnostic'
+            assert session._activity_claim.owner == 'diagnostic'
         assert not held.holds
-        assert session.activity_claim.owner is None
+        assert session._activity_claim.owner is None
+
+    def test_a_release_inside_the_block_is_refused_and_the_scope_stays_held(self):
+        session = session_on_a_simulated_scope()
+        with session.diagnostic_claim() as held:
+            with pytest.raises(RuntimeError, match='inside the block'):
+                held.release()
+            assert held.holds, 'the block still drives the scope'
+        assert not held.holds, "the block's exit releases it"
 
     def test_a_raise_inside_the_block_still_releases(self):
         session = session_on_a_simulated_scope()
@@ -65,7 +73,7 @@ class TestTheDiagnosticHoldsTheScope:
             session.diagnostic_claim(),
         ):
             raise RuntimeError('the diagnostic failed')
-        assert session.activity_claim.owner is None, (
+        assert session._activity_claim.owner is None, (
             'a diagnostic that raised left the claim held, which refuses every '
             'run and recording for the life of the process'
         )
@@ -108,7 +116,7 @@ class TestTheDiagnosticHoldsTheScope:
         session = session_on_a_simulated_scope()
         engine = VideoRecordingEngine(
             write_frame=MagicMock(),
-            claim=session.activity_claim,
+            claim=session._activity_claim,
             clock=lambda: 0.0,
             steady_clock=host_clock.steady_ns,
         )
@@ -123,7 +131,7 @@ class TestTheDiagnosticIsRefusedWhenTheScopeIsHeld:
     def test_refused_naming_the_holder_and_nothing_taken(self, holder_kind):
         session = session_on_a_simulated_scope()
         run = run_identity() if holder_kind == 'protocol' else None
-        other = session.activity_claim.try_claim(holder_kind, run=run)
+        other = session._activity_claim.try_claim(holder_kind, run=run)
         try:
             with pytest.raises(DiagnosticRefusedError) as excinfo, session.diagnostic_claim():
                 pytest.fail('the block ran while another activity held the scope')
@@ -145,7 +153,7 @@ class TestTheDiagnosticIsRefusedWhenTheScopeIsHeld:
 
     def test_who_started_the_holding_run_is_named(self):
         session = session_on_a_simulated_scope()
-        run = session.activity_claim.try_claim('protocol', run=run_identity(Caller.GUI))
+        run = session._activity_claim.try_claim('protocol', run=run_identity(Caller.GUI))
         try:
             with pytest.raises(DiagnosticRefusedError) as excinfo, session.diagnostic_claim():
                 pass
@@ -220,7 +228,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
             pass
         assert kept.value.reason == 'claim_still_lent'
         assert isinstance(kept.value, RuntimeError), 'still what it was documented as'
-        assert session.activity_claim.owner == 'diagnostic', (
+        assert session._activity_claim.owner == 'diagnostic', (
             'the claim was released underneath a run still acting under it'
         )
 
@@ -229,7 +237,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         monkeypatch.setattr(runner, '_state', ProtocolState.IDLE)
         runner._on_run_idle()
 
-        assert session.activity_claim.owner is None, 'the claim was left with nobody to release it'
+        assert session._activity_claim.owner is None, 'the claim was left with nobody to release it'
 
     def test_a_block_that_raised_keeps_its_own_exception_and_the_kept_claim_is_told_once(
         self, monkeypatch, centre_posts
@@ -249,7 +257,7 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
 
         told = [n for n in centre_posts if n.reason == 'claim_still_lent']
         assert [n.title for n in told] == [ClaimStillLentError.title]
-        assert session.activity_claim.owner == 'diagnostic'
+        assert session._activity_claim.owner == 'diagnostic'
         _end_the_run(runner, monkeypatch)
 
     def test_a_clean_block_inside_a_callers_except_still_raises_the_kept_claim(self, monkeypatch):
@@ -274,11 +282,11 @@ class TestTheDiagnosticEndsOnlyWhenItsRunDoes:
         order = []
 
         def _wait(timeout_s):
-            order.append(('wait', session.activity_claim.owner))
+            order.append(('wait', session._activity_claim.owner))
             return True
 
         monkeypatch.setattr(session.sequenced_capture_runner, 'wait_for_run_idle', _wait)
         with session.diagnostic_claim():
             pass
         assert order == [('wait', 'diagnostic')], order
-        assert session.activity_claim.owner is None
+        assert session._activity_claim.owner is None

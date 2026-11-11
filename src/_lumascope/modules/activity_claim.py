@@ -222,11 +222,15 @@ class HeldClaim:
     it does not return this.
     """
 
-    __slots__ = ('_claim', '_control')
+    __slots__ = ('_claim', '_control', '_in_block')
 
     def __init__(self, claim: 'ActivityClaim', control: ControlSession | None = None) -> None:
         self._claim = claim
         self._control = control
+        # True while the taking is yielded into its taker's ``with`` block
+        # (``in_block``): the block's own code holds it then, and only the
+        # block's exit releases it.
+        self._in_block = False
 
     @property
     def claim(self) -> 'ActivityClaim':
@@ -261,9 +265,25 @@ class HeldClaim:
         Raises:
             RuntimeError: this taking no longer holds the claim -- a
                 release path that runs twice or late fails loudly rather
-                than freeing a claim a newer activity took.
+                than freeing a claim a newer activity took; or the block it
+                was yielded into is still open (``in_block``), which would
+                free the scope while that block still drives it. Nothing
+                was released.
         """
+        if self._in_block:
+            raise RuntimeError(
+                'HeldClaim: a release inside the block it was yielded to; the block releases it as it exits'
+            )
         self._claim._release(self)
+
+    @contextlib.contextmanager
+    def in_block(self) -> Iterator['HeldClaim']:
+        """Yield this taking into a caller's ``with`` block, refusing its release until the block exits."""
+        self._in_block = True
+        try:
+            yield self
+        finally:
+            self._in_block = False
 
     def lend(self) -> 'BorrowedClaim':
         """Lend this taking to work that runs inside its activity."""
@@ -526,7 +546,11 @@ class ActivityClaim:
     a name: anyone can spell a kind, only the taker holds the object.
     """
 
-    def __init__(self, on_transition=None) -> None:
+    def __init__(
+        self,
+        on_transition=None,
+        on_control_ended: Callable[[ControlSession], None] | None = None,
+    ) -> None:
         """Args:
         on_transition: Optional zero-argument callable invoked after
             every successful claim or release, and on every
@@ -535,11 +559,20 @@ class ActivityClaim:
             hold engine locks of its own -- so it must only schedule
             or notify (level-read listeners re-read state when they
             run); it must not acquire engine locks or block.
+        on_control_ended: Optional callable given the control session
+            ``end_control`` or ``end_live_control`` just ended, which stops
+            the run or recording taken for it. It runs outside this claim's
+            lock, after the end is announced, on the ender's thread; a
+            raise reaches the ender. The close's end (``begin_closing``)
+            and a silent session's end do not call it: the close stops all
+            work itself, in its own order, and a silent session has nothing
+            of its own running.
         """
         self._lock = threading.Lock()
         self._holder: ActivityHolder | None = None
         self._held: HeldClaim | None = None
         self._on_transition = on_transition
+        self._on_control_ended = on_control_ended
         # A run acting under a lent claim -- a run inside a diagnostic -- and
         # the borrowing it holds. The holder stays the lender, which is what
         # a refusal names; this is what says a run is in progress, and which.
@@ -576,12 +609,17 @@ class ActivityClaim:
         """Refuse every new taking for the session's close: until ``end_closing``,
         and for good if it finished.
 
-        A taking already held keeps its claim and ends through its owner;
-        a borrowing lent from it is still granted, because it is that
-        activity's own work. Announced, so a listener hears the close begin.
+        A held control session ends with it, in the same lock, or it would
+        refuse the close's own writes; what it started is not stopped here,
+        since the close stops every run and recording itself, after the
+        plugins unload. A taking already held keeps its claim and ends
+        through its owner; a borrowing lent from it is still granted,
+        because it is that activity's own work. Announced, so a listener
+        hears the close begin.
         """
         with self._lock:
             self._closing = True
+            self._control = None
         self.announce()
 
     def end_closing(self, *, closed: bool) -> None:
@@ -746,9 +784,9 @@ class ActivityClaim:
     def end_control(self, session_id: str) -> ControlSession:
         """End the live control session, named by its id: its taker, or the GUI. Announced.
 
-        Ends the session only: what its holder started -- a run, a
-        recording -- is the ender's to stop, and holds the slot until it
-        has unwound.
+        Then the run or recording taken for it is stopped
+        (``on_control_ended``); it holds the slot until it has unwound, so
+        nothing is taken in between.
 
         Returns:
             The session ended.
@@ -762,11 +800,10 @@ class ActivityClaim:
             if control is None or control[1].id != session_id:
                 raise ControlSessionRefusedError('control_session_ended')
             self._control = None
-        self.announce()
-        return control[0]
+        return self._ended(control[0])
 
     def end_live_control(self) -> ControlSession | None:
-        """End whatever control session is held, for the session's close. Announced when one was.
+        """End whatever control session is held, as ``end_control``: the person at the scope taking it back.
 
         Returns:
             The session ended, or None when none was held.
@@ -776,8 +813,14 @@ class ActivityClaim:
             self._control = None
         if control is None:
             return None
+        return self._ended(control[0])
+
+    def _ended(self, session: ControlSession) -> ControlSession:
+        """Announce ``session``'s end, then stop the work taken for it."""
         self.announce()
-        return control[0]
+        if self._on_control_ended is not None:
+            self._on_control_ended(session)
+        return session
 
     def enter_guarded_write(self, taking: 'Taking | ControllerTaking | None') -> None:
         """Admit a guarded write -- a setting, a file -- and count it while it runs.

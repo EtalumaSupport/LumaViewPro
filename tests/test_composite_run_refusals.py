@@ -135,7 +135,7 @@ class TestARivalRunRefusesTheComposite:
         )
         try:
             assert gate.reached.wait(timeout=60), 'the first composite never reached a step'
-            assert session.activity_claim.run_holder is not None, (
+            assert session._activity_claim.run_holder is not None, (
                 'the parked run does not hold the claim'
             )
             with pytest.raises(ProtocolRunRefusedError) as refusal:
@@ -174,7 +174,7 @@ class TestARivalRunRefusesTheComposite:
         )
         try:
             assert gate.reached.wait(timeout=60), 'the scan never reached a step'
-            assert session.activity_claim.run_holder is not None, (
+            assert session._activity_claim.run_holder is not None, (
                 'the parked scan does not hold the claim'
             )
             with pytest.raises(ProtocolRunRefusedError) as refusal:
@@ -192,7 +192,7 @@ class TestARivalRunRefusesTheComposite:
         assert settled is not None and settled.status == 'completed', (
             f'the scan never completed: {settled}'
         )
-        assert session.activity_claim.run_holder is None, (
+        assert session._activity_claim.run_holder is None, (
             'the scan finished still holding the claim'
         )
         # The scan's own directory, and only it.
@@ -220,7 +220,7 @@ class TestADisconnectedCameraRefusesTheComposite:
         assert refusal.value.reason == 'not_connected', (
             f'a composite with no camera was refused for {refusal.value.reason!r}'
         )
-        assert session.activity_claim.run_holder is None, (
+        assert session._activity_claim.run_holder is None, (
             'the refused run left the activity claim held'
         )
         assert _run_dirs(tmp_path) == [], (
@@ -315,7 +315,7 @@ class TestFewerThanTwoChannels:
                 f'{refusal.value.reason!r}, not for the channel count'
             )
             assert led_calls == [], f'the refused composite lit the board: {led_calls}'
-            assert session.activity_claim.run_holder is None, (
+            assert session._activity_claim.run_holder is None, (
                 'the refused run left the activity claim held'
             )
             assert _run_dirs(tmp_path) == [], (

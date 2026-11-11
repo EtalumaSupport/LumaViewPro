@@ -114,7 +114,7 @@ def homed(app_ctx):
 @pytest.fixture
 def rival(app_ctx):
     """Another run holds the scope: a REST scan's claim."""
-    claim = app_ctx.session.activity_claim.try_claim('protocol', run=run_identity(Caller.REST))
+    claim = app_ctx.session._activity_claim.try_claim('protocol', run=run_identity(Caller.REST))
     yield claim
     claim.release()
 
@@ -265,7 +265,7 @@ def test_the_button_greys_while_anything_else_holds_the_scope(homed):
     cc.CompositeCapture.draw_composite_button(starter)
     assert starter.composite_held is False
 
-    diagnostic = homed.session.activity_claim.try_claim('diagnostic')
+    diagnostic = homed.session._activity_claim.try_claim('diagnostic')
     try:
         cc.CompositeCapture.draw_composite_button(starter)
         assert starter.composite_held is True

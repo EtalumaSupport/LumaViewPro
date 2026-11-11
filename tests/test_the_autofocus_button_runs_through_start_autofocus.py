@@ -316,7 +316,7 @@ def test_the_button_greys_while_anything_else_holds_the_scope(homed):
     homed.button.draw_autofocus_button()
     assert homed.button.autofocus_held is False
 
-    diagnostic = homed.session.activity_claim.try_claim('diagnostic')
+    diagnostic = homed.session._activity_claim.try_claim('diagnostic')
     try:
         homed.button.draw_autofocus_button()
         assert homed.button.autofocus_held is True
@@ -331,7 +331,7 @@ def test_the_button_greys_while_anything_else_holds_the_scope(homed):
 def test_a_press_while_the_controls_are_locked_reaches_the_api(homed):
     """A lock on the controls is the Session's editing policy; whether the
     press may run is the API's refusal, not the button's."""
-    diagnostic = homed.session.activity_claim.try_claim('diagnostic')
+    diagnostic = homed.session._activity_claim.try_claim('diagnostic')
     try:
         assert homed.session.controls_lock.run_lockout
         homed.button.run_autofocus_from_ui()

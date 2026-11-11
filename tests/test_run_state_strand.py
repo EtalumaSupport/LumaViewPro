@@ -131,7 +131,7 @@ class TestClaimRefusalLeavesNoState:
             # run_ended and wait() come once the claim is released;
             # the poll confirms it before claiming as the recording.
             deadline = time.monotonic() + COMPLETION_TIMEOUT
-            while session.activity_claim.owner is not None:
+            while session._activity_claim.owner is not None:
                 assert time.monotonic() < deadline, 'first run never released the claim'
                 time.sleep(0.02)
             # The completed run is still writing its files, and prepare()
@@ -144,7 +144,7 @@ class TestClaimRefusalLeavesNoState:
             # A video recording holds the session's exclusive-activity
             # claim, exactly as the recording engine does for its whole
             # capture + drain lifetime.
-            recording = session.activity_claim.try_claim('recording')
+            recording = session._activity_claim.try_claim('recording')
             assert recording
             claim_held = True
 
@@ -212,7 +212,7 @@ class TestTheHolderIsTheLiveRun:
             observed = {}
 
             def _observe(*_scan):
-                holder = session.activity_claim.holder
+                holder = session._activity_claim.holder
                 observed['kind'] = holder.kind if holder is not None else None
                 observed['started_by'] = holder.run_started_by if holder is not None else None
 
@@ -233,6 +233,6 @@ class TestTheHolderIsTheLiveRun:
             )
 
             assert wait_until_not_running(session)
-            assert session.activity_claim.holder is None
+            assert session._activity_claim.holder is None
         finally:
             session.shutdown()

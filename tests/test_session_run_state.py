@@ -51,7 +51,7 @@ class TestDerivations:
         # The recording drain window: claim held (new runs refuse), but
         # capturing is over so the control surface frees.
         session = session_on_a_simulated_scope()
-        held = session.activity_claim.try_claim('recording')
+        held = session._activity_claim.try_claim('recording')
         assert held
         monkeypatch.setattr(
             session.manual_recording, '_engine', MagicMock(is_recording=False, is_draining=True)
@@ -117,7 +117,7 @@ class TestTransitionNotification:
         session = session_on_a_simulated_scope()
         fired = []
         session._run_state_listeners.append(lambda: fired.append(True))
-        held = session.activity_claim.try_claim('protocol', run=run_identity())
+        held = session._activity_claim.try_claim('protocol', run=run_identity())
         assert held
         assert len(fired) == 1
         held.release()
@@ -165,11 +165,11 @@ class TestTransitionNotification:
 
     def test_failed_claim_does_not_notify(self):
         session = session_on_a_simulated_scope()
-        held = session.activity_claim.try_claim('protocol', run=run_identity())
+        held = session._activity_claim.try_claim('protocol', run=run_identity())
         assert held
         fired = []
         session._run_state_listeners.append(lambda: fired.append(True))
-        assert not session.activity_claim.try_claim('recording')
+        assert not session._activity_claim.try_claim('recording')
         assert not fired, 'a refused claim is not a transition'
         held.release()
 

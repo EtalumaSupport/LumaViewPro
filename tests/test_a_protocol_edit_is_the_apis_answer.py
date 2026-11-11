@@ -235,7 +235,7 @@ class TestLoad:
     def test_a_plate_refused_under_a_recording_is_shown_once_and_adopts_nothing(
         self, homed, centre_posts, own_popups, tsv
     ):
-        recording = homed.session.activity_claim.try_claim('recording')
+        recording = homed.session._activity_claim.try_claim('recording')
         try:
             self._refused_load(homed, tsv)
         finally:
@@ -331,7 +331,7 @@ class TestTheStartupLoad:
         learns why it did not load. The Session keeps a refused file's path
         (open_remembered_protocol's own tests); the panel writes none."""
         homed.set_protocol_filepath(str(tsv))
-        recording = homed.session.activity_claim.try_claim('recording')
+        recording = homed.session._activity_claim.try_claim('recording')
         monkeypatch.setattr(ps.ProtocolSettings, 'update_step_ui', lambda self: None)
         panel = _Panel(homed.session.create_empty_protocol())
         centre_posts.clear()

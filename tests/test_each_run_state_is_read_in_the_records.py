@@ -48,7 +48,7 @@ def _idle(session, monkeypatch):
 
 @contextlib.contextmanager
 def _a_run_starting(session, monkeypatch):
-    held = session.activity_claim.try_claim('protocol', run=run_identity())
+    held = session._activity_claim.try_claim('protocol', run=run_identity())
     try:
         yield
     finally:
@@ -57,7 +57,7 @@ def _a_run_starting(session, monkeypatch):
 
 @contextlib.contextmanager
 def _a_run(session, monkeypatch):
-    held = session.activity_claim.try_claim('protocol', run=run_identity())
+    held = session._activity_claim.try_claim('protocol', run=run_identity())
     # The engine's phase, set as start() sets it once the claim is taken;
     # a run driven to this edge on the simulator would end before it is read.
     monkeypatch.setattr(session.sequenced_capture_runner, '_state', ProtocolState.RUNNING)
@@ -98,7 +98,7 @@ def _a_run_lent_a_diagnostics_claim(session, monkeypatch):
 
 @contextlib.contextmanager
 def _a_home(session, monkeypatch):
-    held = session.activity_claim.try_claim('home')
+    held = session._activity_claim.try_claim('home')
     try:
         yield
     finally:

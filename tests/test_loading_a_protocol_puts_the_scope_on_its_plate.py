@@ -61,7 +61,7 @@ class TestTheSessionLoad:
     def test_a_held_scope_refuses_a_protocol_on_another_plate(self, tmp_path, session):
         plate_before = session.settings['protocol']['labware']
         runtime_before = session.scope.runtime_state.get_labware()
-        held = session.activity_claim.try_claim('recording')
+        held = session._activity_claim.try_claim('recording')
         try:
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 session.load_protocol(_protocol_file(tmp_path, FILE_PLATE))
@@ -74,7 +74,7 @@ class TestTheSessionLoad:
 
     def test_a_held_scope_loads_a_protocol_on_the_plate_in_place(self, tmp_path, session):
         in_place = session.settings['protocol']['labware']
-        held = session.activity_claim.try_claim('recording')
+        held = session._activity_claim.try_claim('recording')
         try:
             protocol = session.load_protocol(_protocol_file(tmp_path, in_place))
         finally:

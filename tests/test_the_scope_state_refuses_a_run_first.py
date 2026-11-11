@@ -51,14 +51,14 @@ def test_a_held_scope_is_refused_by_the_gates_as_by_a_start(make_session, tmp_pa
     protocol = _one_step_protocol(session)
 
     with session.diagnostic_claim():
-        answered = runner.state_refusal(session.activity_claim)
+        answered = runner.state_refusal(session._activity_claim)
         with pytest.raises(ProtocolRunRefusedError) as refused:
             session.protocol_runner().start_single_scan(protocol, parent_dir=str(tmp_path))
 
     assert answered is not None
     assert answered.reason == 'exclusive_activity_running'
     assert refused.value.reason == answered.reason
-    assert runner.state_refusal(session.activity_claim) is None
+    assert runner.state_refusal(session._activity_claim) is None
 
 
 def test_a_run_between_taking_the_scope_and_starting_is_already_running(make_session, tmp_path):
@@ -69,8 +69,8 @@ def test_a_run_between_taking_the_scope_and_starting_is_already_running(make_ses
     def on_edge():
         # Asked from the transitioning thread, which may hold the run lock:
         # an answer that waited on it would hang the start below.
-        if session.activity_claim.owner == 'protocol':
-            refusal = runner.state_refusal(session.activity_claim)
+        if session._activity_claim.owner == 'protocol':
+            refusal = runner.state_refusal(session._activity_claim)
             heard.append(refusal.reason if refusal is not None else None)
 
     session.add_run_state_listener(on_edge)
@@ -96,7 +96,7 @@ def test_a_part_not_connected_is_told_before_an_empty_protocol(make_session, tmp
         )
 
     assert refused.value.reason == 'not_connected'
-    assert session.sequenced_capture_runner.state_refusal(session.activity_claim).reason == (
+    assert session.sequenced_capture_runner.state_refusal(session._activity_claim).reason == (
         'not_connected'
     )
 
@@ -119,4 +119,4 @@ def test_a_scope_that_cannot_reach_the_wells_is_told_so_before_it_is_told_to_hom
         session.protocol_runner().start_single_scan(protocol, parent_dir=str(tmp_path))
 
     assert refused.value.reason == 'positions_unreachable'
-    assert session.sequenced_capture_runner.state_refusal(session.activity_claim) is None
+    assert session.sequenced_capture_runner.state_refusal(session._activity_claim) is None

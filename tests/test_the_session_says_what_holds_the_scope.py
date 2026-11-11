@@ -31,10 +31,10 @@ class TestALentRun:
             try:
                 assert session.live_work.has(live_work.WorkKind.PROTOCOL)
                 assert session.sequenced_capture_runner.run_started_by() == Caller.REST
-                assert session.activity_claim.owner == 'diagnostic', (
+                assert session._activity_claim.owner == 'diagnostic', (
                     'the holder stays the diagnostic, which a refusal names'
                 )
-                assert session.activity_claim.blocking_holder.kind == 'diagnostic'
+                assert session._activity_claim.blocking_holder.kind == 'diagnostic'
             finally:
                 run.release()
             assert not session.live_work.has(live_work.WorkKind.PROTOCOL)
@@ -56,7 +56,7 @@ class TestALentRun:
 
     def test_a_recording_lent_from_a_run_leaves_the_run_holding(self):
         session = session_on_a_simulated_scope()
-        run = session.activity_claim.try_claim('protocol', run=run_identity(Caller.GUI))
+        run = session._activity_claim.try_claim('protocol', run=run_identity(Caller.GUI))
         try:
             recording = run.lend().try_claim('recording')
             assert session.live_work.has(live_work.WorkKind.PROTOCOL)
@@ -84,7 +84,7 @@ class TestHeldByOther:
     def test_any_holder_but_the_given_run_is_other(self, kind):
         session = session_on_a_simulated_scope()
         run = run_identity() if kind == 'protocol' else None
-        held = session.activity_claim.try_claim(kind, run=run)
+        held = session._activity_claim.try_claim(kind, run=run)
         try:
             assert session.held_by_other(None) is True
             # Left out is None: a query string says None by omission.

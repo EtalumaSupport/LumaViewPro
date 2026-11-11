@@ -603,7 +603,7 @@ def bind_settings_like_a_session(scope, **overrides) -> dict:
         # The store's own lock, which records what _store_setting stores; told to no one.
         settings_lock=SettingsLock(lambda paths: None),
         _settings_saver=None,
-        activity_claim=ActivityClaim(),
+        _activity_claim=ActivityClaim(),
     )
     holder._store_setting = functools.partial(ScopeSession._store_setting, holder)
     scope.bind_settings(

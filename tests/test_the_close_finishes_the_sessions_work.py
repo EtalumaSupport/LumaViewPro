@@ -124,7 +124,7 @@ def test_a_run_started_while_the_close_runs_is_never_left_live(tmp_path):
         session = _session(tmp_path / f'trial{trial}')
         box = _race_a_start_against_the_close(session, 0.002 * (trial % 3))
 
-        assert session.activity_claim.holder is None, f'trial {trial}: the scope is still held'
+        assert session._activity_claim.holder is None, f'trial {trial}: the scope is still held'
         assert not session.sequenced_capture_runner.run_live, f'trial {trial}: a run is live'
         if 'run' in box:
             assert box['run'].result(timeout=SETTLE_S) is not None
@@ -321,7 +321,7 @@ def test_a_run_that_passed_its_checks_before_the_close_finished_is_refused_when_
         session.protocol_runner().start_single_scan(protocol)
 
     assert (refused.value.reason, refused.value.activity) == ('session_closing', 'protocol')
-    assert session.activity_claim.holder is None
+    assert session._activity_claim.holder is None
     assert not runner.run_live
 
 

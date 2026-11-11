@@ -36,7 +36,7 @@ def _records(caplog):
 
 @pytest.fixture
 def run_holds_the_scope(session):
-    held = session.activity_claim.try_claim('protocol', run=run_identity())
+    held = session._activity_claim.try_claim('protocol', run=run_identity())
     assert held is not None
     yield
     held.release()

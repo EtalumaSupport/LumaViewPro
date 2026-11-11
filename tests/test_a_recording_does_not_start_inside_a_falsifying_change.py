@@ -267,7 +267,7 @@ class TestTheObjectiveQuestionDuringAHold:
     @pytest.mark.parametrize('kind', ['recording', 'protocol', 'diagnostic'])
     def test_it_is_not_asked_while_a_hold_would_refuse_the_answer(self, session, kind):
         assert session.objective_question() is not None, 'owed: never confirmed on this install'
-        held = session.activity_claim.try_claim(
+        held = session._activity_claim.try_claim(
             kind, run=run_identity() if kind == 'protocol' else None
         )
         try:

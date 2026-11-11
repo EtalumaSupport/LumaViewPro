@@ -126,8 +126,8 @@ class TestWhoStartedTheRunNeverReachesTheSentence:
         from _lumascope.modules.scope_session import ScopeSession
 
         session = ScopeSession.__new__(ScopeSession)
-        session.activity_claim = ActivityClaim()
-        held = session.activity_claim.try_claim(
+        session._activity_claim = ActivityClaim()
+        held = session._activity_claim.try_claim(
             'protocol', run=run_identity(Caller.REST, words='Z-stack')
         )
         try:

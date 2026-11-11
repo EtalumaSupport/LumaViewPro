@@ -45,7 +45,7 @@ def _refused(call, activity):
 def test_a_run_a_recording_a_home_and_a_diagnostic_are_each_refused(sim_session, tmp_path):
     from tests.test_run_refusal_contract import _build_real_protocol, _make_single_step_protocol
 
-    sim_session.activity_claim.begin_closing()
+    sim_session._activity_claim.begin_closing()
     assert sim_session.live_work.closing is True
 
     runner = sim_session.protocol_runner()
@@ -65,7 +65,7 @@ def test_a_run_a_recording_a_home_and_a_diagnostic_are_each_refused(sim_session,
 
     _refused(a_diagnostic, 'diagnostic')
 
-    assert sim_session.activity_claim.holder is None, 'nothing was taken'
+    assert sim_session._activity_claim.holder is None, 'nothing was taken'
     assert sim_session.live_work.work == ()
 
 
@@ -79,10 +79,10 @@ def test_the_refusal_says_what_was_not_started_and_why():
 
 
 def test_work_lent_by_an_activity_already_under_way_is_still_admitted(sim_session):
-    held = sim_session.activity_claim.try_claim('diagnostic')
+    held = sim_session._activity_claim.try_claim('diagnostic')
     try:
         lent = held.lend()
-        sim_session.activity_claim.begin_closing()
+        sim_session._activity_claim.begin_closing()
 
         borrowed = lent.try_claim('protocol', run=run_identity())
 
@@ -106,7 +106,7 @@ def _built(message, folder):
 
 
 def test_a_post_processing_build_is_not_refused(sim_session, tmp_path):
-    sim_session.activity_claim.begin_closing()
+    sim_session._activity_claim.begin_closing()
 
     built = _built('built', tmp_path)
 

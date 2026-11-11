@@ -88,5 +88,5 @@ def test_a_manual_recording_whose_frame_size_cannot_be_read_does_not_start(sessi
     assert refused.value.reason == 'camera_read_failed'
     assert 'frame size' in str(refused.value)
     assert not session.manual_recording.is_busy
-    assert session.activity_claim.holder is None
+    assert session._activity_claim.holder is None
     assert list(tmp_path.rglob('*.tiff')) == []

@@ -326,7 +326,7 @@ class TestTheSessionsClose:
 
         def _close_too(_op):
             # Asked once the close has begun, so this call waits on that close.
-            while not session.activity_claim.closing:
+            while not session._activity_claim.closing:
                 threading.Event().wait(0.01)
             session.shutdown()
             callback_returned.set()

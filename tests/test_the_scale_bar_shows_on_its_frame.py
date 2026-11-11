@@ -169,7 +169,7 @@ def test_a_capture_draws_the_bar_its_frame_needs_with_no_gui(sim_scope, pattern,
 def test_the_setting_is_refused_while_the_scope_is_held(sim_session, kind):
     """A run's stills, a diagnostic's and a recording's live view keep the bar they started under."""
     before = sim_session.scale_bar_enabled
-    held = sim_session.activity_claim.try_claim(
+    held = sim_session._activity_claim.try_claim(
         kind, run=run_identity() if kind == 'protocol' else None
     )
     try:

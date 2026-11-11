@@ -61,7 +61,7 @@ def test_an_idle_session_is_doing_nothing_and_says_closed_once_shut_down(sim_ses
 
 
 def test_what_holds_the_scope_is_named(sim_session):
-    held = sim_session.activity_claim.try_claim('diagnostic')
+    held = sim_session._activity_claim.try_claim('diagnostic')
     try:
         item = _item(sim_session, live_work.WorkKind.DIAGNOSTIC)
         assert item.name == 'A diagnostic'
@@ -81,7 +81,7 @@ def test_a_work_item_is_of_a_kind_of_the_set():
 def test_a_run_lent_a_diagnostics_claim_is_named_beside_it(sim_session):
     from tests.protocol_drives import run_identity
 
-    held = sim_session.activity_claim.try_claim('diagnostic')
+    held = sim_session._activity_claim.try_claim('diagnostic')
     try:
         run = held.lend().try_claim('protocol', run=run_identity())
         try:
@@ -119,7 +119,7 @@ def test_a_recordings_finish_counts_its_frames_down(sim_session):
 
 
 def test_a_live_recording_is_its_claim_not_its_finish(sim_session):
-    held = sim_session.activity_claim.try_claim('recording')
+    held = sim_session._activity_claim.try_claim('recording')
     sim_session.manual_recording._engine = MagicMock(is_recording=True, is_draining=False)
     try:
         assert _kinds(sim_session) == [live_work.WorkKind.RECORDING]
@@ -138,7 +138,7 @@ def test_only_the_video_finishes_are_discardable(sim_session, monkeypatch):
     """The discard drops a recording's file and a run's video frames, and
     those two items alone say so, so a host offers the discard only while
     there is something for it to drop."""
-    held = sim_session.activity_claim.try_claim('diagnostic')
+    held = sim_session._activity_claim.try_claim('diagnostic')
     # Stand-ins by design: the simulator cannot yet hold a recording's or a
     # run's video drain open, as the counting tests above.
     sim_session.manual_recording._engine = MagicMock(

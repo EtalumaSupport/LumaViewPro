@@ -136,7 +136,7 @@ def test_a_jog_while_another_session_holds_control_is_refused_for_the_session(tu
 
 def test_a_jog_while_an_activity_holds_the_scope_is_refused_for_the_activity(turret_session):
     _homed_at(turret_session, 2)
-    diagnostic = turret_session.activity_claim.try_claim('diagnostic')
+    diagnostic = turret_session._activity_claim.try_claim('diagnostic')
     assert diagnostic
     try:
         with pytest.raises(HardwareCommandRefusedError) as refused:

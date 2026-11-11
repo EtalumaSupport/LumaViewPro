@@ -478,7 +478,7 @@ class TestTheShutdownOverride:
             return real(*args, **kwargs)
 
         monkeypatch.setattr(illumination, '_leds_off_if_present', _spy)
-        held = session.activity_claim.try_claim('diagnostic')
+        held = session._activity_claim.try_claim('diagnostic')
         # The close waits for the diagnostic to end before it tears down.
         ends = threading.Timer(0.3, held.release)
         ends.start()
@@ -505,7 +505,7 @@ class TestRunCleanupIsTheRunsOwnWork:
             '_cleanup_inner',
             lambda ending, run, after_end: seen.setdefault('t', current_taking()),
         )
-        held = session.activity_claim.try_claim('protocol', run=run_identity())
+        held = session._activity_claim.try_claim('protocol', run=run_identity())
         runner._held_claim = held
         try:
             t = threading.Thread(target=runner._cleanup, args=(object(), object()))

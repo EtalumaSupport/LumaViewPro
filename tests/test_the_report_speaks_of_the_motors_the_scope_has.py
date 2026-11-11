@@ -40,7 +40,7 @@ def _report(tmp_path, model, monkeypatch=None, unplug=False, held=False, tier='f
         monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: False))
     out = tmp_path / 'report'
     out.mkdir()
-    claim = session.activity_claim.try_claim('diagnostic') if held else None
+    claim = session._activity_claim.try_claim('diagnostic') if held else None
     try:
         TechSupportReport(session=session)._run_scope_steps(
             out, lambda pct, msg: None, include_bw=False

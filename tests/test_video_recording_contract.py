@@ -725,7 +725,7 @@ class TestSessionActivityClaim:
         session.shutdown()
 
     def test_session_owns_one_activity_claim(self, headless_session):
-        claim = headless_session.activity_claim
+        claim = headless_session._activity_claim
         recording = claim.try_claim('recording')
         assert recording
         assert not claim.try_claim('protocol', run=run_identity())
@@ -735,7 +735,7 @@ class TestSessionActivityClaim:
         protocol.release()
 
     def test_two_thread_claim_atomicity(self, headless_session):
-        claim = headless_session.activity_claim
+        claim = headless_session._activity_claim
         wins = []
         barrier = threading.Barrier(2)
 
@@ -761,7 +761,7 @@ class TestSessionActivityClaim:
             _make_single_step_protocol,
         )
 
-        recording = headless_session.activity_claim.try_claim('recording')
+        recording = headless_session._activity_claim.try_claim('recording')
         assert recording
         runner = headless_session.protocol_runner()
         with pytest.raises(ProtocolRunRefusedError):

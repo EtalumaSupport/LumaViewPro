@@ -163,7 +163,7 @@ COLD_START_SNAPSHOT_DELAY_S = 5.0
 
 # A Session member that writes settings or files, admitted and counted by the
 # session's claim (``guarded_write``).
-_guarded_write = guarded_write(lambda session: session.activity_claim)
+_guarded_write = guarded_write(lambda session: session._activity_claim)
 
 # The work a session counts while it runs, by its live-work kind: work that
 # holds no claim for all of its length, so no claim names it.
@@ -793,7 +793,7 @@ class ScopeSession:
             settings_snapshot=self.get_settings_snapshot,
             channel_colors=self.channel_colors,
             # Read as each build starts; the claim is made further down.
-            scope_holder=lambda: self.activity_claim.holder,
+            scope_holder=lambda: self._activity_claim.holder,
             files_draining=lambda: self._draining_batch() is not None,
             on_saved=self._saved,
         )
@@ -833,16 +833,20 @@ class ScopeSession:
         # committing, so the two can never run concurrently. Enforcement
         # lives with the claimants (the sequenced-capture runner's
         # refusal gate and the recording engine's start), which take
-        # this handle by injection.
-        self.activity_claim = ActivityClaim(on_transition=self.notify_run_state)
+        # this handle by injection. Ending a control session on it stops the
+        # run or recording taken for that session, whoever ends it.
+        self._activity_claim = ActivityClaim(
+            on_transition=self.notify_run_state,
+            on_control_ended=self._stop_the_work_taken_for,
+        )
         # The device lanes ask the claim before running work, so while a run,
         # a diagnostic or a home holds the scope only its own work reaches the
         # hardware, whoever submits. The IO key is kept for the one named
         # override on that lane, shutdown's LED drain; the camera key goes to
         # the scope for its temperature read, so the lanes ask before the
         # scope is serviced.
-        self._io_override_key = self.io_executor.ask_claim(self.activity_claim)
-        self._camera_override_key = self.camera_executor.ask_claim(self.activity_claim)
+        self._io_override_key = self.io_executor.ask_claim(self._activity_claim)
+        self._camera_override_key = self.camera_executor.ask_claim(self._activity_claim)
         # The scope reads the configuration it acts on -- labware, stage
         # offset, turret map, objective, scale bar -- from these settings,
         # their one store, so it holds no copy to keep in step. After the
@@ -869,7 +873,7 @@ class ScopeSession:
             settings_snapshot=self.get_settings_snapshot,
             shown_channel=lambda: self._shown_channel,
             channel_colors=self.channel_colors,
-            activity_claim=self.activity_claim,
+            activity_claim=self._activity_claim,
             scheduler=self._scheduler,
             post_processing=self.post_processing,
             on_saved=self._saved,
@@ -906,7 +910,7 @@ class ScopeSession:
             file_io_executor=self.file_io_executor,
             autofocus_thread=autofocus_thread,
             autofocus_runner=autofocus_runner,
-            activity_claim=self.activity_claim,
+            activity_claim=self._activity_claim,
             channel_colors=self.channel_colors,
             post_processing=self.post_processing,
             on_run_idle=self._run_went_idle,
@@ -953,7 +957,7 @@ class ScopeSession:
         un-serviced -- the bring-up steps are spelled out exactly once.
         """
         scope.set_camera_override_key(self._camera_override_key)
-        scope.set_activity_claim(self.activity_claim)
+        scope.set_activity_claim(self._activity_claim)
 
     @api(in_process=True)
     @contextlib.contextmanager
@@ -990,9 +994,9 @@ class ScopeSession:
                 When the block raised, its own exception is raised and this is
                 reported once instead. Still a ``RuntimeError``.
         """
-        held = self.activity_claim.try_claim(WorkKind.DIAGNOSTIC)
+        held = self._activity_claim.try_claim(WorkKind.DIAGNOSTIC)
         if held is None:
-            holder = self.activity_claim.holder
+            holder = self._activity_claim.holder
             kind = holder.kind if holder is not None else None
             # The holder can release between the failed take and this read;
             # the refusal still stands, it just cannot name who refused it.
@@ -1007,7 +1011,7 @@ class ScopeSession:
         # clean block opened inside a caller's except would read as raised.
         block_raised = False
         try:
-            with acting(held):
+            with acting(held), held.in_block():
                 yield held
         except BaseException:
             block_raised = True
@@ -1075,7 +1079,7 @@ class ScopeSession:
                 is running or has finished.
         """
         runner = self.sequenced_capture_runner
-        controller = self.activity_claim.take_control(
+        controller = self._activity_claim.take_control(
             name,
             finishing=lambda: (
                 runner.run_live or bool(self._finishing_work()) or self.post_processing.has_work()
@@ -1105,9 +1109,7 @@ class ScopeSession:
             ControlSessionRefusedError: ``'control_session_ended'``, no
                 session is held, or the live one has another id.
         """
-        ended = self.activity_claim.end_control(session_id)
-        self._stop_the_work_taken_for(ended)
-        return ended
+        return self._activity_claim.end_control(session_id)
 
     @api
     def renew_control(self, session_id: str) -> None:
@@ -1123,7 +1125,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        self.activity_claim.renew_control(session_id)
+        self._activity_claim.renew_control(session_id)
 
     @api(in_process=True)
     def take_back_control(self) -> ControlSession | None:
@@ -1139,13 +1141,14 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        ended = self.activity_claim.end_live_control()
-        if ended is not None:
-            self._stop_the_work_taken_for(ended)
-        return ended
+        return self._activity_claim.end_live_control()
 
     def _stop_the_work_taken_for(self, ended: ControlSession) -> None:
-        """Stop the run or recording taken for the session just ended; nothing begun after it."""
+        """Stop the run or recording taken for the session just ended; nothing begun after it.
+
+        The claim's ``on_control_ended``: every end of a session but the
+        close's and a silent one's runs it.
+        """
         # Ended before its work is stopped: the run or recording still holds
         # the slot until it unwinds, so nothing is taken in between.
         self.sequenced_capture_runner.stop_the_run_taken_for(ended)
@@ -1174,7 +1177,7 @@ class ScopeSession:
                 session is held, or the live one has another id. The block
                 did not run.
         """
-        with self.activity_claim.calling_in(session_id) as controller, acting(controller):
+        with self._activity_claim.calling_in(session_id) as controller, acting(controller):
             yield controller.session
 
     @_guarded_write
@@ -1236,7 +1239,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        return self.activity_claim.control
+        return self._activity_claim.control
 
     @api(reads=True)
     def held_by_other(self, run: 'Operation | None' = None) -> bool:
@@ -1309,13 +1312,13 @@ class ScopeSession:
         """
         work: list[WorkItem] = []
         runner = self.sequenced_capture_runner
-        holder = self.activity_claim.holder
+        holder = self._activity_claim.holder
         if holder is not None:
             work.append(WorkItem(holder.kind, the_holder_named(holder)))
             # A run lent the holder's claim (an autofocus inside a
             # diagnostic) holds no claim of its own, so it is named here
             # beside the activity it runs inside.
-            lent_run = self.activity_claim.run_holder
+            lent_run = self._activity_claim.run_holder
             if lent_run is not None and lent_run is not holder:
                 work.append(WorkItem(live_work.WorkKind.PROTOCOL, the_holder_named(lent_run)))
         elif runner.run_live:
@@ -1328,7 +1331,7 @@ class ScopeSession:
         if self.manual_capture.in_flight:
             work.append(WorkItem(live_work.WorkKind.STILL, 'A still being saved'))
         return LiveWork(
-            work=tuple(work), closing=self.activity_claim.closing, closed=self._shut_down
+            work=tuple(work), closing=self._activity_claim.closing, closed=self._shut_down
         )
 
     def _finishing_work(self) -> list[WorkItem]:
@@ -1399,8 +1402,8 @@ class ScopeSession:
         at_edge = {
             'live_work': self.live_work,
             'lock': self.controls_lock,
-            'control': self.activity_claim.control,
-            'run_refused': self.sequenced_capture_runner.state_refusal(self.activity_claim),
+            'control': self._activity_claim.control,
+            'run_refused': self.sequenced_capture_runner.state_refusal(self._activity_claim),
             'axes': self.scope.motion.axis_positions(),
             'turret': self.scope.motion.turret_status(),
             'parts': self.scope.bring_up_record().parts,
@@ -1525,14 +1528,14 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        holder = self.activity_claim.holder
+        holder = self._activity_claim.holder
         if holder is not None and holder.kind in SCOPE_HOLDING_KINDS:
             run_named = f'{the_holder_named(holder)} is in progress.'
         elif self._draining_batch() is not None:
             run_named = "A protocol's files are still being written."
         else:
             run_named = None
-        control = self.activity_claim.control
+        control = self._activity_claim.control
         return ControlsLock(
             run_named=run_named,
             control_named=f'{control.name} has remote control.' if control is not None else None,
@@ -2199,7 +2202,7 @@ class ScopeSession:
         """
         from _lumascope.modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
-        holder = self.activity_claim.owner
+        holder = self._activity_claim.owner
         if holder in SCOPE_HOLDING_KINDS:
             raise HardwareCommandRefusedError(
                 'exclusive_activity_running', 'recover_file_writer', holder
@@ -4061,7 +4064,7 @@ class ScopeSession:
             # write asks again on the lane.
             illumination = self.scope.illumination
             illumination.refuse_controller_not_connected('go_to_step')
-            refusing = self.activity_claim.refusing_holder(
+            refusing = self._activity_claim.refusing_holder(
                 current_taking(),
                 falsifies_recording=illumination.lights_a_dark_led(
                     {(address, step['Illumination'])}
@@ -4319,7 +4322,7 @@ class ScopeSession:
         if channel == self._shown_channel:
             yield
             return
-        claim = self.activity_claim
+        claim = self._activity_claim
         refusing = claim.enter_falsifying_change(current_taking())
         if isinstance(refusing, ControlSession) or (
             refusing is not None and refusing.kind == WorkKind.RECORDING
@@ -4648,7 +4651,7 @@ class ScopeSession:
             led_max_ma=self.scope.capabilities.led_max_ma,
         )
         preference = path in settings_paths.PREFERENCES
-        with contextlib.nullcontext() if preference else a_guarded_write(self.activity_claim):
+        with contextlib.nullcontext() if preference else a_guarded_write(self._activity_claim):
             # Applied, then stored: the LED's refusal (a light from 0 mA
             # during a recording, a control session) stores nothing, and a
             # write queued on the lane ahead of this one cannot leave the
@@ -4665,7 +4668,7 @@ class ScopeSession:
     def _an_activity_holds_the_scope(self) -> bool:
         """Whether a run, a diagnostic or a home holds the scope: a channel
         write then is stored only (Eric's D3)."""
-        holder = self.activity_claim.holder
+        holder = self._activity_claim.holder
         return holder is not None and holder.kind in SCOPE_HOLDING_KINDS
 
     def _illumination_goes_on_the_led(self, path: str, channel: str) -> bool:
@@ -4986,7 +4989,7 @@ class ScopeSession:
                 was stored.
         """
         if path not in settings_paths.PREFERENCES:
-            session = self.activity_claim.refusing_control(current_taking())
+            session = self._activity_claim.refusing_control(current_taking())
             if session is not None:
                 raise control_refused(session)
         *blocks, leaf = path.split('.')
@@ -5275,7 +5278,7 @@ class ScopeSession:
         """``configure_scope``'s steps, adding what they replace to ``replaced``."""
         from _lumascope.modules.scope_init_config import ScopeInitConfig
 
-        holder = self.activity_claim.holder
+        holder = self._activity_claim.holder
         if holder is not None:
             raise HardwareCommandRefusedError(
                 'exclusive_activity_running', 'configure_scope', holder.kind
@@ -5805,14 +5808,14 @@ class ScopeSession:
                 'the answer could not be kept'
             )
             return None
-        holder = self.activity_claim.owner
+        holder = self._activity_claim.owner
         if holder is not None:
             logger.info(
                 f'[Session  ] objective question deferred -- a {holder} holds the scope and '
                 'would refuse the answer'
             )
             return None
-        control = self.activity_claim.refusing_control(current_taking())
+        control = self._activity_claim.refusing_control(current_taking())
         if control is not None:
             logger.info(
                 f'[Session  ] objective question deferred -- "{control.name}" has control '
@@ -6228,7 +6231,7 @@ class ScopeSession:
         # The scale bar is drawn on every still a run takes, so a toggle
         # mid-run would draw the run's stills two ways; a recording's live
         # view keeps the bar it started under.
-        holder = self.activity_claim.owner
+        holder = self._activity_claim.owner
         if holder is not None:
             raise HardwareCommandRefusedError('exclusive_activity_running', member, holder)
 
@@ -6527,7 +6530,7 @@ class ScopeSession:
                 self._tear_down()
             finally:
                 self._close_running = False
-                self.activity_claim.end_closing(closed=self._shut_down)
+                self._activity_claim.end_closing(closed=self._shut_down)
 
     _CLOSE_WAIT_LOG_S = 5.0
 
@@ -6535,11 +6538,10 @@ class ScopeSession:
         """Refuse what is new, stop the live run and recording, then wait for the rest."""
         from _lumascope.modules.exceptions import FileWriterNotStuckError
 
-        self.activity_claim.begin_closing()
-        # A held control session first, or it would refuse the close's own
-        # writes -- a stuck writer's recovery, a discard. Its run and
+        # Ends a held control session too, or it would refuse the close's
+        # own writes -- a stuck writer's recovery, a discard. Its run and
         # recording are stopped below with the rest.
-        self.activity_claim.end_live_control()
+        self._activity_claim.begin_closing()
         # Plugins first, while everything they hold still runs: an
         # unregister stops its own work and may wait for it.
         self.unload_plugins()
@@ -6555,7 +6557,10 @@ class ScopeSession:
             work = self.live_work.work
             if not work:
                 break
-            if self.activity_claim.owner not in SCOPE_HOLDING_KINDS and self.protocol_files_stalled:
+            if (
+                self._activity_claim.owner not in SCOPE_HOLDING_KINDS
+                and self.protocol_files_stalled
+            ):
                 try:
                     given_up = self._recover_file_writer()
                 except FileWriterNotStuckError:

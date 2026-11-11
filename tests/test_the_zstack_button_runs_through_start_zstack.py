@@ -273,7 +273,7 @@ def test_the_button_greys_while_anything_else_holds_the_scope(stacked):
     stacked.starter.draw_zstack_button()
     assert stacked.starter.zstack_held is False
 
-    diagnostic = stacked.session.activity_claim.try_claim('diagnostic')
+    diagnostic = stacked.session._activity_claim.try_claim('diagnostic')
     try:
         stacked.starter.draw_zstack_button()
         assert stacked.starter.zstack_held is True

@@ -191,7 +191,7 @@ class TestAHeldLane:
         hold = _LaneHold(session)
         try:
             outcome = runner.start_composite(sequence_name='stopped', parent_dir=str(tmp_path))
-            assert session.activity_claim.run_holder is not None
+            assert session._activity_claim.run_holder is not None
             # The run is waiting on the protocol thread; Stop it there.
             outcome.stop()
             assert session.sequenced_capture_runner.wait_for_run_idle(timeout_s=RESULT_TIMEOUT_S)
@@ -269,4 +269,4 @@ class TestATakeoverWriteThatRaises:
         assert result is not None and result.status == 'failed', result
         assert result.reason == 'run_loop_crashed'
         assert len(completions) == 1, completions
-        assert session.activity_claim.run_holder is None
+        assert session._activity_claim.run_holder is None

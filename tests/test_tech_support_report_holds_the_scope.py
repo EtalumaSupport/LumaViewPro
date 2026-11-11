@@ -53,7 +53,7 @@ def report_and_calls(monkeypatch):
     for name in WRITING_STEPS + READING_STEPS:
 
         def _spy(tmp, *_args, _name=name):
-            calls.append((_name, session.activity_claim.owner))
+            calls.append((_name, session._activity_claim.owner))
             return 'SN0000' if _name == '_step_firmware_info' else None
 
         monkeypatch.setattr(report, name, _spy)
@@ -69,12 +69,12 @@ def test_the_writing_steps_run_while_the_report_holds_the_scope(report_and_calls
     held_during = dict(calls)
     for name in WRITING_STEPS:
         assert held_during[name] == 'diagnostic', f'{name} ran without the scope held'
-    assert session.activity_claim.owner is None, 'the report left the scope held'
+    assert session._activity_claim.owner is None, 'the report left the scope held'
 
 
 def test_during_a_recording_the_board_steps_are_skipped_and_say_so(report_and_calls, tmp_path):
     session, report, calls = report_and_calls
-    recording = session.activity_claim.try_claim('recording')
+    recording = session._activity_claim.try_claim('recording')
     try:
         report._run_scope_steps(tmp_path, lambda pct, msg: None, include_bw=False)
     finally:
@@ -101,11 +101,11 @@ def test_under_a_held_control_session_the_board_steps_are_skipped_and_say_so(
     report goes on to save."""
     session, report, calls = report_and_calls
     with calling(Caller.REST):
-        controller = session.activity_claim.take_control('plate reader', finishing=lambda: False)
+        controller = session._activity_claim.take_control('plate reader', finishing=lambda: False)
     try:
         report._run_scope_steps(tmp_path, lambda pct, msg: None, include_bw=False)
     finally:
-        session.activity_claim.end_control(controller.id)
+        session._activity_claim.end_control(controller.id)
 
     ran = {name for name, _ in calls}
     board_steps = set(WRITING_STEPS) | set(BOARD_QUERY_STEPS)

@@ -165,7 +165,7 @@ def test_the_frame_already_held_is_refused_while_an_activity_holds_the_scope(ses
     camera = session.scope.camera
     held_frame = camera.frame_size.to_dict()
     before = _saved_geometry(session)
-    claim = session.activity_claim.try_claim('diagnostic')
+    claim = session._activity_claim.try_claim('diagnostic')
     try:
         with pytest.raises(HardwareCommandRefusedError) as refused:
             camera.set_frame_size(held_frame['width'], held_frame['height'])

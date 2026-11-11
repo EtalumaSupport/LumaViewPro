@@ -63,7 +63,7 @@ try:
     out.stop()
     s = out.result(timeout=120)
     print('status:', s.status, s.reason)
-    print('ASSERT stopped:', 'PASS' if session.activity_claim.run_holder is None else 'FAIL')
+    print('ASSERT stopped:', 'PASS' if session._activity_claim.run_holder is None else 'FAIL')
 finally:
     session.shutdown()
 print('\nPROBE 09 DONE')

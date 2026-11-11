@@ -211,7 +211,7 @@ class TestTheMember:
 
     def test_a_held_scope_refuses_the_apply(self, session):
         before = _camera(session)
-        held = session.activity_claim.try_claim('diagnostic')
+        held = session._activity_claim.try_claim('diagnostic')
         try:
             with pytest.raises(HardwareCommandRefusedError):
                 session.apply_channel_camera(LED0)
@@ -378,7 +378,7 @@ class TestAWriteToTheShownLayer:
         assert channel_reading(session.scope.illumination, 'BF').illumination_ma == 7.0
 
     def test_a_write_while_the_scope_is_held_is_stored_only(self, session):
-        held = session.activity_claim.try_claim('diagnostic')
+        held = session._activity_claim.try_claim('diagnostic')
         try:
             session.update_settings('BF.exposure_ms', 12.0)
         finally:

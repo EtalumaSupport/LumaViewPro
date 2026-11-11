@@ -217,7 +217,7 @@ class TestSave:
         monkeypatch.setattr(file_dialogs, 'FileSaveBTN', _opening(opened))
         monkeypatch.setattr(ps.ProtocolSettings, 'update_step_ui', lambda self: None)
         panel = _panel(ctx, ctx.session.create_empty_protocol())
-        recording = ctx.session.activity_claim.try_claim('recording')
+        recording = ctx.session._activity_claim.try_claim('recording')
         try:
             panel.load_persisted_protocol()
         finally:

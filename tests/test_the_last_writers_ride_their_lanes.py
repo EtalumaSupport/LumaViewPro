@@ -142,7 +142,7 @@ class TestAGatedMember:
     ):
         sc = sim_session.scope
         spy, lanes = _spy(sc, slot, method)
-        held = sim_session.activity_claim.try_claim('diagnostic')
+        held = sim_session._activity_claim.try_claim('diagnostic')
         try:
             with spy, pytest.raises(HardwareCommandRefusedError) as refused:
                 call(sc)
@@ -167,7 +167,7 @@ class TestAGatedMember:
 
 class TestThePylonProbe:
     def test_a_non_holder_is_refused(self, sim_session):
-        held = sim_session.activity_claim.try_claim('diagnostic')
+        held = sim_session._activity_claim.try_claim('diagnostic')
         try:
             with pytest.raises(HardwareCommandRefusedError):
                 sim_session.scope.diagnostics.run_pylon_diagnostic_probe(duration_s=0.1)
@@ -180,7 +180,7 @@ class TestTheTemperatureRead:
     def test_a_hold_does_not_refuse_it_and_it_runs_on_the_camera_lane(self, sim_session, kind):
         sc = sim_session.scope
         spy, lanes = _spy(sc, '_camera_driver', 'get_all_temperatures')
-        held = sim_session.activity_claim.try_claim(
+        held = sim_session._activity_claim.try_claim(
             kind, run=run_identity() if kind == 'protocol' else None
         )
         try:
@@ -193,7 +193,7 @@ class TestTheTemperatureRead:
 
     def test_it_passes_a_runs_protocol_fence(self, sim_session):
         sc = sim_session.scope
-        held = sim_session.activity_claim.try_claim('protocol', run=run_identity())
+        held = sim_session._activity_claim.try_claim('protocol', run=run_identity())
         sim_session.camera_executor.protocol_start(held)
         try:
             assert sc.diagnostics.get_camera_temperatures_degc()
@@ -217,7 +217,7 @@ class TestAcceleration:
 class TestConfigureScope:
     @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording'])
     def test_it_is_refused_while_the_scope_is_held(self, sim_session, kind):
-        held = sim_session.activity_claim.try_claim(
+        held = sim_session._activity_claim.try_claim(
             kind, run=run_identity() if kind == 'protocol' else None
         )
         try:
@@ -245,7 +245,7 @@ class TestTheSupportReportDuringARun:
         led_multi, led_multi_sent = _spy(sc, '_led_driver', 'exchange_multiline')
         motor_cmd, motor_sent = _spy(sc, '_motion_driver', 'exchange_command')
         motor_multi, motor_multi_sent = _spy(sc, '_motion_driver', 'exchange_multiline')
-        run = sim_session.activity_claim.try_claim('protocol', run=run_identity())
+        run = sim_session._activity_claim.try_claim('protocol', run=run_identity())
         try:
             with led_cmd, led_multi, motor_cmd, motor_multi:
                 sn = report._run_scope_steps(tmp_path, lambda pct, msg: None, include_bw=False)

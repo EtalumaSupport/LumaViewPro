@@ -207,7 +207,7 @@ class TestCompositeRunEndToEnd:
 
         runner.run_composite(sequence_name='e2e', parent_dir=str(tmp_path))
 
-        assert session.activity_claim.run_holder is None, (
+        assert session._activity_claim.run_holder is None, (
             'run_composite returned while the run still held the activity claim'
         )
         outcome = runner._executor._last_run().operation
@@ -291,7 +291,7 @@ class TestStartComposite:
                 parent_dir=str(tmp_path),
                 events=RunEvents(
                     scan_started=lambda *_scan: held_by.append(
-                        session.activity_claim.holder.run_started_by
+                        session._activity_claim.holder.run_started_by
                     )
                 ),
             )
@@ -299,7 +299,7 @@ class TestStartComposite:
         assert held_by == [Caller.GUI]
 
         assert wait_until_not_running(session), 'the run never released the claim'
-        assert session.activity_claim.holder is None, (
+        assert session._activity_claim.holder is None, (
             'the claim answers for the run HOLDING the scope; nothing holds it now'
         )
 

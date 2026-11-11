@@ -330,7 +330,7 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
         # on the lane.
         reads.append(1)
         if len(reads) == 2:
-            taken.append(session.activity_claim.try_claim('diagnostic'))
+            taken.append(session._activity_claim.try_claim('diagnostic'))
         return real_shown_layer()
 
     session.show_channel(LED0)

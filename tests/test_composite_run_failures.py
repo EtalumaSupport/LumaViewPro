@@ -315,7 +315,7 @@ class TestTheThreeStrikeFatalAbort:
                 timeout=120
             )
 
-            assert session.activity_claim.run_holder is None, (
+            assert session._activity_claim.run_holder is None, (
                 'the aborted run still held the activity claim after settling'
             )
 

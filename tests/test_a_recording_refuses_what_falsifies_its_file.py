@@ -143,7 +143,7 @@ def sim_session(tmp_path):
 def recording(sim_session):
     # Homed first, while nothing holds: a move needs a known position.
     sim_session.scope.motion.home('ALL')
-    held = sim_session.activity_claim.try_claim('recording')
+    held = sim_session._activity_claim.try_claim('recording')
     try:
         yield held
     finally:
@@ -266,7 +266,7 @@ class TestTheLights:
                 ),
             ),
         ]
-        held = session.activity_claim.try_claim('recording')
+        held = session._activity_claim.try_claim('recording')
         try:
 
             def check(name, call):
@@ -298,7 +298,7 @@ class TestTheLights:
 
         def check(name, call):
             session.light_shown_channel(True)
-            held = session.activity_claim.try_claim('recording')
+            held = session._activity_claim.try_claim('recording')
             try:
                 call()
             finally:
@@ -311,7 +311,7 @@ class TestTheLights:
     def test_an_led_lit_at_0_ma_and_turned_up_is_refused(self, lit_bf):
         session = lit_bf
         illumination = session.scope.illumination
-        held = session.activity_claim.try_claim('recording')
+        held = session._activity_claim.try_claim('recording')
         try:
             illumination.led_on(LED0, 0.0)
             before = illumination.get_led_states()
@@ -329,7 +329,7 @@ class TestTheLights:
         session = lit_bf
         stored = session.settings['BF']['illumination_ma']
         written = stored - 10.0 if stored > 10.0 else stored + 10.0
-        held = session.activity_claim.try_claim('recording')
+        held = session._activity_claim.try_claim('recording')
         try:
             session.update_settings('BF.illumination_ma', written)
         finally:
@@ -366,7 +366,7 @@ class TestTheLights:
         ]
 
         def check(name, current, call):
-            held = session.activity_claim.try_claim('recording')
+            held = session._activity_claim.try_claim('recording')
             try:
                 call()
             finally:
@@ -378,7 +378,7 @@ class TestTheLights:
 
     def test_the_shown_layer_at_0_ma_is_applied_and_turned_back_up_is_refused(self, lit_bf):
         session = lit_bf
-        held = session.activity_claim.try_claim('recording')
+        held = session._activity_claim.try_claim('recording')
         try:
             session.update_settings('BF.illumination_ma', 0.0)
             with pytest.raises(HardwareCommandRefusedError) as refused:
@@ -398,7 +398,7 @@ class TestTheLights:
         stored = session.settings['BF']['illumination_ma']
         other = stored - 10.0 if stored > 10.0 else stored + 10.0
         illumination.led_on('BF', other)
-        held = session.activity_claim.try_claim('recording')
+        held = session._activity_claim.try_claim('recording')
         try:
             session.light_shown_channel(True)
         finally:
@@ -423,7 +423,7 @@ class TestTheLights:
             except HardwareCommandRefusedError as e:
                 answers[name] = (e.reason, e.holder)
 
-        held = session.activity_claim.try_claim('recording')
+        held = session._activity_claim.try_claim('recording')
         try:
             lane.put(IOTask(action=gate.wait, args=(_WAIT_S,)))
             darken = threading.Thread(target=write, args=('darken', 0.0))
@@ -472,7 +472,7 @@ class TestTheStartKeepsItsName:
         assert refused.value.reason == 'other_led_lit'
         assert LED0 in str(refused.value)
         assert not sim_session.manual_recording.is_recording
-        assert sim_session.activity_claim.holder is None
+        assert sim_session._activity_claim.holder is None
 
     def test_a_start_with_the_camera_on_another_layer_is_refused(self, sim_session):
         sim_session.show_channel('BF')
@@ -483,7 +483,7 @@ class TestTheStartKeepsItsName:
             sim_session.manual_recording.start()
         assert refused.value.reason == 'camera_holds_another_channel'
         assert not sim_session.manual_recording.is_recording
-        assert sim_session.activity_claim.holder is None
+        assert sim_session._activity_claim.holder is None
 
 
 class TestTheSessionStores:
@@ -521,7 +521,7 @@ class TestTheSessionConfiguration:
         current = sim_session.settings['protocol']['labware']
         other = next(name for name in loader.get_plate_list() if name != current)
         plate_before = sim_session.scope.runtime_state.get_labware()
-        held = sim_session.activity_claim.try_claim(
+        held = sim_session._activity_claim.try_claim(
             kind, run=run_identity() if kind == 'protocol' else None
         )
         try:
@@ -554,7 +554,7 @@ class TestReselectingThePlateInPlace:
     @pytest.mark.parametrize('kind', ['protocol', 'diagnostic', 'recording', 'home'])
     def test_the_plate_in_place_is_admitted_under_any_holder(self, sim_session, kind):
         current = sim_session.settings['protocol']['labware']
-        held = sim_session.activity_claim.try_claim(
+        held = sim_session._activity_claim.try_claim(
             kind, run=run_identity() if kind == 'protocol' else None
         )
         try:

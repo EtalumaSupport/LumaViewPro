@@ -159,6 +159,28 @@ class TestTheEnd:
         assert refused.value.reason == 'control_session_ended'
         assert claim.control is controller.session
 
+    def test_an_end_by_its_id_or_without_it_stops_the_work_taken_for_it(self):
+        stopped = []
+        claim = ActivityClaim(on_control_ended=stopped.append)
+        by_id = _take(claim)
+        claim.end_control(by_id.id)
+        taken_back = _take(claim)
+        claim.end_live_control()
+        assert stopped == [by_id.session, taken_back.session], (
+            'every end of a control session stops the run or recording taken for it'
+        )
+        assert claim.control is None
+
+    def test_the_close_ends_the_session_and_leaves_its_work_to_the_close(self):
+        stopped = []
+        claim = ActivityClaim(on_control_ended=stopped.append)
+        _take(claim)
+        claim.begin_closing()
+        assert claim.control is None, "a held session would refuse the close's own writes"
+        assert stopped == [], (
+            'the close stops every run and recording itself, after the plugins unload'
+        )
+
     def test_after_the_end_the_old_holders_lane_work_is_anyones(self, claim, lane):
         controller = _take(claim)
         claim.end_control(controller.id)
@@ -290,7 +312,7 @@ class TestEveryDoorRefusesAsOneClass:
             sim_session.scope.motion.start_home('Z')
         assert refused.value.reason == 'control_session_held'
         assert refused.value.control_session == 'plate reader'
-        assert sim_session.activity_claim.holder is None
+        assert sim_session._activity_claim.holder is None
 
     def test_an_led_command(self, sim_session, held):
         with pytest.raises(ControlSessionRefusedError) as refused:
@@ -324,7 +346,7 @@ class TestEveryDoorRefusesAsOneClass:
             sim_session.manual_recording.start()
         assert refused.value.reason == 'control_session_held'
         assert refused.value.control_session == 'plate reader'
-        assert sim_session.activity_claim.holder is None
+        assert sim_session._activity_claim.holder is None
 
     def test_a_change_of_the_shown_layer(self, sim_session, held):
         other = LED2 if sim_session.shown_channel.channel == LED1 else LED1
@@ -673,7 +695,7 @@ class TestATakeWaitsForWhatIsStillFinishing:
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             run = _scan(runner, tmp_path / 'runs', 'C1')
             assert run.result(timeout=WAIT_S) is not None
-            assert session.activity_claim.holder is None
+            assert session._activity_claim.holder is None
             assert not session.sequenced_capture_runner.run_live
 
             with pytest.raises(ControlSessionRefusedError) as refused:
@@ -708,7 +730,7 @@ class TestATakeWaitsForWhatIsStillFinishing:
                 )
                 assert run.result(timeout=WAIT_S) is not None
                 assert session.sequenced_capture_runner.write_batch().wait_complete(WAIT_S)
-                assert session.activity_claim.holder is None
+                assert session._activity_claim.holder is None
 
                 with pytest.raises(ControlSessionRefusedError) as refused:
                     session.take_control('plate reader')
@@ -740,7 +762,7 @@ class TestATakeWaitsForWhatIsStillFinishing:
         try:
             recording.stop()
             assert closing.wait(_HOLD_S), 'the recording never reached its file close'
-            assert sim_session.activity_claim.holder is None
+            assert sim_session._activity_claim.holder is None
 
             with pytest.raises(ControlSessionRefusedError) as refused:
                 sim_session.take_control('plate reader')
