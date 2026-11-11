@@ -167,10 +167,32 @@ class _FeedMark:
         )
 
 
-def _capture_line(grabbed: _Grabbed, record: FrameRecord) -> str:
+def _counted_by(change: Change) -> str:
+    """Who counted the change's frames, as runs of one counter in the order
+    counted: ``drain x3``, or ``preview x1,drain x2``."""
+    runs: list[list] = []
+    for credit in change.credits:
+        if runs and runs[-1][0] is credit.by:
+            runs[-1][1] += 1
+        else:
+            runs.append([credit.by, 1])
+    return ','.join(f'{by.value} x{count}' for by, count in runs) or 'none'
+
+
+def _capture_line(grabbed: _Grabbed, record: FrameRecord, previous_seq: int | None) -> str:
     """The one line a successful capture leaves: the frame it returned, how
     well the camera's clock was mapped beside it, and how long after each
-    change it came, so a support bundle shows whether the rule held."""
+    change it came, so a support bundle shows whether the rule held.
+
+    A change is stated on the first capture line after it, not on every
+    line after: a judgment that counts is stated only for a change recorded
+    at or after ``previous_seq``, the last frame of the previous successful
+    capture (None before the first); a judgment that does not count is
+    always stated. A change recorded after that capture returned has an
+    ``at_seq`` at or past its last frame, since frames handed over only go
+    up; one recorded while that frame was still the newest is stated on
+    both lines. The saved file keeps every judgment whole
+    (``Judgment.fields``)."""
     frame = grabbed.earliest
     frame_id = (frame.chunks or {}).get('FrameID')
     parts = [
@@ -182,14 +204,15 @@ def _capture_line(grabbed: _Grabbed, record: FrameRecord) -> str:
     parts[0] += (
         ' clock=none' if mapping is None else f' clock=+-{mapping.uncertainty_ns / 1000:.0f}us'
     )
-    judgments = record.judgments
-    for judgment in judgments:
+    for judgment in record.judgments:
+        if judgment.counts and previous_seq is not None and judgment.change.at_seq < previous_seq:
+            continue
         f = judgment.fields()
         in_force = f' in_force+{f["after_in_force_ms"]}ms' if 'after_in_force_ms' in f else ''
         parts.append(
             f'{f["source"]} {"counts" if f["counts"] else "DOES NOT COUNT"} '
             f'+{f["frames_after"]}fr +{f["after_write_ms"]}ms{in_force} '
-            f'skip={f["skip"]} by={",".join(f["counted_by"]) or "none"}'
+            f'skip={f["skip"]} by={_counted_by(judgment.change)}'
         )
     return ' | '.join(parts)
 
@@ -400,7 +423,8 @@ class ImagingAPI:
         # hold and auto-gain lock run inside a capture's own lane task.
         self._camera = camera
 
-        # _state_lock guards _last_capture_info and _last_frame_summing.
+        # _state_lock guards _last_capture_info, _last_frame_summing and
+        # _last_line_seq.
         self._state_lock = threading.Lock()
 
         # Once-per-episode latch for the enabled-but-no-objective scale-bar
@@ -430,6 +454,12 @@ class ImagingAPI:
         # leaves frame or not. A frame's own facts are its record's, handed
         # back with it. Read via last_capture_info.
         self._last_capture_info = None
+        # The last frame of the last successful capture, written by that
+        # capture alone and read only by the next one's log line, which
+        # states only the changes recorded since; None before the first.
+        # Not in _last_capture_info: that slot is how a capture waited,
+        # nothing of its frame, and a failed capture replaces it.
+        self._last_line_seq: int | None = None
         # (frames summed, each frame's delivered depth) of the frame the last
         # capture produced, set by the reducer that summed it, or None before
         # the first. The one account of a capture's sum, read only by the
@@ -1210,7 +1240,10 @@ class ImagingAPI:
                     removed = True
                     raise _camera_not_connected(member) from unread
             if failed is None:
-                _api_log.log(VERBOSE, _capture_line(grabbed, record))
+                with self._state_lock:
+                    previous_seq = self._last_line_seq
+                    self._last_line_seq = grabbed.frame.seq
+                _api_log.log(VERBOSE, _capture_line(grabbed, record, previous_seq))
             _record_capture_info()
         finally:
             if lock is not None and not removed:

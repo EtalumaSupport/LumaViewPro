@@ -265,9 +265,9 @@ class Judgment:
     counts: bool
 
     def fields(self) -> dict:
-        """The judgment as plain fields, the one shape a saved file and the
-        capture's log line both carry. A time the judgment has none of is
-        absent, never a stand-in."""
+        """The judgment as plain fields, the shape a saved file carries
+        whole. A time the judgment has none of is absent, never a
+        stand-in."""
         out = {
             'source': self.change.source.value,
             'counts': self.counts,

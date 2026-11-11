@@ -47,6 +47,15 @@ def _judgment(record, source: str):
     return next(j for j in record.judgments if j.change.source == source)
 
 
+def _segment(line: str, source: str) -> str:
+    """The part of a capture line that states ``source``'s judgment."""
+    return next(part for part in line.split(' | ') if part.startswith(f'{source} '))
+
+
+def _capture_lines(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message]
+
+
 def test_a_frame_counts_only_once_the_count_was_met_before_it():
     fv = FrameValidity(lambda: 0)
     fv.invalidate('gain', began_ns=None)  # skip 2, recorded at frame 0
@@ -144,7 +153,7 @@ def test_a_frame_the_preview_counted_names_the_preview(sim_scope, caplog):
     assert gain.change.written_ns == change.written_ns
     line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
     assert f'gain counts +{gain.frames_after}fr' in line
-    assert f'{gain.change.credits[0].seq}:preview' in line
+    assert ' by=preview x' in _segment(line, 'gain')
 
 
 def test_frames_the_captures_drain_counted_name_the_drain(sim_scope, caplog):
@@ -160,7 +169,7 @@ def test_frames_the_captures_drain_counted_name_the_drain(sim_scope, caplog):
     assert gain.counts
     assert [credit.by for credit in gain.change.credits] == [Counter.DRAIN] * gain.change.skip
     line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
-    assert ','.join(f'{c.seq}:drain' for c in gain.change.credits) in line
+    assert _segment(line, 'gain').endswith(f' by=drain x{gain.change.skip}')
 
 
 def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
@@ -184,7 +193,43 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
     assert gain.counts
     assert [credit.by for credit in gain.change.credits] == [Counter.GRAB] * gain.change.skip
     line = next(r.getMessage() for r in caplog.records if 'capture_still: frame' in r.message)
-    assert ','.join(f'{c.seq}:grab' for c in gain.change.credits) in line
+    assert _segment(line, 'gain').endswith(f' by=grab x{gain.change.skip}')
+
+
+def test_a_change_is_stated_on_the_first_capture_line_after_it(sim_scope, caplog):
+    """A change that counts is stated on the first capture line after it and
+    not on the lines after, while the capture's record keeps every
+    judgment whole."""
+    imaging = sim_scope.imaging
+    sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
+
+    with caplog.at_level(VERBOSE, logger='LVP.api'):
+        imaging.capture_still(accept_dark=True)
+        second = imaging.capture_still(accept_dark=True).record
+    first_line, second_line = _capture_lines(caplog)
+
+    assert _segment(first_line, 'gain').startswith('gain counts ')
+    assert 'gain' not in {part.split(' ')[0] for part in second_line.split(' | ')}
+    assert _judgment(second, 'gain').counts
+
+
+def test_a_judgment_that_does_not_count_is_stated_on_every_line(sim_scope, caplog):
+    """A change whose count is not met is stated on every capture line
+    that does not count for it, not only the first after it."""
+    imaging = sim_scope.imaging
+    imaging.capture_still(accept_dark=True)
+    fv = imaging._frame_validity
+    fv.use_rules({**fv.rules(), 'gain': FrameRule(count=10_000, provenance=None)})
+    sim_scope.camera.set_gain_db(sim_scope.camera.read_gain_db() + 1.0)
+    caplog.clear()
+
+    with caplog.at_level(VERBOSE, logger='LVP.api'):
+        for _ in range(2):
+            imaging.capture_still(accept_dark=True, exclude_sources=('gain',))
+
+    assert [
+        _segment(line, 'gain').startswith('gain DOES NOT COUNT ') for line in _capture_lines(caplog)
+    ] == [True, True]
 
 
 def test_a_move_is_in_force_when_its_axis_settles(sim_scope):
