@@ -36,6 +36,7 @@ from typing import Any
 from collections.abc import Callable
 
 from _lumascope.modules.exceptions import (
+    AlreadyStartedError,
     PluginFailedError,
     PluginNotLoadedError,
     PluginProcessorSkippedError,
@@ -554,11 +555,11 @@ class RESTRegistry(_BaseNamespace):
 
     **Stub mode**: while a plugin is being developed, its author can opt
     into ``enable_stub_mode()``. In stub mode, register() accepts the
-    spec and records it for ``health()`` reporting (so
-    ``ctx.plugins.all_health()`` reflects the registration) but serves
-    nothing, so the rest of the plugin -- its load and unregister hooks
-    -- can be tried. Stub mode is opt-in and not the default, so a
-    shipped plugin's registration is refused, never quietly unserved.
+    spec and records it, so ``session.plugin_health()`` reflects the
+    registration, but serves nothing, so the rest of the plugin -- its
+    load and unregister hooks -- can be tried. Stub mode is opt-in and
+    not the default, so a shipped plugin's registration is refused,
+    never quietly unserved.
     """
 
     NAMESPACE = 'rest'
@@ -572,10 +573,10 @@ class RESTRegistry(_BaseNamespace):
         """Opt into accepting REST registrations as stubs.
 
         After enable_stub_mode(), register(spec, router) records the
-        registration (visible via health()) and serves nothing, since a
-        plugin cannot add REST routes in this release. A plugin author
-        uses this while developing a plugin, to try the rest of its
-        lifecycle.
+        registration (visible in ``session.plugin_health()``) and serves
+        nothing, since a plugin cannot add REST routes in this release. A
+        plugin author uses this while developing a plugin, to try the rest
+        of its lifecycle.
 
         A shipped plugin does not call this: its registration is refused,
         so a route it expects to serve is never silently missing.
@@ -653,6 +654,10 @@ class PluginRegistry:
         # as skipped rather than dropped without a word.
         self._unloaded: set[str] = set()
         self._not_loaded: list[PluginNotLoaded] = []
+        # Set by the first load(), under the same lock: neither the loaded
+        # list (emptied by unload) nor not_loaded (empty when every plugin
+        # loads) can tell that discovery has run.
+        self._load_begun = False
         # Recorded by this discovery and not yet reported, each with the
         # plugin's own exception: load() reports them together when it ends.
         self._unreported: list[tuple[PluginNotLoaded, BaseException | None]] = []
@@ -812,8 +817,21 @@ class PluginRegistry:
                 its ctx.
             host_version: This LumaViewPro's version, checked against each
                 plugin's requires_lvp_version.
+
+        Raises:
+            AlreadyStartedError: ``'plugins_loaded'``, this registry already
+                loaded its plugins, even if they have since been unloaded: a
+                second discovery would register every plugin again.
         """
         from _lumascope.modules.plugins.builtin import BUILTIN_PLUGINS
+
+        with self._loaded_lock:
+            if self._load_begun:
+                raise AlreadyStartedError(
+                    'plugins_loaded',
+                    'This session already loaded its plugins; it loads them once.',
+                )
+            self._load_begun = True
 
         discovered = list(importlib.metadata.entry_points(group=ENTRY_POINT_GROUP))
         count = 0

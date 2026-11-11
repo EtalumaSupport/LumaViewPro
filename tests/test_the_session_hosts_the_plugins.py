@@ -474,3 +474,27 @@ def test_a_session_loads_its_plugins_once(tmp_path):
     assert (refused.value.reason, refused.value.cause) == ('plugins_loaded', RefusalCause.REQUEST)
     assert isinstance(refused.value, RuntimeError), 'still what it was documented as'
     assert [call[0] for call in plugin.calls].count('register') == 1
+
+
+def test_the_registry_itself_refuses_a_second_load(tmp_path):
+    """``session.plugins`` is the ctx every plugin holds: its own ``load``,
+    called again, is refused as the session's is, and no plugin is
+    registered twice or reported as not loaded."""
+    from _lumascope.modules.exceptions import AlreadyStartedError
+
+    plugin = _plugin('once')
+    session = ScopeSession.create(complete_settings(), simulate=True, no_engineering=True)
+    try:
+        _load(session, plugin)
+        with (
+            patch('importlib.metadata.entry_points', return_value=[_EntryPoint(plugin)]),
+            pytest.raises(AlreadyStartedError) as refused,
+        ):
+            session.plugins.load(session, '4.0.0')
+        not_loaded = session.plugin_health().not_loaded
+    finally:
+        session.shutdown()
+
+    assert refused.value.reason == 'plugins_loaded'
+    assert [call[0] for call in plugin.calls].count('register') == 1
+    assert not_loaded == ()

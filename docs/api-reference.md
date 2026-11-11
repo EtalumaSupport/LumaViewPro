@@ -12372,11 +12372,11 @@ shipped plugin registers none.
 
 **Stub mode**: while a plugin is being developed, its author can opt
 into `enable_stub_mode()`. In stub mode, register() accepts the
-spec and records it for `health()` reporting (so
-`ctx.plugins.all_health()` reflects the registration) but serves
-nothing, so the rest of the plugin -- its load and unregister hooks
--- can be tried. Stub mode is opt-in and not the default, so a
-shipped plugin's registration is refused, never quietly unserved.
+spec and records it, so `session.plugin_health()` reflects the
+registration, but serves nothing, so the rest of the plugin -- its
+load and unregister hooks -- can be tried. Stub mode is opt-in and
+not the default, so a shipped plugin's registration is refused,
+never quietly unserved.
 
 <a id="RESTRegistry.enable_stub_mode"></a>
 ### `RESTRegistry.enable_stub_mode`
@@ -12390,10 +12390,10 @@ Marks: in-process.
 Opt into accepting REST registrations as stubs.
 
 After enable_stub_mode(), register(spec, router) records the
-registration (visible via health()) and serves nothing, since a
-plugin cannot add REST routes in this release. A plugin author
-uses this while developing a plugin, to try the rest of its
-lifecycle.
+registration (visible in `session.plugin_health()`) and serves
+nothing, since a plugin cannot add REST routes in this release. A
+plugin author uses this while developing a plugin, to try the rest
+of its lifecycle.
 
 A shipped plugin does not call this: its registration is refused,
 so a route it expects to serve is never silently missing.

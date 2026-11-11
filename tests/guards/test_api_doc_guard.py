@@ -1630,7 +1630,6 @@ _TAUGHT_SEED: dict[tuple[str, str], int] = {
     ('docs/api-reference.md', 'ObjectiveLoader.get_objective_info'): 1,
     ('docs/api-reference.md', 'ObjectiveLoader.objectives'): 1,
     ('docs/api-reference.md', 'Operation.all_of'): 3,
-    ('docs/api-reference.md', 'PluginRegistry.all_health'): 1,
     ('docs/api-reference.md', 'PluginRegistry.run_protocol_complete_processors'): 1,
     ('docs/api-reference.md', 'Protocol.adopt_focus_from'): 1,
     ('docs/api-reference.md', 'Protocol.apply_tiling'): 1,

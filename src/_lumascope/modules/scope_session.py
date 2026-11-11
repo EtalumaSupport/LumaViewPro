@@ -5561,12 +5561,9 @@ class ScopeSession:
             AlreadyStartedError: ``'plugins_loaded'``, this session already
                 loaded its plugins. Still a ``RuntimeError``.
         """
-        if self._plugins is not None:
-            raise AlreadyStartedError(
-                'plugins_loaded', 'This session already loaded its plugins; it loads them once.'
-            )
         version, _build_timestamp = path_utils.read_version()
-        self._plugins = PluginRegistry(self.scope)
+        if self._plugins is None:
+            self._plugins = PluginRegistry(self.scope)
         self._plugins.load(self, version)
 
     @api(in_process=True)
