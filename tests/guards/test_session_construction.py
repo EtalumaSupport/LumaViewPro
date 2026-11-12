@@ -18,7 +18,7 @@ import tests.ast_seams as ast_seams
 from _lumascope.modules.exceptions import ArgumentRefusedError
 from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import MemberNames
-from tests.scope_fakes import real_executor_bundle, spec_scope
+from tests.scope_fakes import construct_session
 from tests.settings_fixtures import complete_settings
 
 
@@ -254,40 +254,44 @@ class TestCreateTakesTheHostInjections:
             session.scope.disconnect()
 
 
-class TestScopeOwnershipIsConstructorState:
-    """Whether shutdown() may tear the scope down is decided where the
-    scope came from, at construction: a factory-built scope is the
-    session's, one handed to the constructor is the caller's. The bundle
-    the session holds is always its own to stop."""
+class TestOnlyCreateComposes:
+    """``ScopeSession.create`` is the one way a session and its scope are
+    made: either constructor called by anything else is refused at the
+    call, naming the way in, before it starts or opens anything."""
 
-    def _settings(self, tmp_path):
-        return complete_settings(live_folder=str(tmp_path))
+    def test_each_constructor_refuses_a_caller_that_is_not_create(self):
+        from _lumascope.modules.lumascope_api import Lumascope
 
-    def test_a_factory_built_scope_is_owned(self, tmp_path):
-        session = ScopeSession.create(
-            settings=self._settings(tmp_path), simulate=True, warn_pre_release=False
-        )
-        try:
-            assert session._owns_scope is True
-        finally:
-            session.shutdown()
-            session.scope.disconnect()
+        constructions = {
+            'Lumascope': lambda **given: Lumascope(simulate=True, **given),
+            # No scope or bundle: the refusal comes before the session reads
+            # either.
+            'ScopeSession': lambda **given: ScopeSession(
+                settings=complete_settings(), scope=None, executor_bundle=None, **given
+            ),
+        }
+        accepted = []
+        for made, construct in constructions.items():
+            for asked, given in (
+                ('no argument', {}),
+                ('another object', {'_composition': object()}),
+            ):
+                try:
+                    construct(**given)
+                except TypeError as refused:
+                    if 'made by ScopeSession.create' not in str(refused):
+                        accepted.append((made, asked, str(refused)))
+                else:
+                    accepted.append((made, asked, 'constructed'))
+        assert accepted == []
 
-    def test_a_direct_construction_is_not_owned(self):
-        session = ScopeSession(
-            settings=complete_settings(), scope=spec_scope(), executor_bundle=real_executor_bundle()
-        )
-        try:
-            assert session._owns_scope is False
-            assert session._shut_down is False
-        finally:
-            session.shutdown()
 
+class TestASessionNeedsABundle:
     def test_a_session_needs_a_bundle(self):
         # FILE, the worker pool and the run threads come from it; a session
         # without one had five branches reading a FILE lane it did not have.
-        with pytest.raises(TypeError):
-            ScopeSession(settings=complete_settings(), scope=spec_scope())
+        with pytest.raises(TypeError, match='executor_bundle'):
+            construct_session(settings=complete_settings(), scope=None)
 
 
 class TestTheLanesAreTheScopes:

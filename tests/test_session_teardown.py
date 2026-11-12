@@ -24,7 +24,7 @@ from _lumascope.modules.exceptions import ScopeDisconnectError
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.sequential_io_executor import IOTask
 from tests.log_capture import messages, records_of
-from tests.scope_fakes import build_scope, real_executor_bundle, spec_scope
+from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 
 
@@ -136,18 +136,6 @@ class TestAFactoryBuiltScopeIsTornDown:
             assert not any('called again' in m for m in messages(session_log()))
         finally:
             scope.disconnect()
-
-
-class TestACallersScopeIsLeftAlone:
-    def test_a_directly_constructed_session_is_the_same_row(self):
-        scope = spec_scope()
-        session = ScopeSession(
-            settings=complete_settings(), scope=scope, executor_bundle=real_executor_bundle()
-        )
-        session.shutdown()
-        scope.disconnect.assert_not_called()
-        scope.motion._stop.assert_not_called()
-        session.io_executor.put.assert_not_called()
 
 
 class TestASecondShutdown:

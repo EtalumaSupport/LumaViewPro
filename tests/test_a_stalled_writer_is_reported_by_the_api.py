@@ -21,10 +21,9 @@ from _lumascope.modules.exceptions import FileWriterStalledError, ProtocolRunRef
 from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules.notification_center import OutcomeKind
 from _lumascope.modules.protocol_image_writer import RunWriteBatch
-from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from _lumascope.modules.sequential_io_executor import ENQUEUED
-from tests.scope_fakes import real_executor_bundle, spec_scope
+from tests.scope_fakes import construct_session, real_executor_bundle, spec_scope
 
 
 class _Scheduler:
@@ -48,7 +47,7 @@ class _Scheduler:
 @pytest.fixture
 def session():
     bundle = real_executor_bundle(file_io_executor=MagicMock())
-    session = ScopeSession(settings={}, scope=spec_scope(), executor_bundle=bundle)
+    session = construct_session(settings={}, scope=spec_scope(), executor_bundle=bundle)
     yield session
     # The planted writes went to a scripted lane that never runs them, so
     # nothing would ever land them; the session cannot close until they settle.

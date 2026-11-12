@@ -64,7 +64,7 @@ from tests import pypylon_stub as _pypylon_stub
 from tests import host_power_stub as _host_power_stub
 from tests import usb_stub as _usb_stub
 from tests.bench_results import bench_results_dir
-from tests.scope_fakes import build_scope
+from tests.scope_fakes import build_scope, construct_scope
 from _lumascope.drivers.sim_wire.backend import runtime_platform
 
 
@@ -908,10 +908,9 @@ def no_hardware_scope(no_hardware):
 
     On an installation of its own, since a real scope takes its installation's lock.
     """
-    from _lumascope.modules.lumascope_api import Lumascope
     from tests.settings_fixtures import installation_of_its_own
 
-    instance = Lumascope(source_path=installation_of_its_own(), warn_pre_release=False)
+    instance = construct_scope(source_path=installation_of_its_own(), warn_pre_release=False)
     try:
         yield instance
     finally:

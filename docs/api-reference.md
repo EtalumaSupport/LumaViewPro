@@ -3394,10 +3394,9 @@ is recovered by the close itself, its unwritten images given up on,
 counted and reported. While it waits the close logs what it waits for.
 
 Then the teardown. The bundle the session holds always stops: its long-lived consumer
-threads first, then the FILE lane and the worker pool. When
-`owns_scope` (a factory BUILT the scope), the hardware half
-follows: the LEDs drained through the io lane while its worker is
-alive, then the scope disconnected, which shuts its IO and CAMERA
+threads first, then the FILE lane and the worker pool. The hardware
+half follows: the LEDs drained through the io lane while its worker
+is alive, then the scope disconnected, which shuts its IO and CAMERA
 lanes before it turns the LEDs off and stops motion inline -- so a
 headless host gets the same teardown the GUI gets. The consumers
 stop BEFORE the lanes they consume (a consumer mid-iteration that
@@ -3406,16 +3405,15 @@ fires; scope_display_thread consumes camera_executor,
 protocol_thread drives io + camera + file). Running metrics stop
 first, or their ticks would outlive the executors they snapshot.
 
-A scope handed to the constructor is left connected with its lanes
-running: it is the caller's. Callable from any thread, a run's `run_ended`
-handler included. One close runs: a call on another thread while it
-runs waits for it and returns; a call after it is a logged no-op; a
-call from inside the close returns at once; a call that raised
-part-way can be called again.
+Callable from any thread, a run's `run_ended` handler included.
+One close runs: a call on another thread while it runs waits for it
+and returns; a call after it is a logged no-op; a call from inside
+the close returns at once; a call that raised part-way can be called
+again.
 
 **Raises**
 
-- `ScopeDisconnectError`: a part of an owned scope did not shut down cleanly; every teardown step has still run, and a second call completes.
+- `ScopeDisconnectError`: a part of the scope did not shut down cleanly; every teardown step has still run, and a second call completes.
 
 **Refusals**
 

@@ -9,9 +9,9 @@ recorded a missing one as a failed bring-up. No caller names the driver.
 
 import pytest
 
-from _lumascope.modules.lumascope_api import Lumascope
+from tests.scope_fakes import construct_scope
 
 
 def test_a_simulated_scope_takes_no_camera_driver_name():
     with pytest.raises(TypeError, match='camera_type'):
-        Lumascope(simulate=True, camera_type='pylon', register_atexit=False)
+        construct_scope(simulate=True, camera_type='pylon', register_atexit=False)

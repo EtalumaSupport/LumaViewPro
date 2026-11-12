@@ -65,6 +65,32 @@ from unittest.mock import create_autospec
 _TEARDOWNS: list = []
 
 
+def construct_scope(**kwargs):
+    """``Lumascope(**kwargs)`` as ``ScopeSession.create`` calls it, nothing added.
+
+    The constructor refuses any caller but ``create``; this and
+    ``construct_session`` are the suite's one holder of what it hands
+    the constructors. A test of the constructor itself calls this; a test
+    that needs a scope takes ``build_scope`` or a session.
+    """
+    from _lumascope.modules.composition import COMPOSED_BY_CREATE
+    from _lumascope.modules.lumascope_api import Lumascope
+
+    return Lumascope(**kwargs, _composition=COMPOSED_BY_CREATE)
+
+
+def construct_session(**kwargs):
+    """``ScopeSession(**kwargs)`` as ``ScopeSession.create`` calls it, nothing added.
+
+    For a test of what the session itself owns, around a scope of the
+    test's own; see ``construct_scope``.
+    """
+    from _lumascope.modules.composition import COMPOSED_BY_CREATE
+    from _lumascope.modules.scope_session import ScopeSession
+
+    return ScopeSession(**kwargs, _composition=COMPOSED_BY_CREATE)
+
+
 def build_scope(**kwargs):
     """A `Lumascope` for a test: the one place a test constructs one.
 
@@ -87,7 +113,6 @@ def build_scope(**kwargs):
     instance lock, which on the repo's folder would meet a LumaViewPro
     running beside the suite.
     """
-    from _lumascope.modules.lumascope_api import Lumascope
     from tests.settings_fixtures import complete_settings, installation_of_its_own
 
     if not kwargs.get('simulate') and kwargs.get('source_path') is None:
@@ -98,7 +123,7 @@ def build_scope(**kwargs):
     # the tests that home or assign a turret would lose it.
     if kwargs.get('simulate') and not (kwargs.get('sim_model') or kwargs.get('configured_model')):
         kwargs['sim_model'] = 'LS850T'
-    scope = Lumascope(**kwargs)
+    scope = construct_scope(**kwargs)
     _TEARDOWNS.append(scope.disconnect)
     if kwargs.get('simulate') and scope.camera_connected:
         frame = complete_settings()['frame']
@@ -196,10 +221,8 @@ def session_on_a_simulated_scope(*, settings=None, file_io_executor=None, **kwar
     and decides when they land; *kwargs* go to the constructor. The test's
     teardown shuts the session down.
     """
-    from _lumascope.modules.scope_session import ScopeSession
-
     lanes = {} if file_io_executor is None else {'file_io_executor': file_io_executor}
-    return ScopeSession(
+    return construct_session(
         settings={} if settings is None else settings,
         scope=build_scope(simulate=True),
         executor_bundle=real_executor_bundle(**lanes),

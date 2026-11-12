@@ -31,12 +31,12 @@ from _lumascope.modules.exceptions import (
     ScopeDisconnectError,
     ScopeInUseError,
 )
-from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.lvp_lock import take_instance_lock
 from _lumascope.modules.path_utils import get_source_root
 from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings, installation_of_its_own
+from tests.scope_fakes import construct_scope
 
 # The server's test takes the installation's own lock, so the file runs on
 # one worker (`--dist loadgroup`, in the pytest addopts).
@@ -111,7 +111,7 @@ def test_every_real_scope_is_refused_while_another_process_holds_the_lock(no_har
     port = _free_port()
     root = _installation_on(port)
     builds = {
-        'Lumascope()': lambda: Lumascope(source_path=root, warn_pre_release=False),
+        'Lumascope()': lambda: construct_scope(source_path=root, warn_pre_release=False),
         'create(simulate=False)': lambda: ScopeSession.create(
             complete_settings(), source_path=str(root), warn_pre_release=False
         ),
@@ -132,14 +132,14 @@ def test_every_real_scope_is_refused_while_another_process_holds_the_lock(no_har
 
 
 def test_a_process_drives_one_real_scope(no_hardware):
-    first = Lumascope(source_path=installation_of_its_own(), warn_pre_release=False)
+    first = construct_scope(source_path=installation_of_its_own(), warn_pre_release=False)
     try:
         with pytest.raises(ScopeInUseError):
-            Lumascope(source_path=installation_of_its_own(), warn_pre_release=False)
+            construct_scope(source_path=installation_of_its_own(), warn_pre_release=False)
     finally:
         first.disconnect()
 
-    second = Lumascope(source_path=installation_of_its_own(), warn_pre_release=False)
+    second = construct_scope(source_path=installation_of_its_own(), warn_pre_release=False)
     second.disconnect()
 
 
@@ -197,7 +197,7 @@ def test_a_host_composes_again_after_a_refused_bring_up_whose_teardown_raised(
 
 def test_a_real_scope_gives_the_lock_back_at_disconnect(no_hardware):
     port = _free_port()
-    scope = Lumascope(source_path=_installation_on(port), warn_pre_release=False)
+    scope = construct_scope(source_path=_installation_on(port), warn_pre_release=False)
     assert not _another_process_can_take(port)
 
     scope.disconnect()
@@ -207,7 +207,7 @@ def test_a_real_scope_gives_the_lock_back_at_disconnect(no_hardware):
 
 def test_a_real_scope_gives_the_lock_back_at_a_disconnect_that_raises(no_hardware, monkeypatch):
     port = _free_port()
-    scope = Lumascope(source_path=_installation_on(port), warn_pre_release=False)
+    scope = construct_scope(source_path=_installation_on(port), warn_pre_release=False)
     real_disconnect = lumascope_module.Lumascope._disconnect
 
     # A stand-in by design: no simulated part raises from its teardown.
@@ -234,7 +234,7 @@ def test_a_constructor_that_raises_after_its_take_leaves_nothing_running(no_hard
     monkeypatch.setattr(lumascope_module.Lumascope, '_read_camera_timing', missing_timing)
 
     with pytest.raises(InstallationFileError):
-        Lumascope(source_path=root, warn_pre_release=False)
+        construct_scope(source_path=root, warn_pre_release=False)
 
     assert _scope_threads() - before == set()
     assert _another_process_can_take(port)
@@ -267,7 +267,7 @@ def test_a_constructor_that_raises_closes_the_parts_it_opened(monkeypatch):
     monkeypatch.setattr(scope_class, '_read_camera_timing', missing_timing)
 
     with pytest.raises(InstallationFileError):
-        Lumascope(simulate=True, warn_pre_release=False)
+        construct_scope(simulate=True, warn_pre_release=False)
 
     assert [(type(part).__name__, part.is_connected()) for part in opened] == [
         ('SimulatedMotorBoard', False),
@@ -294,7 +294,7 @@ def test_a_simulated_scope_takes_no_lock(no_hardware):
     port = _free_port()
     root = _installation_on(port)
     with _held_by_another_process(port):
-        scope = Lumascope(simulate=True, source_path=root, warn_pre_release=False)
+        scope = construct_scope(simulate=True, source_path=root, warn_pre_release=False)
         scope.disconnect()
 
 

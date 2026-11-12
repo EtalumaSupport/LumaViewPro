@@ -21,6 +21,7 @@ from _lumascope.modules.exceptions import HomingFaultError
 from _lumascope.modules.scope_session import COLD_START_SNAPSHOT_DELAY_S, ScopeSession
 from _lumascope.modules.scheduler import ThreadingTimerScheduler
 from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import construct_session
 
 
 @pytest.fixture
@@ -94,7 +95,7 @@ def test_the_sessions_metrics_take_the_settled_footprint_on_its_timer(
     from tests.scope_fakes import real_executor_bundle
 
     scheduler = _RecordingScheduler()
-    session = ScopeSession(
+    session = construct_session(
         settings=complete_settings(),
         scope=sim_scope_a_session_composes,
         executor_bundle=real_executor_bundle(),

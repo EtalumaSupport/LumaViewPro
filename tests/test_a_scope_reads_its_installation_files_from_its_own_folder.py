@@ -25,8 +25,7 @@ from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.modules import channel_record
 from _lumascope.modules.exceptions import InstallationFileError, ScopeModelUnknownError
-from _lumascope.modules.lumascope_api import Lumascope
-from tests.scope_fakes import build_scope, simulated_camera_on_a_real_scope
+from tests.scope_fakes import build_scope, construct_scope, simulated_camera_on_a_real_scope
 from tests.settings_fixtures import installation_of_its_own
 
 REPO_DATA = pathlib.Path(__file__).resolve().parents[1] / 'data'
@@ -116,7 +115,9 @@ def test_a_model_the_folder_does_not_list_is_refused_before_a_lane_starts():
 
     # The setting names a model the folder lacks: the settings' fault, not the file's.
     with pytest.raises(ScopeModelUnknownError, match="'LS850T' is not a scope model"):
-        Lumascope(simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False)
+        construct_scope(
+            simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False
+        )
 
     assert set(threading.enumerate()) <= before
 
@@ -136,7 +137,7 @@ class TestABadFileInTheScopesFolder:
         before = set(threading.enumerate())
 
         with pytest.raises(InstallationFileError, match=says) as refused:
-            Lumascope(
+            construct_scope(
                 simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False
             )
 
@@ -150,7 +151,7 @@ class TestABadFileInTheScopesFolder:
         root = _folder(mutate)
 
         with pytest.raises(InstallationFileError, match=says) as refused:
-            Lumascope(
+            construct_scope(
                 simulate=False,
                 configured_model='LS850T',
                 source_path=str(root),
@@ -223,7 +224,7 @@ def test_a_broken_vocabulary_stops_a_scope_before_a_lane_starts(tmp_path, monkey
     before = set(threading.enumerate())
 
     with pytest.raises(InstallationFileError, match='LayerOrder') as refused:
-        Lumascope(simulate=True, sim_model='LS850T', warn_pre_release=False)
+        construct_scope(simulate=True, sim_model='LS850T', warn_pre_release=False)
 
     assert refused.value.file_path == path
     assert set(threading.enumerate()) <= before
@@ -238,7 +239,9 @@ def test_a_model_entry_that_is_not_an_object_is_refused_by_name():
     root = _folder(text_entry)
 
     with pytest.raises(InstallationFileError, match="model 'LS850T'") as refused:
-        Lumascope(simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False)
+        construct_scope(
+            simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False
+        )
 
     assert refused.value.file_path == root / 'data' / 'scopes.json'
 

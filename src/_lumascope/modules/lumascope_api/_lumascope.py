@@ -101,6 +101,7 @@ from _lumascope.modules.lumascope_api.bring_up import (
     report_step,
 )
 from _lumascope.modules.scope_parts import Board, Part
+from _lumascope.modules.composition import refuse_unless_composed
 from _lumascope.modules.frame_validity import FrameValidity, FrameValiditySource
 from _lumascope.modules.fx2_driver_step import repair_refusal
 from _lumascope.modules.channel_record import LedBoardFamily, MotorBoardFamily
@@ -824,10 +825,13 @@ class Lumascope:
         sim_conversion_gain_mode: bool = False,
         sim_unit_config: Mapping[str, object] | None = None,
         on_progress: ProgressCallback | None = None,
+        _composition: object = None,
     ):
         """Initialize Microscope.
 
         Args:
+            _composition: ``COMPOSED_BY_CREATE``, which only
+                ``ScopeSession.create`` holds; a scope is made nowhere else.
             source_path: The data folder this scope is started on -- the
                 folder holding ``data/``. The scope reads the labware and
                 objective catalogues from it once, here, and everything
@@ -948,7 +952,9 @@ class Lumascope:
                 another LumaViewPro, REST server or script drives the
                 microscope, or while another real scope in this process is
                 open. Nothing was opened.
+            TypeError: not called by ``ScopeSession.create``.
         """
+        refuse_unless_composed(_composition, 'A Lumascope')
         for argument, value, given in (
             ('sim_camera_stall', sim_camera_stall, sim_camera_stall is not None),
             ('sim_focal_spread_um', sim_focal_spread_um, sim_focal_spread_um != 0.0),

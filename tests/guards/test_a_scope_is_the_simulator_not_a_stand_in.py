@@ -171,14 +171,12 @@ def _entries_with_a_site() -> set[str]:
 
 # Seeded at LVP dev/4.0.0 b17419cc (2026-10-09) with 237 entries. Only shrinks: a
 # commit that takes a stand-in to the simulator deletes its entry and lowers this.
-ALLOWED_ENTRIES = 85
+ALLOWED_ENTRIES = 81
 ALLOWED = frozenset(
     {
         'tests/camera_fakes.py::bare_ids_camera',
         'tests/camera_fakes.py::bare_pylon_camera',
         'tests/guards/test_live_display_hold_is_a_callback.py::_writer',
-        'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_direct_construction_is_not_owned',
-        'tests/guards/test_session_construction.py::TestScopeOwnershipIsConstructorState.test_a_session_needs_a_bundle',
         'tests/plugin_test_harness.py::_make_ctx',
         'tests/test_a_failed_save_is_reported_once.py::test_an_sdk_setter_raises_the_driver_error_once_and_posts_nothing',
         'tests/test_a_recorded_frame_says_where_it_was_taken.py::_fake_scope',
@@ -246,9 +244,7 @@ ALLOWED = frozenset(
         'tests/test_run_outcome_reports_autofocus_data.py::TestTheSweepDoesNotReturnBeforeItsWriteLands._bare_runner',
         'tests/test_start_zstack_entry_point.py::_runner',
         'tests/test_scope_api.py::TestGetCurrentPlatePosition.test_an_expected_motor_board_that_is_absent_is_refused',
-        'tests/test_scope_bringup.py::_make_spec_session',
         'tests/test_serial_safety.py::TestLEDFirmwareVersion._make_board',
-        'tests/test_session_teardown.py::TestACallersScopeIsLeftAlone.test_a_directly_constructed_session_is_the_same_row',
         'tests/test_still_pending_writes.py::_writer',
         'tests/test_the_camera_holds_a_layer_from_the_session.py::TestBringUp.test_a_scope_whose_layers_are_unresolved_still_comes_up',
         'tests/test_the_claim_names_the_holding_run.py::TestTheRunnerReadsTheClaim.test_a_runner_cannot_be_built_without_a_claim',

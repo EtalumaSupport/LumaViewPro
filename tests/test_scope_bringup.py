@@ -9,11 +9,9 @@ the session drives can never be left service-less.
 The INVARIANT pins (real sim scope + recording lanes) assert that a
 session composed around a scope leaves its dispatch on the scope's lane.
 
-Also pinned: shutdown() ownership (owns_scope decides the hardware
-teardown; the bundle the session holds always stops).
+Also pinned: shutdown() stops everything the session holds, the scope
+included.
 """
-
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,21 +20,11 @@ from tests.settings_fixtures import complete_settings
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import (
     build_scope,
+    construct_session,
     real_executor_bundle,
-    spec_scope,
     swap_lanes,
 )
 from tests.test_scope_api import _RecordingExecutor
-
-
-def _make_spec_session(**kwargs):
-    defaults = {
-        'settings': {},
-        'scope': spec_scope(),
-        'executor_bundle': MagicMock(),
-    }
-    defaults.update(kwargs)
-    return ScopeSession(**defaults)
 
 
 # Real executors run real worker threads and real sim scopes hold
@@ -83,7 +71,7 @@ class TestDispatchInvariant:
         io_ex = _real_executor('BRINGUP_IO2')
         cam_ex = _real_executor('BRINGUP_CAM2')
         scope = swap_lanes(_real_scope(), io=io_ex, camera=cam_ex)
-        ScopeSession(settings={}, scope=scope, executor_bundle=real_executor_bundle())
+        construct_session(settings={}, scope=scope, executor_bundle=real_executor_bundle())
 
         # The plain home: the session here holds no settings to read the
         # put-back from, and the lane it runs on is all this test asks.
@@ -95,30 +83,11 @@ class TestDispatchInvariant:
 
 
 # ===========================================================================
-# shutdown(): ownership is the explicit fact, not bundle-presence
+# shutdown(): a session stops everything it holds, its scope included
 # ===========================================================================
 
 
-class TestShutdownOwnership:
-    def test_a_session_stops_the_bundle_it_holds_and_leaves_a_callers_scope(self, monkeypatch):
-        # The bundle is the session's whoever built it: a caller that hands
-        # one to the constructor hands it over. The scope's lanes are the
-        # scope's, and a scope passed in is the caller's, so they run on.
-        bundle = real_executor_bundle()
-        monkeypatch.setattr(bundle, 'shutdown', MagicMock(wraps=bundle.shutdown))
-        af = MagicMock()
-        session = _make_spec_session(
-            executor_bundle=bundle,
-            autofocus_thread=af,
-        )
-        session.shutdown()
-
-        bundle.shutdown.assert_called_once()
-        af.stop.assert_called_once()
-        session.scope.io_lane.return_value.shutdown.assert_not_called()
-        session.scope.camera_lane.return_value.shutdown.assert_not_called()
-        session.scope.disconnect.assert_not_called()
-
+class TestShutdownStopsWhatTheSessionHolds:
     def test_factory_session_shutdown_still_tears_down_its_bundle(self):
         # A factory-built session stops everything it built: the bundle's
         # threads and, through the scope's disconnect, the scope's lanes.
@@ -130,7 +99,11 @@ class TestShutdownOwnership:
         # The scope is the factory's too: the same call disconnects it.
         assert session.scope.imaging.is_streaming() is False
         assert session.scope.motor_connected is False
-        for wrapper in (bundle.protocol_thread, bundle.scope_display_thread):
+        for wrapper in (
+            bundle.protocol_thread,
+            bundle.scope_display_thread,
+            session.autofocus_thread,
+        ):
             thread = wrapper._thread
             assert thread is None or not thread.is_alive(), (
                 f'{type(wrapper).__name__} still running after shutdown()'

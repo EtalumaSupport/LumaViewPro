@@ -36,7 +36,7 @@ import pytest
 from _lumascope.modules import common_utils, config_helpers
 from _lumascope.modules.scheduler import ThreadingTimerScheduler
 from tests.log_capture import records_of
-from tests.scope_fakes import real_executor_bundle
+from tests.scope_fakes import construct_session, real_executor_bundle
 from tests.settings_fixtures import complete_settings
 
 
@@ -274,12 +274,11 @@ class _RecordingScheduler(ThreadingTimerScheduler):
 @pytest.fixture
 def system_tick_interval(sim_scope_a_session_composes):
     """Start a session's metrics and answer the system tick's interval."""
-    from _lumascope.modules.scope_session import ScopeSession
 
     scheduler = _RecordingScheduler()
 
     def started(metrics_interval_s=None, **kwargs):
-        session = ScopeSession(
+        session = construct_session(
             settings=complete_settings(profiling={'metrics_interval_s': metrics_interval_s}),
             scope=sim_scope_a_session_composes,
             executor_bundle=real_executor_bundle(),

@@ -44,6 +44,7 @@ from _lumascope.modules import (
     wall_time,
 )
 from _lumascope.modules.channel_record import ChannelSliderMaxima, refuse_unknown_channel
+from _lumascope.modules.composition import COMPOSED_BY_CREATE, refuse_unless_composed
 from _lumascope.modules.activity_claim import (
     SCOPE_HOLDING_KINDS,
     ActivityClaim,
@@ -690,11 +691,13 @@ class ScopeSession:
         protocol_thread=None,
         autofocus_runner=None,
         autofocus_thread=None,
-        owns_scope: bool = False,
         scheduler: Scheduler | None = None,
         engineering_mode: bool = False,
         no_engineering: bool = False,
+        *,
+        _composition: object = None,
     ):
+        refuse_unless_composed(_composition, 'A ScopeSession')
         self._settings = settings
         # The lock lives with the store it guards. Readers on other threads
         # take a snapshot; every write is update_settings' or a member's.
@@ -768,13 +771,6 @@ class ScopeSession:
         # IO and CAMERA lanes the bundle holds are the scope's, and stop
         # when the scope disconnects.
         self.executor_bundle = executor_bundle
-        # True only when the factory BUILT the scope, False for a scope
-        # handed to the constructor. Decides whether shutdown() runs the hardware half (LEDs
-        # off, disconnect). Coupled to the object here, at construction,
-        # because shutdown() can run before a factory returns (a bring-up
-        # that raises) and a directly constructed session calls it too -- a
-        # flag patched on afterwards would miss both.
-        self._owns_scope = owns_scope
         # The one FILE lane, from the bundle: the run engine and
         # ProtocolRunner write through it, and the session reads the
         # file-drain facts from it.
@@ -1941,6 +1937,7 @@ class ScopeSession:
                 sim_conversion_gain_mode=simulated.conversion_gain_mode,
                 sim_unit_config=simulated.unit_config,
                 on_progress=on_progress,
+                _composition=COMPOSED_BY_CREATE,
             )
             # Armed before the bring-up below, which is what they are for.
             if simulated.model_answer is not None:
@@ -1962,18 +1959,15 @@ class ScopeSession:
 
             autofocus_runner, autofocus_thread = cls._build_autofocus_pair(scope=scope)
 
-            # The ownership fact goes in HERE, before a raise below hands the
-            # teardown to the session: a session torn down mid-factory must
-            # already know the scope is its own.
             session = cls(
                 settings=settings,
                 scope=scope,
                 executor_bundle=executor_bundle,
                 autofocus_runner=autofocus_runner,
                 autofocus_thread=autofocus_thread,
-                owns_scope=True,
                 engineering_mode=engineering_mode,
                 no_engineering=no_engineering,
+                _composition=COMPOSED_BY_CREATE,
             )
             if outcome_listener is not None:
                 session._outcome_listeners.append(outcome_listener)
@@ -6459,10 +6453,9 @@ class ScopeSession:
         counted and reported. While it waits the close logs what it waits for.
 
         Then the teardown. The bundle the session holds always stops: its long-lived consumer
-        threads first, then the FILE lane and the worker pool. When
-        ``owns_scope`` (a factory BUILT the scope), the hardware half
-        follows: the LEDs drained through the io lane while its worker is
-        alive, then the scope disconnected, which shuts its IO and CAMERA
+        threads first, then the FILE lane and the worker pool. The hardware
+        half follows: the LEDs drained through the io lane while its worker
+        is alive, then the scope disconnected, which shuts its IO and CAMERA
         lanes before it turns the LEDs off and stops motion inline -- so a
         headless host gets the same teardown the GUI gets. The consumers
         stop BEFORE the lanes they consume (a consumer mid-iteration that
@@ -6471,15 +6464,14 @@ class ScopeSession:
         protocol_thread drives io + camera + file). Running metrics stop
         first, or their ticks would outlive the executors they snapshot.
 
-        A scope handed to the constructor is left connected with its lanes
-        running: it is the caller's. Callable from any thread, a run's ``run_ended``
-        handler included. One close runs: a call on another thread while it
-        runs waits for it and returns; a call after it is a logged no-op; a
-        call from inside the close returns at once; a call that raised
-        part-way can be called again.
+        Callable from any thread, a run's ``run_ended`` handler included.
+        One close runs: a call on another thread while it runs waits for it
+        and returns; a call after it is a logged no-op; a call from inside
+        the close returns at once; a call that raised part-way can be called
+        again.
 
         Raises:
-            ScopeDisconnectError: a part of an owned scope did not shut down
+            ScopeDisconnectError: a part of the scope did not shut down
                 cleanly; every teardown step has still run, and a second
                 call completes.
         """
@@ -6569,13 +6561,12 @@ class ScopeSession:
         # First: the close has waited for every run, recording and write, so
         # nothing the request protected is still under way.
         self._keep_awake.release()
-        # The session owns its scheduler: a session over a caller's scope
-        # still ends its own timers (a live health check outliving the
-        # session would fire into torn-down state).
+        # The session's timers end first: a live health check outliving the
+        # session would fire into torn-down state.
         self._scheduler.shutdown()
         if self.autofocus_thread is not None:
             self.autofocus_thread.stop(timeout=2.0)
-        if self._owns_scope and self.io_executor.worker_alive and self.io_executor.accepts_work():
+        if self.io_executor.worker_alive and self.io_executor.accepts_work():
             # Drain the LEDs through the io lane BEFORE the lanes go down,
             # on the same serial-bus lane as every other LED write, so it
             # cannot race an in-flight LED task the way a bare thread did.
@@ -6624,13 +6615,12 @@ class ScopeSession:
             except Exception as e:
                 logger.warning(f'[Session  ] leds_off submission failed during shutdown: {e}')
         self.executor_bundle.shutdown()
-        if self._owns_scope:
-            # disconnect() shuts the scope's lanes first, so nothing still
-            # queued on them runs after the off, then turns the LEDs off
-            # inline and bounded, stops motion, ends the motion monitor and
-            # unregisters the atexit hook; it is repeatable, so a host's own
-            # later disconnect is harmless.
-            self.scope.disconnect()
+        # disconnect() shuts the scope's lanes first, so nothing still
+        # queued on them runs after the off, then turns the LEDs off
+        # inline and bounded, stops motion, ends the motion monitor and
+        # unregisters the atexit hook; it is repeatable, so a host's own
+        # later disconnect is harmless.
+        self.scope.disconnect()
         # After the disconnect, which can settle the moves it stops, so their
         # done-callbacks run before the session reports itself closed.
         from _lumascope.modules.operation import join_callback_thread

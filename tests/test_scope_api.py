@@ -24,6 +24,7 @@ from _lumascope.modules.lumascope_api._lumascope import scope_lane_closed
 from _lumascope.modules.sequential_io_executor import SequentialIOExecutor
 from tests.scope_fakes import (
     build_scope,
+    construct_session,
     led_reading,
     real_executor_bundle,
     swap_lanes,
@@ -422,7 +423,7 @@ class TestScopeSession:
             'executor_bundle': real_executor_bundle(),
         }
         defaults.update(kwargs)
-        return ScopeSession(**defaults)
+        return construct_session(**defaults)
 
     def test_a_simulated_create_releases_camera_start_gate(self):
         # connect() leaves the camera configured but NOT grabbing (the
@@ -439,7 +440,7 @@ class TestScopeSession:
     def test_init_stores_all_fields(self):
         settings = _make_settings()
         scope, io, cam = _make_real_scope_with_recording_executors()
-        session = ScopeSession(
+        session = construct_session(
             settings=settings,
             scope=scope,
             executor_bundle=real_executor_bundle(),

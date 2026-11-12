@@ -14,9 +14,9 @@ import dataclasses
 import pytest
 
 from _lumascope.modules.exceptions import ConfigError
-from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+from tests.scope_fakes import construct_scope
 
 
 @pytest.fixture
@@ -97,7 +97,7 @@ def test_a_bound_plate_transform_keeps_its_frame(session):
 
 
 def test_a_scope_no_session_bound_refuses_each_read_by_name():
-    scope = Lumascope(simulate=True, warn_pre_release=False, register_atexit=False)
+    scope = construct_scope(simulate=True, warn_pre_release=False, register_atexit=False)
     try:
         state = scope.runtime_state
         for read in (state.get_labware, state.get_stage_offset, state.get_turret_config):

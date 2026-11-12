@@ -55,18 +55,10 @@ class ProtocolRunner:
         """
         Args:
             session: ScopeSession providing the scope, settings, and
-                executors. Must carry a protocol thread (the factories and
-                the GUI host both compose one); a bare session cannot drive
-                a scan loop.
+                executors.
             engine: The session's one run engine, handed over by the
                 session that composed it (``ScopeSession.protocol_runner``).
         """
-        if session.protocol_thread is None:
-            raise RuntimeError(
-                'ProtocolRunner requires a session composed with a protocol '
-                'thread; build the session via ScopeSession.create, or '
-                'inject protocol_thread at session construction.'
-            )
         self.session = session
         self._executor = engine
 

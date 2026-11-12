@@ -6,13 +6,14 @@ test_serial_ports_are_refused.py names it on a pytest command line.
 
 import serial
 import serial.tools.list_ports as list_ports
+from tests.scope_fakes import construct_scope
 
 
 def test_a_real_scope_swallows_the_refusal_into_null_boards(monkeypatch):
     """Passes on its own terms: a real scope's board registries hand back null
     boards when the real constructors find no port. The guard must fail it anyway."""
     from _lumascope.drivers.registry import DriverFallback, NoLiveDriverError
-    from _lumascope.modules.lumascope_api import Lumascope, _lumascope
+    from _lumascope.modules.lumascope_api import _lumascope
     from tests.settings_fixtures import installation_of_its_own
 
     def no_camera(name='auto', **kwargs):
@@ -21,7 +22,7 @@ def test_a_real_scope_swallows_the_refusal_into_null_boards(monkeypatch):
         raise NoLiveDriverError('camera', DriverFallback('not_detected', ()))
 
     monkeypatch.setattr(_lumascope.camera_registry, 'create', no_camera)
-    instance = Lumascope(source_path=installation_of_its_own(), warn_pre_release=False)
+    instance = construct_scope(source_path=installation_of_its_own(), warn_pre_release=False)
     try:
         assert instance._motion_driver is not None
     finally:
