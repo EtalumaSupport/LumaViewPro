@@ -8,7 +8,8 @@ against the best its port can do, with every other present device Windows
 has a problem code for (a device whose descriptor could not be read reports
 a generic vendor and product); off Windows, each device the bundled USB
 library sees, with its bus, ports and speed. A layer the host could not
-read is named on its device; the census goes on.
+read is named on its device; the census goes on. A host whose bus cannot
+be read gives a census that says why, never an empty bus.
 
 Windows' walk is built here from recorded property sets, the hub's answer
 from its fields; the walk and the hub query themselves run only on Windows.
@@ -16,10 +17,8 @@ from its fields; the walk and the hub query themselves run only on Windows.
 
 from types import SimpleNamespace
 
-import pytest
-
 from _lumascope.drivers import fx2driver
-from _lumascope.drivers.exceptions import CameraUsbLookupFailedError, UsbCensusUnreadableError
+from _lumascope.drivers.exceptions import CameraUsbLookupFailedError
 from _lumascope.drivers.usb_census import HubPort, census_from
 from _lumascope.drivers.usb_driver_binding import DeviceProperties
 
@@ -160,15 +159,15 @@ def test_off_windows_each_census_vendors_device_the_library_sees_is_listed(monke
     a_mouse = _LibraryDevice(idVendor=0x046D, idProduct=0xC077, bus=1, port_numbers=(2,), speed=2)
     _library(monkeypatch, [a_mouse, basler])
 
-    source, devices = fx2driver.usb_library_devices([0x2676, 0x04B4])
+    census = fx2driver.usb_library_census([0x2676, 0x04B4])
 
-    assert source.startswith('libusb ')
-    (seen,) = devices
+    assert census.source.startswith('libusb ') and census.unreadable is None
+    (seen,) = census.devices
     assert (seen.vendor, seen.location, seen.speed_mbps) == ('Basler', 'bus 2 port 1.3', 480.0)
     assert seen.binding is None and seen.port_best_mbps is None
 
 
-def test_off_windows_a_library_that_cannot_list_the_bus_makes_the_census_unreadable(monkeypatch):
+def test_off_windows_a_library_that_cannot_list_the_bus_gives_a_census_saying_so(monkeypatch):
     def no_backend(find_all, custom_match):
         raise ValueError('No backend available')
 
@@ -181,14 +180,13 @@ def test_off_windows_a_library_that_cannot_list_the_bus_makes_the_census_unreada
         raising=False,
     )
 
-    with pytest.raises(UsbCensusUnreadableError) as unreadable:
-        fx2driver.usb_library_devices([0x2676])
+    census = fx2driver.usb_library_census([0x2676])
 
-    assert unreadable.value.reason == 'usb_census_unreadable'
-    assert 'No backend available' in str(unreadable.value)
+    assert census.devices == ()
+    assert census.unreadable == 'could not list the bus: No backend available'
 
 
-def test_off_windows_a_usb_library_not_in_use_makes_the_census_unreadable_naming_why(monkeypatch):
+def test_off_windows_a_usb_library_not_in_use_gives_a_census_saying_why(monkeypatch):
     # a stand-in by design: a host whose bundled libusb was refused at import.
     monkeypatch.setattr(
         fx2driver,
@@ -198,7 +196,7 @@ def test_off_windows_a_usb_library_not_in_use_makes_the_census_unreadable_naming
         ),
     )
 
-    with pytest.raises(UsbCensusUnreadableError) as unreadable:
-        fx2driver.usb_library_devices([0x2676])
+    census = fx2driver.usb_library_census([0x2676])
 
-    assert 'the USB library is not in use: libusb-package is not installed' in str(unreadable.value)
+    assert census.devices == ()
+    assert census.unreadable == 'the USB library is not in use: libusb-package is not installed'

@@ -106,7 +106,7 @@ class SimulatedUsbBus:
                 unreadable=(),
             )
             devices.append(_device(_UNIDENTIFIED, port, binding=failed))
-        return UsbCensus(source='the simulated bus', devices=tuple(devices))
+        return UsbCensus(source='the simulated bus', devices=tuple(devices), unreadable=None)
 
 
 _ROOT_HUB = 'USB\\ROOT_HUB30\\SIMULATED'

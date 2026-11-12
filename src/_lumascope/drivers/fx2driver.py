@@ -113,9 +113,8 @@ from _lumascope.drivers.exceptions import (
     CameraUsbOpenFailedError,
     CameraWriteFailedError,
     HardwareError,
-    UsbCensusUnreadableError,
 )
-from _lumascope.drivers.usb_census import CensusDevice
+from _lumascope.drivers.usb_census import CensusDevice, UsbCensus
 from _lumascope.drivers.usb_driver_binding import (
     CENSUS_VENDORS,
     DEVICE_NAMES,
@@ -1684,29 +1683,29 @@ def _library_devices(vendor_ids: set[int]) -> list[Any]:
     return list(usb.core.find(find_all=True, custom_match=lambda d: d.idVendor in vendor_ids))
 
 
-def usb_library_devices(vendor_ids: Iterable[int]) -> tuple[str, list[CensusDevice]]:
-    """Each present device of ``vendor_ids`` the bundled USB library sees, for the census.
+def usb_library_census(vendor_ids: Iterable[int]) -> UsbCensus:
+    """Each present device of ``vendor_ids`` the bundled USB library sees, as the census.
 
     Its bus and port path, and the speed it negotiated; the library cannot
-    say what its port could do, and the host binds no driver to it.
-
-    Returns:
-        tuple[str, list[CensusDevice]]: The library read through, and the devices.
-
-    Raises:
-        UsbCensusUnreadableError: The bundled libusb is not in use, or it
-            could not list the bus, naming why.
+    say what its port could do, and the host binds no driver to it. A
+    bundled libusb not in use, or one that cannot list the bus, gives a
+    census that says why.
     """
     if not _HAS_USB or _FX2_GATE.library_path is None:
-        raise UsbCensusUnreadableError(
-            f'the USB library is not in use: {_FX2_GATE.library_refusal}'
+        return UsbCensus(
+            source='the USB library',
+            devices=(),
+            unreadable=f'the USB library is not in use: {_FX2_GATE.library_refusal}',
         )
     library = _library_name()
     try:
         devices = _library_devices(set(vendor_ids))
     except (*_usb_errors(), usb.core.NoBackendError) as e:
-        raise UsbCensusUnreadableError(f'{library} could not list the bus: {e}') from e
-    return library, [_census_device(device) for device in devices]
+        # Told in the census itself: the bus is not known, not empty.
+        return UsbCensus(source=library, devices=(), unreadable=f'could not list the bus: {e}')
+    return UsbCensus(
+        source=library, devices=tuple(_census_device(d) for d in devices), unreadable=None
+    )
 
 
 def _census_device(device: Any) -> CensusDevice:

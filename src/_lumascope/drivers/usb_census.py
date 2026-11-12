@@ -13,11 +13,12 @@ vendor in ``CENSUS_VENDORS``, present or seen before:
   hub the speed it negotiated and the best its port can do; and every
   other present USB device Windows has a problem code for, since a device
   whose descriptor could not be read reports a generic vendor and product;
-- off Windows, through the bundled USB library (``fx2driver.usb_library_devices``,
+- off Windows, through the bundled USB library (``fx2driver.usb_library_census``,
   the one module that loads it): each present device, its bus and ports,
   and its negotiated speed; the host binds no driver to a USB device there.
 
-The census decides nothing and starts nothing: it is read and logged.
+The census decides nothing and starts nothing: it is read and logged. A
+host whose device list cannot be read gives a census that says why.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from _lumascope.drivers.exceptions import CameraUsbLookupFailedError, UsbCensusUnreadableError
+from _lumascope.drivers.exceptions import CameraUsbLookupFailedError
 from _lumascope.drivers.usb_driver_binding import (
     CENSUS_VENDORS,
     FX2_BOOTLOADER,
@@ -137,16 +138,25 @@ class CensusDevice:
 
 @dataclass(frozen=True)
 class UsbCensus:
-    """The census of one read: the devices, and what the host read them through.
+    """The census of one read: what the host read the bus through, and what it found.
+
+    A host whose bus cannot be read gives a census that says so: what is on
+    the bus is then not known, which is a fact about the host, told with
+    the census and never as an empty bus.
 
     Attributes:
-        source: ``Windows device list`` or the USB library and its version.
+        source: ``Windows' device list``, or the USB library and its version.
         devices: Each device of a census vendor, then each other present
-            device with a problem code, in the order the host listed them.
+            device with a problem code, in the order the host listed them;
+            empty when ``unreadable``.
+        unreadable: Why the host's device list could not be read (Windows'
+            device list failed, or off Windows the USB library is not in
+            use); None when it was read.
     """
 
     source: str
     devices: tuple[CensusDevice, ...]
+    unreadable: str | None
 
 
 def ids_of(instance_id: str) -> tuple[str | None, str | None]:
@@ -212,26 +222,20 @@ def census_from(
 
 
 def read_census() -> UsbCensus:
-    """This host's census, read now.
-
-    Raises:
-        UsbCensusUnreadableError: The host's device list could not be read,
-            or off Windows the USB library is not in use, naming why.
-    """
+    """This host's census, read now; a host whose bus cannot be read gives one that says why."""
     if sys.platform == 'win32':
         return _windows_census()
-    from _lumascope.drivers.fx2driver import (
-        usb_library_devices,
-    )  # local-import: the one libusb loader
+    # local-import: the FX2 driver is the one module that loads the USB library.
+    from _lumascope.drivers.fx2driver import usb_library_census
 
-    source, devices = usb_library_devices(int(vid, 16) for vid in CENSUS_VENDORS)
-    return UsbCensus(source=source, devices=tuple(devices))
+    return usb_library_census(int(vid, 16) for vid in CENSUS_VENDORS)
 
 
 def _windows_census() -> UsbCensus:
     from _lumascope.drivers.usb_driver_binding import store_inf_folder, store_packages
     from _lumascope.drivers.winusb_iso import hub_port, usb_devices  # local-import: Windows only
 
+    source = "Windows' device list"
     try:
         ours = {
             p.inf.lower()
@@ -241,5 +245,6 @@ def _windows_census() -> UsbCensus:
         }
         devices = usb_devices(lambda _instance_id: True)
     except (CameraUsbLookupFailedError, OSError) as e:
-        raise UsbCensusUnreadableError(f"Windows' USB device list: {e}") from e
-    return UsbCensus(source="Windows' device list", devices=census_from(devices, ours, hub_port))
+        # Told in the census itself: the bus is not known, not empty.
+        return UsbCensus(source=source, devices=(), unreadable=str(e))
+    return UsbCensus(source=source, devices=census_from(devices, ours, hub_port), unreadable=None)
