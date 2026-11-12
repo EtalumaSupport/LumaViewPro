@@ -54,6 +54,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`Credit`](#Credit)
 - [`DegradedOutput`](#DegradedOutput)
 - [`DeliveredRate`](#DeliveredRate)
+- [`DisconnectFailure`](#DisconnectFailure)
 - [`DisplayRates`](#DisplayRates)
 - [`EnhanceResult`](#EnhanceResult)
 - [`EnhancedFile`](#EnhancedFile)
@@ -10267,6 +10268,29 @@ camera not streaming, or no recent window measured.
 - <a id="DeliveredRate.bytes_per_s"></a>`bytes_per_s`: `float` -- The bytes per second those same frames took on the link: the payload the camera sent, not the transport's protocol overhead.
 - <a id="DeliveredRate.frame_rate_fps"></a>`frame_rate_fps`: `float` -- The frames stored per second, whatever any display does with them.
 
+<a id="DisconnectFailure"></a>
+## `lumascope.DisconnectFailure`
+
+A record: it crosses the wire as its data.  
+Held in: [`ScopeDisconnectError.failures`](#ScopeDisconnectError.failures).
+
+One step of a board's teardown that did not complete.
+
+The LEDs' off is the LED controller's step and the motor STOP the motor
+controller's; every board has its own disconnect. A board can fail
+more than one step: an LED controller whose off and disconnect both
+raised is two failures.
+
+**Raises**
+
+- `TypeError`: a step the board does not take.
+
+**Fields**
+
+- <a id="DisconnectFailure.board"></a>`board`: `Board` -- The board.
+- <a id="DisconnectFailure.reason"></a>`reason`: `str | None` -- The failed step's reason; None for an error that carries none.
+- <a id="DisconnectFailure.step"></a>`step`: `DisconnectStep` -- What failed on it.
+
 <a id="DisplayRates"></a>
 ## `lumascope.DisplayRates`
 
@@ -13698,7 +13722,7 @@ darkfield is transmitted light on a dark field.
 ### `lumascope.Board`
 
 Returned by: [`Lumascope.unconnected_parts`](#Lumascope.unconnected_parts).  
-Held in: [`PartStatus.part`](#PartStatus.part), [`ProtocolRunRefusedError.unconnected_parts`](#ProtocolRunRefusedError.unconnected_parts), [`RunOutcome.unconnected_parts`](#RunOutcome.unconnected_parts).  
+Held in: [`DisconnectFailure.board`](#DisconnectFailure.board), [`PartStatus.part`](#PartStatus.part), [`ProtocolRunRefusedError.unconnected_parts`](#ProtocolRunRefusedError.unconnected_parts), [`RunOutcome.unconnected_parts`](#RunOutcome.unconnected_parts).  
 Taken by: [`SimulationAPI.delay_reply`](#SimulationAPI.delay_reply), [`SimulationAPI.drop_replies`](#SimulationAPI.drop_replies), [`SimulationAPI.reboot`](#SimulationAPI.reboot), [`SimulationAPI.replug`](#SimulationAPI.replug), [`SimulationAPI.silence`](#SimulationAPI.silence), [`SimulationAPI.unplug`](#SimulationAPI.unplug), [`SimulationAPI.unsilence`](#SimulationAPI.unsilence).
 
 A board a scope is brought up from, in the order bring-up connects them.
@@ -13827,18 +13851,16 @@ record of a wait names who counted each frame.
 - `grab`
 - `preview`
 
-<a id="DisconnectPart"></a>
-### `lumascope.DisconnectPart`
+<a id="DisconnectStep"></a>
+### `lumascope.DisconnectStep`
 
-Held in: [`ScopeDisconnectError.part_reasons`](#ScopeDisconnectError.part_reasons), [`ScopeDisconnectError.parts`](#ScopeDisconnectError.parts).
+Held in: [`DisconnectFailure.step`](#DisconnectFailure.step).
 
-A part of the microscope `Lumascope.disconnect` shuts down, in teardown order.
+What `Lumascope.disconnect` does to a board: the LEDs' off, the motor STOP, the board's own disconnect.
 
-- `LEDs off` (`LEDS_OFF`)
-- `motor stop` (`MOTOR_STOP`)
-- `LED board` (`LED_BOARD`)
-- `motor board` (`MOTOR_BOARD`)
-- `camera`
+- `leds_off`
+- `motor_stop`
+- `disconnect`
 
 <a id="EntryKind"></a>
 ### `lumascope.EntryKind`
@@ -17760,21 +17782,20 @@ One or more parts of the microscope did not shut down cleanly.
 
 Raised by `Lumascope.disconnect` only after every teardown step has
 run, so one part's failure never leaves the others connected. Names
-each part that failed, in the order the teardown reached it, and is
-chained from the first part's error. Each part's error is kept private
-and logged where it was caught: an exception has no wire form, so what
-a client reads is each part's reason. A failure, not a refusal.
+each step that failed, on its board, in the order the teardown reached
+it, and is chained from the first one's error. Each step's error is
+kept private and logged where it was caught: an exception has no wire
+form, so what a client reads is each failure's reason. A failure, not
+a refusal.
 
 **Attributes**
 
 - `reason`: `'disconnect_failed'`.
-- `parts`: The parts that failed, in teardown order.
-- `part_reasons`: Each failed part's reason, keyed by part; None for an error that carries none.
+- `failures`: The steps that failed, in teardown order.
 
 **Fields**
 
-- <a id="ScopeDisconnectError.part_reasons"></a>`part_reasons`: `dict[DisconnectPart, str | None]` -- Each failed part's reason, keyed by part; None for an error that carries none.
-- <a id="ScopeDisconnectError.parts"></a>`parts`: `tuple[DisconnectPart, ...]` -- The parts that failed, in teardown order.
+- <a id="ScopeDisconnectError.failures"></a>`failures`: `tuple[DisconnectFailure, ...]` -- The steps that failed, in teardown order.
 
 | Reason | Cause | REST status |
 |---|---|---|

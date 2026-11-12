@@ -11,12 +11,14 @@ import threading
 import pytest
 
 from _lumascope.modules.exceptions import (
+    DisconnectStep,
     MoveFaultError,
     MoveNotCompletedError,
     MoveStoppedError,
     ScopeDisconnectError,
 )
 from _lumascope.modules.axes import AxisState
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -103,7 +105,9 @@ def test_a_move_the_closes_failed_stop_was_meant_to_end_ends_stopped(session):
     with pytest.raises(ScopeDisconnectError) as raised:
         session.scope.disconnect()
 
-    assert raised.value.parts == ('motor stop',)
+    assert [(f.board, f.step) for f in raised.value.failures] == [
+        (Board.MOTOR, DisconnectStep.MOTOR_STOP)
+    ]
     assert _ending(handle) == (MoveStoppedError, 'stopped')
 
 

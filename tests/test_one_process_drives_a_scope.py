@@ -26,6 +26,7 @@ import pytest
 
 import _lumascope.modules.lumascope_api._lumascope as lumascope_module
 from _lumascope.modules.exceptions import (
+    DisconnectStep,
     InstallationFileError,
     ScopeDisconnectError,
     ScopeInUseError,
@@ -33,6 +34,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.lvp_lock import take_instance_lock
 from _lumascope.modules.path_utils import get_source_root
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings, installation_of_its_own
 
@@ -169,7 +171,9 @@ def test_a_host_composes_again_after_a_refused_bring_up_whose_teardown_raised(
     # A stand-in by design: no simulated part raises from its teardown.
     def raising_disconnect(scope):
         real_disconnect(scope)
-        raise ScopeDisconnectError({'camera': RuntimeError('did not close')})
+        raise ScopeDisconnectError(
+            {(Board.CAMERA, DisconnectStep.DISCONNECT): RuntimeError('did not close')}
+        )
 
     def refused_bring_up(session, replaced):
         raise PermissionError('the bring-up was refused')
@@ -209,7 +213,9 @@ def test_a_real_scope_gives_the_lock_back_at_a_disconnect_that_raises(no_hardwar
     # A stand-in by design: no simulated part raises from its teardown.
     def raising_disconnect(scope):
         real_disconnect(scope)
-        raise ScopeDisconnectError({'camera': RuntimeError('did not close')})
+        raise ScopeDisconnectError(
+            {(Board.CAMERA, DisconnectStep.DISCONNECT): RuntimeError('did not close')}
+        )
 
     monkeypatch.setattr(lumascope_module.Lumascope, '_disconnect', raising_disconnect)
     with pytest.raises(ScopeDisconnectError):

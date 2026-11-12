@@ -15,7 +15,12 @@ from __future__ import annotations
 import pytest
 
 from _lumascope.drivers.exceptions import BoardNoReplyError
-from _lumascope.modules.exceptions import MotorStopFailedError, ScopeDisconnectError
+from _lumascope.modules.exceptions import (
+    DisconnectStep,
+    MotorStopFailedError,
+    ScopeDisconnectError,
+)
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.axes import AxisState
 from tests.scope_fakes import build_scope
 
@@ -72,7 +77,9 @@ def test_disconnect_raises_a_failed_stop_after_finishing(scope, centre_posts, mo
     with pytest.raises(ScopeDisconnectError) as excinfo:
         scope.disconnect()
 
-    assert excinfo.value.parts == ('motor stop',)
+    assert [(f.board, f.step) for f in excinfo.value.failures] == [
+        (Board.MOTOR, DisconnectStep.MOTOR_STOP)
+    ]
     assert isinstance(excinfo.value.__cause__, MotorStopFailedError)
     assert centre_posts == [], 'disconnect shows nothing; its caller reports it'
     assert scope.motor_connected is False

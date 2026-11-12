@@ -80,7 +80,7 @@ from _lumascope.modules.exceptions import (
     CameraNotAvailableError,
     CameraSettingRejected,
     ConfigurationDefectError,
-    DisconnectPart,
+    DisconnectStep,
     FrameRefittedNotice,
     HardwareCommandRefusedError,
     InstallationFileError,
@@ -2189,10 +2189,10 @@ class Lumascope:
         for it, then finds nothing left.
 
         Raises:
-            ScopeDisconnectError: after every step has run, naming each part
-                that did not shut down cleanly (the LEDs' off, the motor STOP,
-                the LED board, the motor board, the camera), chained from the first
-                part's error. Nothing is logged or shown here; the caller
+            ScopeDisconnectError: after every step has run, naming each
+                step that did not complete on its board (the LEDs' off, the
+                motor STOP, each board's disconnect), chained from the first
+                one's error. Nothing is logged or shown here; the caller
                 reports it where it stops.
         """
         with self._disconnect_lock:
@@ -2291,12 +2291,12 @@ class Lumascope:
         # first so the ordering the atexit hook relies on is unchanged.
         # A failure is recorded as the motor stop's is, since the sample may
         # be left lit, and the port teardown still proceeds.
-        failures: dict[DisconnectPart, BaseException] = {}
+        failures: dict[tuple[Board, DisconnectStep], BaseException] = {}
         try:
             self.illumination._leds_off_emergency()
         except Exception as ex:
             logger.exception(f'[SCOPE API ] LED shutoff during disconnect failed: {ex}')
-            failures[DisconnectPart.LEDS_OFF] = ex
+            failures[Board.LED, DisconnectStep.LEDS_OFF] = ex
 
         # LVP-A-1: stop motors before tearing down the serial port so we
         # don't leave a stage/turret moving against an end-stop after
@@ -2311,7 +2311,7 @@ class Lumascope:
             try:
                 self.motion._stop()
             except Exception as e:
-                failures[DisconnectPart.MOTOR_STOP] = e
+                failures[Board.MOTOR, DisconnectStep.MOTOR_STOP] = e
 
         # Stop the motion monitor and reset axis states -- MotionAPI._disconnect()
         # handles both: signals the monitor thread, waits for it, then resets
@@ -2333,7 +2333,7 @@ class Lumascope:
             try:
                 self._led_driver.disconnect()
             except Exception as ex:
-                failures[DisconnectPart.LED_BOARD] = ex
+                failures[Board.LED, DisconnectStep.DISCONNECT] = ex
         self._led_driver = NullLEDBoard()
         # The emergency off above leaves the state store as it was; with the
         # board gone nothing is lit, and the listeners hear it here (a
@@ -2346,7 +2346,7 @@ class Lumascope:
             try:
                 self._motion_driver.disconnect()
             except Exception as ex:
-                failures[DisconnectPart.MOTOR_BOARD] = ex
+                failures[Board.MOTOR, DisconnectStep.DISCONNECT] = ex
         self._motion_driver = NullMotionBoard()
 
         if self._camera_driver is not None and hasattr(self._camera_driver, 'disconnect'):
@@ -2358,7 +2358,7 @@ class Lumascope:
             try:
                 self._camera_driver.disconnect()
             except Exception as ex:
-                failures[DisconnectPart.CAMERA] = ex
+                failures[Board.CAMERA, DisconnectStep.DISCONNECT] = ex
             self._camera_driver = None
         elif self._camera_driver is not None:
             # Camera lacked a `disconnect` method (test-fixture artifact);
@@ -2388,8 +2388,10 @@ class Lumascope:
             logger.warning(f'[SCOPE API ] atexit unregister failed: {_e}')
 
         if failures:
-            for part, error in failures.items():
-                logger.error(f'[SCOPE API ] {part} did not disconnect: {error!r}', exc_info=error)
+            for (board, step), error in failures.items():
+                logger.error(
+                    f'[SCOPE API ] {board.noun} {step} did not complete: {error!r}', exc_info=error
+                )
             raise ScopeDisconnectError(failures) from next(iter(failures.values()))
 
     def _emergency_shutdown(self):

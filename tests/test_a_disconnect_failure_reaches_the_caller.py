@@ -5,8 +5,9 @@ Before, `disconnect` caught each part's failure, logged it, posted its own
 popup and returned a bool no caller read. The GUI mutes notifications before
 it shuts down, so the popup was never seen, and `shutdown` returned nothing,
 so an SDK or REST caller was never told. Now `disconnect` runs every step,
-then raises one `ScopeDisconnectError` naming each part that failed; the
-paths already failing for another reason report it and keep their own fault.
+then raises one `ScopeDisconnectError` naming each step that failed on its
+board, as data (`failures`); the paths already failing for another reason
+report it and keep their own fault.
 """
 
 from unittest.mock import MagicMock
@@ -14,9 +15,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from _lumascope.drivers.exceptions import BoardNoReplyError
-from _lumascope.modules.exceptions import DisconnectPart, MotorStopFailedError, ScopeDisconnectError
+from _lumascope.modules.exceptions import (
+    DisconnectFailure,
+    DisconnectStep,
+    MotorStopFailedError,
+    ScopeDisconnectError,
+)
 from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.notification_center import _UNTYPED_FAULT_BODY, outcome_of
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
@@ -30,7 +37,7 @@ def sim_scope():
     scope.disconnect()
 
 
-def test_the_fault_names_the_part_in_its_own_words_and_is_chained(sim_scope):
+def test_the_fault_names_the_board_and_step_in_its_own_words_and_is_chained(sim_scope):
     driver_error = RuntimeError('port gone')
     sim_scope._led_driver.disconnect = MagicMock(side_effect=driver_error)
 
@@ -40,15 +47,14 @@ def test_the_fault_names_the_part_in_its_own_words_and_is_chained(sim_scope):
     fault = excinfo.value
     assert fault.__cause__ is driver_error
     assert fault.reason == 'disconnect_failed'
-    assert fault.parts == (DisconnectPart.LED_BOARD,)
-    # The driver's error carries no reason; a client reads the part, never the error.
-    assert fault.part_reasons == {DisconnectPart.LED_BOARD: None}
-    assert 'LED board did not shut down cleanly' in str(fault)
+    # The driver's error carries no reason; a client reads the failure, never the error.
+    assert fault.failures == (DisconnectFailure(Board.LED, DisconnectStep.DISCONNECT, None),)
+    assert 'LED controller did not shut down cleanly' in str(fault)
     assert outcome_of(fault).for_person, 'the person reads its words, not the generic body'
     assert str(fault) != _UNTYPED_FAULT_BODY
 
 
-def test_two_parts_failing_are_one_fault_naming_both_in_teardown_order(sim_scope):
+def test_two_boards_failing_are_one_fault_naming_both_in_teardown_order(sim_scope):
     led_error, camera_error = RuntimeError('led'), RuntimeError('camera')
     sim_scope._led_driver.disconnect = MagicMock(side_effect=led_error)
     sim_scope._camera_driver.disconnect = MagicMock(side_effect=camera_error)
@@ -56,11 +62,14 @@ def test_two_parts_failing_are_one_fault_naming_both_in_teardown_order(sim_scope
     with pytest.raises(ScopeDisconnectError) as excinfo:
         sim_scope.disconnect()
 
-    assert excinfo.value.parts == ('LED board', 'camera')
+    assert [(f.board, f.step) for f in excinfo.value.failures] == [
+        (Board.LED, DisconnectStep.DISCONNECT),
+        (Board.CAMERA, DisconnectStep.DISCONNECT),
+    ]
     assert excinfo.value.__cause__ is led_error
 
 
-def test_an_led_off_that_failed_is_a_failed_part_ahead_of_the_rest(sim_scope):
+def test_an_led_off_that_failed_is_the_led_controllers_failure_ahead_of_the_rest(sim_scope):
     """The sample may be left lit, so it is reported as the motor stop is."""
     board_error = BoardNoReplyError('no response from LED board')
     sim_scope._led_driver.leds_off = MagicMock(side_effect=board_error)
@@ -69,10 +78,37 @@ def test_an_led_off_that_failed_is_a_failed_part_ahead_of_the_rest(sim_scope):
         sim_scope.disconnect()
 
     fault = excinfo.value
-    assert fault.parts[0] == DisconnectPart.LEDS_OFF
-    assert fault.part_reasons[DisconnectPart.LEDS_OFF] == 'board_no_reply'
+    assert fault.failures[0] == DisconnectFailure(
+        Board.LED, DisconnectStep.LEDS_OFF, 'board_no_reply'
+    )
     assert fault.__cause__ is board_error
     assert 'may still be lit' in str(fault)
+
+
+def test_one_board_failing_two_steps_is_two_failures_in_teardown_order(sim_scope):
+    """The LED controller's off and its disconnect are separate facts: the sample
+    may be lit, and the port may be held."""
+    sim_scope._led_driver.leds_off = MagicMock(side_effect=BoardNoReplyError('no reply'))
+    sim_scope._led_driver.disconnect = MagicMock(side_effect=RuntimeError('port gone'))
+
+    with pytest.raises(ScopeDisconnectError) as excinfo:
+        sim_scope.disconnect()
+
+    assert [(f.board, f.step) for f in excinfo.value.failures] == [
+        (Board.LED, DisconnectStep.LEDS_OFF),
+        (Board.LED, DisconnectStep.DISCONNECT),
+    ]
+
+
+def test_a_failure_is_refused_a_step_its_board_does_not_take():
+    """Only the LED controller has an off and only the motor controller a STOP."""
+    for board, step in [
+        (Board.CAMERA, DisconnectStep.LEDS_OFF),
+        (Board.LED, DisconnectStep.MOTOR_STOP),
+        (Board.MOTOR, DisconnectStep.LEDS_OFF),
+    ]:
+        with pytest.raises(TypeError, match=f'no {step} step'):
+            DisconnectFailure(board, step)
 
 
 def test_a_camera_that_answers_false_is_not_a_failed_part(sim_scope):
@@ -97,7 +133,9 @@ def test_a_failed_stop_does_not_skip_the_board_teardown(sim_scope, monkeypatch, 
     with pytest.raises(ScopeDisconnectError) as excinfo:
         sim_scope.disconnect()
 
-    assert excinfo.value.parts == ('motor stop',)
+    assert [(f.board, f.step) for f in excinfo.value.failures] == [
+        (Board.MOTOR, DisconnectStep.MOTOR_STOP)
+    ]
     assert excinfo.value.__cause__ is stop_error
     assert isinstance(sim_scope._led_driver, NullLEDBoard)
     assert isinstance(sim_scope._motion_driver, NullMotionBoard)
@@ -112,7 +150,9 @@ def test_session_shutdown_raises_it_and_a_second_call_completes(tmp_path):
     with pytest.raises(ScopeDisconnectError) as excinfo:
         session.shutdown()
 
-    assert excinfo.value.parts == ('motor board',)
+    assert [(f.board, f.step) for f in excinfo.value.failures] == [
+        (Board.MOTOR, DisconnectStep.DISCONNECT)
+    ]
     assert session._shut_down is False
     session.shutdown()
     assert session._shut_down is True
@@ -123,7 +163,7 @@ def _disconnect_then_fail(monkeypatch):
 
     def disconnect(self):
         real(self)
-        raise ScopeDisconnectError({'camera': None})
+        raise ScopeDisconnectError({(Board.CAMERA, DisconnectStep.DISCONNECT): None})
 
     monkeypatch.setattr(Lumascope, 'disconnect', disconnect)
 

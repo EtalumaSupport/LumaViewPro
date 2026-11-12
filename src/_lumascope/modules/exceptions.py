@@ -5141,70 +5141,102 @@ class MotorStopFailedError(Fault, Exception):
         )
 
 
-class DisconnectPart(StrEnum):
-    """A part of the microscope ``Lumascope.disconnect`` shuts down, in teardown order."""
+class DisconnectStep(StrEnum):
+    """What ``Lumascope.disconnect`` does to a board: the LEDs' off, the motor STOP, the board's own disconnect."""
 
-    LEDS_OFF = 'LEDs off'
-    MOTOR_STOP = 'motor stop'
-    LED_BOARD = 'LED board'
-    MOTOR_BOARD = 'motor board'
-    CAMERA = 'camera'
+    LEDS_OFF = 'leds_off'
+    MOTOR_STOP = 'motor_stop'
+    DISCONNECT = 'disconnect'
 
 
-@api_fields('parts', 'part_reasons')
+# Each step a board's teardown takes, and what the person at the scope is
+# told when it fails. A board's disconnect leaves its port or its USB
+# resources held; the LEDs' off and the motor STOP leave the sample lit or
+# the stage moving, so each names the power-cycle.
+_DISCONNECT_WORDS: dict[tuple[Board, DisconnectStep], str] = {
+    (Board.LED, DisconnectStep.LEDS_OFF): (
+        'The LEDs were not confirmed off, so the sample may still be lit; '
+        'power-cycle the microscope to turn them off.'
+    ),
+    (Board.MOTOR, DisconnectStep.MOTOR_STOP): (
+        'The motor STOP command failed; if the stage is still moving, power-cycle the microscope.'
+    ),
+    (Board.LED, DisconnectStep.DISCONNECT): (
+        f'The {Board.LED.noun} did not shut down cleanly; its serial port may be '
+        'left open, and reconnecting may require a restart.'
+    ),
+    (Board.MOTOR, DisconnectStep.DISCONNECT): (
+        f'The {Board.MOTOR.noun} did not shut down cleanly; its serial port may be '
+        'left open, and reconnecting may require a restart.'
+    ),
+    (Board.CAMERA, DisconnectStep.DISCONNECT): (
+        'The camera did not shut down cleanly; its USB resources may not be '
+        'released until the app restarts.'
+    ),
+}
+
+
+@api_fields('board', 'reason', 'step')
+@dataclass(frozen=True)
+class DisconnectFailure:
+    """One step of a board's teardown that did not complete.
+
+    The LEDs' off is the LED controller's step and the motor STOP the motor
+    controller's; every board has its own disconnect. A board can fail
+    more than one step: an LED controller whose off and disconnect both
+    raised is two failures.
+
+    Attributes:
+        board: The board.
+        step: What failed on it.
+        reason: The failed step's reason; None for an error that carries none.
+
+    Raises:
+        TypeError: a step the board does not take.
+    """
+
+    board: Board
+    step: DisconnectStep
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.board, self.step) not in _DISCONNECT_WORDS:
+            raise TypeError(f'the {self.board} board has no {self.step} step')
+
+    @property
+    def sentence(self) -> str:
+        """What the person at the scope is told."""
+        return _DISCONNECT_WORDS[(self.board, self.step)]
+
+
+@api_fields('failures')
 class ScopeDisconnectError(Fault, Exception):
     """One or more parts of the microscope did not shut down cleanly.
 
     Raised by ``Lumascope.disconnect`` only after every teardown step has
     run, so one part's failure never leaves the others connected. Names
-    each part that failed, in the order the teardown reached it, and is
-    chained from the first part's error. Each part's error is kept private
-    and logged where it was caught: an exception has no wire form, so what
-    a client reads is each part's reason. A failure, not a refusal.
+    each step that failed, on its board, in the order the teardown reached
+    it, and is chained from the first one's error. Each step's error is
+    kept private and logged where it was caught: an exception has no wire
+    form, so what a client reads is each failure's reason. A failure, not
+    a refusal.
 
     Attributes:
         reason: ``'disconnect_failed'``.
-        parts: The parts that failed, in teardown order.
-        part_reasons: Each failed part's reason, keyed by part; None for an
-            error that carries none.
+        failures: The steps that failed, in teardown order.
     """
 
-    parts: tuple[DisconnectPart, ...]
-    part_reasons: dict[DisconnectPart, str | None]
+    failures: tuple[DisconnectFailure, ...]
     words_for_person = True
     title = 'Disconnect Failed'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'disconnect_failed': None}
 
-    _PART_WORDS: ClassVar[dict[DisconnectPart, str]] = {
-        DisconnectPart.LEDS_OFF: (
-            'The LEDs were not confirmed off, so the sample may still be lit; '
-            'power-cycle the microscope to turn them off.'
-        ),
-        DisconnectPart.MOTOR_STOP: (
-            'The motor STOP command failed; if the stage is still moving, '
-            'power-cycle the microscope.'
-        ),
-        DisconnectPart.LED_BOARD: (
-            'The LED board did not shut down cleanly; its serial port may be '
-            'left open, and reconnecting may require a restart.'
-        ),
-        DisconnectPart.MOTOR_BOARD: (
-            'The motor board did not shut down cleanly; its serial port may be '
-            'left open, and reconnecting may require a restart.'
-        ),
-        DisconnectPart.CAMERA: (
-            'The camera did not shut down cleanly; its USB resources may not be '
-            'released until the app restarts.'
-        ),
-    }
-
-    def __init__(self, errors: dict[DisconnectPart, BaseException]):
-        self._part_errors = {DisconnectPart(part): error for part, error in errors.items()}
-        self.parts = tuple(self._part_errors)
-        self.part_reasons = {
-            part: getattr(error, 'reason', None) for part, error in self._part_errors.items()
-        }
-        super().__init__(' '.join(self._PART_WORDS[part] for part in self.parts))
+    def __init__(self, errors: dict[tuple[Board, DisconnectStep], BaseException]):
+        self.failures = tuple(
+            DisconnectFailure(Board(board), DisconnectStep(step), getattr(error, 'reason', None))
+            for (board, step), error in errors.items()
+        )
+        super().__init__(' '.join(failure.sentence for failure in self.failures))
 
 
 class HomingFailedError(_Umbrella, Exception):
