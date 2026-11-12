@@ -605,6 +605,7 @@ Expand every step of `protocol` not already in a stack into a z-stack.
 **Raises**
 
 - `ProtocolRunRefusedError`: `range_um` or `step_size_um` is not greater than zero, the scope has no Z motor, or a slice falls outside the Z travel. Nothing changes.
+- `ArgumentRefusedError`: `'not_a_number'`, `range_um` or `step_size_um` is not a finite number. Nothing changes.
 - `ArgumentRefusedError`: `'not_offered'`, `z_reference` is not a `ZStackReference`. Nothing changes.
 
 **Refusals by REST status**
@@ -2634,10 +2635,11 @@ reach; it guarantees nothing about where the number came from.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'not_a_number'`, `z_um` is NaN or infinite. Nothing is written.
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing is written.
 - `ProtocolRunRefusedError`: `'positions_unreachable'` -- this scope has no Z axis. Nothing is written.
+- `ArgumentRefusedError`: `'not_a_number'`, `z_um` is NaN or infinite. Nothing is written.
 - `PositionOutOfRangeError`: `z_um` lies outside Z's travel. Nothing is written.
 
 **Refusals by REST status**
@@ -3604,11 +3606,13 @@ it is refused on the UI thread; a click calls it from a worker.
 **Raises**
 
 - `StepNotFoundError`: `step_index` is not a step of `protocol`. Nothing changes.
-- `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes.
+- `ProtocolRunRefusedError`: this scope cannot put the step's objective in the light path. Nothing changes.
 - `ArgumentRefusedError`: `'channel_unknown'`, the step's colour is not a channel. Nothing changes.
-- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no channel of the step's colour. Nothing changes.
+- `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
+- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
 - `PositionOutOfRangeError`: the step lies outside an axis's travel; the axes before it have moved, nothing else changes.
 - `MoveFaultError`: `'driver_failed'`, the board did not take an axis's command; or the turret's move to the step's slot did not arrive; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'` or `'superseded'`, the turret's move to the step's slot was ended.

@@ -556,18 +556,20 @@ def _dedent(lines: list[str]) -> list[str]:
     return [line[cut:] for line in lines]
 
 
-def _entries(lines: list[str]) -> dict[str, str]:
-    """A section body's entries, by name, each one's words joined onto one line."""
-    found: dict[str, list[str]] = {}
-    name = None
+def _entries(lines: list[str]) -> list[tuple[str, str]]:
+    """A section body's entries in their order, each its name and its words joined onto one line.
+
+    A name can be given twice: a ``Raises:`` lists one class once for each
+    reason it is raised with.
+    """
+    found: list[tuple[str, list[str]]] = []
     for line in lines:
         entry = None if line[:1].isspace() else _ENTRY.match(line)
         if entry:
-            name = entry.group(1)
-            found[name] = [entry.group(2)]
-        elif name is not None and line.strip():
-            found[name].append(line.strip())
-    return {n: ' '.join(w for w in words if w) for n, words in found.items()}
+            found.append((entry.group(1), [entry.group(2)]))
+        elif found and line.strip():
+            found[-1][1].append(line.strip())
+    return [(n, ' '.join(w for w in words if w)) for n, words in found]
 
 
 def entries_of(doc: str, section: str) -> dict[str, str]:
@@ -575,11 +577,18 @@ def entries_of(doc: str, section: str) -> dict[str, str]:
 
     *doc* is a docstring as ``inspect.getdoc`` gives it. A missing section
     has no entries.
+
+    Raises:
+        ValueError: the section gives a name twice, so no one entry is that
+            name's words.
     """
     found: dict[str, str] = {}
     for heading, lines in _section_lines(doc):
         if heading == section:
-            found |= _entries(lines)
+            for name, words in _entries(lines):
+                if name in found:
+                    raise ValueError(f'the {section} section gives {name!r} twice')
+                found[name] = words
     return found
 
 
@@ -622,11 +631,11 @@ def markdown_of(doc: str, *, leave_out: tuple[str, ...] = ()) -> str:
     for heading, lines in _section_lines(doc):
         if heading in leave_out:
             continue
-        entries = _entries(lines) if heading in ENTRY_SECTIONS else {}
+        entries = _entries(lines) if heading in ENTRY_SECTIONS else []
         if heading is None:
             text = '\n'.join(_inline(line) for line in lines).strip('\n')
         elif entries:
-            items = '\n'.join(f'- `{name}`: {_inline(words)}' for name, words in entries.items())
+            items = '\n'.join(f'- `{name}`: {_inline(words)}' for name, words in entries)
             text = f'**{heading}**\n\n{items}'
         else:
             body = ' '.join(line.strip() for line in lines if line.strip())
