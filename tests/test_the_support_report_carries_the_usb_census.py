@@ -1,16 +1,18 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The support report carries the USB census and, on Windows, Device Manager's whole list.
+"""Every support bundle carries the USB census and, on Windows, Device Manager's whole list.
 
 Support reads the report on a PC it cannot inspect, so the report writes
 the census bring-up logs, read again through ``get_usb_census``, as text
 and JSON; and on Windows every present device, its class, status and
 problem code, from the same walk of Windows' device list the census
 reads, in place of the ``wmic`` reads current Windows 11 does not have
-(#775).
+(#775). None of it touches the scope, so a logs-only bundle carries it
+too, with the Classic's driver bindings and Windows' driver log.
 """
 
 import json
 import subprocess
+import zipfile
 
 import pytest
 
@@ -70,21 +72,38 @@ def test_device_managers_list_names_each_device_its_class_and_whether_windows_st
     ]
 
 
-def test_on_windows_the_usb_devices_are_listed_from_the_walk_and_no_wmic_runs(monkeypatch):
+def test_on_windows_device_managers_list_is_written_beside_the_census_and_no_wmic_runs(
+    el_0940_session, tmp_path, monkeypatch
+):
     # a stand-in by design: Windows and its device list, which this host has not.
     monkeypatch.setattr(tech_support_report.platform, 'system', lambda: 'Windows')
     monkeypatch.setattr(
         tech_support_report, 'read_device_list', lambda: ['USB\\ROOT_HUB30\\4&1: root hub']
     )
 
-    def no_subprocess(*args, **kwargs):
-        raise AssertionError(f'a subprocess ran: {args}')
-
-    monkeypatch.setattr(subprocess, 'run', no_subprocess)
+    ran = []
+    monkeypatch.setattr(subprocess, 'run', lambda args, **kwargs: ran.append(args))
     # a stand-in by design: the host's serial ports, which no test may touch.
     monkeypatch.setattr('serial.tools.list_ports.comports', lambda include_links: [])
 
+    TechSupportReport(el_0940_session)._step_usb_census(tmp_path)
     collected = dict(tech_support_report._collect_usb_devices())
 
-    assert collected['device_list'] == 'USB\\ROOT_HUB30\\4&1: root hub\n'
-    assert set(collected) == {'device_list', 'pyserial_ports'}
+    written = (tmp_path / 'usb_census' / 'device_list.txt').read_text()
+    assert written == 'USB\\ROOT_HUB30\\4&1: root hub\n'
+    assert set(collected) == {'pyserial_ports'}
+    assert ran == []
+
+
+def test_a_logs_only_bundle_carries_the_census_and_the_classics_drivers(el_0940_session, tmp_path):
+    saved = el_0940_session.make_logs_zip(output_dir=tmp_path / 'out')
+
+    with zipfile.ZipFile(saved.path) as zf:
+        names = set(zf.namelist())
+    assert {
+        'usb_census/usb_census.txt',
+        'usb_census/usb_census.json',
+        'camera_usb_bindings/camera_usb_bindings.txt',
+        'windows_drivers/windows_drivers.txt',
+    } <= names
+    assert not [name for name in names if name.endswith('_ERROR.txt')]

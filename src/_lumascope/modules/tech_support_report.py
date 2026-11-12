@@ -589,7 +589,11 @@ def _census_line(device) -> str:
 
 
 def _collect_usb_devices():
-    """List all USB devices. Returns list of (label, text_content) tuples."""
+    """The OS's own USB dump off Windows, and the serial ports. Returns (label, text_content) tuples.
+
+    Windows' own view, Device Manager's whole list, is written beside the
+    USB census (``_step_usb_census``), read through the same walk.
+    """
     devices = []
 
     def _run(args, timeout=15):
@@ -599,15 +603,10 @@ def _collect_usb_devices():
         except Exception as e:
             return f'Error: {e}'
 
-    is_win = platform.system() == 'Windows'
-
-    if is_win:
-        # Device Manager's whole list, from the walk the USB census reads:
-        # every present device, its class, status and problem code.
-        devices.append(('device_list', '\n'.join(read_device_list()) + '\n'))
-    elif platform.system() == 'Darwin':
+    system = platform.system()
+    if system == 'Darwin':
         devices.append(('SPUSBDataType', _run(['system_profiler', 'SPUSBDataType'])))
-    else:
+    elif system != 'Windows':
         devices.append(('lsusb', _run(['lsusb', '-v'])[:5000]))
 
     # pyserial port enumeration (always)
@@ -1648,9 +1647,6 @@ class TechSupportReport:
             # 12. USB devices  (52-55%)
             cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
-            self._step_usb_census(tmp)
-            self._step_camera_usb_bindings(tmp)
-            self._step_windows_drivers(tmp)
 
             # 13. Disk speed test  (55-60%)
             cb(56, 'Testing disk write speed...')
@@ -2403,7 +2399,9 @@ class TechSupportReport:
 
         The census bring-up logs, read again through the API: each device,
         its port, its driver and whether Windows started it, its speed and
-        its port's; or why the bus could not be read.
+        its port's; or why the bus could not be read. On Windows, Device
+        Manager's whole list beside it, from the same walk: every present
+        device, its class, status and problem code.
         """
         d = tmp / 'usb_census'
         d.mkdir()
@@ -2417,6 +2415,10 @@ class TechSupportReport:
         (d / 'usb_census.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
         with open(d / 'usb_census.json', 'w', encoding='utf-8') as f:
             json.dump(census.to_dict(), f, indent=2)
+        if platform.system() == 'Windows':
+            (d / 'device_list.txt').write_text(
+                '\n'.join(read_device_list()) + '\n', encoding='utf-8'
+            )
 
     def _step_camera_usb_bindings(self, tmp):
         """Which driver Windows has bound to each USB identity of a Lumascope Classic.
@@ -2741,6 +2743,9 @@ class TechSupportReport:
             (self._step_runtime_census, 'runtime_census'),
             (self._step_bring_up, 'bring_up'),
             (self._step_plugins, 'plugins'),
+            (self._step_usb_census, 'usb_census'),
+            (self._step_camera_usb_bindings, 'camera_usb_bindings'),
+            (self._step_windows_drivers, 'windows_drivers'),
         ):
             try:
                 step(tmp)
