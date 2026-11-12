@@ -88,7 +88,7 @@ def test_an_fx2_led_board_is_not_asked_for_text_commands(session, monkeypatch, f
         report = TechSupportReport(session)
         report._step_serial_latency(tmp_path)
         latency = (tmp_path / 'hardware_checks' / 'serial_latency.txt').read_text()
-        led_block = latency.split('--- LED Board')[1].split('--- Motor Board')[0]
+        led_block = latency.split('--- LED Controller')[1].split('--- Motor Controller')[0]
         assert NOT_ON_THIS_BOARD in led_block and 'Mean' not in led_block, latency
     finally:
         monkeypatch.undo()

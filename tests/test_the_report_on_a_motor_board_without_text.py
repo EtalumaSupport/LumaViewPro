@@ -95,7 +95,7 @@ def test_every_text_section_says_not_applicable_and_the_board_is_sent_no_text(
     for rel in TEXT_SECTIONS:
         assert NO_MOTOR_TEXT in (out / rel).read_text(), rel
     latency = (out / 'hardware_checks' / 'serial_latency.txt').read_text()
-    assert NO_MOTOR_TEXT in latency.split('--- Motor Board')[1]
+    assert NO_MOTOR_TEXT in latency.split('--- Motor Controller')[1]
     homing = json.loads((out / 'motion_tests' / 'homing_test.json').read_text())
     for axis, row in homing['axes'].items():
         assert row['home_response'] == 'OK', axis

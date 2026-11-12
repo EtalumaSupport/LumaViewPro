@@ -64,6 +64,7 @@ from _lumascope.modules.path_utils import (
     require_capture_location,
 )
 from _lumascope.modules.protocol import Protocol
+from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
 from _lumascope.modules.api_surface import ProgressCallback, api, api_fields
 
@@ -1726,7 +1727,7 @@ class TechSupportReport:
 
         led_info = self.diag.get_led_info()
         with open(d / 'led_info.txt', 'w', encoding='utf-8') as f:
-            f.write(f'LED Board INFO:\n{led_info}\n')
+            f.write(f'{Board.LED.label} INFO:\n{led_info}\n')
 
         if self._no_motor_board_on_this_model():
             motor_info = fan = MotorBoardPresence.NOT_ON_THIS_MODEL.value
@@ -1740,8 +1741,8 @@ class TechSupportReport:
             # and FULLINFO cannot ask, still states its firmware.
             version = self.scope.diagnostics.get_motor_info().firmware_version
             with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
-                f.write(f'Motor Board INFO:\n{motor_info}\n\n')
-                f.write(f'Motor Board FULLINFO:\n{fullinfo}\n\n')
+                f.write(f'{Board.MOTOR.label} INFO:\n{motor_info}\n\n')
+                f.write(f'{Board.MOTOR.label} FULLINFO:\n{fullinfo}\n\n')
                 f.write(f'Firmware version (read at connect): {version or "not known"}\n')
                 f.write(f'Serial Number: {sn}\n')
 
@@ -1782,7 +1783,7 @@ class TechSupportReport:
             'The microscope was in use; these are the values cached at connect.\n'
         )
         with open(d / 'led_info.txt', 'w', encoding='utf-8') as f:
-            f.write(f'LED Board (cached at connect):\n{led_info}\n\n{skipped}')
+            f.write(f'{Board.LED.label} (cached at connect):\n{led_info}\n\n{skipped}')
         if self._no_motor_board_on_this_model():
             motor_info = fan = MotorBoardPresence.NOT_ON_THIS_MODEL.value
             sn = 'UNKNOWN'
@@ -1791,7 +1792,7 @@ class TechSupportReport:
             motor_info = self.scope.diagnostics.get_motor_info().to_dict()
             sn = motor_info['serial_number'] or 'UNKNOWN'
             with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
-                f.write(f'Motor Board (cached at connect):\n{motor_info}\n\n')
+                f.write(f'{Board.MOTOR.label} (cached at connect):\n{motor_info}\n\n')
                 f.write(f'Serial Number: {sn}\n\n{skipped}')
             drvstat = self.diag.get_driver_status_all()
             with open(d / 'motor_status.txt', 'w', encoding='utf-8') as f:
@@ -2098,17 +2099,17 @@ class TechSupportReport:
 
         # Run latency test once per board, write both text and JSON from same data
         results = {
-            'LED': self.diag._unread_led(needs_v2=False)
+            Board.LED: self.diag._unread_led(needs_v2=False)
             or self.diag.measure_serial_latency('led', 'INFO')
         }
-        results['Motor'] = self.diag._unread_motor_text() or self.diag.measure_serial_latency(
+        results[Board.MOTOR] = self.diag._unread_motor_text() or self.diag.measure_serial_latency(
             'motor', 'INFO'
         )
 
         with open(d / 'serial_latency.txt', 'w', encoding='utf-8') as f:
             f.write('Serial Round-Trip Latency\n' + '=' * 40 + '\n\n')
-            for label, latency in results.items():
-                f.write(f'--- {label} Board ({SERIAL_LATENCY_ITERATIONS}x INFO) ---\n')
+            for board, latency in results.items():
+                f.write(f'--- {board.label} ({SERIAL_LATENCY_ITERATIONS}x INFO) ---\n')
                 if 'not_applicable' in latency:
                     f.write(f'  {latency["not_applicable"]}.\n\n')
                 elif 'error' in latency:
@@ -2133,8 +2134,8 @@ class TechSupportReport:
 
         with open(d / 'serial_latency.json', 'w', encoding='utf-8') as f:
             summary = {
-                label: {k: v for k, v in lat.items() if k != 'timings_ms'}
-                for label, lat in results.items()
+                board: {k: v for k, v in lat.items() if k != 'timings_ms'}
+                for board, lat in results.items()
             }
             json.dump(summary, f, indent=2, default=str)
 

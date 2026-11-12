@@ -64,7 +64,7 @@ def test_a_manual_scope_says_it_has_no_motor_board(tmp_path, model):
     for rel in MOTOR_FILES:
         assert 'No motor board on this model' in (out / rel).read_text(), rel
     latency = (out / 'hardware_checks' / 'serial_latency.txt').read_text()
-    assert 'No motor board on this model' in latency.split('--- Motor Board')[1]
+    assert 'No motor board on this model' in latency.split('--- Motor Controller')[1]
     everything = _all_text(out)
     assert 'not connected' not in everything.lower()
     assert 'Home response' not in everything
