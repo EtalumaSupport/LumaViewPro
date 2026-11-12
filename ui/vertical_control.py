@@ -462,7 +462,7 @@ class VerticalControl(BoxLayout):
         show_objective_selection_popup(
             title='Objective',
             message=message,
-            objectives=[_app_ctx.ctx.session.scope.objectives[o] for o in question.choices],
+            objectives=[_app_ctx.ctx.session.scope.objective(o) for o in question.choices],
             current_objective_id=question.proposed,
             on_confirm=lambda chosen: self._apply_objective_answer(
                 chosen, question.turret_slot, on_resolved=on_resolved

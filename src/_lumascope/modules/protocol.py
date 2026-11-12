@@ -2113,15 +2113,15 @@ class Protocol:
             }
         )
 
-    @api(in_process=True, reads=True)
     def validate_steps(
         self, objectives: 'Mapping[str, Objective]', *, led_max_ma: int | None
     ) -> list:
         """Validate all step fields and return a list of error strings.
 
-        In-process: a wire client needs no call of its own. It is told of a
-        loaded protocol's invalid steps when the protocol loads, and a run
-        start refuses them.
+        Not published: no caller needs a call of its own, and its argument
+        is the scope's catalogue, which only the API holds. Every caller is
+        told of a loaded protocol's invalid steps when the protocol loads,
+        and a run start refuses them.
 
         Args:
             objectives: The scope's objectives (``scope.objectives``); a step

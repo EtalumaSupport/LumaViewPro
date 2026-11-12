@@ -16,7 +16,6 @@ import types
 import pandas as pd
 import pytest
 
-import _lumascope.modules.app_context as _app_ctx
 from ui.stage import Stage
 
 
@@ -29,9 +28,8 @@ def _protocol(plate):
 
 
 @pytest.fixture
-def stage(sim_scope, monkeypatch):
+def stage(gui_ctx):
     # The template's plate, 96 well, is the scope's.
-    monkeypatch.setattr(_app_ctx, 'ctx', types.SimpleNamespace(scope=sim_scope))
     built = Stage.__new__(Stage)
     built._protocol_step_locations_show = True
     return built

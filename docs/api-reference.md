@@ -1596,7 +1596,7 @@ Route: `GET /api/v1/labware_id`.
 
 The current plate's catalogue key, the one `select_labware` selected.
 
-Its record is `scope.labware[labware_id]`.
+Its record is `scope.plate(labware_id)`.
 
 **Raises**
 
@@ -4809,25 +4809,6 @@ key `objective` takes.
 
 Nothing.
 
-<a id="Lumascope.labware"></a>
-### `Lumascope.labware`
-
-```python
-labware: Mapping[str, Labware]  # property
-```
-
-Route: `GET /api/v1/scope/labware`.
-
-The installation's plates, by name, read once at bring-up.
-
-Read-only, as each record is: no caller can change what another
-reads. Which one is selected is `ScopeSession.labware_id`.
-Slides and Petri dishes are not offered yet.
-
-**Raises**
-
-Nothing.
-
 <a id="Lumascope.motion_expected"></a>
 ### `Lumascope.motion_expected`
 
@@ -4892,25 +4873,6 @@ that fits two objectives is refused, never matched to one.
 **Refusals by REST status**
 
 - 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `objective_not_in_catalogue`
-
-<a id="Lumascope.objectives"></a>
-### `Lumascope.objectives`
-
-```python
-objectives: Mapping[str, Objective]  # property
-```
-
-Route: `GET /api/v1/scope/objectives`.
-
-The installation's objectives, by id, read once at bring-up.
-
-Read-only, as each record is: no caller can change what another
-reads. Which one is in the light path is
-`runtime_state.resolve_current_objective`'s answer.
-
-**Raises**
-
-Nothing.
 
 <a id="Lumascope.plate"></a>
 ### `Lumascope.plate`
@@ -10823,7 +10785,7 @@ Whether one frame counts for one change, and the facts that decided it.
 ## `lumascope.Labware`
 
 A record: it crosses the wire as its data.  
-Returned by: [`Lumascope.all_labware`](#Lumascope.all_labware), [`Lumascope.labware`](#Lumascope.labware), [`Lumascope.plate`](#Lumascope.plate).
+Returned by: [`Lumascope.all_labware`](#Lumascope.all_labware), [`Lumascope.plate`](#Lumascope.plate).
 
 One multi-well plate of the installation's catalogue, read once at bring-up.
 
@@ -11165,8 +11127,7 @@ them all.
 ## `lumascope.Objective`
 
 A record: it crosses the wire as its data.  
-Returned by: [`Lumascope.all_objectives`](#Lumascope.all_objectives), [`Lumascope.objective`](#Lumascope.objective), [`Lumascope.objectives`](#Lumascope.objectives), [`RuntimeState.resolve_current_objective`](#RuntimeState.resolve_current_objective).  
-Taken by: [`Protocol.validate_steps`](#Protocol.validate_steps).
+Returned by: [`Lumascope.all_objectives`](#Lumascope.all_objectives), [`Lumascope.objective`](#Lumascope.objective), [`RuntimeState.resolve_current_objective`](#RuntimeState.resolve_current_objective).
 
 One objective of the installation's catalogue, read once at bring-up.
 
@@ -11916,37 +11877,6 @@ The no-tiling label when no step carries a tile; the grid's label
 when the steps' tiles form a grid this installation offers; None
 when they are tiled in a layout it does not offer, which only a
 hand-edited file produces, since every offered grid is square.
-
-**Raises**
-
-Nothing.
-
-<a id="Protocol.validate_steps"></a>
-### `Protocol.validate_steps`
-
-```python
-def validate_steps(
-    self,
-    objectives: Mapping[str, Objective],
-    *,
-    led_max_ma: int | None,
-) -> list
-```
-
-Marks: in-process; reads (changes nothing).
-
-Validate all step fields and return a list of error strings.
-
-In-process: a wire client needs no call of its own. It is told of a
-loaded protocol's invalid steps when the protocol loads, and a run
-start refuses them.
-
-**Args**
-
-- `objectives`: The scope's objectives (`scope.objectives`); a step naming an objective they lack is an error.
-- `led_max_ma`: The connected scope's LED current cap (`capabilities.led_max_ma`). Asked of the caller, not carried on the protocol: a copy made for a run would not carry it, and the gate would admit a step the LED refuses. None on a scope that came up without its LED board: there is no cap to judge against, and a run on it is refused for the missing LED controller.
-
-Returns an empty list if all steps are valid.
 
 **Raises**
 
@@ -18515,7 +18445,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/imaging/get_delivered_rate` | [`ImagingAPI.get_delivered_rate`](#ImagingAPI.get_delivered_rate) |
 | `GET` | `/api/v1/scope/imaging/is_streaming` | [`ImagingAPI.is_streaming`](#ImagingAPI.is_streaming) |
 | `GET` | `/api/v1/scope/imaging/significant_bits` | [`ImagingAPI.significant_bits`](#ImagingAPI.significant_bits) |
-| `GET` | `/api/v1/scope/labware` | [`Lumascope.labware`](#Lumascope.labware) |
 | `GET` | `/api/v1/scope/motion/axes_without_position` | [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position) |
 | `GET` | `/api/v1/scope/motion/axis_positions` | [`MotionAPI.axis_positions`](#MotionAPI.axis_positions) |
 | `GET` | `/api/v1/scope/motion/get_axis_limits` | [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits) |
@@ -18549,7 +18478,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/motion_expected` | [`Lumascope.motion_expected`](#Lumascope.motion_expected) |
 | `GET` | `/api/v1/scope/no_hardware` | [`Lumascope.no_hardware`](#Lumascope.no_hardware) |
 | `GET` | `/api/v1/scope/objective` | [`Lumascope.objective`](#Lumascope.objective) |
-| `GET` | `/api/v1/scope/objectives` | [`Lumascope.objectives`](#Lumascope.objectives) |
 | `GET` | `/api/v1/scope/plate` | [`Lumascope.plate`](#Lumascope.plate) |
 | `GET` | `/api/v1/scope/runtime_state/frame_point_distance` | [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance) |
 | `GET` | `/api/v1/scope/runtime_state/get_field_of_view` | [`RuntimeState.get_field_of_view`](#RuntimeState.get_field_of_view) |

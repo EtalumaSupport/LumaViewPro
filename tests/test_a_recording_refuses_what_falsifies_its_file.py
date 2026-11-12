@@ -588,7 +588,9 @@ class TestTheLabwarePanelReportsARefusal:
             _app_ctx,
             'ctx',
             types.SimpleNamespace(
-                scope=types.SimpleNamespace(labware={'A': None, 'B': None}),
+                scope=types.SimpleNamespace(
+                    all_labware=(types.SimpleNamespace(name='A'), types.SimpleNamespace(name='B'))
+                ),
                 session=types.SimpleNamespace(
                     select_labware=_refuse,
                     set_protocol_labware=lambda protocol, key: protocol_plates.append(key),

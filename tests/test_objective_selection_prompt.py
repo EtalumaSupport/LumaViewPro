@@ -39,7 +39,7 @@ class _ScriptedSession:
         self.provisional = provisional
         self.confirmed = []
         self.cleared = []
-        self.scope = SimpleNamespace(objectives=SHIPPED_OBJECTIVES)
+        self.scope = SimpleNamespace(objective=SHIPPED_OBJECTIVES.__getitem__)
 
     def objective_question(self):
         if isinstance(self.question, Exception):

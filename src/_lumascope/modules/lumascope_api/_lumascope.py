@@ -2128,28 +2128,29 @@ class Lumascope:
         """
         return host_clock.steady_ns()
 
-    @api
     @property
     def objectives(self) -> 'Mapping[str, Objective]':
         """The installation's objectives, by id, read once at bring-up.
 
         Read-only, as each record is: no caller can change what another
         reads. Which one is in the light path is
-        ``runtime_state.resolve_current_objective``'s answer.
+        ``runtime_state.resolve_current_objective``'s answer. Not published:
+        a caller looks an objective up with ``objective`` and lists them with
+        ``all_objectives``.
 
         Raises:
             Nothing.
         """
         return self.objective_helper.objectives
 
-    @api
     @property
     def labware(self) -> 'Mapping[str, Labware]':
         """The installation's plates, by name, read once at bring-up.
 
         Read-only, as each record is: no caller can change what another
         reads. Which one is selected is ``ScopeSession.labware_id``.
-        Slides and Petri dishes are not offered yet.
+        Slides and Petri dishes are not offered yet. Not published: a caller
+        looks a plate up with ``plate`` and lists them with ``all_labware``.
 
         Raises:
             Nothing.

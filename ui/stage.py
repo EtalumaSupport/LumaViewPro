@@ -168,7 +168,7 @@ class Stage(Widget):
             mouse_y = mouse_y - self.y
 
             # Create current labware instance
-            labware = _app_ctx.ctx.scope.runtime_state.get_labware()
+            labware = _app_ctx.ctx.scope.plate(_app_ctx.ctx.session.labware_id)
 
             # Scale from pixels to mm (from the bottom left)
             scale_x = labware.width_mm / self.width
@@ -239,7 +239,7 @@ class Stage(Widget):
         Create FBO for static labware rendering (wells, outlines, stage area).
         This significantly optimizes performance by pre-rendering static elements.
         """
-        labware = _app_ctx.ctx.scope.runtime_state.get_labware()
+        labware = _app_ctx.ctx.scope.plate(_app_ctx.ctx.session.labware_id)
         labware_name = labware.name
 
         if labware_name in self._labware_fbos:
@@ -365,7 +365,7 @@ class Stage(Widget):
         Create FBO for protocol step locations rendering.
         This optimizes performance by pre-rendering step markers.
         """
-        labware = _app_ctx.ctx.scope.runtime_state.get_labware()
+        labware = _app_ctx.ctx.scope.plate(_app_ctx.ctx.session.labware_id)
         labware_name = labware.name
 
         # Check if we need to regenerate the FBO
@@ -490,7 +490,7 @@ class Stage(Widget):
                 return
 
         # Create current labware instance
-        labware = scope.runtime_state.get_labware()
+        labware = scope.plate(ctx.session.labware_id)
         labware_name = labware.name
 
         # Check if labware changed - trigger full redraw

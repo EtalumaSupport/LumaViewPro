@@ -22,12 +22,12 @@ def scope():
 
 
 def test_the_labware_refuses_a_change(scope):
-    labware = scope.labware
-    with pytest.raises(TypeError):
-        labware['96 well microplate'] = labware['6 well microplate']
+    listed = {plate.name: plate for plate in scope.all_labware}
     with pytest.raises(dataclasses.FrozenInstanceError):
-        labware['96 well microplate'].spacing_x_mm = 10.0
-    assert scope.labware['96 well microplate'].spacing_x_mm == 9
+        listed['96 well microplate'].spacing_x_mm = 10.0
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        scope.plate('96 well microplate').spacing_x_mm = 10.0
+    assert scope.plate('96 well microplate').spacing_x_mm == 9
 
 
 def test_the_scope_models_refuse_a_change(scope):
@@ -40,12 +40,12 @@ def test_the_scope_models_refuse_a_change(scope):
 
 
 def test_the_objectives_refuse_a_change(scope):
-    objectives = scope.objectives
-    with pytest.raises(TypeError):
-        objectives['10x Oly'] = objectives['4x Oly']
+    listed = {objective.id: objective for objective in scope.all_objectives}
     with pytest.raises(dataclasses.FrozenInstanceError):
-        objectives['10x Oly'].focal_length_mm = 1.0
-    assert scope.objectives['10x Oly'].focal_length_mm == 18.0
+        listed['10x Oly'].focal_length_mm = 1.0
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        scope.objective('10x Oly').focal_length_mm = 1.0
+    assert scope.objective('10x Oly').focal_length_mm == 18.0
 
 
 def test_a_changed_settings_template_leaves_the_next_read_unchanged(scope):

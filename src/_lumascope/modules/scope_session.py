@@ -6017,7 +6017,7 @@ class ScopeSession:
     def labware_id(self) -> str:
         """The current plate's catalogue key, the one ``select_labware`` selected.
 
-        Its record is ``scope.labware[labware_id]``.
+        Its record is ``scope.plate(labware_id)``.
 
         Raises:
             Nothing.

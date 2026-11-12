@@ -32,7 +32,11 @@ def test_a_click_past_the_travel_moves_the_stage_to_its_nearest_point(
         # hands an outcome to is submit_reported's, which needs Kivy.
         submitted.append((label, axes, call))
 
-    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope=scope, io_executor=None))
+    monkeypatch.setattr(
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(scope=scope, session=sim_turreted_session, io_executor=None),
+    )
     monkeypatch.setattr(ui_helpers, 'submit_move', submit_move)
     monkeypatch.setattr('ui.stage.xy_gestures_offered', lambda: True)
     picture = SimpleNamespace(
