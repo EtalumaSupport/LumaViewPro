@@ -16,10 +16,10 @@ from _lumascope.modules.app_environment import take_sim_launch_value
 
 
 def test_the_value_is_given_and_the_flag_leaves_argv():
-    argv = ['lumaviewpro.py', '--sim-focal-spread=25', '--sim-walk=w.json']
+    argv = ['lumaviewpro.py', '--sim-focal-spread=25', '--walk=w.json']
 
     assert take_sim_launch_value(argv, 'sim-focal-spread', simulate=True) == '25'
-    assert argv == ['lumaviewpro.py', '--sim-walk=w.json']
+    assert argv == ['lumaviewpro.py', '--walk=w.json']
 
 
 def test_a_flag_not_given_is_none_and_argv_is_untouched():

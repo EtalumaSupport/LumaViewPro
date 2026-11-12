@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A sim walk's step 1 runs once bring-up has finished, by its tracked facts.
+"""A walk's step 1 runs once bring-up has finished, by its tracked facts.
 
 ``ctx.ready`` is set by a Clock timer 0.3 s after ``on_start``; nothing it
 names has finished. The saved protocol loads later, after the objective
@@ -29,7 +29,7 @@ def _app_owing(
     from unittest import mock
 
     import _lumascope.modules.app_context as _app_ctx
-    import ui.sim_walk as sim_walk
+    import ui.walk as walk_driver
     from tests.scope_fakes import build_scope
 
     scope = build_scope(simulate=True, register_atexit=False, sim_camera_present=camera_present)
@@ -55,7 +55,7 @@ def _app_owing(
         import lumaviewpro
 
         lumaviewpro.ctx = _app_ctx.ctx
-        with mock.patch.object(sim_walk, 'open_popups', lambda: list(popups or [])):
+        with mock.patch.object(walk_driver, 'open_popups', lambda: list(popups or [])):
             return _App()._bring_up_owes()
     finally:
         _app_ctx.ctx = original

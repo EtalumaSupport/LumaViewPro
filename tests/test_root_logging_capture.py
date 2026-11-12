@@ -14,7 +14,7 @@ process has a stderr (a packaged windowed build has none, and a StreamHandler
 over a missing stream raises on emit). It writes to ``sys.__stderr__``, never
 to ``sys.stderr``: Kivy replaces ``sys.stderr`` with a stream that logs each
 line, so a console made after Kivy loaded logged its own output until the
-recursion limit (the sim-walk harness imports Kivy first; with debug on, every
+recursion limit (the walk harness imports Kivy first; with debug on, every
 one of its tests died in a RecursionError).
 
 Source-level structural lock: the suite mocks ``lvp_logger`` at import
@@ -64,7 +64,7 @@ class TestConsoleGuardedOnStderr:
         assert 'logging.StreamHandler(sys.__stderr__)' in _SRC
 
 
-# A process that loads Kivy before it starts its logging, as the sim-walk harness does,
+# A process that loads Kivy before it starts its logging, as the walk harness does,
 # with debug on: Kivy has replaced sys.stderr by the time the console is made.
 _KIVY_FIRST = r"""
 import os, sys

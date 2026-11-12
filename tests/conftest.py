@@ -238,7 +238,7 @@ def _install_kivy_uix_stubs():
     ):
         sys.modules.setdefault(name, MagicMock())
 
-    # One name per `from kivy.uix.<mod> import <Base>` in ui/ (ui/sim_walk.py
+    # One name per `from kivy.uix.<mod> import <Base>` in ui/ (ui/walk.py
     # included), src/_lumascope/modules/, plugins/, lumaviewpro.py -- keep in sync with that
     # import set.
     bases = {
@@ -268,7 +268,7 @@ def _install_kivy_uix_stubs():
             setattr(mod, class_name, StubWidget)
         sys.modules.setdefault(full_name, mod)
 
-    # ui/sim_walk.py drives the window with Kivy's test touch; the class is a
+    # ui/walk.py drives the window with Kivy's test touch; the class is a
     # stand-in here like every other Kivy name, so the real driver module
     # imports and a test patches the one member it asks.
     tests_pkg = ModuleType('kivy.tests')

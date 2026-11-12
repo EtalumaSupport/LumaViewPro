@@ -1,7 +1,7 @@
-"""The sim walk driver performs a walk's steps on real widgets, or stops.
+"""The walk driver performs a walk's steps on real widgets, or stops.
 
 A walk is the list of GUI steps a person performs by hand against the
-simulator or a real scope; ``--sim-walk`` lets the session perform the mechanical ones. These
+simulator or a real scope; ``--walk`` lets the session perform the mechanical ones. These
 tests run the driver in a child process on a hidden real Kivy window (the
 suite's conftest mocks Kivy), over fragment trees built to hold each shape the
 running app has: a rule instantiated twice with the same ids, a control in a
@@ -9,7 +9,7 @@ nested RelativeLayout and one scrolled out of a ScrollView, a control inside a
 collapsed drawer, an open modal, a filtered numeric field, a spinner, a native
 file picker.
 
-The flag is read by ``ui.sim_walk_file.take_walk_flag``, which
+The flag is read by ``ui.walk_file.take_walk_flag``, which
 ``lumaviewpro.py`` calls before Kivy is imported; its refusals are run against
 that function, so no test here can start the app.
 """
@@ -45,8 +45,8 @@ from kivy.uix.button import Button
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.popup import Popup
 from ui import file_dialogs
-from ui.sim_walk import SimWalk
-from ui.sim_walk_file import parse_walk
+from ui.walk import Walk
+from ui.walk_file import parse_walk
 
 EventLoop.ensure_window()
 Window.size = (900, 700)
@@ -57,7 +57,7 @@ closes = []
 Window.bind(on_request_close=lambda *a, **k: closes.append(1) or True)
 
 # The app's stop, standing in: there is no App in this process.
-import ui.sim_walk as _driver_module
+import ui.walk as _driver_module
 stops = []
 _driver_module._stop_the_app = lambda: stops.append(1)
 
@@ -73,8 +73,8 @@ class _CollectWalk(logging.Handler):
     def emit(self, record):
         walk_lines.append(record.getMessage())
         walk_times[record.getMessage()] = time.perf_counter()
-logging.getLogger('LVP.sim_walk').addHandler(_CollectWalk())
-logging.getLogger('LVP.sim_walk').setLevel(logging.INFO)
+logging.getLogger('LVP.walk').addHandler(_CollectWalk())
+logging.getLogger('LVP.walk').setLevel(logging.INFO)
 
 hits = []
 frames = {}
@@ -426,13 +426,13 @@ def run(steps, shot_dir, bring_up):
             return []
         return list(bring_up['owes'])
     if bring_up is not None and 'timeout_s' in bring_up:
-        import ui.sim_walk as _driver
+        import ui.walk as _driver
         _driver._BRING_UP_TIMEOUT_S = bring_up['timeout_s']
     if bring_up is not None and 'opens_drawer' in bring_up:
         # What the app's bring-up does to the layer drawers: sets one open
         # in the frame the walk starts, its expand animation still to run.
         drawers.ids[bring_up['opens_drawer']].collapse = False
-    walk = SimWalk(parse_walk(json.dumps(steps), source='fragment'), source='fragment',
+    walk = Walk(parse_walk(json.dumps(steps), source='fragment'), source='fragment',
                    bring_up_owes=bring_up_owes, in_flight=in_flight, simulation=_Simulation(),
                    shot_dir=pathlib.Path(shot_dir), stop_dir=pathlib.Path(shot_dir) / 'logs')
     walk.start()
@@ -517,7 +517,7 @@ def test_every_action_reaches_its_widget_as_a_touch_would(tmp_path):
     assert any(r.startswith('WALK SCRIPTED fragment') for r in result['records']), result['records']
     # An optional answer no popup asked for says so once, and claims no press.
     step_8 = [line for line in result['walk_lines'] if ' step 8 ' in line]
-    assert step_8 == ['[SIM WALK  ] step 8 answer OK: no popup asked; optional, nothing pressed'], (
+    assert step_8 == ['[WALK      ] step 8 answer OK: no popup asked; optional, nothing pressed'], (
         step_8
     )
     assert result['reads'] == [
@@ -696,13 +696,13 @@ def test_a_required_popup_that_never_comes_stops_the_walk(tmp_path):
 @pytest.mark.parametrize(
     'args, simulate, says',
     [
-        (['--sim-walk={inject}'], False, "step 2: 'inject' needs --simulate"),
-        (['--sim-walk={walk}', '--sim-walk={walk}'], True, 'give --sim-walk once'),
-        (['--sim-walk={bad}'], True, 'unknown action'),
+        (['--walk={inject}'], False, "step 2: 'inject' needs --simulate"),
+        (['--walk={walk}', '--walk={walk}'], True, 'give --walk once'),
+        (['--walk={bad}'], True, 'unknown action'),
     ],
 )
 def test_the_flag_is_refused_and_taken_out_of_argv(tmp_path, args, simulate, says):
-    from ui.sim_walk_file import WalkFileError, take_walk_flag
+    from ui.walk_file import WalkFileError, take_walk_flag
 
     walk = tmp_path / 'walk.json'
     walk.write_text(json.dumps([{'do': 'press', 'path': 'Panel/btn'}]))
@@ -728,22 +728,22 @@ def test_the_flag_is_refused_and_taken_out_of_argv(tmp_path, args, simulate, say
 
 
 def test_the_flag_gives_the_walk_and_leaves_argv_for_kivy(tmp_path):
-    from ui.sim_walk_file import take_walk_flag
+    from ui.walk_file import take_walk_flag
 
     walk = tmp_path / 'walk.json'
     walk.write_text(json.dumps([{'do': 'quit'}]))
-    argv = ['lumaviewpro.py', f'--sim-walk={walk}']
+    argv = ['lumaviewpro.py', f'--walk={walk}']
     assert take_walk_flag(argv, simulate=True) == (walk.resolve(), [{'do': 'quit'}])
     assert argv == ['lumaviewpro.py']
     assert take_walk_flag(argv, simulate=True) is None
 
 
 def test_a_walk_that_injects_nothing_is_taken_for_a_real_scope(tmp_path):
-    from ui.sim_walk_file import take_walk_flag
+    from ui.walk_file import take_walk_flag
 
     walk = tmp_path / 'walk.json'
     walk.write_text(json.dumps([{'do': 'press', 'path': 'Panel/btn'}, {'do': 'quit'}]))
-    argv = ['lumaviewpro.py', f'--sim-walk={walk}']
+    argv = ['lumaviewpro.py', f'--walk={walk}']
     assert take_walk_flag(argv, simulate=False) == (
         walk.resolve(),
         [{'do': 'press', 'path': 'Panel/btn'}, {'do': 'quit'}],
@@ -763,9 +763,9 @@ def test_a_walk_without_the_development_requirements_is_refused_before_kivy(tmp_
             sys.executable,
             '-c',
             "import sys; sys.modules['pytest'] = None; "
-            'from ui.sim_walk_file import WalkFileError, take_walk_flag\n'
+            'from ui.walk_file import WalkFileError, take_walk_flag\n'
             'try:\n'
-            f'    take_walk_flag(["lumaviewpro.py", "--sim-walk={walk}"], simulate=True)\n'
+            f'    take_walk_flag(["lumaviewpro.py", "--walk={walk}"], simulate=True)\n'
             'except WalkFileError as e:\n'
             '    print(e)',
         ],
@@ -776,7 +776,7 @@ def test_a_walk_without_the_development_requirements_is_refused_before_kivy(tmp_
     )
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == (
-        '--sim-walk needs the development requirements: pip install -r requirements-dev.txt'
+        '--walk needs the development requirements: pip install -r requirements-dev.txt'
     ), r.stdout
 
 
@@ -787,7 +787,7 @@ def test_reading_the_flag_imports_no_kivy():
         [
             sys.executable,
             '-c',
-            'import sys; import ui.sim_walk_file; '
+            'import sys; import ui.walk_file; '
             "print(sorted(m for m in sys.modules if m.split('.')[0] == 'kivy'))",
         ],
         cwd=REPO,
@@ -800,7 +800,7 @@ def test_reading_the_flag_imports_no_kivy():
 
 
 def test_the_walk_file_parser_names_each_defect():
-    from ui.sim_walk_file import WalkFileError, parse_walk
+    from ui.walk_file import WalkFileError, parse_walk
 
     for text, says in [
         ('{}', 'a list of steps'),

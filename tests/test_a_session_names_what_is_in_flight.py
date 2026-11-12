@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The Session names what a gesture started that is still running, from each owner.
 
-A sim walk's ``wait`` reads one list before its next step: what holds the
+A walk's ``wait`` reads one list before its next step: what holds the
 scope, each lane with a task running or queued, an axis moving, an
 autofocus sweep. The GUI composes none of it (the guard
 ``test_the_gui_reads_run_state_from_the_session``); the Session asks the

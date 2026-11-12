@@ -79,9 +79,9 @@ _UI_THREAD = {
         'a widget handler, or scan_started delivered with on_ui_thread=True',
     ),
     ('ui/shader.py', 'ShaderViewer.__init__'): (2, _CONSTRUCTION),
-    ('ui/sim_walk.py', 'SimWalk._await_bring_up'): (1, "the walk's own steps, on the Clock"),
-    ('ui/sim_walk.py', 'SimWalk._resume'): (2, "the walk's own steps, on the Clock"),
-    ('ui/sim_walk.py', 'SimWalk.start'): (1, "the walk's own steps, on the Clock"),
+    ('ui/walk.py', 'Walk._await_bring_up'): (1, "the walk's own steps, on the Clock"),
+    ('ui/walk.py', 'Walk._resume'): (2, "the walk's own steps, on the Clock"),
+    ('ui/walk.py', 'Walk.start'): (1, "the walk's own steps, on the Clock"),
     ('ui/stage.py', 'Stage.__init__'): (1, _CONSTRUCTION),
     ('ui/stage.py', 'Stage.draw_labware_io_calculations'): (
         12,

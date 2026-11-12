@@ -40,7 +40,7 @@ def _bound_popup(title=''):
         # a stand-in by design: Kivy is stubbed in the test process; each
         # property fires its binding on a change only, as a Kivy property
         # does. It does not run CustomPopup.__init__, so the bindings
-        # themselves are proven by the sim walk, not here.
+        # themselves are proven by the walk, not here.
         progress = 0
         _showing_outcome = False
         _text = ''

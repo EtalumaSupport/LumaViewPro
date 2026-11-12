@@ -1,8 +1,8 @@
-"""A sim walk file: the steps ``--sim-walk`` performs, read and checked whole.
+"""A walk file: the steps ``--walk`` performs, read and checked whole.
 
 Read in ``lumaviewpro.py`` beside ``--simulate``, before Kivy is imported, so
 a malformed walk stops the launch before anything starts; hence no Kivy
-import here. The driver that performs the steps is ``ui.sim_walk``.
+import here. The driver that performs the steps is ``ui.walk``.
 
 A walk is a JSON list of steps, each an object with ``do`` naming the action
 and the keys that action takes. Any step may carry ``settle_s`` (seconds to
@@ -43,9 +43,9 @@ class WalkFileError(ValueError):
 
 
 def take_walk_flag(argv: list[str], *, simulate: bool) -> tuple[pathlib.Path, list[dict]] | None:
-    """The walk ``--sim-walk=<file>`` names, as (its resolved path, its steps).
+    """The walk ``--walk=<file>`` names, as (its resolved path, its steps).
 
-    Every ``--sim-walk=`` argument is removed from ``argv`` first, refused or
+    Every ``--walk=`` argument is removed from ``argv`` first, refused or
     not, because Kivy exits on a flag it does not know. None when none is given.
 
     Raises:
@@ -54,19 +54,19 @@ def take_walk_flag(argv: list[str], *, simulate: bool) -> tuple[pathlib.Path, li
             faults), or without the development requirements.
         OSError, ValueError: from ``read_walk``.
     """
-    flags = [arg for arg in argv if arg.startswith('--sim-walk=')]
+    flags = [arg for arg in argv if arg.startswith('--walk=')]
     for flag in flags:
         argv.remove(flag)
     if not flags:
         return None
     if len(flags) > 1:
-        raise WalkFileError('give --sim-walk once')
+        raise WalkFileError('give --walk once')
     # The driver's touches are kivy.tests' UnitTestTouch, whose module imports
     # pytest, which only requirements-dev.txt installs. Looked up, not imported,
     # so the flag is still read before Kivy.
     if importlib.util.find_spec('pytest') is None:
         raise WalkFileError(
-            '--sim-walk needs the development requirements: pip install -r requirements-dev.txt'
+            '--walk needs the development requirements: pip install -r requirements-dev.txt'
         )
     path = pathlib.Path(flags[0].split('=', 1)[1]).resolve()
     steps = read_walk(path)

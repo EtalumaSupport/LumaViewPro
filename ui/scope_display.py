@@ -155,7 +155,7 @@ class ScopeDisplay(Image):
         self._full_res_frame_wh = None
         # Live-view frames put on this widget's texture so far, the mono view
         # and the bullseye alike. Zero means the window still shows the black
-        # placeholder, which a sim walk waits out before its first step.
+        # placeholder, which a walk waits out before its first step.
         self.frames_shown = 0
 
         # When each live frame was drawn over the last second, appended on the

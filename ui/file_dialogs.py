@@ -305,9 +305,9 @@ _DIALOG_STUCK_NOTIFY_S = 60.0
 # stale dialog that resolves after expiry is dropped by its token.
 _DIALOG_GUARD_EXPIRY_S = 3600.0
 
-# The answer a scripted sim walk gives the next dialog, in place of the native
+# The answer a scripted walk gives the next dialog, in place of the native
 # panel: on macOS that panel is an osascript process no in-app touch can reach.
-# Empty text is a cancel. Set only by the walk driver (``ui.sim_walk``).
+# Empty text is a cancel. Set only by the walk driver (``ui.walk``).
 _scripted_answer: dict[str, str] = {}
 
 

@@ -16,7 +16,7 @@ from tests.test_issue_166_kv_lock_bindings import _block_for_id
 
 def test_the_focus_slider_takes_touches_on_its_handle_only():
     # pin-justified: kv is declarative source with no headless seam (the suite
-    # mocks Kivy); the sim walk presses the track and reads Z unmoved.
+    # mocks Kivy); the walk presses the track and reads Z unmoved.
     block = _block_for_id('obj_position')
     sensitivity = [line.strip() for line in block if re.match(r'\s*sensitivity:', line)]
     assert sensitivity == ["sensitivity: 'handle'"], sensitivity

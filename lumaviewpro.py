@@ -187,15 +187,15 @@ if __name__ == '__main__':
             )
         except ValueError as _record_error:
             sys.exit(f'{sim_slide_usage}: {_record_error}')
-    # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
-    # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
+    # --walk=<file> performs a walk's steps on the GUI once bring-up
+    # has finished (ui/walk.py; what it waits on is _bring_up_owes
     # below), on the simulator or a real scope.
-    from ui.sim_walk_file import take_walk_flag
+    from ui.walk_file import take_walk_flag
 
     try:
-        sim_walk = take_walk_flag(sys.argv, simulate=simulate_mode)
+        walk = take_walk_flag(sys.argv, simulate=simulate_mode)
     except (OSError, ValueError) as _walk_error:
-        sys.exit(f'--sim-walk=<file>: {_walk_error}')
+        sys.exit(f'--walk=<file>: {_walk_error}')
 
     ############################################################################
     # ---------------------Directory Initialization-----------------------------#
@@ -735,7 +735,7 @@ class LumaViewProApp(TooltipMixin, App):
         )
 
     def _bring_up_owes(self) -> list[str]:
-        """What bring-up has not finished, for a sim walk waiting to start.
+        """What bring-up has not finished, for a walk waiting to start.
 
         ``ctx.ready`` is a timer, 0.3 s after on_start, and nothing it names
         has finished: the saved protocol loads once the objective question
@@ -749,7 +749,7 @@ class LumaViewProApp(TooltipMixin, App):
         one that answers it, so a popup up is bring-up waiting on the walk.
         """
         from _lumascope.modules.scope_parts import Board
-        from ui.sim_walk import open_popups
+        from ui.walk import open_popups
 
         owed = []
         if not ctx.ready:
@@ -1276,14 +1276,14 @@ class LumaViewProApp(TooltipMixin, App):
             # missing camera it has already reported, so showing it again here
             # writes nothing and repeats that report.
 
-        if sim_walk is not None:
-            from ui.sim_walk import SimWalk
+        if walk is not None:
+            from ui.walk import Walk
 
-            _walk_path, _walk_steps = sim_walk
+            _walk_path, _walk_steps = walk
             # Held on the app: the Clock keeps only weak references to the
             # walk's bound methods. A shot lands where it names, under the walk file's
             # folder; the picture of a stop goes beside the log.
-            self._sim_walk = SimWalk(
+            self._walk = Walk(
                 _walk_steps,
                 source=str(_walk_path),
                 bring_up_owes=self._bring_up_owes,
@@ -1292,7 +1292,7 @@ class LumaViewProApp(TooltipMixin, App):
                 shot_dir=_walk_path.parent,
                 stop_dir=pathlib.Path(log_dir),
             )
-            self._sim_walk.start()
+            self._walk.start()
 
         # MetricsLogger owns the executor watchdog, system metrics, and camera-temp
         # logging so adding a new periodic metric only requires editing one module.

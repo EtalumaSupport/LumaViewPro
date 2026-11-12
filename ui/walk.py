@@ -1,7 +1,7 @@
-"""The sim walk driver: performs a walk's steps on the running app's widgets.
+"""The walk driver: performs a walk's steps on the running app's widgets.
 
-A sim walk is the list of GUI steps that runs a change in the real app,
-against the simulator or a real scope. ``--sim-walk=<file>`` hands the
+A walk is the list of GUI steps that runs a change in the real app,
+against the simulator or a real scope. ``--walk=<file>`` hands the
 mechanical steps to this driver, so the person at the screen keeps only the
 ones that need a person. It acts as a person does and decides nothing: every
 press is a real touch at the control's place in the window, so the control's
@@ -25,7 +25,7 @@ it. A walk that ends in ``quit`` stops the app at its end as a platform quit
 does, through ``on_stop``, never through the gate, which would ask with nobody
 there to answer. A walk that ends in ``quit`` or presses ``close`` is one
 nobody watches, so a stop at a failed step also stops the app, with a picture
-of the window; any other walk leaves the app open. Each step's outcome is logged to the main log under ``[SIM WALK  ]``.
+of the window; any other walk leaves the app open. Each step's outcome is logged to the main log under ``[WALK      ]``.
 
 ``wait`` ends when nothing a gesture started is still in flight: no progress
 popup is open and the app's ``in_flight`` names nothing (what holds the
@@ -45,7 +45,7 @@ exactly as a stall makes one. ``inject`` calls one of the simulator's faults
 bench; a refusal from the fault stops the walk at that step. A walk with
 an ``inject`` is refused at launch without ``--simulate``.
 
-Walk files are read and checked by ``ui.sim_walk_file``.
+Walk files are read and checked by ``ui.walk_file``.
 """
 
 import logging
@@ -80,9 +80,9 @@ from _lumascope.modules import gui_logger
 from _lumascope.modules.exceptions import Refusal
 from ui import file_dialogs
 from ui.progress_popup import CustomPopup
-from ui.sim_walk_file import DEFAULT_SETTLE_S, ends_in_quit, unattended
+from ui.walk_file import DEFAULT_SETTLE_S, ends_in_quit, unattended
 
-logger = logging.getLogger('LVP.sim_walk')
+logger = logging.getLogger('LVP.walk')
 
 # How long a touch may take to arrive: a ScrollView holds a touch back for its
 # scroll_timeout before handing it to the child under it.
@@ -102,7 +102,7 @@ class WalkStepError(Exception):
     """A step that cannot be performed as written; the message says why."""
 
 
-class SimWalk:
+class Walk:
     """Performs a checked list of walk steps on the Kivy thread, one at a time.
 
     ``bring_up_owes`` names what bring-up has not finished (the app passes
@@ -166,7 +166,7 @@ class SimWalk:
             )
             return
         gui_logger.walk_scripted(self._source)
-        logger.info(f'[SIM WALK  ] {self._source}: {len(self._steps)} steps')
+        logger.info(f'[WALK      ] {self._source}: {len(self._steps)} steps')
         self._next(0)
 
     def _next(self, _dt) -> None:
@@ -189,7 +189,7 @@ class SimWalk:
             self._finish(f'stopped at step {self._number} ({_describe(step)}): {e}')
             return
         if delay is _STEP_DONE:
-            logger.info(f'[SIM WALK  ] step {self._number} {_describe(step)}: {self._step_outcome}')
+            logger.info(f'[WALK      ] step {self._number} {_describe(step)}: {self._step_outcome}')
             Clock.schedule_once(self._next, step.get('settle_s', DEFAULT_SETTLE_S))
             return
         Clock.schedule_once(self._resume, delay)
@@ -198,9 +198,9 @@ class SimWalk:
         self.finished = True
         self.outcome = outcome
         if outcome == 'done':
-            logger.info(f'[SIM WALK  ] {self._source}: done')
+            logger.info(f'[WALK      ] {self._source}: done')
         else:
-            logger.warning(f'[SIM WALK  ] {self._source}: {outcome}')
+            logger.warning(f'[WALK      ] {self._source}: {outcome}')
         if not self._unattended:
             return
         # Nobody is at the screen for this walk, so it never leaves the app
@@ -209,7 +209,7 @@ class SimWalk:
         # ``close`` leaves the app to close itself.
         if outcome != 'done':
             if not self._picture(self._stop_dir / f'stopped_at_step_{self._number}.png'):
-                logger.warning('[SIM WALK  ] the picture of the stop was not written')
+                logger.warning('[WALK      ] the picture of the stop was not written')
             _stop_the_app()
         elif self._ends_in_quit:
             _stop_the_app()
@@ -321,7 +321,7 @@ class SimWalk:
         # never overwrites the walk's step number.
         record = {'step': self._number, 'path': step['path'], 'props': props}
         self.reads.append(record)
-        logger.info(f'[SIM WALK  ] step {self._number} read {record}')
+        logger.info(f'[WALK      ] step {self._number} read {record}')
         yield from ()
 
     def _shot(self, step):
@@ -380,7 +380,7 @@ class SimWalk:
         if not CoreImage(texture).save(str(path), flipped=True):
             return False
         self.shots.append(str(path))
-        logger.info(f'[SIM WALK  ] step {self._number} picture {path}')
+        logger.info(f'[WALK      ] step {self._number} picture {path}')
         return True
 
     def _wait(self, step):

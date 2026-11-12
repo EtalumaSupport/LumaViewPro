@@ -1546,7 +1546,7 @@ class ScopeSession:
     def in_flight_named(self) -> list[str]:
         """What a gesture started that is still running, each as a sentence; empty when nothing is.
 
-        The read a sim walk's ``wait`` makes before its next step, and the
+        The read a walk's ``wait`` makes before its next step, and the
         one place the answer is composed, so the GUI reads nothing below the
         Session: what holds the scope (``controls_lock``); each queued
         lane with a task running or queued, since a turret pick or a build
