@@ -1607,10 +1607,22 @@ class CameraAPI:
                 ``disconnect()``; ``'not_connected'``, naming the camera.
                 Nothing was sent.
         """
+        refused = self.camera_not_connected_refusal(member)
+        if refused is not None:
+            raise refused
+
+    def camera_not_connected_refusal(self, member: str) -> HardwareCommandRefusedError | None:
+        """The refusal ``refuse_camera_not_connected`` raises, or None when it raises none.
+
+        For a read that answers a refusal as a value rather than raising it
+        (``RuntimeState.optics_status``). A consult seam, not part of the L2
+        API surface.
+        """
         if self._scope._camera_executor.pending_shutdown:
-            raise HardwareCommandRefusedError('scope_disconnected', member)
+            return HardwareCommandRefusedError('scope_disconnected', member)
         if not self._scope.camera_connected:
-            raise _camera_not_connected(member)
+            return _camera_not_connected(member)
+        return None
 
     def _refuse_out_of_range(
         self,

@@ -12,6 +12,7 @@ from kivy.uix.scatter import Scatter
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules import gui_logger
 from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.exceptions import Refusal
 from _lumascope.modules.channel_record import Color, format_display_color
 from ui.ui_helpers import fixed_number, run_unasked
 
@@ -76,12 +77,13 @@ def frame_rate_title(capture_fps: float, display_fps: float, *, engineering: boo
     return f'Capture: {capture} | Display: {display} FPS'
 
 
-def cursor_title(pixel: tuple[int, int] | None, plate: PlatePosition | None) -> str:
+def cursor_title(pixel: tuple[int, int] | None, plate: PlatePosition | Refusal | None) -> str:
     """The status line's cursor part: empty off the image.
 
     ``pixel`` is the sensor pixel under the cursor, None off the image;
-    ``plate`` its plate position in mm, None when it is not known
-    (``cursor_plate``), when only the pixel shows.
+    ``plate`` the API's answer for its plate position, in mm
+    (``RuntimeState.frame_point_plate``): the refusal that says why it is
+    not known, or None off the image, shows the pixel alone.
     """
     if pixel is None:
         return ''
@@ -90,44 +92,13 @@ def cursor_title(pixel: tuple[int, int] | None, plate: PlatePosition | None) -> 
         f' | Pixel: ({fixed_number(px, whole_digits=4, decimals=0)}, '
         f'{fixed_number(py, whole_digits=4, decimals=0)})'
     )
-    if plate is not None:
+    if isinstance(plate, PlatePosition):
         sx, sy = plate.x_mm, plate.y_mm
         text += (
             f' | Plate: ({fixed_number(sx, whole_digits=3, decimals=2, signed=True)}, '
             f'{fixed_number(sy, whole_digits=3, decimals=2, signed=True)}) mm'
         )
     return text
-
-
-def cursor_plate(scope, fraction: tuple[float, float]) -> PlatePosition | None:
-    """The plate position, in mm, of the point under the cursor; None when it is not known.
-
-    The API converts the cursor's point of the frame into a stage distance
-    from where the stage is (``RuntimeStateAPI.frame_point_distance``, the
-    one conversion click-to-center moves by), so it needs an XY stage whose
-    X and Y the API knows, and a known field of view (which needs a known
-    objective). Without one, the pixel readout stands alone -- never a
-    position converted from a number nobody established, or an invented
-    distance. X and Y are read from ``axis_positions`` because it answers
-    no position for an axis that homes or has lost its reference (a lost
-    motor board included), where the other position reads still answer its
-    last number.
-
-    Args:
-        scope: The scope the cursor's image is from.
-        fraction: The cursor as fractions of the shown frame's width and
-            height, row 0 at the top, as ``frame_point_distance`` takes.
-    """
-    if not scope.capabilities.has_xy_stage:
-        return None
-    stage = scope.motion.axis_positions()
-    x_um, y_um = stage['X'].position_um, stage['Y'].position_um
-    if x_um is None or y_um is None:
-        return None
-    distance = scope.runtime_state.frame_point_distance(*fraction)
-    if distance is None:
-        return None
-    return scope.runtime_state.stage_to_plate(x_um + distance.dx_um, y_um + distance.dy_um)
 
 
 # ============================================================================
@@ -370,9 +341,9 @@ void main (void) {
             pixel = plate = None
             if self._mouse_over_image:
                 pixel = (self._mouse_pixel_x, self._mouse_pixel_y)
-                # Anything that fails beyond what cursor_plate answers None
-                # for is a fault, and is not hidden here.
-                plate = cursor_plate(ctx.lumaview.scope, self._mouse_fraction)
+                # Anything that fails beyond the refusals the read answers
+                # is a fault, and is not hidden here.
+                plate = ctx.lumaview.scope.runtime_state.frame_point_plate(*self._mouse_fraction)
             self.status_text = status + cursor_title(pixel, plate)
 
             title = f'LumaViewPro {ctx.version}'

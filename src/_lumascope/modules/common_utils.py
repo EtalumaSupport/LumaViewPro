@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple
 import psutil
 
 from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.exceptions import Refusal
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -685,13 +686,14 @@ def get_field_of_view(
 FOV_UNKNOWN_TEXT = 'unknown'
 
 
-def format_field_of_view(fov: 'FieldOfView | None') -> tuple[str, str]:
+def format_field_of_view(fov: 'FieldOfView | Refusal') -> tuple[str, str]:
     """Render (width, height) FOV label text for the settings readouts.
 
-    Returns the rounded micron strings, or ('unknown', 'unknown') when the
-    scope cannot report a field of view (``RuntimeState.get_field_of_view``).
+    Returns the rounded micron strings, or ('unknown', 'unknown') for the
+    refusal that says why the scope cannot report a field of view
+    (``RuntimeState.optics_status``).
     """
-    if fov is None:
+    if isinstance(fov, Refusal):
         return (FOV_UNKNOWN_TEXT, FOV_UNKNOWN_TEXT)
     return (str(round(fov.width_um, 0)), str(round(fov.height_um, 0)))
 

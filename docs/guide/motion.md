@@ -131,3 +131,6 @@ any binning. It refuses as a jog does, then with `ObjectiveUnknownError` or
 `PixelSizeUnknownError` when no distance can be measured.
 `runtime_state.frame_point_distance(x_fraction, y_fraction)` answers the
 distance without moving, None when it cannot be known.
+`runtime_state.frame_point_plate(x_fraction, y_fraction)` answers the point's
+position on the plate, or the refusal that says why it is not known (no X or
+Y, X or Y not homed, no distance measurable), raised to no one.

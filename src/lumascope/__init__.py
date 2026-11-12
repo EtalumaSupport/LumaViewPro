@@ -336,6 +336,7 @@ from _lumascope.modules.lumascope_api.protocols import (
     TurretSlotQuestion,
 )
 from _lumascope.modules.lumascope_api.runtime_state import (
+    OpticsStatus,
     RuntimeState,
 )
 from _lumascope.modules.lumascope_api.simulation import (
@@ -737,6 +738,7 @@ __all__ = [
     'ObjectiveUnknownError',
     'Operation',
     'OperationSettleRefusedError',
+    'OpticsStatus',
     'Outcome',
     'OutcomeKind',
     'OutputFormat',

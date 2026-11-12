@@ -94,6 +94,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`Objective`](#Objective)
 - [`ObjectiveQuestion`](#ObjectiveQuestion)
 - [`Operation`](#Operation)
+- [`OpticsStatus`](#OpticsStatus)
 - [`Outcome`](#Outcome)
 - [`PartStatus`](#PartStatus)
 - [`PlateLocation`](#PlateLocation)
@@ -8670,6 +8671,49 @@ StageDistance | None: Positive `dx_um` for a point right of centre, positive `dy
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
+<a id="RuntimeState.frame_point_plate"></a>
+### `RuntimeState.frame_point_plate`
+
+```python
+def frame_point_plate(
+    self,
+    x_fraction: float,
+    y_fraction: float,
+) -> coord_transformations.PlatePosition | HardwareCommandRefusedError | AxisStateUnknownError | ObjectiveUnknownError | PixelSizeUnknownError
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/runtime_state/frame_point_plate`.
+
+The plate position of a point of the camera's frame, or why it is unknown.
+
+Where the point is on the selected plate now: the stage's X and Y
+plus the point's distance from the frame's centre
+(`frame_point_distance`), as `stage_to_plate` states it. The read
+for a display, such as the plate position under a cursor: an
+unknown is answered as the refusal that says why, never raised.
+Judged on X and Y alone; Z's position does not move the point.
+
+**Args**
+
+- `x_fraction`: How far across the frame's width, from 0 to 1.
+- `y_fraction`: How far down the frame's height, from 0 at the top to 1.
+
+**Returns**
+
+The `PlatePosition`, in mm; or the first reason it is unknown, in this order: `HardwareCommandRefusedError`, `'scope_disconnected'`, `'not_connected'` or `'axis_absent'`, the scope has no motor controller or no X or Y; `AxisStateUnknownError`, X or Y does not know its position, homing or lost; then the field of view's refusal (`optics_status`).
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a fraction that is not a number from 0 to 1.
+- `CatalogueNameRefusedError`: `'labware_unknown'`, the selected labware is not in the catalogue.
+- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
+
+**Refusals by REST status**
+
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`; [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+
 <a id="RuntimeState.get_field_of_view"></a>
 ### `RuntimeState.get_field_of_view`
 
@@ -8800,6 +8844,36 @@ str | None: Well label (e.g. `"A1"`); `''` when the selected labware has no well
 **Refusals by REST status**
 
 - 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+
+<a id="RuntimeState.optics_status"></a>
+### `RuntimeState.optics_status`
+
+```python
+def optics_status(self) -> OpticsStatus
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/runtime_state/optics_status`.
+
+The objective in the light path and the frame's extent on the sample, each its value or why it is unknown.
+
+The read for a display: it answers an unknown as the refusal that
+says why, where `resolve_current_objective` and the reads that act
+on the extent refuse. Both fields come from one reading of the
+objective. No serial I/O: the turret slot and the camera's binning
+and frame are the ones last reported.
+
+**Returns**
+
+OpticsStatus: Each value, or its refusal.
+
+**Raises**
+
+- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
+
+**Refusals by REST status**
+
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
 <a id="RuntimeState.plate_to_stage"></a>
@@ -10514,7 +10588,8 @@ One capture a run was asked for that produced no image.
 ## `lumascope.FieldOfView`
 
 A record: it crosses the wire as its data.  
-Returned by: [`RuntimeState.get_field_of_view`](#RuntimeState.get_field_of_view).
+Returned by: [`RuntimeState.get_field_of_view`](#RuntimeState.get_field_of_view).  
+Held in: [`OpticsStatus.field_of_view`](#OpticsStatus.field_of_view).
 
 The area a frame covers on the sample, in micrometres.
 
@@ -11368,6 +11443,24 @@ still): a stop that arrives late never touches another operation.
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `home_not_stoppable`, `axis_absent`, `not_connected`
 - [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 
+<a id="OpticsStatus"></a>
+## `lumascope.OpticsStatus`
+
+A record: it crosses the wire as its data.  
+Returned by: [`RuntimeState.optics_status`](#RuntimeState.optics_status).
+
+The objective in the light path and the area the camera's frame covers, each its value or why it is unknown.
+
+The state a display shows, read with no catch: an unknown is answered as
+the refusal that says why, its reason and sentence, never raised and
+never a bare None. One field per value, so a value and a refusal cannot
+both be held.
+
+**Fields**
+
+- <a id="OpticsStatus.field_of_view"></a>`field_of_view`: `FieldOfView | ObjectiveUnknownError | HardwareCommandRefusedError | PixelSizeUnknownError` -- The frame's extent on the sample, or the first reason it is unknown, in this order: the objective's `ObjectiveUnknownError`; `HardwareCommandRefusedError`, `'not_connected'` naming the camera, or `'scope_disconnected'` after `disconnect()`; `PixelSizeUnknownError`, `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`.
+- <a id="OpticsStatus.objective"></a>`objective`: `str | ObjectiveUnknownError` -- The active objective's id, or `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`.
+
 <a id="Outcome"></a>
 ## `lumascope.Outcome`
 
@@ -11451,7 +11544,7 @@ Where the scope is on a plate, focus included: X and Y in mm on the plate, Z in 
 ## `lumascope.PlatePosition`
 
 A record: it crosses the wire as its data.  
-Returned by: [`RuntimeState.plate_transform`](#RuntimeState.plate_transform), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate).
+Returned by: [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate), [`RuntimeState.plate_transform`](#RuntimeState.plate_transform), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate).
 
 A position on a plate, in mm from the plate's top-left corner.
 
@@ -14936,7 +15029,8 @@ and needs only to stop; the user waits, never homes.
 <a id="AxisStateUnknownError"></a>
 ### `lumascope.AxisStateUnknownError`
 
-A refusal; bases `Refusal`, `Exception`.
+A refusal; bases `Refusal`, `Exception`.  
+Returned by: [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate).
 
 An axis whose position is not known was asked to move, or to be recorded.
 
@@ -16108,7 +16202,9 @@ substituted binning is, so the next bring-up has nothing to refit.
 <a id="HardwareCommandRefusedError"></a>
 ### `lumascope.HardwareCommandRefusedError`
 
-A refusal; bases `Refusal`, `Exception`.
+A refusal; bases `Refusal`, `Exception`.  
+Returned by: [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate).  
+Held in: [`OpticsStatus.field_of_view`](#OpticsStatus.field_of_view).
 
 A hardware command was refused: something else has the scope, the lane is closed, or nothing is connected to take it.
 
@@ -16833,7 +16929,9 @@ it to None.
 <a id="ObjectiveUnknownError"></a>
 ### `lumascope.ObjectiveUnknownError`
 
-A refusal; bases `Refusal`, `ConfigError`.
+A refusal; bases `Refusal`, `ConfigError`.  
+Returned by: [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate).  
+Held in: [`OpticsStatus.field_of_view`](#OpticsStatus.field_of_view), [`OpticsStatus.objective`](#OpticsStatus.objective).
 
 No one can say which objective is in the light path.
 
@@ -16904,7 +17002,9 @@ lacks before the driver is asked (`axis_absent`, `not_on_this_scope`,
 <a id="PixelSizeUnknownError"></a>
 ### `lumascope.PixelSizeUnknownError`
 
-A refusal; bases `Refusal`, `Exception`.
+A refusal; bases `Refusal`, `Exception`.  
+Returned by: [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate).  
+Held in: [`OpticsStatus.field_of_view`](#OpticsStatus.field_of_view).
 
 The objective is known and a camera is connected, but no distance on the sample can be measured.
 
@@ -18566,11 +18666,13 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/objective` | [`Lumascope.objective`](#Lumascope.objective) |
 | `GET` | `/api/v1/scope/plate` | [`Lumascope.plate`](#Lumascope.plate) |
 | `GET` | `/api/v1/scope/runtime_state/frame_point_distance` | [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance) |
+| `GET` | `/api/v1/scope/runtime_state/frame_point_plate` | [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate) |
 | `GET` | `/api/v1/scope/runtime_state/get_field_of_view` | [`RuntimeState.get_field_of_view`](#RuntimeState.get_field_of_view) |
 | `GET` | `/api/v1/scope/runtime_state/get_pixel_size_um` | [`RuntimeState.get_pixel_size_um`](#RuntimeState.get_pixel_size_um) |
 | `GET` | `/api/v1/scope/runtime_state/get_stage_offset` | [`RuntimeState.get_stage_offset`](#RuntimeState.get_stage_offset) |
 | `GET` | `/api/v1/scope/runtime_state/get_turret_config` | [`RuntimeState.get_turret_config`](#RuntimeState.get_turret_config) |
 | `GET` | `/api/v1/scope/runtime_state/get_well_label` | [`RuntimeState.get_well_label`](#RuntimeState.get_well_label) |
+| `GET` | `/api/v1/scope/runtime_state/optics_status` | [`RuntimeState.optics_status`](#RuntimeState.optics_status) |
 | `GET` | `/api/v1/scope/runtime_state/plate_to_stage` | [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage) |
 | `GET` | `/api/v1/scope/runtime_state/resolve_current_objective` | [`RuntimeState.resolve_current_objective`](#RuntimeState.resolve_current_objective) |
 | `GET` | `/api/v1/scope/runtime_state/stage_to_plate` | [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate) |

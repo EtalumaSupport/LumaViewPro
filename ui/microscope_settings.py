@@ -763,7 +763,7 @@ class MicroscopeSettings(BoxLayout):
 
     def refresh_fov_labels(self) -> None:
         """Show the scope's field of view; 'unknown' when it cannot say one."""
-        fov = _app_ctx.ctx.scope.runtime_state.get_field_of_view()
+        fov = _app_ctx.ctx.scope.runtime_state.optics_status().field_of_view
         fov_w_text, fov_h_text = common_utils.format_field_of_view(fov)
         self.ids['field_of_view_width_id'].text = fov_w_text
         self.ids['field_of_view_height_id'].text = fov_h_text

@@ -667,6 +667,8 @@ UNITLESS: dict[str, str] = {
     'MotionAPI.start_center_on parameter y_fraction': "a fraction of the frame's height",
     'RuntimeState.frame_point_distance parameter x_fraction': "a fraction of the frame's width",
     'RuntimeState.frame_point_distance parameter y_fraction': "a fraction of the frame's height",
+    'RuntimeState.frame_point_plate parameter x_fraction': "a fraction of the frame's width",
+    'RuntimeState.frame_point_plate parameter y_fraction': "a fraction of the frame's height",
     'CameraLink.link_speed field': (
         'in the unit the camera declares (link_speed_unit), carried and never converted'
     ),
@@ -956,6 +958,7 @@ OPEN_STRINGS: dict[str, str] = {
     'ProtocolRunner.start_zstack parameter sequence_name': _SEQUENCE,
     'ProtocolSizeAdvisory.message field': _PROSE,
     'MotionAPI.positions_to_keep parameter then': _PROSE,
+    'OpticsStatus.objective field': _OBJECTIVE,
     'RecordingFinished.end_reason field': _REASON,
     'Remedy.cancel_text field': _PROSE,
     'Remedy.confirm_text field': _PROSE,

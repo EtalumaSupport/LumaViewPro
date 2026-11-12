@@ -20,14 +20,20 @@ reconnect.
 
 from __future__ import annotations
 
+import dataclasses
 import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.coord_transformations as coord_transformations
-from _lumascope.modules.exceptions import ObjectiveUnknownError, PixelSizeUnknownError
-from _lumascope.modules.api_surface import api
+from _lumascope.modules.exceptions import (
+    AxisStateUnknownError,
+    HardwareCommandRefusedError,
+    ObjectiveUnknownError,
+    PixelSizeUnknownError,
+)
+from _lumascope.modules.api_surface import api, api_fields
 from _lumascope.modules.finite_number import refuse_outside
 from _lumascope.modules.objectives_loader import OBJECTIVE_CONFIRMED_ON_A_TURRET
 from _lumascope.modules.scope_capabilities import FieldOfView, StageDistance
@@ -56,6 +62,35 @@ def _distance_to(extent: FieldOfView, x_fraction: float, y_fraction: float) -> S
     return StageDistance(
         dx_um=(x_fraction - 0.5) * extent.width_um,
         dy_um=(0.5 - y_fraction) * extent.height_um,
+    )
+
+
+@api_fields('objective', 'field_of_view')
+@dataclasses.dataclass(frozen=True)
+class OpticsStatus:
+    """The objective in the light path and the area the camera's frame covers, each its value or why it is unknown.
+
+    The state a display shows, read with no catch: an unknown is answered as
+    the refusal that says why, its reason and sentence, never raised and
+    never a bare None. One field per value, so a value and a refusal cannot
+    both be held.
+
+    Attributes:
+        objective: The active objective's id, or ``ObjectiveUnknownError``:
+            ``'slot_unknown'``, ``'slot_unassigned'``, ``'not_in_catalogue'``
+            or ``'none_selected'``.
+        field_of_view: The frame's extent on the sample, or the first reason
+            it is unknown, in this order: the objective's
+            ``ObjectiveUnknownError``; ``HardwareCommandRefusedError``,
+            ``'not_connected'`` naming the camera, or ``'scope_disconnected'``
+            after ``disconnect()``; ``PixelSizeUnknownError``,
+            ``'optics_undeclared'``, ``'binning_unread'`` or
+            ``'frame_size_unread'``.
+    """
+
+    objective: str | ObjectiveUnknownError
+    field_of_view: (
+        FieldOfView | ObjectiveUnknownError | HardwareCommandRefusedError | PixelSizeUnknownError
     )
 
 
@@ -252,11 +287,32 @@ class RuntimeState:
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
         """
-        objective = self.get_current_objective()
-        if objective is None or not self._scope.camera.active:
-            return None
-        extent = self._field_of_view_at(objective)
+        extent = self._field_of_view('get_field_of_view', self._derive_current_objective())
         return extent if isinstance(extent, FieldOfView) else None
+
+    @api(reads=True)
+    def optics_status(self) -> OpticsStatus:
+        """The objective in the light path and the frame's extent on the sample, each its value or why it is unknown.
+
+        The read for a display: it answers an unknown as the refusal that
+        says why, where ``resolve_current_objective`` and the reads that act
+        on the extent refuse. Both fields come from one reading of the
+        objective. No serial I/O: the turret slot and the camera's binning
+        and frame are the ones last reported.
+
+        Returns:
+            OpticsStatus: Each value, or its refusal.
+
+        Raises:
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
+        """
+        derived = self._derive_current_objective()
+        objective_id, _, unknown = derived
+        return OpticsStatus(
+            objective=objective_id if unknown is None else unknown,
+            field_of_view=self._field_of_view('optics_status', derived),
+        )
 
     def resolve_field_of_view(self, member: str) -> FieldOfView:
         """The area the camera's frame covers on the sample, or why it is unknown.
@@ -276,15 +332,28 @@ class RuntimeState:
             PixelSizeUnknownError: ``'optics_undeclared'``,
                 ``'binning_unread'`` or ``'frame_size_unread'``.
         """
-        _, objective = self.resolve_current_objective()
-        self._scope.camera.refuse_camera_not_connected(member)
-        extent = self._field_of_view_at(objective)
-        if isinstance(extent, PixelSizeUnknownError):
+        extent = self._field_of_view(member, self._derive_current_objective())
+        if not isinstance(extent, FieldOfView):
             raise extent
         return extent
 
-    def _field_of_view_at(self, objective: Objective) -> FieldOfView | PixelSizeUnknownError:
-        """The one derivation of the frame's extent under ``objective``: the extent, or why not."""
+    def _field_of_view(
+        self,
+        member: str,
+        derived: tuple[str | None, Objective | None, ObjectiveUnknownError | None],
+    ) -> FieldOfView | ObjectiveUnknownError | HardwareCommandRefusedError | PixelSizeUnknownError:
+        """The one derivation of the frame's extent: the extent, or the first reason it is unknown.
+
+        Asked in this order: the objective (``derived``, the objective
+        derivation's answer), the camera (its refusal names ``member``), the
+        scope's optics, the camera's binning, the camera's frame.
+        """
+        _, objective, unknown = derived
+        if unknown is not None:
+            return unknown
+        no_camera = self._scope.camera.camera_not_connected_refusal(member)
+        if no_camera is not None:
+            return no_camera
         capabilities = self._scope.capabilities
         if capabilities.lens_focal_length_mm is None or capabilities.pixel_size_um is None:
             return PixelSizeUnknownError('optics_undeclared')
@@ -354,6 +423,67 @@ class RuntimeState:
             PixelSizeUnknownError: As ``resolve_field_of_view``.
         """
         return _distance_to(self.resolve_field_of_view(member), x_fraction, y_fraction)
+
+    @api(reads=True)
+    def frame_point_plate(
+        self, x_fraction: float, y_fraction: float
+    ) -> (
+        coord_transformations.PlatePosition
+        | HardwareCommandRefusedError
+        | AxisStateUnknownError
+        | ObjectiveUnknownError
+        | PixelSizeUnknownError
+    ):
+        """The plate position of a point of the camera's frame, or why it is unknown.
+
+        Where the point is on the selected plate now: the stage's X and Y
+        plus the point's distance from the frame's centre
+        (``frame_point_distance``), as ``stage_to_plate`` states it. The read
+        for a display, such as the plate position under a cursor: an
+        unknown is answered as the refusal that says why, never raised.
+        Judged on X and Y alone; Z's position does not move the point.
+
+        Args:
+            x_fraction: How far across the frame's width, from 0 to 1.
+            y_fraction: How far down the frame's height, from 0 at the top
+                to 1.
+
+        Returns:
+            The ``PlatePosition``, in mm; or the first reason it is unknown,
+            in this order: ``HardwareCommandRefusedError``,
+            ``'scope_disconnected'``, ``'not_connected'`` or
+            ``'axis_absent'``, the scope has no motor controller or no X or
+            Y; ``AxisStateUnknownError``, X or Y does not know its position,
+            homing or lost; then the field of view's refusal
+            (``optics_status``).
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
+                a fraction that is not a number from 0 to 1.
+            CatalogueNameRefusedError: ``'labware_unknown'``, the selected
+                labware is not in the catalogue.
+            ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
+                this scope.
+        """
+        refuse_unless_frame_point(x_fraction, y_fraction)
+        motion = self._scope.motion
+        for axis in ('X', 'Y'):
+            absent = motion.absent_refusal('frame_point_plate', axis)
+            if absent is not None:
+                return absent
+        stage = motion.axis_positions()
+        unplaced = {
+            axis: stage[axis].state for axis in ('X', 'Y') if stage[axis].position_um is None
+        }
+        if unplaced:
+            return AxisStateUnknownError(unplaced, then='read the plate position of the point')
+        extent = self._field_of_view('frame_point_plate', self._derive_current_objective())
+        if not isinstance(extent, FieldOfView):
+            return extent
+        distance = _distance_to(extent, x_fraction, y_fraction)
+        return self.stage_to_plate(
+            stage['X'].position_um + distance.dx_um, stage['Y'].position_um + distance.dy_um
+        )
 
     @api(reads=True)
     def get_turret_config(self) -> dict[int, str | None]:

@@ -8,7 +8,9 @@ and the cursor's plate readout with a second copy. The member takes the
 point as fractions of the camera's frame (row 0 at the top, as
 ``capture_still().image`` and a saved file hold it), refuses as a jog does, and moves X and
 Y as one request under one command; ``RuntimeStateAPI.frame_point_distance``
-is the one conversion both the move and the readout use.
+is the one conversion both the move and the readout use, and
+``RuntimeState.frame_point_plate`` the readout's plate position: the
+position, or the refusal that says why it is unknown, never raised.
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ from _lumascope.modules.exceptions import (
     ObjectiveUnknownError,
     PositionOutOfRangeError,
 )
+from _lumascope.modules.axes import AxisState
+from _lumascope.modules.coord_transformations import PlatePosition
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
@@ -160,10 +164,10 @@ def test_centering_on_a_point_of_the_api_s_frame_brings_what_was_there_to_the_ce
     assert abs(rows + 0.1 * height) <= 2.5 and abs(cols + 0.2 * width) <= 2.5, (rows, cols)
 
 
-def test_the_cursor_reads_the_plate_position_centering_on_its_point_reaches(turret_session):
+def test_the_plate_position_of_a_point_is_where_centering_on_it_brings_the_stage(turret_session):
     scope = turret_session.scope
 
-    read = shader.cursor_plate(scope, (0.75, 0.3))
+    read = scope.runtime_state.frame_point_plate(0.75, 0.3)
     scope.motion.start_center_on(0.75, 0.3).result()
     x, y = _xy(scope.motion)
     reached = scope.runtime_state.stage_to_plate(x, y)
@@ -193,15 +197,79 @@ def test_the_cursor_a_quarter_of_the_way_down_the_shown_image_is_that_far_down_t
     assert (viewer._mouse_pixel_x, viewer._mouse_pixel_y) == (250, 125)
 
 
-def test_the_cursor_reads_a_position_after_a_binning_change_before_a_new_frame_is_shown(
+def test_a_point_reads_a_plate_position_after_a_binning_change_before_a_new_frame_is_shown(
     turret_session,
 ):
     """A fraction is the same place on the sample at every binning: the shown
-    frame and the camera's may differ, and the readout neither raises nor goes blank."""
+    frame and the camera's may differ, and the cursor's readout neither
+    raises nor goes blank."""
     scope = turret_session.scope
     scope.camera.set_binning(2)
 
-    assert shader.cursor_plate(scope, (0.99, 0.01)) is not None
+    assert isinstance(scope.runtime_state.frame_point_plate(0.99, 0.01), PlatePosition)
+
+
+def test_the_point_at_the_frame_centre_is_where_the_stage_is(turret_session):
+    scope = turret_session.scope
+    stage = scope.motion.axis_positions()
+
+    assert scope.runtime_state.frame_point_plate(0.5, 0.5) == scope.runtime_state.stage_to_plate(
+        stage['X'].position_um, stage['Y'].position_um
+    )
+
+
+def _refusal(answer):
+    """A refusal answered as a value, by its type and reason."""
+    return type(answer).__name__, answer.reason
+
+
+def test_a_point_on_a_stage_whose_x_and_y_are_not_known_answers_their_refusal(sim_session):
+    """Unhomed, every axis is UNKNOWN while the position cache still answers
+    its seed: the answer names X and Y, never a position converted from a
+    stage position nobody established, and is raised to no one."""
+    answer = sim_session.scope.runtime_state.frame_point_plate(0.5, 0.5)
+
+    assert _refusal(answer) == ('AxisStateUnknownError', 'position_unknown')
+    assert set(answer.axes_without_position) == {'X', 'Y'}
+
+
+def test_a_point_with_only_z_unknown_still_has_a_plate_position(turret_session):
+    scope = turret_session.scope
+    # a stand-in by design: a simulator gap, the fast motor board fails no
+    # home, so Z alone is put UNKNOWN by the state's own writer.
+    scope.motion._set_axis_state('Z', AxisState.UNKNOWN)
+
+    assert isinstance(scope.runtime_state.frame_point_plate(0.5, 0.5), PlatePosition)
+
+
+# parametrize-justified: each model is its own simulated scope.
+@pytest.mark.parametrize('microscope', ['LS820', 'LS620'])
+def test_a_point_on_a_scope_with_no_xy_stage_answers_the_missing_part(tmp_path, microscope):
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope=microscope), simulate=True
+    )
+    try:
+        answer = session.scope.runtime_state.frame_point_plate(0.5, 0.5)
+    finally:
+        session.shutdown()
+
+    assert _refusal(answer) == ('HardwareCommandRefusedError', 'axis_absent')
+
+
+def test_a_point_under_an_unknown_objective_answers_the_objective_s_refusal(turret_session):
+    scope = turret_session.scope
+    scope.motion.move_turret(2)
+
+    answer = scope.runtime_state.frame_point_plate(0.5, 0.5)
+
+    assert _refusal(answer) == ('ObjectiveUnknownError', 'slot_unassigned')
+
+
+def test_a_fraction_outside_the_frame_is_the_caller_s_error_and_raised(turret_session):
+    with pytest.raises(ArgumentRefusedError) as refused:
+        turret_session.scope.runtime_state.frame_point_plate(1.5, 0.5)
+
+    assert refused.value.reason == 'out_of_range'
 
 
 def test_a_right_click_hands_the_api_the_point_and_the_api_s_refusal_reaches_the_reporter(

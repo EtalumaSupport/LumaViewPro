@@ -283,7 +283,8 @@ class TestTheFramingRedrawShowsTheStore:
 
     def _refresh_fov(self, monkeypatch, fov):
         """Run the refresh against a scope whose field of view is ``fov``
-        (None when it cannot say one); returns the two label texts."""
+        (the refusal that says why when it cannot say one); returns the two
+        label texts."""
         from types import SimpleNamespace
 
         import _lumascope.modules.app_context as app_context
@@ -292,7 +293,11 @@ class TestTheFramingRedrawShowsTheStore:
         # a stand-in by design: the widget's subject is the display of the
         # scope's answer, which the scope's own test pins on the simulator
         ctx = SimpleNamespace(
-            scope=SimpleNamespace(runtime_state=SimpleNamespace(get_field_of_view=lambda: fov))
+            scope=SimpleNamespace(
+                runtime_state=SimpleNamespace(
+                    optics_status=lambda: SimpleNamespace(field_of_view=fov)
+                )
+            )
         )
         monkeypatch.setattr(app_context, 'ctx', ctx)
         fn = _compile_ms_method(
@@ -315,7 +320,10 @@ class TestTheFramingRedrawShowsTheStore:
     def test_a_field_of_view_the_scope_cannot_say_reads_unknown(self, monkeypatch):
         # No objective, no camera report, no optics: the readout says so
         # rather than keep a stale value or compute one from a guess.
-        assert self._refresh_fov(monkeypatch, None) == ('unknown', 'unknown')
+        from _lumascope.modules.exceptions import PixelSizeUnknownError
+
+        unknown = PixelSizeUnknownError('binning_unread')
+        assert self._refresh_fov(monkeypatch, unknown) == ('unknown', 'unknown')
 
 
 class TestSelectBinningHandler:

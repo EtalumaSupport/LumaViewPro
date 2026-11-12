@@ -820,14 +820,29 @@ class MotionAPI:
                 ``disconnect()``; ``'not_connected'`` or ``'axis_absent'``,
                 naming the missing part. Nothing was sent.
         """
-        self.refuse_controller_not_connected(member)
+        refused = self.absent_refusal(member, axis)
+        if refused is not None:
+            raise refused
+
+    def absent_refusal(
+        self, member: str, axis: str | None = None
+    ) -> HardwareCommandRefusedError | None:
+        """The refusal ``refuse_absent`` raises, or None when it raises none.
+
+        For a read that answers a refusal as a value rather than raising it
+        (``RuntimeState.frame_point_plate``). A consult seam, not part of
+        the L2 API surface.
+        """
+        refused = self._controller_refusal(member)
+        if refused is not None:
+            return refused
         if not self._scope.motor_connected:
             part = MissingPart(Part.MOTORS)
         elif axis is not None and axis not in self._scope.capabilities.axes:
             part = MissingPart.of_axis(axis)
         else:
-            return
-        raise HardwareCommandRefusedError(part.reason, member, missing=part)
+            return None
+        return HardwareCommandRefusedError(part.reason, member, missing=part)
 
     def refuse_controller_not_connected(self, member: str) -> None:
         """Refuse when this scope's model has a motor controller and none is connected.
@@ -851,10 +866,17 @@ class MotionAPI:
                 ``disconnect()``; ``'not_connected'``, naming the motor
                 controller. Nothing was sent.
         """
+        refused = self._controller_refusal(member)
+        if refused is not None:
+            raise refused
+
+    def _controller_refusal(self, member: str) -> HardwareCommandRefusedError | None:
+        """The refusal ``refuse_controller_not_connected`` raises, or None when it raises none."""
         if self._scope._io_executor.pending_shutdown:
-            raise HardwareCommandRefusedError('scope_disconnected', member)
+            return HardwareCommandRefusedError('scope_disconnected', member)
         if self._scope.motion_expected and not self._scope.motor_connected:
-            raise self._controller_not_connected(member)
+            return self._controller_not_connected(member)
+        return None
 
     @staticmethod
     def _controller_not_connected(member: str) -> HardwareCommandRefusedError:

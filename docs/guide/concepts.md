@@ -162,7 +162,10 @@ light path. Which objective is in which slot is `assign_turret_objective`, and
 Where nobody has said which objective is in the light path, the session asks rather than guesses:
 `objective_question()` answers the question owed, or None, and
 `confirm_objective` answers it. The pixel size and field of view follow from
-the objective, and are None while it is unknown. `select_model` stores the
+the objective, and are None while it is unknown. A display reads both as a
+state: `runtime_state.optics_status()` answers the objective and the field of
+view, each its value or the refusal that says why it is unknown, raised to
+no one. `select_model` stores the
 model a scope that does not report its own is brought up as next time; the
 running model never changes. A scope whose board names its model
 (`scope.channel_identity.model_named_by_board`) runs as the board's at every

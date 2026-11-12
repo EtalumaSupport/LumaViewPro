@@ -181,6 +181,17 @@ class TestTheDisplayIsTheApisAnswer:
         stand.clock.run()
         assert stand.prompts == 1
 
+    def test_an_unknown_objective_is_recorded_with_the_api_s_reason(self, stand, monkeypatch):
+        # The log is the product here: the OBJECTIVE line a support read finds.
+        shown = []
+        monkeypatch.setattr(
+            vc.gui_logger, 'display', lambda name, value: shown.append((name, value))
+        )
+        stand.show_turret_state(prompt=False)
+        assert stand.ids['assign_objective_btn'].text == 'Assign Objective'
+        ((_, line),) = [entry for entry in shown if entry[0] == 'OBJECTIVE']
+        assert line.startswith('Unknown (slot_unknown) slot=None')
+
     def test_a_known_slot_shows_its_button_and_its_objective(self, stand, session):
         home_sim_scope(session.scope)
         session.scope.motion.move_turret(2)

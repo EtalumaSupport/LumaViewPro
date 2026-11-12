@@ -17,13 +17,13 @@ VerticalControl.show_turret_state, the one display of the API's answer,
 and that refreshes the FOV readout through
 MicroscopeSettings.refresh_fov_labels -- the same refresher frame-size
 changes use, which shows the scope's field of view
-(``RuntimeState.get_field_of_view``). Its display is tested by behaviour in
+(``RuntimeState.optics_status``). Its display is tested by behaviour in
 test_microscope_settings.py.
 
 Test approach
 -------------
 Source-level structural lock via AST on the chain: load_settings ->
-show_turret_state -> refresh_fov_labels -> the scope's get_field_of_view.
+show_turret_state -> refresh_fov_labels -> the scope's optics_status.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ class TestLoadSettingsFovStartup:
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
-                and node.func.attr == 'get_field_of_view'
+                and node.func.attr == 'optics_status'
             ):
                 # The scope decides: the GUI hands it nothing to compute from.
                 assert (node.args, node.keywords) == ([], [])

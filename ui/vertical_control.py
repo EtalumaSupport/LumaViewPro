@@ -245,9 +245,11 @@ class VerticalControl(BoxLayout):
             # is; the active objective there is unknown.
             button.text = f'< {position} >' if assigned is None else assigned
 
-        objective_id = ctx.session.objective_id
+        # The objective, or the refusal that says why it is unknown.
+        objective = ctx.scope.runtime_state.optics_status().objective
+        objective_id = objective if isinstance(objective, str) else None
         self.ids['assign_objective_btn'].text = objective_id or 'Assign Objective'
-        shown = objective_id or 'Unknown'
+        shown = objective_id or f'Unknown ({objective.reason})'
         if ctx.scope.capabilities.has_turret:
             # The turret row is shown only on a scope that has one.
             slots = ' '.join(

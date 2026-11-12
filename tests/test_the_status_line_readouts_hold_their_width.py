@@ -18,6 +18,7 @@ slot is the same width class whatever the value.
 import pytest
 
 from _lumascope.modules.coord_transformations import PlatePosition
+from _lumascope.modules.exceptions import AxisStateUnknownError
 from ui.shader import cursor_title, frame_rate_title
 from ui.ui_helpers import FIGURE_SPACE, MINUS, fixed_number
 
@@ -68,7 +69,10 @@ class TestTheStatusLineHoldsItsWidth:
     def test_the_cursor_part_is_gone_off_the_image(self):
         assert cursor_title(None, None) == ''
 
-    def test_without_a_plate_position_only_the_pixel_shows(self):
-        text = cursor_title((10, 10), None)
+    def test_a_plate_position_the_api_refuses_shows_the_pixel_alone(self):
+        unknown = AxisStateUnknownError(
+            {'X': 'unknown'}, then='read the plate position of the point'
+        )
+        text = cursor_title((10, 10), unknown)
         assert 'Pixel' in text
         assert 'Plate' not in text
