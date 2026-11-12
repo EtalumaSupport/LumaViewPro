@@ -158,11 +158,14 @@ The objective is chosen by
 `select_objective`; on a scope with a turret that turns the turret to the slot
 holding it, since there the objective is the assignment of the slot in the
 light path. Which objective is in which slot is `assign_turret_objective`, and
-`session.objective_id` is None while the slot in the light path holds none.
+`session.objective_id` raises `ObjectiveUnknownError` while the objective in the
+light path is unknown, its reason saying why (`'slot_unassigned'` while the slot
+holds none).
 Where nobody has said which objective is in the light path, the session asks rather than guesses:
 `objective_question()` answers the question owed, or None, and
 `confirm_objective` answers it. The pixel size and field of view follow from
-the objective, and are None while it is unknown. A display reads both as a
+the objective and the camera, and refuse with the same cause while either is
+unknown. A display reads both as a
 state: `runtime_state.optics_status()` answers the objective and the field of
 view, each its value or the refusal that says why it is unknown, raised to
 no one. `select_model` stores the

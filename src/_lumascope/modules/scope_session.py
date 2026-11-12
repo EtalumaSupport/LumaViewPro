@@ -3185,8 +3185,8 @@ class ScopeSession:
                 ``'zslices_outside_travel'``, as ``apply_zstacking`` refuses
                 the stored stack. Nothing is added.
             ObjectiveUnknownError: the objective in the light path is
-                unknown, as ``runtime_state.resolve_current_objective`` says
-                why (``'slot_unassigned'``, the turret's current slot has no
+                unknown, as ``ScopeSession.objective_id`` refuses
+                (``'slot_unassigned'``, the turret's current slot has no
                 objective). Nothing is added.
             ConfigurationDefectError: ``'channels_unresolved'``, ``channels`` is given
                 and this scope's channels could not be resolved. Nothing is added.
@@ -5693,7 +5693,7 @@ class ScopeSession:
         """A settings snapshot for composing a capture or a run.
 
         ``get_settings_snapshot``, refused while the active objective
-        (``runtime_state.resolve_current_objective``) is unknown: a capture
+        (``objective_id``) is unknown: a capture
         stamps its scale, so it is never composed without one.
 
         Raises:
@@ -5897,19 +5897,23 @@ class ScopeSession:
 
     @api
     @property
-    def objective_id(self) -> str | None:
-        """The active objective's catalogue key, or None while it is not known.
+    def objective_id(self) -> str:
+        """The active objective's catalogue key.
 
-        On a turret scope it is the assignment of the slot in the light path,
-        None while that slot is unknown or unassigned; on a turretless scope,
-        the one ``select_objective`` selected, once a person has confirmed it
-        (``scope.runtime_state.resolve_current_objective`` says why it is
-        unknown).
+        On a turret scope it is the assignment of the slot in the light path;
+        on a turretless scope, the one ``select_objective`` selected, once a
+        person has confirmed it. A display reads it as a state through
+        ``scope.runtime_state.optics_status``.
 
         Raises:
-            Nothing.
+            ObjectiveUnknownError: ``'slot_unknown'``, the turret is in no
+                known slot; ``'slot_unassigned'``, the slot in the light path
+                has no objective assigned; ``'not_in_catalogue'``, its
+                assignment is not in the catalogue; ``'none_selected'``, with
+                no turret, no person has confirmed the selected objective.
         """
-        return self.scope.runtime_state.get_current_objective_id()
+        objective_id, _ = self.scope.runtime_state.resolve_current_objective()
+        return objective_id
 
     @api(sets='objective_id', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write

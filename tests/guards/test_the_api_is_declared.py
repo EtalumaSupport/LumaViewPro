@@ -972,7 +972,6 @@ OPEN_STRINGS: dict[str, str] = {
     'RuntimeState.get_well_label return': _WELL,
     'RuntimeState.plate_to_stage parameter labware_id': _LABWARE,
     'RuntimeState.plate_transform parameter labware_id': _LABWARE,
-    'RuntimeState.resolve_current_objective return': _OBJECTIVE,
     'RuntimeState.stage_to_plate parameter labware_id': _LABWARE,
     'SavedStill.channel field': _CHANNEL,
     'SavedStill.objective_id field': _OBJECTIVE,

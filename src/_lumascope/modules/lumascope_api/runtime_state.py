@@ -128,9 +128,11 @@ class RuntimeState:
             labware_id=self._scope.read_setting('protocol.labware')
         )
 
-    @api(reads=True)
     def resolve_current_objective(self) -> tuple[str, Objective]:
         """The active objective's id and record, or why it is unknown.
+
+        A seam for the API's own members; a caller reads the active objective
+        through ``ScopeSession.objective_id``, which raises the same refusal.
 
         On a turreted scope (``capabilities.has_turret``), the objective
         assigned to the slot in the light path (``motion.turret_status``),
@@ -250,53 +252,63 @@ class RuntimeState:
         return self._derive_current_objective()[1]
 
     @api(reads=True)
-    def get_pixel_size_um(self) -> float | None:
+    def get_pixel_size_um(self) -> float:
         """The effective pixel size: micrometres per pixel at the current
         objective and the camera's binning, the scale a saved image carries.
 
-        Returns:
-            float | None: None when it cannot be known: no objective is
-                known (``resolve_current_objective`` says why), there is no
-                camera, the camera has not reported its binning, or the
-                scope cannot report its optics.
+        A display reads it as a state through ``optics_status``.
 
         Raises:
+            ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
+                ``'not_in_catalogue'`` or ``'none_selected'``, no objective is
+                known, as ``ScopeSession.objective_id``.
+            HardwareCommandRefusedError: ``'not_connected'``, no camera is
+                connected; ``'scope_disconnected'``, after ``disconnect()``.
+            PixelSizeUnknownError: ``'optics_undeclared'``, the scope cannot
+                report its optics; ``'binning_unread'``, the camera has not
+                reported its binning.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
         """
-        objective = self.get_current_objective()
-        if objective is None:
-            return None
+        scale = self._scale('get_pixel_size_um', self._derive_current_objective())
+        if not isinstance(scale, tuple):
+            raise scale
+        objective, binning = scale
         return common_utils.get_pixel_size(
-            objective.focal_length_mm,
-            self._scope.camera.binning,
-            capabilities=self._scope.capabilities,
+            objective.focal_length_mm, binning, capabilities=self._scope.capabilities
         )
 
     @api(reads=True)
-    def get_field_of_view(self) -> FieldOfView | None:
+    def get_field_of_view(self) -> FieldOfView:
         """The area the camera's frame covers on the sample, at the current
         objective and the camera's binning.
 
+        A display reads it as a state through ``optics_status``.
+
         Returns:
-            FieldOfView | None: Width and height in micrometres; None when
-                the pixel size cannot be known (``get_pixel_size_um``) or the
-                camera has not reported its frame.
+            FieldOfView: Width and height in micrometres.
 
         Raises:
+            ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
+                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``get_pixel_size_um``.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'scope_disconnected'``, as ``get_pixel_size_um``.
+            PixelSizeUnknownError: ``'optics_undeclared'`` or
+                ``'binning_unread'``, as ``get_pixel_size_um``;
+                ``'frame_size_unread'``, the camera has not reported its frame.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
         """
-        extent = self._field_of_view('get_field_of_view', self._derive_current_objective())
-        return extent if isinstance(extent, FieldOfView) else None
+        return self.resolve_field_of_view('get_field_of_view')
 
     @api(reads=True)
     def optics_status(self) -> OpticsStatus:
         """The objective in the light path and the frame's extent on the sample, each its value or why it is unknown.
 
         The read for a display: it answers an unknown as the refusal that
-        says why, where ``resolve_current_objective`` and the reads that act
-        on the extent refuse. Both fields come from one reading of the
+        says why, where ``ScopeSession.objective_id`` and the reads of the
+        frame's scale refuse. Both fields come from one reading of the
         objective. No serial I/O: the turret slot and the camera's binning
         and frame are the ones last reported.
 
@@ -315,38 +327,44 @@ class RuntimeState:
         )
 
     def resolve_field_of_view(self, member: str) -> FieldOfView:
-        """The area the camera's frame covers on the sample, or why it is unknown.
+        """``get_field_of_view`` for a member that acts on the extent.
 
-        ``get_field_of_view``'s answer, raised where that read answers
-        None, so a member that acts on the extent is refused with the cause.
-        A seam for the API's own members, not part of the L2 API surface, as
-        ``resolve_current_objective`` is not.
+        A seam for the API's own members, not part of the L2 API surface:
+        the camera's refusal names ``member``, the one asking.
 
         Args:
             member: The member asking, named by a refusal for want of a camera.
 
         Raises:
-            ObjectiveUnknownError: As ``resolve_current_objective``.
-            HardwareCommandRefusedError: ``'not_connected'``, no camera is
-                connected; ``'scope_disconnected'``, after ``disconnect()``.
+            ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
+                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``get_field_of_view``.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'scope_disconnected'``, as ``get_field_of_view``.
             PixelSizeUnknownError: ``'optics_undeclared'``,
-                ``'binning_unread'`` or ``'frame_size_unread'``.
+                ``'binning_unread'`` or ``'frame_size_unread'``, as
+                ``get_field_of_view``.
         """
         extent = self._field_of_view(member, self._derive_current_objective())
         if not isinstance(extent, FieldOfView):
             raise extent
         return extent
 
-    def _field_of_view(
+    def _scale(
         self,
         member: str,
         derived: tuple[str | None, Objective | None, ObjectiveUnknownError | None],
-    ) -> FieldOfView | ObjectiveUnknownError | HardwareCommandRefusedError | PixelSizeUnknownError:
-        """The one derivation of the frame's extent: the extent, or the first reason it is unknown.
+    ) -> (
+        tuple[Objective, int]
+        | ObjectiveUnknownError
+        | HardwareCommandRefusedError
+        | PixelSizeUnknownError
+    ):
+        """The objective and binning a distance on the sample is measured at, or the first reason either is unknown.
 
         Asked in this order: the objective (``derived``, the objective
         derivation's answer), the camera (its refusal names ``member``), the
-        scope's optics, the camera's binning, the camera's frame.
+        scope's optics, the camera's binning.
         """
         _, objective, unknown = derived
         if unknown is not None:
@@ -360,6 +378,22 @@ class RuntimeState:
         binning = self._scope.camera.binning
         if binning is None:
             return PixelSizeUnknownError('binning_unread')
+        return objective, binning
+
+    def _field_of_view(
+        self,
+        member: str,
+        derived: tuple[str | None, Objective | None, ObjectiveUnknownError | None],
+    ) -> FieldOfView | ObjectiveUnknownError | HardwareCommandRefusedError | PixelSizeUnknownError:
+        """The one derivation of the frame's extent: the extent, or the first reason it is unknown.
+
+        The scale's causes (``_scale``), then the camera's frame.
+        """
+        scale = self._scale(member, derived)
+        if not isinstance(scale, tuple):
+            return scale
+        objective, binning = scale
+        capabilities = self._scope.capabilities
         frame = self._scope.camera.frame_size
         if frame is None:
             return PixelSizeUnknownError('frame_size_unread')
@@ -372,7 +406,7 @@ class RuntimeState:
         return FieldOfView(width_um=extent['width'], height_um=extent['height'])
 
     @api(reads=True)
-    def frame_point_distance(self, x_fraction: float, y_fraction: float) -> StageDistance | None:
+    def frame_point_distance(self, x_fraction: float, y_fraction: float) -> StageDistance:
         """The stage distance from the centre of the camera's frame to a point of it.
 
         The point is ``x_fraction`` of the frame's width from its column 0
@@ -389,20 +423,25 @@ class RuntimeState:
                 to 1.
 
         Returns:
-            StageDistance | None: Positive ``dx_um`` for a point right of
-                centre, positive ``dy_um`` for one above it; (0.5, 0.5) is
-                the centre. None when the field of view cannot be known
-                (``get_field_of_view``).
+            StageDistance: Positive ``dx_um`` for a point right of centre,
+                positive ``dy_um`` for one above it; (0.5, 0.5) is the centre.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 a fraction that is not a number from 0 to 1.
+            ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
+                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``get_field_of_view``.
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'scope_disconnected'``, as ``get_field_of_view``.
+            PixelSizeUnknownError: ``'optics_undeclared'``,
+                ``'binning_unread'`` or ``'frame_size_unread'``, as
+                ``get_field_of_view``.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
         """
         refuse_unless_frame_point(x_fraction, y_fraction)
-        extent = self.get_field_of_view()
-        return None if extent is None else _distance_to(extent, x_fraction, y_fraction)
+        return self.resolve_frame_point_distance('frame_point_distance', x_fraction, y_fraction)
 
     def resolve_frame_point_distance(
         self, member: str, x_fraction: float, y_fraction: float

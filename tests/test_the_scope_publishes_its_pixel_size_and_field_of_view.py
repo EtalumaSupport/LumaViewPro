@@ -4,11 +4,15 @@
 ``scope.runtime_state.get_pixel_size_um()`` is the micrometres per pixel at
 the current objective and the camera's binning, the scale every saved image
 carries; ``get_field_of_view()`` is the area the camera's frame covers at
-that scale, a record of width and height in micrometres. Each answers None
-when it cannot be known: no objective known, no camera, or a binning or
-frame the camera has not reported. ``optics_status()`` answers the
-objective and the field of view for a display: each its value, or the
-refusal that says why it is unknown, never raised.
+that scale, a record of width and height in micrometres. Each is refused,
+naming its first cause, when it cannot be known: no objective known
+(``ObjectiveUnknownError``), no camera (the camera's ``'not_connected'``), or
+optics the scope does not declare, a binning or a frame the camera has not
+reported (``PixelSizeUnknownError``); ``frame_point_distance``, the stage
+distance to a point of the frame, is refused as the field of view is.
+``optics_status()`` answers the objective and the field of view for a
+display: each its value, or the refusal that says why it is unknown, never
+raised.
 
 Each is checked against a still saved through the Session, on the simulated
 LS850 and on the simulated Lumascope Classic (LS620), whose 2.2 um sensor
@@ -22,7 +26,13 @@ import tifffile
 from fastapi.testclient import TestClient
 
 from _lumascope.modules import common_utils
-from _lumascope.modules.exceptions import CameraSettingRejected
+from _lumascope.modules.exceptions import (
+    CameraSettingRejected,
+    HardwareCommandRefusedError,
+    ObjectiveUnknownError,
+    PixelSizeUnknownError,
+)
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.image_utils import read_pixel_size_um
 from _lumascope.modules.lumascope_api.runtime_state import OpticsStatus
 from _lumascope.modules.scope_capabilities import FieldOfView
@@ -78,7 +88,22 @@ def test_the_pixel_size_follows_the_binning(tmp_path):
         session.shutdown()
 
 
-def test_with_no_objective_known_each_is_none(tmp_path):
+def _refusals(state):
+    """Each scale read's refusal, by read: its type and reason."""
+    reads = {
+        'pixel_size': state.get_pixel_size_um,
+        'field_of_view': state.get_field_of_view,
+        'frame_point_distance': lambda: state.frame_point_distance(0.5, 0.5),
+    }
+    refused = {}
+    for name, read in reads.items():
+        with pytest.raises(Exception) as raised:
+            read()
+        refused[name] = (type(raised.value), raised.value.reason)
+    return refused
+
+
+def test_with_no_objective_known_each_is_refused_naming_it(tmp_path):
     # A turret on a slot with no objective assigned: nothing is in the light path.
     session = _session(
         tmp_path,
@@ -91,15 +116,17 @@ def test_with_no_objective_known_each_is_none(tmp_path):
         home_sim_scope(session.scope)
         session.scope.motion.move_turret(2)
         state = session.scope.runtime_state
-        assert state.get_current_objective_id() is None
-        assert (state.get_pixel_size_um(), state.get_field_of_view()) == (None, None)
+        assert _refusals(state) == dict.fromkeys(
+            ('pixel_size', 'field_of_view', 'frame_point_distance'),
+            (ObjectiveUnknownError, 'slot_unassigned'),
+        )
     finally:
         session.shutdown()
 
 
-def test_with_the_cameras_binning_or_frame_unknown_each_is_none(tmp_path):
-    """The camera's part is its held binning and frame, None with no camera
-    and after a write the camera never answered; the scope's optics are known."""
+def test_with_the_cameras_binning_or_frame_unknown_each_is_refused_naming_it(tmp_path):
+    """The camera's part is its held binning and frame, unknown after a write
+    the camera never answered; the scope's optics are known."""
     session = _session(tmp_path, microscope='LS850')
     try:
         state = session.scope.runtime_state
@@ -108,13 +135,36 @@ def test_with_the_cameras_binning_or_frame_unknown_each_is_none(tmp_path):
         session.scope.simulation.refuse_camera_write('frame_size', 'no_answer', count=2)
         with pytest.raises(CameraSettingRejected):
             session.scope.camera.set_frame_size(800, 600)
-        assert state.get_pixel_size_um() is not None
-        assert state.get_field_of_view() is None
+        assert state.get_pixel_size_um() > 0
+        with pytest.raises(PixelSizeUnknownError) as frame_unread:
+            state.get_field_of_view()
+        assert frame_unread.value.reason == 'frame_size_unread'
 
         session.scope.simulation.refuse_camera_write('binning', 'no_answer', count=2)
         with pytest.raises(CameraSettingRejected):
             session.scope.camera.set_binning(2)
-        assert (state.get_pixel_size_um(), state.get_field_of_view()) == (None, None)
+        assert _refusals(state) == dict.fromkeys(
+            ('pixel_size', 'field_of_view', 'frame_point_distance'),
+            (PixelSizeUnknownError, 'binning_unread'),
+        )
+    finally:
+        session.shutdown()
+
+
+def test_with_no_camera_each_is_refused_naming_it(tmp_path):
+    """A scope that came up with no camera has no binning or frame to measure
+    by: each read is the camera's refusal, after the objective, which is known."""
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS850'),
+        simulate=True,
+        simulated=SimulatedScope(camera_present=False),
+    )
+    try:
+        assert session.objective_id
+        assert _refusals(session.scope.runtime_state) == dict.fromkeys(
+            ('pixel_size', 'field_of_view', 'frame_point_distance'),
+            (HardwareCommandRefusedError, 'not_connected'),
+        )
     finally:
         session.shutdown()
 

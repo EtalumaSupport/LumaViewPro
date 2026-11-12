@@ -387,7 +387,7 @@ slices when stacked.
 
 - `AxisMovingError`: `'axis_moving'`, with no `at`, an axis is moving, so the live position is a place it is passing through. Nothing is added.
 - `ProtocolRunRefusedError`: `'step_position_unknown'`, an axis does not know its position; `'no_acquiring_channel'`, no channel acquires. With `use_zstacking`, also `'zstack_not_configured'`, `'positions_unreachable'` or `'zslices_outside_travel'`, as `apply_zstacking` refuses the stored stack. Nothing is added.
-- `ObjectiveUnknownError`: the objective in the light path is unknown, as `runtime_state.resolve_current_objective` says why (`'slot_unassigned'`, the turret's current slot has no objective). Nothing is added.
+- `ObjectiveUnknownError`: the objective in the light path is unknown, as `ScopeSession.objective_id` refuses (`'slot_unassigned'`, the turret's current slot has no objective). Nothing is added.
 - `ConfigurationDefectError`: `'channels_unresolved'`, `channels` is given and this scope's channels could not be resolved. Nothing is added.
 - `ArgumentRefusedError`: `'channel_unknown'`, a name in `channels` is not a channel.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no channel named in `channels`; `'not_connected'`, with no `at`, the model's motor controller is not connected, so there is no live position. Nothing is added.
@@ -704,7 +704,7 @@ Marks: in-process; reads (changes nothing).
 A settings snapshot for composing a capture or a run.
 
 `get_settings_snapshot`, refused while the active objective
-(`runtime_state.resolve_current_objective`) is unknown: a capture
+(`objective_id`) is unknown: a capture
 stamps its scale, so it is never composed without one.
 
 **Raises**
@@ -2068,22 +2068,25 @@ steps; a labware with no wells still gives an empty protocol, which
 ### `ScopeSession.objective_id`
 
 ```python
-objective_id: str | None  # property
+objective_id: str  # property
 ```
 
 Route: `GET /api/v1/objective_id`.
 
-The active objective's catalogue key, or None while it is not known.
+The active objective's catalogue key.
 
-On a turret scope it is the assignment of the slot in the light path,
-None while that slot is unknown or unassigned; on a turretless scope,
-the one `select_objective` selected, once a person has confirmed it
-(`scope.runtime_state.resolve_current_objective` says why it is
-unknown).
+On a turret scope it is the assignment of the slot in the light path;
+on a turretless scope, the one `select_objective` selected, once a
+person has confirmed it. A display reads it as a state through
+`scope.runtime_state.optics_status`.
 
 **Raises**
 
-Nothing.
+- `ObjectiveUnknownError`: `'slot_unknown'`, the turret is in no known slot; `'slot_unassigned'`, the slot in the light path has no objective assigned; `'not_in_catalogue'`, its assignment is not in the catalogue; `'none_selected'`, with no turret, no person has confirmed the selected objective.
+
+**Refusals by REST status**
+
+- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`
 
 <a id="ScopeSession.objective_question"></a>
 ### `ScopeSession.objective_question`
@@ -8632,11 +8635,7 @@ The answers for the user configuration a Lumascope acts on
 ### `RuntimeState.frame_point_distance`
 
 ```python
-def frame_point_distance(
-    self,
-    x_fraction: float,
-    y_fraction: float,
-) -> StageDistance | None
+def frame_point_distance(self, x_fraction: float, y_fraction: float) -> StageDistance
 ```
 
 Marks: reads (changes nothing).  
@@ -8659,17 +8658,22 @@ the point to the centre (`MotionAPI.start_center_on`).
 
 **Returns**
 
-StageDistance | None: Positive `dx_um` for a point right of centre, positive `dy_um` for one above it; (0.5, 0.5) is the centre. None when the field of view cannot be known (`get_field_of_view`).
+StageDistance: Positive `dx_um` for a point right of centre, positive `dy_um` for one above it; (0.5, 0.5) is the centre.
 
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a fraction that is not a number from 0 to 1.
+- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `get_field_of_view`.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'scope_disconnected'`, as `get_field_of_view`.
+- `PixelSizeUnknownError`: `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`, as `get_field_of_view`.
 - `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
 
 **Refusals by REST status**
 
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
+- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`, `frame_size_unread`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="RuntimeState.frame_point_plate"></a>
 ### `RuntimeState.frame_point_plate`
@@ -8718,7 +8722,7 @@ The `PlatePosition`, in mm; or the first reason it is unknown, in this order: `H
 ### `RuntimeState.get_field_of_view`
 
 ```python
-def get_field_of_view(self) -> FieldOfView | None
+def get_field_of_view(self) -> FieldOfView
 ```
 
 Marks: reads (changes nothing).  
@@ -8727,23 +8731,31 @@ Route: `GET /api/v1/scope/runtime_state/get_field_of_view`.
 The area the camera's frame covers on the sample, at the current
 objective and the camera's binning.
 
+A display reads it as a state through `optics_status`.
+
 **Returns**
 
-FieldOfView | None: Width and height in micrometres; None when the pixel size cannot be known (`get_pixel_size_um`) or the camera has not reported its frame.
+FieldOfView: Width and height in micrometres.
 
 **Raises**
 
+- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `get_pixel_size_um`.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'scope_disconnected'`, as `get_pixel_size_um`.
+- `PixelSizeUnknownError`: `'optics_undeclared'` or `'binning_unread'`, as `get_pixel_size_um`; `'frame_size_unread'`, the camera has not reported its frame.
 - `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
 
 **Refusals by REST status**
 
+- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`, `frame_size_unread`
+- 422: [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="RuntimeState.get_pixel_size_um"></a>
 ### `RuntimeState.get_pixel_size_um`
 
 ```python
-def get_pixel_size_um(self) -> float | None
+def get_pixel_size_um(self) -> float
 ```
 
 Marks: reads (changes nothing).  
@@ -8752,17 +8764,21 @@ Route: `GET /api/v1/scope/runtime_state/get_pixel_size_um`.
 The effective pixel size: micrometres per pixel at the current
 objective and the camera's binning, the scale a saved image carries.
 
-**Returns**
-
-float | None: None when it cannot be known: no objective is known (`resolve_current_objective` says why), there is no camera, the camera has not reported its binning, or the scope cannot report its optics.
+A display reads it as a state through `optics_status`.
 
 **Raises**
 
+- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, no objective is known, as `ScopeSession.objective_id`.
+- `HardwareCommandRefusedError`: `'not_connected'`, no camera is connected; `'scope_disconnected'`, after `disconnect()`.
+- `PixelSizeUnknownError`: `'optics_undeclared'`, the scope cannot report its optics; `'binning_unread'`, the camera has not reported its binning.
 - `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
 
 **Refusals by REST status**
 
+- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`
+- 422: [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="RuntimeState.get_stage_offset"></a>
 ### `RuntimeState.get_stage_offset`
@@ -8859,8 +8875,8 @@ Route: `GET /api/v1/scope/runtime_state/optics_status`.
 The objective in the light path and the frame's extent on the sample, each its value or why it is unknown.
 
 The read for a display: it answers an unknown as the refusal that
-says why, where `resolve_current_objective` and the reads that act
-on the extent refuse. Both fields come from one reading of the
+says why, where `ScopeSession.objective_id` and the reads of the
+frame's scale refuse. Both fields come from one reading of the
 objective. No serial I/O: the turret slot and the camera's binning
 and frame are the ones last reported.
 
@@ -8960,35 +8976,6 @@ A function of `(x_um, y_um)` answering their `PlatePosition`; it raises only as 
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
 - [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-
-<a id="RuntimeState.resolve_current_objective"></a>
-### `RuntimeState.resolve_current_objective`
-
-```python
-def resolve_current_objective(self) -> tuple[str, Objective]
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/runtime_state/resolve_current_objective`.
-
-The active objective's id and record, or why it is unknown.
-
-On a turreted scope (`capabilities.has_turret`), the objective
-assigned to the slot in the light path (`motion.turret_status`),
-read fresh every time; with no turret, the selected one, once a
-person has confirmed it (`objective_confirmed`).
-
-**Returns**
-
-tuple[str, Objective]: The objective id and its catalogue record.
-
-**Raises**
-
-- `ObjectiveUnknownError`: On a turreted scope, the slot is unknown (`'slot_unknown'`), it has no assignment (`'slot_unassigned'`), or its assignment is not in the catalogue (`'not_in_catalogue'`); with no turret, no person has confirmed the selected objective (`'none_selected'`).
-
-**Refusals by REST status**
-
-- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`
 
 <a id="RuntimeState.stage_to_plate"></a>
 ### `RuntimeState.stage_to_plate`
@@ -11249,7 +11236,7 @@ them all.
 ## `lumascope.Objective`
 
 A record: it crosses the wire as its data.  
-Returned by: [`Lumascope.all_objectives`](#Lumascope.all_objectives), [`Lumascope.objective`](#Lumascope.objective), [`RuntimeState.resolve_current_objective`](#RuntimeState.resolve_current_objective).
+Returned by: [`Lumascope.all_objectives`](#Lumascope.all_objectives), [`Lumascope.objective`](#Lumascope.objective).
 
 One objective of the installation's catalogue, read once at bring-up.
 
@@ -18674,7 +18661,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/runtime_state/get_well_label` | [`RuntimeState.get_well_label`](#RuntimeState.get_well_label) |
 | `GET` | `/api/v1/scope/runtime_state/optics_status` | [`RuntimeState.optics_status`](#RuntimeState.optics_status) |
 | `GET` | `/api/v1/scope/runtime_state/plate_to_stage` | [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage) |
-| `GET` | `/api/v1/scope/runtime_state/resolve_current_objective` | [`RuntimeState.resolve_current_objective`](#RuntimeState.resolve_current_objective) |
 | `GET` | `/api/v1/scope/runtime_state/stage_to_plate` | [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate) |
 | `GET` | `/api/v1/scope/scope_models` | [`Lumascope.scope_models`](#Lumascope.scope_models) |
 | `GET` | `/api/v1/scope/settings_template` | [`Lumascope.settings_template`](#Lumascope.settings_template) |

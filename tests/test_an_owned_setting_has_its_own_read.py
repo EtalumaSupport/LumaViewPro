@@ -17,6 +17,7 @@ from _lumascope.modules.api_surface import IN_PROCESS, mark_of, sets_of
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
+    ObjectiveUnknownError,
     PositionOutOfRangeError,
 )
 from _lumascope.modules.lumascope_api.camera import CameraAPI
@@ -100,15 +101,17 @@ def test_a_layer_read_refuses_a_name_that_is_no_layer(session, read):
     assert raised.value.reason == 'channel_unknown'
 
 
-def test_the_objective_is_none_while_the_turret_slot_is_unknown(tmp_path):
+def test_the_objective_is_refused_while_the_turret_slot_is_unknown(tmp_path):
     # Every slot holds the objective, so once the turret's slot is known
     # the answer is it, whichever slot the home leaves in the light path;
-    # before the home no slot is, so none is the active objective.
+    # before the home no slot is, so the read is refused, naming that.
     settings = complete_settings(live_folder=str(tmp_path), microscope='LS850T')
     settings['turret_objectives'] = dict.fromkeys(range(1, 5), '10x Oly')
     turreted = ScopeSession.create(settings, simulate=True)
     try:
-        assert turreted.objective_id is None
+        with pytest.raises(ObjectiveUnknownError) as unknown:
+            _ = turreted.objective_id
+        assert unknown.value.reason == 'slot_unknown'
         home_sim_scope(turreted.scope)
         assert turreted.objective_id == '10x Oly'
     finally:

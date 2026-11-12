@@ -110,9 +110,10 @@ a recording refuses it. The objective is the slot's assignment
 ([Bringing a session up](concepts.md#bringing-a-session-up), `session.objective_id`).
 
 ```python model=LS850T
+session.assign_turret_objective(2, '10x Oly')
 scope.motion.move_turret(2)
 print(scope.motion.turret_status())
-print(session.objective_id)                 # slot 2's objective
+print(session.objective_id)                 # '10x Oly', slot 2's objective
 ```
 
 **Jogging.** `start_jog(axis, steps, coarse)` moves X, Y or Z by `steps` of
@@ -130,7 +131,8 @@ picture, as in the live view and a saved file). A fraction is the same place on 
 any binning. It refuses as a jog does, then with `ObjectiveUnknownError` or
 `PixelSizeUnknownError` when no distance can be measured.
 `runtime_state.frame_point_distance(x_fraction, y_fraction)` answers the
-distance without moving, None when it cannot be known.
+distance without moving, refusing as `start_center_on` does when it cannot be
+measured.
 `runtime_state.frame_point_plate(x_fraction, y_fraction)` answers the point's
 position on the plate, or the refusal that says why it is not known (no X or
 Y, X or Y not homed, no distance measurable), raised to no one.
