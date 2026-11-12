@@ -21,15 +21,18 @@ import pytest
 from _lumascope.drivers.exceptions import ConfigReadError
 from _lumascope.drivers.motorboard import MotorBoard
 from _lumascope.drivers.motorconfig import MotorConfig
-from _lumascope.modules.path_utils import read_installation_file
+from _lumascope.modules.motor_defaults import read_motor_defaults
+from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.stock_channels import LED2
 from tests.wire_boards import motor_on_the_wire
 
 
 def make_config(tmp_path, defaults=None):
+    """A MotorConfig on the shipped defaults with ``defaults``'s sections
+    over them, read as a bring-up reads its defaults file."""
     path = tmp_path / 'defaults.json'
-    path.write_text(json.dumps(defaults if defaults is not None else {}), encoding='utf-8')
-    return MotorConfig(read_installation_file(path))
+    path.write_text(json.dumps({**SHIPPED_MOTOR_DEFAULTS, **(defaults or {})}), encoding='utf-8')
+    return MotorConfig(read_motor_defaults(path))
 
 
 def bare_board(monkeypatch, response):

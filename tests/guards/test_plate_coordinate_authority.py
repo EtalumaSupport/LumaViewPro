@@ -30,18 +30,19 @@ from _lumascope.modules.coord_transformations import (
 from _lumascope.modules.exceptions import PositionOutOfRangeError
 from tests.ast_seams import REPO_ROOT, tracked_files
 
-# The shipped 96-well geometry and a stock LS850T's travel. The reachable
-# plate band these produce -- X 2.26-122.26, Y 1.48-81.48 -- is the
+# The shipped 96-well geometry and a stock LS850T's limits (its stated
+# travel less the travel margin). The reachable
+# plate band these produce -- X 5.26-122.26, Y 4.48-81.48 -- is the
 # quantity under test, so these are written out rather than read back: a
 # defaults change should fail this file loudly, not silently retarget it.
 PLATE_DIMENSIONS = {'x': 127.76, 'y': 85.48}
 STAGE_OFFSET = StageOffset(x_um=5500.0, y_um=4000.0)
 AXIS_TRAVEL = {
-    'X': AxisLimits(min_um=0.0, max_um=120000.0),
-    'Y': AxisLimits(min_um=0.0, max_um=80000.0),
+    'X': AxisLimits(min_um=0.0, max_um=117000.0),
+    'Y': AxisLimits(min_um=0.0, max_um=77000.0),
 }
 
-REACHABLE = {'X': (2.26, 122.26), 'Y': (1.48, 81.48)}
+REACHABLE = {'X': (5.26, 122.26), 'Y': (4.48, 81.48)}
 
 
 @pytest.fixture(scope='module')
@@ -84,7 +85,7 @@ class TestRefusalNamesWhatTheUserTyped:
             scope.motion.move_to_plate(PlateLocation(x_mm=clicked, y_mm=None, z_um=None))
 
         assert str(exc.value) == (
-            'X plate position 1.48 is outside the reachable range 2.26 to 122.26.'
+            'X plate position 1.48 is outside the reachable range 5.26 to 122.26.'
         )
         assert exc.value.position == clicked
 

@@ -8,12 +8,59 @@ for any missing keys.
 """
 
 import copy
+import math
 import types
 from collections.abc import Mapping
 from typing import ClassVar
 
 from _lumascope.drivers.exceptions import ConfigReadError
 from _lumascope.lib.log_helpers import logger
+
+
+# The axes whose travel bounds a move. The turret's T is a slot number, not
+# a distance, and has no limit.
+LIMITED_AXES = ('X', 'Y', 'Z')
+
+
+def _is_number(value: object) -> bool:
+    """Whether ``value`` is a finite int or float; a bool is not a number here."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+TRAVEL = 'Axis Travel Limit'
+MARGIN = 'Axis Travel Margin'
+
+
+def _travel_problem(travel_mm: object) -> str | None:
+    if not _is_number(travel_mm) or travel_mm <= 0:
+        return f'travel {travel_mm!r} is not a positive number of mm'
+    return None
+
+
+def _margin_problem(margin_mm: object) -> str | None:
+    if not _is_number(margin_mm) or margin_mm < 0:
+        return f'margin {margin_mm!r} is not a number of mm of zero or more'
+    return None
+
+
+# What each figure of an axis's travel must be, by section.
+_FIGURE_PROBLEM = {TRAVEL: _travel_problem, MARGIN: _margin_problem}
+
+
+def unusable_travel(travel_mm: object, margin_mm: object) -> str | None:
+    """Why an axis's stated travel and travel margin give no limit, or None.
+
+    The limit is the travel less the margin, so the travel is a positive
+    number and the margin a number of zero or more below it. The shipped
+    defaults and a board's own figures are each judged by this where each
+    enters, so the limit is never computed from a pair it cannot use.
+    """
+    problem = _travel_problem(travel_mm) or _margin_problem(margin_mm)
+    if problem is not None:
+        return problem
+    if margin_mm >= travel_mm:
+        return f'margin {margin_mm!r} mm leaves none of the travel {travel_mm!r} mm'
+    return None
 
 
 def read_only_axes_config(axes_config: dict) -> Mapping:
@@ -80,22 +127,47 @@ class MotorConfig:
 
         Basic type validation is applied to numeric fields -- if a board
         sends a non-numeric value where a number is expected, the board
-        value is rejected and the default is kept.
+        value is rejected and the default is kept. A travel or travel margin
+        the limit cannot be computed from is rejected the same way, alone
+        and then as the pair the merge would give (`_keep_a_usable_travel`).
 
         The wholesale keys (the LED/filterset block) are assigned whole,
         never deep-merged, whatever shape either side carries.
         """
         validated = self._validate_board_config(board_config)
+        self._keep_a_usable_travel(validated)
         for key in self._WHOLESALE_KEYS:
             if key in validated:
                 self._config[key] = validated.pop(key)
         self._deep_merge(self._config, validated)
 
+    def _keep_a_usable_travel(self, validated: dict) -> None:
+        """Drop the board's travel figures that would leave an axis no limit.
+
+        Each axis is judged on the pair the merge would give it: the board's
+        figure where it states one, the one held where it does not. The
+        board's margin is dropped first, then its travel, so what remains at
+        worst is the shipped pair, judged usable where it was read.
+        """
+        for axis in LIMITED_AXES:
+            for section in (MARGIN, TRAVEL):
+                travel = validated.get(TRAVEL, {}).get(axis, self._config[TRAVEL][axis])
+                margin = validated.get(MARGIN, {}).get(axis, self._config[MARGIN][axis])
+                problem = unusable_travel(travel, margin)
+                if problem is None:
+                    break
+                if axis in validated.get(section, {}):
+                    logger.warning(
+                        f'[MotorConfig] Rejecting board value {section}.{axis}='
+                        f'{validated[section].pop(axis)!r}: {problem}'
+                    )
+
     # Sections where values must be numeric (int or float).
     _NUMERIC_SECTIONS = frozenset(
         {
             'Axis Microsteps per mm / Objective',
-            'Axis Travel Limit',
+            TRAVEL,
+            MARGIN,
             'Axis Present',
             'Axis antibacklash',
             'Axis Offset',
@@ -120,13 +192,17 @@ class MotorConfig:
             if key in self._NUMERIC_SECTIONS and isinstance(value, dict):
                 valid_axes = {}
                 for axis, val in value.items():
-                    if isinstance(val, (int, float)):
-                        valid_axes[axis] = val
-                    else:
+                    if not isinstance(val, (int, float)):
                         logger.warning(
                             f'[MotorConfig] Rejecting non-numeric board value '
                             f'{key}.{axis}={val!r} (type={type(val).__name__})'
                         )
+                    elif key in _FIGURE_PROBLEM and (problem := _FIGURE_PROBLEM[key](val)):
+                        logger.warning(
+                            f'[MotorConfig] Rejecting board value {key}.{axis}={val!r}: {problem}'
+                        )
+                    else:
+                        valid_axes[axis] = val
                 cleaned[key] = valid_axes
             elif key == 'TurretPosition' and isinstance(value, dict):
                 valid_pos = {}
@@ -179,10 +255,32 @@ class MotorConfig:
         return int(self._axis_lookup('Axis Microsteps per mm / Objective', axis, default=20157))
 
     def travel_limit_mm(self, axis: str) -> float:
-        return float(self._axis_lookup('Axis Travel Limit', axis, default=120))
+        """The axis's stated travel, end to end, in mm.
+
+        Raises:
+            KeyError: the config states no travel for ``axis``.
+        """
+        return float(self._config[TRAVEL][axis.upper()])
 
     def travel_limit_um(self, axis: str) -> float:
         return self.travel_limit_mm(axis) * 1000.0
+
+    def travel_margin_mm(self, axis: str) -> float:
+        """How far inside the axis's far end its limit sits, in mm.
+
+        Raises:
+            KeyError: the config states no travel margin for ``axis``.
+        """
+        return float(self._config[MARGIN][axis.upper()])
+
+    def limits_um(self, axis: str) -> dict[str, float]:
+        """The travel a move of ``axis`` is held to, in um: from the home
+        position to the margin inside the far end, so that no move the
+        limits allow reaches the far switch or the stage's end."""
+        return {
+            'min': 0.0,
+            'max': (self.travel_limit_mm(axis) - self.travel_margin_mm(axis)) * 1000.0,
+        }
 
     def axis_present(self, axis: str) -> bool:
         return bool(self._axis_lookup('Axis Present', axis, default=True))

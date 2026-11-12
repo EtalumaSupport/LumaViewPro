@@ -52,6 +52,14 @@ FCLK_HZ = 16_000_000
 # home finds the flag by moving as a real stage does.
 START_USTEPS = {'X': 600_000, 'Y': 400_000, 'Z': 600_000, 'T': 150_000}
 
+# Where each axis's far switch sits, in mm from its reference flag's edge:
+# the switch-to-switch span an LS850T's X and Y measured at the bench
+# (Firmware docs/reference/bench/el0940/2026-11-11_far_end_positions.md: the
+# far switch at 119.73 / 79.62 mm in the API frame, whose zero the home sets
+# 0.25 mm off the reference switch). A board's stated travel is not where its
+# switch is, so the switch is the simulator's own figure; Z has none.
+FAR_SWITCH_MM = {'X': 119.98, 'Y': 79.87}
+
 # Which chip sits behind which chip-select pin on each board, as its firmware
 # drives them: the motor firmware's XY_chip = Pin(1) and ZT_chip = Pin(5),
 # the LED firmware's chip = Pin(1) in front of its DAC.
@@ -164,6 +172,7 @@ class MotorBoardSpec:
     oracle: bool = False
     fclk_hz: float = FCLK_HZ
     start_usteps: tuple[tuple[str, int], ...] = tuple(START_USTEPS.items())
+    far_switch_mm: tuple[tuple[str, float], ...] = tuple(FAR_SWITCH_MM.items())
     # A real unit's own motorconfig.json, as its CONFIG command answers it,
     # given through `for_unit`, which takes the model and axes from it. None
     # boots the bring-up template with the model and axes set on it; a
@@ -224,6 +233,7 @@ class MotorBoardSpec:
                 'timing': self.timing,
                 'fclk_hz': self.fclk_hz,
                 'start_usteps': dict(self.start_usteps),
+                'far_switch_mm': dict(self.far_switch_mm),
                 'oracle': self.oracle,
             }
         ).encode()

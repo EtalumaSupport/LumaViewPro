@@ -70,6 +70,39 @@ def test_a_bad_defaults_file_stops_the_bring_up_naming_it(tmp_path, content, say
     assert set(threading.enumerate()) <= threads_before
 
 
+def _defaults_with(section, axis, value):
+    defaults = json.loads(json.dumps(SHIPPED_MOTOR_DEFAULTS))
+    if value is None:
+        del defaults[section][axis]
+    else:
+        defaults[section][axis] = value
+    return json.dumps(defaults)
+
+
+@pytest.mark.parametrize(
+    ('section', 'axis', 'value', 'says'),
+    [
+        ('Axis Travel Margin', 'X', 120, 'gives X no travel limit .*leaves none of the travel'),
+        ('Axis Travel Margin', 'Z', None, "states no 'Axis Travel Margin' for Z"),
+        ('Axis Travel Limit', 'Y', 0, 'gives Y no travel limit .*travel 0 is not a positive'),
+        ('Axis Travel Margin', 'Y', True, 'gives Y no travel limit .*margin True is not a number'),
+    ],
+    ids=['margin-the-whole-travel', 'no-margin', 'no-travel', 'a-bool-margin'],
+)
+def test_a_travel_the_limit_cannot_be_computed_from_stops_the_bring_up(
+    tmp_path, section, axis, value, says
+):
+    """The limit is the travel less the margin; a pair that gives none is
+    the file's fault, refused where the file is read, before any driver
+    is built, naming the file, the axis and the key."""
+    root, path = _install_with_defaults(tmp_path, _defaults_with(section, axis, value))
+
+    with pytest.raises(InstallationFileError, match=says) as refused:
+        _session(root)
+
+    assert refused.value.file_path == path
+
+
 @pytest.mark.parametrize('model', ['LS620', 'LS850T'])
 def test_a_bad_defaults_file_stops_the_bring_up_on_every_model(tmp_path, model):
     # The motor probe runs on every model, and a board it finds takes the

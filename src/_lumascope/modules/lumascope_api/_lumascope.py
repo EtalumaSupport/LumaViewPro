@@ -106,6 +106,7 @@ from _lumascope.modules.frame_validity import FrameValidity, FrameValiditySource
 from _lumascope.modules.fx2_driver_step import repair_refusal
 from _lumascope.modules.channel_record import LedBoardFamily, MotorBoardFamily
 from _lumascope.modules.lvp_lock import take_scope_lock
+from _lumascope.modules.motor_defaults import read_motor_defaults
 from _lumascope.modules.path_utils import get_source_root, read_installation_file, resolve_data_file
 from _lumascope.modules.scope_capabilities import ScopeCapabilities
 from _lumascope.modules.activity_claim import ActivityClaim
@@ -559,7 +560,7 @@ class Lumascope:
         # but the identity resolved after the lanes start needs it: asked
         # here, a broken one refuses before anything is started.
         channel_record.release_catalogue()
-        motorconfig_defaults = read_installation_file(
+        motorconfig_defaults = read_motor_defaults(
             resolve_data_file('motorconfig_defaults.json', source_path=source_path)
         )
         # What every setting is: the shipped template, which the Session's

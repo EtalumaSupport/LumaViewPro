@@ -183,24 +183,15 @@ class MotorBoard(SerialBoard):
         self.axes_config = read_only_axes_config(
             {
                 'Z': {
-                    'limits': {
-                        'min': 0.0,
-                        'max': self.motorconfig.travel_limit_um('Z'),
-                    },
+                    'limits': self.motorconfig.limits_um('Z'),
                     'move_func': self.z_um2ustep,
                 },
                 'X': {
-                    'limits': {
-                        'min': 0.0,
-                        'max': self.motorconfig.travel_limit_um('X'),
-                    },
+                    'limits': self.motorconfig.limits_um('X'),
                     'move_func': self.xy_um2ustep,
                 },
                 'Y': {
-                    'limits': {
-                        'min': 0.0,
-                        'max': self.motorconfig.travel_limit_um('Y'),
-                    },
+                    'limits': self.motorconfig.limits_um('Y'),
                     'move_func': self.xy_um2ustep,
                 },
                 'T': {'move_func': self.t_pos2ustep},

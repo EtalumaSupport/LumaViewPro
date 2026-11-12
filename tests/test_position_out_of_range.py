@@ -25,10 +25,11 @@ from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.motion_moves import axis_move
 
-# The LS850T's travel, in um, from the shipped motor defaults. Written out
+# The LS850T's limits, in um, from the shipped motor defaults: the stated
+# travel (120 / 80 / 14 mm) less the travel margin (3 / 3 / 0 mm). Written out
 # rather than read back so a defaults change fails this file loudly instead
 # of silently retargeting every case; the first test pins the agreement.
-TRAVEL = {'X': (0.0, 120000.0), 'Y': (0.0, 80000.0), 'Z': (0.0, 14000.0)}
+TRAVEL = {'X': (0.0, 117000.0), 'Y': (0.0, 77000.0), 'Z': (0.0, 14000.0)}
 
 
 @pytest.fixture(scope='module')
@@ -60,15 +61,15 @@ def test_the_message_names_the_axis_the_request_and_the_range(motion):
     with pytest.raises(PositionOutOfRangeError) as caught:
         motion.move_xy(y_um=200000.0)
 
-    assert str(caught.value) == 'Y position 200000 is outside the travel range 0 to 80000.'
+    assert str(caught.value) == 'Y position 200000 is outside the travel range 0 to 77000.'
     assert (caught.value.axis, caught.value.position) == ('Y', 200000.0)
 
 
 @pytest.mark.parametrize(
     'axis,position',
     [
-        ('X', 120000.1),
-        ('Y', 80000.1),
+        ('X', 117000.1),
+        ('Y', 77000.1),
         ('Z', 14000.1),
         ('X', -0.1),
         ('Y', -1.0),
@@ -88,7 +89,7 @@ def test_out_of_travel_is_refused_and_nothing_is_driven(motion, axis, position):
 
 @pytest.mark.parametrize(
     'axis,position',
-    [('X', 0.0), ('X', 120000.0), ('Y', 40000.0), ('Z', 14000.0)],
+    [('X', 0.0), ('X', 117000.0), ('Y', 40000.0), ('Z', 14000.0)],
 )
 def test_in_travel_and_the_boundaries_are_allowed(motion, axis, position):
     """The limits are inclusive; refusing an endpoint would strand the stage at it.

@@ -26,7 +26,8 @@ sys.path.insert(0, str(_LVP_ROOT / 'src'))
 from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.drivers.motorboard import MotorBoard
 from _lumascope.drivers.serialboard import SerialBoard
-from _lumascope.modules.path_utils import read_installation_file, resolve_data_file
+from _lumascope.modules.motor_defaults import read_motor_defaults
+from _lumascope.modules.path_utils import resolve_data_file
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +38,7 @@ from _lumascope.modules.path_utils import read_installation_file, resolve_data_f
 def _connect_motor_board():
     """Connect to motor board using production MotorBoard driver."""
     board = MotorBoard(
-        motorconfig_defaults=read_installation_file(resolve_data_file('motorconfig_defaults.json'))
+        motorconfig_defaults=read_motor_defaults(resolve_data_file('motorconfig_defaults.json'))
     )
     if not board.found:
         print('ERROR: Motor board not found (VID=0x2E8A, PID=0x0005)')

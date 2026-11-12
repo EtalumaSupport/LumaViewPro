@@ -153,6 +153,7 @@ class Motor:
         flag_active_low: bool,
         start_usteps: float,
         wrap_usteps: int = 0,
+        far_switch_usteps: int | None = None,
     ) -> None:
         self.present = present
         self.usteps_per_mm = usteps_per_mm
@@ -161,6 +162,9 @@ class Motor:
         # A rotary axis wraps and its flag is a slot; a linear axis has its
         # flag over everything left of the reference edge at physical 0.
         self.wrap = wrap_usteps * _SUB
+        # A linear axis may have a switch on its right input, over everything
+        # at and past this physical position; None is no switch there.
+        self.far_edge = None if far_switch_usteps is None else far_switch_usteps * _SUB
         # `pos` is the position the ramp has driven the motor to. The stage
         # is `slip` behind it: nonzero only once a stalled or disconnected
         # motor has been driven without the stage following.
@@ -210,15 +214,23 @@ class Motor:
             pos = self.pos
         return 1 if self.on_flag(pos) != self.flag_active_low else 0
 
-    def refr_level(self) -> int:
-        # No switch on the right input: it rests at the off-flag level (a
-        # pull-up on the active-low boards, ground on the active-high ones).
-        return 1 if self.flag_active_low else 0
+    def on_far_switch(self, pos: int) -> bool:
+        if self.far_edge is None or SWITCH_NEVER_TRIPS in self.faults:
+            return False
+        return pos - self.slip >= self.far_edge
+
+    def refr_level(self, pos: int | None = None) -> int:
+        # With no switch on the right input it rests at the off-flag level (a
+        # pull-up on the active-low boards, ground on the active-high ones);
+        # a far switch reads as the reference flag does.
+        if pos is None:
+            pos = self.pos
+        return 1 if self.on_far_switch(pos) != self.flag_active_low else 0
 
     def stop_status(self, pos: int | None = None) -> tuple[int, int]:
         """(status_stop_l, status_stop_r) as SW_MODE makes the chip read them."""
         sw = self.regs.get(SW_MODE, 0)
-        left, right = self.refl_level(pos), self.refr_level()
+        left, right = self.refl_level(pos), self.refr_level(pos)
         if sw & SWAP_LR:
             left, right = right, left
         return (left ^ (1 if sw & POL_STOP_L else 0), right ^ (1 if sw & POL_STOP_R else 0))
@@ -251,7 +263,7 @@ class Motor:
             base = (stage // w) * w
             edges = [base + k * w + e for k in (-1, 0, 1) for e in (0, TURRET_FLAG_WIDTH * _SUB)]
         else:
-            edges = [0]
+            edges = [0] if self.far_edge is None else [0, self.far_edge]
         edges = [e + self.slip for e in edges]
         ahead = [e for e in edges if (e - self.pos) * direction > 0]
         if not ahead:
@@ -510,6 +522,7 @@ class Board:
         invert = motorconfig.get('Axis Flag Invert', {})
         slots = motorconfig.get('TurretPosition', {})
         start = sim.get('start_usteps', {})
+        far = sim.get('far_switch_mm', {})
         motors = {}
         for axis in AXES:
             wrap = 0
@@ -522,6 +535,9 @@ class Board:
                 flag_active_low=bool(int(invert.get(axis, 0))),
                 start_usteps=float(start.get(axis, 0)),
                 wrap_usteps=wrap,
+                far_switch_usteps=(
+                    int(float(far[axis]) * float(usteps[axis])) if axis in far else None
+                ),
             )
         self.motors = motors
         self.chips = {
