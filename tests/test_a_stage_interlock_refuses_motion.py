@@ -36,7 +36,8 @@ from _lumascope.modules.exceptions import (
     MoveNotCompletedError,
     MoveStoppedError,
 )
-from _lumascope.modules.lumascope_api import AxisState, Interlock
+from _lumascope.modules.lumascope_api import Interlock
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.sequential_io_executor import IOTask
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 from tests.case_walk import failing_cases

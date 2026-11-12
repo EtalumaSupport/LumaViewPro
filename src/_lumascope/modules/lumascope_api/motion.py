@@ -153,11 +153,10 @@ _api_log = _logging.getLogger('LVP.api')
 _guarded_write = guarded_write(lambda motion: motion._scope._activity_claim)
 
 from _lumascope.lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
-from _lumascope.modules.axes import Axis, StageAxis
+from _lumascope.modules.axes import Axis, AxisState, StageAxis
 from _lumascope.modules.lumascope_api.runtime_state import refuse_unless_frame_point
 from _lumascope.modules.lumascope_api._constants import (
     AxisPosition,
-    AxisState,
     MOTOR_POSITION_LIMIT,
     TurretStatus,
     refuse_acceleration_pct,

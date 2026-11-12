@@ -30,8 +30,7 @@ from _lumascope.modules.exceptions import (
     ProtocolRunRefusedError,
 )
 from _lumascope.modules.scope_parts import Part
-from _lumascope.modules.axes import StageAxis
-from _lumascope.modules.lumascope_api._constants import AxisState
+from _lumascope.modules.axes import AxisState, StageAxis
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app

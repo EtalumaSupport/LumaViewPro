@@ -21,7 +21,8 @@ import pytest
 import ui.stage as stage_module
 from _lumascope.modules import gui_logger
 from _lumascope.modules.exceptions import HomingFailedError
-from _lumascope.modules.lumascope_api import AxisPosition, AxisState
+from _lumascope.modules.lumascope_api import AxisPosition
+from _lumascope.modules.axes import AxisState
 from tests.scope_fakes import home_sim_scope
 from ui.stage import Stage
 

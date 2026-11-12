@@ -26,7 +26,7 @@ from _lumascope.modules.exceptions import (
     HomingFailedError,
     HomingFaultError,
 )
-from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.axes import AxisState
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 ROUTES = ('ALL', 'Z', 'T')

@@ -16,7 +16,7 @@ import pytest
 
 from _lumascope.drivers.exceptions import BoardNoReplyError
 from _lumascope.modules.exceptions import MotorStopFailedError, ScopeDisconnectError
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from tests.scope_fakes import build_scope
 
 

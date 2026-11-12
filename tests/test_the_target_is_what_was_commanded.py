@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.modules.exceptions import MoveNotCompletedError, PositionOutOfRangeError
 from _lumascope.modules.scope_parts import Board
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app
 from tests.scope_fakes import home_sim_scope

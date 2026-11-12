@@ -23,7 +23,7 @@ import pytest
 import _lumascope.modules.protocol_run_loop as protocol_run_loop
 from _lumascope.drivers.exceptions import BoardNoReplyError
 from _lumascope.modules.exceptions import MoveFaultError, ProtocolRunRefusedError
-from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_session import ScopeSession

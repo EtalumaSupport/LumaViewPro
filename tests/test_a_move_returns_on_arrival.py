@@ -34,7 +34,8 @@ from _lumascope.modules.exceptions import (
     MoveStoppedError,
 )
 from _lumascope.modules.notification_center import OutcomeKind, outcome_of
-from _lumascope.modules.lumascope_api.motion import AxisState, MotionAPI
+from _lumascope.modules.lumascope_api.motion import MotionAPI
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope

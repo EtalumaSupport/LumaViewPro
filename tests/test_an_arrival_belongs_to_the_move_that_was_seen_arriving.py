@@ -26,7 +26,7 @@ import pytest
 import _lumascope.modules.lumascope_api.motion as motion_module
 from _lumascope.drivers.exceptions import BoardNoReplyError
 from _lumascope.modules.exceptions import MoveNotCompletedError
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings

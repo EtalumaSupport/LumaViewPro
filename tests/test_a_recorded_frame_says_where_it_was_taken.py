@@ -22,7 +22,8 @@ import pytest
 from _lumascope.drivers import host_clock
 from _lumascope.modules.coord_transformations import PlatePosition, StageOffset
 from _lumascope.modules import wall_time
-from _lumascope.modules.lumascope_api import AxisPosition, AxisState
+from _lumascope.modules.lumascope_api import AxisPosition
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.lumascope_api.runtime_state import RuntimeState
 from _lumascope.modules.common_utils import Light
 from _lumascope.modules.lumascope_api.frame_record import (

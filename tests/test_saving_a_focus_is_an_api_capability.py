@@ -20,7 +20,7 @@ from _lumascope.modules.exceptions import (
     ProtocolError,
     ProtocolRunRefusedError,
 )
-from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.scope_session import SavedFocus, ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings

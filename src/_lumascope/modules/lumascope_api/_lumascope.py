@@ -13,7 +13,6 @@ import warnings
 from _lumascope.lvp_logger import logger
 
 # Import Lumascope Hardware files
-from _lumascope.modules.lumascope_api import _constants as _api_constants
 from _lumascope.modules.lumascope_api._constants import SIMULATOR_TIERS
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
@@ -135,6 +134,7 @@ if TYPE_CHECKING:
 # Import additional libraries
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.api_surface import ProgressCallback, api, api_fields
+from _lumascope.modules.axes import AxisState
 
 _api_log = logging.getLogger('LVP.api')
 
@@ -322,13 +322,6 @@ def _fire_pre_release_warning(stacklevel: int = 3) -> None:
         return
     _PRE_RELEASE_WARNING_FIRED = True
     warnings.warn(_PRE_RELEASE_WARNING_TEXT, FutureWarning, stacklevel=stacklevel)
-
-
-# AxisState lives in the package's leaf _constants.py (so sub-API modules can
-# import it without depending on this composition root). Re-exported here as a
-# module-level name so `from _lumascope.modules.lumascope_api import AxisState` and
-# `from _lumascope.modules.lumascope_api._lumascope import AxisState` keep working.
-AxisState = _api_constants.AxisState
 
 
 # ---------------------------------------------------------------------------

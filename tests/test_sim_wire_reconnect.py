@@ -28,7 +28,8 @@ from _lumascope.modules.exceptions import (
     MoveFaultError,
 )
 from _lumascope.modules.scope_parts import Part
-from _lumascope.modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
+from _lumascope.modules.lumascope_api._constants import AxisPosition, TurretStatus
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.lumascope_api.diagnostics import MotorBoardInfo
 from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.scope_session import ScopeSession

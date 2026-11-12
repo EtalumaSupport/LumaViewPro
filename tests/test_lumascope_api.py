@@ -37,7 +37,8 @@ from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFaultError,
 )
-from _lumascope.modules.lumascope_api import Lumascope, AxisState
+from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.notification_center import notifications, Severity
 from _lumascope.modules.scope_capabilities import CameraShutter
 from _lumascope.drivers.null_motorboard import NullMotionBoard

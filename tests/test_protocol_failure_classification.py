@@ -144,7 +144,7 @@ class TestOurOwnDefectEndsTheRunAtOnce:
         return runner
 
     def test_a_defect_that_left_an_axis_unknown_ends_as_a_crash_not_a_lost_position(self):
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         # a stand-in by design: the defect's own trace, an axis a motion
         # door set UNKNOWN on its way out, which this mock scope cannot leave

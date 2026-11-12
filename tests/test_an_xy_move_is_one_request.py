@@ -24,7 +24,7 @@ from _lumascope.modules.exceptions import (
     MoveFaultError,
     PositionOutOfRangeError,
 )
-from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.axes import AxisState
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
 
 _START = {'X': 60_000.0, 'Y': 40_000.0}

@@ -26,7 +26,7 @@ from _lumascope.drivers.exceptions import (
 )
 from _lumascope.modules.api_surface import api_fields
 from _lumascope.modules import scope_parts
-from _lumascope.modules.axes import Axis, StageAxis
+from _lumascope.modules.axes import Axis, AxisState, StageAxis
 from _lumascope.modules.caller import Caller
 from _lumascope.modules.live_work import SCOPE_HOLDERS
 from _lumascope.modules.scope_parts import MISSING_PART_REASONS, Board, Part
@@ -4712,12 +4712,6 @@ class PositionOutOfRangeError(Refusal, ValueError):
         self.quantity = quantity
 
 
-# The axis-state value for an axis whose home is in progress. Spelled here
-# rather than imported: AxisState lives in the lumascope_api package, whose
-# import pulls in modules that import this one.
-_AXIS_HOMING = 'homing'
-
-
 def _as_stated(value: object) -> str:
     """A number as a refusal's sentence states it: a whole number as one, any other to two decimals.
 
@@ -4759,8 +4753,8 @@ def describe_unknown_positions(axes: dict[str, str]) -> str:
             each caller ends it with the action its own situation needs.
     """
 
-    homing = [axis for axis, state in axes.items() if state == _AXIS_HOMING]
-    lost = [axis for axis, state in axes.items() if state != _AXIS_HOMING]
+    homing = [axis for axis, state in axes.items() if state == AxisState.HOMING]
+    lost = [axis for axis, state in axes.items() if state != AxisState.HOMING]
     parts = []
     if homing:
         parts.append(f'{_names(homing)} {"is" if len(homing) == 1 else "are"} still homing')
@@ -4787,7 +4781,7 @@ def unknown_positions_sentence(axes: dict[str, str], then: str) -> str:
             for the home to finish" in place of "Home the scope".
     """
     clause = describe_unknown_positions(axes)
-    waiting = all(state == _AXIS_HOMING for state in axes.values())
+    waiting = all(state == AxisState.HOMING for state in axes.values())
     remedy = 'Wait for the home to finish' if waiting else 'Home the scope'
     return f'{clause[0].upper()}{clause[1:]}. {remedy}, then {then}.'
 

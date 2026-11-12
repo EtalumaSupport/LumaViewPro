@@ -21,7 +21,7 @@ import pytest
 import _lumascope.modules.config_helpers as config_helpers
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
-from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from tests.scope_fakes import TEST_TURRET_OBJECTIVES, configure_turret_like_bringup, home_sim_scope

@@ -21,7 +21,7 @@ import numpy as np
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_save as image_save
 import _lumascope.modules.image_utils as image_utils
-from _lumascope.modules.lumascope_api._constants import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.lumascope_api.frame_record import (
     FrameRecord,
     FrameTime,

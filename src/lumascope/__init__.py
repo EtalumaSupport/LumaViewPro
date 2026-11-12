@@ -66,6 +66,7 @@ from _lumascope.modules.activity_claim import (
 )
 from _lumascope.modules.axes import (
     Axis,
+    AxisState,
     StageAxis,
 )
 from _lumascope.modules.caller import (
@@ -269,7 +270,6 @@ from _lumascope.modules.live_work import (
 )
 from _lumascope.modules.lumascope_api._constants import (
     AxisPosition,
-    AxisState,
     TurretStatus,
 )
 from _lumascope.modules.lumascope_api._lumascope import (

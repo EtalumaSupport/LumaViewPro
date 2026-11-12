@@ -15,7 +15,7 @@ import threading
 
 import pytest
 
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings

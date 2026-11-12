@@ -22,8 +22,7 @@ import pandas as pd
 import pytest
 
 from _lumascope.modules.image_utils import read_file_record
-from _lumascope.modules.axes import StageAxis
-from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.axes import AxisState, StageAxis
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.run_events import RunEvents
 from tests.protocol_fixtures import protocol_of

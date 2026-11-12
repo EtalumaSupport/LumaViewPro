@@ -35,7 +35,7 @@ from _lumascope.modules.exceptions import (
     MoveFaultError,
     MoveNotCompletedError,
 )
-from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope

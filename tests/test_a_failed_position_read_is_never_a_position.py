@@ -16,7 +16,7 @@ import pytest
 
 from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.modules.exceptions import HardwareCommandRefusedError, MoveNotCompletedError
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from tests.scope_fakes import build_scope, home_sim_scope
 
 

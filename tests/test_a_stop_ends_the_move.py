@@ -17,7 +17,7 @@ from _lumascope.modules.exceptions import (
     MoveNotCompletedError,
     MoveStoppedError,
 )
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.notification_center import OutcomeKind, outcome_of
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.sequential_io_executor import IOTask

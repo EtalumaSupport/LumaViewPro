@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from _lumascope.modules.lumascope_api._constants import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.drivers.motorboard import _parse_fullinfo
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 

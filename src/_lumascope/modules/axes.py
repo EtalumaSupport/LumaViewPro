@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""The axis names: the closed sets a motion member, a position and a capability name an axis by.
+"""The axis names and states: the closed sets a motion member, a position and a capability name an axis by.
 
 A leaf module, importing nothing of the project's, so a protocol, a
 recording and the capabilities name an axis without importing the scope's
@@ -35,3 +35,12 @@ class Axis(enum.StrEnum):
     Y = StageAxis.Y.value
     Z = StageAxis.Z.value
     T = 'T'
+
+
+class AxisState(enum.StrEnum):
+    """Possible states for a motion axis."""
+
+    UNKNOWN = 'unknown'  # Not homed / state not known
+    IDLE = 'idle'  # At known position, not moving
+    MOVING = 'moving'  # Move commanded, not yet arrived
+    HOMING = 'homing'  # Homing sequence in progress

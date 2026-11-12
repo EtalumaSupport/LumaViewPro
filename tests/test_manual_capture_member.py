@@ -137,7 +137,7 @@ class TestWhereTheFileLands:
     ):
         # After a failed home the target cache keeps its last well, real and
         # stale. The image is still real, so it is saved -- without the well.
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
         from _lumascope.modules.notification_center import notifications
 
         session, _ = still_session

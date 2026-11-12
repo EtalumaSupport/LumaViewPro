@@ -16,7 +16,7 @@ exactly the state a failed home leaves every axis in.
 import pytest
 
 from _lumascope.modules.exceptions import AxisStateUnknownError
-from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.notification_center import Severity
 from tests.scope_fakes import build_scope, home_sim_scope
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session

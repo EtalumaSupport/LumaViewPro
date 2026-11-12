@@ -19,7 +19,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from _lumascope.modules.lumascope_api import AxisPosition, AxisState, TurretStatus
+from _lumascope.modules.lumascope_api import AxisPosition, TurretStatus
+from _lumascope.modules.axes import AxisState
 from tests.ast_seams import iter_package_modules
 from tests.scope_fakes import home_sim_scope
 from ui.listener_bridge import UIListenerBridge

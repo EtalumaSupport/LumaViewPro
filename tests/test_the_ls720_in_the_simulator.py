@@ -18,7 +18,7 @@ from _lumascope.modules.exceptions import (
     MoveNotCompletedError,
     RunCheckFailedError,
 )
-from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.axes import AxisState
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 from tests.motion_moves import axis_move
 from tests.test_integration import (  # noqa: F401 -- the fixtures are used by name

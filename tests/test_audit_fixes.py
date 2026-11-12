@@ -668,7 +668,7 @@ class TestAxisState:
         one is about the state BEFORE any of that, so it needs the
         untouched construction.
         """
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         scope = build_scope(simulate=True)
         bind_settings_like_a_session(scope)
@@ -680,14 +680,14 @@ class TestAxisState:
 
     def test_axis_state_idle_after_move_with_wait(self, sim_scope):
         """After a waited move_z, axis is IDLE."""
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         sim_scope.motion.move_z(1000)
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_axis_state_moving_during_fire_and_forget(self, sim_scope):
         """After fire-and-forget move, axis is initially MOVING then transitions to IDLE."""
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         sim_scope.motion.start_move_z(500)
         state = sim_scope.motion.get_axis_state('Z')
@@ -697,14 +697,14 @@ class TestAxisState:
 
     def test_axis_state_homing_zhome(self, sim_scope):
         """After home(axis='Z'), Z axis should be IDLE (homing is blocking)."""
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         sim_scope.motion.home(axis='Z')
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_axis_state_homing_home(self, sim_scope):
         """After home(), present axes should be IDLE."""
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         sim_scope._motion_driver.set_timing_mode('instant')
         sim_scope.motion.home()
@@ -721,7 +721,7 @@ class TestAxisState:
         unlike swapping _motion_driver post-init, which left T in the
         already-built capabilities.
         """
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         scope = build_scope(simulate=True, sim_model='LS850')
         bind_settings_like_a_session(scope)
@@ -745,7 +745,7 @@ class TestAxisState:
 
     def test_monitor_reconciles_state(self, sim_scope):
         """Motion monitor thread should detect arrival and set state to IDLE."""
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         sim_scope.motion.start_move_z(1000)
         # In simulation, the move completes instantly. The motion monitor thread
@@ -756,7 +756,7 @@ class TestAxisState:
 
     def test_disconnect_sets_unknown(self, sim_scope):
         """After disconnect, all axes should be UNKNOWN."""
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         sim_scope.motion.home(axis='Z')  # Set to IDLE first
         sim_scope.disconnect()
@@ -780,7 +780,7 @@ class TestAxisState:
 
     def test_move_by_a_distance_state_tracking(self, sim_scope):
         """A move by a distance tracks axis state correctly."""
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         sim_scope.motion.move_z_by(100)
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
@@ -793,7 +793,7 @@ class TestAxisState:
         specific to centering, so it is driven through the move path that
         survives rather than dropped with the member.
         """
-        from _lumascope.modules.lumascope_api import AxisState
+        from _lumascope.modules.axes import AxisState
 
         sim_scope.motion.move_xy(x_um=500)
         sim_scope.motion.move_xy(y_um=500)
@@ -9038,60 +9038,6 @@ class TestExecutorHandlesSingleSourceOnCtx:
                         f'{name} is still declared `global`; the executor '
                         'handles must live only on ctx.'
                     )
-
-
-class TestAxisStateLivesOnConstants:
-    """AxisState was defined on the composition root _lumascope.py and imported
-    module-top by the motion sub-API -- a sub-API depending on the root. It now
-    lives on the leaf _constants.py; _lumascope re-exports it for back-compat.
-    All historical import paths must still resolve to the one canonical class.
-    """
-
-    def test_canonical_home_is_constants(self):
-        from _lumascope.modules.lumascope_api._constants import AxisState
-
-        assert AxisState.__module__ == '_lumascope.modules.lumascope_api._constants'
-
-    def test_all_back_compat_paths_are_one_identity(self):
-        from _lumascope.modules.lumascope_api import AxisState as AxisState_via_pkg
-        from _lumascope.modules.lumascope_api._constants import AxisState as AxisState_via_constants
-        from _lumascope.modules.lumascope_api._lumascope import AxisState as AxisState_via_lumascope
-        from _lumascope.modules.lumascope_api.motion import AxisState as AxisState_via_motion
-
-        assert (
-            AxisState_via_constants
-            is AxisState_via_lumascope
-            is AxisState_via_pkg
-            is AxisState_via_motion
-        )
-
-    def test_values_intact(self):
-        from _lumascope.modules.lumascope_api._constants import AxisState
-
-        assert (AxisState.UNKNOWN, AxisState.IDLE, AxisState.MOVING, AxisState.HOMING) == (
-            'unknown',
-            'idle',
-            'moving',
-            'homing',
-        )
-
-    def test_motion_does_not_import_axisstate_from_lumascope(self):
-        # The wart was motion.py importing AxisState from the composition root.
-        import ast
-        import pathlib
-
-        root = pathlib.Path(__file__).resolve().parent.parent
-        tree = ast.parse(
-            (root / 'src/_lumascope/modules' / 'lumascope_api' / 'motion.py').read_text()
-        )
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.ImportFrom)
-                and node.module
-                and node.module.endswith('_lumascope')
-            ):
-                names = {a.name for a in node.names}
-                assert 'AxisState' not in names, 'motion.py must import AxisState from _constants'
 
 
 class TestSequentialIOExecutorDocstringSingleWorker:

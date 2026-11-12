@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import pytest
 
-from _lumascope.modules.axes import Axis, StageAxis
+from _lumascope.modules.axes import Axis, AxisState, StageAxis
 from _lumascope.modules.exceptions import ArgumentRefusedError
-from _lumascope.modules.lumascope_api import AxisPosition, AxisState, TurretStatus
+from _lumascope.modules.lumascope_api import AxisPosition, TurretStatus
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 
 

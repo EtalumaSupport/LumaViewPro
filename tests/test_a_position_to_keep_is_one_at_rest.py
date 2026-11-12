@@ -29,7 +29,7 @@ from _lumascope.modules.exceptions import (
     AxisStateUnknownError,
     HardwareCommandRefusedError,
 )
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app

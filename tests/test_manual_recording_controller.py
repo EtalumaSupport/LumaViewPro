@@ -37,7 +37,8 @@ from tests.scope_fakes import identity_with_layers
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
 from tests.camera_fakes import delivered_frame
-from _lumascope.modules.lumascope_api import AxisPosition, AxisState
+from _lumascope.modules.lumascope_api import AxisPosition
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.channel_record import release_colors
 from tests.frame_records import plate
 from tests.objective_records import objective

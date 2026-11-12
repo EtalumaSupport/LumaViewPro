@@ -30,7 +30,8 @@ from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from _lumascope.modules.exceptions import ObjectiveUnknownError
 from _lumascope.modules.channel_record import UNRESOLVED, load_scope_models
-from _lumascope.modules.lumascope_api import AxisState, TurretStatus
+from _lumascope.modules.lumascope_api import TurretStatus
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.scope_capabilities import ScopeCapabilities
 from _lumascope.modules.scope_session import ScopeSession
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS

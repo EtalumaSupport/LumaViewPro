@@ -23,7 +23,7 @@ import pytest
 
 from _lumascope.drivers.exceptions import BoardNoReplyError
 from _lumascope.modules.exceptions import MoveNotCompletedError
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.notification_center import Severity, notifications
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope

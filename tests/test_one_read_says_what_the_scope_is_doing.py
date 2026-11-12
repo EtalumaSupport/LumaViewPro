@@ -19,7 +19,7 @@ import pytest
 
 from _lumascope.modules import live_work, wire_encoding
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
-from _lumascope.modules.lumascope_api import AxisState
+from _lumascope.modules.axes import AxisState
 
 COMPLETION_TIMEOUT = 30
 

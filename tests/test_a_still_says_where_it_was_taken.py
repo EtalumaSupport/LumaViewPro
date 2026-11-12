@@ -16,7 +16,7 @@ nothing for that axis, and an LS820 (Z only) records Z and no plate place.
 import pytest
 
 from _lumascope.modules.image_utils import read_file_record
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from tests.test_manual_capture_member import _files, _open_session, _settings
 
 STAGE_X_UM = 40_000.0

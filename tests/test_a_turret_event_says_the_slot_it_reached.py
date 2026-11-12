@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from _lumascope.modules.lumascope_api import AxisState, TurretStatus
+from _lumascope.modules.lumascope_api import TurretStatus
+from _lumascope.modules.axes import AxisState
 from _lumascope.rest.app import build_app
 
 

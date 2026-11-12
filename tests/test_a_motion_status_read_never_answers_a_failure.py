@@ -29,7 +29,7 @@ from _lumascope.modules.exceptions import (
     MoveNotCompletedError,
 )
 from _lumascope.modules.scope_parts import Part
-from _lumascope.modules.lumascope_api._constants import AxisState
+from _lumascope.modules.axes import AxisState
 from tests.log_capture import messages, records_of
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 

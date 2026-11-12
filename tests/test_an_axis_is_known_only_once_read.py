@@ -14,7 +14,7 @@ import pytest
 
 import _lumascope.drivers.simulated_motorboard as simulated_motorboard
 from _lumascope.modules.exceptions import AxisStateUnknownError
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from tests.scope_fakes import build_scope
 
 

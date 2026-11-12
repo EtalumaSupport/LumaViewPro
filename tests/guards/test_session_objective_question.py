@@ -26,7 +26,7 @@ from _lumascope.modules.exceptions import (
     ConfigError,
     PositionOutOfRangeError,
 )
-from _lumascope.modules.lumascope_api.motion import AxisState
+from _lumascope.modules.axes import AxisState
 from _lumascope.modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
 from _lumascope.modules.scope_session import ScopeSession
 from tests.ast_seams import (

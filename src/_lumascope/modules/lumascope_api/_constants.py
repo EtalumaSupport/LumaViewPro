@@ -5,13 +5,9 @@ Module-level home for values that both `_lumascope.Lumascope` and the
 sub-API modules (motion.py, etc.) need to read. Lifting them here
 breaks the import cycle that would otherwise force lazy imports in
 the sub-API files.
-
-`_lumascope` re-exports `AxisState` under its own module, where
-callers import it from.
 """
 
 import dataclasses
-import enum
 import numbers
 
 from _lumascope.modules.exceptions import (
@@ -20,6 +16,7 @@ from _lumascope.modules.exceptions import (
     PositionOutOfRangeError,
 )
 from _lumascope.modules.api_surface import api_fields
+from _lumascope.modules.axes import AxisState
 
 # The simulated boards a simulated scope can be built on: a Python
 # stand-in with no timing; the production driver against the real firmware
@@ -125,15 +122,6 @@ def refuse_unless_turret_slot(slot: object) -> None:
             bound='turret slots',
             quantity='slot',
         )
-
-
-class AxisState(enum.StrEnum):
-    """Possible states for a motion axis."""
-
-    UNKNOWN = 'unknown'  # Not homed / state not known
-    IDLE = 'idle'  # At known position, not moving
-    MOVING = 'moving'  # Move commanded, not yet arrived
-    HOMING = 'homing'  # Homing sequence in progress
 
 
 @api_fields('position_um', 'state')

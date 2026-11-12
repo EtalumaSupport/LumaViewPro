@@ -1,21 +1,20 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Lumascope API package.
 
-The composition root Lumascope and its public state enum AxisState live
-in _lumascope.py. The sub-API classes (MotionAPI, IlluminationAPI,
-CameraAPI, ImagingAPI, DiagnosticsAPI, Capabilities, RuntimeState,
-ProtocolsAPI) live in sibling modules in this package.
+The composition root Lumascope lives in _lumascope.py. The sub-API
+classes (MotionAPI, IlluminationAPI, CameraAPI, ImagingAPI,
+DiagnosticsAPI, Capabilities, RuntimeState, ProtocolsAPI) live in sibling
+modules in this package.
 
-Existing imports `from _lumascope.modules.lumascope_api import Lumascope` and
-`from _lumascope.modules.lumascope_api import AxisState` keep working via the
-re-exports below. ``Frame`` is the record a frame listener receives.
+Existing imports `from _lumascope.modules.lumascope_api import Lumascope`
+keep working via the re-exports below. ``Frame`` is the record a frame
+listener receives.
 """
 
 from _lumascope.drivers.camera import CameraNodeValue, Frame
 from _lumascope.modules.axes import Axis, StageAxis
 from _lumascope.modules.lumascope_api._constants import AxisPosition, TurretStatus
 from _lumascope.modules.lumascope_api._lumascope import (
-    AxisState,
     Lumascope,
 )
 from _lumascope.modules.lumascope_api.camera import CameraAPI
@@ -36,7 +35,6 @@ api_fields('value', 'unit')(CameraNodeValue)
 __all__ = [
     'Axis',
     'AxisPosition',
-    'AxisState',
     'CameraAPI',
     'Capabilities',
     'DiagnosticsAPI',

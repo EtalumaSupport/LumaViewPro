@@ -28,7 +28,8 @@ import numpy as np
 import pytest
 
 from _lumascope.modules.coord_transformations import PlatePosition
-from _lumascope.modules.lumascope_api._constants import AxisPosition, AxisState, TurretStatus
+from _lumascope.modules.lumascope_api._constants import AxisPosition, TurretStatus
+from _lumascope.modules.axes import AxisState
 from tests.ast_seams import parse_module
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from tests.frame_records import frame_record, plate
