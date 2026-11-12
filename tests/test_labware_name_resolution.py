@@ -175,3 +175,12 @@ class TestTheApiLoad:
             file_path=_protocol_file(tmp_path, 'Center Dish')
         )
         assert proto.labware_id() == 'Center Plate'
+
+    def test_the_scopes_lookup_answers_a_retired_spelling_with_its_plate(self, session):
+        def check(old_name, key):
+            plate = session.scope.plate(old_name)
+            assert plate.name == key
+            assert plate == session.scope.plate(key)
+
+        failed = failing_cases(sorted(RENAMED.items()), check)
+        assert not failed, failed

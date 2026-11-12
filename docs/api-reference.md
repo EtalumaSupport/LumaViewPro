@@ -4770,6 +4770,44 @@ The microscope: its boards and camera, reached through its sub-APIs.
 - <a id="Lumascope.motion"></a>`motion`: `MotionAPI` -- The stage, focus and turret: moves, homes and positions (`MotionAPI`).
 - <a id="Lumascope.runtime_state"></a>`runtime_state`: `RuntimeState` -- The user configuration the scope acts on -- labware, objective, turret and stage -- read from the session's settings (`RuntimeState`).
 
+<a id="Lumascope.all_labware"></a>
+### `Lumascope.all_labware`
+
+```python
+all_labware: tuple[Labware, ...]  # property
+```
+
+Route: `GET /api/v1/scope/all_labware`.
+
+Every plate of the installation, read once at bring-up, in the catalogue's order.
+
+Each record is read-only and carries its `name`, the key
+`plate` takes. Slides and Petri dishes are not offered yet.
+
+**Raises**
+
+Nothing.
+
+<a id="Lumascope.all_objectives"></a>
+### `Lumascope.all_objectives`
+
+```python
+all_objectives: tuple[Objective, ...]  # property
+```
+
+Route: `GET /api/v1/scope/all_objectives`.
+
+Every objective of the installation, read once at bring-up, in the order they are offered.
+
+Each maker's objectives are listed together, the makers in the order
+each first appears in the catalogue; within a maker they rise by
+magnification. Each record is read-only and carries its `id`, the
+key `objective` takes.
+
+**Raises**
+
+Nothing.
+
 <a id="Lumascope.labware"></a>
 ### `Lumascope.labware`
 
@@ -4827,6 +4865,33 @@ bool: True when none of the three came up.
 
 Nothing.
 
+<a id="Lumascope.objective"></a>
+### `Lumascope.objective`
+
+```python
+def objective(self, objective_id: str) -> Objective
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/objective`.
+
+The installation's objective `objective_id` names, by its catalogue key.
+
+The key alone names an objective: a short name or a magnification
+that fits two objectives is refused, never matched to one.
+
+**Args**
+
+- `objective_id`: The objective's catalogue key.
+
+**Raises**
+
+- `CatalogueNameRefusedError`: `'objective_not_in_catalogue'`, the catalogue holds no objective keyed `objective_id`; `offered` carries the keys it holds.
+
+**Refusals by REST status**
+
+- 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `objective_not_in_catalogue`
+
 <a id="Lumascope.objectives"></a>
 ### `Lumascope.objectives`
 
@@ -4845,6 +4910,33 @@ reads. Which one is in the light path is
 **Raises**
 
 Nothing.
+
+<a id="Lumascope.plate"></a>
+### `Lumascope.plate`
+
+```python
+def plate(self, labware_id: str) -> Labware
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/plate`.
+
+The installation's plate `labware_id` names, by its catalogue name or a retired one.
+
+A protocol or settings file written before a plate was renamed
+carries the old name; the plate it now lives under is answered.
+
+**Args**
+
+- `labware_id`: The plate's name in the labware catalogue, or a name it has retired.
+
+**Raises**
+
+- `CatalogueNameRefusedError`: `'labware_unknown'`, the catalogue holds no plate under `labware_id` or a retired name of it; `offered` carries the plates it holds.
+
+**Refusals by REST status**
+
+- 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
 
 <a id="Lumascope.scope_models"></a>
 ### `Lumascope.scope_models`
@@ -10723,7 +10815,7 @@ Whether one frame counts for one change, and the facts that decided it.
 ## `lumascope.Labware`
 
 A record: it crosses the wire as its data.  
-Returned by: [`Lumascope.labware`](#Lumascope.labware).
+Returned by: [`Lumascope.all_labware`](#Lumascope.all_labware), [`Lumascope.labware`](#Lumascope.labware), [`Lumascope.plate`](#Lumascope.plate).
 
 One multi-well plate of the installation's catalogue, read once at bring-up.
 
@@ -11065,7 +11157,7 @@ them all.
 ## `lumascope.Objective`
 
 A record: it crosses the wire as its data.  
-Returned by: [`Lumascope.objectives`](#Lumascope.objectives), [`RuntimeState.resolve_current_objective`](#RuntimeState.resolve_current_objective).  
+Returned by: [`Lumascope.all_objectives`](#Lumascope.all_objectives), [`Lumascope.objective`](#Lumascope.objective), [`Lumascope.objectives`](#Lumascope.objectives), [`RuntimeState.resolve_current_objective`](#RuntimeState.resolve_current_objective).  
 Taken by: [`Protocol.validate_steps`](#Protocol.validate_steps).
 
 One objective of the installation's catalogue, read once at bring-up.
@@ -18333,6 +18425,8 @@ reads what the person was shown.
 | `PUT` | `/api/v1/saved_focus_z_um` | [`ScopeSession.save_channel_focus`](#ScopeSession.save_channel_focus) |
 | `GET` | `/api/v1/scale_bar_enabled` | [`ScopeSession.scale_bar_enabled`](#ScopeSession.scale_bar_enabled) |
 | `PUT` | `/api/v1/scale_bar_enabled` | [`ScopeSession.set_scale_bar`](#ScopeSession.set_scale_bar) |
+| `GET` | `/api/v1/scope/all_labware` | [`Lumascope.all_labware`](#Lumascope.all_labware) |
+| `GET` | `/api/v1/scope/all_objectives` | [`Lumascope.all_objectives`](#Lumascope.all_objectives) |
 | `GET` | `/api/v1/scope/camera/applied_auto_gain_for` | [`CameraAPI.applied_auto_gain_for`](#CameraAPI.applied_auto_gain_for) |
 | `GET` | `/api/v1/scope/camera/applied_exposure_ms_for` | [`CameraAPI.applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for) |
 | `GET` | `/api/v1/scope/camera/applied_gain_db_for` | [`CameraAPI.applied_gain_db_for`](#CameraAPI.applied_gain_db_for) |
@@ -18425,7 +18519,9 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/motion/wait_until_finished_moving` | [`MotionAPI.wait_until_finished_moving`](#MotionAPI.wait_until_finished_moving) |
 | `GET` | `/api/v1/scope/motion_expected` | [`Lumascope.motion_expected`](#Lumascope.motion_expected) |
 | `GET` | `/api/v1/scope/no_hardware` | [`Lumascope.no_hardware`](#Lumascope.no_hardware) |
+| `GET` | `/api/v1/scope/objective` | [`Lumascope.objective`](#Lumascope.objective) |
 | `GET` | `/api/v1/scope/objectives` | [`Lumascope.objectives`](#Lumascope.objectives) |
+| `GET` | `/api/v1/scope/plate` | [`Lumascope.plate`](#Lumascope.plate) |
 | `GET` | `/api/v1/scope/runtime_state/frame_point_distance` | [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance) |
 | `GET` | `/api/v1/scope/runtime_state/get_field_of_view` | [`RuntimeState.get_field_of_view`](#RuntimeState.get_field_of_view) |
 | `GET` | `/api/v1/scope/runtime_state/get_pixel_size_um` | [`RuntimeState.get_pixel_size_um`](#RuntimeState.get_pixel_size_um) |

@@ -79,12 +79,14 @@ def _selection(session):
 LABWARE_MEMBERS = {
     'resolve_plate_key': lambda s, v: s.scope.wellplate_loader.resolve_plate_key(v),
     'get_plate': lambda s, v: s.scope.wellplate_loader.get_plate(v),
+    'plate': lambda s, v: s.scope.plate(v),
     'select_labware': lambda s, v: s.select_labware(v),
     'set_protocol_labware': lambda s, v: s.set_protocol_labware(s.create_empty_protocol(), v),
 }
 
 OBJECTIVE_MEMBERS = {
     'get_objective_info': lambda s, v: s.scope.objective_helper.get_objective_info(objective_id=v),
+    'objective': lambda s, v: s.scope.objective(v),
     'select_objective': lambda s, v: s.select_objective(v),
     'confirm_objective': lambda s, v: s.confirm_objective(v),
     'confirm_objective at a slot': lambda s, v: s.confirm_objective(v, slot=2),
@@ -190,6 +192,25 @@ def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offer
 ):
     with TestClient(build_app(session)) as client:
         answer = client.put(f'/api/v1/{route}', json=body)
+    assert answer.status_code == 422
+    problem = answer.json()
+    assert problem['reason'] == reason
+    assert problem['argument'] == argument
+    assert problem['offered']
+
+
+@pytest.mark.parametrize(
+    ('route', 'query', 'reason', 'argument'),
+    [
+        ('plate', {'labware_id': 'Acme 1536 Ultra Plate'}, 'labware_unknown', 'labware_id'),
+        ('objective', {'objective_id': '10xOly'}, 'objective_not_in_catalogue', 'objective_id'),
+    ],
+)
+def test_a_wire_lookup_of_a_name_the_catalogue_lacks_is_the_requests(
+    session, route, query, reason, argument
+):
+    with TestClient(build_app(session)) as client:
+        answer = client.get(f'/api/v1/scope/{route}', params=query)
     assert answer.status_code == 422
     problem = answer.json()
     assert problem['reason'] == reason

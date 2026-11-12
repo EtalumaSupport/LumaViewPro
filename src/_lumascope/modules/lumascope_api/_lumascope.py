@@ -2092,6 +2092,69 @@ class Lumascope:
         """
         return self.wellplate_loader.plates
 
+    @api(reads=True)
+    def objective(self, objective_id: str) -> 'Objective':
+        """The installation's objective ``objective_id`` names, by its catalogue key.
+
+        The key alone names an objective: a short name or a magnification
+        that fits two objectives is refused, never matched to one.
+
+        Args:
+            objective_id: The objective's catalogue key.
+
+        Raises:
+            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``, the
+                catalogue holds no objective keyed ``objective_id``;
+                ``offered`` carries the keys it holds.
+        """
+        return self.objective_helper.get_objective_info(objective_id)
+
+    @api(reads=True)
+    def plate(self, labware_id: str) -> 'Labware':
+        """The installation's plate ``labware_id`` names, by its catalogue name or a retired one.
+
+        A protocol or settings file written before a plate was renamed
+        carries the old name; the plate it now lives under is answered.
+
+        Args:
+            labware_id: The plate's name in the labware catalogue, or a
+                name it has retired.
+
+        Raises:
+            CatalogueNameRefusedError: ``'labware_unknown'``, the catalogue
+                holds no plate under ``labware_id`` or a retired name of
+                it; ``offered`` carries the plates it holds.
+        """
+        return self.wellplate_loader.get_plate(labware_id)
+
+    @api
+    @property
+    def all_objectives(self) -> 'tuple[Objective, ...]':
+        """Every objective of the installation, read once at bring-up, in the order they are offered.
+
+        Each maker's objectives are listed together, the makers in the order
+        each first appears in the catalogue; within a maker they rise by
+        magnification. Each record is read-only and carries its ``id``, the
+        key ``objective`` takes.
+
+        Raises:
+            Nothing.
+        """
+        return tuple(self.objective_helper.objectives.values())
+
+    @api
+    @property
+    def all_labware(self) -> 'tuple[Labware, ...]':
+        """Every plate of the installation, read once at bring-up, in the catalogue's order.
+
+        Each record is read-only and carries its ``name``, the key
+        ``plate`` takes. Slides and Petri dishes are not offered yet.
+
+        Raises:
+            Nothing.
+        """
+        return tuple(self.wellplate_loader.plates.values())
+
     @api
     @property
     def scope_models(self) -> 'Mapping[str, ScopeModel]':

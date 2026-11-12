@@ -148,7 +148,13 @@ motion before a client's first call, and still serve after a failed home, so a
 client can home again.
 
 **The plate, the objective and the model.** The plate is chosen by
-`select_labware`, which answers whether it changed. The objective is chosen by
+`select_labware`, which answers whether it changed. The installation's plates
+and objectives are `scope.all_labware` and `scope.all_objectives`, in the
+order they are offered, each record carrying the name `select_labware` or
+`select_objective` takes; `scope.plate` and `scope.objective` look one up, a
+plate under a name it has retired too, and refuse a name the catalogue does
+not hold (`CatalogueNameRefusedError`, its `offered` the names it holds).
+The objective is chosen by
 `select_objective`; on a scope with a turret that turns the turret to the slot
 holding it, since there the objective is the assignment of the slot in the
 light path. Which objective is in which slot is `assign_turret_objective`, and
@@ -168,6 +174,8 @@ running one, and `session.model_at_next_start` the model the next start runs
 as while it differs from the running one, else None.
 
 ```python model=LS850T
+print([plate.name for plate in scope.all_labware])      # every plate offered
+print(scope.plate('384 well microplate').columns)       # 24
 print(session.select_labware('384 well microplate'))    # True: the plate changed
 question = session.objective_question()
 if question is not None:                                # which objective is in slot 1?
