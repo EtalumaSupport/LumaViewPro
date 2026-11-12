@@ -375,7 +375,9 @@ class ProtocolStepRunner:
 
         # --- Capture ---
         if remaining_scans > 0:
-            if not p._disable_saving_artifacts:
+            captures = not p._disable_saving_artifacts
+            boundary_ctx = self._step_boundary_ctx(step, captures=captures)
+            if captures:
                 if p._separate_folder_per_channel:
                     save_folder = p._run_dir / step['channel']
                     save_folder.mkdir(parents=True, exist_ok=True)
@@ -387,66 +389,6 @@ class ProtocolStepRunner:
                     output_format = image_mode.OutputFormat.TIFF
 
                 # Video encoding runs on FILE_WORKER after capture -- no gate needed
-
-                # Whether to hold this channel lit across the step boundary is
-                # the LED authority's STEP_BOUNDARY decision. The caller reads
-                # the protocol and precomputes primitives into the boundary
-                # ctx; the authority owns the policy (hold within a z-stack
-                # group, hold across a same-color move only on the opt-in, go
-                # dark across a scan boundary, hold on the final step when
-                # run-end will re-light this same channel). The decision is
-                # applied through the authority after the capture completes
-                # (below), not threaded into the capture leaf.
-                num_steps = p._protocol.num_steps()
-                same_color = False
-                same_zstack_group = False
-                is_scan_boundary = False
-                is_run_end_boundary = False
-                end_policy = LedEndPolicy.OFF
-                snapshot_lit = frozenset()
-                if p._curr_step < num_steps - 1:
-                    next_step = p._protocol.step_row(step_index=p._curr_step + 1)
-                    same_color = next_step['channel'] == step['channel']
-                    # A z-stack group holds every channel at one position, so the
-                    # color is judged too: the LED is held only across slices of
-                    # one channel.
-                    same_zstack_group = (
-                        same_color
-                        and step['Z-Stack Group ID'] != -1
-                        and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
-                    )
-                elif p._remaining_scans() <= 1:
-                    # Final step of the final scan -- the run-end boundary. The
-                    # authority holds this channel only if the run-end target
-                    # re-lights it, so the boundary off plus the restore a few
-                    # ms later is not a visible end-of-acquire flicker on a
-                    # live-view-lit z-stack. Feed the SAME end-state the cleanup
-                    # RUN_END uses (resolved once), so the boundary and cleanup
-                    # cannot disagree about what run-end will light.
-                    is_run_end_boundary = True
-                    end_policy = p._run_mode.led_end_policy
-                    snapshot_lit = resolve_end_state(
-                        end_policy, getattr(p, '_original_led_states', None)
-                    )
-                else:
-                    # Last step of a non-final scan: the inter-scan idle runs dark.
-                    is_scan_boundary = True
-                # An unmapped channel makes the boundary target empty. That
-                # covers three states: no LED board (diff is a no-op), a
-                # channel that drives no LED (nothing to hold), and a channel
-                # this unit's identity lacks (the light seam already said
-                # so loudly) -- in every case there is nothing to keep lit.
-                boundary_ctx = LedTransitionCtx(
-                    led_address=p._scope.illumination.led_address_of(step['channel']),
-                    illumination_ma=step['Illumination'],
-                    same_color=same_color,
-                    same_zstack_group=same_zstack_group,
-                    keep_led_across_moves=p._keep_led_between_steps,
-                    is_scan_boundary=is_scan_boundary,
-                    is_run_end_boundary=is_run_end_boundary,
-                    end_policy=end_policy,
-                    snapshot_lit=snapshot_lit,
-                )
 
                 # Illuminate the step's channel and confirm it on BEFORE the
                 # grab. The capture leaf no longer drives the LED -- it is a pure
@@ -496,9 +438,12 @@ class ProtocolStepRunner:
                 if completed and not p._fatal_abort_event.is_set():
                     self.apply_led_transition(LedTransition.STEP_BOUNDARY, boundary_ctx)
 
-            else:
-                # No saving -- turn off LEDs manually (capture normally does this)
-                self.leds_off()
+            elif not p._fatal_abort_event.is_set():
+                # A step that captures nothing (an autofocus run's) settles
+                # its light by the same decision; it declares no hold, so the
+                # light goes dark unless the run end lights this channel again,
+                # where an off and that relight would be a blink.
+                self.apply_led_transition(LedTransition.STEP_BOUNDARY, boundary_ctx)
 
         # Disable autogain when moving between steps. A refused disarm is
         # reported and the run goes on: the next step writes its own values.
@@ -682,6 +627,76 @@ class ProtocolStepRunner:
         observer -- no manual callback needed.
         """
         self._p._scope.illumination.leds_off()
+
+    def _step_boundary_ctx(self, step, *, captures: bool) -> LedTransitionCtx:
+        """The facts the LED authority decides this step's boundary from.
+
+        Whether to hold this channel lit across the step boundary is the LED
+        authority's STEP_BOUNDARY decision. The caller reads the protocol and
+        precomputes primitives into the boundary ctx; the authority owns the
+        policy (hold within a z-stack group, hold across a same-color move only
+        on the opt-in, go dark across a scan boundary, hold on the final step
+        when run-end will re-light this same channel). The decision is applied
+        through the authority after the step's work, not threaded into the
+        capture leaf.
+
+        A step that does not capture declares no hold: it lit nothing for a
+        frame, so only the run end's own relight keeps its channel on.
+
+        Args:
+            step: The step whose boundary this is.
+            captures: Whether the step captures a frame.
+        """
+        p = self._p
+        num_steps = p._protocol.num_steps()
+        same_color = False
+        same_zstack_group = False
+        is_scan_boundary = False
+        is_run_end_boundary = False
+        end_policy = LedEndPolicy.OFF
+        snapshot_lit = frozenset()
+        if p._curr_step < num_steps - 1:
+            if captures:
+                next_step = p._protocol.step_row(step_index=p._curr_step + 1)
+                same_color = next_step['channel'] == step['channel']
+                # A z-stack group holds every channel at one position, so the
+                # color is judged too: the LED is held only across slices of
+                # one channel.
+                same_zstack_group = (
+                    same_color
+                    and step['Z-Stack Group ID'] != -1
+                    and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
+                )
+        elif p._remaining_scans() <= 1:
+            # Final step of the final scan -- the run-end boundary. The
+            # authority holds this channel only if the run-end target
+            # re-lights it, so the boundary off plus the restore a few
+            # ms later is not a visible end-of-acquire flicker on a
+            # live-view-lit z-stack. Feed the SAME end-state the cleanup
+            # RUN_END uses (resolved once), so the boundary and cleanup
+            # cannot disagree about what run-end will light.
+            is_run_end_boundary = True
+            end_policy = p._run_mode.led_end_policy
+            snapshot_lit = resolve_end_state(end_policy, getattr(p, '_original_led_states', None))
+        else:
+            # Last step of a non-final scan: the inter-scan idle runs dark.
+            is_scan_boundary = True
+        # An unmapped channel makes the boundary target empty. That
+        # covers three states: no LED board (diff is a no-op), a
+        # channel that drives no LED (nothing to hold), and a channel
+        # this unit's identity lacks (the light seam already said
+        # so loudly) -- in every case there is nothing to keep lit.
+        return LedTransitionCtx(
+            led_address=p._scope.illumination.led_address_of(step['channel']),
+            illumination_ma=step['Illumination'],
+            same_color=same_color,
+            same_zstack_group=same_zstack_group,
+            keep_led_across_moves=captures and p._keep_led_between_steps,
+            is_scan_boundary=is_scan_boundary,
+            is_run_end_boundary=is_run_end_boundary,
+            end_policy=end_policy,
+            snapshot_lit=snapshot_lit,
+        )
 
     def apply_led_transition(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
         """Drive an LED lifecycle transition through the run's LED authority.

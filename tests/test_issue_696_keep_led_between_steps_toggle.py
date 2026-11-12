@@ -9,15 +9,15 @@ between steps unless the optimization is explicitly enabled.
 The hold policy now lives in the LED authority's STEP_BOUNDARY decision
 (hold within a z-stack group, or across a same-color move only when the
 opt-in is on); that pure function is tested directly in
-test_led_authority_skeleton. What stays AST-pinned here is the flag's
-plumbing and the step runner's WIRING into that decision -- the step-capture
-method that builds the ctx needs a full Lumascope + executors to exec:
+test_led_authority_skeleton, and the step runner's use of it through real
+runs on the simulated scope in test_led_lifecycle_sequence (s1-s4: dark
+between same-colour steps by default, held with the opt-in, held across a
+z-stack's slices whatever the flag, dark across a colour switch). What stays
+AST-pinned here is the flag's plumbing:
 1. SequencedCaptureRunner.prepare accepts keep_led_between_steps, default
    False.
 2. start stores the plan's value on self for the step runner to read.
-3. protocol_step_runner feeds the flag into the STEP_BOUNDARY decision as
-   keep_led_across_moves, and consults Z-Stack Group ID for same_zstack_group.
-4. protocol_runner passes the value from settings, defaulting False.
+3. protocol_runner passes the value from settings, defaulting False.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ import pathlib
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 RUNNER_SRC = REPO / 'src/_lumascope/modules' / 'sequenced_capture_runner.py'
-PSR_SRC = REPO / 'src/_lumascope/modules' / 'protocol_step_runner.py'
 PROTO_RUNNER_SRC = REPO / 'src/_lumascope/modules' / 'protocol_runner.py'
 
 
@@ -73,51 +72,6 @@ def test_run_accepts_keep_led_between_steps_default_false():
 def test_run_stores_flag_on_self():
     method = _method_node(_tree(RUNNER_SRC), 'SequencedCaptureRunner', 'start')
     assert 'self._keep_led_between_steps = plan.keep_led_between_steps' in ast.unparse(method)
-
-
-def test_step_runner_gates_same_color_hold_on_flag():
-    # The same-color hold must be gated on BOTH an actual color comparison and
-    # the opt-in flag, so it cannot fire across a color-switching move. Pin both
-    # inside the step method (not anywhere in the file): same_color derives from
-    # the next vs current Color, and the flag flows in as keep_led_across_moves.
-    method = _method_node(_tree(PSR_SRC), 'ProtocolStepRunner', 'scan_iterate')
-    src = ast.unparse(method)
-    assert (
-        "next_step['channel'] == step['channel']" in src
-        or "step['channel'] == next_step['channel']" in src
-    ), 'step runner must derive same_color from the next vs current step Color'
-    flag_wired = any(
-        isinstance(node, ast.keyword)
-        and node.arg == 'keep_led_across_moves'
-        and '_keep_led_between_steps' in ast.unparse(node.value)
-        for node in ast.walk(method)
-    )
-    assert flag_wired, (
-        'step runner must pass p._keep_led_between_steps as keep_led_across_moves '
-        'into the STEP_BOUNDARY decision, so the same-color hold honors the flag'
-    )
-
-
-def test_step_runner_consults_zstack_group_for_boundary_decision():
-    # Slices of one z-stack (same Z-Stack Group ID) are a single acquisition, so
-    # the LED holds across the Z moves even with the opt-in off -- otherwise the
-    # sample blinks on every slice. The hold policy lives in the authority's
-    # STEP_BOUNDARY predicate (z-stack OR same-color opt-in, tested directly in
-    # test_led_authority_skeleton); pin here that the step method consults the
-    # Z-Stack Group ID in code and feeds same_zstack_group into the decision.
-    method = _method_node(_tree(PSR_SRC), 'ProtocolStepRunner', 'scan_iterate')
-    src = ast.unparse(method)
-    assert 'Z-Stack Group ID' in src, (
-        'step runner must consult Z-Stack Group ID to hold the LED across z-stack slices'
-    )
-    fed = any(
-        isinstance(node, ast.keyword) and node.arg == 'same_zstack_group'
-        for node in ast.walk(method)
-    )
-    assert fed, (
-        'protocol_step_runner must feed same_zstack_group into the STEP_BOUNDARY '
-        'decision so z-stack slices hold the LED regardless of the opt-in flag'
-    )
 
 
 def test_protocol_runner_forwards_run_params_via_helper():

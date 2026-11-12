@@ -118,7 +118,8 @@ def _build_protocol(step_specs):
     """Build a Protocol from a list of (well, color, kwargs) specs.
 
     Each spec becomes one step at the well's X/Y. kwargs pass through to
-    _step_dict (auto_focus, zstack_group).
+    _step_dict (auto_focus, zstack_group), except 'fields', which overwrite
+    the step's columns (an autofocus step's objective, Z and exposure).
     """
     import pandas as pd
 
@@ -127,7 +128,11 @@ def _build_protocol(step_specs):
     rows = []
     for idx, (well, color, kwargs) in enumerate(step_specs):
         x, y = WELL_COORDS[well]
-        rows.append(_step_dict(f'{well}_{color}', x, y, DEFAULT_Z, color, idx, **kwargs))
+        kwargs = dict(kwargs)
+        fields = kwargs.pop('fields', {})
+        row = _step_dict(f'{well}_{color}', x, y, DEFAULT_Z, color, idx, **kwargs)
+        row.update(fields)
+        rows.append(row)
     df = pd.DataFrame(rows)
     config = {
         'version': Protocol.CURRENT_VERSION,
@@ -335,11 +340,15 @@ def _run_protocol(
     keep_led_between_steps=False,
     max_scans=1,
     timeout=30,
+    saves=True,
+    step_started=None,
 ):
     """Run a protocol to completion (a scan by default) and block on the done Event.
 
     max_scans > 1 runs a multi-scan (timelapse-shaped) session; pair it with
     _build_two_scan_protocol's near-zero period so it finishes in test time.
+    saves=False runs it as an autofocus run is started: no images, no
+    artifacts.
     """
     done = threading.Event()
     ended: list = []
@@ -361,7 +370,9 @@ def _run_protocol(
         },
         parent_dir=tmp_path / 'output',
         max_scans=max_scans,
-        events=RunEvents(run_ended=on_ended),
+        enable_image_saving=saves,
+        disable_saving_artifacts=not saves,
+        events=RunEvents(run_ended=on_ended, step_started=step_started),
     )
     runner.start(plan)
 
@@ -386,6 +397,9 @@ def _recorded_run(
     keep_led_between_steps=False,
     run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
     prelit=None,
+    saves=True,
+    ends='completed',
+    step_started=None,
 ):
     sub = LedSubstream()
     if prelit:
@@ -394,14 +408,19 @@ def _recorded_run(
         scope.illumination.led_on(channel=prelit[0], illumination_ma=prelit[1])
     scope.illumination.add_led_listener(sub)
     protocol = _build_protocol(specs)
-    completed, _ = _run_protocol(
+    completed, outcome = _run_protocol(
         runner,
         protocol,
         tmp_path,
         run_mode=run_mode,
         keep_led_between_steps=keep_led_between_steps,
+        saves=saves,
+        step_started=step_started,
     )
     assert completed, f'protocol did not complete in time\n{sub.render()}'
+    # The run ended the way the scenario says, so its stream is that
+    # ending's and not another road to dark.
+    assert outcome.status == ends, f'{outcome.status}: {outcome.message}\n{sub.render()}'
     return sub
 
 
@@ -518,6 +537,177 @@ def test_s10_run_end_return_to_original_relights_prerun_channel(scope, runner, t
     assert sub.final_lit() == {LED0}, sub.render()
     # The run's LED 1 must be off before LED 0 is restored -- never two lit at once.
     assert sub.lit_at_most_one(), f'double illumination at the run-end restore\n{sub.render()}'
+
+
+@pytest.fixture
+def af_run_runner_on(scope, executors):
+    """A runner whose autofocus is a real sweep on its own thread, by field.
+
+    The simulated camera shows ``pattern``: the focus target, where the
+    sweep focuses, or ``'white'``, where every frame scores zero and the
+    sweep fails.
+    """
+    from _lumascope.modules.autofocus_thread import AutofocusThread
+    from tests.af_drives import af_runner_on
+
+    threads = []
+
+    def build(pattern):
+        af = af_runner_on(scope, pattern=pattern)
+        af_thread = AutofocusThread(afe=af)
+        af_thread.start()
+        threads.append(af_thread)
+        swap_lanes(scope, io=executors['io'], camera=executors['camera'])
+        return SequencedCaptureRunner(
+            on_saved=lambda folder: None,
+            save_channel_focus=lambda channel, z_um: None,
+            scope=scope,
+            protocol_thread=executors['protocol'],
+            file_io_executor=executors['file_io'],
+            autofocus_thread=af_thread,
+            activity_claim=a_claim_its_scope_asks(scope),
+            autofocus_runner=af,
+            channel_colors=release_colors,
+            post_processing=no_post_run_builds(),
+        )
+
+    yield build
+    for af_thread in threads:
+        af_thread.stop()
+
+
+def _standalone_autofocus_on_lit_bf(scope, runner, tmp_path, *, ends):
+    """The Autofocus button's run on BF, with BF already lit at the step's current."""
+    from tests.af_drives import AF_OBJECTIVE, PARKED_Z_UM
+
+    return _recorded_run(
+        scope,
+        runner,
+        tmp_path,
+        [
+            (
+                'A1',
+                'BF',
+                {
+                    'auto_focus': True,
+                    'fields': {
+                        'Objective': AF_OBJECTIVE,
+                        'Z': PARKED_Z_UM,
+                        # af_runner_on's light: the focus target unsaturated.
+                        'Exposure': 2.0,
+                        'Gain': 1.0,
+                    },
+                },
+            )
+        ],
+        run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+        saves=False,
+        prelit=('BF', CHANNEL_ILLUMINATION['BF']),
+        ends=ends,
+    )
+
+
+def _assert_never_darkened_and_handed_back(scope, sub):
+    offs = [(c, m) for c, lit, m in sub.events if not lit]
+    assert offs == [], f'the run darkened a light its end relights\n{sub.render()}'
+    lit = {r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT}
+    assert lit == {'BF'}, sub.render()
+
+
+def test_s13_a_standalone_autofocus_never_darkens_the_light_its_run_end_relights(
+    scope, af_run_runner_on, tmp_path
+):
+    """The Autofocus button's run on the channel already lit: no off is sent.
+
+    A one-position run hands the light back as it found it, so the run-end
+    boundary holds a channel the run end lights again; an off there and the
+    relight after it is a visible blink (LS850T SN 12075, 2026-10-05:
+    LEDS_OFF, then LED3_1 33 ms later).
+    """
+    runner = af_run_runner_on('focus_target')
+    sub = _standalone_autofocus_on_lit_bf(scope, runner, tmp_path, ends='completed')
+    _assert_never_darkened_and_handed_back(scope, sub)
+
+
+def test_s13_a_failed_standalone_autofocus_never_darkens_the_light_its_run_end_relights(
+    scope, af_run_runner_on, tmp_path
+):
+    """The same run when the sweep finds no focus: still no off is sent.
+
+    The failed sweep puts back the light it found, the run ends failed, and
+    its end hands that light back again; nothing between turns it off.
+    """
+    runner = af_run_runner_on('white')
+    sub = _standalone_autofocus_on_lit_bf(scope, runner, tmp_path, ends='failed')
+    _assert_never_darkened_and_handed_back(scope, sub)
+
+
+def _lit_as_each_autofocus_scan_step_starts(scope, runner, tmp_path, specs, **kwargs):
+    """Which LEDs are lit as each step of an autofocus scan begins, by step.
+
+    ``step_started`` is sent on the run's thread before the step's move,
+    after the previous step's boundary has been applied, so what is lit then
+    is what that boundary left lit through the move.
+    """
+    from tests.af_drives import AF_OBJECTIVE, PARKED_Z_UM
+
+    lit_at = {}
+
+    def seen(step_index):
+        lit_at[step_index] = {
+            r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT
+        }
+
+    af_fields = {'Objective': AF_OBJECTIVE, 'Z': PARKED_Z_UM, 'Exposure': 2.0, 'Gain': 1.0}
+    _recorded_run(
+        scope,
+        runner,
+        tmp_path,
+        [
+            (well, color, {**spec, 'auto_focus': True, 'fields': af_fields})
+            for well, color, spec in specs
+        ],
+        run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+        saves=False,
+        step_started=seen,
+        **kwargs,
+    )
+    return lit_at
+
+
+def test_s14_an_autofocus_scan_holds_no_light_across_its_z_stack_slices(
+    scope, af_run_runner_on, tmp_path
+):
+    """A step that captures nothing holds no light, even within a z-stack group.
+
+    A capture run holds its channel across the slices of a group; an
+    autofocus scan captures none of them, so a held light would only bleach
+    the sample through the next slice's move.
+    """
+    lit_at = _lit_as_each_autofocus_scan_step_starts(
+        scope,
+        af_run_runner_on('focus_target'),
+        tmp_path,
+        [
+            ('A1', 'BF', {'zstack_group': 5, 'z_slice': 0}),
+            ('A1', 'BF', {'zstack_group': 5, 'z_slice': 1}),
+        ],
+    )
+    assert lit_at[1] == set(), f'lit through the next slice: {lit_at}'
+
+
+def test_s14_an_autofocus_scan_holds_no_light_across_moves_whatever_the_keep_setting(
+    scope, af_run_runner_on, tmp_path
+):
+    """keep_led_between_steps holds a light for the next capture; a step that captures nothing has none."""
+    lit_at = _lit_as_each_autofocus_scan_step_starts(
+        scope,
+        af_run_runner_on('focus_target'),
+        tmp_path,
+        [('A1', 'BF', {}), ('A2', 'BF', {})],
+        keep_led_between_steps=True,
+    )
+    assert lit_at[1] == set(), f'lit through the move to the next step: {lit_at}'
 
 
 # ---------------------------------------------------------------------------
