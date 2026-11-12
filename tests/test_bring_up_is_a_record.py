@@ -21,13 +21,15 @@ import pytest
 
 import _lumascope.modules.lumascope_api._lumascope as lumascope_module
 import _lumascope.modules.settings_init as settings_init
-from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.drivers import fx2driver
+from _lumascope.drivers.exceptions import BoardNoReplyError, CameraUsbDriverUnusableError
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.drivers.registry import DeclinedDriver, DriverFallback, NoLiveDriverError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
+from _lumascope.drivers.usb_driver_binding import FX2_FIRMWARE
 from _lumascope.modules.exceptions import (
     BinningSubstitutedNotice,
     CameraNotAvailableError,
@@ -42,6 +44,7 @@ from _lumascope.modules.lumascope_api.bring_up import (
     PartStatus,
     SettingsSetAside,
 )
+from _lumascope.modules.lumascope_api.simulation import SimulatedScope, SimulatedUsbBinding
 from _lumascope.modules.scope_parts import Board
 from _lumascope.modules.notification_center import OutcomeKind
 from _lumascope.modules.scope_session import ScopeSession
@@ -346,6 +349,54 @@ class TestASimulatedManualScope:
             assert centre_posts == []
         finally:
             s.shutdown()
+
+
+class TestAClassicRefusedItsDriver:
+    """A Classic's FX2 is the camera and the LED board: one failure, one
+    notice, the camera's with Repair's cause, never "No hardware detected"."""
+
+    def test_the_simulated_classic_is_told_by_the_camera_alone(self, tmp_path, centre_posts):
+        s = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path), microscope='LS620'),
+            simulate=True,
+            simulated=SimulatedScope(
+                camera_usb_bindings=(SimulatedUsbBinding(FX2_FIRMWARE, 'WinUSB', 31),)
+            ),
+            warn_pre_release=False,
+        )
+        try:
+            record = s.bring_up_record()
+            assert s.scope.no_hardware
+            assert _status(record, Board.CAMERA).cause == 'camera_driver_unusable'
+            assert _status(record, Board.LED).cause == 'fx2_failed'
+            assert [n.reason for n in centre_posts] == ['camera_driver_unusable']
+        finally:
+            s.shutdown()
+
+    def test_a_real_classic_is_told_by_the_camera_alone(self, monkeypatch, tmp_path, centre_posts):
+        refused = CameraUsbDriverUnusableError(
+            "Lumascope Classic USB\\VID_04B4&PID_EA17\\1 (present): libusbK, not LumaViewPro's"
+        )
+        # a stand-in by design: the FX2's one attempt on a real scope, which
+        # this host has not; the LED registry and the camera met it.
+        monkeypatch.setattr(fx2driver._FX2Connection, '_failure', refused)
+        s = _bring_up(
+            monkeypatch,
+            tmp_path,
+            # An LS620's motor board is none: nothing came up.
+            motor=DriverFallback('not_detected', ('MotorBoard',)),
+            led=DriverFallback(
+                'connect_failed', ('FX2LEDController',), f'CameraUsbDriverUnusableError: {refused}'
+            ),
+            camera=refused,
+            microscope='LS620',
+        )
+        try:
+            assert _status(s.bring_up_record(), Board.LED).cause == 'fx2_failed'
+            assert [n.reason for n in centre_posts] == ['camera_driver_unusable']
+        finally:
+            s.shutdown()
+            s.scope.disconnect()
 
 
 class TestNothingCameUp:

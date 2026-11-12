@@ -55,6 +55,7 @@ CAUSE_PHRASES = {
     'no_driver': 'no driver',
     'camera_driver_unavailable': 'not detected; a driver did not load',
     'led_driver_unavailable': 'not detected; a driver did not load',
+    'fx2_failed': 'failed with the camera, the one USB device it is part of',
     'camera_firmware_missing': 'firmware file missing',
     'camera_driver_unusable': "on no driver, one not LumaViewPro's, or ours not started",
     'camera_not_initialized': 'not initialized',

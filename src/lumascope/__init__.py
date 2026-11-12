@@ -346,6 +346,7 @@ from _lumascope.modules.lumascope_api.simulation import (
     SimulatedCameraWriteRefusal,
     SimulatedModelAnswer,
     SimulatedScope,
+    SimulatedUsbBinding,
     SimulationAPI,
 )
 from _lumascope.modules.manual_capture import (
@@ -833,6 +834,7 @@ __all__ = [
     'SimulatedModelAnswer',
     'SimulatedScope',
     'SimulatedStall',
+    'SimulatedUsbBinding',
     'SimulationAPI',
     'SingleScanNotice',
     'SizeSliderStops',

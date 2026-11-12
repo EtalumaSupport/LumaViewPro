@@ -131,6 +131,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`SimulatedModelAnswer`](#SimulatedModelAnswer)
 - [`SimulatedScope`](#SimulatedScope)
 - [`SimulatedStall`](#SimulatedStall)
+- [`SimulatedUsbBinding`](#SimulatedUsbBinding)
 - [`SizeSliderStops`](#SizeSliderStops)
 - [`SkippedBuild`](#SkippedBuild)
 - [`StageDistance`](#StageDistance)
@@ -1107,7 +1108,7 @@ settings, then the camera start gate released) and is torn down by
 
 **Raises**
 
-- `ArgumentRefusedError`: `'needs_simulated_scope'`, `simulated` without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, the record's `camera_stall`, `focal_spread_um` or `conversion_gain_mode` for a model simulated with an FX2 or with `camera_present` False (`argument` names the scope's `sim_camera_stall`, `sim_focal_spread_um` or `sim_conversion_gain_mode`). `'not_injectable_on_board'`, its `model_answer`, `refused_stream_starts` or `refused_camera_writes` for a scope whose board or camera cannot show it; `'fault_unknown'`, its `refused_stream_starts` or `refused_camera_writes` with `camera_present` False, a camera the scope does not have; `'fault_bound'`, a negative `refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it). `'needs_simulated_firmware'`, the record's `unit_config` for a scope whose motor board is not the simulated motor firmware: the `fast` simulator tier (chosen, or run where this machine has no MicroPython runtime, which the words then say), or a model with no EL-0940 motor board; `'missing_key'` or `'wrong_kind'`, a `unit_config` without the `Microscope`, `Axis Present` or `IniFiles` the simulator boots it by, or one marking no axis present; `'not_offered'`, a register table its `IniFiles` names that the simulated firmware does not carry (`argument` names the scope's `sim_unit_config` throughout).
+- `ArgumentRefusedError`: `'needs_simulated_scope'`, `simulated` without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, the record's `camera_stall`, `focal_spread_um` or `conversion_gain_mode` for a model simulated with an FX2 or with `camera_present` False (`argument` names the scope's `sim_camera_stall`, `sim_focal_spread_um` or `sim_conversion_gain_mode`). `'not_injectable_on_board'`, its `model_answer`, `refused_stream_starts`, `refused_camera_writes` or `camera_usb_bindings` for a scope whose board or camera cannot show it; `'fault_unknown'`, its `refused_stream_starts` or `refused_camera_writes` with `camera_present` False, a camera the scope does not have; `'fault_bound'`, a negative `refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it). `'needs_simulated_firmware'`, the record's `unit_config` for a scope whose motor board is not the simulated motor firmware: the `fast` simulator tier (chosen, or run where this machine has no MicroPython runtime, which the words then say), or a model with no EL-0940 motor board; `'missing_key'` or `'wrong_kind'`, a `unit_config` without the `Microscope`, `Axis Present` or `IniFiles` the simulator boots it by, or one marking no axis present; `'not_offered'`, a register table its `IniFiles` names that the simulated firmware does not carry (`argument` names the scope's `sim_unit_config` throughout).
 - `SettingRefusedError`: `'wrong_kind'` or `'out_of_range'`, a value in `settings` the writer refuses: a dict handed to a session is a write of every key at once, held to the same ranges.
 - `ScopeInUseError`: `'scope_in_use'`, a session with `simulate=False` asked for while another LumaViewPro, REST server or script drives the microscope, or while another real scope in this process is open. Nothing was opened.
 - `ScopeModelUnknownError`: the stored `microscope` is a model the catalogue does not list, and no motor board reports a model to stand in its place (a simulated scope is built as the stored model unless `simulated.model` names another). Nothing it started is left running.
@@ -13058,6 +13059,7 @@ is the declared scope with no fault. A fault is refused where the
 
 - <a id="SimulatedScope.camera_present"></a>`camera_present`: `bool` -- Whether the camera is on the bus at bring-up. False is a camera unplugged for the session: bring-up finds none, as it finds none on a real scope, and every camera command is refused `not_connected`. On a model simulated with an FX2 the camera is the FX2, so its LED board is missing with it. True is the camera there.
 - <a id="SimulatedScope.camera_stall"></a>`camera_stall`: `SimulatedStall | None` -- A stall for the simulated camera's stream, so the scope shows a stream that stops delivering; the simulated camera's alone. None stalls nothing.
+- <a id="SimulatedScope.camera_usb_bindings"></a>`camera_usb_bindings`: `tuple[SimulatedUsbBinding, ...]` -- The drivers Windows has the simulated FX2's USB identities on at bring-up (`bind_camera_usb_driver`), so bring-up meets a Classic on no driver, on another package, or on LumaViewPro's and not started; a model simulated with an FX2 alone. Empty is LumaViewPro's driver, started, on both.
 - <a id="SimulatedScope.conversion_gain_mode"></a>`conversion_gain_mode`: `bool` -- Whether the scope's camera has a switchable conversion gain, as an IDS on firmware 3.95 does, so the Advanced Settings toggle and a run in each mode are shown without one; the simulated camera's alone. False is the stock dart, which has none.
 - <a id="SimulatedScope.file_stall"></a>`file_stall`: `SimulatedStall | None` -- A stall for the session's file lane, so the scope shows a save drive that stops answering: `after_s` seconds after bring-up the lane's worker is held for `for_s` seconds. None stalls nothing.
 - <a id="SimulatedScope.focal_spread_um"></a>`focal_spread_um`: `float` -- How far the simulated sample's focus may lie from where bring-up places the stage, drawn once per session, so every session needs a real autofocus; the simulated camera's alone. 0 puts the sample in focus there.
@@ -13090,6 +13092,20 @@ launch argument, a test), so a stall that cannot happen is refused there.
 
 - <a id="SimulatedStall.after_s"></a>`after_s`: `float` -- Seconds from the moment it is applied until the stall begins.
 - <a id="SimulatedStall.for_s"></a>`for_s`: `float` -- How long the stall lasts, in seconds.
+
+<a id="SimulatedUsbBinding"></a>
+## `lumascope.SimulatedUsbBinding`
+
+A record: it crosses the wire as its data.  
+Held in: [`SimulatedScope.camera_usb_bindings`](#SimulatedScope.camera_usb_bindings).
+
+The driver Windows binds a USB identity of the simulated FX2 to (`bind_camera_usb_driver`).
+
+**Fields**
+
+- <a id="SimulatedUsbBinding.hardware_id"></a>`hardware_id`: `str` -- `USB\VID_04B4&PID_8613` (the bootloader) or `USB\VID_04B4&PID_EA17` (the running firmware); any other is refused `ArgumentRefusedError` `'fault_unknown'` as the record is built.
+- <a id="SimulatedUsbBinding.problem_code"></a>`problem_code`: `int | None` -- Device Manager's problem code on the device, as Windows gives it: 28 on no driver, 31 for a driver it could not load; None for a driver it started.
+- <a id="SimulatedUsbBinding.service"></a>`service`: `str | None` -- The driver's service, as Windows names it (`'libusbK'`); None for no driver. `'WinUSB'` stands for LumaViewPro's package, any other for another package's.
 
 <a id="SizeSliderStops"></a>
 ## `lumascope.SizeSliderStops`

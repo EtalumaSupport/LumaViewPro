@@ -1049,6 +1049,8 @@ OPEN_STRINGS: dict[str, str] = {
     'SimulatedModelAnswer.model field': _MODEL,
     'SimulatedScope.model field': _MODEL,
     'SimulatedScope.unit_config field': _BOARD,
+    'SimulatedUsbBinding.hardware_id field': _OS,
+    'SimulatedUsbBinding.service field': _OS,
     'SimulationAPI.answer_model parameter model': _MODEL,
     'SimulationAPI.bind_camera_usb_driver parameter hardware_id': _OS,
     'SimulationAPI.bind_camera_usb_driver parameter service': _OS,

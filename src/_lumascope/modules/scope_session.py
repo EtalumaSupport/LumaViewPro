@@ -1804,8 +1804,9 @@ class ScopeSession:
                 scope's ``sim_camera_stall``, ``sim_focal_spread_um`` or
                 ``sim_conversion_gain_mode``).
                 ``'not_injectable_on_board'``, its ``model_answer``,
-                ``refused_stream_starts`` or ``refused_camera_writes`` for a
-                scope whose board or camera cannot show it;
+                ``refused_stream_starts``, ``refused_camera_writes`` or
+                ``camera_usb_bindings`` for a scope whose board or camera
+                cannot show it;
                 ``'fault_unknown'``, its ``refused_stream_starts`` or
                 ``refused_camera_writes`` with ``camera_present`` False, a
                 camera the scope does not have;
@@ -1936,6 +1937,7 @@ class ScopeSession:
                 sim_slide=simulated.slide_on_stage,
                 sim_conversion_gain_mode=simulated.conversion_gain_mode,
                 sim_unit_config=simulated.unit_config,
+                sim_camera_usb_bindings=simulated.camera_usb_bindings,
                 on_progress=on_progress,
                 _composition=COMPOSED_BY_CREATE,
             )

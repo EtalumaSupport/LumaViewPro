@@ -128,7 +128,7 @@ if TYPE_CHECKING:
     from _lumascope.modules.lumascope_api.motion import MotionAPI
     from _lumascope.modules.lumascope_api.protocols import ProtocolsAPI
     from _lumascope.modules.lumascope_api.runtime_state import RuntimeState
-    from _lumascope.modules.lumascope_api.simulation import SimulationAPI
+    from _lumascope.modules.lumascope_api.simulation import SimulatedUsbBinding, SimulationAPI
     from _lumascope.modules.objectives_loader import Objective, ObjectiveLoader
     from _lumascope.modules.scope_init_config import ScopeInitConfig
 
@@ -382,6 +382,16 @@ def _camera_failure_cause(exc: BaseException, fx2_could_be_this_scope: bool) -> 
     if isinstance(exc, HardwareError):
         return 'camera_not_initialized'
     return 'camera_bring_up_failed'
+
+
+def _no_camera_found(exc: BaseException | None) -> bool:
+    """Whether the camera's failure says no camera was found.
+
+    The registry raises ``NoLiveDriverError`` when no driver raised; its
+    cause says whether a port was found held. Any other failure is a fault a
+    driver raised for a camera it found.
+    """
+    return isinstance(exc, NoLiveDriverError) and exc.fallback.cause != 'port_in_use'
 
 
 # The causes a camera that came up can meet coming up, the one a person acts
@@ -824,6 +834,7 @@ class Lumascope:
         sim_slide: Slide | RonchiRuling = Slide.CELLS,
         sim_conversion_gain_mode: bool = False,
         sim_unit_config: Mapping[str, object] | None = None,
+        sim_camera_usb_bindings: 'tuple[SimulatedUsbBinding, ...]' = (),
         on_progress: ProgressCallback | None = None,
         _composition: object = None,
     ):
@@ -929,6 +940,11 @@ class Lumascope:
                 LED board and the camera. Only the simulated motor firmware
                 runs it, so it is refused on real hardware, on the
                 ``'fast'`` tier and on a model with no EL-0940 motor board.
+            sim_camera_usb_bindings: The drivers Windows has the simulated
+                FX2's USB identities on when it connects, so bring-up meets
+                a Classic on no driver, on another package, or on
+                LumaViewPro's and not started. Refused on real hardware and
+                on a model not simulated with an FX2.
             on_progress: Called before each part is connected, with the
                 share of bring-up's steps already done and the step's words
                 (``bring_up.STEPS``), on this thread; a raise from it is a
@@ -947,7 +963,9 @@ class Lumascope:
                 without the ``Microscope``, ``Axis Present`` or ``IniFiles``
                 the simulator boots it by, or marking no axis present;
                 ``'not_offered'``, a register table its ``IniFiles`` names
-                that the simulated firmware does not carry.
+                that the simulated firmware does not carry;
+                ``'not_injectable_on_board'``, ``sim_camera_usb_bindings``
+                for a model not simulated with an FX2.
             ScopeInUseError: ``'scope_in_use'``, a real scope asked for while
                 another LumaViewPro, REST server or script drives the
                 microscope, or while another real scope in this process is
@@ -962,6 +980,7 @@ class Lumascope:
             ('sim_slide', sim_slide, sim_slide != Slide.CELLS),
             ('sim_conversion_gain_mode', sim_conversion_gain_mode, sim_conversion_gain_mode),
             ('sim_unit_config', sim_unit_config, sim_unit_config is not None),
+            ('sim_camera_usb_bindings', sim_camera_usb_bindings, bool(sim_camera_usb_bindings)),
         ):
             if given and not simulate:
                 raise ArgumentRefusedError('needs_simulated_scope', argument=argument, value=value)
@@ -1006,6 +1025,13 @@ class Lumascope:
                         )
             if sim_unit_config is not None:
                 _refuse_an_unbootable_unit_config(sim_unit_config, sim_tier, sim_motor_board)
+            if sim_camera_usb_bindings and sim_led_board != LedBoardFamily.FX2:
+                raise ArgumentRefusedError(
+                    'not_injectable_on_board',
+                    argument='sim_camera_usb_bindings',
+                    value=None,
+                    board='the simulated camera',
+                )
         else:
             board_names_its_model = True
             selected_model = configured_model
@@ -1105,6 +1131,10 @@ class Lumascope:
         # Why a null LED board stands in, from the registry or for a simulated
         # FX2 off the bus; None when a board came up.
         led_fallback: DriverFallback | None = None
+        # Why the one attempt to connect the FX2 failed, the simulated one's
+        # or the real one's (``fx2driver.connection_failure``); None when it
+        # came up or none was made.
+        fx2_failure: Exception | None = None
 
         def _sim_light_of(address: int) -> float:
             """The light per mA-second the channel ``address`` lights renders in
@@ -1210,6 +1240,8 @@ class Lumascope:
                 slide=sim_slide,
             )
             self._read_fx2_bindings = sim_fx2.transport.bindings
+            for binding in sim_camera_usb_bindings:
+                sim_fx2.transport.bind(binding.hardware_id, binding.service, binding.problem_code)
             try:
                 fx2_connection = sim_fx2.connect()
             except _FX2AbsentError as absent:
@@ -1220,6 +1252,19 @@ class Lumascope:
                 self._led_driver: LEDBoardProtocol = NullLEDBoard()
                 led_fallback = DriverFallback('not_detected', ('FX2LEDController',))
                 parts[Board.LED] = _board_status(Board.LED, led_fallback)
+            except Exception as failure:
+                # What the registries make of an FX2 present and failing: the
+                # LED board's null stand-in, its cause the driver's raise, and
+                # the camera raising the same failure (below).
+                logger.info(f'[SCOPE API ] the simulated FX2 failed to connect: {failure}')
+                fx2_failure = failure
+                self._led_driver = NullLEDBoard()
+                led_fallback = DriverFallback(
+                    'connect_failed', ('FX2LEDController',), f'{type(failure).__name__}: {failure}'
+                )
+                parts[Board.LED] = _board_status(Board.LED, led_fallback)
+                # Still on the bus, so its faults can still be injected.
+                simulated_camera = sim_fx2
             else:
                 self._led_driver = FX2LEDController(
                     connection=fx2_connection, debug_wire=fx2_debug_wire
@@ -1301,6 +1346,8 @@ class Lumascope:
             if sim_fx2 is not None:
                 from _lumascope.drivers.fx2driver import FX2Camera
 
+                if fx2_failure is not None:
+                    raise fx2_failure
                 if fx2_connection is None:
                     raise NoLiveDriverError(
                         'camera', DriverFallback('not_detected', ('FX2Camera',))
@@ -1320,6 +1367,17 @@ class Lumascope:
         except Exception as _cam_exc:
             self._camera_failure = _cam_exc
         camera_up = self._camera_failure is None
+        if not simulate:
+            from _lumascope.drivers.fx2driver import (
+                connection_failure,
+            )  # local-import: loaded where it is read
+
+            fx2_failure = connection_failure()
+        # The FX2 is the camera and the LED board: a camera that failed with
+        # the FX2's own failure took the LED board with it, and the camera's
+        # notice tells both.
+        if not camera_up and fx2_failure is not None and self._camera_failure is fx2_failure:
+            parts[Board.LED] = dataclasses.replace(parts[Board.LED], cause='fx2_failed')
         # Decided once, from the camera and the LED board; the camera's cause,
         # the LED board's and the no-hardware notice each read it.
         self._fx2_could_be_this_scope = _a_declined_fx2_could_be_this_scope(camera_up, led_fallback)
@@ -1384,6 +1442,10 @@ class Lumascope:
         # Whether any hardware was found: read from the record, the one
         # account of what came up, so this and the report cannot disagree.
         self._no_hardware = not any(status.up for status in parts.values())
+        # Whether nothing was found at all, which alone is told as "no
+        # hardware": a camera a driver found and could not bring up, or whose
+        # port another program holds, is told as itself.
+        self._nothing_found = self._no_hardware and _no_camera_found(self._camera_failure)
 
         # Most per-instance state lives on the sub-APIs: camera owns the
         # camera's state + locks, imaging the capture's and the stream's,
@@ -1920,15 +1982,17 @@ class Lumascope:
         motor board is the manual scope it is, not a failure, so only a part
         the model has is missing. A camera that failed is reported whatever
         the model (``_report_camera``). Each missing board is told once, by
-        its own notice with the advice its cause needs; a client wanting the
-        whole list reads the record's ``missing``. When nothing came up the
-        person is told once, not once per part. A simulated scope is told
-        as the scope it stands in for.
+        its own notice with the advice its cause needs, but an LED board
+        that failed with the FX2 camera it is part of, which the camera's
+        notice tells; a client wanting the whole list reads the record's
+        ``missing``. When nothing was found the person is told once, not
+        once per part. A simulated scope is told as the scope it stands in
+        for.
         """
         parts = self._bring_up_parts
         parts[Board.MOTOR] = dataclasses.replace(parts[Board.MOTOR], expected=config.expects_motion)
         parts[Board.LED] = dataclasses.replace(parts[Board.LED], expected=config.expects_led)
-        if self._no_hardware:
+        if self._nothing_found:
             # The one notice says the camera too.
             self._camera_failure = None
             reason = (
@@ -1940,7 +2004,7 @@ class Lumascope:
             return
         self._report_camera()
         led = parts[Board.LED]
-        if led.missing:
+        if led.missing and led.cause != 'fx2_failed':
             notifications.report_outcome(
                 LedBoardUnavailableError(led.cause), solicited=False, category='Illumination'
             )

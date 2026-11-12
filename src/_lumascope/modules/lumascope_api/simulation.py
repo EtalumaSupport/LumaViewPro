@@ -144,6 +144,40 @@ class SimulatedModelAnswer:
     model: str | None
 
 
+@api_fields('hardware_id', 'service', 'problem_code')
+@dataclasses.dataclass(frozen=True)
+class SimulatedUsbBinding:
+    """The driver Windows binds a USB identity of the simulated FX2 to (``bind_camera_usb_driver``).
+
+    Attributes:
+        hardware_id: ``USB\\VID_04B4&PID_8613`` (the bootloader) or
+            ``USB\\VID_04B4&PID_EA17`` (the running firmware); any other is
+            refused ``ArgumentRefusedError`` ``'fault_unknown'`` as the
+            record is built.
+        service: The driver's service, as Windows names it (``'libusbK'``);
+            None for no driver. ``'WinUSB'`` stands for LumaViewPro's
+            package, any other for another package's.
+        problem_code: Device Manager's problem code on the device, as
+            Windows gives it: 28 on no driver, 31 for a driver it could not
+            load; None for a driver it started.
+    """
+
+    hardware_id: str
+    service: str | None
+    problem_code: int | None
+
+    def __post_init__(self) -> None:
+        from _lumascope.drivers.usb_driver_binding import DEVICE_NAMES
+
+        if self.hardware_id not in DEVICE_NAMES:
+            raise ArgumentRefusedError(
+                'fault_unknown',
+                argument='hardware_id',
+                value=self.hardware_id,
+                offered=tuple(DEVICE_NAMES),
+            )
+
+
 @api_fields('node', 'answer', 'count')
 @dataclasses.dataclass(frozen=True)
 class SimulatedCameraWriteRefusal:
@@ -177,6 +211,7 @@ type BoardConfigValue = str | int | float | bool | list | dict | None
     'ronchi_lines_per_mm',
     'conversion_gain_mode',
     'unit_config',
+    'camera_usb_bindings',
 )
 @dataclasses.dataclass(frozen=True)
 class SimulatedScope:
@@ -249,6 +284,11 @@ class SimulatedScope:
             simulated motor firmware runs it: the ``firmware`` and
             ``realistic`` simulator tiers, on a model with an EL-0940 motor
             board. None boots the model's own board.
+        camera_usb_bindings: The drivers Windows has the simulated FX2's
+            USB identities on at bring-up (``bind_camera_usb_driver``), so
+            bring-up meets a Classic on no driver, on another package, or
+            on LumaViewPro's and not started; a model simulated with an
+            FX2 alone. Empty is LumaViewPro's driver, started, on both.
     """
 
     model: str | None = None
@@ -263,6 +303,7 @@ class SimulatedScope:
     conversion_gain_mode: bool = False
     unit_config: Mapping[str, BoardConfigValue] | None = None
     ronchi_lines_per_mm: float | None = None
+    camera_usb_bindings: tuple[SimulatedUsbBinding, ...] = ()
 
     @property
     def slide_on_stage(self) -> Slide | RonchiRuling:
@@ -1063,20 +1104,12 @@ class SimulationAPI:
                 ``'fault_unknown'`` for any other hardware ID;
                 ``'not_injectable_on_board'`` on any camera but the FX2.
         """
-        from _lumascope.drivers.usb_driver_binding import DEVICE_NAMES
-
         target = self._camera_board('bind_camera_usb_driver')
         if not isinstance(target, SimulatedFX2):
             raise self._not_injectable('bind_camera_usb_driver', target)
-        if hardware_id not in DEVICE_NAMES:
-            raise ArgumentRefusedError(
-                'fault_unknown',
-                argument='hardware_id',
-                value=hardware_id,
-                offered=tuple(DEVICE_NAMES),
-            )
+        binding = SimulatedUsbBinding(hardware_id, service, problem_code)
         was = target.transport.services[hardware_id], target.transport.problem_codes[hardware_id]
-        target.transport.bind(hardware_id, service, problem_code)
+        target.transport.bind(binding.hardware_id, binding.service, binding.problem_code)
         self._record(
             'bind_camera_usb_driver',
             lambda: target.transport.bind(hardware_id, *was),

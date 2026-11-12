@@ -723,24 +723,26 @@ class TestFX2ConnectionSingleton:
         second = fx2driver._FX2Connection.get()
         assert first is second
 
-    def test_init_failure_leaves_instance_none(self):
-        """If _FX2Connection.__init__ raises, the singleton stays None so
-        the next attempt can retry from scratch (e.g., after plugging in
-        the hardware).
-        """
+    def test_a_failed_attempt_is_made_once_and_held_for_the_next_caller(self):
+        """The camera and the LED board each ask for the one device: a
+        failing FX2 is attempted once, and both meet the same failure,
+        never a second firmware upload and a second 15 s wait."""
+        attempts = []
 
-        def boom(self, transport):
-            raise RuntimeError('no FX2 hardware')
+        def fails(self, transport):
+            attempts.append(transport)
+            raise RuntimeError('the bootloader did not re-enumerate')
 
-        # Patch __init__ directly -- get() will still call cls() which
-        # calls __new__ + __init__; if __init__ raises, cls._instance
-        # is never assigned.
-        with (
-            patch.object(fx2driver._FX2Connection, '__init__', boom),
-            pytest.raises(RuntimeError, match='no FX2 hardware'),
-        ):
-            fx2driver._FX2Connection.get()
-        assert fx2driver._FX2Connection._instance is None
+        # a stand-in by design: the connect, which needs an FX2 on the bus.
+        with patch.object(fx2driver._FX2Connection, '__init__', fails):
+            with pytest.raises(RuntimeError) as first:
+                fx2driver._FX2Connection.get()
+            with pytest.raises(RuntimeError) as second:
+                fx2driver._FX2Connection.get()
+
+        assert len(attempts) == 1
+        assert second.value is first.value
+        assert fx2driver.connection_failure() is first.value
 
 
 # ---------------------------------------------------------------------------

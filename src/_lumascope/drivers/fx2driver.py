@@ -1668,6 +1668,17 @@ class _FX2AbsentError(Fault, RuntimeError):
     title = 'Camera Not Found'
 
 
+def connection_failure() -> Exception | None:
+    """Why this process's one attempt to connect the FX2 failed; None when it
+    was not made or succeeded.
+
+    ``_FX2AbsentError`` when no FX2 is on the bus. The scope reads it after
+    the camera and the LED board have each met it, to tell them as one
+    failure.
+    """
+    return _FX2Connection._failure
+
+
 class _FX2Connection:
     """Singleton owning the FX2 USB device, through a platform transport.
 
@@ -1689,6 +1700,12 @@ class _FX2Connection:
     """
 
     _instance: _FX2Connection | None = None
+    # The first attempt's failure, raised to every later caller: the camera
+    # and the LED board are one device, so one bring-up makes one attempt
+    # and both meet its one outcome, never a second 15 s wait for a
+    # bootloader that did not re-enumerate. Never cleared: a replugged
+    # scope is a new process, as for ``removed``.
+    _failure: Exception | None = None
     _instance_lock = threading.Lock()
 
     FIRMWARE_RE_ENUM_TIMEOUT = 15.0  # seconds to wait for re-enumeration
@@ -1703,7 +1720,9 @@ class _FX2Connection:
 
         Raises on construction failure (no FX2 hardware, no pyusb, firmware
         upload timeout, etc.) -- the registry catches the exception and
-        falls through to the next candidate driver.
+        falls through to the next candidate driver. The first call's
+        failure is held and raised again to every later call
+        (``connection_failure``).
 
         Returns:
             _FX2Connection: The shared singleton instance.
@@ -1725,7 +1744,13 @@ class _FX2Connection:
             return cls._instance
         with cls._instance_lock:
             if cls._instance is None:
-                cls._instance = cls(_platform_transport())
+                if cls._failure is not None:
+                    raise cls._failure
+                try:
+                    cls._instance = cls(_platform_transport())
+                except Exception as failure:
+                    cls._failure = failure
+                    raise
             return cls._instance
 
     @classmethod
@@ -1743,6 +1768,7 @@ class _FX2Connection:
                 except Exception:
                     pass
             cls._instance = None
+            cls._failure = None
 
     def __init__(self, transport: _PyusbTransport):
         self._transport = transport
