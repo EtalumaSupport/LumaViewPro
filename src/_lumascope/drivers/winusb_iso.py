@@ -9,6 +9,7 @@ import ctypes
 import datetime
 import logging
 import threading
+from typing import ClassVar
 from ctypes import (
     Structure,
     byref,
@@ -33,6 +34,7 @@ from _lumascope.drivers.exceptions import (
     CameraUsbOpenFailedError,
 )
 from _lumascope.drivers.usb_driver_binding import DeviceBinding, store_inf_folder, store_packages
+from _lumascope.lib.lumascope_error import RefusalCause
 
 # Under LVP, never ``__name__``: a session's logging hangs the bundle on
 # LumaViewPro's own logger, LVP, so a logger named for this
@@ -481,6 +483,8 @@ class _PropertyTypeUnreadError(CameraUsbLookupFailedError):
     A lookup failure where the property decides the binding; where it is a
     fact for the log only, its reader records it on the device instead.
     """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_usb_property_unread': None}
 
     def __init__(self, prop_type: int):
         self.type_name = f'type {prop_type:#x}'
