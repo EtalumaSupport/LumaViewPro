@@ -844,6 +844,22 @@ def _hardware_reading(read: Callable[[], object]) -> object:
     return answer[0] if said is None else _NotRead(said)
 
 
+def _register_word(reply: object) -> object:
+    """A 32-bit register read's reply as its unsigned word in hex, ``0x81060029``.
+
+    The EL-0940's field firmware writes the word as a signed decimal, so a
+    register with bit 31 set reads negative; the chip's datasheet and every
+    fault decode work in the unsigned word. A reply that is not a 32-bit
+    word in decimal is returned as the board sent it.
+    """
+    if not isinstance(reply, str) or not re.fullmatch(r'-?\d+', reply.strip()):
+        return reply
+    value = int(reply)
+    if not -(2**31) <= value < 2**32:
+        return reply
+    return f'0x{value % 2**32:08X}'
+
+
 class FirmwareDiagnostics:
     """Talks to LED and motor boards to collect diagnostic data.
 
@@ -1290,8 +1306,9 @@ class FirmwareDiagnostics:
         """Read the motor driver chips' key diagnostic registers via raw SPI commands.
 
         Only an EL-0940's TMC5072 pair answers them; a board without a text
-        channel says so. Returns dict per chip (XY, ZT) with register values
-        as the board sent them.
+        channel says so. Returns dict per chip (XY, ZT), each register its
+        unsigned word in hex (``_register_word``), or the reply as the board
+        sent it when the reply is not a word.
         Uses the firmware's SPI<axis>0x<addr><payload> command.
         """
         unread = self._unread_motor_text()
@@ -1307,8 +1324,7 @@ class FirmwareDiagnostics:
                 # Format: SPI<axis>0x<addr>00000000 (32-bit read)
                 read_addr = addr & 0x7F
                 cmd = f'SPI{axis}0x{read_addr:02X}00000000'
-                resp = self._cmd(self.motor_board, cmd)
-                chip[reg_name] = resp
+                chip[reg_name] = _register_word(self._cmd(self.motor_board, cmd))
             results[chip_label] = chip
         return results
 
