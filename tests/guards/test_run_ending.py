@@ -110,10 +110,9 @@ def _recorded_reasons():
                 continue
             fn = node.func
             label = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, 'id', None)
-            if label in ('abort_run_fatal', '_abort_run_fatal', 'end_run_fatally', 'RunStartError'):
-                # (reason, domain, message) on the writer's own funnel,
-                # (reason, title, message) through the runner's two seams and on
-                # the typed start failure -- the cause is first in all four.
+            if label == 'RunStartError':
+                # The typed start failure takes its cause first; the fatal
+                # funnel takes a RunEnding, read below.
                 arg = node.args[0] if node.args else None
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     found.add(arg.value)
@@ -482,14 +481,14 @@ class TestTheRunLoopsOwnEndings:
 
         # Through the funnel, as every run-killing fault: it records the
         # ending and shows it (the writer is this harness's mock).
-        ((reason, domain, message),) = [
+        ((recorded, domain),) = [
             c.args for c in runner._image_writer._abort_run_fatal.call_args_list
         ]
-        assert (reason, domain) == ('run_loop_crashed', 'Protocol')
-        assert 'LumaViewPro failed' in message
-        assert 'the loop died here' not in message
+        assert (recorded.reason, domain) == ('run_loop_crashed', 'Protocol')
+        assert 'LumaViewPro failed' in recorded.message
+        assert 'the loop died here' not in recorded.message
         ending = runner._cleanup.call_args.args[0]
-        assert (ending.reason, ending.message) == (reason, message), (
+        assert ending == recorded, (
             'cleanup was handed a different ending than the one the funnel recorded'
         )
 
@@ -517,9 +516,11 @@ class TestTheRunLoopsOwnEndings:
 
         aborts = runner._image_writer._abort_run_fatal.call_args_list
         assert len(aborts) >= 1, 'a disk floor below the run estimate must end the run'
-        reason, _domain, message = aborts[0].args
-        assert reason == 'disk_space_critical'
-        assert '12 MB free' in message, f'the message must name the shortfall; got {message!r}'
+        ending, _domain = aborts[0].args
+        assert ending.reason == 'disk_space_critical'
+        assert '12 MB free' in ending.message, (
+            f'the message must name the shortfall; got {ending.message!r}'
+        )
 
 
 # ---------------------------------------------------------------------------

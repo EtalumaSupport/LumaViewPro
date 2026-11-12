@@ -733,7 +733,7 @@ class ProtocolImageWriter:
         # The runner's fatal ending, which also puts the run in ERROR: the
         # one call that ends a run whose hardware left it, here and in the
         # run loop, so both end it the same way.
-        end_run_fatally: Callable[[str, str], None],
+        end_run_fatally: Callable[[RunEnding], None],
         # THIS run's fatal-abort flag, allocated fresh per run by the runner.
         # Per-run, not runner-lifetime: queued write tasks keep draining after
         # the run ends and can fire a fatal abort (disk-full) from the OLD
@@ -839,8 +839,11 @@ class ProtocolImageWriter:
         self._told_dark: set[int] = set()
         self._tally_lock = threading.Lock()
 
-    def _abort_run_fatal(self, reason: str, domain: str, message: str) -> None:
+    def _abort_run_fatal(self, ending: RunEnding, domain: str) -> None:
         """The one fatal-abort path: every run-killing fault routes here.
+
+        Takes the fault's ending whole, so what the run's outcome says of it
+        is what its site made, never rebuilt from its words.
 
         Ordering is load-bearing:
         1. abort -- a non-blocking, idempotent Event.set that immediately
@@ -872,13 +875,13 @@ class ProtocolImageWriter:
         """
         self._abort_fn()
         self._fatal_abort_event.set()
-        told = self._ending.record_fatal(RunEnding(RunStatus.FAILED, reason, message))
+        told = self._ending.record_fatal(ending)
         if told is FatalTold.SETTLED:
             return
         self._scope.illumination.force_off()
-        self._tell_failed(told, reason, domain, message)
+        self._tell_failed(told, ending, domain)
 
-    def _end_run_failed(self, reason: str, domain: str, message: str) -> None:
+    def _end_run_failed(self, ending: RunEnding, domain: str) -> None:
         """Record a run the instrument could not complete, and tell it, leaving its LEDs be.
 
         A policy ceiling on a scope that still answers -- the scan failed
@@ -887,18 +890,18 @@ class ProtocolImageWriter:
         Told as the funnel tells a fault, by the run's latch, so it is shown
         once, and logged when a fault was shown first.
         """
-        told = self._ending.record_fatal(RunEnding(RunStatus.FAILED, reason, message))
-        self._tell_failed(told, reason, domain, message)
+        told = self._ending.record_fatal(ending)
+        self._tell_failed(told, ending, domain)
 
     @staticmethod
-    def _tell_failed(told: FatalTold, reason: str, domain: str, message: str) -> None:
+    def _tell_failed(told: FatalTold, ending: RunEnding, domain: str) -> None:
         """Report a run's failure as its latch answered: shown, logged, or not again."""
         if told in (FatalTold.SETTLED, FatalTold.TOLD):
             return
         from _lumascope.modules.notification_center import notifications
 
         notifications.report_outcome(
-            RunFailedError(reason=reason, message=message),
+            RunFailedError(reason=ending.reason, message=ending.message),
             solicited=False,
             category=domain,
             log_only=told is FatalTold.LOG,
@@ -1209,7 +1212,7 @@ class ProtocolImageWriter:
                 f'scan {scan_count + 1} -- the camera was removed'
             )
             ending = hardware_disconnected_ending((Board.CAMERA,))
-            self._end_run_fatally(ending.reason, ending.message)
+            self._end_run_fatally(ending)
             return
         self._consecutive_capture_failures += 1
         logger.error(
@@ -1240,21 +1243,27 @@ class ProtocolImageWriter:
                 # camera here misnames the cause the user can
                 # actually act on.
                 self._abort_run_fatal(
-                    'led_channel_unavailable',
+                    RunEnding(
+                        RunStatus.FAILED,
+                        'led_channel_unavailable',
+                        f"This microscope has no '{step_color}' LED "
+                        f'channel, so its steps cannot capture here. '
+                        f'The protocol was stopped after '
+                        f'{self._consecutive_capture_failures} failed '
+                        f"captures. Remove the '{step_color}' steps to "
+                        'run this protocol on this microscope.',
+                    ),
                     'Protocol',
-                    f"This microscope has no '{step_color}' LED "
-                    f'channel, so its steps cannot capture here. '
-                    f'The protocol was stopped after '
-                    f'{self._consecutive_capture_failures} failed '
-                    f"captures. Remove the '{step_color}' steps to "
-                    'run this protocol on this microscope.',
                 )
             else:
                 self._abort_run_fatal(
-                    'camera_failure',
+                    RunEnding(
+                        RunStatus.FAILED,
+                        'camera_failure',
+                        f'The camera failed {self._consecutive_capture_failures} steps in a row; '
+                        f'the last: {cause}',
+                    ),
                     'Protocol',
-                    f'The camera failed {self._consecutive_capture_failures} steps in a row; '
-                    f'the last: {cause}',
                 )
 
     def _submit_write(
@@ -1309,14 +1318,17 @@ class ProtocolImageWriter:
             return True
         stuck = self._write_batch.describe_stuck_write()
         self._abort_run_fatal(
-            'file_writer_stalled',
+            RunEnding(
+                RunStatus.FAILED,
+                'file_writer_stalled',
+                f'Saving stopped making progress ({stuck}), so the protocol '
+                f'was stopped to avoid losing more captures. Check that the '
+                f'save drive is connected and responsive, then run the '
+                f'protocol again. A partial file from the stuck write may '
+                f'remain on disk and stay locked until the writer releases '
+                f'it.',
+            ),
             'Protocol',
-            f'Saving stopped making progress ({stuck}), so the protocol '
-            f'was stopped to avoid losing more captures. Check that the '
-            f'save drive is connected and responsive, then run the '
-            f'protocol again. A partial file from the stuck write may '
-            f'remain on disk and stay locked until the writer releases '
-            f'it.',
         )
         # The record shares the dead save target; latch it so this row
         # attempt (and any later one) is a loud no-op instead of a
@@ -1889,9 +1901,12 @@ class ProtocolImageWriter:
                 # mid-capture, and abort must close its step-lighting
                 # gates before force_off darkens the sample.
                 self._abort_run_fatal(
-                    'disk_space_critical',
+                    RunEnding(
+                        RunStatus.FAILED,
+                        'disk_space_critical',
+                        f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
+                    ),
                     'FileIO',
-                    f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
                 )
                 # Answered, not raised: the floor is told by the funnel, or
                 # by the files report once the run has settled, and the batch

@@ -2064,7 +2064,7 @@ class SequencedCaptureRunner:
         run._run_dir = None
         self._cleanup(ending, run)
 
-    def abort_run_fatal(self, reason: str, message: str) -> None:
+    def abort_run_fatal(self, ending: RunEnding) -> None:
         """End the run now: abort, mark it dark, record the cause, darken.
 
         The one way the run loop and the step runner reach the fatal-abort
@@ -2075,16 +2075,16 @@ class SequencedCaptureRunner:
         The writer is built before the run is dispatched and is replaced only
         by the next run's reset, so it is never absent while a run is live.
         """
-        self._image_writer._abort_run_fatal(reason, 'Protocol', message)
+        self._image_writer._abort_run_fatal(ending, 'Protocol')
 
-    def end_run_failed(self, reason: str, message: str) -> None:
+    def end_run_failed(self, ending: RunEnding) -> None:
         """Record and tell a run the instrument could not complete, its LEDs left be.
 
         The run loop's one non-fault failure, the strike ceiling: told as a
         fault is, without the abort and the darkening a fault takes. The
         loop returns the ending itself.
         """
-        self._image_writer._end_run_failed(reason, 'Protocol', message)
+        self._image_writer._end_run_failed(ending, 'Protocol')
 
     def end_scan(self) -> None:
         """A scan's end: SCANNING back to RUNNING, if the run is still scanning.
@@ -2097,7 +2097,7 @@ class SequencedCaptureRunner:
             if self._state == ProtocolState.SCANNING:
                 self._state = ProtocolState.RUNNING
 
-    def end_run_fatally(self, reason: str, message: str) -> None:
+    def end_run_fatally(self, ending: RunEnding) -> None:
         """Put a live run in ERROR, then abort it fatally.
 
         The one fatal ending of the run loop and the step runner. ERROR is
@@ -2111,7 +2111,7 @@ class SequencedCaptureRunner:
             if self._state in (ProtocolState.RUNNING, ProtocolState.SCANNING):
                 validate_transition(self._state, ProtocolState.ERROR, self.LOGGER_NAME)
                 self._state = ProtocolState.ERROR
-        self.abort_run_fatal(reason, message)
+        self.abort_run_fatal(ending)
 
     def _is_run_live(self) -> bool:
         """Is a run happening, in any phase? The one predicate.

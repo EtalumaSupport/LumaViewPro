@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 from _lumascope.modules.activity_claim import ActivityClaim, RunIdentity, acting
 from _lumascope.modules.caller import Caller
 from _lumascope.modules.image_mode import ImageCaptureConfig
-from _lumascope.modules.run_outcome import CaptureTally
+from _lumascope.modules.run_outcome import CaptureTally, RunEnding, RunStatus
 from tests.scope_fakes import swap_lanes
 from tests.settings_fixtures import complete_settings
 from _lumascope.modules.channel_record import release_colors
@@ -61,7 +61,7 @@ def fault_the_live_run(session, reason: str, message: str) -> None:
     """
     runner = session._sequenced_capture_runner
     with acting(runner._held_claim):
-        runner.abort_run_fatal(reason, message)
+        runner.abort_run_fatal(RunEnding(RunStatus.FAILED, reason, message))
 
 
 def lent_run_claim():

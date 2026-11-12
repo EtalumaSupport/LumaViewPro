@@ -80,7 +80,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         aborted=threading.Event(),
         write_batch=RunWriteBatch(MagicMock()),
         abort_fn=lambda: None,
-        end_run_fatally=lambda reason, message: None,
+        end_run_fatally=lambda ending: None,
         fatal_abort_event=threading.Event(),
         ending=EndingLatch(),
         execution_record=None,

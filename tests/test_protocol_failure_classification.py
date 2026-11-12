@@ -82,7 +82,8 @@ class TestRunLoopInnerClassifiesByConnection:
         assert len(aborts) == 1, (
             f'a disconnect must abort the run exactly once; got {len(aborts)} calls'
         )
-        reason, _domain, message = aborts[0].args
+        ending, _domain = aborts[0].args
+        reason, message = ending.reason, ending.message
         assert reason == 'hardware_disconnected', (
             f'the abort must name the disconnect as its cause; got {aborts[0].args}'
         )
@@ -113,11 +114,9 @@ class TestRunLoopInnerClassifiesByConnection:
         # the cause. The post it makes is pinned where the writer is real
         # (tests/test_a_run_tells_each_fatal_fact_once.py).
         assert captured == [], f'transients are silent; the ceiling tells once: {captured}'
-        ((reason, domain, message),) = [
-            c.args for c in runner._image_writer._end_run_failed.call_args_list
-        ]
-        assert (reason, domain) == ('consecutive_scan_failures', 'Protocol')
-        assert '3 times' in message and 'in a row' in message, message
+        ((ending, domain),) = [c.args for c in runner._image_writer._end_run_failed.call_args_list]
+        assert (ending.reason, domain) == ('consecutive_scan_failures', 'Protocol')
+        assert '3 times' in ending.message and 'in a row' in ending.message, ending.message
         assert runner._image_writer._abort_run_fatal.call_args_list == [], (
             'the strike ceiling stops a run the instrument could not complete; '
             'it must not force-darken the sample the way a fault does'
@@ -151,11 +150,11 @@ class TestOurOwnDefectEndsTheRunAtOnce:
         # door set UNKNOWN on its way out, which this mock scope cannot leave
         runner = self._run(TypeError('scripted defect'), lost_axes={'Z': AxisState.UNKNOWN})
 
-        ((reason, _domain, message),) = [
+        ((ending, _domain),) = [
             c.args for c in runner._image_writer._abort_run_fatal.call_args_list
         ]
-        assert reason == 'run_loop_crashed'
-        assert 'LumaViewPro failed' in message
+        assert ending.reason == 'run_loop_crashed'
+        assert 'LumaViewPro failed' in ending.message
         assert runner._protocol.step_row.call_count == 1, 'a defect is not retried'
 
     def test_the_apis_routine_failures_are_still_retried(self):
@@ -168,10 +167,10 @@ class TestOurOwnDefectEndsTheRunAtOnce:
             runner = self._run(raised)
 
             assert runner._protocol.step_row.call_count == 3, raised
-            ((reason, _domain, _message),) = [
+            ((ending, _domain),) = [
                 c.args for c in runner._image_writer._end_run_failed.call_args_list
             ]
-            assert reason == 'consecutive_scan_failures', raised
+            assert ending.reason == 'consecutive_scan_failures', raised
 
 
 class TestScanLoopBehaviorPreserved:

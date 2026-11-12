@@ -24,6 +24,7 @@ from tests.video_step_drives import record_first_frame
 from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.exceptions import RecordingDetailsNotSavedError, VideoWriterFailedError
 from _lumascope.modules.notification_center import outcome_of
+from _lumascope.modules.run_outcome import RunEnding, RunStatus
 from _lumascope.modules.video_recording import VideoRecordingEngine
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
 from tests.test_video_recording_contract import make_config
@@ -239,7 +240,9 @@ def test_a_video_steps_writers_death_ends_the_run_in_the_faults_words(
     assert isinstance(fault, VideoWriterFailedError) and fault.protocol_step is True
     assert fault.__cause__ is killer
     assert kw == {'solicited': False, 'category': 'Recording', 'log_only': True}
-    step._abort_run_fatal.assert_called_once_with('video_writer_died', 'Recording', str(fault))
+    step._abort_run_fatal.assert_called_once_with(
+        RunEnding(RunStatus.FAILED, 'video_writer_died', str(fault)), 'Recording'
+    )
 
 
 def test_a_video_steps_lost_details_file_is_reported_once_chained(sim_scope, tmp_path, monkeypatch):

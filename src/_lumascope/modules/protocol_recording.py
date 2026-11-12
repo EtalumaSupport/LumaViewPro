@@ -58,6 +58,7 @@ from _lumascope.modules.exceptions import (
     VideoWriterFailedError,
 )
 from _lumascope.modules.run_events import RunEvents, VideoPhase, VideoProgress, deliver
+from _lumascope.modules.run_outcome import RunEnding, RunStatus
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.lumascope_api.frame_record import (
     ClockMapping,
@@ -128,8 +129,8 @@ class ProtocolVideoStep:
         aborted_event: The run's abort event; checked every wait tick.
         is_run_in_progress: Callable; False ends the step early.
         abort_run_fatal: PIW's fatal-abort funnel, for disk faults and
-            the video writer's death; called with the cause, then domain,
-            title and message.
+            the video writer's death; called with the fault's ending, then
+            its domain.
         record_step_row: Records the finished step's execution-record
             row: ``record_step_row(capture_result_file_name, frame_count,
             duration_sec, timestamp)``.
@@ -175,7 +176,7 @@ class ProtocolVideoStep:
         events: RunEvents,
         aborted_event: threading.Event,
         is_run_in_progress: Callable[[], bool],
-        abort_run_fatal: Callable[[str, str, str, str], None],
+        abort_run_fatal: Callable[[RunEnding, str], None],
         record_step_row: Callable[..., None],
         record_dropped_capture: Callable[..., None],
         run_claim: BorrowedClaim,
@@ -315,10 +316,13 @@ class ProtocolVideoStep:
             ok, free_mb = True, 0.0
         if not ok:
             self._abort_run_fatal(
-                'disk_space_critical',
+                RunEnding(
+                    RunStatus.FAILED,
+                    'disk_space_critical',
+                    f'Only {free_mb:.0f} MB free -- the video step needs ~{required_mb:.0f} MB. '
+                    'Aborting protocol to prevent data loss.',
+                ),
                 'FileIO',
-                f'Only {free_mb:.0f} MB free -- the video step needs ~{required_mb:.0f} MB. '
-                'Aborting protocol to prevent data loss.',
             )
             return ABORTED
 
@@ -700,10 +704,13 @@ class ProtocolVideoStep:
             )
             self._engine.stop('disk_floor')
             self._abort_run_fatal(
-                'disk_space_critical',
+                RunEnding(
+                    RunStatus.FAILED,
+                    'disk_space_critical',
+                    f'Free disk fell to {free_mb:.0f} MB during a video step. '
+                    'Aborting protocol to prevent data loss.',
+                ),
                 'FileIO',
-                f'Free disk fell to {free_mb:.0f} MB during a video step. '
-                'Aborting protocol to prevent data loss.',
             )
 
     # ------------------------------------------------------------------
@@ -807,7 +814,9 @@ class ProtocolVideoStep:
                     notifications.report_outcome(
                         died, solicited=False, category='Recording', log_only=True
                     )
-                    self._abort_run_fatal('video_writer_died', 'Recording', str(died))
+                    self._abort_run_fatal(
+                        RunEnding(RunStatus.FAILED, 'video_writer_died', str(died)), 'Recording'
+                    )
                     self._record_dropped_capture(
                         reason='video_write_failed', capture_time=self._start_dt
                     )

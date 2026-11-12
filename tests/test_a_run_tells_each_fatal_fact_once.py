@@ -21,7 +21,13 @@ from unittest.mock import MagicMock
 
 import _lumascope.modules.common_utils as common_utils
 from _lumascope.modules.exceptions import RecordIncompleteError, RunImagesNotSavedError
-from _lumascope.modules.run_outcome import ENDING_TITLES, EndingLatch, FatalTold, RunEnding
+from _lumascope.modules.run_outcome import (
+    ENDING_TITLES,
+    EndingLatch,
+    FatalTold,
+    RunEnding,
+    RunStatus,
+)
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_audit_fixes import _bare_protocol_writer
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -129,6 +135,11 @@ def _writer():
     return writer, latch, fatal, writer._scope.illumination.force_off
 
 
+def _failed(reason: str, message: str) -> RunEnding:
+    """A fault's ending, as the site that meets it makes it."""
+    return RunEnding(RunStatus.FAILED, reason, message)
+
+
 class TestTheFunnelTellsAsTheLatchSays:
     def test_a_floor_met_by_four_queued_writes_is_shown_once_and_logged_once(
         self, centre_posts, caplog
@@ -137,7 +148,7 @@ class TestTheFunnelTellsAsTheLatchSays:
 
         with caplog.at_level(logging.ERROR, logger=OUTCOMES):
             for _ in range(4):
-                writer._abort_run_fatal('disk_space_critical', 'FileIO', 'Only 1 MB free.')
+                writer._abort_run_fatal(_failed('disk_space_critical', 'Only 1 MB free.'), 'FileIO')
 
         assert _failed_posts(centre_posts) == [('Disk Space Critical', True)]
         assert len(_logged(caplog, 'disk_space_critical')) == 1
@@ -147,7 +158,7 @@ class TestTheFunnelTellsAsTheLatchSays:
         writer, latch, fatal, force_off = _writer()
         latch.set_if_unset(STOPPED)
 
-        writer._abort_run_fatal('video_writer_died', 'Recording', 'the writer died')
+        writer._abort_run_fatal(_failed('video_writer_died', 'the writer died'), 'Recording')
 
         assert _failed_posts(centre_posts) == [(ENDING_TITLES['video_writer_died'], True)]
         assert fatal.is_set() and force_off.call_count == 1
@@ -157,9 +168,9 @@ class TestTheFunnelTellsAsTheLatchSays:
         writer, _latch, _fatal, _force_off = _writer()
 
         with caplog.at_level(logging.ERROR, logger=OUTCOMES):
-            writer._abort_run_fatal('run_loop_crashed', 'Protocol', 'the loop died')
-            writer._abort_run_fatal('disk_space_critical', 'FileIO', 'Only 1 MB free.')
-            writer._abort_run_fatal('disk_space_critical', 'FileIO', 'Only 1 MB free.')
+            writer._abort_run_fatal(_failed('run_loop_crashed', 'the loop died'), 'Protocol')
+            writer._abort_run_fatal(_failed('disk_space_critical', 'Only 1 MB free.'), 'FileIO')
+            writer._abort_run_fatal(_failed('disk_space_critical', 'Only 1 MB free.'), 'FileIO')
 
         assert _failed_posts(centre_posts) == [(ENDING_TITLES['run_loop_crashed'], True)]
         assert len(_logged(caplog, 'disk_space_critical')) == 1
@@ -169,7 +180,7 @@ class TestTheFunnelTellsAsTheLatchSays:
         latch.close(RunEnding('completed', 'completed', 'done'))
 
         with caplog.at_level(logging.ERROR, logger=OUTCOMES):
-            writer._abort_run_fatal('disk_space_critical', 'FileIO', 'Only 1 MB free.')
+            writer._abort_run_fatal(_failed('disk_space_critical', 'Only 1 MB free.'), 'FileIO')
 
         assert _failed_posts(centre_posts) == []
         assert _logged(caplog, 'disk_space_critical') == []
@@ -178,7 +189,9 @@ class TestTheFunnelTellsAsTheLatchSays:
     def test_the_strike_ceiling_is_told_as_a_fault_is_without_the_darkening(self, centre_posts):
         writer, latch, fatal, force_off = _writer()
 
-        writer._end_run_failed('consecutive_scan_failures', 'Protocol', 'failed 3 times in a row')
+        writer._end_run_failed(
+            _failed('consecutive_scan_failures', 'failed 3 times in a row'), 'Protocol'
+        )
 
         assert _failed_posts(centre_posts) == [(ENDING_TITLES['consecutive_scan_failures'], True)]
         assert latch.get().reason == 'consecutive_scan_failures'

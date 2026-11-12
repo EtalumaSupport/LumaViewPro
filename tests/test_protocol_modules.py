@@ -565,7 +565,7 @@ class TestProtocolImageWriterWriteCapture:
             aborted=threading.Event(),
             write_batch=RunWriteBatch(_FakeExecutor()),
             abort_fn=lambda: None,
-            end_run_fatally=lambda reason, message: None,
+            end_run_fatally=lambda ending: None,
             fatal_abort_event=threading.Event(),
             ending=EndingLatch(),
             execution_record=execution_record,
