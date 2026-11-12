@@ -233,12 +233,13 @@ class OVERLAPPED(Structure):
     ]
 
 
-class WINUSB_PIPE_INFORMATION(Structure):
+class WINUSB_PIPE_INFORMATION_EX(Structure):
     _fields_ = [
         ('PipeType', c_ulong),
         ('PipeId', c_ubyte),
         ('MaximumPacketSize', c_ushort),
         ('Interval', c_ubyte),
+        ('MaximumBytesPerInterval', c_ulong),
     ]
 
 
@@ -343,7 +344,7 @@ _declare(kernel32.ResetEvent, _BOOL, _HANDLE)
 _declare(winusb.WinUsb_Initialize, _BOOL, _HANDLE, _POINTER)
 _declare(winusb.WinUsb_Free, _BOOL, _HANDLE)
 _declare(winusb.WinUsb_SetCurrentAlternateSetting, _BOOL, _HANDLE, c_ubyte)
-_declare(winusb.WinUsb_QueryPipe, _BOOL, _HANDLE, c_ubyte, c_ubyte, _POINTER)
+_declare(winusb.WinUsb_QueryPipeEx, _BOOL, _HANDLE, c_ubyte, c_ubyte, _POINTER)
 _declare(
     winusb.WinUsb_ControlTransfer,
     _BOOL,
@@ -851,12 +852,12 @@ class WinUsbDevice:
                 f'SetAlternateSetting({setting}) failed: {ctypes.get_last_error()}',
             )
 
-    def query_pipe(self, alt: int, index: int) -> WINUSB_PIPE_INFORMATION:
-        pipe_info = WINUSB_PIPE_INFORMATION()
-        if not winusb.WinUsb_QueryPipe(
+    def query_pipe(self, alt: int, index: int) -> WINUSB_PIPE_INFORMATION_EX:
+        pipe_info = WINUSB_PIPE_INFORMATION_EX()
+        if not winusb.WinUsb_QueryPipeEx(
             self._iface_handle, c_ubyte(alt), c_ubyte(index), byref(pipe_info)
         ):
-            raise CameraUsbOpenFailedError(f'QueryPipe failed: {ctypes.get_last_error()}')
+            raise CameraUsbOpenFailedError(f'QueryPipeEx failed: {ctypes.get_last_error()}')
         return pipe_info
 
     def control_transfer(
@@ -976,9 +977,11 @@ class WinUsbIsoReader:
 
     ``on_data`` receives the bytes in arrival order; the stream's owner
     keeps them, so there is one buffer and the reader holds none.
-    ``on_error`` is called once for each read that fails and for each
-    failed packet inside a read that completed, so the stream's owner can
-    count what never reached the buffer.
+    ``on_error`` is called with the failure's cause once for each read
+    that fails and for each failed packet inside a read that completed, so
+    the stream's owner can count what never reached the buffer and say why.
+    The reader logs, when it ends, how many reads completed and how many of
+    them carried no bytes: a device that sends nothing fails no read.
     """
 
     def __init__(
@@ -1019,10 +1022,16 @@ class WinUsbIsoReader:
 
             pipe_info = self._dev.query_pipe(self.alt_interface, 0)
             self._max_packet_size = pipe_info.MaximumPacketSize
+            # Both sizes: a high-bandwidth endpoint's descriptor packs its
+            # extra transactions into the top bits of its packet size, and
+            # MaximumBytesPerInterval is what one interval can carry, so the
+            # two say which of them WinUSB's MaximumPacketSize is.
             log.info(
-                'ISO pipe: PipeId=0x%02X, MaxPacketSize=%d',
+                'ISO pipe: PipeId=0x%02X, MaxPacketSize=%d, MaximumBytesPerInterval=%d, Interval=%d',
                 pipe_info.PipeId,
                 pipe_info.MaximumPacketSize,
+                pipe_info.MaximumBytesPerInterval,
+                pipe_info.Interval,
             )
 
             # The slots are built here, not on the thread: a reader that
@@ -1069,6 +1078,7 @@ class WinUsbIsoReader:
         n_packets = self.packets_per_xfer
 
         slots = self._slots
+        completed = empty = 0
         try:
             # Prime: submit all slots
             continue_stream = False
@@ -1087,13 +1097,17 @@ class WinUsbIsoReader:
                 )  # wait=True
 
                 if not ok:
-                    self._on_error()
-                elif transferred.value > 0:
+                    self._on_error(f'ISO read failed, Windows error {ctypes.get_last_error()}')
+                elif transferred.value == 0:
+                    completed += 1
+                    empty += 1
+                else:
+                    completed += 1
                     # Extract data from ISO packets
                     for i in range(slot.packet_count):
                         pkt = slot.packets[i]
                         if pkt.Status != USBD_STATUS_SUCCESS:
-                            self._on_error()
+                            self._on_error(f'ISO packet failed, USBD status 0x{pkt.Status:08X}')
                         elif pkt.Length > 0:
                             start = pkt.Offset
                             end = start + pkt.Length
@@ -1107,6 +1121,7 @@ class WinUsbIsoReader:
                 next_slot = (next_slot + 1) % self.num_slots
 
         finally:
+            log.info('ISO reads: %d completed, %d of them with no bytes', completed, empty)
             # Drain outstanding IO
             dev.abort_pipe(self.pipe_id)
             for slot in slots:

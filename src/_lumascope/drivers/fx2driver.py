@@ -83,7 +83,7 @@ import threading
 import time
 import weakref
 from typing import Any, ClassVar, NamedTuple, NoReturn
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable, Iterable, Iterator
 
 import numpy as np
@@ -875,7 +875,7 @@ class StreamStats:
             self._shifted_sizes: deque = deque(maxlen=32)
             self._good_count = 0
             self._total_bytes = 0
-            self._usb_errors = 0
+            self._usb_failures: Counter[str] = Counter()
             self._delimiters_missing = 0
             self._delimiters_wrong = 0
             self._start_time = time.monotonic()
@@ -928,7 +928,7 @@ class StreamStats:
         """Add what the stream counted since it was last asked. Thread-safe."""
         with self._lock:
             self._total_bytes += counts.arrived
-            self._usb_errors += counts.usb_errors
+            self._usb_failures.update(counts.usb_failures)
             self._delimiters_missing += counts.delimiters_missing
             self._delimiters_wrong += counts.delimiters_wrong
 
@@ -954,13 +954,15 @@ class StreamStats:
             dict: Keys include ``elapsed_s``, ``good_frames``,
                 ``partial_frames``, ``shifted_frames``, ``total_MB``,
                 ``throughput_MBps``, ``fps_current``, ``fps_average``,
-                ``usb_errors``, ``delimiters_missing``, ``delimiters_wrong``.
+                ``usb_errors``, ``usb_failures`` (each cause and its count),
+                ``delimiters_missing``, ``delimiters_wrong``.
         """
         with self._lock:
             now = time.monotonic()
             elapsed = now - self._start_time
             recent_partials = list(self._partial_sizes)
             recent_shifted = list(self._shifted_sizes)
+            failures = dict(self._usb_failures)
         cur_fps, avg_fps = self.get_fps()
         return {
             'elapsed_s': round(elapsed, 1),
@@ -976,7 +978,8 @@ class StreamStats:
             else 0,
             'fps_current': round(cur_fps, 1),
             'fps_average': round(avg_fps, 2),
-            'usb_errors': self._usb_errors,
+            'usb_errors': sum(failures.values()),
+            'usb_failures': failures,
             'delimiters_missing': self._delimiters_missing,
             'delimiters_wrong': self._delimiters_wrong,
         }
@@ -991,9 +994,14 @@ class StreamCounts(NamedTuple):
     """What a stream counted between two asks."""
 
     arrived: int
-    usb_errors: int
+    usb_failures: Counter[str]
     delimiters_missing: int
     delimiters_wrong: int
+
+    @property
+    def usb_errors(self) -> int:
+        """Every failed packet, transfer and read, whatever its cause."""
+        return sum(self.usb_failures.values())
 
 
 class _ByteStream:
@@ -1034,6 +1042,9 @@ class _ByteStream:
         # Whether the last packet ended a frame, so the next one is due to
         # be the delimiter.
         self._delimiter_due = False
+        # The causes already logged this stream: each is logged the first
+        # time it comes, and only counted after that.
+        self._causes_logged: set[str] = set()
         self._zero_counts()
         # When bytes last arrived: an unplug stops them without any error,
         # so the silence is how the driver hears it.
@@ -1041,7 +1052,7 @@ class _ByteStream:
 
     def _zero_counts(self) -> None:
         self._arrived = 0
-        self._usb_errors = 0
+        self._usb_failures: Counter[str] = Counter()
         self._delimiters_missing = 0
         self._delimiters_wrong = 0
 
@@ -1067,11 +1078,20 @@ class _ByteStream:
             elif len(self._frame) > self._longest:
                 self._end_frame()
 
-    def fail(self) -> None:
-        """A packet, transfer or read that failed: its bytes are missing from the frame."""
+    def fail(self, cause: str) -> None:
+        """A packet, transfer or read that failed: its bytes are missing from the frame.
+
+        ``cause`` is what the host's USB stack said, its status or error
+        code, so a stream that loses data says why; the first failure of
+        each cause in a stream is logged, the rest counted.
+        """
         with self._lock:
-            self._usb_errors += 1
+            self._usb_failures[cause] += 1
             self._damaged = True
+            first = cause not in self._causes_logged
+            self._causes_logged.add(cause)
+        if first:
+            logger.warning('[FX2 Conn  ] a USB transfer lost data: %s', cause)
 
     def _end_frame(self) -> None:
         self._ended.append((self._frame, self._damaged, self._hand_over()))
@@ -1089,7 +1109,7 @@ class _ByteStream:
         with self._lock:
             counts = StreamCounts(
                 self._arrived,
-                self._usb_errors,
+                self._usb_failures,
                 self._delimiters_missing,
                 self._delimiters_wrong,
             )
@@ -1125,6 +1145,7 @@ class _ByteStream:
             self._hand_over = hand_over
             self._clear()
             self._zero_counts()
+            self._causes_logged.clear()
             self._last_arrival = time.monotonic()
 
 
@@ -1491,11 +1512,11 @@ class _LibusbTransport(_PyusbTransport):
         if status == usb1.TRANSFER_COMPLETED:
             for packet_status, buf in transfer.iterISO():
                 if packet_status != usb1.TRANSFER_COMPLETED:
-                    self._stream.fail()
+                    self._stream.fail(f'ISO packet failed, libusb status {packet_status}')
                 else:
                     self._stream.packet(buf)
         else:
-            self._stream.fail()
+            self._stream.fail(f'ISO transfer failed, libusb status {status}')
         # Resubmit for continuous streaming.
         if self._streaming:
             try:
@@ -2738,9 +2759,11 @@ class FX2Camera(Camera):
         self.stream_stats.record_counts(self._fx2.stream.take_counts())
 
         s = self.stream_stats.summary()
+        causes = '; '.join(f'{cause} x{n}' for cause, n in s['usb_failures'].items())
+        causes = f' ({causes})' if causes else ''
         logger.info(
             '[FX2 Cam   ] streaming stopped: %d frames in %.1fs (%.1f fps avg), '
-            '%d partial, %d shifted, %d USB errors, %.1f MB total, '
+            '%d partial, %d shifted, %d USB errors%s, %.1f MB total, '
             'delimiters %d missing / %d wrong',
             s['good_frames'],
             s['elapsed_s'],
@@ -2748,6 +2771,7 @@ class FX2Camera(Camera):
             s['partial_frames'],
             s['shifted_frames'],
             s['usb_errors'],
+            causes,
             s['total_MB'],
             s['delimiters_missing'],
             s['delimiters_wrong'],

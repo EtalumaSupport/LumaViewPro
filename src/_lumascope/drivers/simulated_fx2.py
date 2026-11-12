@@ -74,6 +74,10 @@ TIMINGS = ('instant', 'realistic')
 # twice, an LS720), macOS, 2026-09-30.
 REENUMERATE_S = 6.5
 
+# libusb's LIBUSB_TRANSFER_NO_DEVICE: what a transfer in flight reports
+# when the device leaves the bus.
+_LIBUSB_TRANSFER_NO_DEVICE = 5
+
 # The exposure at which the specimen field renders at its own grey levels
 # with unity gain: the driver's default, so a simulated FX2 at its defaults
 # shows the field as the other simulated camera does. A model choice, not a
@@ -596,7 +600,9 @@ class SimulatedFX2Transport:
         self.device.pid = None
         for _ in range(resubmit_failures):
             if self._stream is not None:
-                self._stream.fail()
+                self._stream.fail(
+                    f'ISO transfer failed, libusb status {_LIBUSB_TRANSFER_NO_DEVICE}'
+                )
             if self._on_gone is not None:
                 self._on_gone()
 

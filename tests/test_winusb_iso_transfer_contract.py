@@ -20,6 +20,7 @@ Run on the bench:  python3 -m pytest tests/test_winusb_iso_transfer_contract.py 
 from __future__ import annotations
 
 import ctypes
+import logging
 import sys
 from unittest.mock import patch
 
@@ -171,7 +172,16 @@ def _slot_device(closed):
             pass
 
         def query_pipe(self, alt, index):
-            return type('Pipe', (), {'MaximumPacketSize': 1024, 'PipeId': 0x82})()
+            return type(
+                'Pipe',
+                (),
+                {
+                    'MaximumPacketSize': 1024,
+                    'MaximumBytesPerInterval': 1024,
+                    'Interval': 1,
+                    'PipeId': 0x82,
+                },
+            )()
 
         def close(self):
             closed.append(True)
@@ -233,3 +243,66 @@ def test_a_slot_whose_event_cannot_be_made_is_refused():
         pytest.raises(winusb_iso.CameraUsbOpenFailedError, match='CreateEventW failed: 1450'),
     ):
         winusb_iso.IsoSlot(ctypes.c_void_p(1), 0x82, 1024, 8)
+
+
+def test_the_read_loop_names_each_failure_and_counts_the_reads_that_carried_nothing(caplog):
+    """On the 2026-11-12 build PC an LS620 streamed nothing for 30 s and its log
+    said only "265 USB errors": not what failed, and not whether the reads
+    that did not fail carried any bytes."""
+    from _lumascope.drivers import winusb_iso
+
+    caplog.set_level(logging.INFO, logger='LVP')
+    failures = []
+    reader = winusb_iso.WinUsbIsoReader(
+        0x04B4, 0xEA17, on_data=lambda data: None, on_error=failures.append, num_slots=1
+    )
+    reader._max_packet_size = 1024
+    # a stand-in by design: the slot's buffers are WinUSB's, which no test reaches.
+    slot = object.__new__(winusb_iso.IsoSlot)
+    slot.packet_count, slot.submitted = 2, False
+    slot.buffer = (ctypes.c_ubyte * 2048)()
+    slot.packets = (winusb_iso.USBD_ISO_PACKET_DESCRIPTOR * 2)()
+    slot.packets[1].Status = 0xC0000011
+    slot.overlapped, slot.event, slot.isoch_handle = winusb_iso.OVERLAPPED(), None, None
+    reader._slots = [slot]
+    # Each read in turn: one that fails, one that carries nothing, one with a
+    # failed packet, on which the reader stops; then the drain's wait.
+    reads = iter([(0, 0), (1, 0), (1, 2048), (1, 0)])
+
+    class WinUsb:
+        def WinUsb_ReadIsochPipeAsap(self, *args):
+            return 1
+
+        def WinUsb_GetOverlappedResult(self, iface, overlapped, transferred, wait):
+            ok, count = next(reads)
+            transferred._obj.value = count
+            if ok and count:
+                reader._running = False
+            return ok
+
+        def WinUsb_AbortPipe(self, *args):
+            return 1
+
+        def WinUsb_UnregisterIsochBuffer(self, *args):
+            return 1
+
+    class Kernel32:
+        def ResetEvent(self, event):
+            return 1
+
+    reader._dev = type(
+        'Device', (), {'handle': ctypes.c_void_p(1), 'abort_pipe': lambda self, p: None}
+    )()
+    reader._running = True
+    with (
+        patch.object(winusb_iso, 'winusb', WinUsb()),
+        patch.object(winusb_iso, 'kernel32', Kernel32()),
+        patch.object(winusb_iso.ctypes, 'get_last_error', lambda: 31),
+    ):
+        reader._read_loop()
+
+    assert failures == [
+        'ISO read failed, Windows error 31',
+        'ISO packet failed, USBD status 0xC0000011',
+    ]
+    assert 'ISO reads: 2 completed, 1 of them with no bytes' in caplog.messages

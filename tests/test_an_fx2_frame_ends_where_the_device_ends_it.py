@@ -98,7 +98,7 @@ def test_a_failed_packet_damages_its_frame_and_not_the_next():
     first = _frame(2048 + R)
     stream.packet(DELIM)
     _feed(stream, first[:10])
-    stream.fail()
+    stream.fail('ISO packet failed, libusb status 1')
     _feed(stream, first[10:])
     _feed(stream, [DELIM, *_frame(2048 + R)])
 
@@ -170,7 +170,8 @@ def test_the_windows_reader_feeds_packets_and_failures_to_the_stream(monkeypatch
     on_data(DELIM)
     for p in first[:10]:
         on_data(p)
-    on_error()  # a failed packet or read, from the reader's one thread, in order
+    # A failed packet or read, from the reader's one thread, in order.
+    on_error('ISO read failed, Windows error 31')
     for p in [*first[10:], DELIM, *_frame(2048 + R)]:
         on_data(p)
 
@@ -240,7 +241,8 @@ def test_a_frame_a_failure_fell_in_is_not_stored_even_at_its_length():
     first = _frame(2048 + R)
     stream.packet(DELIM)
     _feed(stream, first[:10])
-    stream.fail()  # a failed packet: the frame's length can still come out right
+    # A failed packet: the frame's length can still come out right.
+    stream.fail('ISO packet failed, libusb status 1')
     _feed(stream, first[10:])
     _feed(stream, [DELIM, *_frame(2048 + R)])
 
