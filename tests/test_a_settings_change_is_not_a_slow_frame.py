@@ -40,6 +40,7 @@ class _Stand:
 
     _check_slow_frame = ScopeDisplay._check_slow_frame
     _spike_median = ScopeDisplay._spike_median
+    _camera_settled = ScopeDisplay._camera_settled
 
     def __init__(self):
         self._spike_interval_window = deque(maxlen=FRAME_SPIKE_WINDOW)
@@ -49,6 +50,7 @@ class _Stand:
         self._spike_median_refresh = 0.0
         self._spike_min_samples = FRAME_SPIKE_MIN_SAMPLES
         self._slow_frame_last_log = 0.0
+        self._changes_at_last_frame = None
         self.now = 1000.0
 
 
@@ -183,14 +185,17 @@ def test_a_baseline_cached_before_the_change_is_not_used_after_it():
 
 
 def _imaging(validity):
-    """An imaging whose ``changes_in_force`` is the real member over ``validity``.
+    """An imaging whose ``changes_in_force`` and ``recorded_changes`` are the real members over ``validity``.
 
     A stand-in by design: the subject is the display's read, and its
-    collaborator is the real ``ImagingAPI.changes_in_force`` on a self that
-    holds only the one store it reads.
+    collaborators are the real ``ImagingAPI`` members on a self that holds
+    only the one store they read.
     """
     owner = SimpleNamespace(_frame_validity=validity)
-    return SimpleNamespace(changes_in_force=functools.partial(ImagingAPI.changes_in_force, owner))
+    return SimpleNamespace(
+        changes_in_force=functools.partial(ImagingAPI.changes_in_force, owner),
+        recorded_changes=functools.partial(ImagingAPI.recorded_changes, owner),
+    )
 
 
 def _exposure_changed(frames_counted: int) -> FrameValidity:
@@ -208,12 +213,12 @@ def test_a_change_still_owed_frames_has_not_settled():
     """A change is in force once its count of frames has come: the
     slow-frame check judges no frame before that."""
     validity = _exposure_changed(FrameValidity.SKIP_FRAMES['exposure'] - 1)
-    assert ScopeDisplay._camera_settled(_imaging(validity)) is False
+    assert _Stand()._camera_settled(_imaging(validity)) is False
 
 
 def test_a_change_whose_count_has_come_has_settled():
     validity = _exposure_changed(FrameValidity.SKIP_FRAMES['exposure'])
-    assert ScopeDisplay._camera_settled(_imaging(validity)) is True
+    assert _Stand()._camera_settled(_imaging(validity)) is True
 
 
 def test_the_live_view_asks_validity_with_stage_motion_left_out():
@@ -224,22 +229,116 @@ def test_the_live_view_asks_validity_with_stage_motion_left_out():
     validity.invalidate('xy_move', began_ns=None)
     validity.invalidate('z_move', began_ns=None)
     validity.invalidate('turret', began_ns=None)
-    assert ScopeDisplay._camera_settled(_imaging(validity)) is True
+    stand = _Stand()
+    assert stand._camera_settled(_imaging(validity)) is True
 
     validity.invalidate('exposure', began_ns=None)
-    assert ScopeDisplay._camera_settled(_imaging(validity)) is False
+    assert stand._camera_settled(_imaging(validity)) is False
 
 
 def test_a_stall_while_the_stage_moves_is_reported():
     validity = FrameValidity(lambda: 0)
     validity.set_settle_check(lambda source: False)
     validity.invalidate('xy_move', began_ns=None)
-    moving = ScopeDisplay._camera_settled(_imaging(validity))
+    moving = _Stand()._camera_settled(_imaging(validity))
 
     stand, warnings, done = _rig()
     try:
         _frames(stand, warnings, 100, 34.0, settled=moving)
         lines = _frames(stand, warnings, 1, 400.0, settled=moving)
         assert len(lines) == 1
+    finally:
+        done()
+
+
+class _Scope:
+    """A frame validity the camera counts frames into, read as the live view reads it."""
+
+    def __init__(self):
+        self._delivered = 0
+        self.validity = FrameValidity(lambda: self._delivered)
+        self.imaging = _imaging(self.validity)
+
+    def change(self, source):
+        """Record a change and count frames until it is in force, as the camera delivers them."""
+        self.validity.invalidate(source, began_ns=None)
+        for _ in range(FrameValidity.SKIP_FRAMES[source]):
+            self._delivered += 1
+            self.validity.count_frame(self._delivered, by=Counter.PREVIEW)
+
+
+def _drawn(stand, scope, count, period_ms, *, held_ms=0.0):
+    """Frames the live view draws, each judged with the display's own settled read."""
+    for _ in range(count):
+        stand.now += (period_ms + held_ms) / 1000.0
+        stand._check_slow_frame(
+            stand.now,
+            grab_ms=0.3,
+            proc_ms=0.3,
+            eng_ms=0.0,
+            settled=stand._camera_settled(scope.imaging),
+            held_ms=held_ms,
+        )
+
+
+_CAPTURE_HOLD_MS = 500.0
+
+
+def test_a_change_that_comes_into_force_between_two_drawn_frames_is_not_a_slow_frame():
+    """A protocol's channel change lands inside a capture's hold, when the
+    live view draws nothing, and is in force before the next drawn frame.
+    The frames at the new channel's cadence are not judged against the old
+    channel's baseline (the field bundle's one warning a well at Ex589)."""
+    stand, warnings, done = _rig()
+    scope = _Scope()
+    try:
+        _drawn(stand, scope, 100, 34.0)
+        scope.change('exposure')
+        _drawn(stand, scope, 1, 178.0, held_ms=_CAPTURE_HOLD_MS)
+        _drawn(stand, scope, 20, 178.0)
+        assert warnings.lines == []
+    finally:
+        done()
+
+
+def test_a_stall_after_a_change_made_during_a_hold_is_reported():
+    stand, warnings, done = _rig()
+    scope = _Scope()
+    try:
+        _drawn(stand, scope, 100, 34.0)
+        scope.change('exposure')
+        _drawn(stand, scope, 1, 178.0, held_ms=_CAPTURE_HOLD_MS)
+        _drawn(stand, scope, 3, 178.0)
+        _drawn(stand, scope, 1, 600.0)
+        assert len(warnings.lines) == 1
+        assert 'interval=600ms (median=178ms)' in warnings.lines[0]
+    finally:
+        done()
+
+
+def test_a_move_recorded_between_drawn_frames_does_not_reset_the_baseline():
+    """A move leaves the cadence alone, so one recorded between two drawn
+    frames does not make the next frame unsettled."""
+    scope = _Scope()
+    scope.validity.set_settle_check(lambda source: False)  # the stage is still moving
+    stand = _Stand()
+    assert stand._camera_settled(scope.imaging) is True
+    scope.validity.invalidate('xy_move', began_ns=None)
+    assert stand._camera_settled(scope.imaging) is True
+
+
+def test_an_interval_spanning_a_hold_across_two_changes_is_not_judged():
+    """Two channel changes in one hold, a long exposure and then a short
+    one: the first drawn frame after it spans the long one's cadence and is
+    not judged against the short baseline from before (the sim's Ex405)."""
+    stand, warnings, done = _rig()
+    scope = _Scope()
+    try:
+        _drawn(stand, scope, 100, 34.0)
+        scope.change('exposure')
+        scope.change('exposure')
+        _drawn(stand, scope, 1, 178.0, held_ms=_CAPTURE_HOLD_MS)
+        _drawn(stand, scope, 20, 25.0)
+        assert warnings.lines == []
     finally:
         done()

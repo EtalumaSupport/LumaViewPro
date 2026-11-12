@@ -189,6 +189,10 @@ class ScopeDisplay(Image):
         self._spike_median_refresh = 0.0
         self._spike_min_samples = FRAME_SPIKE_MIN_SAMPLES
         self._slow_frame_last_log = 0.0
+        # Each non-motion source's last recorded change (its written_ns) as
+        # _camera_settled read it at the previous drawn frame; None until the
+        # first, which answers by the in-force state alone.
+        self._changes_at_last_frame = None
         # Intended non-render time (holds, pause) accumulated across loop
         # iterations since the last displayed frame; the spike instrument
         # subtracts it so a deliberately held frame is not reported as a
@@ -491,12 +495,14 @@ class ScopeDisplay(Image):
         stopped= when a spike remains.
 
         settled is False while the API reports a camera-side change (exposure,
-        gain, LED, frame size, ...) whose switch-over frames are still arriving.
-        Those frames are not judged, and the baseline is discarded and rebuilt
-        from FRAME_SPIKE_RESTART_SAMPLES frames once the change has settled: a
-        median built at a 17 ms exposure called every frame of a 1000 ms one a
-        stall, and a long exposure's last frame arriving after a switch to a
-        short one was judged against the short one. Stage motion is not part of
+        gain, LED, frame size, ...) whose switch-over frames are still arriving,
+        and when one was recorded since the last frame judged (one that came
+        into force while nothing was drawn). Those frames are not judged, and
+        the baseline is discarded and rebuilt from FRAME_SPIKE_RESTART_SAMPLES
+        frames once the change has settled: a median built at a 17 ms exposure
+        called every frame of a 1000 ms one a stall, and a long exposure's last
+        frame arriving after a switch to a short one was judged against the
+        short one. Stage motion is not part of
         it -- a move does not change the frame cadence, and a stutter while the
         stage jogs is exactly what a viewer sees.
 
@@ -542,17 +548,32 @@ class ScopeDisplay(Image):
             f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms{held_note}{stopped_note}'
         )
 
-    @staticmethod
-    def _camera_settled(imaging) -> bool:
-        """Whether every camera-side change (exposure, gain, LED, frame size,
-        ...) has finished switching over.
+    def _camera_settled(self, imaging) -> bool:
+        """Whether the camera has stayed settled since the last frame judged.
 
-        Read from the API's ``changes_in_force``, the capture's own answer to
-        whether a frame starting now counts. Stage motion is left out: a
-        move leaves the frame cadence alone, so the slow-frame check keeps
-        judging while the stage jogs.
+        False while a camera-side change (exposure, gain, LED, frame size,
+        ...) is still switching over, read from the API's
+        ``changes_in_force``, the capture's own answer to whether a frame
+        starting now counts. Also False when a change was recorded since the
+        previous call, even one already in force: a protocol's channel change
+        lands inside a capture's hold, when the live view draws nothing, and
+        is in force before the next drawn frame, so a read of the state alone
+        never sees it and the new channel's cadence is judged against the old
+        one's. The changes are compared by when each was recorded
+        (``recorded_changes``), so a second change of the same source differs.
+        Stage motion is left out of both: a move leaves the frame cadence
+        alone, so the slow-frame check keeps judging while the stage jogs.
         """
-        return imaging.changes_in_force(exclude_sources=tuple(FrameValidity.MOTION_SOURCES))
+        motion = FrameValidity.MOTION_SOURCES
+        recorded = {
+            source: change.written_ns
+            for source, change in imaging.recorded_changes().items()
+            if source not in motion
+        }
+        previous = self._changes_at_last_frame
+        self._changes_at_last_frame = recorded
+        in_force = imaging.changes_in_force(exclude_sources=tuple(motion))
+        return in_force and (previous is None or recorded == previous)
 
     def _spike_median(self, now):
         """Median of the recent OK-frame-interval window, cached.
