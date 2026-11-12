@@ -293,7 +293,7 @@ def test_sign_classic_driver_signs_in_the_builds_own_clone_and_copies_out_only_a
     # mode signs in the clone the next run deletes, so a failed signature
     # leaves no INF dated and no checkout is needed; the catalog holds the
     # INF's hashes signed or not, so only signtool's verify can pass the pair
-    # out; and the transcript is closed, or it records what is typed next.
+    # out; and nothing runs after the log's copy into the package folder.
     build = _build_script()
 
     assert '[switch]$SignClassicDriver' in build
@@ -310,7 +310,7 @@ def test_sign_classic_driver_signs_in_the_builds_own_clone_and_copies_out_only_a
     assert mode.index('& $inf2cat "/driver:$fx2_package_dir" "/os:10_X64"') < sign < verify < copy
     assert 'Join-Path $artifacts "classic_driver_$($sign_wix_ver)_$build_log_ts"' in mode
     assert '-Destination (Join-Path $fx2_package_out "Lumascope_Classic.cat")' in mode
-    assert mode.rstrip().endswith('Stop-Transcript | Out-Null\n    Exit 0')
+    assert mode.rstrip().endswith('Join-Path $fx2_package_out "sign.log") -Force\n    Exit 0')
     assert build.count('$wix_ver = Get-InstallerVersion $version') == 1
     assert build.count("-match '^(\\d+\\.\\d+\\.\\d+)-beta(\\d+)$'") == 1
 

@@ -1,4 +1,4 @@
-"""Build-chain guards: dependency discovery and build identity.
+"""Build-chain guards: dependency discovery, build identity and the build's own log.
 
 Two defects these pin, both found on the 2026-08-17 Windows bench trip:
 
@@ -272,6 +272,71 @@ def test_build_ps1_never_writes_version_txt():
         + ' | '.join(writers)
         + ' -- the build must not author the file that names the data folder '
         'and the TIFF Software tag. Write build_id.txt instead.'
+    )
+
+
+def _build_ps1_code() -> str:
+    """build.ps1 without its comment lines, so prose about a mechanism cannot pass for it."""
+    return '\n'.join(
+        line for line in _build_ps1_text().splitlines() if not line.lstrip().startswith('#')
+    )
+
+
+def test_every_way_out_of_a_build_closes_its_transcript():
+    """A run's transcript closes however the run ends, so it never records what is typed next.
+
+    The run's body, from the line after Start-Transcript, sits in one try
+    whose finally is the only Stop-Transcript besides the drain of a stale
+    one, and every Exit statement after Start-Transcript lies inside that
+    try but the failed-bundle exit, which runs once the transcript is
+    closed. Before, only the two success paths stopped the transcript, and
+    a failed run's log went on recording the commands typed after it in
+    the same window.
+    """
+    code = _build_ps1_code()
+    start = code.index('Start-Transcript -Path $build_log')
+    body_opens = code.index('\ntry {\n', start)
+    assert code[code.index('\n', start) : body_opens].strip() == '', (
+        'something runs between Start-Transcript and the try that closes it'
+    )
+    finally_stop = code.index('\n} finally {\n    Stop-Transcript | Out-Null\n}\n', body_opens)
+    stops = [m.start() for m in re.finditer(r'Stop-Transcript', code)]
+    drain = code.index('Stop-Transcript -ErrorAction Stop')
+    assert stops == [drain, code.index('Stop-Transcript', finally_stop)], (
+        f'Stop-Transcript at {len(stops)} places: only the stale-transcript drain '
+        "and the body's finally may stop it"
+    )
+    exit_words = [m.end() - 4 for m in re.finditer(r'(?im)(?:^|[;{])\s*exit\b', code)]
+    lines = code.splitlines()
+    exits_outside = [
+        lines[code.count('\n', 0, at)].strip()
+        for at in exit_words
+        if at > start and not body_opens < at < finally_stop
+    ]
+    assert exits_outside == ['if ($bundle_failed) { Exit 1 }'], (
+        f'Exit statements after Start-Transcript outside the try: {exits_outside}; '
+        'only the failed-bundle exit, after the transcript closes, belongs there'
+    )
+
+
+def test_a_failed_bundle_exits_nonzero_after_its_log_is_in_the_output_folder():
+    """A bundle ATTEMPTED and FAILED ends the build non-zero, its log kept with the output.
+
+    A failed bundle and a deliberate MSI-only build both leave $bundle
+    empty, so a flag of its own tells them apart; before it, the failure
+    fell through to the same BUILD COMPLETE banner and exited 0. The exit
+    comes after the build.log copy into the output folder, which every
+    earlier Exit skips.
+    """
+    code = _build_ps1_code()
+    assert '$bundle_failed = $true' in code, (
+        'build.ps1 does not flag a failed bundle, so it cannot be told from an MSI-only build'
+    )
+    log_copy = code.index('Copy-Item $build_log -Destination (Join-Path $output_dir "build.log")')
+    failure_exit = code.index('if ($bundle_failed) { Exit 1 }')
+    assert failure_exit > log_copy, (
+        'the failed-bundle Exit comes before the build.log copy, so the failing '
+        'run leaves no log in its output folder'
     )
 
 

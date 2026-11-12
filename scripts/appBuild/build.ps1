@@ -92,7 +92,12 @@ $ErrorActionPreference = "Stop"
 # clone of the selected branch, verifies it, and leaves it in exe_artifacts,
 # where v9 needed a checkout kept by hand and left its INF dated after a
 # failed signature.
-$script_version = 10
+#
+# v11: every way out of a run closes its transcript. v10 closed it only on
+# its two success paths, so after a failed run the commands typed next in the
+# same window were recorded into that run's log. A v10 copy still builds this
+# branch correctly, so MIN_BUILD_SCRIPT_VERSION is unchanged.
+$script_version = 11
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -232,15 +237,21 @@ Set-Location $build_dir
 $build_log_ts = (Get-Date -Format 'yyyyMMdd_HHmmss')
 if (-not (Test-Path $artifacts)) { New-Item -ItemType Directory -Path $artifacts -Force | Out-Null }
 $build_log = Join-Path $artifacts "build_$build_log_ts.log"
-# If a prior build.ps1 invocation in this PowerShell session crashed without
-# reaching its Stop-Transcript, an orphan transcript is still active and the
-# next Start-Transcript silently writes to nothing. Drain any stale transcript
-# stack before opening this run's log.
+# A transcript left recording in this PowerShell session -- by a copy of this
+# script older than v11, or by anything else -- makes the next Start-Transcript
+# silently write to nothing. Drain any stale transcript stack before opening
+# this run's log.
 while ($true) {
     try { Stop-Transcript -ErrorAction Stop | Out-Null }
     catch { break }
 }
 Start-Transcript -Path $build_log -IncludeInvocationHeader | Out-Null
+
+# Everything from here to the end runs inside this try, left unindented, so
+# its finally closes the transcript on every way out: each Exit, a terminating
+# error, and Ctrl+C. An exit that skipped the close left the transcript
+# recording whatever was typed next in the same window.
+try {
 
 function Write-Phase {
     param([string]$Name)
@@ -655,7 +666,6 @@ if ($SignClassicDriver) {
     Copy-Item $fx2_package_cat -Destination (Join-Path $fx2_package_out "Lumascope_Classic.cat")
     Write-Host "Signed and verified: commit Lumascope_Classic.inf and Lumascope_Classic.cat from $fx2_package_out"
     Copy-Item $build_log -Destination (Join-Path $fx2_package_out "sign.log") -Force
-    Stop-Transcript | Out-Null
     Exit 0
 }
 
@@ -1274,13 +1284,15 @@ if (Test-Path $output_dir) {
     }
 }
 
-Stop-Transcript | Out-Null
+} finally {
+    Stop-Transcript | Out-Null
+}
 
 # Non-zero ONLY when a bundle was attempted and failed. A deliberate MSI-only
 # build never attempted one and still exits 0, which several documented
 # workflows rely on.
 #
-# Placed after Stop-Transcript deliberately: every Exit above this point
-# bypasses both the transcript close and the build.log copy, so exiting at the
-# failure site would destroy the log for the one run that most needs it.
+# Placed after the build.log copy deliberately: every Exit above it skips that
+# copy, so exiting at the failure site would leave the output folder without
+# the log of the one run that most needs it.
 if ($bundle_failed) { Exit 1 }
