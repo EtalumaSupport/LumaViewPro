@@ -67,6 +67,11 @@ DEVPROP_TYPE_BOOLEAN = 0x11
 DEVPROP_TYPE_STRING = 0x12
 DEVPROP_TYPE_NTSTATUS = 0x18
 SPDRP_HARDWAREID = 1
+# SetupDiOpenDevRegKey: the device's hardware key, read only, where its
+# package's AddReg writes the interface GUIDs.
+DICS_FLAG_GLOBAL = 0x1
+DIREG_DEV = 0x1
+KEY_READ = 0x20019
 
 # WinUSB GUID (standard for WinUSB devices)
 GUID_DEVINTERFACE_USB_DEVICE = (
@@ -139,6 +144,12 @@ DEVPKEY_Device_ProblemCode = _devpropkey(
 )
 DEVPKEY_Device_ProblemStatus = _devpropkey(
     0x4340A6C5, 0x93FA, 0x4706, (0x97, 0x2C, 0x7B, 0x64, 0x80, 0x08, 0xA5, 0xA7), 12
+)
+DEVPKEY_Device_Parent = _devpropkey(
+    0x4340A6C5, 0x93FA, 0x4706, (0x97, 0x2C, 0x7B, 0x64, 0x80, 0x08, 0xA5, 0xA7), 8
+)
+DEVPKEY_Device_LocationInfo = _devpropkey(
+    0xA45C254E, 0xDF1C, 0x4EFD, (0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0), 15
 )
 DEVPKEY_Device_IsPresent = _devpropkey(
     0x540B947E, 0x8B40, 0x45BC, (0xA8, 0xA2, 0x6A, 0x0B, 0x89, 0x4C, 0xBD, 0xA2), 5
@@ -225,6 +236,9 @@ _declare(
     _POINTER,
 )
 _declare(setupapi.SetupDiDestroyDeviceInfoList, _BOOL, _HANDLE)
+_declare(
+    setupapi.SetupDiOpenDevRegKey, _HANDLE, _HANDLE, _POINTER, c_ulong, c_ulong, c_ulong, c_ulong
+)
 _declare(setupapi.SetupDiEnumDeviceInfo, _BOOL, _HANDLE, c_ulong, _POINTER)
 _declare(
     setupapi.SetupDiGetDeviceInstanceIdW, _BOOL, _HANDLE, _POINTER, _POINTER, c_ulong, _POINTER
@@ -376,12 +390,17 @@ def device_bindings(hardware_id: str) -> list[DeviceBinding]:
                 continue
             service = _device_property(dev_info, devinfo, DEVPKEY_Device_Service)
             inf = _device_property(dev_info, devinfo, DEVPKEY_Device_DriverInfPath)
-            unreadable = []
-            try:
-                problem_status = _device_property(dev_info, devinfo, DEVPKEY_Device_ProblemStatus)
-            except _PropertyTypeUnreadError as e:
-                problem_status = None
-                unreadable.append(f'problem status ({e.type_name})')
+            unreadable: list[str] = []
+            problem_status = _log_only_property(
+                dev_info, devinfo, DEVPKEY_Device_ProblemStatus, 'problem status', unreadable
+            )
+            location = _log_only_property(
+                dev_info, devinfo, DEVPKEY_Device_LocationInfo, 'location', unreadable
+            )
+            parent = _log_only_property(
+                dev_info, devinfo, DEVPKEY_Device_Parent, 'parent', unreadable
+            )
+            interface_guids = _interface_guids(dev_info, devinfo, unreadable)
             bindings.append(
                 DeviceBinding(
                     instance_id=instance_id,
@@ -393,6 +412,9 @@ def device_bindings(hardware_id: str) -> list[DeviceBinding]:
                     date=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverDate),
                     problem_code=_device_property(dev_info, devinfo, DEVPKEY_Device_ProblemCode),
                     problem_status=problem_status,
+                    location=location,
+                    parent=parent,
+                    interface_guids=interface_guids,
                     ours=(inf or '').lower() in ours,
                     unreadable=tuple(unreadable),
                 )
@@ -410,6 +432,47 @@ def _instance_id(dev_info, devinfo) -> str:
             f'SetupDiGetDeviceInstanceIdW failed: {ctypes.get_last_error()}'
         )
     return buffer.value
+
+
+def _log_only_property(dev_info, devinfo, key: DEVPROPKEY, name: str, unreadable: list[str]):
+    """A device property kept for the log alone: one of a type this does not
+    read is recorded by ``name`` in ``unreadable`` and read as None, never
+    failing the device's read."""
+    try:
+        return _device_property(dev_info, devinfo, key)
+    except _PropertyTypeUnreadError as e:
+        unreadable.append(f'{name} ({e.type_name})')
+        return None
+
+
+def _interface_guids(dev_info, devinfo, unreadable: list[str]) -> tuple[str, ...] | None:
+    """The device interface GUIDs the device's bound package registered for it.
+
+    Read from the device's hardware key, where an INF's AddReg writes
+    ``DeviceInterfaceGUIDs``: the GUID the stream's lookup finds the device
+    by, and on 2026-11-11 the cause of a code 31. None when the device has
+    no hardware key (no driver bound) or no such value; a value of another
+    type is recorded in ``unreadable``.
+    """
+    import winreg  # local-import: Windows' own module, and this one loads only there
+
+    key = setupapi.SetupDiOpenDevRegKey(
+        dev_info, byref(devinfo), DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ
+    )
+    if key is None or key == INVALID_HANDLE_VALUE:
+        return None
+    try:
+        value, value_type = winreg.QueryValueEx(key, 'DeviceInterfaceGUIDs')
+    except OSError:
+        return None
+    finally:
+        winreg.CloseKey(key)
+    if value_type == winreg.REG_MULTI_SZ:
+        return tuple(value)
+    if value_type == winreg.REG_SZ:
+        return (value,)
+    unreadable.append(f'interface GUIDs (registry type {value_type})')
+    return None
 
 
 class _PropertyTypeUnreadError(CameraUsbLookupFailedError):

@@ -533,6 +533,9 @@ class SimulatedFX2Transport:
             date=None,
             problem_code=self.problem_codes[identity],
             problem_status=None,
+            location='Port_#0001.Hub_#0001',
+            parent='USB\\ROOT_HUB30\\SIMULATED',
+            interface_guids=None if service is None else ('{SIMULATED}',),
             ours=service == 'WinUSB',
             unreadable=(),
         )
@@ -543,6 +546,12 @@ class SimulatedFX2Transport:
 
     def describe(self, dev: SimulatedFX2Device) -> str:
         return f'simulated FX2 idProduct=0x{dev.pid:04X}'
+
+    def vendor_devices(self) -> str:
+        """The Cypress devices on the simulated bus, as the USB library would see them."""
+        # A device off the bus has no PID.
+        held = 'none' if self.device.pid is None else self.describe(self.device)
+        return f'the Cypress devices the simulated bus holds: {held}'
 
     def write_to(
         self, dev: SimulatedFX2Device, request: int, value: int, index: int, data: bytes

@@ -13516,7 +13516,10 @@ One device of a USB identity and the driver Windows has bound to it.
 - <a id="UsbDeviceBinding.date"></a>`date`: `str | None` -- The bound package's date.
 - <a id="UsbDeviceBinding.inf"></a>`inf`: `str | None` -- The bound package's published INF (`oem12.inf`).
 - <a id="UsbDeviceBinding.instance_id"></a>`instance_id`: `str` -- Windows' instance ID: the identity, a backslash, then the device's serial or port.
+- <a id="UsbDeviceBinding.interface_guids"></a>`interface_guids`: `tuple[str, ...] | None` -- The device interface GUIDs the bound package registered for the device; None when no package registered any.
+- <a id="UsbDeviceBinding.location"></a>`location`: `str | None` -- The port and hub Windows names (`Port_#0002.Hub_#0001`); None when it names none.
 - <a id="UsbDeviceBinding.ours"></a>`ours`: `bool` -- Whether the bound package is LumaViewPro's.
+- <a id="UsbDeviceBinding.parent"></a>`parent`: `str | None` -- The instance ID of the hub the device is on; None when Windows names none.
 - <a id="UsbDeviceBinding.present"></a>`present`: `bool` -- False for a device seen before on another port or at another time, which keeps its binding until it is matched afresh.
 - <a id="UsbDeviceBinding.problem_code"></a>`problem_code`: `int | None` -- Device Manager's problem code; None or 0 for none. A driver bound with a problem code was not started by Windows (31: its driver could not be loaded).
 - <a id="UsbDeviceBinding.problem_status"></a>`problem_status`: `int | None` -- The Windows status behind the problem code, its 32 bits unsigned; None or 0 for none.

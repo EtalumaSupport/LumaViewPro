@@ -74,6 +74,9 @@ def test_windows_reads_each_device_present_or_past_through_setupapi(monkeypatch)
         date='2024-01-01',
         problem_code=None,
         problem_status=None,
+        location='Port_#0002.Hub_#0001',
+        parent='USB\\ROOT_HUB30\\4&1&0&0',
+        interface_guids=('{479cda5e-5386-49e7-817a-e7839ff46d2d}',),
         ours=False,
         unreadable=(),
     )

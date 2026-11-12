@@ -17,10 +17,20 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from _lumascope.drivers.exceptions import CameraUsbDriverUnusableError
 
+# The USB vendors a Lumascope is built from, by vendor ID as Windows writes
+# it in a hardware ID: the Classic's FX2, the cameras, the EL-0940 boards.
+CENSUS_VENDORS = {
+    '04B4': 'Cypress (the Lumascope Classic)',
+    '2676': 'Basler',
+    '1409': 'IDS',
+    '0424': 'Microchip (the EL-0940 LED board)',
+    '2E8A': 'Raspberry Pi (the EL-0940 motor board)',
+}
 FX2_BOOTLOADER = 'USB\\VID_04B4&PID_8613'
 FX2_FIRMWARE = 'USB\\VID_04B4&PID_EA17'
 # The names our INF gives each identity in Device Manager.
@@ -98,9 +108,13 @@ class DeviceBinding:
     ``ours`` is whether the bound package is LumaViewPro's, as the store
     names it (``StorePackage.ours``). ``problem_code`` is Device Manager's
     problem code, None or 0 for none; ``problem_status`` the Windows status
-    behind it. ``unreadable`` names each property Windows gave in a type
-    this does not read, with that type: a fact for the log only, so the
-    device is still read.
+    behind it. ``location`` is the port and hub Windows names
+    (``Port_#0002.Hub_#0001``), ``parent`` the instance ID of the hub it is
+    on, and ``interface_guids`` the device interface GUIDs its bound
+    package registered for it (a wrong one fails the bind with code 31);
+    each None when Windows has none. ``unreadable`` names each property
+    Windows gave in a type this does not read, with that type: a fact for
+    the log only, so the device is still read.
     """
 
     instance_id: str
@@ -112,6 +126,9 @@ class DeviceBinding:
     date: str | None
     problem_code: int | None
     problem_status: int | None
+    location: str | None
+    parent: str | None
+    interface_guids: tuple[str, ...] | None
     ours: bool
     unreadable: tuple[str, ...]
 
@@ -141,6 +158,12 @@ class DeviceBinding:
             problem = f', problem code {self.problem_code}' + (f' ({meaning})' if meaning else '')
         if self.problem_status:
             problem += f', problem status {self.problem_status:#010x}'
+        if self.location is not None:
+            problem += f', at {self.location}'
+        if self.parent is not None:
+            problem += f' on {self.parent}'
+        if self.interface_guids is not None:
+            problem += f', interface GUIDs {" ".join(self.interface_guids) or "none"}'
         if self.unreadable:
             problem += f', unreadable: {"; ".join(self.unreadable)}'
         return f'{self.instance_id} ({where}): {driver}{problem}'
@@ -304,3 +327,104 @@ def _resolve(value: str, strings: dict[str, str]) -> str:
     if value.startswith('%') and value.endswith('%'):
         value = strings.get(value[1:-1].lower(), value)
     return value.strip('"')
+
+
+# How much of the driver install log a support report carries: its newest
+# sections that name a census vendor, each cut to its first lines, read from
+# the log's last bytes (the log only grows, and holds every device's
+# installs since Windows was installed).
+SETUPAPI_LOG = 'setupapi.dev.log'
+SETUPAPI_SECTIONS = 20
+SETUPAPI_SECTION_LINES = 200
+SETUPAPI_TAIL_BYTES = 16 * 1024 * 1024
+
+
+def setupapi_log_excerpt(inf_folder: str) -> str:
+    """The newest sections of Windows' driver install log that name a census vendor's device.
+
+    Windows writes every driver install to ``%WINDIR%\\INF\\setupapi.dev.log``,
+    one section per install, each opening ``>>>  [``: why a package bound,
+    did not, or bound and failed to start is there and nowhere else.
+
+    Args:
+        inf_folder: The store's INF folder (``store_inf_folder()``).
+
+    Returns:
+        str: The sections, oldest first, or a line saying none names a
+            census vendor, or why the log could not be read.
+    """
+    path = os.path.join(inf_folder, SETUPAPI_LOG)
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - SETUPAPI_TAIL_BYTES))
+            text = f.read().decode('utf-8', errors='replace')
+    except OSError as e:
+        return f'{path} unreadable: {e}'
+    sections = census_sections(text)
+    if not sections:
+        return f"No section of {path}'s last {SETUPAPI_TAIL_BYTES} bytes names a census vendor."
+    return '\n'.join(sections)
+
+
+def census_sections(text: str) -> list[str]:
+    """The newest ``SETUPAPI_SECTIONS`` sections of a setupapi log naming a census vendor.
+
+    A section naming ``VID_xxxx`` of any vendor in ``CENSUS_VENDORS``, in
+    any case, is kept, each cut to ``SETUPAPI_SECTION_LINES`` lines with the
+    cut said.
+    """
+    wanted = re.compile('|'.join(f'VID_{vid}' for vid in CENSUS_VENDORS), re.IGNORECASE)
+    sections: list[list[str]] = []
+    for line in text.splitlines():
+        if line.startswith('>>>  ['):
+            sections.append([line])
+        elif sections:
+            sections[-1].append(line)
+    kept = []
+    for lines in sections:
+        if not wanted.search('\n'.join(lines)):
+            continue
+        if len(lines) > SETUPAPI_SECTION_LINES:
+            cut = len(lines) - SETUPAPI_SECTION_LINES
+            lines = [*lines[:SETUPAPI_SECTION_LINES], f'     ... {cut} more lines of this section']
+        kept.append('\n'.join(lines))
+    return kept[-SETUPAPI_SECTIONS:]
+
+
+# Where Windows states what it signs drivers by, under HKEY_LOCAL_MACHINE.
+_CURRENT_VERSION = r'SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+_SECURE_BOOT = r'SYSTEM\CurrentControlSet\Control\SecureBoot\State'
+_CONTROL = r'SYSTEM\CurrentControlSet\Control'
+
+
+def signing_facts(read_value: Callable[[str, str], object]) -> dict[str, str]:
+    """The facts Windows decides whether to load a driver by, each in words.
+
+    The Windows build, whether Secure Boot is on, and whether test signing
+    is on (a test-signed driver loads only with it). Each fact Windows did
+    not give is stated unreadable with why.
+
+    Args:
+        read_value: Reads a value under HKEY_LOCAL_MACHINE by key path and
+            name (``winreg.QueryValueEx`` on an opened key), raising
+            ``OSError`` when the key or the value is absent.
+    """
+
+    def read(path: str, name: str) -> tuple[object, str | None]:
+        try:
+            return read_value(path, name), None
+        except OSError as e:
+            return None, f'unreadable ({path}\\{name}: {e})'
+
+    facts = {}
+    build = []
+    for name in ('ProductName', 'DisplayVersion', 'CurrentBuild', 'UBR'):
+        value, why = read(_CURRENT_VERSION, name)
+        build.append(f'{name} {value}' if why is None else f'{name} {why}')
+    facts['Windows'] = ', '.join(build)
+    enabled, why = read(_SECURE_BOOT, 'UEFISecureBootEnabled')
+    facts['Secure Boot'] = why or ('on' if enabled else 'off')
+    options, why = read(_CONTROL, 'SystemStartOptions')
+    facts['Test signing'] = why or ('on' if 'TESTSIGNING' in str(options).upper() else 'off')
+    return facts

@@ -148,6 +148,9 @@ def _binding(identity, *, present, service, ours=False, problem_code=None):
         date=None,
         problem_code=problem_code,
         problem_status=None,
+        location=None,
+        parent=None,
+        interface_guids=None,
         ours=ours,
         unreadable=(),
     )
@@ -175,7 +178,10 @@ def test_the_windows_transport_refuses_a_present_device_and_not_a_past_one(monke
         fx2driver,
         'usb',
         SimpleNamespace(
-            core=SimpleNamespace(find=lambda **kw: None),
+            core=SimpleNamespace(
+                find=lambda find_all=False, **kw: iter(()) if find_all else None,
+                NoBackendError=ValueError,
+            ),
             util=SimpleNamespace(dispose_resources=lambda dev: None),
         ),
         raising=False,

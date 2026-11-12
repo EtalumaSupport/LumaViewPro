@@ -1254,6 +1254,24 @@ class _PyusbTransport:
         """The found device's place on the host, for the log."""
         return describe_usb_device(dev)
 
+    def vendor_devices(self) -> str:
+        """Every Cypress device the USB library sees, and the library it sees through, for the log.
+
+        Said when no FX2 was found: a Classic that Windows lists and that is
+        absent here is one LumaViewPro's libusb cannot open, which tells a
+        driver fault from a scope not plugged in.
+        """
+        library = (
+            f'libusb {_FX2_GATE.library_version or "(version unread)"} '
+            f'from {_FX2_GATE.library_path}'
+        )
+        try:
+            devices = list(usb.core.find(find_all=True, idVendor=VID))
+        except (*_usb_errors(), usb.core.NoBackendError) as e:
+            return f'the Cypress (0x{VID:04X}) devices {library} sees are unreadable: {e}'
+        seen = '; '.join(describe_usb_device(d) for d in devices) or 'none'
+        return f'the Cypress (0x{VID:04X}) devices {library} sees: {seen}'
+
     def write_to(self, dev: Any, request: int, value: int, index: int, data: bytes) -> None:
         """A vendor OUT request to a found device that is not opened: the bootloader."""
         dev.ctrl_transfer(0x40, request, value, index, data)
@@ -1827,6 +1845,7 @@ class _FX2Connection:
         with _usb_call_failed('finding the bootloader'):
             dev = transport.find(PID_BOOT)
         if dev is None:
+            logger.info('[FX2 Conn  ] no FX2 found; %s', transport.vendor_devices())
             raise _FX2AbsentError(
                 f'No Lumascope FX2 device found (checked PID 0x{PID_APP:04X} and 0x{PID_BOOT:04X})'
             )
@@ -1860,6 +1879,7 @@ class _FX2Connection:
                 )
                 return
 
+        logger.info('[FX2 Conn  ] the uploaded firmware not found; %s', transport.vendor_devices())
         raise CameraUsbNotFoundError(
             f'The FX2 did not re-enumerate as PID 0x{PID_APP:04X} after its firmware '
             f'upload (waited {self.FIRMWARE_RE_ENUM_TIMEOUT:.0f}s)'

@@ -94,6 +94,9 @@ class _Machine:
                 date=None,
                 problem_code=None if package else 28,
                 problem_status=None,
+                location=None,
+                parent=None,
+                interface_guids=None,
                 ours=package.ours if package else False,
                 unreadable=(),
             )

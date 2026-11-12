@@ -40,7 +40,12 @@ from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from _lumascope.drivers.exceptions import CameraUsbLookupFailedError, HardwareError
-from _lumascope.drivers.usb_driver_binding import DeviceBinding
+from _lumascope.drivers.usb_driver_binding import (
+    DeviceBinding,
+    setupapi_log_excerpt,
+    signing_facts,
+    store_inf_folder,
+)
 from _lumascope.lvp_logger import collect_installed_packages, logging_started
 from _lumascope.modules import recording_frames
 from _lumascope.modules import wall_time
@@ -561,6 +566,14 @@ def _collect_system_info():
         )
 
     return info
+
+
+def _read_local_machine_value(path: str, name: str) -> object:
+    """A value under HKEY_LOCAL_MACHINE; raises ``OSError`` when the key or the value is absent."""
+    import winreg  # local-import: Windows' own module, read only there
+
+    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
+        return winreg.QueryValueEx(key, name)[0]
 
 
 def _collect_usb_devices():
@@ -1685,6 +1698,7 @@ class TechSupportReport:
             cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
             self._step_camera_usb_bindings(tmp)
+            self._step_windows_drivers(tmp)
 
             # 13. Disk speed test  (55-60%)
             cb(56, 'Testing disk write speed...')
@@ -2467,6 +2481,28 @@ class TechSupportReport:
         if bindings is not None:
             with open(d / 'camera_usb_bindings.json', 'w', encoding='utf-8') as f:
                 json.dump([identity.to_dict() for identity in bindings], f, indent=2)
+
+    def _step_windows_drivers(self, tmp):
+        """What Windows decided about each driver install of a census vendor's device, and what it signs drivers by.
+
+        The newest sections of Windows' own driver install log naming a
+        Lumascope vendor's device (``setupapi_log_excerpt``), and the
+        Windows build, Secure Boot and test signing (``signing_facts``):
+        why a package did not bind or did not start is written there and
+        nowhere LumaViewPro can ask afterwards.
+        """
+        d = tmp / 'windows_drivers'
+        d.mkdir()
+        if platform.system() != 'Windows':
+            (d / 'windows_drivers.txt').write_text('Not read: this host is not Windows.\n')
+            return
+        facts = signing_facts(_read_local_machine_value)
+        (d / 'signing.txt').write_text(
+            ''.join(f'{name}: {fact}\n' for name, fact in facts.items()), encoding='utf-8'
+        )
+        (d / 'setupapi_excerpt.txt').write_text(
+            setupapi_log_excerpt(store_inf_folder()) + '\n', encoding='utf-8'
+        )
 
     def _step_data_folder(self, tmp):
         """Copy the installation's data folder but its icons, every ``current.json*``'s stored ``api_key`` value blanked.

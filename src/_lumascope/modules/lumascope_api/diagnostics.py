@@ -89,6 +89,9 @@ _PROBE_DURATION_S = (0, 3_600)
     'date',
     'problem_code',
     'problem_status',
+    'location',
+    'parent',
+    'interface_guids',
     'ours',
     'unreadable',
 )
@@ -113,6 +116,12 @@ class UsbDeviceBinding:
             (31: its driver could not be loaded).
         problem_status: The Windows status behind the problem code, its
             32 bits unsigned; None or 0 for none.
+        location: The port and hub Windows names (``Port_#0002.Hub_#0001``);
+            None when it names none.
+        parent: The instance ID of the hub the device is on; None when
+            Windows names none.
+        interface_guids: The device interface GUIDs the bound package
+            registered for the device; None when no package registered any.
         ours: Whether the bound package is LumaViewPro's.
         unreadable: Each property Windows gave in a type LumaViewPro does
             not read, with that type; empty when every one was read.
@@ -127,6 +136,9 @@ class UsbDeviceBinding:
     date: str | None
     problem_code: int | None
     problem_status: int | None
+    location: str | None
+    parent: str | None
+    interface_guids: tuple[str, ...] | None
     ours: bool
     unreadable: tuple[str, ...]
 
