@@ -2487,7 +2487,6 @@ class FX2Camera(Camera):
         self._reapply_frame_callbacks()
         self._active = True
         self._load_profile()
-        self._query_dynamic_capabilities()
         self.init_camera_config()
         logger.info('[FX2 Cam   ] connected: %s', self.model_name)
         return True
@@ -2504,39 +2503,40 @@ class FX2Camera(Camera):
     def is_connected(self) -> bool:
         return self._active is not None and bool(self._active) and not self._device_removed
 
-    def _query_dynamic_capabilities(self):
-        """Populate profile's dynamic gain / exposure fields.
+    # One second, deliberately: as long as these units need, and no longer.
+    # The stream stays clean far past it (an LS620 ran to the register's
+    # 65535 rows), but the API's fixed 5 s wait for a new capture and the
+    # stream check's bound after a long-to-short exposure change both
+    # misfire above a few seconds, and 65535 rows is only 2.8 s at the
+    # narrowest window. Past the readout (about 233 ms at 1900 wide, 84 ms
+    # at 1000, 32 ms at 500) the sensor adds blanking rows and the frame
+    # stretches to the exposure (frame_time_s), which the stream handles.
+    _SAFE_EXPOSURE_MAX_MS = 1000
 
-        FX2 has no SDK to query -- these are hardcoded from the MT9P031
-        datasheet and the driver's row-time constant. We fill them in
-        here so the rest of LVP can read ``scope.capabilities`` or
-        ``camera.profile.gain.total_max_db`` and get real numbers
-        instead of the ``None`` defaults.
-        """
-        self.profile.gain.total_min_db = GAIN_MIN_DB
-        self.profile.gain.total_max_db = GAIN_MAX_DB
-        # One shutter row at the full window: the shortest exposure
-        # every window the driver allows can give (a narrower window's
-        # row is shorter, so it reaches this to within its own row).
-        self.profile.exposure_min_us = exposure_s(1, column_size_for(IMG_WIDTH)) * 1e6
-        # One second, deliberately: as long as these units need, and no
-        # longer. The stream stays clean far past it (an LS620 ran to the
-        # register's 65535 rows), but the API's fixed 5 s wait for a new
-        # capture and the stream check's bound after a long-to-short
-        # exposure change both misfire above a few seconds, and 65535
-        # rows is only 2.8 s at the narrowest window. Past the readout
-        # (about 233 ms at 1900 wide, 84 ms at 1000, 32 ms at 500) the
-        # sensor adds blanking rows and the frame stretches to the
-        # exposure (frame_time_s), which the stream handles.
-        SAFE_EXPOSURE_MAX_MS = 1000
-        self.profile.exposure_max_us = SAFE_EXPOSURE_MAX_MS * 1000
-        logger.debug(
-            '[FX2 Cam   ] profile capabilities: gain %.3f-%.3f dB, exposure %.3f-%.3f ms',
-            self.profile.gain.total_min_db,
-            self.profile.gain.total_max_db,
-            self.profile.exposure_min_us / 1000,
-            self.profile.exposure_max_us / 1000,
-        )
+    # The FX2 has no SDK to ask: its ranges are the MT9P031 datasheet's and
+    # the driver's row time, answered here rather than stored.
+
+    @property
+    def min_exposure(self) -> float:
+        """The shortest exposure the sensor gives now, in milliseconds: one
+        shutter row at the window in force (a narrower window's row is
+        shorter)."""
+        return exposure_s(1, column_size_for(self._width)) * 1000.0
+
+    @property
+    def max_exposure(self) -> float:
+        """The longest exposure the driver writes, in milliseconds."""
+        return float(self._SAFE_EXPOSURE_MAX_MS)
+
+    @property
+    def min_gain(self) -> float:
+        """The least gain the driver writes, in dB."""
+        return GAIN_MIN_DB
+
+    @property
+    def max_gain(self) -> float:
+        """The most gain the driver writes, in dB."""
+        return GAIN_MAX_DB
 
     # -- Sensor init -------------------------------------------------------
 

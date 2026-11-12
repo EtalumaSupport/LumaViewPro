@@ -387,7 +387,7 @@ def _ui_except_counts():
 # call site disappears when, and only when, the GUI stops answering.
 _UI_ANSWERER_CALL_PIN = {
     'ui/advanced_settings.py': 1,
-    'ui/microscope_settings.py': 1,
+    'ui/microscope_settings.py': 0,
     'ui/ui_helpers.py': 1,
 }
 

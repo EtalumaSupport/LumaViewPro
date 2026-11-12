@@ -52,7 +52,9 @@ GOOD_ROUND = {
     'get_frame_size': {'width': 1936, 'height': 1216},
     'get_max_frame_size': {'width': 3840, 'height': 2160},
     'get_min_frame_size': {'width': 64, 'height': 64},
+    'get_min_exposure': 0.02,
     'get_max_exposure': 5000.0,
+    'min_gain': 0.0,
     'get_max_gain': 24.0,
     'get_pixel_format': 'Mono12',
     'get_binning_size': 2,
@@ -131,8 +133,15 @@ class ScriptedCameraDriver:
     def get_min_frame_size(self):
         return self._next('get_min_frame_size')
 
+    def get_min_exposure(self):
+        return self._next('get_min_exposure')
+
     def get_max_exposure(self):
         return self._next('get_max_exposure')
+
+    @property
+    def min_gain(self):
+        return self._next('min_gain')
 
     def get_max_gain(self):
         return self._next('get_max_gain')

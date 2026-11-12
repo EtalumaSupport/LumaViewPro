@@ -45,11 +45,11 @@ Adding a new camera model
    below, following the existing examples. Use the datasheet values for
    static fields. Set `exposure_max_us` to the sensor-datasheet ceiling
    (in microseconds) -- it's the single source of truth for the maximum
-   exposure cap. `_query_dynamic_capabilities()` may overwrite it at
-   connect time with an SDK-queried value or a driver-narrowed cap
-   (e.g. FX2's 1000 ms ceiling). Leave dynamic gain fields
-   (gain.total_min_db, total_max_db) and exposure_min_us as None --
-   they will be populated at connect time.
+   exposure cap a camera that reports no range is held to. A driver whose
+   camera reports its gain and exposure range reads it from the camera
+   when asked (overriding min_exposure, max_exposure, min_gain, max_gain),
+   since the range moves with the readout; the profile's are the
+   documented fallback.
 
 3. REGISTER IT
    Add a (substring, profile) entry to the _PROFILES list. The substring
@@ -63,8 +63,8 @@ Adding a new camera model
    file in src/_lumascope/drivers/ following the pattern of pyloncamera.py or idscamera.py:
    - Inherit from Camera base class
    - Call self._load_profile() in connect() after setting self.model_name
-   - Override _query_dynamic_capabilities() to read gain/exposure ranges
-     from the SDK
+   - Override min_exposure, max_exposure, min_gain and max_gain to read
+     the camera's ranges from the SDK when asked
    - Set driver='new_sdk_name' in the profile
 
 5. ADD TESTS
@@ -96,7 +96,8 @@ class GainInfo:
     analog_max_db: float | None = None  # Max analog gain before digital kicks in
     has_digital: bool = False  # Whether camera has digital gain
     gain_selector: str = 'All'  # GainSelector value: 'All', 'AnalogAll', etc.
-    # Dynamic -- populated at connect time from SDK
+    # The documented range, answered by a driver whose camera reports none
+    # (a driver that reads its camera answers that: its min_gain / max_gain).
     total_min_db: float | None = None
     total_max_db: float | None = None
 
@@ -130,13 +131,12 @@ class CameraProfile:
     # and the drains are frame validity's shipped counts.
     timing_model: str = ''
 
-    # --- Exposure ceiling (microseconds) ---
-    # Single source of truth for the maximum exposure cap. Default it
-    # to the sensor-datasheet ceiling per profile entry below;
-    # _query_dynamic_capabilities() may overwrite it at connect time
-    # with an SDK-queried value or a driver-narrowed cap.
+    # --- Exposure range (microseconds) ---
+    # The documented range, answered by a driver whose camera reports none;
+    # a driver that reads its camera's range answers that instead (its
+    # min_exposure / max_exposure). The ceiling defaults to the
+    # sensor-datasheet value per profile entry below; the floor is optional.
     exposure_max_us: float | None = None
-    # --- Other dynamic (populated at connect time from SDK) ---
     exposure_min_us: float | None = None
 
 
@@ -257,8 +257,9 @@ _U3_34L0XCP_M = CameraProfile(
 # ships, so a script, REST client or GUI meets in the simulator the limits it
 # meets on the bench. Built from that profile, so every field an API caller
 # reads is the dart's by construction; replaced are the identity, the ranges
-# the real camera fills at connect (given as what it advertises: 0-48 dB,
-# 14 us - 1 s), the formats the simulator renders (it has no packed
+# the real camera reports (given as what it advertises: 0-48 dB, up to 1 s;
+# the exposure floor follows the format, the simulated camera's
+# min_exposure), the formats the simulator renders (it has no packed
 # Mono12p), and the timing record: the simulated sensor's delays are its own,
 # so a measurement of it never stands as the dart's, nor the dart's as its.
 # The simulated camera reads its size, name and formats from here.
@@ -269,7 +270,6 @@ _simulated = replace(
     sensor='Simulated',
     driver='simulated',
     pixel_formats=['Mono8', 'Mono12'],
-    exposure_min_us=14.0,
     exposure_max_us=1_000_000,
 )
 _simulated.gain = replace(_simulated.gain, total_min_db=0.0, total_max_db=48.0)
@@ -281,7 +281,7 @@ _simulated.gain = replace(_simulated.gain, total_min_db=0.0, total_max_db=48.0)
 # settings it writes (0-42.144 dB, DS Table 15). The static max
 # exposure below is 65535 rows at a 0.1124 ms row, a clock model the sensor
 # does not follow (the data sheet gives 7934.6 ms at the full window); the
-# driver replaces it with its own cap at every connect. The sensor's timing
+# driver answers its own cap (fx2driver.py, max_exposure). The sensor's timing
 # is src/_lumascope/drivers/fx2driver.py's (row_time_s, exposure_s, frame_time_s).
 _MT9P031_LS620 = CameraProfile(
     model_name='MT9P031-LS620',
@@ -290,7 +290,7 @@ _MT9P031_LS620 = CameraProfile(
     shutter='rolling',
     native_resolution={'width': 1900, 'height': 1900},
     pixel_formats=['Mono8'],  # 12-bit sensor, FX2 streams top 8 bits
-    exposure_max_us=7_366_000,  # replaced by the driver's cap at connect (see above)
+    exposure_max_us=7_366_000,  # the driver answers its own cap (see above)
     binning_sizes=[1],  # driver doesn't wire up sensor binning
     binning_modes=['Sum'],
     gain=GainInfo(

@@ -335,18 +335,34 @@ def give_camera_and_imaging(scope):
 def set_camera_limits(monkeypatch, scope, **limits):
     """Give ``scope`` a camera whose limits differ from its camera's by ``limits``.
 
-    ``capabilities.camera_limits`` is read once at connect, so a test that
-    needs a camera declaring another range (a floor above 0 dB, no floor at
-    all) states it here; the test's end restores the scope's own. Returns
-    the new limits.
+    For a test that needs a camera declaring another range (a floor above
+    0 dB, no floor at all); the test's end restores the scope's own. A
+    frame limit replaces ``capabilities.camera_limits``, read once at
+    connect; a gain or exposure limit replaces the range the camera API
+    holds (``setting_limits``), which the camera's next readout write reads
+    again. Returns the new limits, each kind changed.
     """
     import dataclasses
 
-    changed = dataclasses.replace(scope.capabilities.camera_limits, **limits)
-    monkeypatch.setattr(
-        scope, 'capabilities', dataclasses.replace(scope.capabilities, camera_limits=changed)
-    )
-    return changed
+    from _lumascope.modules.scope_capabilities import CameraLimits
+
+    frame_fields = {field.name for field in dataclasses.fields(CameraLimits)}
+    frame = {name: value for name, value in limits.items() if name in frame_fields}
+    setting = {name: value for name, value in limits.items() if name not in frame_fields}
+    changed = []
+    if frame:
+        replaced = dataclasses.replace(scope.capabilities.camera_limits, **frame)
+        monkeypatch.setattr(
+            scope, 'capabilities', dataclasses.replace(scope.capabilities, camera_limits=replaced)
+        )
+        changed.append(replaced)
+    if setting:
+        # a stand-in by design: the store the camera API reads, given a range
+        # the simulated camera does not report.
+        replaced = dataclasses.replace(scope.camera.setting_limits, **setting)
+        monkeypatch.setattr(scope.camera, '_setting_limits', replaced)
+        changed.append(replaced)
+    return changed[0] if len(changed) == 1 else tuple(changed)
 
 
 def swap_lanes(scope, *, io=None, camera=None):

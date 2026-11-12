@@ -210,7 +210,7 @@ class ChannelRecord:
     label: str
 
 
-@api_fields('slider_max_exposure_ms', 'slider_max_illumination_ma')
+@api_fields('slider_max_exposure_ms', 'slider_max_illumination_ma', 'slider_max_gain_db')
 @dataclass(frozen=True)
 class ChannelSliderMaxima:
     """Where one channel's manual sliders stop: display hints, never a bound.
@@ -228,10 +228,14 @@ class ChannelSliderMaxima:
         slider_max_illumination_ma: The illumination slider's maximum, in
             mA; None with no LED board, or for a channel with no LED on this
             scope (luminescence).
+        slider_max_gain_db: The gain slider's maximum, in dB: the camera's
+            gain maximum now (``CameraAPI.setting_limits``), or 48 dB with no
+            camera connected.
     """
 
     slider_max_exposure_ms: float | None
     slider_max_illumination_ma: int | None
+    slider_max_gain_db: float
 
 
 class IdentitySource(enum.StrEnum):

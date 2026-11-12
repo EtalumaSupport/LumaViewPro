@@ -99,7 +99,8 @@ RENAMED = [
         {'axis': 'Z', 'coarse': True},
     ),
     ('GET', 'scope/camera/read_frame_rate', {}, 'scope/camera/read_frame_rate_fps', {}),
-    ('GET', 'scope/camera/read_exposure_ms_min', {}, 'scope/camera/read_exposure_min_ms', {}),
+    ('GET', 'scope/camera/read_exposure_ms_min', {}, 'scope/camera/setting_limits', {}),
+    ('GET', 'scope/camera/read_exposure_min_ms', {}, 'scope/camera/setting_limits', {}),
     (
         'PUT',
         'scope/camera/black_level',

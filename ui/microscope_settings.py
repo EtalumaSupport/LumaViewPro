@@ -11,7 +11,6 @@ import _lumascope.modules.binning as binning
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules import gui_logger, path_utils
-from _lumascope.modules.config_helpers import camera_max_gain_for_ui
 from _lumascope.modules.ui_queue import schedule_ui_latest
 from _lumascope.modules.notification_center import notifications
 import _lumascope.modules.image_mode as image_mode
@@ -172,7 +171,6 @@ class MicroscopeSettings(BoxLayout):
         logger.info('[LVP Main  ] MicroscopeSettings.load_settings()')
         ctx = _app_ctx.ctx
 
-        lumaview = ctx.lumaview
         settings = ctx.settings
 
         # Settings are imported at the very beginning of file
@@ -193,13 +191,6 @@ class MicroscopeSettings(BoxLayout):
         self.ids['image_mode_spinner'].text = IMAGE_MODE_LABELS[mode]
 
         self.show_capture_settings()
-
-        # The gain slider cap from the live camera (the resolver applies the
-        # documented no-camera fallback). The gain cap keeps the slider
-        # honest per-camera -- a universal 48 dB let LS620 users overdrive
-        # past the usable range and black out the image.
-        max_gain = camera_max_gain_for_ui(lumaview.scope.capabilities.camera_limits)
-        ctx.max_gain = max_gain
 
         ctx.live_view_fps = settings['live_view_fps']
 
@@ -252,10 +243,7 @@ class MicroscopeSettings(BoxLayout):
         # Kivy slider clamps the displayed value to its max). A stored value
         # above the cap stays in the store and is pinned on the slider; the
         # box keeps the real number.
-        for channel in common_utils.get_channels():
-            ctx.image_settings.channel_control_lookup(channel=channel).ids[
-                'gain_slider'
-            ].max = max_gain
+        ctx.image_settings.set_channel_gain_ranges()
         ctx.image_settings.set_channel_exposure_ranges()
 
         # Render and re-apply any channel the camera cannot fully reach --

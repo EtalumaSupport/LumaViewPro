@@ -120,7 +120,7 @@ def test_the_largest_gain_is_128x():
 
 
 def test_the_camera_publishes_the_gain_it_can_reach(camera):
-    assert camera.profile.gain.total_max_db == pytest.approx(MAX_DB, abs=1e-4)
+    assert camera.max_gain == pytest.approx(MAX_DB, abs=1e-4)
     assert camera.gain(60.0) == pytest.approx(MAX_DB, abs=1e-4)
 
 

@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The camera's limits are read once at connect, and the largest frame is the sensor's.
+"""The camera's frame limits are read once at connect, and the largest frame is the sensor's.
 
 A camera reports its largest frame at the binning it holds. ``capabilities``
 is built once at connect, so a camera still at 2x then -- a Basler whose
@@ -66,18 +66,3 @@ def test_no_camera_connected_has_no_limits(camera):
     camera.active = None
 
     assert _capabilities(camera).camera_limits is None
-
-
-def test_a_maximum_the_camera_reads_as_zero_is_no_maximum(camera, monkeypatch):
-    # Zero is the drivers' answer for an inactive camera, never a real cap.
-    monkeypatch.setattr(camera, 'get_max_exposure', lambda: 0.0)
-
-    assert _capabilities(camera).camera_limits.exposure_max_ms is None
-
-
-def test_a_whole_number_maximum_is_a_float(camera, monkeypatch):
-    monkeypatch.setattr(camera, 'get_max_exposure', lambda: 500)
-
-    maximum = _capabilities(camera).camera_limits.exposure_max_ms
-
-    assert maximum == 500.0 and isinstance(maximum, float)

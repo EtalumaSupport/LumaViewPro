@@ -290,6 +290,7 @@ from _lumascope.modules.lumascope_api.camera import (
     AutoGainLock,
     CameraAPI,
     CameraAutoMode,
+    CameraSettingLimits,
     ExposureChanged,
     GainChanged,
 )
@@ -568,6 +569,7 @@ __all__ = [
     'CameraReadAnswer',
     'CameraReadFailedError',
     'CameraReadNode',
+    'CameraSettingLimits',
     'CameraSettingOutOfRangeError',
     'CameraSettingRejected',
     'CameraSettingUnsupportedError',

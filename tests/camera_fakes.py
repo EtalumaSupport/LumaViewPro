@@ -70,13 +70,32 @@ def bare_pylon_camera():
     cam.reverse_nodes = _reverse_nodes(genicam.IBoolean)
     reverses = tuple(cam.reverse_nodes)
 
+    # The body's gain and exposure nodes, answering a daA3840's ranges in
+    # Mono8 (0-48 dB, 14 us - 10 s), so a range read meets numbers, as on a
+    # real body. A test replaces one to give another range.
+    cam.range_nodes = {
+        'Gain': _float_node(genicam, 0.0, 48.0),
+        'ExposureTime': _float_node(genicam, 14.0, 10_000_000.0),
+    }
+
     def get_node(name):
         if name in reverses and name not in cam.reverse_nodes:
             raise genicam.LogicalErrorException(f'Node not existing: {name}')
+        if name in cam.range_nodes:
+            return cam.range_nodes[name]
         return cam.reverse_nodes.get(name, DEFAULT)
 
     cam.active.GetNodeMap.return_value.GetNode.side_effect = get_node
     return cam
+
+
+def _float_node(genicam, low: float, high: float) -> MagicMock:
+    """A float node reporting ``low`` to ``high``, with no fixed increment."""
+    node = MagicMock()
+    node.GetMin.return_value = low
+    node.GetMax.return_value = high
+    node.GetIncMode.return_value = genicam.noIncrement
+    return node
 
 
 def _reverse_nodes(boolean_node) -> dict:

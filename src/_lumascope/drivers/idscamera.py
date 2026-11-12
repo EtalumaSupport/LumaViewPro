@@ -1297,7 +1297,7 @@ class IDSCamera(Camera):
         return self._select_gain_selector_name(entries, preferred)
 
     def _query_dynamic_capabilities(self):
-        """Query IDS SDK for gain/exposure ranges and merge into profile."""
+        """Query the IDS SDK for the gain selector, formats and pixel pitch, and log its ranges."""
         if not self.active or not self.remote_nodemap:
             return
 
@@ -1321,43 +1321,23 @@ class IDSCamera(Camera):
                 except Exception as e:
                     logger.debug(f'[CAM Class ] Could not pre-select GainSelector: {e}')
 
-            # Gain range. The IDS Gain node is a linear multiplier (min ~1.0x)
-            # on the IMX676 bodies, but LVP's gain model is dB (shared with the
-            # Pylon driver), so the profile range is reported in dB:
-            # dB = 20 * log10(factor). The linear-multiplier assumption is
-            # per-body: SFNC permits Gain to be expressed natively in dB, and a
-            # body that does so would be double-converted here. Reading the Gain
-            # node's reported unit to branch the conversion is the robust fix but
-            # needs a bench body to confirm the unit string -- deferred until one
-            # is available; gain stays correct on the IMX676 bodies meanwhile.
+            # The gain and exposure ranges are not stored: they move with the
+            # readout (binning 2 lowers the exposure floor on the U3-34LxXLS-M),
+            # so they are read from the camera when asked (min_gain, max_gain,
+            # min_exposure, max_exposure). The range the camera came
+            # up with is logged, the record of the camera as it connected.
             try:
-                gain_node = self.remote_nodemap.FindNode('Gain')
-                min_factor = gain_node.Minimum()
-                max_factor = gain_node.Maximum()
-                self.profile.gain.total_min_db = (
-                    20.0 * math.log10(min_factor) if min_factor > 0 else 0.0
-                )
-                self.profile.gain.total_max_db = (
-                    20.0 * math.log10(max_factor) if max_factor > 0 else 0.0
-                )
                 logger.info(
-                    f'[CAM Class ] Gain range: {self.profile.gain.total_min_db:.1f} - '
-                    f'{self.profile.gain.total_max_db:.1f} dB '
-                    f'({min_factor:.2f}-{max_factor:.2f}x)'
+                    f'[CAM Class ] Gain range: {self.min_gain:.1f} - {self.max_gain:.1f} dB'
                 )
-            except Exception as e:
+            except CameraReadFailedError as e:
                 _cam_log.warning(f'[CAM Class ] Could not query gain range: {e}')
-
-            # Exposure range
             try:
-                exp_node = self.remote_nodemap.FindNode('ExposureTime')
-                self.profile.exposure_min_us = exp_node.Minimum()
-                self.profile.exposure_max_us = exp_node.Maximum()
                 logger.info(
-                    f'[CAM Class ] Exposure range: {self.profile.exposure_min_us:.0f} - '
-                    f'{self.profile.exposure_max_us:.0f} us'
+                    f'[CAM Class ] Exposure range: {self.get_min_exposure() * 1000:.0f} - '
+                    f'{self.get_max_exposure() * 1000:.0f} us'
                 )
-            except Exception as e:
+            except CameraReadFailedError as e:
                 _cam_log.warning(f'[CAM Class ] Could not query exposure range: {e}')
 
             # Sensor pixel pitch (micrometers). Read live so the micron scale
@@ -2856,28 +2836,81 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
             return False
 
-    def get_min_exposure(self) -> float | None:
-        """Return the camera's LIVE minimum exposure in milliseconds.
+    def _read_node_bounds(self, name: str, what: str) -> tuple[float, float]:
+        """The (Minimum, Maximum) the node reports now, read from the camera.
 
-        The ExposureTime node minimum moves with the frame: on the
-        U3-34LxXLS-M it fell below the connect-time value at binning 2 and never
-        rose above it over every frame size and binning LVP writes, so it is
-        read live each call rather than taken from the profile cached at
-        connect. A read that fails raises: the cached floor in its place
-        would be answered as the live one, and could be the stale value the
-        live read exists to replace.
+        Raises:
+            CameraReadFailedError: The node read failed.
+        """
+        try:
+            node = self.remote_nodemap.FindNode(name)
+            return float(node.Minimum()), float(node.Maximum())
+        except Exception as e:
+            raise CameraReadFailedError(f'{what} read failed: {type(e).__name__}: {e}') from e
+
+    @property
+    def min_exposure(self) -> float | None:
+        """Return the shortest exposure the camera takes now, in milliseconds.
+
+        Read from the ExposureTime node each call: its minimum moves with the
+        readout (on the U3-34LxXLS-M it falls at binning 2). A read that
+        fails raises: a held floor in its place could be the stale value the
+        read exists to replace.
 
         Raises:
             CameraReadFailedError: The node read failed.
         """
         if not self.active:
-            return super().get_min_exposure()
-        try:
-            return self.remote_nodemap.FindNode('ExposureTime').Minimum() / 1000.0
-        except Exception as e:
-            raise CameraReadFailedError(
-                f'Minimum exposure read failed: {type(e).__name__}: {e}'
-            ) from e
+            return super().min_exposure
+        return self._read_node_bounds('ExposureTime', 'Exposure range')[0] / 1000.0
+
+    @property
+    def max_exposure(self) -> float:
+        """Return the longest exposure the camera takes now, in milliseconds,
+        read as ``min_exposure`` is.
+
+        Raises:
+            CameraReadFailedError: The node read failed.
+        """
+        if not self.active:
+            return super().max_exposure
+        return self._read_node_bounds('ExposureTime', 'Exposure range')[1] / 1000.0
+
+    # The IDS Gain node is a linear multiplier (min ~1.0x) on the IMX676
+    # bodies, but LVP's gain model is dB (shared with the Pylon driver), so
+    # the range is answered in dB: dB = 20 * log10(factor). The
+    # linear-multiplier assumption is per-body: SFNC permits Gain to be
+    # expressed natively in dB, and a body that does so would be
+    # double-converted here. Reading the Gain node's reported unit to branch
+    # the conversion is the robust fix but needs a bench body to confirm the
+    # unit string -- deferred until one is available; gain stays correct on
+    # the IMX676 bodies meanwhile. The range is the selected GainSelector
+    # entry's: connect selects the analog entry, and every gain write
+    # selects it again before writing.
+
+    @property
+    def min_gain(self) -> float | None:
+        """The least gain the camera takes now, in dB, read from the Gain node.
+
+        Raises:
+            CameraReadFailedError: The node read failed.
+        """
+        if not self.active:
+            return super().min_gain
+        factor = self._read_node_bounds('Gain', 'Gain range')[0]
+        return 20.0 * math.log10(factor) if factor > 0 else 0.0
+
+    @property
+    def max_gain(self) -> float:
+        """The most gain the camera takes now, in dB, read as ``min_gain`` is.
+
+        Raises:
+            CameraReadFailedError: The node read failed.
+        """
+        if not self.active:
+            return super().max_gain
+        factor = self._read_node_bounds('Gain', 'Gain range')[1]
+        return 20.0 * math.log10(factor) if factor > 0 else 0.0
 
     def get_exposure_t(self) -> float:
         """The exposure time in ms; -1 when not connected.
@@ -3245,8 +3278,8 @@ class IDSCamera(Camera):
         factor = 10 ** (dB / 20) before writing -- the app's 0 dB floor maps to
         the node's 1.0x unity minimum, which is why the previous unconverted
         write of 0.0 was rejected as out-of-range. The valid dB range is
-        published through the profile (see _query_dynamic_capabilities), and
-        the range is the API's to judge. A factor within a float epsilon of the
+        read from the camera when asked (``min_gain``, ``max_gain``), and the
+        range is the API's to judge. A factor within a float epsilon of the
         Gain node's reported Minimum or Maximum is written as that limit: the
         dB->factor round trip of the reported cap lands an epsilon off it, and
         the camera rejects its own reported maximum gain without the snap.

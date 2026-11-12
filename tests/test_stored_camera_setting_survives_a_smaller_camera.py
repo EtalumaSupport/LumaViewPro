@@ -67,7 +67,7 @@ class TestTheApiDecidesWhatAStoredValueApplies:
         # above 0 dB is stated, as a body with one would report it.
         set_camera_limits(monkeypatch, sim_scope, gain_min_db=2.0)
         camera = sim_scope.camera
-        floor_ms = sim_scope.capabilities.camera_limits.exposure_min_ms
+        floor_ms = sim_scope.camera.setting_limits.exposure_min_ms
         assert floor_ms is not None and floor_ms > 0.005, 'the test needs a camera with a floor'
         exposure = camera.applied_exposure_ms_for(0.005)
         assert (exposure.stored_ms, exposure.applied_ms, exposure.capped) == (0.005, floor_ms, True)

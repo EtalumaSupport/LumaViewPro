@@ -35,6 +35,7 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`CameraLimits`](#CameraLimits)
 - [`CameraLink`](#CameraLink)
 - [`CameraNodeValue`](#CameraNodeValue)
+- [`CameraSettingLimits`](#CameraSettingLimits)
 - [`CaptureTally`](#CaptureTally)
 - [`CapturedStill`](#CapturedStill)
 - [`CellCountFilters`](#CellCountFilters)
@@ -907,10 +908,12 @@ a channel with no LED on this scope.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera's range could not be read after its last readout change.
 
 **Refusals by REST status**
 
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
 
 <a id="ScopeSession.clear_current_turret_objective"></a>
 ### `ScopeSession.clear_current_turret_objective`
@@ -5091,10 +5094,12 @@ quantity, so both travel the same path to hardware and to display.
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'`, the exposure is not a finite number.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera's range could not be read after its last readout change (`setting_limits`).
 
 **Refusals by REST status**
 
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
 
 <a id="CameraAPI.applied_gain_db_for"></a>
 ### `CameraAPI.applied_gain_db_for`
@@ -5120,10 +5125,12 @@ how a user's setting gets destroyed by connecting a smaller body.
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'`, the gain is not a finite number.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera's range could not be read after its last readout change (`setting_limits`).
 
 **Refusals by REST status**
 
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
 
 <a id="CameraAPI.apply"></a>
 ### `CameraAPI.apply`
@@ -5172,6 +5179,7 @@ dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effec
 
 - `ArgumentRefusedError`: `'missing_key'`, `auto_gain` is True and `auto_gain_settings` is None or lacks a key the auto-gain write reads; `'not_a_number'`, one of its values, the gain or the exposure is not a finite number; `'key_unknown'`, it holds a key the write does not take; `'gain_range_inverted'`, its minimum gain is above its maximum. Nothing was written.
 - `CameraSettingOutOfRangeError`: `'gain_db_out_of_range'` or `'exposure_ms_out_of_range'`, the gain or the exposure is outside the range the camera declares; nothing was written.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera's range could not be read after its last readout change (`setting_limits`); nothing was written.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; nothing was written.
 - `CameraSettingRejected`: The camera did not take the gain, the exposure or the auto-gain change. When more than one, `setting` names each, comma-separated, `requested` holds their values in that order, the message carries each sentence, and the reason is the first any of them carries of `'camera_no_answer'`, `'camera_read_failed'` and `'camera_rejected'`.
 
@@ -5179,7 +5187,7 @@ dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effec
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_no_answer`, `camera_read_failed`, `camera_rejected`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_no_answer`, `camera_read_failed`, `camera_rejected`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.auto_exposure"></a>
@@ -5507,7 +5515,7 @@ needs this, not the held value.
 
 **Returns**
 
-float | None: The bound in ms; None when it is unknown and no camera reports a maximum.
+float | None: The bound in ms; None when it is unknown and no maximum is known: none reported, or the last read of the camera's range failed (`setting_limits` raises it).
 
 **Raises**
 
@@ -5652,43 +5660,6 @@ offset it makes in DN is measured, not derived from it.
 **Returns**
 
 float | None: The black level; None when the camera reports none.
-
-**Raises**
-
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
-- `CameraReadFailedError`: The camera did not answer the read.
-
-**Refusals by REST status**
-
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="CameraAPI.read_exposure_min_ms"></a>
-### `CameraAPI.read_exposure_min_ms`
-
-```python
-def read_exposure_min_ms(self) -> float | None
-```
-
-Marks: reads (changes nothing); enters: `lane_override`.  
-Route: `GET /api/v1/scope/camera/read_exposure_min_ms`.
-
-Read from the camera the shortest exposure it takes now, in milliseconds.
-
-Runs on the camera lane, admitted whatever holds the scope, behind what
-is queued there, up to 170 s, which a long summed capture or an
-engineering diagnostic ahead of it can outlast.
-
-On IDS bodies the floor moves from the value read at connect
-(`capabilities.camera_limits.exposure_min_ms`) as the frame
-changes (it falls at binning 2 on the U3-34LxXLS-M), and this reads
-the camera's live floor; every other driver answers the floor it
-read at connect.
-
-**Returns**
-
-float | None: The floor; None when the camera declares none.
 
 **Raises**
 
@@ -6089,7 +6060,7 @@ stored setting (`ScopeSession.update_settings('<channel>.exposure_ms', ...)`).
 
 **Args**
 
-- `exposure_ms`: The exposure time in milliseconds, within the camera's declared range (`ScopeCapabilities.camera_limits`).
+- `exposure_ms`: The exposure time in milliseconds, within the camera's range now (`setting_limits`).
 
 **Returns**
 
@@ -6099,6 +6070,7 @@ float | None: The exposure in milliseconds now in effect, which differs from the
 
 - `ArgumentRefusedError`: `'not_a_number'`, the exposure is not a finite number; nothing was sent to the camera.
 - `CameraSettingOutOfRangeError`: The exposure is outside the range the camera declares; nothing was sent to it.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera's range could not be read after its last readout change (`setting_limits`); nothing was sent to it.
 - `CameraSettingRejected`: A live driver refused the exposure or raised from the write (chained). It carries the words its reporter shows; nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write.
 
@@ -6106,7 +6078,7 @@ float | None: The exposure in milliseconds now in effect, which differs from the
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_frame_size"></a>
@@ -6173,7 +6145,7 @@ of that channel uses, is its stored setting
 
 **Args**
 
-- `gain_db`: The gain in dB, within the camera's declared range (`ScopeCapabilities.camera_limits`).
+- `gain_db`: The gain in dB, within the camera's range now (`setting_limits`).
 
 **Returns**
 
@@ -6183,6 +6155,7 @@ float | None: The gain in dB now in effect, which differs from the request when 
 
 - `ArgumentRefusedError`: `'not_a_number'`, the gain is not a finite number; nothing was sent to the camera.
 - `CameraSettingOutOfRangeError`: The gain is outside the range the camera declares; nothing was sent to it.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera's range could not be read after its last readout change (`setting_limits`); nothing was sent to it.
 - `CameraSettingRejected`: A live driver refused the gain or raised from the write (chained). It carries the words its reporter shows; nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write.
 
@@ -6190,7 +6163,7 @@ float | None: The gain in dB now in effect, which differs from the request when 
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.set_high_conversion_gain"></a>
@@ -6295,6 +6268,34 @@ the camera took it, as `set_high_conversion_gain` is.
 - 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `line_noise_reduction_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+
+<a id="CameraAPI.setting_limits"></a>
+### `CameraAPI.setting_limits`
+
+```python
+setting_limits: CameraSettingLimits | None  # property
+```
+
+Route: `GET /api/v1/scope/camera/setting_limits`.
+
+The gain and exposure the camera takes now; no camera read.
+
+Read from the camera at connect and after each change of its
+readout (pixel format, binning, frame size, conversion gain,
+line-noise reduction, and the restore that writes them), so it is
+the range in force. Each setter refuses a value outside it.
+
+**Returns**
+
+CameraSettingLimits | None: The range; None with no camera.
+
+**Raises**
+
+- `CameraReadFailedError`: `'camera_read_failed'`, the last read of the range failed; raised until a read succeeds.
+
+**Refusals by REST status**
+
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
 
 <a id="DiagnosticsAPI"></a>
 ## `lumascope.DiagnosticsAPI`
@@ -9355,14 +9356,14 @@ The camera's next `count` reads of `node` fail as the real
 driver that reads the node fails (`SimulatedCamera.FAILED_READS`):
 each raises `CameraReadFailedError`.
 
-The minimum exposure's is IDS's read, the one driver that reads it
-live, offered here so the live-floor read is proven without an IDS
-body. A real driver fails the pixel-format read only before its
+The minimum exposure's is the range read the camera API makes after
+each readout change (`camera.setting_limits`), offered so a failed
+range read is proven without a body. A real driver fails the pixel-format read only before its
 first good read after a connect, since it keeps the format it read.
 
 **Args**
 
-- `node`: The setting read: `'gain'`, `'exposure'`, `'frame_size'` (the window the camera acquires), `'frame_grid'` (the windows it can acquire, which a frame size write reads first), `'binning'`, `'pixel_format'`, `'pixel_formats'` (the formats offered, which a pixel format write reads first), `'black_level'`, `'frame_rate'`, `'minimum_exposure'` (`camera.read_exposure_min_ms`), `'auto_gain'`, `'auto_exposure'` or `'grabbing'` (whether the camera is acquiring, which every write's config guard reads first).
+- `node`: The setting read: `'gain'`, `'exposure'`, `'frame_size'` (the window the camera acquires), `'frame_grid'` (the windows it can acquire, which a frame size write reads first), `'binning'`, `'pixel_format'`, `'pixel_formats'` (the formats offered, which a pixel format write reads first), `'black_level'`, `'frame_rate'`, `'minimum_exposure'` (the exposure floor, read into `camera.setting_limits`), `'auto_gain'`, `'auto_exposure'` or `'grabbing'` (whether the camera is acquiring, which every write's config guard reads first).
 - `answer`: `'failed'`, the read raises; or `'removed'`, the same raise with the camera gone from the bus during the read (it stays removed for the session, as after `remove_camera`).
 - `count`: How many reads in a row meet it, 1 or more.
 
@@ -9812,21 +9813,18 @@ What `build` made.
 A record: it crosses the wire as its data.  
 Held in: [`ScopeCapabilities.camera_limits`](#ScopeCapabilities.camera_limits).
 
-The ranges the attached camera takes, read once at connect.
+The frames the attached camera takes, read once at connect.
 
-`set_gain_db`, `set_exposure_ms` and `set_frame_size` refuse a
-value outside them before it reaches the camera. A limit the camera
-does not declare is None, and that end is not checked.
+`set_frame_size` refuses a frame outside them before it reaches the
+camera. A limit the camera does not declare is None, and that end is
+not checked. The exposure and gain ranges are not here: they move with
+the camera's readout, so the camera API holds and re-reads them
+(`scope.camera.setting_limits`).
 
 **Fields**
 
-- <a id="CameraLimits.analog_gain_max_db"></a>`analog_gain_max_db`: `float | None` -- The most gain before a digital stage, in dB, past which the camera multiplies digitised values and the noise with the signal: the analog maximum the camera's profile documents, or, for a camera whose profile states no digital stage, its total maximum (all its gain is analog); None for a camera with a digital stage and no documented split.
-- <a id="CameraLimits.exposure_max_ms"></a>`exposure_max_ms`: `float | None` -- The longest exposure the camera takes, in milliseconds; None when the camera declares none.
-- <a id="CameraLimits.exposure_min_ms"></a>`exposure_min_ms`: `float | None` -- The shortest exposure the camera takes, in milliseconds; None when the camera declares none.
 - <a id="CameraLimits.frame_max"></a>`frame_max`: `FrameSize | None` -- The largest frame the scope delivers, unbinned: the smallest of the sensor size the camera's profile documents, the maximum the camera reports at connect multiplied back by the binning it reported then, and the model's catalogue `MaxFrame` (a lens that images less than the sensor: the LS560's 1700), each where it is known; None when none is. The profile stays in that comparison because a camera can report a few rows and columns more than its documented sensor (the LS850T's daA3840 reports 3860 x 2178 against 3840 x 2160). `set_frame_size` divides it by the binning in force.
 - <a id="CameraLimits.frame_min"></a>`frame_min`: `FrameSize | None` -- The smallest frame the camera reported at connect; None when it reported none.
-- <a id="CameraLimits.gain_max_db"></a>`gain_max_db`: `float | None` -- The most gain the camera applies, digital stage included, in dB; None when the camera declares none.
-- <a id="CameraLimits.gain_min_db"></a>`gain_min_db`: `float | None` -- The least gain the camera takes, in dB; None when the camera declares none.
 
 <a id="CameraLink"></a>
 ## `lumascope.CameraLink`
@@ -9857,6 +9855,27 @@ One of the camera's named settings, as the camera answered a read of it.
 
 - <a id="CameraNodeValue.unit"></a>`unit`: `str` -- The unit the node states (`'dB'`, `'us'`), or `''` for a node that states none.
 - <a id="CameraNodeValue.value"></a>`value`: `int | float | bool | str` -- The node's value. An enumeration's is its symbolic name (`'Mono8'`), not its number.
+
+<a id="CameraSettingLimits"></a>
+## `lumascope.CameraSettingLimits`
+
+A record: it crosses the wire as its data.  
+Returned by: [`CameraAPI.setting_limits`](#CameraAPI.setting_limits).
+
+The gain and exposure the attached camera takes now (`CameraAPI.setting_limits`).
+
+Read from the camera when it connects and again after each change of its
+readout, since these move with it: the exposure floor rises from Mono8
+to Mono12 on the Baslers and falls at binning 2 on the IDS. A limit the
+camera does not declare is None, and that end is not checked.
+
+**Fields**
+
+- <a id="CameraSettingLimits.analog_gain_max_db"></a>`analog_gain_max_db`: `float | None` -- The most gain before a digital stage, in dB, past which the camera multiplies digitised values and the noise with the signal: the analog maximum the camera's profile documents, or, for a camera whose profile states no digital stage, its gain maximum (all its gain is analog); None for a camera with a digital stage and no documented split.
+- <a id="CameraSettingLimits.exposure_max_ms"></a>`exposure_max_ms`: `float | None` -- The longest exposure the camera takes, in ms.
+- <a id="CameraSettingLimits.exposure_min_ms"></a>`exposure_min_ms`: `float | None` -- The shortest exposure the camera takes, in ms.
+- <a id="CameraSettingLimits.gain_max_db"></a>`gain_max_db`: `float | None` -- The most gain the camera applies, digital stage included, in dB.
+- <a id="CameraSettingLimits.gain_min_db"></a>`gain_min_db`: `float | None` -- The least gain the camera takes, in dB.
 
 <a id="CaptureTally"></a>
 ## `lumascope.CaptureTally`
@@ -10171,6 +10190,7 @@ never by this record.
 **Fields**
 
 - <a id="ChannelSliderMaxima.slider_max_exposure_ms"></a>`slider_max_exposure_ms`: `float | None` -- The exposure slider's maximum, in milliseconds; None with no camera connected.
+- <a id="ChannelSliderMaxima.slider_max_gain_db"></a>`slider_max_gain_db`: `float` -- The gain slider's maximum, in dB: the camera's gain maximum now (`CameraAPI.setting_limits`), or 48 dB with no camera connected.
 - <a id="ChannelSliderMaxima.slider_max_illumination_ma"></a>`slider_max_illumination_ma`: `int | None` -- The illumination slider's maximum, in mA; None with no LED board, or for a channel with no LED on this scope (luminescence).
 
 <a id="ClockMapping"></a>
@@ -12814,10 +12834,12 @@ tuple.
 
 - <a id="ScopeCapabilities.axes"></a>`axes`: `tuple[Axis, ...]` -- The axes this scope has: `('Z',)` for an LS820, `('X', 'Y', 'Z')` for an LS850, `('X', 'Y', 'Z', 'T')` for an LS850T, `()` with no motor board (an LS460, LS560 or LS620).
 - <a id="ScopeCapabilities.buffer_bit_depth"></a>`buffer_bit_depth`: `int` -- The width of the buffers frames are delivered in, not the bits that carry data: 16 for Mono10, Mono12 and Mono16, right-aligned in 16-bit buffers; 8 for a camera that delivers only 8-bit buffers (a Classic's). The data's depth is `camera_max_significant_bits`, and the current frames' `imaging.significant_bits`.
+- <a id="ScopeCapabilities.camera_analog_gain_max_db"></a>`camera_analog_gain_max_db`: `float | None` -- The most gain before a digital stage, in dB, as the camera's profile documents it; None when it documents none or with no camera. The analog maximum in force, which counts a camera with no digital stage, is `scope.camera.setting_limits.analog_gain_max_db`.
 - <a id="ScopeCapabilities.camera_binning_sizes"></a>`camera_binning_sizes`: `tuple[int, ...]` -- The binning factors the camera offers; empty with no camera, or one that offers none.
 - <a id="ScopeCapabilities.camera_firmware_version"></a>`camera_firmware_version`: `str | None` -- The firmware version the camera reports at connect, or None (a Classic's camera reports none).
+- <a id="ScopeCapabilities.camera_gain_has_digital"></a>`camera_gain_has_digital`: `bool` -- True when the camera's profile documents a digital gain stage above its analog one; False with none, or with no camera.
 - <a id="ScopeCapabilities.camera_has_clock_latch"></a>`camera_has_clock_latch`: `bool | None` -- True when the host can latch the camera's timestamp clock and read it, which maps the camera's clock onto the host's: each capture's `FrameRecord.clock_mapping`. False on a camera without a latch (IDS, a Classic's), or whose tick rate is unknown, as it is for a camera whose frames do not carry their start on that clock; its frames carry no mapping. None when the latch probe failed as the camera came up; its frames then carry no mapping either.
-- <a id="ScopeCapabilities.camera_limits"></a>`camera_limits`: `CameraLimits | None` -- The ranges the attached camera takes, read once at connect; None with no camera connected.
+- <a id="ScopeCapabilities.camera_limits"></a>`camera_limits`: `CameraLimits | None` -- The frames the attached camera takes, read once at connect; None with no camera connected.
 - <a id="ScopeCapabilities.camera_max_significant_bits"></a>`camera_max_significant_bits`: `int | None` -- The deepest depth the camera delivers over its pixel formats: 12 for a camera that offers Mono12, 8 for one that streams only 8 bits. None with no camera, or one whose formats are unknown. The depth of the frames it delivers now, which follows `set_image_mode`, is `imaging.significant_bits`.
 - <a id="ScopeCapabilities.camera_model"></a>`camera_model`: `str | None` -- The model the camera reports at connect; None with no camera, or one that did not say.
 - <a id="ScopeCapabilities.camera_node_maps"></a>`camera_node_maps`: `tuple[str, ...]` -- The maps of the camera's named settings `scope.diagnostics.read_camera_node` reads, by the camera SDK's names for them: `'device'` (the camera's own), and on a Basler `'transport'`, `'stream'`, `'instant_camera'` and `'event'`, on an IDS body `'stream'`. Empty for a camera with no named settings -- a Classic's, the simulated camera -- and with no camera.
@@ -18419,13 +18441,13 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/camera/read_auto_gain` | [`CameraAPI.read_auto_gain`](#CameraAPI.read_auto_gain) |
 | `GET` | `/api/v1/scope/camera/read_binning` | [`CameraAPI.read_binning`](#CameraAPI.read_binning) |
 | `GET` | `/api/v1/scope/camera/read_black_level` | [`CameraAPI.read_black_level`](#CameraAPI.read_black_level) |
-| `GET` | `/api/v1/scope/camera/read_exposure_min_ms` | [`CameraAPI.read_exposure_min_ms`](#CameraAPI.read_exposure_min_ms) |
 | `GET` | `/api/v1/scope/camera/read_exposure_ms` | [`CameraAPI.read_exposure_ms`](#CameraAPI.read_exposure_ms) |
 | `GET` | `/api/v1/scope/camera/read_frame_rate_fps` | [`CameraAPI.read_frame_rate_fps`](#CameraAPI.read_frame_rate_fps) |
 | `GET` | `/api/v1/scope/camera/read_frame_size` | [`CameraAPI.read_frame_size`](#CameraAPI.read_frame_size) |
 | `GET` | `/api/v1/scope/camera/read_gain_db` | [`CameraAPI.read_gain_db`](#CameraAPI.read_gain_db) |
 | `GET` | `/api/v1/scope/camera/read_pixel_format` | [`CameraAPI.read_pixel_format`](#CameraAPI.read_pixel_format) |
 | `POST` | `/api/v1/scope/camera/set_auto_gain` | [`CameraAPI.set_auto_gain`](#CameraAPI.set_auto_gain) |
+| `GET` | `/api/v1/scope/camera/setting_limits` | [`CameraAPI.setting_limits`](#CameraAPI.setting_limits) |
 | `GET` | `/api/v1/scope/capabilities` | [`Lumascope.capabilities`](#Lumascope.capabilities) |
 | `GET` | `/api/v1/scope/channel_identity` | [`Lumascope.channel_identity`](#Lumascope.channel_identity) |
 | `GET` | `/api/v1/scope/diagnostics/get_camera_link_info` | [`DiagnosticsAPI.get_camera_link_info`](#DiagnosticsAPI.get_camera_link_info) |

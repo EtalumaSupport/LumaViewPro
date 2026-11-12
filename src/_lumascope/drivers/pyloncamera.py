@@ -195,7 +195,7 @@ def _accepted_range(node, name: str) -> tuple[float, float]:
     snapped = round(low + steps * increment, decimals)
 
     if snapped != high:
-        logger.info(
+        logger.debug(
             f'[CAM Class ] {name}: max {high} is not on the {increment} step grid; '
             f'publishing {snapped}'
         )
@@ -319,49 +319,112 @@ class PylonCamera(Camera):
     # stop_grabbing -> wait_for_acquisition_idle -> Close -> DetachDevice ->
     # DestroyDevice, each independently guarded.
 
+    def _read_node_range(self, name: str) -> tuple[float, float] | None:
+        """The (min, max) a float node accepts now, read from the camera.
+
+        Narrowed to the values the node takes (``_accepted_range``). None for
+        a node this camera does not offer.
+
+        Raises:
+            CameraReadFailedError: The node or its range could not be read.
+        """
+        try:
+            node = self._find_node(self.active.GetNodeMap(), name)
+            if node is None:
+                return None
+            return _accepted_range(node, name)
+        except Exception as e:
+            raise CameraReadFailedError(f'{name} range read failed: {type(e).__name__}: {e}') from e
+
+    @property
+    def min_exposure(self) -> float | None:
+        """The shortest exposure the camera takes now, in milliseconds.
+
+        Read from the ExposureTime node each call: its minimum moves with
+        the pixel format (Mono8 to Mono12 raises it on the a2A3536 and the
+        daA3840) and with the camera's firmware. A camera without the node
+        answers the profile's documented floor.
+
+        Raises:
+            CameraReadFailedError: The node's range could not be read.
+        """
+        if not self.active:
+            return super().min_exposure
+        span = self._read_node_range('ExposureTime')
+        return super().min_exposure if span is None else span[0] / 1000.0
+
+    @property
+    def max_exposure(self) -> float:
+        """The longest exposure the camera takes now, in milliseconds,
+        read as ``min_exposure`` is.
+
+        Raises:
+            CameraReadFailedError: The node's range could not be read.
+        """
+        if not self.active:
+            return super().max_exposure
+        span = self._read_node_range('ExposureTime')
+        return super().max_exposure if span is None else span[1] / 1000.0
+
+    @property
+    def min_gain(self) -> float | None:
+        """The least gain the camera takes now, in dB, read from the Gain node.
+
+        A camera without the node answers the profile's documented floor.
+
+        Raises:
+            CameraReadFailedError: The node's range could not be read.
+        """
+        if not self.active:
+            return super().min_gain
+        span = self._read_node_range('Gain')
+        return super().min_gain if span is None else span[0]
+
+    @property
+    def max_gain(self) -> float:
+        """The most gain the camera takes now, in dB, read as ``min_gain`` is.
+
+        Raises:
+            CameraReadFailedError: The node's range could not be read.
+        """
+        if not self.active:
+            return super().max_gain
+        span = self._read_node_range('Gain')
+        return super().max_gain if span is None else span[1]
+
     def _query_dynamic_capabilities(self):
-        """Query Pylon SDK for gain/exposure ranges and merge into profile."""
+        """Query the Pylon SDK for the camera's formats and pixel pitch, and log its ranges."""
         if not self.active:
             return
 
         try:
             nm = self.active.GetNodeMap()
 
-            # Gain ranges
+            # The gain and exposure ranges are not stored: they move with the
+            # readout (Mono8 to Mono12 raises the exposure floor), so they are
+            # read from the camera when asked (min_gain, max_gain,
+            # min_exposure, max_exposure). The range the camera came
+            # up with is logged, the record of the camera as it connected.
             try:
-                gain_node = self._find_node(nm, 'Gain')
-                if gain_node is None:
-                    logger.info(
-                        '[CAM Class ] Gain not offered by this camera; gain range left unset'
-                    )
+                gain_range = self._read_node_range('Gain')
+                if gain_range is None:
+                    logger.info('[CAM Class ] Gain not offered by this camera')
                 else:
-                    low, high = _accepted_range(gain_node, 'Gain')
-                    self.profile.gain.total_min_db = low
-                    self.profile.gain.total_max_db = high
                     logger.info(
-                        f'[CAM Class ] Gain range: {self.profile.gain.total_min_db:.1f} - '
-                        f'{self.profile.gain.total_max_db:.1f} dB'
+                        f'[CAM Class ] Gain range: {gain_range[0]:.1f} - {gain_range[1]:.1f} dB'
                     )
-            except Exception as e:
+            except CameraReadFailedError as e:
                 _cam_log.warning(f'[CAM Class ] Could not query gain range: {e}')
-
-            # Exposure range
             try:
-                exp_node = self._find_node(nm, 'ExposureTime')
-                if exp_node is None:
-                    logger.info(
-                        '[CAM Class ] ExposureTime not offered by this camera; '
-                        'exposure range left unset'
-                    )
+                exposure_range = self._read_node_range('ExposureTime')
+                if exposure_range is None:
+                    logger.info('[CAM Class ] ExposureTime not offered by this camera')
                 else:
-                    low, high = _accepted_range(exp_node, 'ExposureTime')
-                    self.profile.exposure_min_us = low
-                    self.profile.exposure_max_us = high
                     logger.info(
-                        f'[CAM Class ] Exposure range: {self.profile.exposure_min_us:.0f} - '
-                        f'{self.profile.exposure_max_us:.0f} us'
+                        f'[CAM Class ] Exposure range: {exposure_range[0]:.0f} - '
+                        f'{exposure_range[1]:.0f} us'
                     )
-            except Exception as e:
+            except CameraReadFailedError as e:
                 _cam_log.warning(f'[CAM Class ] Could not query exposure range: {e}')
 
             # The formats this body offers, as the IDS driver records them: the

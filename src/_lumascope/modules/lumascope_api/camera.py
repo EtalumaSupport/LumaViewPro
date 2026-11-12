@@ -50,7 +50,7 @@ from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.activity_claim import ActivityHolder, current_taking, guarded_write
 from _lumascope.modules.live_work import WorkKind
 from _lumascope.modules.frame_validity import FrameValidity, FrameValiditySource
-from _lumascope.modules.scope_capabilities import FrameSize
+from _lumascope.modules.scope_capabilities import FrameSize, ScopeCapabilities
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.sequential_io_executor import IOTask
 from _lumascope.modules.api_surface import Admission, api, api_fields
@@ -341,6 +341,92 @@ class AppliedExposure:
 
     def __post_init__(self) -> None:
         _refuse_a_contradicted_cap(self, self.stored_ms, self.applied_ms, self.capped)
+
+
+@api_fields(
+    'gain_min_db', 'gain_max_db', 'analog_gain_max_db', 'exposure_min_ms', 'exposure_max_ms'
+)
+@dataclasses.dataclass(frozen=True)
+class CameraSettingLimits:
+    """The gain and exposure the attached camera takes now (``CameraAPI.setting_limits``).
+
+    Read from the camera when it connects and again after each change of its
+    readout, since these move with it: the exposure floor rises from Mono8
+    to Mono12 on the Baslers and falls at binning 2 on the IDS. A limit the
+    camera does not declare is None, and that end is not checked.
+
+    Attributes:
+        gain_min_db: The least gain the camera takes, in dB.
+        gain_max_db: The most gain the camera applies, digital stage
+            included, in dB.
+        analog_gain_max_db: The most gain before a digital stage, in dB,
+            past which the camera multiplies digitised values and the noise
+            with the signal: the analog maximum the camera's profile
+            documents, or, for a camera whose profile states no digital
+            stage, its gain maximum (all its gain is analog); None for a
+            camera with a digital stage and no documented split.
+        exposure_min_ms: The shortest exposure the camera takes, in ms.
+        exposure_max_ms: The longest exposure the camera takes, in ms.
+    """
+
+    gain_min_db: float | None
+    gain_max_db: float | None
+    analog_gain_max_db: float | None
+    exposure_min_ms: float | None
+    exposure_max_ms: float | None
+
+
+def _a_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _setting_limits_of(driver: Camera, capabilities: ScopeCapabilities) -> CameraSettingLimits:
+    """The gain and exposure range ``driver``'s camera reports now.
+
+    The analog maximum is the one the camera's profile documents
+    (``capabilities``), or, for a camera with no digital stage, the gain
+    maximum read now.
+
+    Raises:
+        HardwareError: A read of the range failed.
+    """
+    gain_max = _a_number(driver.get_max_gain())
+    gain_max = gain_max if gain_max is not None and gain_max > 0 else None
+    exposure_min = driver.get_min_exposure()
+    exposure_max = driver.get_max_exposure()
+    analog_max = capabilities.camera_analog_gain_max_db
+    if analog_max is None and not capabilities.camera_gain_has_digital:
+        analog_max = gain_max
+    return CameraSettingLimits(
+        gain_min_db=_a_number(driver.min_gain),
+        gain_max_db=gain_max,
+        analog_gain_max_db=analog_max,
+        exposure_min_ms=(
+            float(exposure_min) if common_utils.is_valid_exposure_ms(exposure_min) else None
+        ),
+        exposure_max_ms=(
+            float(exposure_max) if common_utils.is_valid_exposure_ms(exposure_max) else None
+        ),
+    )
+
+
+# The frame-validity sources of the writes that change the sensor's readout,
+# after each of which the gain and exposure range is read again: a pixel
+# format moves the exposure floor on the Baslers, a binning on the IDS. Every
+# camera write declares its source, so a readout write cannot leave the
+# range unread. Exposure, gain and black level are not here: no record shows
+# them moving the range, and they are the per-step writes.
+_READOUT_SOURCES = frozenset(
+    {
+        FrameValiditySource.BINNING,
+        FrameValiditySource.FRAME_SIZE,
+        FrameValiditySource.PIXEL_FORMAT,
+        FrameValiditySource.CONVERSION_GAIN_MODE,
+        FrameValiditySource.LINE_NOISE_REDUCTION,
+    }
+)
 
 
 @api_fields('applied', 'capped', 'stored')
@@ -774,6 +860,11 @@ class CameraAPI:
         # when none is pending. Guarded by _camera_cache_lock and written
         # with the cache's exposure (_commit_camera_writes).
         self._outgoing_exposure: tuple[float, float] | None = None
+        # The camera's gain and exposure range as last read, or the failure
+        # of that read, which every reader raises until a read succeeds; None
+        # with no camera. Written by _read_setting_limits, under
+        # _camera_cache_lock.
+        self._setting_limits: CameraSettingLimits | HardwareError | None = None
         self._populate_camera_cache()
 
     @property
@@ -793,11 +884,13 @@ class CameraAPI:
         so a failed read never overwrites a value held, and one key the
         camera did not answer cannot stop the rest of the round. A black
         level the camera did not answer stays unknown, the failure reported
-        (``_report_unread``). The camera's limits are not here: they are
+        (``_report_unread``). The gain and exposure range is read with them
+        (``_read_setting_limits``); the frame limits are
         ``capabilities.camera_limits``, read once at connect.
         """
         if not self._scope.camera_connected:
             return
+        self._read_setting_limits()
         for key in _LIVE_SETTING_READS:
             self._refresh_held(key)
         try:
@@ -988,6 +1081,10 @@ class CameraAPI:
         Anything else is our own defect and leaves as itself, never named
         the camera's refusal.
 
+        A write declaring a readout source (``_READOUT_SOURCES``) is followed,
+        whether it returned or raised, by a read of the camera's gain and
+        exposure range (``_read_setting_limits``), which never raises.
+
         A camera declared removed by the time a sent write returns is refused
         as an absent one, whatever the driver answered: a camera that is gone
         has no value in effect, and its absence is one answer however the
@@ -1094,6 +1191,9 @@ class CameraAPI:
                 self._frame_validity.invalidate(source, began_ns=began_ns)
             for source in force_clear:
                 self._frame_validity.set_target(source, None)
+            # A readout write that raised may still have changed the camera.
+            if _READOUT_SOURCES.intersection((*invalidates, *force_invalidate)):
+                self._read_setting_limits()
         if refusal is not None and self.camera_removed:
             raise _camera_not_connected(member)
         if result is False:
@@ -1524,9 +1624,10 @@ class CameraAPI:
     ) -> None:
         """Refuse a request outside the camera's declared range.
 
-        Checked on the public setters, from the cached limits, so every
-        camera answers alike: a body that would refuse the value and one that
-        would silently clamp it both never see it. The impls check no range;
+        Checked on the public setters, from the range held
+        (``setting_limits``), so every camera answers alike: a body that
+        would refuse the value and one that would silently clamp it both
+        never see it. The impls check no range;
         their callers (the channel apply, the auto-gain lock, the restore)
         write values that are already the camera's own or capped to it. An
         undeclared end is not checked.
@@ -1566,8 +1667,8 @@ class CameraAPI:
         (``ScopeSession.update_settings('<channel>.gain_db', ...)``).
 
         Args:
-            gain_db: The gain in dB, within the camera's declared range
-                (``ScopeCapabilities.camera_limits``).
+            gain_db: The gain in dB, within the camera's range now
+                (``setting_limits``).
 
         Returns:
             float | None: The gain in dB now in effect, which differs from the
@@ -1579,6 +1680,9 @@ class CameraAPI:
                 finite number; nothing was sent to the camera.
             CameraSettingOutOfRangeError: The gain is outside the range the
                 camera declares; nothing was sent to it.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's
+                range could not be read after its last readout change
+                (``setting_limits``); nothing was sent to it.
             CameraSettingRejected: A live driver refused the gain or raised
                 from the write (chained). It carries the words its reporter
                 shows; nothing is shown here.
@@ -1593,7 +1697,7 @@ class CameraAPI:
         # The range is the connected camera's: with none, or the scope
         # disconnected, that is the answer, not a range it no longer has.
         self.refuse_camera_not_connected('set_gain_db')
-        limits = self._scope.capabilities.camera_limits
+        limits = self.setting_limits
         self._refuse_out_of_range(
             'gain_db',
             gain_db,
@@ -1622,7 +1726,7 @@ class CameraAPI:
 
         Args:
             exposure_ms: The exposure time in milliseconds, within the
-                camera's declared range (``ScopeCapabilities.camera_limits``).
+                camera's range now (``setting_limits``).
 
         Returns:
             float | None: The exposure in milliseconds now in effect, which
@@ -1635,6 +1739,9 @@ class CameraAPI:
                 finite number; nothing was sent to the camera.
             CameraSettingOutOfRangeError: The exposure is outside the range
                 the camera declares; nothing was sent to it.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's
+                range could not be read after its last readout change
+                (``setting_limits``); nothing was sent to it.
             CameraSettingRejected: A live driver refused the exposure or
                 raised from the write (chained). It carries the words its
                 reporter shows; nothing is shown here.
@@ -1649,7 +1756,7 @@ class CameraAPI:
         # The range is the connected camera's: with none, or the scope
         # disconnected, that is the answer, not a range it no longer has.
         self.refuse_camera_not_connected('set_exposure_ms')
-        limits = self._scope.capabilities.camera_limits
+        limits = self.setting_limits
         self._refuse_out_of_range(
             'exposure_ms',
             exposure_ms,
@@ -3319,39 +3426,6 @@ class CameraAPI:
         return self._read_on_lane(self._read_fresh, 'read_auto_exposure', args=('auto_exposure',))
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def read_exposure_min_ms(self) -> float | None:
-        """Read from the camera the shortest exposure it takes now, in milliseconds.
-
-        Runs on the camera lane, admitted whatever holds the scope, behind what
-        is queued there, up to 170 s, which a long summed capture or an
-        engineering diagnostic ahead of it can outlast.
-
-        On IDS bodies the floor moves from the value read at connect
-        (``capabilities.camera_limits.exposure_min_ms``) as the frame
-        changes (it falls at binning 2 on the U3-34LxXLS-M), and this reads
-        the camera's live floor; every other driver answers the floor it
-        read at connect.
-
-        Returns:
-            float | None: The floor; None when the camera declares
-                none.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
-            CameraReadFailedError: The camera did not answer the read.
-        """
-        return self._read_on_lane(
-            lambda: self._read_unheld(
-                'read_exposure_min_ms',
-                'minimum exposure',
-                lambda driver: driver.get_min_exposure(),
-            ),
-            'read_exposure_min_ms',
-        )
-
-    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_binning(self) -> int:
         """Read the camera's binning factor from the camera.
 
@@ -3446,6 +3520,55 @@ class CameraAPI:
             return None
         with self._camera_cache_lock:
             return self._camera_cache[key]
+
+    def _read_setting_limits(self) -> None:
+        """Read the camera's gain and exposure range into the store.
+
+        On the camera lane, or in bring-up, after the connect and each
+        readout write. A read that fails is held, not raised: the command
+        that preceded it landed and returns as it did, and every reader of
+        ``setting_limits`` raises the failure until a read succeeds.
+        """
+        driver = self._driver
+        held: CameraSettingLimits | HardwareError | None = None
+        if driver is not None and driver.active:
+            try:
+                held = _setting_limits_of(driver, self._scope.capabilities)
+            except HardwareError as failed:
+                logger.warning(
+                    f"[SCOPE API ] The camera's gain and exposure range read failed: {failed}"
+                )
+                held = failed
+        with self._camera_cache_lock:
+            self._setting_limits = held
+
+    @api
+    @property
+    def setting_limits(self) -> CameraSettingLimits | None:
+        """The gain and exposure the camera takes now; no camera read.
+
+        Read from the camera at connect and after each change of its
+        readout (pixel format, binning, frame size, conversion gain,
+        line-noise reduction, and the restore that writes them), so it is
+        the range in force. Each setter refuses a value outside it.
+
+        Returns:
+            CameraSettingLimits | None: The range; None with no camera.
+
+        Raises:
+            CameraReadFailedError: ``'camera_read_failed'``, the last read of
+                the range failed; raised until a read succeeds.
+        """
+        if self._driver is None:
+            return None
+        with self._camera_cache_lock:
+            held = self._setting_limits
+        if isinstance(held, HardwareError):
+            raise CameraReadFailedError(
+                f"The camera's gain and exposure range could not be read after its "
+                f'last readout change: {held}'
+            ) from held
+        return held
 
     @property
     def active(self) -> bool:
@@ -3608,7 +3731,8 @@ class CameraAPI:
 
         Returns:
             float | None: The bound in ms; None when it is unknown and no
-                camera reports a maximum.
+                maximum is known: none reported, or the last read of the
+                camera's range failed (``setting_limits`` raises it).
 
         Raises:
             Nothing.
@@ -3625,8 +3749,12 @@ class CameraAPI:
         else:
             bound = arm.ceiling_ms
         if bound is None:
-            limits = self._scope.capabilities.camera_limits
-            bound = limits.exposure_max_ms if limits else None
+            # A bound for a wait, which has a floor of its own: a range whose
+            # read failed is no maximum known, the failure raised by
+            # setting_limits to every caller that checks a value against it.
+            with self._camera_cache_lock:
+                limits = self._setting_limits
+            bound = limits.exposure_max_ms if isinstance(limits, CameraSettingLimits) else None
         if bound is not None and outgoing is not None:
             return max(bound, outgoing[0])
         return bound
@@ -3646,9 +3774,12 @@ class CameraAPI:
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the gain is not a
                 finite number.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's
+                range could not be read after its last readout change
+                (``setting_limits``).
         """
         refuse_unless_finite_number(stored_gain_db, 'stored_gain_db')
-        limits = self._scope.capabilities.camera_limits
+        limits = self.setting_limits
         stored, applied = cap_stored_value(
             stored_gain_db,
             limits.gain_min_db if limits else None,
@@ -3669,9 +3800,12 @@ class CameraAPI:
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the exposure is not a
                 finite number.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's
+                range could not be read after its last readout change
+                (``setting_limits``).
         """
         refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
-        limits = self._scope.capabilities.camera_limits
+        limits = self.setting_limits
         stored, applied = cap_stored_value(
             stored_exposure_ms,
             limits.exposure_min_ms if limits else None,
@@ -4365,6 +4499,9 @@ class CameraAPI:
             CameraSettingOutOfRangeError: ``'gain_db_out_of_range'`` or
                 ``'exposure_ms_out_of_range'``, the gain or the exposure is
                 outside the range the camera declares; nothing was written.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's
+                range could not be read after its last readout change
+                (``setting_limits``); nothing was written.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; nothing was written.
             CameraSettingRejected: The camera did not take the gain, the
@@ -4381,7 +4518,7 @@ class CameraAPI:
             _refuse_unless_auto_gain_settings(auto_gain_settings, 'auto_gain_settings')
         # The range is the connected camera's, as for the single setters.
         self.refuse_camera_not_connected('apply')
-        limits = self._scope.capabilities.camera_limits
+        limits = self.setting_limits
         self._refuse_out_of_range(
             'gain_db',
             gain_db,

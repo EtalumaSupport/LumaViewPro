@@ -372,9 +372,9 @@ class TestGainDbConversion:
                 'ExposureTime': _RecordingNode(value=1e4, minimum=20.0, maximum=2e6),
             }
         )
-        cam._query_dynamic_capabilities()
-        assert cam.profile.gain.total_min_db == pytest.approx(0.0, abs=0.01)
-        assert cam.profile.gain.total_max_db == pytest.approx(30.0, abs=0.1)
+        assert cam.min_gain == pytest.approx(0.0, abs=0.01)
+        assert cam.max_gain == pytest.approx(30.0, abs=0.1)
+        assert (cam.min_exposure, cam.max_exposure) == (0.02, 2000.0)
 
     def test_an_exposure_below_the_floor_reaches_the_camera_as_asked(self):
         """The driver encodes; the API judges. A request below the node's
@@ -2037,11 +2037,9 @@ class TestLiveExposureMinimum:
     """get_min_exposure must report the camera's LIVE ExposureTime node
     minimum, not the value cached in the profile at connect.
 
-    The node minimum drifts above the connect-time value once other settings
-    change (pixel clock, frame rate, AOI), so a sweep that sources the floor
-    from the stale cache requests an exposure below what the camera will now
-    accept and the SDK rejects it. The accessor reads the live node so callers
-    get the floor the camera will honor right now.
+    The node minimum moves from the connect-time value as the readout
+    changes (it falls at binning 2 on the U3-34LxXLS-M), so the accessor
+    reads the live node and callers get the floor the camera honours now.
     """
 
     def test_reports_live_node_minimum_not_cached_profile(self):
@@ -2050,7 +2048,7 @@ class TestLiveExposureMinimum:
         cam = bare_ids_camera()
         # Live node floor (us) has risen above the connect-time cache.
         cam.remote_nodemap = _RecordingNodemap(
-            preset={'ExposureTime': _RecordingNode(minimum=37.171717)}
+            preset={'ExposureTime': _RecordingNode(minimum=37.171717, maximum=2e6)}
         )
         cam.profile = SimpleNamespace(exposure_min_us=31.0)
 
@@ -2080,7 +2078,7 @@ class TestLiveExposureMinimum:
         )
         cam.profile = SimpleNamespace(exposure_min_us=31.0)
 
-        with pytest.raises(CameraReadFailedError, match='Minimum exposure read failed'):
+        with pytest.raises(CameraReadFailedError, match='Exposure range read failed'):
             cam.get_min_exposure()
 
 

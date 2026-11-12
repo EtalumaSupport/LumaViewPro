@@ -12,12 +12,12 @@ a drifting subset. Two confirmed gaps this pins:
     the prior camera's auto-gain was on) were never refreshed.
 
 The fix:
-  - config_helpers.camera_max_gain_for_ui is the single UI-facing gain cap
-    resolver: the live camera's cap, or the documented no-camera default
-    (the camera limits are None by design then). The exposure slider's
-    maximum is the session's answer (ScopeSession.channel_slider_maxima),
-    which load_settings and the resync both read through
-    set_channel_exposure_ranges, so the two paths cannot size it two ways.
+  - The gain and exposure sliders' maxima are the session's answer
+    (ScopeSession.channel_slider_maxima, its gain maximum resolved by
+    config_helpers.camera_max_gain_for_ui: the camera's cap, or the
+    documented no-camera default), which load_settings and the resync both
+    read through set_channel_gain_ranges and set_channel_exposure_ranges, so
+    the two paths cannot size them two ways.
   - ImageSettings.sync_camera_capability_ranges groups the per-layer setters
     (exposure + gain ranges + autogain gate) AND reconcile_channels_to_camera_caps,
     which re-renders and re-applies each layer the attached camera cannot
@@ -141,8 +141,9 @@ class TestLoadSettingsResync:
         assert _attr_calls(method, 'set_channel_exposure_ranges'), (
             'load_settings must size the exposure sliders via set_channel_exposure_ranges.'
         )
-        assert _name_calls(method, 'camera_max_gain_for_ui'), (
-            'load_settings must resolve the gain cap via camera_max_gain_for_ui.'
+        assert _attr_calls(method, 'set_channel_gain_ranges'), (
+            'load_settings must size the gain sliders via set_channel_gain_ranges, '
+            "the session's answer."
         )
 
     def test_load_settings_delegates_the_reconcile_not_inline(self):
@@ -260,7 +261,7 @@ def layer_max_exposure_ms(camera_max_ms: float, layer: str) -> float:
     """The exposure slider maximum the session publishes for ``layer`` under a
     camera capped at ``camera_max_ms``."""
     return channel_slider_maxima(
-        layer, exposure_cap_ms=camera_max_ms, illumination_cap_ma=None
+        layer, exposure_cap_ms=camera_max_ms, illumination_cap_ma=None, gain_limits=None
     ).slider_max_exposure_ms
 
 

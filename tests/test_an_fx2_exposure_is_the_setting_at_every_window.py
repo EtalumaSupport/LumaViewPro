@@ -117,8 +117,19 @@ def test_a_refused_shutter_write_keeps_the_exposure_in_effect(sim, camera, monke
     assert camera.get_exposure_t() == pytest.approx(_integration_ms(rows, 1900), abs=1e-3)
 
 
-def test_the_published_minimum_is_one_row_at_the_full_window(camera):
-    assert camera.profile.exposure_min_us == pytest.approx(ROW_US[1900] - OVERHEAD_US, abs=0.001)
+def test_the_minimum_is_one_row_at_the_full_window(camera):
+    assert camera.min_exposure * 1000 == pytest.approx(ROW_US[1900] - OVERHEAD_US, abs=0.001)
+
+
+def test_the_minimum_is_one_row_at_the_window_in_force(camera):
+    """A narrower window's row is shorter, so its floor is lower, and the
+    sensor gives that floor when it is asked for."""
+    camera.set_frame_size(500, 500)
+    floor_ms = camera.min_exposure
+
+    assert floor_ms * 1000 == pytest.approx(ROW_US[500] - OVERHEAD_US, abs=0.001)
+    camera.exposure_t(floor_ms)
+    assert camera.get_exposure_t() == pytest.approx(floor_ms, abs=1e-3)
 
 
 def test_a_long_exposure_integrates_the_setting_at_the_full_window(sim, camera):

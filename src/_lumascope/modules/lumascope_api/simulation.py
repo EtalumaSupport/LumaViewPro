@@ -891,9 +891,9 @@ class SimulationAPI:
         driver that reads the node fails (``SimulatedCamera.FAILED_READS``):
         each raises ``CameraReadFailedError``.
 
-        The minimum exposure's is IDS's read, the one driver that reads it
-        live, offered here so the live-floor read is proven without an IDS
-        body. A real driver fails the pixel-format read only before its
+        The minimum exposure's is the range read the camera API makes after
+        each readout change (``camera.setting_limits``), offered so a failed
+        range read is proven without a body. A real driver fails the pixel-format read only before its
         first good read after a connect, since it keeps the format it read.
 
         Args:
@@ -904,7 +904,8 @@ class SimulationAPI:
                 ``'pixel_formats'`` (the formats offered, which a pixel
                 format write reads first), ``'black_level'``,
                 ``'frame_rate'``, ``'minimum_exposure'``
-                (``camera.read_exposure_min_ms``), ``'auto_gain'``,
+                (the exposure floor, read into ``camera.setting_limits``),
+                ``'auto_gain'``,
                 ``'auto_exposure'`` or ``'grabbing'`` (whether the camera is
                 acquiring, which every write's config guard reads first).
             answer: ``'failed'``, the read raises; or ``'removed'``, the

@@ -484,27 +484,20 @@ class TestFX2CameraProfile:
         assert cam.profile.driver == 'fx2'
         assert cam.profile.sensor == 'Aptina MT9P031'
 
-    def test_dynamic_capabilities_populated(self, fake_fx2_conn):
+    def test_the_camera_answers_its_ranges(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
-        assert cam.profile.gain.total_min_db == 0.0
-        assert cam.profile.gain.total_max_db == pytest.approx(42.1442, abs=1e-4)  # 128x
-        assert cam.profile.exposure_min_us is not None
-        assert cam.profile.exposure_max_us is not None
+        assert cam.min_gain == 0.0
+        assert cam.max_gain == pytest.approx(42.1442, abs=1e-4)  # 128x
+        assert cam.min_exposure is not None
+        assert cam.max_exposure is not None
 
-    def test_max_exposure_picks_up_dynamic_1000ms_cap(self, fake_fx2_conn):
-        """Camera.max_exposure must reflect the dynamic 1000 ms cap, not
-        the static MT9P031 register max (~7,366 ms). The UI exposure
-        slider's maximum comes from the camera's cap (camera.max_exposure) and was
-        previously letting users dial past the safe-frame ceiling
-        because Camera.max_exposure was a stored field set from a
-        separate static profile field. Rule 2 fix: collapsed to a
-        single source -- `profile.exposure_max_us` -- with
-        `Camera.max_exposure` a derived property reading from it."""
+    def test_the_maximum_exposure_is_the_drivers_1000ms_cap(self, fake_fx2_conn):
+        """The camera answers the driver's 1000 ms cap, not the static
+        MT9P031 register maximum the profile documents (~7,366 ms): the UI
+        exposure slider's maximum is the camera's, and the register maximum
+        let users dial past the safe-frame ceiling."""
         cam = fx2driver.FX2Camera()
-        # exposure_max_us is overwritten to 1_000_000 by _query_dynamic_capabilities
-        # (default from the profile entry is 7_366_000 = sensor register max).
-        assert cam.profile.exposure_max_us == 1_000_000
-        # max_exposure (in ms) is derived from exposure_max_us / 1000
+        assert cam.profile.exposure_max_us == 7_366_000
         assert cam.max_exposure == 1000.0
 
     def test_pixel_format_is_mono8_only(self, fake_fx2_conn):

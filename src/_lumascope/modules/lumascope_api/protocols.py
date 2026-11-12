@@ -1286,8 +1286,9 @@ class ProtocolsAPI:
         values are left alone: the same value may be right on the next,
         larger camera.
 
-        A limit the camera does not declare is not checked (the API caches it
-        as None): a missing floor is not a floor of zero.
+        The range is the camera's now (``camera.setting_limits``), at the
+        readout it holds. A limit the camera does not declare is not checked
+        (None): a missing floor is not a floor of zero.
 
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this rule by starting a run, which asks it here.
@@ -1298,10 +1299,12 @@ class ProtocolsAPI:
         Raises:
             ProtocolRunRefusedError: A step's gain or exposure is outside the
                 camera's range.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's
+                range could not be read after its last readout change.
         """
         from _lumascope.modules.protocol import rows_by_column
 
-        limits = self._scope.capabilities.camera_limits
+        limits = self._scope.camera.setting_limits
         checks = (
             (
                 'Gain',

@@ -5,63 +5,61 @@ rises with the signal, and a measurement of the sensor stops being one. The
 capability is the profile's documented analog maximum; a camera whose profile
 states no digital stage applies analog gain over its whole range, so its live
 maximum is its analog maximum (the IDS U3-34L0XCP-M, whose profile leaves the
-figure to the SDK). A camera with neither states none.
+figure to the SDK). A camera with neither states none. The figure is part of
+the camera's range (``scope.camera.setting_limits``), read again after each
+readout change; a read that fails raises
+(``tests/test_the_camera_range_follows_each_write.py``).
 """
 
-import copy
 from dataclasses import replace
-from types import SimpleNamespace
 
-from _lumascope.drivers.camera_profiles import GainInfo, lookup_profile
-from _lumascope.drivers.camera import Camera
+from _lumascope.modules.image_mode import ImageMode
 from tests.scope_fakes import capabilities_of
 
 
-def _capabilities(profile):
-    camera = SimpleNamespace(
-        model_name='STUB',
-        device_serial=None,
-        device_firmware=None,
-        # The limits are read from a connected camera.
-        active=True,
-        get_binning_size=lambda: 1,
-        timestamp_tick_frequency_hz=None,
-        profile=profile,
-        get_max_frame_size=lambda: None,
-        # The base driver's depth rule, which a real driver inherits.
-        significant_bits_for_format=lambda name: Camera.format_significant_bits(name, 16),
-        # The base driver's SDK label (none), which a real driver inherits.
-        get_sdk_info=lambda: Camera.get_sdk_info(None),
-        # The base driver's maps of named settings (none), which a real driver inherits.
-        node_maps=lambda: Camera.node_maps(None),
+def _analog_maximum(sim_scope, monkeypatch, *, documented, has_digital, live_max_db):
+    """The analog maximum the camera API holds for a camera whose profile
+    documents ``documented`` and ``has_digital`` (the capabilities' static
+    facts) and whose gain maximum reads ``live_max_db``."""
+    import dataclasses
+
+    # a stand-in by design: another camera's documented gain split, which the
+    # simulator's one profile does not have.
+    monkeypatch.setattr(
+        sim_scope,
+        'capabilities',
+        dataclasses.replace(
+            sim_scope.capabilities,
+            camera_analog_gain_max_db=documented,
+            camera_gain_has_digital=has_digital,
+        ),
     )
-    return capabilities_of(camera)
+    cam = sim_scope._camera_driver
+    monkeypatch.setattr(cam.profile, 'gain', replace(cam.profile.gain, total_max_db=live_max_db))
+    # A readout change reads the range again.
+    sim_scope.camera.set_image_mode(ImageMode.SCIENTIFIC)
+    return sim_scope.camera.setting_limits.analog_gain_max_db
 
 
 def test_the_simulated_camera_states_the_profiles_analog_maximum(sim_scope):
-    assert sim_scope.capabilities.camera_limits.analog_gain_max_db == 24.0
+    assert sim_scope.capabilities.camera_analog_gain_max_db == 24.0
+    assert sim_scope.camera.setting_limits.analog_gain_max_db == 24.0
 
 
-def test_a_camera_with_no_digital_stage_states_its_live_maximum():
-    profile = copy.deepcopy(lookup_profile('U3-34L0XCP-M'))
-    assert profile.gain.analog_max_db is None and profile.gain.has_digital is False
-    profile.gain.total_max_db = 29.99
-
-    assert _capabilities(profile).camera_limits.analog_gain_max_db == 29.99
-
-
-def test_a_digital_stage_with_no_documented_split_states_none():
-    profile = copy.deepcopy(lookup_profile('U3-34L0XCP-M'))
-    profile.gain = replace(profile.gain, has_digital=True, total_max_db=48.0)
-
-    assert _capabilities(profile).camera_limits.analog_gain_max_db is None
+def test_a_camera_with_no_digital_stage_states_its_live_maximum(sim_scope, monkeypatch):
+    assert (
+        _analog_maximum(
+            sim_scope, monkeypatch, documented=None, has_digital=False, live_max_db=29.99
+        )
+        == 29.99
+    )
 
 
-def test_a_camera_whose_maximum_was_not_read_states_none():
-    profile = copy.deepcopy(lookup_profile('U3-34L0XCP-M'))
-    profile.gain = GainInfo(has_digital=False)
-
-    assert _capabilities(profile).camera_limits.analog_gain_max_db is None
+def test_a_digital_stage_with_no_documented_split_states_none(sim_scope, monkeypatch):
+    assert (
+        _analog_maximum(sim_scope, monkeypatch, documented=None, has_digital=True, live_max_db=48.0)
+        is None
+    )
 
 
 def test_no_camera_states_none():

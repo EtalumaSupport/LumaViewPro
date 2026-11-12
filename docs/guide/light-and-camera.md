@@ -74,7 +74,9 @@ it.
 
 **A write applies or raises.** Every camera write either took effect or raises:
 a value outside the camera's declared range is refused before it reaches the
-camera (`CameraSettingOutOfRangeError`, its `limits` the range), and a value
+camera (`CameraSettingOutOfRangeError`, its `limits` the range: for gain and
+exposure, `scope.camera.setting_limits`, read again after each change of the
+camera's readout, since a pixel format or a binning moves it), and a value
 the camera refused or did not answer is the fault `CameraSettingRejected`
 (`'camera_rejected'`, `'camera_no_answer'`). Each setter answers what the camera
 now runs, which may differ from what was asked.
@@ -83,7 +85,8 @@ now runs, which may differ from what was asked.
 gain = scope.camera.set_gain_db(3.3)
 exposure = scope.camera.set_exposure_ms(5.0)
 print(gain, exposure)
-print(scope.capabilities.camera_limits)     # the declared ranges, read once at connect
+print(scope.camera.setting_limits)          # the gain and exposure range in force
+print(scope.capabilities.camera_limits)     # the frame limits, read once at connect
 ```
 
 ```python raises=CameraSettingOutOfRangeError:gain_db_out_of_range

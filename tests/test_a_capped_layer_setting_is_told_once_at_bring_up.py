@@ -34,7 +34,7 @@ def test_every_capped_layer_value_is_one_notice_and_the_saved_values_are_kept(tm
     )
     try:
         camera = session.scope.camera
-        limits = session.scope.capabilities.camera_limits
+        limits = session.scope.camera.setting_limits
         max_gain = limits.gain_max_db
         max_exposure = limits.exposure_max_ms
         assert max_gain < 1000.0 and max_exposure < 100000.0, 'the test needs a smaller camera'
@@ -62,7 +62,7 @@ def test_a_saved_exposure_under_the_floor_runs_at_the_floor_and_is_told(tmp_path
     heard = []
     session = _session(tmp_path, heard, BF={'gain_db': 2.0, 'exposure_ms': 0.005})
     try:
-        floor_ms = session.scope.capabilities.camera_limits.exposure_min_ms
+        floor_ms = session.scope.camera.setting_limits.exposure_min_ms
         assert floor_ms is not None and floor_ms > 0.005, 'the test needs a camera with a floor'
         (notice,) = _notices(heard)
         assert notice.message == str(
@@ -81,7 +81,7 @@ def test_a_still_under_a_floored_exposure_states_the_floor_in_its_file(tmp_path)
     settings = _settings(tmp_path)
     settings['BF']['exposure_ms'] = 0.005
     with _open_session(settings) as session:
-        floor_ms = session.scope.capabilities.camera_limits.exposure_min_ms
+        floor_ms = session.scope.camera.setting_limits.exposure_min_ms
         (path,) = _files(session)
     assert read_file_record(path)['exposure_time_ms'] == floor_ms
 

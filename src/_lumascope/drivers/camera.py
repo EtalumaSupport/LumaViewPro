@@ -1598,11 +1598,11 @@ class Camera(ABC):
         """Load the camera profile based on model_name.
 
         Called by subclass connect() after model_name is known. Subclasses
-        should then call _query_dynamic_capabilities() to populate
-        SDK-queried fields (gain min/max, exposure min/max).
-        `profile.exposure_max_us` is the single source of truth for the
-        max-exposure cap -- `Camera.max_exposure` is a derived property
-        that reads from it.
+        may then call _query_dynamic_capabilities() to fill the fields their
+        SDK reports (pixel formats, pixel pitch). The gain and exposure
+        ranges are not filled: a driver whose camera reports them answers
+        them from the camera when asked (``min_exposure``, ``max_exposure``,
+        ``min_gain``, ``max_gain``).
         """
         self.profile = lookup_profile(self.model_name)
         logger.info(
@@ -1613,8 +1613,9 @@ class Camera(ABC):
     def _query_dynamic_capabilities(self):  # noqa: B027 -- optional no-op hook; subclasses override only if needed, abstractmethod would force needless overrides
         """Query SDK for dynamic values and merge into profile.
 
-        Subclasses should override to query gain min/max, exposure min/max,
-        etc. from the camera SDK. The base implementation is a no-op.
+        Subclasses override it to read from the SDK what the profile cannot
+        document for every body (pixel formats, pixel pitch). The base
+        implementation is a no-op.
         """
         pass
 
@@ -1622,11 +1623,9 @@ class Camera(ABC):
     def max_exposure(self) -> float:
         """Maximum exposure cap in milliseconds.
 
-        Derived from `profile.exposure_max_us` -- the single source of
-        truth. The profile's value is the sensor-datasheet ceiling by
-        default and may be overwritten by `_query_dynamic_capabilities()`
-        at connect time with an SDK-queried or driver-narrowed cap
-        (e.g. FX2's 1000 ms ceiling).
+        The profile's documented ceiling (``profile.exposure_max_us``). A
+        driver whose camera reports its range overrides this to read the
+        camera, since the range moves with the readout.
         """
         if self.profile and self.profile.exposure_max_us:
             return self.profile.exposure_max_us / 1000.0
@@ -1644,12 +1643,11 @@ class Camera(ABC):
     def min_exposure(self) -> float | None:
         """Minimum exposure floor in milliseconds, or None if undeclared.
 
-        Mirror of `max_exposure`, derived from `profile.exposure_min_us` --
-        an optional profile field, so returns None when the profile carries
-        no floor and the caller should fall back. Drivers whose SDK exposes a
-        LIVE node minimum override `get_min_exposure` to report it: the node
-        floor can move from the connect-time value as the frame changes, so a
-        cached value goes stale.
+        The profile's documented floor (``profile.exposure_min_us``), an
+        optional field, so None when the profile carries none. A driver
+        whose camera reports its range overrides this to read the camera:
+        the floor moves with the pixel format, the binning and the camera's
+        firmware.
         """
         if self.profile and self.profile.exposure_min_us:
             return self.profile.exposure_min_us / 1000.0
@@ -1668,11 +1666,9 @@ class Camera(ABC):
     def max_gain(self) -> float:
         """Maximum gain cap in dB.
 
-        Derived from `profile.gain.total_max_db` -- the single source of
-        truth. The profile's value is the sensor-datasheet ceiling by
-        default and may be overwritten by `_query_dynamic_capabilities()`
-        at connect time (Pylon / IDS live-query their SDK; FX2 hardcodes
-        the MT9P031 value).
+        The profile's documented ceiling (``profile.gain.total_max_db``). A
+        driver whose camera reports its range overrides this to read it
+        (Pylon, IDS), or answers its own (FX2).
         """
         if self.profile and self.profile.gain and self.profile.gain.total_max_db is not None:
             return float(self.profile.gain.total_max_db)
@@ -1682,9 +1678,9 @@ class Camera(ABC):
     def min_gain(self) -> float | None:
         """Minimum gain in dB, or None if the profile declares none.
 
-        Derived from `profile.gain.total_min_db`, which the drivers fill at
-        connect from the SDK's own range (pylon, IDS) or the sensor datasheet
-        (FX2). Unlike `max_gain` there is no fallback: a missing floor is
+        The profile's documented floor (``profile.gain.total_min_db``),
+        overridden as ``max_gain`` is. Unlike `max_gain` there is no
+        fallback: a missing floor is
         not a floor of zero, and a caller checking a request against one
         must be able to tell that it has no floor to check.
         """

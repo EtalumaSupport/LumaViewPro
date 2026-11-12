@@ -1,34 +1,31 @@
-"""Camera P20: whether the camera's exposure floor moves with the frame, and whether the API knows it did.
+"""Camera P20: whether the camera's exposure floor moves with its readout, and whether the API follows it.
 
-The API holds one exposure floor, `capabilities.camera_limits.exposure_min_ms`,
-copied from the camera at connect. Its range check (`set_exposure_ms`) and its
-answer to "what does this stored exposure become on the camera"
-(`applied_exposure_ms_for`) both read that copy. On IDS bodies the camera's
-own floor (the ExposureTime node's minimum) is documented to rise with frame
-area, frame rate and pixel clock, and the driver clamps an exposure below it
-to it (`read_exposure_min_ms` reads the live floor). If the floor moves, an
-exposure at the connect floor is applied higher than asked while
-`applied_exposure_ms_for` answers `capped=False`: the API says one exposure
-and the camera takes another.
+The API holds the camera's exposure range, `scope.camera.setting_limits`,
+read from the camera at connect and again after each readout change (binning,
+frame size, pixel format, conversion gain, line-noise reduction). Its range
+check (`set_exposure_ms`) and its answer to "what does this stored exposure
+become on the camera" (`applied_exposure_ms_for`) both read it. The floor is
+known to move: Mono8 to Mono12 raises it on the a2A3536 and the daA3840, and
+binning 2 lowers it on the IDS U3-34LxXLS-M.
 
-Each step reads the connect floor (C), the camera's live floor (L), the frame
-rate the settings allow, then sets the exposure to C through the API and
-records the exposure the camera answers it took (E) beside
-`applied_exposure_ms_for(C)`. The steps, every one through the API: the
-geometry the scope came up with; binning 1 at the largest frame; binning 1 at
-the smallest frame; binning 2. The geometry the scope came up with is put back
-at the end (in the session only: nothing is saved).
+Each step reads the API's floor (F), the frame rate the settings allow, then
+sets the exposure to F through the API and records the exposure the camera
+answers it took (E). The steps, every one through the API: the geometry and
+mode the scope came up with; binning 1 at the largest frame; binning 1 at the
+smallest frame; binning 2; the other image mode (8-bit or 12-bit). What the
+scope came up with is put back at the end (the image mode is saved again as
+it was).
 
-The check at each step: when the camera took more than C, the API says the
-exposure was capped. A failure is the defect shown; a pass at every step with
-L equal to C is the defect ruled out on this body.
+The check at each step: the camera takes the API's floor, so the API refuses
+nothing the camera would take and passes nothing it would refuse. The figure
+`the_floor_moved` records whether any step's floor differs from the first's:
+the bench record of which settings move it.
 
     python tests/capability/camera_p20_the_exposure_floor_follows_the_frame.py             # simulator
     python tests/capability/camera_p20_the_exposure_floor_follows_the_frame.py --hardware  # the connected scope
 
-The simulated camera's floor never moves, so on the simulator whether the
-floor moves is a void and the run proves only that the probe runs. Nothing
-moves beyond the bring-up home.
+The simulated camera's floor follows its pixel format alone (14 us in Mono8,
+29 us in Mono12, the daA3840's). Nothing moves beyond the bring-up home.
 """
 
 import sys
@@ -36,48 +33,37 @@ import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report, void
 
+from _lumascope.modules.image_mode import ImageMode
+
 # A relative tolerance for "the same exposure": the camera quantizes an
 # exposure to its line time, a few microseconds, far under 0.1 % of any floor.
 _SAME = 1e-3
 
 
-def _above(value, floor):
-    return value is not None and floor is not None and value > floor * (1 + _SAME)
+def _differs(value, other):
+    return value is not None and other is not None and abs(value - other) > other * _SAME
 
 
 def _step(scope, label, rows):
     cam = scope.camera
-    limits = scope.capabilities.camera_limits
-    connect_floor = limits.exposure_min_ms if limits else None
-    live_floor = cam.read_exposure_min_ms()
-    taken = cam.set_exposure_ms(connect_floor) if connect_floor is not None else None
-    applied = cam.applied_exposure_ms_for(connect_floor) if connect_floor is not None else None
+    floor = cam.setting_limits.exposure_min_ms
+    taken = cam.set_exposure_ms(floor) if floor is not None else None
     row = {
         'binning': cam.read_binning(),
         'frame': cam.read_frame_size().to_dict(),
+        'pixel_format': cam.read_pixel_format(),
         'frame_rate_fps': cam.read_frame_rate_fps(),
-        'connect_floor_ms': connect_floor,
-        'live_floor_ms': live_floor,
+        'floor_ms': floor,
         'exposure_taken_ms': taken,
-        'api_applied_ms': applied.applied_ms if applied else None,
-        'api_capped': applied.capped if applied else None,
     }
     figure(label, row)
     rows.append(row)
-    check(f'{label}: the scope publishes an exposure floor', connect_floor is not None)
-    check(f'{label}: the camera answers its live floor', live_floor is not None)
+    check(f'{label}: the scope publishes an exposure floor', floor is not None)
     check(
-        f'{label}: the camera takes no exposure under its live floor',
-        taken is not None and live_floor is not None and taken >= live_floor * (1 - _SAME),
-        f'took {taken} ms, live floor {live_floor} ms',
+        f'{label}: the camera takes the floor the API holds',
+        taken is not None and not _differs(taken, floor),
+        f'asked {floor} ms, the camera took {taken} ms',
     )
-    if applied is not None:
-        check(
-            f'{label}: when the camera took more than the connect floor, the API says it was capped',
-            not _above(taken, connect_floor) or applied.capped,
-            f'asked {connect_floor} ms, the camera took {taken} ms, the API says applied '
-            f'{applied.applied_ms} ms, capped={applied.capped}',
-        )
 
 
 def _measure(session):
@@ -90,6 +76,7 @@ def _measure(session):
     figure('binning_sizes', sizes)
     held_binning = cam.read_binning()
     held_frame = cam.read_frame_size()
+    held_mode = cam.image_mode
     rows = []
 
     _step(scope, 'S0_as_brought_up', rows)
@@ -123,18 +110,23 @@ def _measure(session):
 
     cam.set_binning(held_binning)
     cam.set_frame_size(held_frame.width, held_frame.height)
+    other_mode = ImageMode.SCIENTIFIC if held_mode == ImageMode.EIGHT_BIT else ImageMode.EIGHT_BIT
+    cam.set_image_mode(other_mode)
+    _step(scope, f'S4_{other_mode.value}', rows)
+    cam.set_image_mode(held_mode)
     check(
-        'the geometry the scope came up with is back',
-        cam.read_binning() == held_binning and cam.read_frame_size() == held_frame,
-        f'binning {cam.read_binning()} (was {held_binning}), frame {cam.read_frame_size()} (was {held_frame})',
+        'what the scope came up with is back',
+        cam.read_binning() == held_binning
+        and cam.read_frame_size() == held_frame
+        and cam.image_mode == held_mode,
+        f'binning {cam.read_binning()} (was {held_binning}), frame {cam.read_frame_size()} '
+        f'(was {held_frame}), mode {cam.image_mode} (was {held_mode})',
     )
 
-    moved = any(_above(r['live_floor_ms'], r['connect_floor_ms']) for r in rows)
-    figure('the_live_floor_moved_above_the_connect_floor', moved)
+    moved = any(_differs(r['floor_ms'], rows[0]['floor_ms']) for r in rows)
+    figure('the_floor_moved', moved)
     if not HARDWARE:
-        void(
-            'the live floor moves with the frame', moved, "the simulated camera's floor never moves"
-        )
+        check('the simulated floor moves with the pixel format', moved)
 
 
 def main():

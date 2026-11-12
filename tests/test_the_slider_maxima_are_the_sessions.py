@@ -28,20 +28,24 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import (
 def test_each_maximum_is_the_parts_cap_narrowed_to_the_layers_ceiling(make_session):
     session = make_session('LS850')
     caps = session.scope.capabilities
-    camera_ms, board_ma = caps.camera_limits.exposure_max_ms, caps.led_max_ma
+    camera_ms, board_ma = session.scope.camera.setting_limits.exposure_max_ms, caps.led_max_ma
     # The ceilings (scopes.json) sit under the simulated parts' caps for BF
     # and above them for fluorescence; luminescence has none and no LED.
     assert (camera_ms, board_ma) == (1000.0, 1000)
 
-    assert session.channel_slider_maxima('BF') == ChannelSliderMaxima(50.0, 50)
-    assert session.channel_slider_maxima(LED0) == ChannelSliderMaxima(camera_ms, board_ma)
-    assert session.channel_slider_maxima('Lumi') == ChannelSliderMaxima(camera_ms, None)
+    gain_db = session.scope.camera.setting_limits.gain_max_db
+    assert gain_db == 48.0
+
+    assert session.channel_slider_maxima('BF') == ChannelSliderMaxima(50.0, 50, gain_db)
+    assert session.channel_slider_maxima(LED0) == ChannelSliderMaxima(camera_ms, board_ma, gain_db)
+    assert session.channel_slider_maxima('Lumi') == ChannelSliderMaxima(camera_ms, None, gain_db)
 
 
 def test_with_no_camera_the_exposure_maximum_is_none(make_session, monkeypatch):
     session = _camera_less(make_session, 'LS850')
 
-    assert session.channel_slider_maxima('BF') == ChannelSliderMaxima(None, 50)
+    # With no camera the gain slider keeps the documented 48 dB.
+    assert session.channel_slider_maxima('BF') == ChannelSliderMaxima(None, 50, 48.0)
 
 
 def test_with_no_led_board_every_illumination_maximum_is_none(make_session, monkeypatch):
@@ -55,7 +59,7 @@ def test_with_no_led_board_every_illumination_maximum_is_none(make_session, monk
         dataclasses.replace(session.scope.capabilities, led_max_ma=None, led_addresses=None),
     )
 
-    assert session.channel_slider_maxima('BF') == ChannelSliderMaxima(50.0, None)
+    assert session.channel_slider_maxima('BF') == ChannelSliderMaxima(50.0, None, 48.0)
     assert session.channel_slider_maxima(LED0).slider_max_illumination_ma is None
 
 

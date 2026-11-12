@@ -36,16 +36,14 @@ def _steps(**values):
     return _make_multi_step_protocol([{'name': f'{LED0} step', 'color': LED0, **values}])
 
 
-def test_the_api_caches_the_camera_floors(scope):
-    limits = scope.capabilities.camera_limits
+def test_the_api_holds_the_camera_floors(scope):
+    limits = scope.camera.setting_limits
     assert limits.gain_min_db == pytest.approx(scope._camera_driver.min_gain)
-    assert limits.exposure_min_ms == pytest.approx(
-        scope._camera_driver.profile.exposure_min_us / 1000.0
-    )
+    assert limits.exposure_min_ms == pytest.approx(scope._camera_driver.min_exposure)
 
 
 def test_a_gain_above_the_camera_maximum_is_refused_naming_the_step(executor, scope, tmp_path):
-    maximum = scope.capabilities.camera_limits.gain_max_db
+    maximum = scope.camera.setting_limits.gain_max_db
     with pytest.raises(ProtocolRunRefusedError) as refusal:
         _prepare(executor, _steps(gain_db=maximum + 28.0), tmp_path)
 
@@ -70,7 +68,7 @@ def test_an_exposure_above_the_camera_maximum_is_refused(executor, scope, tmp_pa
     with pytest.raises(ProtocolRunRefusedError) as refusal:
         _prepare(
             executor,
-            _steps(exposure_ms=scope.capabilities.camera_limits.exposure_max_ms + 1.0),
+            _steps(exposure_ms=scope.camera.setting_limits.exposure_max_ms + 1.0),
             tmp_path,
         )
 
@@ -80,7 +78,7 @@ def test_an_exposure_above_the_camera_maximum_is_refused(executor, scope, tmp_pa
 def test_values_in_range_are_admitted(executor, scope, tmp_path):
     _prepare(
         executor,
-        _steps(gain_db=scope.capabilities.camera_limits.gain_max_db, exposure_ms=10.0),
+        _steps(gain_db=scope.camera.setting_limits.gain_max_db, exposure_ms=10.0),
         tmp_path,
     )
 

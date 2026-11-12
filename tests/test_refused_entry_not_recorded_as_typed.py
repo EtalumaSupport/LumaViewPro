@@ -242,6 +242,7 @@ def cold_start(tmp_path, monkeypatch, caplog):
         ),
         image_settings=SimpleNamespace(
             channel_control_lookup=lambda channel: layer_widget,
+            set_channel_gain_ranges=lambda: None,
             set_channel_exposure_ranges=lambda: None,
             reconcile_channels_to_camera_caps=lambda: None,
         ),

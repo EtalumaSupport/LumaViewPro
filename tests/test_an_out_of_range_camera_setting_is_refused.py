@@ -25,7 +25,7 @@ from tests.scope_fakes import set_camera_limits
 def test_a_gain_above_the_maximum_is_refused_naming_the_range(sim_camera, monkeypatch):
     camera, cam = sim_camera
     camera.set_gain_db(3.0)
-    limits = camera._scope.capabilities.camera_limits
+    limits = camera.setting_limits
     maximum = limits.gain_max_db
     minimum = limits.gain_min_db
     written = []
@@ -57,7 +57,7 @@ def test_a_gain_below_a_declared_floor_is_refused(sim_camera, monkeypatch):
 
 def test_an_exposure_above_the_maximum_is_refused(sim_camera):
     camera, _cam = sim_camera
-    limits = camera._scope.capabilities.camera_limits
+    limits = camera.setting_limits
     maximum = limits.exposure_max_ms
 
     with pytest.raises(CameraSettingOutOfRangeError) as excinfo:
@@ -73,7 +73,7 @@ def test_an_undeclared_floor_is_not_checked(sim_camera, monkeypatch):
     """A camera that declares no floor: the API refuses nothing below, and
     the camera takes what it is given."""
     camera, cam = sim_camera
-    monkeypatch.setattr(cam.profile, 'exposure_min_us', None)
+    monkeypatch.setattr(cam, '_EXPOSURE_FLOOR_MS', dict.fromkeys(cam._EXPOSURE_FLOOR_MS))
     set_camera_limits(monkeypatch, camera._scope, exposure_min_ms=None)
 
     camera.set_exposure_ms(0.001)
@@ -83,7 +83,7 @@ def test_an_undeclared_floor_is_not_checked(sim_camera, monkeypatch):
 
 def test_a_value_in_range_is_applied(sim_camera):
     camera, _cam = sim_camera
-    maximum = camera._scope.capabilities.camera_limits.gain_max_db
+    maximum = camera.setting_limits.gain_max_db
     assert camera.set_gain_db(maximum) == pytest.approx(maximum)
 
 
@@ -91,7 +91,7 @@ def test_the_layer_apply_refuses_what_the_single_setters_refuse(sim_scope, monke
     """``apply`` is a public door to the same gain and exposure, so it refuses
     the same values before anything reaches the camera."""
     camera = sim_scope.camera
-    limits = sim_scope.capabilities.camera_limits
+    limits = sim_scope.camera.setting_limits
     written = []
     monkeypatch.setattr(sim_scope._camera_driver, 'gain', lambda v: written.append(v) or v)
     monkeypatch.setattr(sim_scope._camera_driver, 'exposure_t', lambda v: written.append(v) or v)

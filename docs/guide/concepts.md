@@ -352,7 +352,7 @@ asked of the camera directly outside its range is refused
 assert scope.illumination.led_on('BF', 10.37) == 10.0      # the board's step
 scope.illumination.leds_off()
 applied = scope.camera.applied_gain_db_for(999.0)
-assert applied.capped and applied.applied_db == scope.capabilities.camera_limits.gain_max_db
+assert applied.capped and applied.applied_db == scope.camera.setting_limits.gain_max_db
 ```
 
 **What the settings hold, and what they do not.** `get_settings_snapshot()`

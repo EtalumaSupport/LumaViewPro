@@ -1563,7 +1563,7 @@ class TestZeroExposure:
     its declared floor, stands in for it."""
 
     def test_zero_exposure_completes(self, executor, scope, tmp_path):
-        floor_ms = scope.capabilities.camera_limits.exposure_min_ms
+        floor_ms = scope.camera.setting_limits.exposure_min_ms
         protocol = _make_single_step_protocol(color='BF', exposure=floor_ms)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed

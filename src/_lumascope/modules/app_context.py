@@ -85,7 +85,6 @@ class AppContext:
     # State
     show_tooltips: bool = False
     live_histo_setting: bool = False
-    max_gain: float = 0.0
     live_view_fps: int = 30
 
     # Initialization flag (replaces _app_initializing)

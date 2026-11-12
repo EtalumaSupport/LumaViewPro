@@ -221,38 +221,18 @@ class StageDistance:
     dy_um: float
 
 
-@api_fields(
-    'gain_min_db',
-    'gain_max_db',
-    'analog_gain_max_db',
-    'exposure_min_ms',
-    'exposure_max_ms',
-    'frame_min',
-    'frame_max',
-)
+@api_fields('frame_min', 'frame_max')
 @dataclass(frozen=True)
 class CameraLimits:
-    """The ranges the attached camera takes, read once at connect.
+    """The frames the attached camera takes, read once at connect.
 
-    ``set_gain_db``, ``set_exposure_ms`` and ``set_frame_size`` refuse a
-    value outside them before it reaches the camera. A limit the camera
-    does not declare is None, and that end is not checked.
+    ``set_frame_size`` refuses a frame outside them before it reaches the
+    camera. A limit the camera does not declare is None, and that end is
+    not checked. The exposure and gain ranges are not here: they move with
+    the camera's readout, so the camera API holds and re-reads them
+    (``scope.camera.setting_limits``).
 
     Attributes:
-        gain_min_db: The least gain the camera takes, in dB; None when the
-            camera declares none.
-        gain_max_db: The most gain the camera applies, digital stage
-            included, in dB; None when the camera declares none.
-        analog_gain_max_db: The most gain before a digital stage, in dB,
-            past which the camera multiplies digitised values and the noise
-            with the signal: the analog maximum the camera's profile
-            documents, or, for a camera whose profile states no digital
-            stage, its total maximum (all its gain is analog); None for a
-            camera with a digital stage and no documented split.
-        exposure_min_ms: The shortest exposure the camera takes, in
-            milliseconds; None when the camera declares none.
-        exposure_max_ms: The longest exposure the camera takes, in
-            milliseconds; None when the camera declares none.
         frame_min: The smallest frame the camera reported at connect; None
             when it reported none.
         frame_max: The largest frame the scope delivers, unbinned: the
@@ -267,11 +247,6 @@ class CameraLimits:
             2160). ``set_frame_size`` divides it by the binning in force.
     """
 
-    gain_min_db: float | None
-    gain_max_db: float | None
-    analog_gain_max_db: float | None
-    exposure_min_ms: float | None
-    exposure_max_ms: float | None
     frame_min: FrameSize | None
     frame_max: FrameSize | None
 
@@ -294,10 +269,6 @@ def _unbinned(reported: tuple[int, int] | None, binning: object) -> tuple[int, i
     return (reported[0] * binning, reported[1] * binning)
 
 
-def _limit(value: object, valid: Callable[[object], bool]) -> float | None:
-    return float(value) if valid(value) else None
-
-
 def _frame(value: object) -> FrameSize | None:
     if not common_utils.is_valid_frame_size(value):
         return None
@@ -313,9 +284,11 @@ class CameraShutter(enum.StrEnum):
 
 @api_fields(
     'axes',
+    'camera_analog_gain_max_db',
     'camera_binning_sizes',
     'buffer_bit_depth',
     'camera_firmware_version',
+    'camera_gain_has_digital',
     'camera_has_clock_latch',
     'camera_limits',
     'camera_max_significant_bits',
@@ -411,8 +384,16 @@ class ScopeCapabilities:
             (``'Mono8'``, ``'Mono12'``, ...); empty with no camera.
         camera_binning_sizes: The binning factors the camera offers; empty
             with no camera, or one that offers none.
-        camera_limits: The ranges the attached camera takes, read once at
+        camera_limits: The frames the attached camera takes, read once at
             connect; None with no camera connected.
+        camera_analog_gain_max_db: The most gain before a digital stage, in
+            dB, as the camera's profile documents it; None when it documents
+            none or with no camera. The analog maximum in force, which
+            counts a camera with no digital stage, is
+            ``scope.camera.setting_limits.analog_gain_max_db``.
+        camera_gain_has_digital: True when the camera's profile documents
+            a digital gain stage above its analog one; False with none, or
+            with no camera.
         camera_reports_temperature: True when the camera has a temperature
             sensor. Where it is False,
             ``scope.diagnostics.get_camera_temperatures_degc`` answers
@@ -507,6 +488,8 @@ class ScopeCapabilities:
     camera_pixel_formats: tuple[str, ...]
     camera_binning_sizes: tuple[int, ...]
     camera_limits: CameraLimits | None
+    camera_analog_gain_max_db: float | None
+    camera_gain_has_digital: bool
     camera_reports_temperature: bool | None
     is_color_native: bool = False
     buffer_bit_depth: int = 16
@@ -613,8 +596,9 @@ class ScopeCapabilities:
         camera_pixel_formats: tuple[str, ...] = ()
         camera_binning_sizes: tuple[int, ...] = ()
         camera_max_frame_size: tuple[int, int] | None = None
-        camera_analog_gain_max_db: float | None = None
         camera_limits: CameraLimits | None = None
+        camera_analog_gain_max_db: float | None = None
+        camera_gain_has_digital = False
         camera_reports_temperature = False
         is_color_native = False
         buffer_bit_depth = 16
@@ -639,16 +623,14 @@ class ScopeCapabilities:
                 camera_shutter = profile.shutter
                 camera_supports_auto_gain = bool(getattr(profile, 'has_auto_gain', False))
                 camera_supports_auto_exposure = bool(getattr(profile, 'has_auto_exposure', False))
+                if profile.gain.analog_max_db is not None:
+                    camera_analog_gain_max_db = float(profile.gain.analog_max_db)
+                camera_gain_has_digital = bool(profile.gain.has_digital)
                 camera_pixel_formats = tuple(getattr(profile, 'pixel_formats', ()) or ())
                 camera_binning_sizes = tuple(getattr(profile, 'binning_sizes', ()) or ())
                 native = getattr(profile, 'native_resolution', None)
                 if native:
                     documented = (int(native['width']), int(native['height']))
-                gain = profile.gain
-                if gain.analog_max_db is not None:
-                    camera_analog_gain_max_db = float(gain.analog_max_db)
-                elif not gain.has_digital and gain.total_max_db is not None:
-                    camera_analog_gain_max_db = float(gain.total_max_db)
             size = _probe(
                 'camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None, failed=None
             )
@@ -661,35 +643,6 @@ class ScopeCapabilities:
             )
             if camera.active:
                 camera_limits = CameraLimits(
-                    gain_min_db=_limit(
-                        _probe('camera.min_gain', lambda: camera.min_gain, None, failed=None),
-                        lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
-                    ),
-                    gain_max_db=_limit(
-                        _probe(
-                            'camera.get_max_gain', lambda: camera.get_max_gain(), None, failed=None
-                        ),
-                        lambda v: isinstance(v, (int, float)) and v > 0,
-                    ),
-                    analog_gain_max_db=camera_analog_gain_max_db,
-                    exposure_min_ms=_limit(
-                        _probe(
-                            'camera.get_min_exposure',
-                            lambda: camera.get_min_exposure(),
-                            None,
-                            failed=None,
-                        ),
-                        common_utils.is_valid_exposure_ms,
-                    ),
-                    exposure_max_ms=_limit(
-                        _probe(
-                            'camera.get_max_exposure',
-                            lambda: camera.get_max_exposure(),
-                            None,
-                            failed=None,
-                        ),
-                        common_utils.is_valid_exposure_ms,
-                    ),
                     frame_min=_frame(
                         _probe(
                             'camera.get_min_frame_size',
@@ -772,6 +725,8 @@ class ScopeCapabilities:
             camera_pixel_formats=camera_pixel_formats,
             camera_binning_sizes=camera_binning_sizes,
             camera_limits=camera_limits,
+            camera_analog_gain_max_db=camera_analog_gain_max_db,
+            camera_gain_has_digital=camera_gain_has_digital,
             camera_reports_temperature=camera_reports_temperature,
             is_color_native=is_color_native,
             buffer_bit_depth=buffer_bit_depth,

@@ -397,7 +397,7 @@ def test_a_stored_ceiling_below_the_camera_floor_arms_at_the_floor(sim_scope):
     camera's floor when the stored ceiling sits under it, never a value
     the camera cannot take."""
     camera = sim_scope.camera
-    floor_ms = sim_scope.capabilities.camera_limits.exposure_min_ms
+    floor_ms = sim_scope.camera.setting_limits.exposure_min_ms
     assert floor_ms is not None and floor_ms > 0.005, 'the test needs a camera with a floor'
     camera.set_exposure_ms(10.0)
     camera.set_auto_gain(True, {**_AG_UNDER_A_CEILING, 'max_exposure_ms': 0.005})

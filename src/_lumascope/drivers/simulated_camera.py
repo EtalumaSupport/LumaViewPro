@@ -1260,6 +1260,18 @@ class SimulatedCamera(Camera):
             _cam_log.info(f'sim set_pixel_format({pixel_format})')
         return True
 
+    # The shortest exposure the daA3840 takes at each depth, as both bench
+    # bodies read it (2026-11-11: 14 us in Mono8 on firmware 1.1.0, 29 us in
+    # Mono12 on 1.1.0 and 2.6.0): the floor moves with the format, as a real
+    # body's does. A format deeper than 8 bits takes the 12-bit floor.
+    _EXPOSURE_FLOOR_MS: ClassVar[dict[int, float]] = {8: 0.014, 12: 0.029}
+
+    @property
+    def min_exposure(self) -> float:
+        """The shortest exposure the simulated camera takes in the format it holds, in ms."""
+        depth = 8 if self.significant_bits_for_format(self._pixel_format) <= 8 else 12
+        return self._EXPOSURE_FLOOR_MS[depth]
+
     def get_pixel_format(self) -> str:
         """Return the simulated camera's current pixel format.
 

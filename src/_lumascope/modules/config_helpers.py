@@ -35,7 +35,8 @@ if typing.TYPE_CHECKING:
     from _lumascope.modules.executor_registry import ExecutorBundle
     from _lumascope.modules.lumascope_api._lumascope import Lumascope
     from _lumascope.modules.protocol import Protocol
-    from _lumascope.modules.scope_capabilities import CameraLimits, ScopeCapabilities
+    from _lumascope.modules.lumascope_api.camera import CameraSettingLimits
+    from _lumascope.modules.scope_capabilities import ScopeCapabilities
 
 # ---------------------------------------------------------------------------
 # Protocol / Step helpers
@@ -833,13 +834,12 @@ DEFAULT_AG_AE_MIN_EXPOSURE_MS = {
 }
 
 # Fallback gain slider upper bound used when no camera is connected.
-# Matches the legacy kv default (48 dB); the actual per-camera cap is
-# derived from profile.gain.total_max_db and flows through
-# capabilities.camera_limits at connect time.
+# Matches the legacy kv default (48 dB); the actual per-camera cap is the
+# camera's own, read into scope.camera.setting_limits.
 DEFAULT_MAX_GAIN_DB = 48.0
 
 
-def camera_max_gain_for_ui(limits: 'CameraLimits | None') -> float:
+def camera_max_gain_for_ui(limits: 'CameraSettingLimits | None') -> float:
     """The gain-slider upper bound from the camera's limits, or the no-camera
     default (``DEFAULT_MAX_GAIN_DB``; the limits are None by design when no
     camera is connected, so a caller can tell "missing" from a real value).
@@ -902,12 +902,17 @@ def _narrowed(cap: float | None, ceiling: float | None) -> float | None:
 
 
 def channel_slider_maxima(
-    channel: str, *, exposure_cap_ms: float | None, illumination_cap_ma: int | None
+    channel: str,
+    *,
+    exposure_cap_ms: float | None,
+    illumination_cap_ma: int | None,
+    gain_limits: 'CameraSettingLimits | None',
 ) -> ChannelSliderMaxima:
     """One channel's manual slider maxima: the connected camera's exposure cap
     and the current cap of the channel's LED, each narrowed to the channel's
     manual ceiling where it has one; None where there is no cap (no camera;
-    no LED board, or no LED for the channel).
+    no LED board, or no LED for the channel). The gain slider's is the
+    camera's gain maximum (``camera_max_gain_for_ui``).
 
     Raises:
         ArgumentRefusedError: ``channel`` is not a channel of this release.
@@ -918,6 +923,7 @@ def channel_slider_maxima(
         slider_max_illumination_ma=_narrowed(
             illumination_cap_ma, catalogue.manual_max_illumination_ma
         ),
+        slider_max_gain_db=camera_max_gain_for_ui(gain_limits),
     )
 
 

@@ -238,14 +238,15 @@ class ImageSettings(BoxLayout):
         Parallel to set_channel_exposure_ranges. Pre-fix the gain slider
         was hardcoded 0-48 dB in the kv regardless of camera -- that
         let LS620 users drag past the usable range and black out the
-        image. `ctx.max_gain` is populated from
-        capabilities.camera_limits in load_settings (and the same
-        default-fallback pattern as exposure).
+        image. The cap is the session's answer
+        (``channel_slider_maxima``), the camera's gain maximum now.
         """
-        ctx = _app_ctx.ctx
+        session = _app_ctx.ctx.session
         for channel in common_utils.get_channels():
             channel_control = self.channel_control_lookup(channel=channel)
-            channel_control.ids['gain_slider'].max = ctx.max_gain
+            channel_control.ids['gain_slider'].max = session.channel_slider_maxima(
+                channel
+            ).slider_max_gain_db
 
     def set_channel_illumination_ranges(self):
         """Size each channel's illumination slider to the session's answer
@@ -312,8 +313,6 @@ class ImageSettings(BoxLayout):
         The single grouping of the per-channel capability setters, so the connect
         path (_init_ui) and the reconnect path apply the SAME set and can't
         drift to a subset (reconnect previously refreshed only exposure ranges).
-        Callers that change the camera (reconnect) must refresh ctx.max_gain
-        first -- the gain setter reads that cap.
 
         The setters run with every channel marked initializing. Narrowing a
         slider's max makes Kivy clamp its value, which fires on_value into the
@@ -344,13 +343,14 @@ class ImageSettings(BoxLayout):
                 channel_control._initializing = False
         shown = channel_controls[0]
         ctx = _app_ctx.ctx
-        limits = ctx.scope.capabilities.camera_limits
+        limits = ctx.scope.camera.setting_limits
         exposure_max = None if limits is None else limits.exposure_max_ms
         gui_logger.display(
             'CAMERA_CONTROLS',
             f'camera={shown.camera_connected} led_board={shown.led_controller_support} '
             f'autogain={shown.camera_autogain_support} '
-            f'gain_max={ctx.max_gain} exposure_max={exposure_max}',
+            f'gain_max={None if limits is None else limits.gain_max_db} '
+            f'exposure_max={exposure_max}',
         )
         self.reconcile_channels_to_camera_caps()
 

@@ -2187,7 +2187,6 @@ class TechSupportReport:
 
         camera = self.scope.camera
         capabilities = self.scope.capabilities
-        limits = capabilities.camera_limits
 
         def frame_size() -> str:
             size = camera.read_frame_size()
@@ -2203,8 +2202,12 @@ class TechSupportReport:
             'pixel_format': _hardware_reading(camera.read_pixel_format),
             'gain_db': _hardware_reading(camera.read_gain_db),
             'exposure_ms': _hardware_reading(camera.read_exposure_ms),
-            'max_gain_db': limits.gain_max_db if limits else None,
-            'max_exposure_ms': limits.exposure_max_ms if limits else None,
+            'max_gain_db': _hardware_reading(
+                lambda: getattr(camera.setting_limits, 'gain_max_db', None)
+            ),
+            'max_exposure_ms': _hardware_reading(
+                lambda: getattr(camera.setting_limits, 'exposure_max_ms', None)
+            ),
         }
         temperatures = _hardware_reading(self.scope.diagnostics.get_camera_temperatures_degc)
         if isinstance(temperatures, _NotRead):

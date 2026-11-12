@@ -2441,18 +2441,21 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's
+                range could not be read after its last readout change.
         """
         import _lumascope.modules.config_helpers as config_helpers
 
         refuse_unknown_channel(channel)
         capabilities = self.scope.capabilities
-        limits = capabilities.camera_limits
+        limits = self.scope.camera.setting_limits
         record = self.scope.channel_identity.find(channel)
         lit = record is not None and bool(record.led_addresses)
         return config_helpers.channel_slider_maxima(
             channel,
             exposure_cap_ms=None if limits is None else limits.exposure_max_ms,
             illumination_cap_ma=capabilities.led_max_ma if lit else None,
+            gain_limits=limits,
         )
 
     def get_auto_gain_settings(self) -> dict:
