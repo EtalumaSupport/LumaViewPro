@@ -97,7 +97,12 @@ $ErrorActionPreference = "Stop"
 # its two success paths, so after a failed run the commands typed next in the
 # same window were recorded into that run's log. A v10 copy still builds this
 # branch correctly, so MIN_BUILD_SCRIPT_VERSION is unchanged.
-$script_version = 11
+#
+# v12: -SignClassicDriver writes the driver's own version, the committed
+# INF's raised by one, and names its folder for it; v11 passed the branch's
+# installer version, which the writer now refuses as an argument, so
+# MIN_BUILD_SCRIPT_VERSION is 12.
+$script_version = 12
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -637,22 +642,23 @@ if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR:
 # ---------------------------------------------------------------------------
 # Run when the INF changes. The package is signed in this run's own clone,
 # which the next run deletes, so a failed signature leaves nothing behind:
-# the INF's DriverVer is written with today's date and the branch's installer
-# version (refused unless greater than the INF's own), its catalog is made and
+# the INF's DriverVer is written with today's date and the driver's own
+# version (the committed INF's with its last part raised by one, the first
+# signing 2.0.0.0), whatever the app's version, its catalog is made and
 # signed with a timestamp, which keeps it valid after the certificate's year
 # ends, and the pair is verified. Only a verified pair is copied out, the
 # catalog named as the INF's CatalogFile names it (Inf2Cat writes the name in
 # lower case), into its own folder under exe_artifacts, for commit.
 if ($SignClassicDriver) {
     Write-Phase "Lumascope Classic driver package"
-    $sign_wix_ver = Get-InstallerVersion $version
     $fx2_package_dir = Join-Path $clone "scripts\appBuild\build_exe\fx2_driver"
     $fx2_package_inf = Join-Path $fx2_package_dir "Lumascope_Classic.inf"
     $fx2_package_cat = Join-Path $fx2_package_dir "Lumascope_Classic.cat"
-    & $python.Command @($python.Args + @(
-        (Join-Path $clone "scripts\appBuild\config\fx2_driver_package.py"), "sign",
-        $fx2_package_inf, $sign_wix_ver))
+    $fx2_driver_ver = & $python.Command @($python.Args + @(
+        (Join-Path $clone "scripts\appBuild\config\fx2_driver_package.py"), "sign", $fx2_package_inf))
     if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: the Classic driver's DriverVer was not written"; Exit 1 }
+    Write-Host "  DriverVer: $fx2_driver_ver"
+    $fx2_driver_version = ($fx2_driver_ver -split ',')[1]
     & $inf2cat "/driver:$fx2_package_dir" "/os:10_X64"
     if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Inf2Cat could not make the Classic driver's catalog (exit $LASTEXITCODE)"; Exit 1 }
     Invoke-Sign $fx2_package_cat
@@ -660,7 +666,7 @@ if ($SignClassicDriver) {
     # read: the catalog holds the INF's hashes signed or not.
     & $signtool verify /pa /tw /hash SHA256 /c $fx2_package_cat $fx2_package_inf
     if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: the signed Classic driver package did not verify (signtool exit $LASTEXITCODE)"; Exit 1 }
-    $fx2_package_out = Join-Path $artifacts "classic_driver_$($sign_wix_ver)_$build_log_ts"
+    $fx2_package_out = Join-Path $artifacts "classic_driver_$($fx2_driver_version)_$build_log_ts"
     New-Item $fx2_package_out -ItemType Directory -Force | Out-Null
     Copy-Item $fx2_package_inf -Destination (Join-Path $fx2_package_out "Lumascope_Classic.inf")
     Copy-Item $fx2_package_cat -Destination (Join-Path $fx2_package_out "Lumascope_Classic.cat")

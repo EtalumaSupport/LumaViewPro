@@ -232,50 +232,36 @@ def _repo_inf_copy(tmp_path) -> pathlib.Path:
     return inf
 
 
-def test_signing_writes_the_signing_days_driver_ver_into_the_repos_inf(tmp_path):
-    # The catalog is signed over the INF's bytes as committed, so the
-    # writer changes the DriverVer value and nothing else.
+def test_the_first_signing_writes_the_drivers_first_version_and_the_signing_day(tmp_path):
+    # The driver's version is its own, not the app's: the INF that has never
+    # been signed holds the build's placeholder, and its first signing writes
+    # 2.0.0.0, a value no build's stamp (the installer's 4.0.0.x) can equal.
+    # The catalog is signed over the INF's bytes as committed, so the writer
+    # changes the DriverVer value and nothing else.
     inf = _repo_inf_copy(tmp_path)
     before = inf.read_bytes()
 
-    written = fx2_driver_package.write_driver_ver(str(inf), '4.0.0.44', datetime.date(2026, 11, 9))
+    written = fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 11, 13))
 
-    assert written == '11/09/2026,4.0.0.44'
+    assert written == '11/13/2026,2.0.0.0'
     assert _read_inf(inf)['Version']['DriverVer'].strip() == written
     assert inf.read_bytes() == before.replace(
         fx2_driver_package.PLACEHOLDER.encode('ascii'), written.encode('ascii')
     )
 
 
-def test_signing_again_writes_over_the_last_signings_driver_ver(tmp_path):
-    inf = _repo_inf_copy(tmp_path)
-    fx2_driver_package.write_driver_ver(str(inf), '4.0.0.44', datetime.date(2026, 11, 9))
-
-    written = fx2_driver_package.write_driver_ver(str(inf), '4.0.0.45', datetime.date(2026, 12, 1))
-
-    assert _read_inf(inf)['Version']['DriverVer'].strip() == written == '12/01/2026,4.0.0.45'
-
-
-def test_signing_refuses_an_installer_version_not_greater_than_the_infs(tmp_path):
+def test_each_signing_after_the_first_raises_the_drivers_last_version_part(tmp_path):
     # The driver step keeps the package with our current DriverVer and
-    # removes our others, so two signed packages with one DriverVer would let
-    # it keep a stale one. A later day at the same version is refused too:
-    # every signed build before the pair was committed stamped its own date
-    # and version, so only a greater version is sure to be new.
+    # removes our others, so no two signings may write one DriverVer: the
+    # version makes each new, even a second signing on the same day.
     inf = _repo_inf_copy(tmp_path)
-    fx2_driver_package.write_driver_ver(str(inf), '4.0.0.48', datetime.date(2026, 11, 12))
-    signed = inf.read_bytes()
+    fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 11, 13))
 
-    for version, day in (
-        ('4.0.0.48', datetime.date(2026, 11, 13)),
-        ('4.0.0.47', datetime.date(2026, 11, 14)),
-    ):
-        with pytest.raises(
-            SystemExit,
-            match=r'already 11/12/2026,4\.0\.0\.48: sign at an installer version greater than 4\.0\.0\.48',
-        ):
-            fx2_driver_package.write_driver_ver(str(inf), version, day)
-        assert inf.read_bytes() == signed
+    second = fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 11, 13))
+    third = fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 12, 1))
+
+    assert (second, third) == ('11/13/2026,2.0.0.1', '12/01/2026,2.0.0.2')
+    assert _read_inf(inf)['Version']['DriverVer'].strip() == third
 
 
 def _build_script() -> str:
@@ -301,14 +287,16 @@ def test_sign_classic_driver_signs_in_the_builds_own_clone_and_copies_out_only_a
     assert build.index('git clone --depth 1 --branch $Branch $repo_url $clone') < build.index(mode)
     assert build.index('$version = $matches[0]') < build.index(mode)
     assert 'Join-Path $clone "scripts\\appBuild\\config\\fx2_driver_package.py"' in mode
-    assert '"sign"' in mode and 'Get-InstallerVersion $version' in mode
+    # The driver's version is its own: the mode passes no app version and
+    # names its folder for the version the writer printed.
+    assert '"sign", $fx2_package_inf))' in mode and 'Get-InstallerVersion' not in mode
     sign = mode.index('Invoke-Sign $fx2_package_cat')
     verify = mode.index(
         '& $signtool verify /pa /tw /hash SHA256 /c $fx2_package_cat $fx2_package_inf'
     )
     copy = mode.index('Copy-Item $fx2_package_inf')
     assert mode.index('& $inf2cat "/driver:$fx2_package_dir" "/os:10_X64"') < sign < verify < copy
-    assert 'Join-Path $artifacts "classic_driver_$($sign_wix_ver)_$build_log_ts"' in mode
+    assert 'Join-Path $artifacts "classic_driver_$($fx2_driver_version)_$build_log_ts"' in mode
     assert '-Destination (Join-Path $fx2_package_out "Lumascope_Classic.cat")' in mode
     assert mode.rstrip().endswith('Join-Path $fx2_package_out "sign.log") -Force\n    Exit 0')
     assert build.count('$wix_ver = Get-InstallerVersion $version') == 1

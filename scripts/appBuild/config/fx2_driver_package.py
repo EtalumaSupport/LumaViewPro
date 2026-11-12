@@ -2,16 +2,17 @@
 
 The INF lives in the repo. ``write_driver_ver`` writes its ``DriverVer`` when
 ``build.ps1 -SignClassicDriver`` signs the package, in the build's own
-clone: the signing day's date and the installer version, refusing an
-installer version not greater than the INF's, since the driver step finds
-our current package by its ``DriverVer``. Until the signed pair is
+clone: the signing day's date and the driver's own version, the committed
+INF's with its last part raised by one, since the driver step finds our
+current package by its ``DriverVer``. The version is the driver's, not the
+app's: a signing waits on no app version. Until the signed pair is
 committed, the INF holds a placeholder and a signed build stamps a copy
-(``stamp_driver_package``).
+(``stamp_driver_package``) with the installer version.
 
 Run by ``build.ps1``::
 
     python fx2_driver_package.py <source.inf> <output dir> <installer version>
-    python fx2_driver_package.py sign <the clone's inf> <installer version>
+    python fx2_driver_package.py sign <the clone's inf>
 
 Each prints what it wrote: the stamped INF's path, or the new ``DriverVer``.
 """
@@ -24,6 +25,10 @@ import re
 import sys
 
 PLACEHOLDER = '@DRIVER_VER@'
+# The driver's first signed version: 2.0.0.0, apart from the installer's
+# 4.0.0.x that a build stamps, so no signing can write a DriverVer a build
+# stamped.
+FIRST_DRIVER_VERSION = '2.0.0.0'
 _INSTALLER_VERSION = re.compile(r'^\d+\.\d+\.\d+\.\d+$')
 # The value runs to the end of its line, the line's ending left as it is.
 _DRIVER_VER_LINE = re.compile(r'^(DriverVer[ \t]*=[ \t]*)([^\r\n]*)', re.MULTILINE)
@@ -66,37 +71,25 @@ def stamp_driver_package(
     return stamped
 
 
-def _parts(version: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in version.split('.'))
-
-
-def write_driver_ver(inf_path: str, installer_version: str, sign_date: datetime.date) -> str:
+def write_driver_ver(inf_path: str, sign_date: datetime.date) -> str:
     """Write the INF's ``DriverVer`` in place, for the catalog signed over it.
 
     Only the value changes: the catalog is made from the INF's bytes as
-    committed.
+    committed. The driver step keeps the package with our current
+    ``DriverVer`` and deletes our others, so each signing writes a version
+    no signing wrote before: the first ``FIRST_DRIVER_VERSION``, each after
+    it the committed one with its last part raised by one.
 
     Args:
         inf_path: The INF in the build's clone.
-        installer_version: The installer's four-part version (``4.0.0.48``).
         sign_date: The signing day (UTC).
 
     Returns:
         The ``DriverVer`` written, date then version.
 
     Raises:
-        SystemExit: The version is not four numeric parts, the INF does not
-            hold one ``DriverVer`` line, or its version is not below this
-            one. The driver step keeps the package with our current
-            ``DriverVer`` and deletes our others, so two signed packages
-            with one ``DriverVer`` would let it keep a stale one; a greater
-            version is new whatever the day, where the same version on a
-            later day could still equal a ``DriverVer`` a build stamped.
+        SystemExit: The INF does not hold one ``DriverVer`` line.
     """
-    if not _INSTALLER_VERSION.match(installer_version):
-        raise SystemExit(
-            f'FATAL: FX2 driver package: DriverVer needs a four-part numeric version, got {installer_version!r}'
-        )
     with open(inf_path, 'rb') as f:
         text = f.read().decode('ascii')
     lines = _DRIVER_VER_LINE.findall(text)
@@ -105,14 +98,12 @@ def write_driver_ver(inf_path: str, installer_version: str, sign_date: datetime.
             f'FATAL: FX2 driver package: {inf_path} holds {len(lines)} DriverVer lines, not one'
         )
     current = lines[0][1].strip()
-    if current != PLACEHOLDER:
-        current_version = current.partition(',')[2].strip()
-        if _parts(installer_version) <= _parts(current_version):
-            raise SystemExit(
-                f'FATAL: FX2 driver package: {inf_path} is already {current}: sign at an '
-                f'installer version greater than {current_version}'
-            )
-    written = f'{sign_date:%m/%d/%Y},{installer_version}'
+    if current == PLACEHOLDER:
+        version = FIRST_DRIVER_VERSION
+    else:
+        *head, last = current.partition(',')[2].strip().split('.')
+        version = '.'.join([*head, str(int(last) + 1)])
+    written = f'{sign_date:%m/%d/%Y},{version}'
     text = _DRIVER_VER_LINE.sub(lambda m: m.group(1) + written, text, count=1)
     with open(inf_path, 'wb') as f:
         f.write(text.encode('ascii'))
@@ -121,12 +112,12 @@ def write_driver_ver(inf_path: str, installer_version: str, sign_date: datetime.
 
 if __name__ == '__main__':
     today = datetime.datetime.now(datetime.UTC).date()
-    if len(sys.argv) == 4 and sys.argv[1] == 'sign':
-        print(write_driver_ver(sys.argv[2], sys.argv[3], today))
+    if len(sys.argv) == 3 and sys.argv[1] == 'sign':
+        print(write_driver_ver(sys.argv[2], today))
     elif len(sys.argv) == 4:
         print(stamp_driver_package(sys.argv[1], sys.argv[2], sys.argv[3], today))
     else:
         raise SystemExit(
             'usage: fx2_driver_package.py <source.inf> <output dir> <installer version>, '
-            'or fx2_driver_package.py sign <repo inf> <installer version>'
+            "or fx2_driver_package.py sign <the clone's inf>"
         )

@@ -256,14 +256,15 @@ each build: run, from the build folder, with the certificate configured,
 
 and pick the branch at its question (or add `-Branch <name>`). In that
 run's own fresh clone it writes the INF's `DriverVer` (today's date and the
-branch's installer version), makes the catalog with `Inf2Cat`, signs it with
-a timestamp and verifies it with `signtool verify`, then copies the INF and
-`Lumascope_Classic.cat` into `exe_artifacts\classic_driver_<version>_<time>\`
-with the run's log, and builds nothing. Those two files are committed to
+driver's own version: 2.0.0.0 at the first signing, then the committed
+INF's with its last part raised by one, whatever the app's version), makes
+the catalog with `Inf2Cat`, signs it with a timestamp and verifies it with
+`signtool verify`, then copies the INF and `Lumascope_Classic.cat` into
+`exe_artifacts\classic_driver_<driver version>_<time>\` with the run's log,
+and builds nothing. Those two files are committed to
 `scripts\appBuild\build_exe\fx2_driver\` byte for byte. Run it again only
-when the INF changes, at an installer version greater than the committed
-INF's (it refuses any other): the driver step finds our current package by
-its `DriverVer`.
+when the INF changes: the driver step finds our current package by its
+`DriverVer`, so each signing's must be new.
 
 #### FX2 WinUSB Driver (Lumascope Classic: LS460 / LS560 / LS620 / LS720)
 

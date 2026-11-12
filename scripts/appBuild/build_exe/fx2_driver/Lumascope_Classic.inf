@@ -11,10 +11,11 @@
 ;
 ; DriverVer is written by build.ps1 -SignClassicDriver when it signs this
 ; package (scripts/appBuild/config/fx2_driver_package.py): the signing day's
-; date and an installer version greater than the last signing's, because
-; LumaViewPro's driver step keeps our package with the current DriverVer and
-; removes our others. The catalog signed over this file, Lumascope_Classic.cat,
-; covers every byte of it, comments included: any edit needs a new signing.
+; date and the driver's own version, the last signing's raised by one,
+; because LumaViewPro's driver step keeps our package with the current
+; DriverVer and removes our others. The catalog signed over this file,
+; Lumascope_Classic.cat, covers every byte of it, comments included: any edit
+; needs a new signing.
 
 [Version]
 Signature   = "$Windows NT$"
