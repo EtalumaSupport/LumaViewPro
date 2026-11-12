@@ -44,7 +44,7 @@ def test_before_a_home_the_plate_position_is_refused(make_session):
     with pytest.raises(AxisStateUnknownError) as exc:
         session.get_current_plate_position()
 
-    assert set(exc.value.axes) == {'X', 'Y', 'Z'}
+    assert set(exc.value.axes_without_position) == {'X', 'Y', 'Z'}
 
 
 def test_after_a_home_the_plate_position_is_read(make_session):
@@ -80,7 +80,7 @@ def test_new_with_an_unfocused_layer_before_a_home_is_refused(make_session):
     with pytest.raises(AxisStateUnknownError) as exc:
         session.new_protocol()
 
-    assert set(exc.value.axes) == {'Z'}
+    assert set(exc.value.axes_without_position) == {'Z'}
 
 
 def test_new_with_every_layer_focused_builds_before_a_home(make_session):

@@ -14,8 +14,12 @@ exactly the state a failed home leaves every axis in.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
 from _lumascope.modules.exceptions import AxisStateUnknownError
+from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
+from tests.settings_fixtures import complete_settings
 from _lumascope.modules.axes import AxisState
 from _lumascope.modules.notification_center import Severity
 from tests.scope_fakes import build_scope, home_sim_scope
@@ -37,8 +41,9 @@ def test_the_gate_refuses_in_words_a_user_acts_on(unhomed_scope):
     message = str(excinfo.value)
     assert message == 'The X, Y, Z and T positions are unknown. Home the scope, then move it.'
     assert 'force' not in message
-    assert excinfo.value.axis == 'X'
-    assert excinfo.value.axes == dict.fromkeys(unhomed_scope.capabilities.axes, AxisState.UNKNOWN)
+    assert excinfo.value.axes_without_position == dict.fromkeys(
+        unhomed_scope.capabilities.axes, AxisState.UNKNOWN
+    )
 
 
 def test_one_refusal_names_every_axis():
@@ -47,7 +52,7 @@ def test_one_refusal_names_every_axis():
     )
 
     assert str(error) == 'The X, Y and Z positions are unknown. Home the scope, then move it.'
-    assert error.axis == 'X'
+    assert list(error.axes_without_position) == ['X', 'Y', 'Z']
 
 
 def test_a_homing_axis_is_waited_for_not_homed_again():
@@ -82,7 +87,7 @@ def test_a_gesture_is_refused_naming_every_unknown_axis(unhomed_scope, centre_po
             ('X', 'Y', 'Z'), recording=False, then='go to the step'
         )
 
-    assert excinfo.value.axes == {
+    assert excinfo.value.axes_without_position == {
         'X': AxisState.UNKNOWN,
         'Y': AxisState.UNKNOWN,
         'Z': AxisState.UNKNOWN,
@@ -121,7 +126,7 @@ def test_an_axis_the_scope_does_not_have_is_not_asked_about(tmp_path):
     finally:
         session.shutdown()
 
-    assert list(excinfo.value.axes) == ['X', 'Y', 'Z']
+    assert list(excinfo.value.axes_without_position) == ['X', 'Y', 'Z']
 
 
 def test_a_homed_scope_is_not_refused(unhomed_scope, centre_posts):
@@ -184,3 +189,31 @@ def test_a_hyperstack_states_no_position_it_does_not_have(tmp_path):
     assert 'PositionX' not in metadata['Plane']
     assert 'PositionY' not in metadata['Plane']
     assert metadata['Plane']['PositionZ'] == [3.0, 3.0]
+
+
+def test_a_refusal_names_at_least_one_axis():
+    """An unknown position with no axis named is no refusal: it is refused where it is built."""
+    with pytest.raises(TypeError):
+        AxisStateUnknownError({})
+
+
+def test_a_wire_client_is_told_which_axes_have_no_position(tmp_path):
+    """The problem body names each axis without a position, with its state, as data, for a
+    refused move and a step that cannot be saved alike: a client branches on the axes, not
+    on the sentence."""
+    session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
+    try:
+        session.set_channel_acquire('BF', 'image')
+        with TestClient(build_app(session)) as client:
+            moved = client.post('/api/v1/scope/motion/move_xy', json={'x_um': 1000.0}).json()
+            protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+            added = client.post('/api/v1/add_step', json={'protocol': protocol}).json()
+    finally:
+        session.shutdown()
+
+    unknown = {'X': 'unknown', 'Y': 'unknown', 'Z': 'unknown'}
+    assert (moved['reason'], moved.get('axes_without_position')) == ('position_unknown', unknown)
+    assert (added['reason'], added.get('axes_without_position')) == (
+        'step_position_unknown',
+        unknown,
+    )

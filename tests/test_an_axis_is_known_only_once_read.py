@@ -40,7 +40,7 @@ def test_a_homed_axis_whose_read_fails_starts_unknown():
     with pytest.raises(AxisStateUnknownError) as exc:
         motion.move_z(1000.0)
     assert exc.value.reason == 'position_unknown'
-    assert list(exc.value.axes) == ['Z']
+    assert list(exc.value.axes_without_position) == ['Z']
 
 
 def test_a_defect_in_the_bring_up_read_fails_construction(monkeypatch):

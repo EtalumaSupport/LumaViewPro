@@ -654,7 +654,7 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
         def flat_and_losing_z(**kwargs):
             # a stand-in by design: the simulator cannot yet lose Z on the
             # failed sweep's restore, so the sweep's first score loses it.
-            lost['Z'] = 'UNKNOWN'
+            lost['Z'] = 'unknown'
             return 0.0
 
         monkeypatch.setattr(autofocus_functions, 'autofocus_score', flat_and_losing_z)

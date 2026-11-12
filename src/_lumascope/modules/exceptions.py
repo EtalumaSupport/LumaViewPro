@@ -26,7 +26,7 @@ from _lumascope.drivers.exceptions import (
 )
 from _lumascope.modules.api_surface import api_fields
 from _lumascope.modules import scope_parts
-from _lumascope.modules.axes import Axis, AxisState, StageAxis
+from _lumascope.modules.axes import Axis, AxisState, StageAxis, axis_states
 from _lumascope.modules.caller import Caller
 from _lumascope.modules.live_work import SCOPE_HOLDERS
 from _lumascope.modules.scope_parts import MISSING_PART_REASONS, Board, Part
@@ -69,6 +69,10 @@ Holder.__doc__ = 'What holds the microscope when a refusal names its holder.'
 def _holder(kind: str | None) -> Holder | None:
     """The holder a refusal names, from the claim's kind or a member; None for none."""
     return None if kind is None else Holder(kind)
+
+
+# The run refusals that name the axes without a position, and only they.
+_AXES_WITHOUT_POSITION_REASONS = frozenset({'position_unknown', 'step_position_unknown'})
 
 
 class RemedyName(StrEnum):
@@ -2083,7 +2087,7 @@ class RunWaitExpiredError(ProtocolError, Quiet, TimeoutError):
         self.operation = operation
 
 
-@api_fields('holder', 'holder_trigger', 'unconnected_parts')
+@api_fields('holder', 'holder_trigger', 'unconnected_parts', 'axes_without_position')
 class ProtocolRunRefusedError(Refusal, ProtocolError):
     """A sequenced run, or the protocol it would run, was refused before any state was committed.
 
@@ -2123,7 +2127,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             of the camera's was measured within the run start's wait, so
             the disk the step will write cannot be sized.
             ``'position_unknown'`` -- an axis this scope has does not know
-            its position, so the scope has to be homed first. ``'lid_open_before_motion'`` -- the stage's lid is
+            its position, so the scope has to be homed first; the axes are
+            ``axes_without_position``. ``'lid_open_before_motion'`` -- the stage's lid is
             open, so the stage refuses to move.
             ``'no_acquiring_channel'`` -- no channel, or not the step's, is
             set to acquire, so there is no step to make.
@@ -2139,7 +2144,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``'turret_slot_reassigned'`` -- the turret slot a step recorded
             now holds another objective. ``'step_position_unknown'`` -- a
             step cannot be added or updated while an axis does not know its
-            position. ``'turret_objectives_unassigned'`` -- the protocol
+            position; the axes are ``axes_without_position``.
+            ``'turret_objectives_unassigned'`` -- the protocol
             uses an objective no turret slot is assigned.
             ``'objective_not_mounted'`` -- on a scope with no turret, the
             protocol names an objective other than the selected one.
@@ -2195,15 +2201,22 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         unconnected_parts: The boards not connected, each a ``Board``, for
             ``'not_connected'``, which always names at least one; empty for
             every other reason.
+        axes_without_position: Each axis that does not know its position,
+            mapped to its ``AxisState``, in the scope's axis order, as
+            ``MotionAPI.axes_without_position`` answers it, for
+            ``'position_unknown'`` and ``'step_position_unknown'``, which
+            always name at least one; empty for every other reason.
 
-    ``holder``, ``holder_trigger`` and ``unconnected_parts`` are published,
-    so a REST problem carries who holds the scope, and which boards are
-    missing, beside the words.
+    ``holder``, ``holder_trigger``, ``unconnected_parts`` and
+    ``axes_without_position`` are published, so a REST problem carries who
+    holds the scope, which boards are missing and which axes have no
+    position, beside the words.
     """
 
     holder: Holder | None
     holder_trigger: Caller | None
     unconnected_parts: tuple[Board, ...]
+    axes_without_position: dict[Axis, AxisState]
 
     # What a protocol holds is the request's, whoever made it: a client
     # changes the protocol, and the scope's state never makes it runnable.
@@ -2320,6 +2333,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         holder_trigger: Caller | None = None,
         remedy: Remedy | None = None,
         unconnected_parts: tuple[Board, ...] = (),
+        axes_without_position: dict[Axis, AxisState] | None = None,
     ):
         super().__init__(message)
         self.reason = reason
@@ -2334,6 +2348,13 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
                 f'a {reason!r} refusal was given the boards {self.unconnected_parts!r}: '
                 "a 'not_connected' refusal names the boards not connected, and no other "
                 'refusal names any'
+            )
+        self.axes_without_position = axis_states(axes_without_position)
+        if bool(self.axes_without_position) != (reason in _AXES_WITHOUT_POSITION_REASONS):
+            raise TypeError(
+                f'a {reason!r} refusal was given the axes {self.axes_without_position!r}: '
+                "a 'position_unknown' or 'step_position_unknown' refusal names the axes "
+                'without a position, and no other refusal names any'
             )
 
 
@@ -4786,6 +4807,7 @@ def unknown_positions_sentence(axes: dict[str, str], then: str) -> str:
     return f'{clause[0].upper()}{clause[1:]}. {remedy}, then {then}.'
 
 
+@api_fields('axes_without_position')
 class AxisStateUnknownError(Refusal, Exception):
     """An axis whose position is not known was asked to move, or to be recorded.
 
@@ -4810,29 +4832,33 @@ class AxisStateUnknownError(Refusal, Exception):
 
     Attributes:
         reason: ``'position_unknown'``.
-        axes: Every refused axis, mapped to its state, in the scope's axis
-            order.
-        axis: The first of them, for callers that map a refusal to a
-            response by a single axis (REST status codes, SDK branches).
+        axes_without_position: Every refused axis, mapped to its
+            ``AxisState``, in the scope's axis order; never empty.
+
+    ``axes_without_position`` is published, so a REST problem carries the
+    axes beside the words, as a run's ``ProtocolRunRefusedError`` does.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'position_unknown': RefusalCause.STATE}
     same_fact_as = (ProtocolRunRefusedError,)
     title = ProtocolRunRefusedError._TITLES['position_unknown']
 
-    def __init__(self, axes: dict[str, str], then: str = 'move it'):
-        """Build the refusal for ``axes``.
+    axes_without_position: dict[Axis, AxisState]
+
+    def __init__(self, axes_without_position: dict[Axis, AxisState], then: str = 'move it'):
+        """Build the refusal for ``axes_without_position``.
 
         Args:
-            axes: Axis name to state for every axis refused. Must not be
-                empty.
+            axes_without_position: Axis to state for every axis refused.
+                Must not be empty.
             then: What the user does once the scope knows its position,
                 ending the sentence (e.g. ``'move it'``, ``'save the
                 focus'``).
         """
-        super().__init__(unknown_positions_sentence(axes, then))
-        self.axes = dict(axes)
-        self.axis = next(iter(axes))
+        if not axes_without_position:
+            raise TypeError('an unknown position names the axes without one, and none was given')
+        self.axes_without_position = axis_states(axes_without_position)
+        super().__init__(unknown_positions_sentence(self.axes_without_position, then))
 
 
 class AxisMovingError(Refusal, Exception):

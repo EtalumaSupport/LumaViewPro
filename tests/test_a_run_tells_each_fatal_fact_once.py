@@ -38,7 +38,9 @@ STOPPED = RunEnding('aborted', 'stopped', 'Stopped')
 
 
 def _fatal(reason: str) -> RunEnding:
-    return RunEnding('failed', reason, f'the {reason} fact')
+    # A lost position names its axes; no other fact here names any.
+    lost = {'Z': 'unknown'} if reason == 'position_lost' else None
+    return RunEnding('failed', reason, f'the {reason} fact', axes_without_position=lost)
 
 
 def _failed_posts(centre_posts):

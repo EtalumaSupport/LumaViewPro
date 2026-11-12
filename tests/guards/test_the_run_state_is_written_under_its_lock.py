@@ -70,7 +70,9 @@ def _runner_in(*states):
 )
 def test_a_fatal_ending_puts_a_live_run_in_error_and_aborts_it(states):
     runner = _runner_in(*states)
-    ending = RunEnding(RunStatus.FAILED, 'position_lost', 'timed out')
+    ending = RunEnding(
+        RunStatus.FAILED, 'position_lost', 'timed out', axes_without_position={'Z': 'unknown'}
+    )
     runner.end_run_fatally(ending)
     assert runner._state is ProtocolState.ERROR
     runner.abort_run_fatal.assert_called_once_with(ending)
@@ -85,7 +87,11 @@ def test_a_fatal_ending_puts_a_live_run_in_error_and_aborts_it(states):
 )
 def test_a_fatal_ending_of_a_run_already_ending_keeps_its_state_and_still_aborts(states):
     runner = _runner_in(*states)
-    runner.end_run_fatally(RunEnding(RunStatus.FAILED, 'position_lost', 'timed out'))
+    runner.end_run_fatally(
+        RunEnding(
+            RunStatus.FAILED, 'position_lost', 'timed out', axes_without_position={'Z': 'unknown'}
+        )
+    )
     assert runner._state is states[-1]
     runner.abort_run_fatal.assert_called_once()
 

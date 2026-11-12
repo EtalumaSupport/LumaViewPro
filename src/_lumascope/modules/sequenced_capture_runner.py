@@ -28,6 +28,7 @@ from _lumascope.modules.protocol_run_loop import ProtocolRunLoop
 
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.axes import Axis, AxisState
 from _lumascope.modules.scope_parts import Board
 
 import _lumascope.modules.common_utils as common_utils
@@ -988,6 +989,7 @@ class SequencedCaptureRunner:
         holder_trigger: Caller | None = None,
         remedy: Remedy | None = None,
         unconnected_parts: tuple[Board, ...] = (),
+        axes_without_position: dict[Axis, AxisState] | None = None,
     ) -> ProtocolRunRefusedError:
         """The typed refusal, built and not raised.
 
@@ -1002,6 +1004,7 @@ class SequencedCaptureRunner:
             holder_trigger=holder_trigger,
             remedy=remedy,
             unconnected_parts=unconnected_parts,
+            axes_without_position=axes_without_position,
         )
 
     def _refuse(
@@ -1012,6 +1015,7 @@ class SequencedCaptureRunner:
         holder: Holder | None = None,
         holder_trigger: Caller | None = None,
         remedy: Remedy | None = None,
+        axes_without_position: dict[Axis, AxisState] | None = None,
     ) -> typing.NoReturn:
         """Raise the typed refusal.
 
@@ -1020,7 +1024,12 @@ class SequencedCaptureRunner:
         REST's logged and answered -- so a REST caller is not also shown it.
         """
         raise self._refusal(
-            reason, message, holder=holder, holder_trigger=holder_trigger, remedy=remedy
+            reason,
+            message,
+            holder=holder,
+            holder_trigger=holder_trigger,
+            remedy=remedy,
+            axes_without_position=axes_without_position,
         )
 
     def refuse_unknown_positions(self) -> None:
@@ -1045,6 +1054,7 @@ class SequencedCaptureRunner:
                     'Cannot start the run. '
                     + unknown_positions_sentence(unknown_axes, then='start the run')
                 ),
+                axes_without_position=unknown_axes,
             )
 
     def state_refusal(

@@ -167,7 +167,11 @@ class TestCompositeOutcomeIsObservable:
         # is empty and the code the caller gets is why the RUN stopped.
         # Collapsing both into one field is what made 'aborted' and
         # 'merge_failed' indistinguishable to anyone deciding what to retry.
-        runner = self._runner_whose_run(RunEnding(status, reason, 'The run did not finish.'))
+        # A lost position names its axes; neither other ending names any.
+        lost = {'Z': 'unknown'} if reason == 'position_lost' else None
+        runner = self._runner_whose_run(
+            RunEnding(status, reason, 'The run did not finish.', axes_without_position=lost)
+        )
 
         with pytest.raises(CaptureError) as excinfo:
             runner.run_composite()

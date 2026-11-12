@@ -57,6 +57,7 @@ import uuid
 from collections.abc import Callable
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.api_surface import api, api_fields
+from _lumascope.modules.axes import Axis, AxisState, axis_states
 from _lumascope.modules.scope_parts import Board
 
 
@@ -159,12 +160,16 @@ class RunEnding:
         unconnected_parts: The boards found disconnected, for a
             ``'hardware_disconnected'`` ending, which always names at least
             one; empty for every other ending.
+        axes_without_position: The axes found without a position, each
+            mapped to its ``AxisState``, for a ``'position_lost'`` ending,
+            which always names at least one; empty for every other ending.
     """
 
     status: RunStatus
     reason: str
     message: str
     unconnected_parts: tuple[Board, ...] = ()
+    axes_without_position: dict[Axis, AxisState] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self):
         # Judged where the ending is made: the outcome built from it is
@@ -179,6 +184,13 @@ class RunEnding:
             raise TypeError(
                 f'a {self.reason!r} ending was given the boards {self.unconnected_parts!r}: '
                 "a 'hardware_disconnected' ending names the boards it lost, and no other "
+                'ending names any'
+            )
+        object.__setattr__(self, 'axes_without_position', axis_states(self.axes_without_position))
+        if bool(self.axes_without_position) != (self.reason == 'position_lost'):
+            raise TypeError(
+                f'a {self.reason!r} ending was given the axes {self.axes_without_position!r}: '
+                "a 'position_lost' ending names the axes without a position, and no other "
                 'ending names any'
             )
 
@@ -428,6 +440,7 @@ class CaptureTally:
     'af_data_saved',
     'af_focus_z_um',
     'artifact_path',
+    'axes_without_position',
     'captures',
     'cleanup_failures',
     'focus_failures',
@@ -447,7 +460,8 @@ class RunOutcome:
 
     The first four fields are the run's ENDING, copied from the
     RunEnding whatever ended the run recorded, with the boards a
-    disconnect lost (``unconnected_parts``); the next three describe
+    disconnect lost (``unconnected_parts``) and the axes a lost position
+    left unplaced (``axes_without_position``); the next three describe
     the merge, the next two the autofocus characterization data, then
     what the run captured, which steps putting the scope back after it
     did not finish, whether a scan's focus was written into the caller's
@@ -467,6 +481,9 @@ class RunOutcome:
         unconnected_parts: The boards found disconnected when the run
             ended ``'hardware_disconnected'``, each by its ``Board``; empty
             for every other reason.
+        axes_without_position: The axes found without a position when the
+            run ended ``'position_lost'``, each mapped to its ``AxisState``;
+            empty for every other reason.
         merged: True only when an artifact was produced.
         artifact_path: Where it landed; None whenever merged is False.
         merge_reason: Why the MERGE produced no file ('write_batch_timeout',
@@ -531,6 +548,7 @@ class RunOutcome:
     title: str
     message: str
     unconnected_parts: tuple[Board, ...]
+    axes_without_position: dict[Axis, AxisState]
     merged: bool
     artifact_path: pathlib.Path | None
     merge_reason: str
@@ -577,6 +595,7 @@ class RunOutcome:
             title=ending.title,
             message=ending.message,
             unconnected_parts=ending.unconnected_parts,
+            axes_without_position=ending.axes_without_position,
             merged=merged,
             artifact_path=artifact_path,
             merge_reason=merge_reason,

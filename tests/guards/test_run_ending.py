@@ -35,7 +35,9 @@ MODULES = REPO_ROOT / 'src/_lumascope/modules'
 class TestEndingLatch:
     def test_the_first_ending_is_the_one_kept(self):
         latch = EndingLatch()
-        first = RunEnding('failed', 'position_lost', 'the cause')
+        first = RunEnding(
+            'failed', 'position_lost', 'the cause', axes_without_position={'Z': 'unknown'}
+        )
         later = RunEnding('failed', 'run_loop_crashed', 'the consequence')
 
         assert latch.set_if_unset(first) is True
@@ -556,6 +558,25 @@ def test_only_a_disconnect_ending_names_boards():
     for wrong in (
         lambda: RunEnding('failed', 'hardware_disconnected', 'Something disconnected.'),
         lambda: RunEnding('failed', 'position_lost', 'Z lost.', unconnected_parts=(Board.MOTOR,)),
+    ):
+        with pytest.raises(TypeError):
+            wrong()
+
+
+def test_only_a_lost_position_ending_names_axes():
+    """A run that lost a position names each axis without one; no other ending names an axis."""
+    from _lumascope.modules.axes import AxisState
+
+    lost = {'X': AxisState.UNKNOWN}
+    assert (
+        RunEnding(
+            'failed', 'position_lost', 'X lost.', axes_without_position=lost
+        ).axes_without_position
+        == lost
+    )
+    for wrong in (
+        lambda: RunEnding('failed', 'position_lost', 'A position was lost.'),
+        lambda: RunEnding('failed', 'captures_failed', 'M', axes_without_position=lost),
     ):
         with pytest.raises(TypeError):
             wrong()

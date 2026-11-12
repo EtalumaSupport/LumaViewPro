@@ -429,6 +429,7 @@ class ProtocolRunLoop:
                         'position_lost',
                         f'The run stopped: {describe_unknown_positions(lost_axes)}. '
                         'Home the scope before running the protocol again.',
+                        axes_without_position=lost_axes,
                     )
                     p.end_run_fatally(ending)
                     return ending

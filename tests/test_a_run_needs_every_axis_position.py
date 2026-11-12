@@ -147,6 +147,26 @@ class TestTheQuestion:
         assert motion.axes_without_position() == {}
 
 
+def test_only_a_position_refusal_names_axes():
+    """A run or a step refused for an unknown position says which axes; no other refusal names one."""
+    lost = {'Z': AxisState.HOMING}
+    for reason in ('position_unknown', 'step_position_unknown'):
+        assert (
+            ProtocolRunRefusedError(
+                reason, 'Z is still homing.', axes_without_position=lost
+            ).axes_without_position
+            == lost
+        )
+    for wrong in (
+        lambda: ProtocolRunRefusedError('position_unknown', 'A position is unknown.'),
+        lambda: ProtocolRunRefusedError(
+            'already_running', 'A run is running.', axes_without_position=lost
+        ),
+    ):
+        with pytest.raises(TypeError):
+            wrong()
+
+
 class TestARunCannotStartWithoutEveryPosition:
     def test_an_unhomed_scope_is_refused_naming_its_axes_and_nothing_moves(
         self, session_factory, tmp_path, centre_posts
@@ -158,6 +178,7 @@ class TestARunCannotStartWithoutEveryPosition:
             _run(session, tmp_path)
 
         assert excinfo.value.reason == 'position_unknown'
+        assert excinfo.value.axes_without_position == dict.fromkeys('XYZ', AxisState.UNKNOWN)
         assert 'The X, Y and Z positions are unknown' in excinfo.value.message
         assert 'Home the scope' in excinfo.value.message
         assert moves == [], 'a refused run must not move the stage'
@@ -221,6 +242,7 @@ class TestALostPositionEndsTheRunOnce:
         outcome = _run(session, tmp_path)
 
         assert (outcome.status, outcome.reason) == ('failed', 'position_lost')
+        assert outcome.axes_without_position == {'X': AxisState.UNKNOWN}
         assert 'the X position is unknown' in outcome.message
         assert 'Home the scope' in outcome.message
         endings = [title for title, _ in _notices(centre_posts) if title == outcome.title]

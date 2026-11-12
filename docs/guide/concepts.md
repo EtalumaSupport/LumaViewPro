@@ -129,7 +129,11 @@ camera is streaming. A new install has not been told which objective is
 mounted: until its question is answered (below), a saved still and a run are
 refused `ObjectiveUnknownError` (`'none_selected'`). It does **not** move anything.
 The scope's position is unknown until it is homed, and a move or a run before
-that is refused (`'position_unknown'`). `run_application_session()` is the
+that is refused (`'position_unknown'`), naming each axis with its state as data
+in `axes_without_position`: `{"X": "unknown", "Y": "unknown", "Z": "unknown"}`
+on the wire. A step saved then is refused the same way
+(`'step_position_unknown'`), and a run that loses a position ends
+`'position_lost'` with the axes in its `RunOutcome`. `run_application_session()` is the
 startup motion LumaViewPro itself runs at launch: every axis homed, then the
 turret moved to slot 1. `start_application_session()` starts the same motion
 and returns its [`Operation`](python.md#operations) without waiting. While the

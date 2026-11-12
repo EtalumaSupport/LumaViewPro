@@ -113,6 +113,10 @@ class TestTheApiRefuses:
             'step_position_unknown',
             'Step Not Saved',
         )
+        assert excinfo.value.axes_without_position == {
+            'Y': AxisState.UNKNOWN,
+            'Z': AxisState.HOMING,
+        }
         assert excinfo.value.message == (
             'Cannot add the step. Z is still homing; the Y position is unknown. '
             'Home the scope, then add the step.'

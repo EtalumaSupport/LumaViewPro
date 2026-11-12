@@ -113,7 +113,7 @@ class TestAnAxisNotAskedForIsLeftAsItIs:
         with pytest.raises(AxisStateUnknownError) as refused:
             scope.motion.move_xy(x_um=_START['X'] - 500.0)
 
-        assert list(refused.value.axes) == ['Y']
+        assert list(refused.value.axes_without_position) == ['Y']
         assert scope.motion.get_target_positions()['X'] == _START['X']
 
     def test_a_distance_for_y_alone_leaves_x(self, scope):

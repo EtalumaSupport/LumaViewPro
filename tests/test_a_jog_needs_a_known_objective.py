@@ -106,7 +106,7 @@ def test_a_jog_after_a_failed_home_is_refused_by_the_motion_gate_not_the_objecti
         with pytest.raises(AxisStateUnknownError) as refused:
             motion.start_jog(axis, steps, coarse)
         assert refused.value.reason == 'position_unknown'
-        assert set(refused.value.axes) == {'X', 'Y', 'Z', 'T'}
+        assert set(refused.value.axes_without_position) == {'X', 'Y', 'Z', 'T'}
 
     assert motion.get_target_positions() == before
 

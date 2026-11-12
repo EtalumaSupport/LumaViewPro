@@ -205,7 +205,13 @@ class TestAStopControlCanSayTheRunIsStopping:
     def test_a_run_the_instrument_ended_is_not_stopping(self):
         from _lumascope.modules.run_outcome import RunEnding
 
-        assert self._stopping(True, RunEnding('failed', 'position_lost', 'M')) is False
+        assert (
+            self._stopping(
+                True,
+                RunEnding('failed', 'position_lost', 'M', axes_without_position={'Z': 'unknown'}),
+            )
+            is False
+        )
 
     def test_a_run_that_is_not_live_is_not_stopping(self):
         from _lumascope.modules.run_outcome import RunEnding

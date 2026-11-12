@@ -8,6 +8,7 @@ API package, which imports them.
 """
 
 import enum
+from collections.abc import Mapping
 
 
 class StageAxis(enum.StrEnum):
@@ -44,3 +45,17 @@ class AxisState(enum.StrEnum):
     IDLE = 'idle'  # At known position, not moving
     MOVING = 'moving'  # Move commanded, not yet arrived
     HOMING = 'homing'  # Homing sequence in progress
+
+
+def axis_states(states: Mapping[str, str] | None) -> dict[Axis, AxisState]:
+    """Each axis named in *states* as its ``Axis``, with its state as its ``AxisState``.
+
+    The one build of an axis-to-state map a refusal or an ending carries,
+    so each names the axes as ``MotionAPI.axes_without_position`` answers
+    them, in the order given. None is no axes.
+
+    Raises:
+        ValueError: a name that is no ``Axis``, or a state that is no
+            ``AxisState``.
+    """
+    return {Axis(axis): AxisState(state) for axis, state in (states or {}).items()}

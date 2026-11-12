@@ -47,7 +47,7 @@ from _lumascope.modules.exceptions import (
     unknown_positions_sentence,
 )
 from _lumascope.modules.lumascope_api.camera import camera_range_words
-from _lumascope.modules.axes import StageAxis
+from _lumascope.modules.axes import Axis, AxisState, StageAxis
 from _lumascope.modules.zstack_config import ZStackReference
 from _lumascope.modules.lumascope_api.runtime_state import slots_holding
 from _lumascope.modules.api_surface import api_fields
@@ -933,6 +933,7 @@ class ProtocolsAPI:
                     f'Cannot {verb} the step. '
                     + unknown_positions_sentence(unknown_axes, then=f'{verb} the step')
                 ),
+                axes_without_position=unknown_axes,
             )
         objective_id, _ = self._scope.runtime_state.resolve_current_objective()
         return objective_id
@@ -1557,7 +1558,13 @@ class ProtocolsAPI:
         """
         return ', '.join(sorted(map(str, objective_ids)))
 
-    def _refuse(self, reason: str, message: str) -> typing.NoReturn:
+    def _refuse(
+        self,
+        reason: str,
+        message: str,
+        *,
+        axes_without_position: dict[Axis, AxisState] | None = None,
+    ) -> typing.NoReturn:
         """Raise the typed refusal.
 
         The single funnel this surface's refusals route through, so one
@@ -1569,4 +1576,6 @@ class ProtocolsAPI:
         in its place makes the refusal invisible to the census, which is how
         a reason ships with no coverage.
         """
-        raise ProtocolRunRefusedError(reason=reason, message=message)
+        raise ProtocolRunRefusedError(
+            reason=reason, message=message, axes_without_position=axes_without_position
+        )

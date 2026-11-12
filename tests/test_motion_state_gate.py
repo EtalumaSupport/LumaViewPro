@@ -143,7 +143,7 @@ def test_absolute_move_refuses_on_unknown_axis(scope):
     with pytest.raises(AxisStateUnknownError) as exc:
         scope.motion._move_absolute_impl('Z', position=1000)
     assert exc.value.reason == 'position_unknown'
-    assert set(exc.value.axes) == set(scope.capabilities.axes)
+    assert set(exc.value.axes_without_position) == set(scope.capabilities.axes)
 
 
 @pytest.mark.slow
@@ -155,7 +155,7 @@ def test_relative_move_refuses_on_unknown_axis(scope):
     with pytest.raises(AxisStateUnknownError) as exc:
         scope.motion.move_xy_by(dx_um=50)
     assert exc.value.reason == 'position_unknown'
-    assert set(exc.value.axes) == set(scope.capabilities.axes)
+    assert set(exc.value.axes_without_position) == set(scope.capabilities.axes)
 
 
 @pytest.mark.slow
@@ -173,7 +173,7 @@ def test_turret_move_refuses_before_lowering_z(scope):
     with pytest.raises(AxisStateUnknownError) as exc:
         scope.motion._move_turret_impl(slot=3)
     assert exc.value.reason == 'position_unknown'
-    assert 'T' in exc.value.axes
+    assert 'T' in exc.value.axes_without_position
     assert scope._motion_driver.target_pos('Z') == z_before, (
         'Z must not be driven by a turret move that was refused'
     )
@@ -243,7 +243,9 @@ def test_one_lost_axis_refuses_every_move_on_every_axis(stage_scope):
         with pytest.raises(AxisStateUnknownError) as refused:
             gesture()
         assert refused.value.reason == 'position_unknown', name
-        assert list(refused.value.axes) == ['X'], f'the {name} must be refused for X'
+        assert list(refused.value.axes_without_position) == ['X'], (
+            f'the {name} must be refused for X'
+        )
 
     assert _board_targets(stage_scope) == before, 'a refused gesture must drive nothing'
 
@@ -257,7 +259,7 @@ def test_a_z_home_runs_while_an_axis_is_lost_and_motion_stays_refused(stage_scop
     assert stage_scope.motion.get_axis_state('Z') == AxisState.IDLE
     with pytest.raises(AxisStateUnknownError) as refused:
         stage_scope.motion.move_z(z_um=1000.0)
-    assert list(refused.value.axes) == ['X']
+    assert list(refused.value.axes_without_position) == ['X']
 
 
 @pytest.mark.slow
@@ -284,7 +286,7 @@ def test_a_move_gesture_is_refused_for_an_axis_it_does_not_name(stage_scope):
 
     with pytest.raises(AxisStateUnknownError) as refused:
         stage_scope.motion.refuse_unknown_positions(('Z',), recording=False, then='move it')
-    assert list(refused.value.axes) == ['X']
+    assert list(refused.value.axes_without_position) == ['X']
 
     stage_scope.motion.refuse_unknown_positions(('Z',), recording=True, then='save the focus')
 
@@ -302,7 +304,7 @@ def test_a_turret_home_after_a_failed_home_is_refused_and_home_all_recovers(scop
     with pytest.raises(AxisStateUnknownError) as refused:
         scope.motion.home('T')
     assert refused.value.reason == 'position_unknown'
-    assert set(refused.value.axes) == set(scope.capabilities.axes)
+    assert set(refused.value.axes_without_position) == set(scope.capabilities.axes)
     assert {axis: scope._motion_driver.target_pos(axis) for axis in ('Z', 'T')} == targets
     assert scope.motion.get_axis_state('Z') == AxisState.UNKNOWN
 
