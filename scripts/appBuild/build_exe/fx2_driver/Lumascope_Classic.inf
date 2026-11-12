@@ -49,8 +49,13 @@ ServiceBinary = %12%\WinUSB.sys
 [USB_Install.HW]
 AddReg = Dev_AddReg
 
+; The interface GUID WinUSB publishes the device under: generated for the
+; Lumascope Classic and used by nothing else. The one before it,
+; {dee824ef-729b-4a0e-9c14-b7117d33a817}, is also registered by a Microchip
+; USB device (VID_0424&PID_704C, the EL-0940 LED board's), and on a PC that
+; has held that device WinUSB fails to start ours, code 31 (0xC0000182).
 [Dev_AddReg]
-HKR,,DeviceInterfaceGUIDs,0x10000,"{dee824ef-729b-4a0e-9c14-b7117d33a817}"
+HKR,,DeviceInterfaceGUIDs,0x10000,"{479cda5e-5386-49e7-817a-e7839ff46d2d}"
 
 [Strings]
 ManufacturerName     = "Etaluma"
