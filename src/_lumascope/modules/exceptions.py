@@ -1097,7 +1097,8 @@ class CameraNotAvailableError(Fault, BringUpError):
             ``'camera_firmware_missing'`` -- the firmware file a Classic's
             driver uploads to the camera is not installed.
             ``'camera_driver_unusable'`` -- Windows has a Classic on no
-            driver, or on a package not LumaViewPro's.
+            driver, on a package not LumaViewPro's, or on LumaViewPro's
+            and did not start it (a problem code).
             ``'camera_not_initialized'`` -- the camera did not come up for any
             other hardware cause, among them a camera that was found and could
             not be opened, one another application holds included.
@@ -1126,7 +1127,8 @@ class CameraNotAvailableError(Fault, BringUpError):
         ),
         'camera_driver_unusable': (
             'Camera driver not usable',
-            "Windows has the camera on no driver, or on a driver that is not LumaViewPro's.",
+            "Windows has the camera on no driver, on a driver that is not LumaViewPro's, or on "
+            "LumaViewPro's driver without starting it (the log names Windows' problem code).",
         ),
         'camera_not_initialized': (
             'Camera not initialized',
@@ -1208,7 +1210,8 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
             approved. ``'driver_not_accepted'`` -- Windows did not take the
             package: installing it was declined at its question, or Windows
             refused it. ``'driver_already_ours'`` -- a camera is up, or
-            every present device is on LumaViewPro's driver.
+            every present device is on LumaViewPro's driver, started by
+            Windows.
     """
 
     title = 'Camera Driver Not Repaired'
@@ -1252,8 +1255,8 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
             'folder of the LumaViewPro installation, says which). Try again to be asked again.'
         ),
         'driver_already_ours': (
-            "The camera is up, or its USB devices are already on LumaViewPro's driver; "
-            'there is nothing to repair.'
+            "The camera is up, or its USB devices are already on LumaViewPro's driver, started "
+            'by Windows; there is nothing to repair.'
         ),
     }
 

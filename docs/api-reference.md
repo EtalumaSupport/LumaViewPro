@@ -9014,13 +9014,19 @@ model.
 ### `SimulationAPI.bind_camera_usb_driver`
 
 ```python
-def bind_camera_usb_driver(self, hardware_id: str, service: str | None) -> None
+def bind_camera_usb_driver(
+    self,
+    hardware_id: str,
+    service: str | None,
+    *,
+    problem_code: int | None,
+) -> None
 ```
 
 Marks: enters: `guarded_write`.  
 Route: `POST /api/v1/scope/simulation/bind_camera_usb_driver`.
 
-Windows binds a USB identity of the simulated FX2 to `service`.
+Windows binds a USB identity of the simulated FX2 to `service`, with `problem_code`.
 
 The simulated FX2 comes up on WinUSB, as Windows binds it with
 LumaViewPro's package installed, and WinUSB stands for that package;
@@ -9034,6 +9040,7 @@ connect.
 
 - `hardware_id`: `USB\VID_04B4&PID_8613` (the bootloader) or `USB\VID_04B4&PID_EA17` (the running firmware).
 - `service`: The driver's service, as Windows names it (`'libusbK'`); None for no driver.
+- `problem_code`: Device Manager's problem code on the device, as Windows gives it: 28 on no driver, 31 for a driver it could not load; None for a driver it started.
 
 **Raises**
 
@@ -13495,9 +13502,11 @@ One device of a USB identity and the driver Windows has bound to it.
 - <a id="UsbDeviceBinding.instance_id"></a>`instance_id`: `str` -- Windows' instance ID: the identity, a backslash, then the device's serial or port.
 - <a id="UsbDeviceBinding.ours"></a>`ours`: `bool` -- Whether the bound package is LumaViewPro's.
 - <a id="UsbDeviceBinding.present"></a>`present`: `bool` -- False for a device seen before on another port or at another time, which keeps its binding until it is matched afresh.
-- <a id="UsbDeviceBinding.problem_code"></a>`problem_code`: `int | None` -- Device Manager's problem code; None for none.
+- <a id="UsbDeviceBinding.problem_code"></a>`problem_code`: `int | None` -- Device Manager's problem code; None or 0 for none. A driver bound with a problem code was not started by Windows (31: its driver could not be loaded).
+- <a id="UsbDeviceBinding.problem_status"></a>`problem_status`: `int | None` -- The Windows status behind the problem code, its 32 bits unsigned; None or 0 for none.
 - <a id="UsbDeviceBinding.provider"></a>`provider`: `str | None` -- The bound package's provider.
 - <a id="UsbDeviceBinding.service"></a>`service`: `str | None` -- The bound driver's service (`WinUSB`, `libusbK`, `libusb0`); None when no driver is bound, and the package fields with it.
+- <a id="UsbDeviceBinding.unreadable"></a>`unreadable`: `tuple[str, ...]` -- Each property Windows gave in a type LumaViewPro does not read, with that type; empty when every one was read.
 - <a id="UsbDeviceBinding.version"></a>`version`: `str | None` -- The bound package's version.
 
 <a id="UsbIdentityBindings"></a>
@@ -13513,7 +13522,7 @@ A USB identity of a Lumascope Classic and each of its devices' drivers.
 - <a id="UsbIdentityBindings.devices"></a>`devices`: `tuple[UsbDeviceBinding, ...]` -- Every device of it, present or seen before.
 - <a id="UsbIdentityBindings.hardware_id"></a>`hardware_id`: `str` -- `USB\VID_04B4&PID_8613` (the bootloader) or `USB\VID_04B4&PID_EA17` (the running firmware).
 - <a id="UsbIdentityBindings.name"></a>`name`: `str` -- Its name in Device Manager.
-- <a id="UsbIdentityBindings.usable"></a>`usable`: `bool` -- False when a present device is on no driver or on a package not LumaViewPro's, which the camera's connect refuses whatever else could drive it; a device seen before does not count, since it is matched afresh when plugged.
+- <a id="UsbIdentityBindings.usable"></a>`usable`: `bool` -- False when a present device is on no driver, on a package not LumaViewPro's, or on LumaViewPro's and not started by Windows (a problem code), which the camera's connect refuses whatever else could drive it; a device seen before does not count, since it is matched afresh when plugged.
 
 <a id="Video"></a>
 ## `lumascope.Video`
@@ -15090,7 +15099,7 @@ question whether to install Etaluma's driver, and a binding that needs it.
 
 **Attributes**
 
-- `reason`: `'repair_needs_windows'` -- the computer is not Windows, which alone binds a USB device to a driver. `'repair_needs_installed_build'` -- LumaViewPro is running from source or from a build in `dist`, not from an installation. `'repair_needs_driver_package'` -- the installation was built without the Classic driver package. `'no_classic_bindings'` -- the scope reads no Classic USB device, such as a simulated one without an FX2. `'repair_declined'` -- the administrator's prompt was not approved. `'driver_not_accepted'` -- Windows did not take the package: installing it was declined at its question, or Windows refused it. `'driver_already_ours'` -- a camera is up, or every present device is on LumaViewPro's driver.
+- `reason`: `'repair_needs_windows'` -- the computer is not Windows, which alone binds a USB device to a driver. `'repair_needs_installed_build'` -- LumaViewPro is running from source or from a build in `dist`, not from an installation. `'repair_needs_driver_package'` -- the installation was built without the Classic driver package. `'no_classic_bindings'` -- the scope reads no Classic USB device, such as a simulated one without an FX2. `'repair_declined'` -- the administrator's prompt was not approved. `'driver_not_accepted'` -- Windows did not take the package: installing it was declined at its question, or Windows refused it. `'driver_already_ours'` -- a camera is up, or every present device is on LumaViewPro's driver, started by Windows.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -15196,7 +15205,7 @@ The camera did not come up; the heading and the advice follow the cause.
 
 **Attributes**
 
-- `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver this scope could be using did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, or on a package not LumaViewPro's. `'camera_not_initialized'` -- the camera did not come up for any other hardware cause, among them a camera that was found and could not be opened, one another application holds included. `'camera_bring_up_failed'` -- LumaViewPro's own code failed while bringing the camera up; nothing says the camera is at fault.
+- `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver this scope could be using did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, on a package not LumaViewPro's, or on LumaViewPro's and did not start it (a problem code). `'camera_not_initialized'` -- the camera did not come up for any other hardware cause, among them a camera that was found and could not be opened, one another application holds included. `'camera_bring_up_failed'` -- LumaViewPro's own code failed while bringing the camera up; nothing says the camera is at fault.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -15359,13 +15368,14 @@ the library's text.
 
 A fault; bases `Fault`, `HardwareError`.
 
-The camera's USB device is not bound to LumaViewPro's driver.
+The camera's USB device is not on LumaViewPro's driver, started by Windows.
 
 Windows binds each of the Lumascope Classic's two USB identities to a
-driver on its own; a device with none, or on another package, is
-refused however it is cabled, so a package installed later that takes
-an identity is caught here and taken back by Repair. The words name the
-device and the driver it is bound to.
+driver on its own; a device with none, on another package, or on ours
+and not started (a problem code) is refused however it is cabled, so a
+package installed later that takes an identity is caught here and taken
+back by Repair. The words name the device, the driver it is bound to,
+and Windows' problem code.
 
 | Reason | Cause | REST status |
 |---|---|---|

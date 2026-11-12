@@ -57,10 +57,17 @@ class _Machine:
     """A stand-in by design: the Windows driver store, which no test host has."""
 
     def __init__(
-        self, store: pathlib.Path, *, accepts_ours: bool = True, refuses_delete: str | None = None
+        self,
+        store: pathlib.Path,
+        *,
+        accepts_ours: bool = True,
+        refuses_delete: str | None = None,
+        starts_ours: bool = True,
     ):
         self.store = store
         self.accepts_ours = accepts_ours
+        # False: Windows binds our package and cannot load its driver, code 31.
+        self.starts_ours = starts_ours
         # A published name whose delete pnputil refuses (a package in use).
         self.refuses_delete = refuses_delete
         self.devices: list[DeviceBinding] = []
@@ -86,7 +93,9 @@ class _Machine:
                 version=None,
                 date=None,
                 problem_code=None if package else 28,
+                problem_status=None,
                 ours=package.ours if package else False,
+                unreadable=(),
             )
         )
 
@@ -152,7 +161,7 @@ class _Machine:
                     inf=best.inf,
                     service='WinUSB',
                     provider=best.provider,
-                    problem_code=None,
+                    problem_code=None if self.starts_ours or not best.ours else 31,
                     ours=best.ours,
                 )
             bound.append(device)
@@ -260,6 +269,24 @@ def test_a_package_windows_will_not_delete_makes_the_install_incomplete(tmp_path
 
     assert installed is fx2_driver_step.Installed.INCOMPLETE
     assert lumaview in [p.inf for p in machine.store_packages(FX2_BOOTLOADER)]
+
+
+def test_our_package_bound_and_not_started_by_windows_makes_the_install_incomplete(
+    tmp_path, caplog
+):
+    machine = _machine(tmp_path, starts_ours=False)
+    lumaview = machine.publish(LUMAVIEW_LIBUSBK)
+    machine.plug(FX2_FIRMWARE, inf=lumaview)
+
+    with caplog.at_level('ERROR', logger='LVP.fx2_driver_step'):
+        installed = fx2_driver_step.install(machine, _package_dir(tmp_path))
+
+    assert installed is fx2_driver_step.Installed.INCOMPLETE
+    # The step's log is the only record Repair's failure points the person to.
+    assert any(
+        'not started by Windows' in r.getMessage() and 'problem code 31' in r.getMessage()
+        for r in caplog.records
+    )
 
 
 def test_uninstall_removes_ours_and_restores_nothing(tmp_path):

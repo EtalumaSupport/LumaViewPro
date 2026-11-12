@@ -1075,6 +1075,7 @@ OPEN_STRINGS: dict[str, str] = {
     'UsbDeviceBinding.instance_id field': _OS,
     'UsbDeviceBinding.provider field': _OS,
     'UsbDeviceBinding.service field': _OS,
+    'UsbDeviceBinding.unreadable field': _PROSE,
     'UsbDeviceBinding.version field': _OS,
     'UsbIdentityBindings.hardware_id field': _OS,
     'UsbIdentityBindings.name field': _OS,

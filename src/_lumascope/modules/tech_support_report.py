@@ -2452,7 +2452,11 @@ class TechSupportReport:
             if bindings is None:
                 lines.append('Not read: this host binds no driver to a USB device.')
         for identity in bindings or ():
-            usable = "on LumaViewPro's driver" if identity.usable else "NOT on LumaViewPro's driver"
+            usable = (
+                "on LumaViewPro's driver, started"
+                if identity.usable
+                else "NOT usable: not on LumaViewPro's driver, or not started (each device says)"
+            )
             lines.append(f'{identity.name} ({identity.hardware_id}): {usable}')
             for device in identity.devices:
                 described = DeviceBinding(**dataclasses.asdict(device)).describe()

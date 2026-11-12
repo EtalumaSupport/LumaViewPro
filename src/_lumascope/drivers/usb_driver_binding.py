@@ -35,6 +35,58 @@ OUR_PROVIDER = 'Etaluma'
 OUR_CATALOG = 'Lumascope_Classic.cat'
 
 
+# Device Manager's problem codes, each in Microsoft's words ("Error codes in
+# Device Manager in Windows"); a code not here is printed as its number.
+PROBLEM_CODES = {
+    10: 'This device cannot start.',
+    14: 'This device cannot work properly until you restart your computer.',
+    18: 'Reinstall the drivers for this device.',
+    19: (
+        'Windows cannot start this hardware device because its configuration information '
+        '(in the registry) is incomplete or damaged.'
+    ),
+    21: 'Windows is removing this device.',
+    22: 'This device is disabled.',
+    24: (
+        'This device is not present, is not working properly, or does not have all its '
+        'drivers installed.'
+    ),
+    28: 'The drivers for this device are not installed.',
+    31: (
+        'This device is not working properly because Windows cannot load the drivers '
+        'required for this device.'
+    ),
+    32: (
+        'A driver (service) for this device has been disabled. An alternate driver may be '
+        'providing this functionality.'
+    ),
+    37: 'Windows cannot initialize the device driver for this hardware.',
+    39: (
+        'Windows cannot load the device driver for this hardware. The driver may be '
+        'corrupted or missing.'
+    ),
+    40: (
+        'Windows cannot access this hardware because its service key information in the '
+        'registry is missing or recorded incorrectly.'
+    ),
+    41: (
+        'Windows successfully loaded the device driver for this hardware but cannot find '
+        'the hardware device.'
+    ),
+    43: 'Windows has stopped this device because it has reported problems.',
+    45: 'Currently, this hardware device is not connected to the computer.',
+    47: (
+        'Windows cannot use this hardware device because it has been prepared for safe '
+        'removal, but it has not been removed from the computer.'
+    ),
+    48: (
+        'The software for this device has been blocked from starting because it is known '
+        'to have problems with Windows.'
+    ),
+    52: 'Windows cannot verify the digital signature for the drivers required for this device.',
+}
+
+
 @dataclass(frozen=True)
 class DeviceBinding:
     """One device of a USB identity and the driver Windows has bound to it.
@@ -44,7 +96,11 @@ class DeviceBinding:
     with it. ``present`` is False for a device seen before on another port or
     at another time, which keeps its binding until it is matched afresh.
     ``ours`` is whether the bound package is LumaViewPro's, as the store
-    names it (``StorePackage.ours``).
+    names it (``StorePackage.ours``). ``problem_code`` is Device Manager's
+    problem code, None or 0 for none; ``problem_status`` the Windows status
+    behind it. ``unreadable`` names each property Windows gave in a type
+    this does not read, with that type: a fact for the log only, so the
+    device is still read.
     """
 
     instance_id: str
@@ -55,7 +111,18 @@ class DeviceBinding:
     version: str | None
     date: str | None
     problem_code: int | None
+    problem_status: int | None
     ours: bool
+    unreadable: tuple[str, ...]
+
+    @property
+    def started(self) -> bool:
+        """Whether a driver is bound and Windows started it: no problem code.
+
+        A package bound and not started (code 31, its driver not loaded)
+        drives nothing, whoever's package it is.
+        """
+        return self.service is not None and not self.problem_code
 
     def describe(self) -> str:
         where = 'present' if self.present else 'not present'
@@ -63,11 +130,19 @@ class DeviceBinding:
             driver = 'no driver'
         else:
             whose = "LumaViewPro's" if self.ours else "not LumaViewPro's"
+            started = '' if self.started else ', not started by Windows'
             driver = (
                 f'{self.service} from {self.provider} {self.inf} {self.version} dated {self.date}'
-                f', {whose}'
+                f', {whose}{started}'
             )
-        problem = f', problem code {self.problem_code}' if self.problem_code else ''
+        problem = ''
+        if self.problem_code:
+            meaning = PROBLEM_CODES.get(self.problem_code)
+            problem = f', problem code {self.problem_code}' + (f' ({meaning})' if meaning else '')
+        if self.problem_status:
+            problem += f', problem status {self.problem_status:#010x}'
+        if self.unreadable:
+            problem += f', unreadable: {"; ".join(self.unreadable)}'
         return f'{self.instance_id} ({where}): {driver}{problem}'
 
 
@@ -94,26 +169,26 @@ class StorePackage:
 
 
 def unusable(bindings: list[DeviceBinding]) -> list[DeviceBinding]:
-    """The present devices bound to anything but LumaViewPro's package.
+    """The present devices not on LumaViewPro's package started by Windows.
 
     Ours alone, on both identities, whatever else could drive the device: a
     package installed after ours that takes an identity back is refused
     here and taken back by Repair, so ours always wins. A device with no
-    driver is one. A past device is not: it is matched afresh when it is
-    plugged in.
+    driver is one, and so is one on ours that Windows did not start. A past
+    device is not: it is matched afresh when it is plugged in.
     """
-    return [b for b in bindings if b.present and not b.ours]
+    return [b for b in bindings if b.present and not (b.ours and b.started)]
 
 
 def refuse_unusable(bindings: dict[str, list[DeviceBinding]]) -> None:
-    """Refuse the FX2 when a present device of either identity is not on our package.
+    """Refuse the FX2 when a present device of either identity is not on our package, started.
 
     Args:
         bindings: Each identity's devices, as ``device_bindings`` reads them.
 
     Raises:
         CameraUsbDriverUnusableError: Naming each such device, the driver it
-            is bound to, and the fix.
+            is bound to, Windows' problem code, and the fix.
     """
     refused = [
         f'{DEVICE_NAMES[identity]} {b.describe()}'
@@ -122,7 +197,8 @@ def refuse_unusable(bindings: dict[str, list[DeviceBinding]]) -> None:
     ]
     if refused:
         raise CameraUsbDriverUnusableError(
-            '; '.join(refused) + "; install LumaViewPro's Lumascope Classic driver to bind it"
+            '; '.join(refused)
+            + "; install LumaViewPro's Lumascope Classic driver, so Windows binds it and starts it"
         )
 
 

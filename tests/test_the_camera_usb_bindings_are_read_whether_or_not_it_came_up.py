@@ -44,7 +44,7 @@ def test_a_simulated_classic_reports_its_running_firmware_on_winusb(fx2_session)
 
 
 def test_a_running_firmware_rebound_to_libusbk_reads_unusable(fx2_session):
-    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK')
+    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK', problem_code=None)
 
     _, firmware = fx2_session.scope.diagnostics.get_camera_usb_bindings()
 
@@ -73,7 +73,9 @@ def test_windows_reads_each_device_present_or_past_through_setupapi(monkeypatch)
         version='6.1.7600.16385',
         date='2024-01-01',
         problem_code=None,
+        problem_status=None,
         ours=False,
+        unreadable=(),
     )
     # a stand-in by design: SetupAPI, absent off Windows.
     monkeypatch.setattr('_lumascope.drivers.winusb_iso.device_bindings', lambda identity: [seen])

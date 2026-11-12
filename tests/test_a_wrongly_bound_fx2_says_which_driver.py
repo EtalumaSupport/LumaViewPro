@@ -8,7 +8,9 @@ drive, so a scope on no driver, or on one the stream cannot use, came up as
 bindings, logs them, and refuses a present device on anything but
 LumaViewPro's package, on both identities, whatever else could drive it:
 LumaView's libusbK and a Zadig WinUSB binding alike, so a package installed
-after ours is caught and Repair takes the identity back.
+after ours is caught and Repair takes the identity back. Ours bound and not
+started by Windows (a problem code, 31 when its driver could not be loaded)
+is refused the same, naming the code.
 
 The simulated FX2 is the bus, its binding a fault door; the Windows
 transport's own read is stood in where SetupAPI is absent.
@@ -27,6 +29,7 @@ from _lumascope.drivers.usb_driver_binding import (
     FX2_FIRMWARE,
     DeviceBinding,
     refuse_unusable,
+    unusable,
 )
 from _lumascope.modules.exceptions import CameraNotAvailableError
 from _lumascope.modules.lumascope_api._lumascope import _camera_failure_cause
@@ -38,9 +41,9 @@ class _AbsentCamera:
     found = False
 
 
-def _simulated(identity, service) -> SimulatedFX2Transport:
+def _simulated(identity, service, problem_code=None) -> SimulatedFX2Transport:
     transport = SimulatedFX2Transport(SimulatedFX2Device())
-    transport.bind(identity, service)
+    transport.bind(identity, service, problem_code)
     return transport
 
 
@@ -48,7 +51,7 @@ def test_a_bootloader_on_no_driver_is_refused_naming_it():
     with pytest.raises(
         CameraUsbDriverUnusableError, match=r'Lumascope Classic \(Bootloader\) .*no driver'
     ):
-        fx2driver._FX2Connection(_simulated(FX2_BOOTLOADER, None))
+        fx2driver._FX2Connection(_simulated(FX2_BOOTLOADER, None, 28))
 
 
 def test_a_running_firmware_on_libusbk_is_refused_once_it_re_enumerates():
@@ -91,7 +94,50 @@ def test_bring_up_names_the_driver_not_an_absent_camera(monkeypatch):
     assert 'install a LumaViewPro build that carries it' in str(notice)
 
 
-def _binding(identity, *, present, service, ours=False):
+def test_our_driver_windows_did_not_start_is_refused_naming_its_problem_code():
+    # Seen on the build PC 2026-11-11: our package bound, code 31, and the
+    # scope told "No hardware detected".
+    transport = _simulated(FX2_BOOTLOADER, 'WinUSB', 31)
+
+    with pytest.raises(
+        CameraUsbDriverUnusableError,
+        match=r"Bootloader\) .*LumaViewPro's, not started by Windows, problem code 31 "
+        r'\(This device is not working properly because Windows cannot load the drivers',
+    ):
+        fx2driver._FX2Connection(transport)
+    assert transport.device.uploads == 0
+
+
+def test_bring_up_tells_our_driver_not_started_as_the_driver(monkeypatch):
+    fx2driver._FX2Connection._reset_for_test()
+    monkeypatch.setattr(
+        fx2driver, '_platform_transport', lambda: _simulated(FX2_BOOTLOADER, 'WinUSB', 31)
+    )
+    registry = DriverRegistry('camera')
+    registry.register('fx2', priority=80)(fx2driver.FX2Camera)
+    try:
+        with pytest.raises(CameraUsbDriverUnusableError) as caught:
+            registry.create('auto')
+    finally:
+        fx2driver._FX2Connection._reset_for_test()
+
+    cause = _camera_failure_cause(caught.value, False)
+    notice = CameraNotAvailableError(cause)
+    assert cause == 'camera_driver_unusable'
+    assert "on LumaViewPro's driver without starting it" in str(notice)
+
+
+def test_a_problem_code_of_zero_or_none_is_a_started_driver():
+    started = [
+        _binding(FX2_FIRMWARE, present=True, service='WinUSB', ours=True, problem_code=code)
+        for code in (None, 0)
+    ]
+    not_started = _binding(FX2_FIRMWARE, present=True, service='WinUSB', ours=True, problem_code=31)
+
+    assert unusable([*started, not_started]) == [not_started]
+
+
+def _binding(identity, *, present, service, ours=False, problem_code=None):
     return DeviceBinding(
         instance_id=f'{identity}\\5&1&0&1',
         present=present,
@@ -100,8 +146,10 @@ def _binding(identity, *, present, service, ours=False):
         inf=None,
         version=None,
         date=None,
-        problem_code=None,
+        problem_code=problem_code,
+        problem_status=None,
         ours=ours,
+        unreadable=(),
     )
 
 

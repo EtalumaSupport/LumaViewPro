@@ -1,7 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Repair binds a Lumascope Classic to LumaViewPro's driver, through the remedy door.
 
-A Classic Windows has on no driver, or on one not LumaViewPro's, is reported at
+A Classic Windows has on no driver, on one not LumaViewPro's, or on ours and
+not started (a problem code), is reported at
 bring-up with ``repair_camera_driver`` as its remedy, on an installed Windows
 build. The remedy, taken through ``ScopeSession.apply_remedy``, runs the
 installed driver step as an administrator, refuses where it cannot run or is
@@ -60,7 +61,9 @@ def _approved_step(session, exit_code=0, binds=True):
     def run(executable, argument, wait_s):
         runs.append((executable, argument))
         if binds:
-            session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'WinUSB')
+            session.scope.simulation.bind_camera_usb_driver(
+                FX2_FIRMWARE, 'WinUSB', problem_code=None
+            )
         return exit_code
 
     return run, runs
@@ -69,7 +72,7 @@ def _approved_step(session, exit_code=0, binds=True):
 def test_the_remedy_runs_the_installed_step_and_returns_the_bound_device(
     fx2_session, on_installed_windows, camera_never_came_up, monkeypatch
 ):
-    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK')
+    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK', problem_code=None)
     run, runs = _approved_step(fx2_session)
     # a stand-in by design: Windows' administrator prompt, absent off Windows.
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
@@ -83,10 +86,24 @@ def test_the_remedy_runs_the_installed_step_and_returns_the_bound_device(
     assert 'camera_driver_repaired' in [n.reason for n in heard]
 
 
+def test_our_driver_windows_did_not_start_is_repaired_not_refused_as_already_ours(
+    fx2_session, on_installed_windows, camera_never_came_up, monkeypatch
+):
+    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'WinUSB', problem_code=31)
+    run, runs = _approved_step(fx2_session)
+    # a stand-in by design: Windows' administrator prompt, absent off Windows.
+    monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
+
+    bindings = fx2_session.apply_remedy(CameraNotAvailableError.repair())
+
+    assert len(runs) == 1
+    assert [identity.usable for identity in bindings] == [True, True]
+
+
 def test_a_declined_approval_is_refused_as_declined(
     fx2_session, on_installed_windows, camera_never_came_up, monkeypatch
 ):
-    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, None)
+    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, None, problem_code=28)
     # a stand-in by design: Windows' administrator prompt, declined.
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', lambda *a: None)
 
@@ -101,7 +118,7 @@ def test_a_package_windows_did_not_take_is_refused_as_not_accepted(
 ):
     # Declined at Windows' question whether to install software from
     # Etaluma, or refused by Windows: the step changed nothing.
-    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, None)
+    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, None, problem_code=28)
     run, _ = _approved_step(fx2_session, exit_code=fx2_driver_step.NOT_ACCEPTED_EXIT, binds=False)
     # a stand-in by design: Windows' administrator prompt, absent off Windows.
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
@@ -143,7 +160,7 @@ def test_a_camera_that_is_up_is_never_rebound(fx2_session, on_installed_windows,
     # The camera is up, and a package has taken its identity since: the step
     # would reinstall the running camera's device, so Repair waits for a
     # start with no camera up.
-    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK')
+    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK', problem_code=None)
     run, runs = _approved_step(fx2_session)
     # a stand-in by design: Windows' administrator prompt, absent off Windows.
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
@@ -166,7 +183,7 @@ def test_a_camera_that_is_up_is_never_rebound(fx2_session, on_installed_windows,
 def test_a_step_that_did_not_bind_is_a_fault_naming_its_log(
     fx2_session, on_installed_windows, camera_never_came_up, monkeypatch, exit_code, binds, said
 ):
-    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK')
+    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK', problem_code=None)
     run, _ = _approved_step(fx2_session, exit_code=exit_code, binds=binds)
     # a stand-in by design: Windows' administrator prompt, absent off Windows.
     monkeypatch.setattr(fx2_driver_step, 'run_as_administrator', run)
@@ -179,7 +196,7 @@ def test_a_step_that_did_not_bind_is_a_fault_naming_its_log(
 
 
 def test_off_windows_repair_is_refused_before_anything_runs(fx2_session):
-    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK')
+    fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK', problem_code=None)
 
     with pytest.raises(CameraDriverRepairRefusedError) as refused:
         fx2_session.apply_remedy(CameraNotAvailableError.repair())

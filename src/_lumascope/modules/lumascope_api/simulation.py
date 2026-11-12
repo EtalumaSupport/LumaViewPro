@@ -1036,8 +1036,10 @@ class SimulationAPI:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def bind_camera_usb_driver(self, hardware_id: str, service: str | None) -> None:
-        """Windows binds a USB identity of the simulated FX2 to ``service``.
+    def bind_camera_usb_driver(
+        self, hardware_id: str, service: str | None, *, problem_code: int | None
+    ) -> None:
+        """Windows binds a USB identity of the simulated FX2 to ``service``, with ``problem_code``.
 
         The simulated FX2 comes up on WinUSB, as Windows binds it with
         LumaViewPro's package installed, and WinUSB stands for that package;
@@ -1052,6 +1054,9 @@ class SimulationAPI:
                 ``USB\\VID_04B4&PID_EA17`` (the running firmware).
             service: The driver's service, as Windows names it
                 (``'libusbK'``); None for no driver.
+            problem_code: Device Manager's problem code on the device, as
+                Windows gives it: 28 on no driver, 31 for a driver it
+                could not load; None for a driver it started.
 
         Raises:
             ArgumentRefusedError: ``'needs_simulated_scope'``;
@@ -1070,13 +1075,14 @@ class SimulationAPI:
                 value=hardware_id,
                 offered=tuple(DEVICE_NAMES),
             )
-        was = target.transport.services[hardware_id]
-        target.transport.bind(hardware_id, service)
+        was = target.transport.services[hardware_id], target.transport.problem_codes[hardware_id]
+        target.transport.bind(hardware_id, service, problem_code)
         self._record(
             'bind_camera_usb_driver',
-            lambda: target.transport.bind(hardware_id, was),
+            lambda: target.transport.bind(hardware_id, *was),
             hardware_id=hardware_id,
             service=service,
+            problem_code=problem_code,
         )
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))

@@ -88,7 +88,9 @@ _PROBE_DURATION_S = (0, 3_600)
     'version',
     'date',
     'problem_code',
+    'problem_status',
     'ours',
+    'unreadable',
 )
 @dataclass(frozen=True)
 class UsbDeviceBinding:
@@ -106,8 +108,14 @@ class UsbDeviceBinding:
         inf: The bound package's published INF (``oem12.inf``).
         version: The bound package's version.
         date: The bound package's date.
-        problem_code: Device Manager's problem code; None for none.
+        problem_code: Device Manager's problem code; None or 0 for none.
+            A driver bound with a problem code was not started by Windows
+            (31: its driver could not be loaded).
+        problem_status: The Windows status behind the problem code, its
+            32 bits unsigned; None or 0 for none.
         ours: Whether the bound package is LumaViewPro's.
+        unreadable: Each property Windows gave in a type LumaViewPro does
+            not read, with that type; empty when every one was read.
     """
 
     instance_id: str
@@ -118,7 +126,9 @@ class UsbDeviceBinding:
     version: str | None
     date: str | None
     problem_code: int | None
+    problem_status: int | None
     ours: bool
+    unreadable: tuple[str, ...]
 
 
 @api_fields('hardware_id', 'name', 'usable', 'devices')
@@ -130,8 +140,9 @@ class UsbIdentityBindings:
         hardware_id: ``USB\\VID_04B4&PID_8613`` (the bootloader) or
             ``USB\\VID_04B4&PID_EA17`` (the running firmware).
         name: Its name in Device Manager.
-        usable: False when a present device is on no driver or on a package
-            not LumaViewPro's, which the camera's connect refuses whatever
+        usable: False when a present device is on no driver, on a package
+            not LumaViewPro's, or on LumaViewPro's and not started by Windows
+            (a problem code), which the camera's connect refuses whatever
             else could drive it; a device seen before does not count, since
             it is matched afresh when plugged.
         devices: Every device of it, present or seen before.

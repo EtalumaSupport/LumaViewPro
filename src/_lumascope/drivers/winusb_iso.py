@@ -65,6 +65,7 @@ DEVPROP_TYPE_UINT32 = 0x07
 DEVPROP_TYPE_FILETIME = 0x10
 DEVPROP_TYPE_BOOLEAN = 0x11
 DEVPROP_TYPE_STRING = 0x12
+DEVPROP_TYPE_NTSTATUS = 0x18
 SPDRP_HARDWAREID = 1
 
 # WinUSB GUID (standard for WinUSB devices)
@@ -135,6 +136,9 @@ DEVPKEY_Device_Service = _devpropkey(
 )
 DEVPKEY_Device_ProblemCode = _devpropkey(
     0x4340A6C5, 0x93FA, 0x4706, (0x97, 0x2C, 0x7B, 0x64, 0x80, 0x08, 0xA5, 0xA7), 3
+)
+DEVPKEY_Device_ProblemStatus = _devpropkey(
+    0x4340A6C5, 0x93FA, 0x4706, (0x97, 0x2C, 0x7B, 0x64, 0x80, 0x08, 0xA5, 0xA7), 12
 )
 DEVPKEY_Device_IsPresent = _devpropkey(
     0x540B947E, 0x8B40, 0x45BC, (0xA8, 0xA2, 0x6A, 0x0B, 0x89, 0x4C, 0xBD, 0xA2), 5
@@ -372,6 +376,12 @@ def device_bindings(hardware_id: str) -> list[DeviceBinding]:
                 continue
             service = _device_property(dev_info, devinfo, DEVPKEY_Device_Service)
             inf = _device_property(dev_info, devinfo, DEVPKEY_Device_DriverInfPath)
+            unreadable = []
+            try:
+                problem_status = _device_property(dev_info, devinfo, DEVPKEY_Device_ProblemStatus)
+            except _PropertyTypeUnreadError as e:
+                problem_status = None
+                unreadable.append(f'problem status ({e.type_name})')
             bindings.append(
                 DeviceBinding(
                     instance_id=instance_id,
@@ -382,7 +392,9 @@ def device_bindings(hardware_id: str) -> list[DeviceBinding]:
                     version=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverVersion),
                     date=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverDate),
                     problem_code=_device_property(dev_info, devinfo, DEVPKEY_Device_ProblemCode),
+                    problem_status=problem_status,
                     ours=(inf or '').lower() in ours,
+                    unreadable=tuple(unreadable),
                 )
             )
     finally:
@@ -400,11 +412,28 @@ def _instance_id(dev_info, devinfo) -> str:
     return buffer.value
 
 
+class _PropertyTypeUnreadError(CameraUsbLookupFailedError):
+    """Windows gave a device property in a type ``_device_property`` does not read.
+
+    A lookup failure where the property decides the binding; where it is a
+    fact for the log only, its reader records it on the device instead.
+    """
+
+    def __init__(self, prop_type: int):
+        self.type_name = f'type {prop_type:#x}'
+        super().__init__(f'SetupDiGetDevicePropertyW returned {self.type_name}, not one this reads')
+
+
 def _device_property(dev_info, devinfo, key: DEVPROPKEY):
     """A device property as Python: a string, an int, a bool, an ISO date.
 
     None when the device lacks it, as a device with no driver lacks its
-    service and package.
+    service and package. An NTSTATUS is its unsigned 32 bits, as Windows
+    prints it in hex.
+
+    Raises:
+        CameraUsbLookupFailedError: The read failed.
+        _PropertyTypeUnreadError: The property is of a type this does not read.
     """
     prop_type = c_ulong(0)
     required = c_ulong(0)
@@ -426,7 +455,7 @@ def _device_property(dev_info, devinfo, key: DEVPROPKEY):
     raw = buffer.raw[: required.value]
     if prop_type.value == DEVPROP_TYPE_STRING:
         return raw.decode('utf-16-le').rstrip('\x00')
-    if prop_type.value == DEVPROP_TYPE_UINT32:
+    if prop_type.value in (DEVPROP_TYPE_UINT32, DEVPROP_TYPE_NTSTATUS):
         return int.from_bytes(raw[:4], 'little')
     if prop_type.value == DEVPROP_TYPE_BOOLEAN:
         return raw[:1] != b'\x00'
@@ -435,9 +464,7 @@ def _device_property(dev_info, devinfo, key: DEVPROPKEY):
         ticks = int.from_bytes(raw[:8], 'little')
         moment = datetime.datetime(1601, 1, 1) + datetime.timedelta(microseconds=ticks // 10)
         return moment.date().isoformat()
-    raise CameraUsbLookupFailedError(
-        f'SetupDiGetDevicePropertyW returned type {prop_type.value:#x}, not one this reads'
-    )
+    raise _PropertyTypeUnreadError(prop_type.value)
 
 
 def _transfer_failed(transfer: str) -> Exception:

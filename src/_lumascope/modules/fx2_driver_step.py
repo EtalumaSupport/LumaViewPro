@@ -276,10 +276,12 @@ def _remove_past_devices(machine: Machine) -> bool:
 
 
 def _present_devices_on(machine: Machine, ours: StorePackage) -> bool:
-    """Whether every present device of both identities is bound to ``ours``.
+    """Whether every present device of both identities is bound to ``ours`` and started.
 
     The bind is read from what Windows bound, not from ``pnputil``'s exit
-    code, which does not say which devices it moved.
+    code, which does not say which devices it moved; a device bound to
+    ``ours`` that Windows did not start (a problem code) drives nothing, so
+    it is not bound either.
     """
     complete = True
     for identity in IDENTITIES:
@@ -290,8 +292,13 @@ def _present_devices_on(machine: Machine, ours: StorePackage) -> bool:
             complete = False
             continue
         for binding in bindings:
-            if binding.present and binding.inf != ours.inf:
+            if not binding.present:
+                continue
+            if binding.inf != ours.inf:
                 log.error(f'not bound to {ours.inf}: {binding.describe()}')
+                complete = False
+            elif not binding.started:
+                log.error(f'bound to {ours.inf} and not started by Windows: {binding.describe()}')
                 complete = False
     return complete
 

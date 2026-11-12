@@ -515,6 +515,8 @@ class SimulatedFX2Transport:
         # with LumaViewPro's package installed. WinUSB here is our package;
         # any other driver is another package's.
         self.services = {FX2_BOOTLOADER: 'WinUSB', FX2_FIRMWARE: 'WinUSB'}
+        # Windows' problem code on each identity's device; None for none.
+        self.problem_codes: dict[str, int | None] = {FX2_BOOTLOADER: None, FX2_FIRMWARE: None}
 
     def bindings(self, identity: str) -> list[DeviceBinding]:
         """The device on the bus, when it is of ``identity``, and its driver, as Windows reports it."""
@@ -529,8 +531,10 @@ class SimulatedFX2Transport:
             inf=None,
             version=None,
             date=None,
-            problem_code=None if service is not None else 28,
+            problem_code=self.problem_codes[identity],
+            problem_status=None,
             ours=service == 'WinUSB',
+            unreadable=(),
         )
         return [binding]
 
@@ -591,9 +595,11 @@ class SimulatedFX2Transport:
         """The stream stops while the device stays on the bus."""
         self.device.halt()
 
-    def bind(self, identity: str, service: str | None) -> None:
-        """Bind ``identity`` to the driver ``service`` (None: no driver)."""
+    def bind(self, identity: str, service: str | None, problem_code: int | None) -> None:
+        """Bind ``identity`` to the driver ``service`` (None: no driver), with
+        Windows' ``problem_code`` on its device (None: none)."""
         self.services[identity] = service
+        self.problem_codes[identity] = problem_code
 
     def refuse_start(self, count: int) -> None:
         """The next ``count`` STARTs are refused; the device stays on the bus."""

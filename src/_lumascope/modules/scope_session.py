@@ -2230,8 +2230,9 @@ class ScopeSession:
         someone at the scope answers whoever asked. The step logs every action
         to the install folder's ``logs``. A camera that is up is never
         touched: Repair runs only while no camera is connected and a present
-        device is not on LumaViewPro's driver, and the camera connects
-        on its new driver at the next start, which the notice it reports says.
+        device is not on LumaViewPro's driver started by Windows, and the
+        camera connects on its new driver at the next start, which the
+        notice it reports says.
         Its answer and its refusals are stated on ``apply_remedy``.
         """
         from _lumascope.modules import fx2_driver_step
@@ -2271,7 +2272,8 @@ class ScopeSession:
         after = self.scope.diagnostics.get_camera_usb_bindings()
         if not all(identity.usable for identity in after):
             raise CameraDriverRepairFailedError(
-                "the driver step finished and a device is still not on LumaViewPro's driver",
+                "the driver step finished and a device is still not on LumaViewPro's driver, "
+                'started by Windows',
                 logs,
             )
         notifications.report_outcome(
