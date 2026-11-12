@@ -1,7 +1,7 @@
 """The sim walk driver: performs a walk's steps on the running app's widgets.
 
-A sim walk is the list of GUI steps that proves a change in the real app
-against the simulator. ``--sim-walk=<file>`` (with ``--simulate``) hands the
+A sim walk is the list of GUI steps that runs a change in the real app,
+against the simulator or a real scope. ``--sim-walk=<file>`` hands the
 mechanical steps to this driver, so the person at the screen keeps only the
 ones that need a person. It acts as a person does and decides nothing: every
 press is a real touch at the control's place in the window, so the control's
@@ -42,7 +42,8 @@ Two steps do what the world does rather than a person. ``hold`` sleeps the
 UI thread for its ``seconds`` in one call, so the app meets a held thread
 exactly as a stall makes one. ``inject`` calls one of the simulator's faults
 (``scope.simulation``) by name with its ``args``, as a cable pulled at the
-bench; a refusal from the fault stops the walk at that step.
+bench; a refusal from the fault stops the walk at that step. A walk with
+an ``inject`` is refused at launch without ``--simulate``.
 
 Walk files are read and checked by ``ui.sim_walk_file``.
 """

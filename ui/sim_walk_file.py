@@ -49,9 +49,9 @@ def take_walk_flag(argv: list[str], *, simulate: bool) -> tuple[pathlib.Path, li
     not, because Kivy exits on a flag it does not know. None when none is given.
 
     Raises:
-        WalkFileError: given more than once, without ``simulate`` (a walk on
-            hardware would move a real stage), or without the development
-            requirements.
+        WalkFileError: given more than once, a walk with an ``inject`` step
+            without ``simulate`` (a real scope presents no simulator
+            faults), or without the development requirements.
         OSError, ValueError: from ``read_walk``.
     """
     flags = [arg for arg in argv if arg.startswith('--sim-walk=')]
@@ -61,8 +61,6 @@ def take_walk_flag(argv: list[str], *, simulate: bool) -> tuple[pathlib.Path, li
         return None
     if len(flags) > 1:
         raise WalkFileError('give --sim-walk once')
-    if not simulate:
-        raise WalkFileError('--sim-walk needs --simulate')
     # The driver's touches are kivy.tests' UnitTestTouch, whose module imports
     # pytest, which only requirements-dev.txt installs. Looked up, not imported,
     # so the flag is still read before Kivy.
@@ -71,7 +69,14 @@ def take_walk_flag(argv: list[str], *, simulate: bool) -> tuple[pathlib.Path, li
             '--sim-walk needs the development requirements: pip install -r requirements-dev.txt'
         )
     path = pathlib.Path(flags[0].split('=', 1)[1]).resolve()
-    return path, read_walk(path)
+    steps = read_walk(path)
+    # Refused at launch, not at the step: on a real scope the walk would
+    # otherwise move the stage through every step before it.
+    if not simulate:
+        for number, step in enumerate(steps, start=1):
+            if step['do'] == 'inject':
+                raise WalkFileError(f"{path}: step {number}: 'inject' needs --simulate")
+    return path, steps
 
 
 def read_walk(path: pathlib.Path) -> list[dict]:

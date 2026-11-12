@@ -189,7 +189,7 @@ if __name__ == '__main__':
             sys.exit(f'{sim_slide_usage}: {_record_error}')
     # --sim-walk=<file> performs a sim walk's steps on the GUI once bring-up
     # has finished (ui/sim_walk.py; what it waits on is _bring_up_owes
-    # below). Simulator only: a walk on hardware would move a real stage.
+    # below), on the simulator or a real scope.
     from ui.sim_walk_file import take_walk_flag
 
     try:

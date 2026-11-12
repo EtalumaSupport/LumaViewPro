@@ -1,7 +1,7 @@
 """The sim walk driver performs a walk's steps on real widgets, or stops.
 
-A walk is the list of GUI steps a person performed by hand against the
-simulator; ``--sim-walk`` lets the session perform the mechanical ones. These
+A walk is the list of GUI steps a person performs by hand against the
+simulator or a real scope; ``--sim-walk`` lets the session perform the mechanical ones. These
 tests run the driver in a child process on a hidden real Kivy window (the
 suite's conftest mocks Kivy), over fragment trees built to hold each shape the
 running app has: a rule instantiated twice with the same ids, a control in a
@@ -696,7 +696,7 @@ def test_a_required_popup_that_never_comes_stops_the_walk(tmp_path):
 @pytest.mark.parametrize(
     'args, simulate, says',
     [
-        (['--sim-walk={walk}'], False, '--sim-walk needs --simulate'),
+        (['--sim-walk={inject}'], False, "step 2: 'inject' needs --simulate"),
         (['--sim-walk={walk}', '--sim-walk={walk}'], True, 'give --sim-walk once'),
         (['--sim-walk={bad}'], True, 'unknown action'),
     ],
@@ -708,7 +708,20 @@ def test_the_flag_is_refused_and_taken_out_of_argv(tmp_path, args, simulate, say
     walk.write_text(json.dumps([{'do': 'press', 'path': 'Panel/btn'}]))
     bad = tmp_path / 'bad.json'
     bad.write_text(json.dumps([{'do': 'dance'}]))
-    argv = ['lumaviewpro.py', *[a.format(walk=walk, bad=bad) for a in args], '--other']
+    inject = tmp_path / 'inject.json'
+    inject.write_text(
+        json.dumps(
+            [
+                {'do': 'press', 'path': 'Panel/btn'},
+                {'do': 'inject', 'fault': 'unplug', 'args': {'board': 'led'}},
+            ]
+        )
+    )
+    argv = [
+        'lumaviewpro.py',
+        *[a.format(walk=walk, bad=bad, inject=inject) for a in args],
+        '--other',
+    ]
     with pytest.raises(WalkFileError, match=__import__('re').escape(says)):
         take_walk_flag(argv, simulate=simulate)
     assert argv == ['lumaviewpro.py', '--other']
@@ -723,6 +736,19 @@ def test_the_flag_gives_the_walk_and_leaves_argv_for_kivy(tmp_path):
     assert take_walk_flag(argv, simulate=True) == (walk.resolve(), [{'do': 'quit'}])
     assert argv == ['lumaviewpro.py']
     assert take_walk_flag(argv, simulate=True) is None
+
+
+def test_a_walk_that_injects_nothing_is_taken_for_a_real_scope(tmp_path):
+    from ui.sim_walk_file import take_walk_flag
+
+    walk = tmp_path / 'walk.json'
+    walk.write_text(json.dumps([{'do': 'press', 'path': 'Panel/btn'}, {'do': 'quit'}]))
+    argv = ['lumaviewpro.py', f'--sim-walk={walk}']
+    assert take_walk_flag(argv, simulate=False) == (
+        walk.resolve(),
+        [{'do': 'press', 'path': 'Panel/btn'}, {'do': 'quit'}],
+    )
+    assert argv == ['lumaviewpro.py']
 
 
 def test_a_walk_without_the_development_requirements_is_refused_before_kivy(tmp_path):
