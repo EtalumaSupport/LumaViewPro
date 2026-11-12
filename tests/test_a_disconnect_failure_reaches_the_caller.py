@@ -15,6 +15,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.drivers.null_ledboard import NullLEDBoard
+from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.modules.exceptions import (
     DisconnectFailure,
     DisconnectStep,
@@ -109,6 +111,54 @@ def test_a_failure_is_refused_a_step_its_board_does_not_take():
     ]:
         with pytest.raises(TypeError, match=f'no {step} step'):
             DisconnectFailure(board, step)
+
+
+def test_disconnect_led_failure_raises_after_resetting_the_slot(sim_scope, monkeypatch):
+    monkeypatch.setattr(
+        sim_scope._led_driver,
+        'disconnect',
+        MagicMock(side_effect=RuntimeError('boom')),
+        raising=False,
+    )
+    with pytest.raises(ScopeDisconnectError) as excinfo:
+        sim_scope.disconnect()
+    assert [(f.board, f.step) for f in excinfo.value.failures] == [
+        (Board.LED, DisconnectStep.DISCONNECT)
+    ]
+    assert isinstance(sim_scope._led_driver, NullLEDBoard), (
+        'disconnect must reset the LED slot to NullLEDBoard even on failure'
+    )
+
+
+def test_disconnect_motion_failure_raises_after_resetting_the_slot(sim_scope, monkeypatch):
+    monkeypatch.setattr(
+        sim_scope._motion_driver,
+        'disconnect',
+        MagicMock(side_effect=RuntimeError('boom')),
+        raising=False,
+    )
+    with pytest.raises(ScopeDisconnectError) as excinfo:
+        sim_scope.disconnect()
+    assert [(f.board, f.step) for f in excinfo.value.failures] == [
+        (Board.MOTOR, DisconnectStep.DISCONNECT)
+    ]
+    assert isinstance(sim_scope._motion_driver, NullMotionBoard), (
+        'disconnect must reset the motion slot to NullMotionBoard even on failure'
+    )
+
+
+def test_disconnect_camera_failure_raises(sim_scope):
+    """A camera whose disconnect raises still has its slot cleared, and the
+    failure is raised naming the camera's disconnect."""
+    sim_scope._camera_driver.disconnect = MagicMock(side_effect=RuntimeError('boom'))
+    with pytest.raises(ScopeDisconnectError) as excinfo:
+        sim_scope.disconnect()
+    assert [(f.board, f.step) for f in excinfo.value.failures] == [
+        (Board.CAMERA, DisconnectStep.DISCONNECT)
+    ]
+    assert sim_scope._camera_driver is None, (
+        'disconnect must reset self.camera even when teardown raises'
+    )
 
 
 def test_a_camera_that_answers_false_is_not_a_failed_part(sim_scope):

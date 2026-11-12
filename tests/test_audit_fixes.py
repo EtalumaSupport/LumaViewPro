@@ -1328,7 +1328,7 @@ class TestHomeRaises:
 class TestDisconnectRaisesAfterTheTeardown:
     """Lumascope.disconnect runs every teardown step even when one fails,
     resets every slot to its Null variant, and only then raises one
-    ScopeDisconnectError naming each part that failed. It returns nothing:
+    ScopeDisconnectError naming each step that failed. It returns nothing:
     success is returning, and no caller has a bool to forget to read.
     """
 
@@ -1341,48 +1341,6 @@ class TestDisconnectRaisesAfterTheTeardown:
             class_name='Lumascope',
             returns='None',
             msg='Lumascope.disconnect must declare `-> None`; a failure is raised',
-        )
-
-    def test_disconnect_led_failure_raises_after_resetting_the_slot(self, sim_scope, monkeypatch):
-        from _lumascope.drivers.null_ledboard import NullLEDBoard
-        from _lumascope.modules.exceptions import DisconnectStep, ScopeDisconnectError
-        from _lumascope.modules.scope_parts import Board
-
-        monkeypatch.setattr(
-            sim_scope._led_driver,
-            'disconnect',
-            MagicMock(side_effect=RuntimeError('boom')),
-            raising=False,
-        )
-        with pytest.raises(ScopeDisconnectError) as excinfo:
-            sim_scope.disconnect()
-        assert [(f.board, f.step) for f in excinfo.value.failures] == [
-            (Board.LED, DisconnectStep.DISCONNECT)
-        ]
-        assert isinstance(sim_scope._led_driver, NullLEDBoard), (
-            'disconnect must reset the LED slot to NullLEDBoard even on failure'
-        )
-
-    def test_disconnect_motion_failure_raises_after_resetting_the_slot(
-        self, sim_scope, monkeypatch
-    ):
-        from _lumascope.drivers.null_motorboard import NullMotionBoard
-        from _lumascope.modules.exceptions import DisconnectStep, ScopeDisconnectError
-        from _lumascope.modules.scope_parts import Board
-
-        monkeypatch.setattr(
-            sim_scope._motion_driver,
-            'disconnect',
-            MagicMock(side_effect=RuntimeError('boom')),
-            raising=False,
-        )
-        with pytest.raises(ScopeDisconnectError) as excinfo:
-            sim_scope.disconnect()
-        assert [(f.board, f.step) for f in excinfo.value.failures] == [
-            (Board.MOTOR, DisconnectStep.DISCONNECT)
-        ]
-        assert isinstance(sim_scope._motion_driver, NullMotionBoard), (
-            'disconnect must reset the motion slot to NullMotionBoard even on failure'
         )
 
     def test_disconnect_partial_failure_still_tears_down_others(self, sim_scope, monkeypatch):
@@ -1418,26 +1376,6 @@ class TestDisconnectRaisesAfterTheTeardown:
         # `sim_scope` fixture's teardown also calls disconnect; this
         # call covers the clean-teardown contract.
         assert sim_scope.disconnect() is None
-
-    def test_disconnect_camera_failure_raises(self, sim_scope):
-        """If camera.disconnect raises, LED + motion are still attempted,
-        state is still reset, and then the failure is raised."""
-        # Replace the camera with one whose disconnect raises.
-        from unittest.mock import MagicMock
-
-        from _lumascope.modules.exceptions import DisconnectStep, ScopeDisconnectError
-        from _lumascope.modules.scope_parts import Board
-
-        sim_scope._camera_driver = MagicMock()
-        sim_scope._camera_driver.disconnect = MagicMock(side_effect=RuntimeError('boom'))
-        with pytest.raises(ScopeDisconnectError) as excinfo:
-            sim_scope.disconnect()
-        assert [(f.board, f.step) for f in excinfo.value.failures] == [
-            (Board.CAMERA, DisconnectStep.DISCONNECT)
-        ]
-        assert sim_scope._camera_driver is None, (
-            'disconnect must reset self.camera even when teardown raises'
-        )
 
 
 class TestEnterEngineeringModeRaises:
