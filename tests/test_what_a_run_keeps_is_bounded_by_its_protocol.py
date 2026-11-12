@@ -27,6 +27,7 @@ from _lumascope.modules.exceptions import MoveWaitExpiredError
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.protocol_recording import ProtocolVideoStep
 from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.sequential_io_executor import IOTask
 from tests.protocol_fixtures import protocol_of
 from tests.test_a_late_write_records_its_frame import _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -85,8 +86,14 @@ def _blocks(snapshot):
 def test_a_runs_held_captures_do_not_grow_with_its_scans(tmp_path, caplog):
     steps, scans = 8, 6
     held = {}
+    lane = {}
 
     def scan_ended(scan_index, _remaining, _period):
+        # A write still on the file lane holds its frame's blocks until it
+        # lands, up to WRITE_BACKLOG_BOUND of them by design: what the run
+        # keeps is what is left once the scan's writes have landed. The lane
+        # runs its tasks in order, so a no-op put behind them ends after them.
+        lane['file'].put(IOTask(action=lambda: None), return_future=True).result(timeout=WAIT_S)
         held[scan_index] = _writer_blocks()
 
     # pytest's log capture keeps every record it is passed, each message
@@ -94,7 +101,8 @@ def test_a_runs_held_captures_do_not_grow_with_its_scans(tmp_path, caplog):
     # as the writer's. No handler keeps them in the app.
     caplog.set_level(logging.INFO, logger='LVP.protocol')
 
-    with open_composite_session(headless_settings(tmp_path)) as (_session, runner):
+    with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+        lane['file'] = session.file_io_executor
         tracemalloc.start()
         try:
             outcome = _run(
