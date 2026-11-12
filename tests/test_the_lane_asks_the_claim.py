@@ -366,7 +366,7 @@ class TestTheSession:
         first frame raises the refusal, never counted as a failed frame."""
         scope = sim_session.scope
         calls = {
-            'get_image': lambda: scope.imaging.get_image(force_new_capture=True),
+            'get_image': lambda: scope.imaging.get_image(),
             'run_camera_bandwidth_test': lambda: scope.diagnostics.run_camera_bandwidth_test(5),
         }
         box = {}

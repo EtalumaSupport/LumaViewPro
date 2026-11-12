@@ -114,7 +114,7 @@ def test_a_delivered_frame_carries_the_specimen_row_0_at_the_top(session, monkey
     assert scope.imaging.capture_still(accept_dark=True, timeout_s=2.0).image.max() == 0
     monkeypatch.setattr(device, '_pixels', numbered_rows)
     for _ in range(10):
-        frame = scope.imaging.get_image(force_new_capture=True)
+        frame = scope.imaging.get_image()
         if frame.max() > 0:
             break
     assert frame.max() > 0, 'no frame rendered after the swap arrived in 10 frames'
@@ -126,9 +126,9 @@ def test_a_stored_frame_counts_the_bytes_it_took_on_the_link(session):
     # The link carries the whole layout -- the rows the parser skips included --
     # and the delimiter before it; the stored array is only the window.
     camera = session.scope._camera_driver
-    session.scope.imaging.get_image(force_new_capture=True)
+    session.scope.imaging.get_image()
     frames_0, bytes_0 = camera.delivered_counts
-    session.scope.imaging.get_image(force_new_capture=True)
+    session.scope.imaging.get_image()
     frames_1, bytes_1 = camera.delivered_counts
     assert frames_1 > frames_0
     wire = (

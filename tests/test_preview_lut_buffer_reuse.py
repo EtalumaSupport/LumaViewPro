@@ -57,7 +57,7 @@ def test_get_image_from_buffer_reuses_caller_buffer(sim_scope):
     # buffer instead of allocating a fresh array per frame.
     sim_scope.camera.set_image_mode('12bit_scientific')
     imaging = sim_scope.imaging
-    imaging.get_image(force_new_capture=True)
+    imaging.get_image()
 
     first, _ts = imaging.get_image_from_buffer(force_to_8bit=False)
     assert first is not None and first.dtype == np.uint16, (

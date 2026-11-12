@@ -567,12 +567,11 @@ def frames_carrying(monkeypatch, driver, pixels) -> None:
     A stand-in by design for content the simulator cannot be told to make (a
     dark frame, a blown one, a sequence): the frame is still the camera's own
     -- its arrival number, times, depth and chunks -- with only its image
-    swapped, read-only as a stored image is. Both grab paths are covered, the
-    capture's ``grab_new_capture`` and the buffered ``grab``; a test that
-    runs the preview or an auto-gain lock beside it would draw from
-    ``pixels`` too.
+    swapped, read-only as a stored image is. Only ``grab`` is swapped: the
+    simulated camera's ``grab_new_capture`` reads its frame through it, so a
+    swap of both would draw two arrays for one frame. A test that runs the
+    preview or an auto-gain lock beside it would draw from ``pixels`` too.
     """
-    real_new_capture = driver.grab_new_capture
     real_grab = driver.grab
 
     def carrying(frame):
@@ -582,9 +581,6 @@ def frames_carrying(monkeypatch, driver, pixels) -> None:
         image.flags.writeable = False
         return dataclasses.replace(frame, image=image)
 
-    monkeypatch.setattr(
-        driver, 'grab_new_capture', lambda timeout_s: carrying(real_new_capture(timeout_s))
-    )
     monkeypatch.setattr(driver, 'grab', lambda: carrying(real_grab()))
 
 

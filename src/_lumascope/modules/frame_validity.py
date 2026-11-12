@@ -100,7 +100,8 @@ class FrameValiditySource(enum.StrEnum):
 
 class Counter(enum.StrEnum):
     """Who counted a frame toward a change: the capture's drain, a grab
-    (a capture's own, or an ungated ``get_image``), or the live preview.
+    (a capture's own, or the engineering grab, which waits for no change),
+    or the live preview.
 
     A capture's wait can be met by frames another consumer counted, so the
     record of a wait names who counted each frame.

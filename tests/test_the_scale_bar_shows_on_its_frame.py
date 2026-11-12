@@ -171,7 +171,7 @@ def test_a_capture_draws_the_bar_its_frame_needs_with_no_gui(sim_scope, pattern,
     bind_settings_like_a_session(sim_scope, scale_bar={'enabled': True})
     sim_scope._camera_driver.set_test_pattern(enabled=True, pattern=pattern)
 
-    image = sim_scope.imaging.get_image(force_to_8bit=True, force_new_capture=True)
+    image = sim_scope.imaging.get_image(force_to_8bit=True)
 
     frame_value = 255 if pattern == 'white' else 0
     bar = image != frame_value

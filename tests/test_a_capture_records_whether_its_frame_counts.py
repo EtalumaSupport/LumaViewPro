@@ -184,7 +184,7 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
     for _ in range(imaging._frame_validity.changes()['gain'].skip + 3):
         if imaging._frame_validity.changes()['gain'].remaining == 0:
             break
-        imaging.get_image(force_new_capture=True)
+        imaging.get_image()
 
     with caplog.at_level(VERBOSE, logger='LVP.api'):
         record = imaging.capture_still(accept_dark=True).record

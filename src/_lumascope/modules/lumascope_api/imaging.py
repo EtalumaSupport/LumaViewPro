@@ -1161,7 +1161,6 @@ class ImagingAPI:
                 sum_count=sum_count,
                 sum_delay_s=sum_delay_s,
                 sum_iteration_callback=sum_iteration_callback,
-                force_new_capture=True,
                 new_capture_timeout_s=grab_timeout_s,
                 verify_chunk_targets=True,
                 judged=judged,
@@ -1785,16 +1784,14 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
-        force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
         judged: _Judged | None = None,
     ) -> np.ndarray | _NoFrame:
         """Grab and return an image from the camera.
 
-        By default returns the last buffered frame. Set force_new_capture=True
-        to trigger a fresh capture. Multiple frames can be summed for noise
-        reduction via sum_count.
+        Waits for a frame the camera captures after the call. Multiple
+        frames can be summed for noise reduction via sum_count.
 
         This is the ungated primitive: it does NOT wait for frame validity,
         so the returned frame may not reflect a just-changed gain, exposure,
@@ -1817,7 +1814,6 @@ class ImagingAPI:
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay in seconds between summed frames.
             sum_iteration_callback: Called after each summed frame.
-            force_new_capture: If True, wait for a new camera capture.
             new_capture_timeout_s: Max seconds to wait for the new-capture
                 grab (passed positionally to driver.grab_new_capture). The
                 historical bare name `new_capture_timeout` claimed "ms" in
@@ -1881,11 +1877,7 @@ class ImagingAPI:
             stop_ns = mark.at_ns + timeout_ns
 
             while True:
-                frame = (
-                    self._driver.grab_new_capture(new_capture_timeout_s)
-                    if force_new_capture
-                    else self._driver.grab()
-                )
+                frame = self._driver.grab_new_capture(new_capture_timeout_s)
                 if frame is not None:
                     self._frame_validity.count_frame(frame.seq, by=Counter.GRAB)
 
@@ -1926,8 +1918,6 @@ class ImagingAPI:
                         f'[SCOPE API ] get_image: frame seq={frame.seq} does not count '
                         f'for the {source} change; waiting for the next'
                     )
-                    if not force_new_capture:
-                        time.sleep(0.05)
                     continue
 
                 # Saturation measures against the frame's own payload depth,
@@ -1944,11 +1934,7 @@ class ImagingAPI:
                     # transient blip, then surface it. A blown frame is usually
                     # an over-exposure or stale-camera-gain symptom; accepting it
                     # silently (the prior behavior) hid real data corruption.
-                    retry = (
-                        self._driver.grab_new_capture(new_capture_timeout_s)
-                        if force_new_capture
-                        else self._driver.grab()
-                    )
+                    retry = self._driver.grab_new_capture(new_capture_timeout_s)
                     if retry is not None:
                         self._frame_validity.count_frame(retry.seq, by=Counter.GRAB)
                     retry_saturation = (
@@ -2008,11 +1994,6 @@ class ImagingAPI:
                             logger.debug(
                                 '[SCOPE API ] get_image: dark frame; waiting for a lit frame'
                             )
-                            if not force_new_capture:
-                                # Buffered grabs return the same frame until a
-                                # new one arrives; pace the retry instead of
-                                # spinning.
-                                time.sleep(0.05)
                             continue
 
                 if verify_chunk_targets:
@@ -2048,10 +2029,6 @@ class ImagingAPI:
                             f'under stale {stale_source}; waiting for a frame '
                             f'matching the requested value'
                         )
-                        if not force_new_capture:
-                            # Buffered grabs return the same frame until a new
-                            # one arrives; pace the retry instead of spinning.
-                            time.sleep(0.05)
                         continue
 
                 # Accept the frame. Each frame of a sum must be NEWER than the
@@ -2237,7 +2214,7 @@ class ImagingAPI:
         finally:
             self._frame_validity.use_rules(self._scope.capabilities.frame_rules)
 
-    @api(in_process=True)
+    @api(in_process=True, engineering=True)
     def get_image(
         self,
         force_to_8bit: bool = True,
@@ -2246,7 +2223,6 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0.0,
         sum_iteration_callback: Callable[[], None] | None = None,
-        force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
         verify_chunk_targets: bool = False,
     ) -> np.ndarray:
@@ -2262,10 +2238,11 @@ class ImagingAPI:
         pinned contract (introspected by tests), and a silent kwarg
         pass-through would re-open the door this split closed.
 
-        By default the last buffered frame is returned; ``force_new_capture``
-        waits for a fresh one. The grab is one command on the camera's lane,
-        waited for. It does not wait for frame validity, so the frame may not
-        reflect a just-changed gain, exposure, LED or stage position.
+        It waits for a frame the camera captures after the call; the last
+        buffered frame is ``get_image_from_buffer``'s. The grab is one command
+        on the camera's lane, waited for. It does not wait for frame validity,
+        so the frame may not reflect a just-changed gain, exposure, LED or
+        stage position.
 
         Args:
             force_to_8bit: True for an 8-bit image; False for the camera's
@@ -2278,9 +2255,7 @@ class ImagingAPI:
             sum_delay_s: Seconds between summed frames.
             sum_iteration_callback: Called after each summed frame, on the
                 camera's lane.
-            force_new_capture: True to wait for a frame the camera captures
-                after the call, rather than take the last buffered one.
-            new_capture_timeout_s: Seconds to wait for that new frame.
+            new_capture_timeout_s: Seconds to wait for the new frame.
             verify_chunk_targets: Pass over frames whose own record of
                 exposure and gain (the camera's chunk data) differs from the
                 last values asked for, until one matches or ``timeout_s``
@@ -2325,7 +2300,6 @@ class ImagingAPI:
                 'sum_count': sum_count,
                 'sum_delay_s': sum_delay_s,
                 'sum_iteration_callback': sum_iteration_callback,
-                'force_new_capture': force_new_capture,
                 'new_capture_timeout_s': new_capture_timeout_s,
                 'verify_chunk_targets': verify_chunk_targets,
             },
@@ -2510,7 +2484,8 @@ class ImagingAPI:
         """Stop camera streaming, and wait.
 
         After this, ``capture_still()`` fails until streaming resumes;
-        ``get_image()`` still returns the last frame the camera delivered.
+        ``get_image_from_buffer()`` still returns the last frame the camera
+        delivered.
         Satisfied with no camera connected: nothing is streaming. Dispatched
         as ``enable_streaming`` is.
 

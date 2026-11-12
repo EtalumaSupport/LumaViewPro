@@ -713,7 +713,7 @@ class DiagnosticsAPI:
             try:
                 # force_to_8bit=False keeps native depth so frame size
                 # reflects the actual bytes the SDK delivered.
-                frame = self._scope.imaging.get_image(force_to_8bit=False, force_new_capture=True)
+                frame = self._scope.imaging.get_image(force_to_8bit=False)
             except CaptureFailedError as failed:
                 results['num_frames_failed'] += 1
                 by_reason = results['failed_by_reason']

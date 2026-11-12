@@ -6859,7 +6859,8 @@ Route: `POST /api/v1/scope/imaging/disable_streaming`.
 Stop camera streaming, and wait.
 
 After this, `capture_still()` fails until streaming resumes;
-`get_image()` still returns the last frame the camera delivered.
+`get_image_from_buffer()` still returns the last frame the camera
+delivered.
 Satisfied with no camera connected: nothing is streaming. Dispatched
 as `enable_streaming` is.
 
@@ -6935,71 +6936,6 @@ DeliveredRate: Frames and link bytes per second; `NOT_DELIVERING` (both 0) when 
 **Raises**
 
 Nothing.
-
-<a id="ImagingAPI.get_image"></a>
-### `ImagingAPI.get_image`
-
-```python
-def get_image(
-    self,
-    force_to_8bit: bool = True,
-    timeout_s: float = 5.0,
-    all_ones_check: bool = False,
-    sum_count: int = 1,
-    sum_delay_s: float = 0.0,
-    sum_iteration_callback: Callable[[], None] | None = None,
-    force_new_capture: bool = False,
-    new_capture_timeout_s: float = 5.0,
-    verify_chunk_targets: bool = False,
-) -> np.ndarray
-```
-
-Marks: in-process.
-
-Grab and return an image from the camera -- the UNGATED primitive.
-
-Never dark-rejects: liveness probes and diagnostics must see what
-the camera sees, dark or not. For any frame you will SAVE or
-MEASURE as truth, call capture_still, which drains the camera
-pipeline until the validity marker is GREEN and derives the
-dark-floor expectation from commanded LED state.
-
-Explicit parameters, never a **kwargs forward: the signature is a
-pinned contract (introspected by tests), and a silent kwarg
-pass-through would re-open the door this split closed.
-
-By default the last buffered frame is returned; `force_new_capture`
-waits for a fresh one. The grab is one command on the camera's lane,
-waited for. It does not wait for frame validity, so the frame may not
-reflect a just-changed gain, exposure, LED or stage position.
-
-**Args**
-
-- `force_to_8bit`: True for an 8-bit image; False for the camera's own depth, in a uint16 array for a 12- or 16-bit camera.
-- `timeout_s`: Seconds to wait for a frame.
-- `all_ones_check`: Measure each frame's saturation: a blown frame is grabbed again once, then kept.
-- `sum_count`: Frames summed into the image, for noise reduction; a sum's array is uint16.
-- `sum_delay_s`: Seconds between summed frames.
-- `sum_iteration_callback`: Called after each summed frame, on the camera's lane.
-- `force_new_capture`: True to wait for a frame the camera captures after the call, rather than take the last buffered one.
-- `new_capture_timeout_s`: Seconds to wait for that new frame.
-- `verify_chunk_targets`: Pass over frames whose own record of exposure and gain (the camera's chunk data) differs from the last values asked for, until one matches or `timeout_s` passes; no effect on a camera without chunk data, or while hardware auto-gain owns the values.
-
-**Returns**
-
-The image: (H, W) for a mono camera, (H, W, 3) for a color one, with no channel's false colour applied.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for every frame of the sum together is longer. Nothing reached the camera.
-- `CaptureFailedError`: `'no_frame'`, no frame within the timeouts; `'chunk_rejected'`, frames came but none at the `setting` asked (`verify_chunk_targets`).
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, absent at the call or removed during the grab.
-
-**Refusals**
-
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
-- [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `chunk_rejected`
-- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="ImagingAPI.get_image_from_buffer"></a>
 ### `ImagingAPI.get_image_from_buffer`
@@ -14010,7 +13946,8 @@ A camera setting whose write a simulated fault can refuse.
 Held in: [`Credit.by`](#Credit.by).
 
 Who counted a frame toward a change: the capture's drain, a grab
-(a capture's own, or an ungated `get_image`), or the live preview.
+(a capture's own, or the engineering grab, which waits for no change),
+or the live preview.
 
 A capture's wait can be met by frames another consumer counted, so the
 record of a wait names who counted each frame.
@@ -15530,8 +15467,8 @@ A fault; bases `Fault`, `CaptureError`.
 
 A capture or a recording was attempted and produced nothing.
 
-Raised by `capture_still` and `get_image` for a capture that got
-no frame, and by `capture_still` for one whose frame's record could
+Raised by `capture_still` and the engineering grab for a capture that
+got no frame, and by `capture_still` for one whose frame's record could
 not be read; a camera that is not there is refused instead
 (`HardwareCommandRefusedError`, `'not_connected'`).
 

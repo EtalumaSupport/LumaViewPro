@@ -85,9 +85,7 @@ class TestAStalledStream:
         sim_scope.simulation.stall_stream(0.0, 30.0)
 
         with pytest.raises(CaptureFailedError) as failed:
-            sim_scope.imaging.get_image(
-                force_new_capture=True, timeout_s=0.5, new_capture_timeout_s=0.5
-            )
+            sim_scope.imaging.get_image(timeout_s=0.5, new_capture_timeout_s=0.5)
 
         assert failed.value.reason == 'no_frame'
 
@@ -181,7 +179,7 @@ class TestARemovedCamera:
         assert sim_scope._camera_driver.active
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            sim_scope.imaging.get_image(force_new_capture=True)
+            sim_scope.imaging.get_image()
 
         assert refused.value.reason == 'not_connected'
         assert posted == []
