@@ -248,3 +248,48 @@ def _windows_census() -> UsbCensus:
         # Told in the census itself: the bus is not known, not empty.
         return UsbCensus(source=source, devices=(), unreadable=str(e))
     return UsbCensus(source=source, devices=census_from(devices, ours, hub_port), unreadable=None)
+
+
+# cfg.h: the device node's driver is started.
+_DN_STARTED = 0x8
+
+
+def device_list_lines(devices: Iterable[DeviceProperties]) -> list[str]:
+    """Device Manager's whole list as lines: each device's name, class, status and problem code.
+
+    A property Windows did not give is said as not given; one in a type this
+    does not read is named with its type.
+    """
+    lines = []
+    for device in devices:
+        status = device.values.get('status')
+        if status is None:
+            state = _said(device, 'status')
+        else:
+            state = f'{status:#010x}, ' + ('started' if status & _DN_STARTED else 'not started')
+        code = device.values.get('problem_code')
+        problem = f', problem code {code}' if code else ''
+        lines.append(
+            f'{device.instance_id}: {_said(device, "name")}, class {_said(device, "class")}, '
+            f'status {state}{problem}'
+        )
+    return lines
+
+
+def _said(device: DeviceProperties, name: str) -> str:
+    """A property of the device in words: its value, not given, or unreadable with its type."""
+    if name in device.unreadable:
+        return f'unreadable ({device.unreadable[name]})'
+    return str(device.values[name]) if name in device.values else 'not given'
+
+
+def read_device_list() -> list[str]:
+    """Device Manager's whole list on this Windows host, as lines; the first says so when it cannot be read."""
+    from _lumascope.drivers.winusb_iso import present_devices  # local-import: Windows only
+
+    try:
+        devices = present_devices()
+    except CameraUsbLookupFailedError as e:
+        # Told in the list itself: the devices are not known, not none.
+        return [f"Windows' device list could not be read: {e}"]
+    return device_list_lines(devices)

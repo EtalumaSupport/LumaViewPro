@@ -40,6 +40,7 @@ from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from _lumascope.drivers.exceptions import CameraUsbLookupFailedError, HardwareError
+from _lumascope.drivers.usb_census import CensusDevice, read_device_list
 from _lumascope.drivers.usb_driver_binding import (
     DeviceBinding,
     setupapi_log_excerpt,
@@ -576,6 +577,17 @@ def _read_local_machine_value(path: str, name: str) -> object:
         return winreg.QueryValueEx(key, name)[0]
 
 
+def _census_line(device) -> str:
+    """A published census device in the census's own words, as bring-up logs it."""
+    fields = {
+        f.name: getattr(device, f.name) for f in dataclasses.fields(device) if f.name != 'binding'
+    }
+    binding = (
+        None if device.binding is None else DeviceBinding(**dataclasses.asdict(device.binding))
+    )
+    return CensusDevice(**fields, binding=binding).describe()
+
+
 def _collect_usb_devices():
     """List all USB devices. Returns list of (label, text_content) tuples."""
     devices = []
@@ -590,47 +602,9 @@ def _collect_usb_devices():
     is_win = platform.system() == 'Windows'
 
     if is_win:
-        # PnP entities: USB devices, cameras, COM ports
-        devices.append(
-            (
-                'PnP_USB_Camera_Ports',
-                _run(
-                    [
-                        'wmic',
-                        'path',
-                        'Win32_PnPEntity',
-                        'where',
-                        "PNPClass='USB' or PNPClass='USBDevice' or PNPClass='Camera' or PNPClass='Ports'",
-                        'get',
-                        'Name,DeviceID,Status,PNPClass',
-                        '/format:list',
-                    ]
-                ),
-            )
-        )
-        devices.append(
-            (
-                'USB_Hubs',
-                _run(
-                    ['wmic', 'path', 'Win32_USBHub', 'get', 'Name,DeviceID,Status', '/format:list']
-                ),
-            )
-        )
-        devices.append(
-            (
-                'USB_Controllers',
-                _run(
-                    [
-                        'wmic',
-                        'path',
-                        'Win32_USBController',
-                        'get',
-                        'Name,DeviceID,Status',
-                        '/format:list',
-                    ]
-                ),
-            )
-        )
+        # Device Manager's whole list, from the walk the USB census reads:
+        # every present device, its class, status and problem code.
+        devices.append(('device_list', '\n'.join(read_device_list()) + '\n'))
     elif platform.system() == 'Darwin':
         devices.append(('SPUSBDataType', _run(['system_profiler', 'SPUSBDataType'])))
     else:
@@ -660,29 +634,6 @@ def _collect_usb_devices():
         devices.append(('pyserial_error', str(e)))
 
     return devices
-
-
-def _collect_device_manager_full():
-    """Full Device Manager dump (Windows only, CSV)."""
-    if platform.system() != 'Windows':
-        return None
-    try:
-        r = subprocess.run(
-            [
-                'wmic',
-                'path',
-                'Win32_PnPEntity',
-                'get',
-                'Name,DeviceID,Status,PNPClass,Manufacturer',
-                '/format:csv',
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        return r.stdout
-    except Exception as e:
-        return f'Error: {e}'
 
 
 # ---------------------------------------------------------------------------
@@ -1697,6 +1648,7 @@ class TechSupportReport:
             # 12. USB devices  (52-55%)
             cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
+            self._step_usb_census(tmp)
             self._step_camera_usb_bindings(tmp)
             self._step_windows_drivers(tmp)
 
@@ -2446,10 +2398,25 @@ class TechSupportReport:
             with open(d / f'{safe}.txt', 'w', encoding='utf-8') as f:
                 f.write(content if isinstance(content, str) else str(content))
 
-        devmgr = _collect_device_manager_full()
-        if devmgr and 'Error' not in str(devmgr)[:20]:
-            with open(d / 'device_manager_full.csv', 'w', encoding='utf-8') as f:
-                f.write(devmgr)
+    def _step_usb_census(self, tmp):
+        """What is on the USB bus of each vendor a Lumascope is built from, read now.
+
+        The census bring-up logs, read again through the API: each device,
+        its port, its driver and whether Windows started it, its speed and
+        its port's; or why the bus could not be read.
+        """
+        d = tmp / 'usb_census'
+        d.mkdir()
+        census = self.scope.diagnostics.get_usb_census()
+        lines = [f'USB census, read through {census.source}', '=' * 40, '']
+        if census.unreadable is not None:
+            lines.append(f'Unreadable: {census.unreadable}')
+        lines.extend(_census_line(device) for device in census.devices)
+        if census.unreadable is None and not census.devices:
+            lines.append('No device of a Lumascope vendor is on the bus.')
+        (d / 'usb_census.txt').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        with open(d / 'usb_census.json', 'w', encoding='utf-8') as f:
+            json.dump(census.to_dict(), f, indent=2)
 
     def _step_camera_usb_bindings(self, tmp):
         """Which driver Windows has bound to each USB identity of a Lumascope Classic.
@@ -2761,10 +2728,8 @@ class TechSupportReport:
         hardware-free step HERE and both bundle shapes get it, rather
         than to one entry point and not the other.
 
-        Two neighbours deliberately do NOT qualify. `_step_system_info`
+        A neighbour deliberately does NOT qualify: `_step_system_info`
         duplicates the launch banner already present in every log.
-        `_step_usb_devices` issues wmic calls that are timeouts rather
-        than data on current Windows.
 
         Each step is guarded on its own: a raise out of either bundle path
         means no archive at all, so an unguarded diagnostic here could cost

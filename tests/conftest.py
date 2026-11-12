@@ -297,7 +297,9 @@ def _install_host_absent_production_modules():
     only on Windows. A test of the WinUSB transport patches what the
     transport asks for, ``WinUsbIsoReader`` and ``device_bindings``, on the
     module, the same call on every host; here the module exists to be
-    patched. The guard
+    patched, and to name what the USB census imports from it on Windows
+    (``usb_devices``, ``hub_port``, ``present_devices``) for the guards
+    that resolve those imports. The guard
     ``tests/guards/test_no_test_installs_a_module_stand_in.py`` keeps this
     the one place.
     """
@@ -309,6 +311,9 @@ def _install_host_absent_production_modules():
         shell = ModuleType('_lumascope.drivers.winusb_iso')
         shell.WinUsbIsoReader = None
         shell.device_bindings = None
+        shell.usb_devices = None
+        shell.hub_port = None
+        shell.present_devices = None
         sys.modules.setdefault('_lumascope.drivers.winusb_iso', shell)
         # The dotted form of monkeypatch.setattr walks the package's attributes.
         _lumascope.drivers.winusb_iso = sys.modules['_lumascope.drivers.winusb_iso']

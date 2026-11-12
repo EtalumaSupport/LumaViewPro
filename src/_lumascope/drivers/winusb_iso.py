@@ -178,6 +178,17 @@ DEVPKEY_Device_LocationInfo = _devpropkey(
 DEVPKEY_Device_IsPresent = _devpropkey(
     0x540B947E, 0x8B40, 0x45BC, (0xA8, 0xA2, 0x6A, 0x0B, 0x89, 0x4C, 0xBD, 0xA2), 5
 )
+# The name Device Manager shows: the friendly name, else the description.
+DEVPKEY_NAME = _devpropkey(
+    0xB725F130, 0x47EF, 0x101A, (0xA5, 0xF1, 0x02, 0x60, 0x8C, 0x9E, 0xEB, 0xAC), 10
+)
+DEVPKEY_Device_Class = _devpropkey(
+    0xA45C254E, 0xDF1C, 0x4EFD, (0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0), 9
+)
+# The device node's status bits (cfg.h's DN_*).
+DEVPKEY_Device_DevNodeStatus = _devpropkey(
+    0x4340A6C5, 0x93FA, 0x4706, (0x97, 0x2C, 0x7B, 0x64, 0x80, 0x08, 0xA5, 0xA7), 2
+)
 # A USB device's address on its bus driver: the number of the hub port it is on.
 DEVPKEY_Device_Address = _devpropkey(
     0xA45C254E, 0xDF1C, 0x4EFD, (0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0), 30
@@ -544,14 +555,22 @@ _PROPERTIES = {
     'parent': DEVPKEY_Device_Parent,
     'address': DEVPKEY_Device_Address,
 }
+# Each property of Device Manager's whole list, by the name ``DeviceProperties``
+# holds it under.
+_LIST_PROPERTIES = {
+    'name': DEVPKEY_NAME,
+    'class': DEVPKEY_Device_Class,
+    'status': DEVPKEY_Device_DevNodeStatus,
+    'problem_code': DEVPKEY_Device_ProblemCode,
+}
 
 
 def usb_devices(wanted: Callable[[str], bool]) -> list[DeviceProperties]:
     """Each USB device Windows lists, present or seen before, whose instance ID is ``wanted``.
 
-    The one walk of Windows' USB device list: every reader of a USB device's
-    driver reads it here. A device's properties are read only once its
-    instance ID is wanted, so another device's never fail the read.
+    Every reader of a USB device's driver reads it here. A device's
+    properties are read only once its instance ID is wanted, so another
+    device's never fail the read.
 
     Args:
         wanted: Whether a device, by its instance ID, is read.
@@ -560,7 +579,52 @@ def usb_devices(wanted: Callable[[str], bool]) -> list[DeviceProperties]:
         CameraUsbLookupFailedError: A SetupAPI call failed, naming it and its
             last error.
     """
-    dev_info = setupapi.SetupDiGetClassDevsW(None, 'USB', None, DIGCF_ALLCLASSES)
+    return _walk('USB', DIGCF_ALLCLASSES, wanted, _PROPERTIES, with_interface_guids=True)
+
+
+def present_devices() -> list[DeviceProperties]:
+    """Every device Windows has present, of every class: its name, class, status and problem code.
+
+    Device Manager's whole list, for a support report: what else is on the
+    machine, and which of it Windows did not start.
+
+    Raises:
+        CameraUsbLookupFailedError: A SetupAPI call failed, naming it and its
+            last error.
+    """
+    return _walk(
+        None,
+        DIGCF_ALLCLASSES | DIGCF_PRESENT,
+        lambda _instance_id: True,
+        _LIST_PROPERTIES,
+        with_interface_guids=False,
+    )
+
+
+def _walk(
+    enumerator: str | None,
+    flags: int,
+    wanted: Callable[[str], bool],
+    properties: dict[str, DEVPROPKEY],
+    *,
+    with_interface_guids: bool,
+) -> list[DeviceProperties]:
+    """The one walk of Windows' device list: each wanted device and its ``properties``.
+
+    Args:
+        enumerator: Only the devices this enumerator lists (``'USB'``); every
+            device when None.
+        flags: SetupDiGetClassDevsW's flags: every class, and present only or not.
+        wanted: Whether a device, by its instance ID, is read.
+        properties: The properties read of each, by the name it is held under.
+        with_interface_guids: Whether the device's interface GUIDs are read
+            from its hardware key.
+
+    Raises:
+        CameraUsbLookupFailedError: A SetupAPI call failed, naming it and its
+            last error.
+    """
+    dev_info = setupapi.SetupDiGetClassDevsW(None, enumerator, None, flags)
     if dev_info == INVALID_HANDLE_VALUE:
         raise CameraUsbLookupFailedError(f'SetupDiGetClassDevsW failed: {ctypes.get_last_error()}')
     devices = []
@@ -577,22 +641,33 @@ def usb_devices(wanted: Callable[[str], bool]) -> list[DeviceProperties]:
             index += 1
             instance_id = _instance_id(dev_info, devinfo)
             if wanted(instance_id):
-                devices.append(_device_properties(dev_info, devinfo, instance_id))
+                devices.append(
+                    _device_properties(
+                        dev_info, devinfo, instance_id, properties, with_interface_guids
+                    )
+                )
     finally:
         setupapi.SetupDiDestroyDeviceInfoList(dev_info)
 
 
-def _device_properties(dev_info, devinfo, instance_id: str) -> DeviceProperties:
-    """Every property in ``_PROPERTIES`` and the interface GUIDs, each Windows gave.
+def _device_properties(
+    dev_info,
+    devinfo,
+    instance_id: str,
+    properties: dict[str, DEVPROPKEY],
+    with_interface_guids: bool,
+) -> DeviceProperties:
+    """Each of ``properties``, and the interface GUIDs when asked, that Windows gave.
 
     A property of a type this does not read is recorded in ``unreadable``
     with its type, never read as absent.
     """
     reads: dict[str, Callable[[], object]] = {
         name: (lambda key=key: _device_property(dev_info, devinfo, key))
-        for name, key in _PROPERTIES.items()
+        for name, key in properties.items()
     }
-    reads['interface_guids'] = lambda: _interface_guids(dev_info, devinfo)
+    if with_interface_guids:
+        reads['interface_guids'] = lambda: _interface_guids(dev_info, devinfo)
     values: dict[str, object] = {}
     unreadable: dict[str, str] = {}
     for name, read in reads.items():
