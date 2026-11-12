@@ -2618,7 +2618,6 @@ class Lumascope:
         except Exception:
             pass
 
-    @api
     @property
     def no_hardware(self) -> bool:
         """True if no part came up at bring-up (LED, motor, and camera all missing).

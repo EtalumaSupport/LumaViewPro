@@ -380,7 +380,6 @@ from _lumascope.modules.path_utils import (
 from _lumascope.modules.plugins import (
     LiveProcessingRegistry,
     NamespaceHealth,
-    PLUGIN_API_LEVEL,
     PluginHealth,
     PluginNotLoaded,
     PluginRegistrationError,
@@ -515,7 +514,6 @@ from _lumascope.rest.server import (
 )
 
 __all__ = [
-    'PLUGIN_API_LEVEL',
     'AccelerationLimitRefusedError',
     'AcquireMode',
     'AlreadyStartedError',

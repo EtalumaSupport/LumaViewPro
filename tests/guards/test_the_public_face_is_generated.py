@@ -9,9 +9,9 @@ A user writes ``from lumascope import X`` for every published name
    withdrawn without regenerating fails, naming the command. Run with
    ``LVP_WRITE_PUBLIC_FACE=1``, the rule writes the render instead.
 2. **Whole.** Its ``__all__`` is the published set: every name the
-   reference has a section for, the root ``LumascopeError``, and every
-   declared constant; each is the object its defining module holds, and the
-   module holds no other public name.
+   reference has a section for and the root ``LumascopeError``; each is the
+   object its defining module holds, and the module holds no other public
+   name.
 3. **One root.** Every published exception is a ``LumascopeError``, so
    ``except LumascopeError`` catches whatever the API raises on purpose.
 4. **No cycle, and first-party code pays nothing.** No ``_lumascope``
@@ -40,12 +40,12 @@ from _lumascope.modules import wire_encoding
 from _lumascope.modules.api_surface import api
 from tests.api_reference import declared, published
 from tests.ast_seams import REPO_ROOT, MemberNames, tracked_files
-from tests.marked_set import Marked, marked_set, project_modules
-from tests.public_face import FACE, REGENERATE, WRITE, declared_constants, face_text, homes
+from tests.marked_set import Marked, marked_set
+from tests.public_face import FACE, REGENERATE, WRITE, face_text, homes
 
 # One of each kind the face holds, whose absence would mean a source was
-# lost: a class section, a closed set, an outcome, the root, a module's
-# function, and the declared constant.
+# lost: a class section, a closed set, an outcome, the root, and a module's
+# function.
 NOT_VACUOUS = MemberNames(
     'src/_lumascope',
     {
@@ -54,7 +54,6 @@ NOT_VACUOUS = MemberNames(
         'PositionOutOfRangeError',
         'LumascopeError',
         'build_app',
-        'PLUGIN_API_LEVEL',
     },
 )
 
@@ -72,7 +71,7 @@ def marked(universe: dict[str, type]) -> dict[str, Marked]:
 def _homes(marked: dict[str, Marked], universe: dict[str, type]) -> dict[str, str]:
     """Each name the face should publish, with the module it is imported from."""
     sections = declared(marked, universe, wire_encoding.project_aliases())
-    return homes(published(sections), declared_constants(project_modules()))
+    return homes(published(sections))
 
 
 @pytest.fixture(scope='module')

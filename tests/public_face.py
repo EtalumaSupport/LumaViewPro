@@ -2,9 +2,8 @@
 """``src/lumascope/__init__.py``: the public face, generated from the marks.
 
 Every name the reference has a section for (``tests.api_reference.published``),
-the root ``LumascopeError``, and every constant a module declares
-(``api_surface.constants_of``), each imported from the module that defines
-it. Type checkers read the same import lines, so the one list is the
+and the root ``LumascopeError``, each imported from the module that
+defines it. Type checkers read the same import lines, so the one list is the
 module's ``__all__``. The file is regenerated, never edited, and
 ``tests/guards/test_the_public_face_is_generated.py`` holds it equal to a
 fresh render.
@@ -14,9 +13,7 @@ from __future__ import annotations
 
 import collections
 import sys
-import types
 
-from _lumascope.modules.api_surface import constants_of
 from tests.ast_seams import REPO_ROOT
 
 FACE = REPO_ROOT / 'src' / 'lumascope' / '__init__.py'
@@ -37,37 +34,17 @@ in any release. Importing this module loads the whole API.
 """'''
 
 
-def declared_constants(modules: tuple[types.ModuleType, ...]) -> dict[str, str]:
-    """Each constant a module in *modules* publishes, by name, with its module's dotted path.
-
-    Raises:
-        ValueError: A declared name is not one of its module's attributes, or
-            two modules declare one name.
-    """
-    found: dict[str, str] = {}
-    for module in modules:
-        for name in constants_of(module):
-            if name not in vars(module):
-                raise ValueError(f'{module.__name__} declares {name}, which it does not define')
-            if found.setdefault(name, module.__name__) != module.__name__:
-                raise ValueError(f'{name} is declared by {found[name]} and {module.__name__}')
-    return found
-
-
-def homes(names: dict[str, object], constants: dict[str, str]) -> dict[str, str]:
+def homes(names: dict[str, object]) -> dict[str, str]:
     """Each published name with the dotted path of the module it is imported from.
 
     An object is imported from the module that defines it, where it must be
-    held under its published name; a constant from the module that declares it.
+    held under its published name.
 
     Raises:
-        ValueError: A name is a constant and an object at once, or an object's
-            module does not hold it under that name.
+        ValueError: An object's module does not hold it under that name.
     """
-    found = dict(constants)
+    found: dict[str, str] = {}
     for name, value in names.items():
-        if name in found:
-            raise ValueError(f'{name} is both a declared constant and a published object')
         module = value.__module__
         if getattr(sys.modules.get(module), name, None) is not value:
             raise ValueError(f'{module} does not hold {name} at its top level')

@@ -97,10 +97,10 @@ the process already has is refused (`LoggingStartRefusedError`,
 **Hearing bring-up.** Bring-up has happened by the time `create` returns. What
 it found -- a camera not found, a stored value replaced, a part missing -- is
 reported as outcomes; to hear them, pass your listener to `create`
-(`outcome_listener=`). A client that comes later reads the record instead, and
-`scope.no_hardware` (no part came up) and `scope.motion_expected` (False for a
-model with no motion); the record's `substitutions` and `settings_set_aside`
-name what bring-up replaced:
+(`outcome_listener=`). A client that comes later reads the record instead
+(each part's `up`, and `missing`, the parts this scope should have and lacks)
+and `scope.motion_expected` (False for a model with no motion); the record's
+`substitutions` and `settings_set_aside` name what bring-up replaced:
 
 ```python
 record = session.bring_up_record()

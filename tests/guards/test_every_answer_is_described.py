@@ -212,8 +212,8 @@ def test_every_route_is_described_in_its_own_words(built):
         if not (words := _operation(described, route).get('description')) or words in borrowed
     ]
     assert not wrong, '\n'.join(wrong)
-    columns = described['paths']['/api/v1/handles/Protocol/{handle_id}/CURRENT_COLUMNS']['get']
-    assert columns['description'].startswith('The columns of the steps table'), columns
+    capabilities = described['paths']['/api/v1/scope/capabilities']['get']
+    assert capabilities['description'].startswith('What this scope has'), capabilities
 
 
 def test_a_record_s_properties_say_its_fields_words(built):

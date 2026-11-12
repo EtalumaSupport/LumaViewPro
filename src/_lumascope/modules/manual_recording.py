@@ -852,7 +852,6 @@ class ManualRecordingController:
             RecordingStoppedError(reason), solicited=False, category='Recording', ends_a_run=True
         )
 
-    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def discard_pending(self) -> None:
         """Drop the unwritten backlog loudly (the app-close discard path).

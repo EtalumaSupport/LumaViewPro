@@ -2148,8 +2148,8 @@ Route: `GET /api/v1/plugin_api_level`.
 
 What this LumaViewPro does that a plugin may rely on.
 
-`lumascope.PLUGIN_API_LEVEL`; each level's additions are
-listed in plugin-tutorial.md, "The plugin API level".
+Each level's additions are listed in plugin-tutorial.md, "The
+plugin API level".
 
 **Raises**
 
@@ -4070,26 +4070,6 @@ One manual-recording flow: snapshot, record, drain, finish.
 - `steady_clock`: The host's steady clock (nanoseconds) the engine reads its start on through the recording's clock mapping. Tests drive it.
 - `elapsed_clock`: Elapsed-time source (seconds) for the recording's bounds: its elapsed time, the duration backstop, the stall watch and the disk probe's interval. Monotonic, because wall time steps (an NTP correction, a host resume) and a step would end a good recording early or let one run past its backstop. Tests drive it.
 
-<a id="ManualRecordingController.discard_pending"></a>
-### `ManualRecordingController.discard_pending`
-
-```python
-def discard_pending(self) -> None
-```
-
-Marks: enters: `guarded_write`.  
-Route: `POST /api/v1/manual_recording/discard_pending`.
-
-Drop the unwritten backlog loudly (the app-close discard path).
-
-**Raises**
-
-Nothing.
-
-**Refusals by REST status**
-
-- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-
 <a id="ManualRecordingController.elapsed_s"></a>
 ### `ManualRecordingController.elapsed_s`
 
@@ -4832,25 +4812,6 @@ Whether this scope's model has a motor board at all.
 False for a manual scope (an LS620, LS560 or LS460): it is complete
 without one, so its absence is not a disconnection. Set from the
 model's catalogue entry by `initialize()`; True before that.
-
-**Raises**
-
-Nothing.
-
-<a id="Lumascope.no_hardware"></a>
-### `Lumascope.no_hardware`
-
-```python
-no_hardware: bool  # property
-```
-
-Route: `GET /api/v1/scope/no_hardware`.
-
-True if no part came up at bring-up (LED, motor, and camera all missing).
-
-**Returns**
-
-bool: True when none of the three came up.
 
 **Raises**
 
@@ -11767,12 +11728,6 @@ Taken by: [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofoc
 
 A protocol: its steps, its plate and its schedule, and the file it is read from and written to.
 
-**Fields**
-
-- <a id="Protocol.CURRENT_COLUMNS"></a>`CURRENT_COLUMNS`: `ClassVar[tuple[str, ...]]` -- The columns of the steps table a protocol file of `CURRENT_VERSION` holds, in the order they are written.
-- <a id="Protocol.CURRENT_VERSION"></a>`CURRENT_VERSION`: `ClassVar[int]` -- The version of the protocol file this release writes; a file of an earlier version is converted when it is read.
-- <a id="Protocol.PROTOCOL_FILE_HEADER"></a>`PROTOCOL_FILE_HEADER`: `ClassVar[str]` -- The first cell of a protocol file's first row, which a read checks before anything else.
-
 <a id="Protocol.capture_prefix"></a>
 ### `Protocol.capture_prefix`
 
@@ -18476,9 +18431,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/get_setting` | [`ScopeSession.get_setting`](#ScopeSession.get_setting) |
 | `POST` | `/api/v1/go_to_bookmark` | [`ScopeSession.go_to_bookmark`](#ScopeSession.go_to_bookmark) |
 | `POST` | `/api/v1/go_to_step` | [`ScopeSession.go_to_step`](#ScopeSession.go_to_step) |
-| `GET` | `/api/v1/handles/Protocol/{handle_id}/CURRENT_COLUMNS` | [`Protocol.CURRENT_COLUMNS`](#Protocol.CURRENT_COLUMNS) |
-| `GET` | `/api/v1/handles/Protocol/{handle_id}/CURRENT_VERSION` | [`Protocol.CURRENT_VERSION`](#Protocol.CURRENT_VERSION) |
-| `GET` | `/api/v1/handles/Protocol/{handle_id}/PROTOCOL_FILE_HEADER` | [`Protocol.PROTOCOL_FILE_HEADER`](#Protocol.PROTOCOL_FILE_HEADER) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_prefix` | [`Protocol.capture_prefix`](#Protocol.capture_prefix) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_root` | [`Protocol.capture_root`](#Protocol.capture_root) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/channel_settings` | [`Protocol.channel_settings`](#Protocol.channel_settings) |
@@ -18510,7 +18462,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/make_support_report` | [`ScopeSession.make_support_report`](#ScopeSession.make_support_report) |
 | `POST` | `/api/v1/manual_capture/capture` | [`ManualCaptureController.capture`](#ManualCaptureController.capture) |
 | `GET` | `/api/v1/manual_capture/in_flight` | [`ManualCaptureController.in_flight`](#ManualCaptureController.in_flight) |
-| `POST` | `/api/v1/manual_recording/discard_pending` | [`ManualRecordingController.discard_pending`](#ManualRecordingController.discard_pending) |
 | `GET` | `/api/v1/manual_recording/elapsed_s` | [`ManualRecordingController.elapsed_s`](#ManualRecordingController.elapsed_s) |
 | `GET` | `/api/v1/manual_recording/end_reason` | [`ManualRecordingController.end_reason`](#ManualRecordingController.end_reason) |
 | `GET` | `/api/v1/manual_recording/is_busy` | [`ManualRecordingController.is_busy`](#ManualRecordingController.is_busy) |
@@ -18649,7 +18600,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/motion/turret_status` | [`MotionAPI.turret_status`](#MotionAPI.turret_status) |
 | `POST` | `/api/v1/scope/motion/wait_until_finished_moving` | [`MotionAPI.wait_until_finished_moving`](#MotionAPI.wait_until_finished_moving) |
 | `GET` | `/api/v1/scope/motion_expected` | [`Lumascope.motion_expected`](#Lumascope.motion_expected) |
-| `GET` | `/api/v1/scope/no_hardware` | [`Lumascope.no_hardware`](#Lumascope.no_hardware) |
 | `GET` | `/api/v1/scope/objective` | [`Lumascope.objective`](#Lumascope.objective) |
 | `GET` | `/api/v1/scope/plate` | [`Lumascope.plate`](#Lumascope.plate) |
 | `GET` | `/api/v1/scope/runtime_state/frame_point_distance` | [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance) |

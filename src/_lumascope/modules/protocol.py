@@ -1321,7 +1321,6 @@ class _SavedAs:
     file_path: pathlib.Path | None
 
 
-@api_fields('CURRENT_COLUMNS', 'CURRENT_VERSION', 'PROTOCOL_FILE_HEADER')
 class Protocol:
     """A protocol: its steps, its plate and its schedule, and the file it is read from and written to.
 

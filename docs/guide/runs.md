@@ -82,19 +82,12 @@ assert protocol.num_scans() == 6
 ```
 
 **The protocol file** is tab-separated. Its first row is
-`Protocol.PROTOCOL_FILE_HEADER`, then the version, the period (minutes), the
-duration (hours), the plate and the capture root; then a Layer Settings block,
-a row of each channel's settings; then a table of steps whose columns are
-`Protocol.CURRENT_COLUMNS`. `save_protocol` writes the block from each channel
-acquiring in the settings; the copy a run saves in its folder has it only when
-its protocol was read from a file that had one, so a protocol built in memory
-runs to a file with none:
-
-```python
-from lumascope import Protocol
-
-print(Protocol.CURRENT_VERSION, Protocol.CURRENT_COLUMNS)
-```
+`LumaViewPro Protocol`, then the version, the period (minutes), the duration
+(hours), the plate and the capture root; then a Layer Settings block, a row of
+each channel's settings; then a table of steps under a row naming its columns.
+`save_protocol` writes the block from each channel acquiring in the settings;
+the copy a run saves in its folder has it only when its protocol was read from
+a file that had one, so a protocol built in memory runs to a file with none.
 
 `X` and `Y` are plate millimetres from the plate's top-left, `Z` stage
 micrometres, `Illumination` milliamps, `Gain` dB, `Exposure` milliseconds, and
