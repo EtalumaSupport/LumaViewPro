@@ -848,9 +848,24 @@ class PylonCamera(Camera):
         elapsed time and raised to the caller.
         """
         _cam_log.info(f'pylon StopGrabbing() [{caller}]: {self._grab_stop_state(camera)}')
+        diag_mode = os.environ.get('LVP_DIAG_847', '')  # [DIAG-847]
+        if diag_mode == 'acq_stop':  # [DIAG-847]
+            t_acq = time.perf_counter()  # [DIAG-847]
+            try:  # [DIAG-847]
+                camera.AcquisitionStop.Execute()  # [DIAG-847]
+                _cam_log.info(
+                    f'[DIAG-847] AcquisitionStop.Execute() [{caller}] returned after {(time.perf_counter() - t_acq) * 1000.0:.1f} ms'
+                )
+            except Exception as e:  # [DIAG-847]
+                _cam_log.info(
+                    f'[DIAG-847] AcquisitionStop.Execute() [{caller}] raised after {(time.perf_counter() - t_acq) * 1000.0:.1f} ms: {type(e).__name__}: {e!r}'
+                )
         t0 = time.perf_counter()
         try:
             camera.StopGrabbing()
+            _cam_log.info(
+                f'[DIAG-847] mode={diag_mode!r} StopGrabbing() [{caller}] returned after {(time.perf_counter() - t0) * 1000.0:.1f} ms'
+            )
         except Exception as e:
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             _cam_log.warning(
@@ -864,6 +879,36 @@ class PylonCamera(Camera):
             level,
             f'pylon StopGrabbing [{caller}] returned after {elapsed_s * 1000.0:.1f} ms: '
             f'{self._transport_layer_state(camera, self._TL_COUNTER_NODES)}',
+        )
+
+    def _diag_847_apply(self) -> None:  # [DIAG-847]
+        """[DIAG-847] NOT FOR MERGE: the one camera setting LVP_DIAG_847 names, read back."""
+        camera = self.active  # [DIAG-847]
+        mode = os.environ.get('LVP_DIAG_847', '')  # [DIAG-847]
+        nm = camera.GetNodeMap()  # [DIAG-847]
+        names = (
+            'BslAcquisitionStopMode',
+            'DeviceLinkThroughputLimitMode',
+            'DeviceLinkThroughputLimit',
+            'ChunkModeActive',
+        )  # [DIAG-847]
+        _cam_log.info(
+            f'[DIAG-847] mode={mode!r} before: '
+            + ' '.join(f'{n}={self._safe_node(nm, n)}' for n in names)
+        )
+        if mode == 'stop_complete':  # [DIAG-847]
+            camera.BslAcquisitionStopMode.Value = 'CompleteExposure'  # [DIAG-847]
+        elif mode == 'dltl_low':  # [DIAG-847]
+            camera.DeviceLinkThroughputLimitMode.Value = 'On'  # [DIAG-847]
+            limit = camera.DeviceLinkThroughputLimit  # [DIAG-847]
+            _cam_log.info(
+                f'[DIAG-847] DeviceLinkThroughputLimit min={limit.Min!r} max={limit.Max!r} inc={limit.Inc!r}'
+            )
+            half = int(limit.Max) // 2  # [DIAG-847]
+            limit.Value = half - half % int(limit.Inc)  # [DIAG-847]
+        _cam_log.info(
+            f'[DIAG-847] mode={mode!r} after: '
+            + ' '.join(f'{n}={self._safe_node(nm, n)}' for n in names)
         )
 
     def _transport_layer_nodes(self, camera, errors: list) -> dict:
@@ -1714,6 +1759,7 @@ class PylonCamera(Camera):
             # camera body's sensor doesn't reach 1900 in either
             # axis, the SetValue will clamp + warn from set_frame_size.
             ('the 1900x1900 frame', lambda: self.set_frame_size(w=1900, h=1900)),
+            ('[DIAG-847] the stop test', self._diag_847_apply),  # [DIAG-847]
         ]
         # Each step's own failure is _apply_config_steps'; the guard's own
         # entry and exit (the grab-state read, the stop, the restart) are not
