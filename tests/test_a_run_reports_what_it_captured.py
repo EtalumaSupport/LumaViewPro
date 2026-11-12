@@ -20,6 +20,7 @@ import _lumascope.modules.common_utils as common_utils
 from _lumascope.modules.config_helpers import get_composite_channels
 from _lumascope.modules.exceptions import CaptureError, RunImagesNotSavedError, RunIncompleteError
 from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.scope_parts import Board
 
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -107,6 +108,8 @@ class TestARunWhoseCameraIsGoneEndsAtOnce:
             outcome = _run(runner, run_parent, steps)
             rows = _record_rows(run_parent)
         assert (outcome.status, outcome.reason) == ('failed', 'hardware_disconnected'), outcome
+        # The ending names the board it lost as data, as its sentence does.
+        assert outcome.unconnected_parts == (Board.CAMERA,), outcome
         # The removal is refused at the capture, and the refusal ends the run
         # from the step that met it: no step is captured or recorded after.
         assert rows == [], f'the run went on capturing after its camera was removed: {rows}'

@@ -987,6 +987,7 @@ class SequencedCaptureRunner:
         holder: Holder | None = None,
         holder_trigger: Caller | None = None,
         remedy: Remedy | None = None,
+        unconnected_parts: tuple[Board, ...] = (),
     ) -> ProtocolRunRefusedError:
         """The typed refusal, built and not raised.
 
@@ -1000,6 +1001,7 @@ class SequencedCaptureRunner:
             holder=holder,
             holder_trigger=holder_trigger,
             remedy=remedy,
+            unconnected_parts=unconnected_parts,
         )
 
     def _refuse(
@@ -1173,6 +1175,7 @@ class SequencedCaptureRunner:
                     f'{parts[0].upper()}{parts[1:]} {"is" if len(named) == 1 else "are"} '
                     'not connected. Check the connections, then restart LumaViewPro.'
                 ),
+                unconnected_parts=unconnected,
             )
         return None
 

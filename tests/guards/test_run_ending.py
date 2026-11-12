@@ -544,6 +544,23 @@ def _plain_scan_protocol(session):
     return session.scope.protocols.create_protocol(input_config=input_config)
 
 
+def test_only_a_disconnect_ending_names_boards():
+    """A run that lost its hardware names each board it lost; no other ending names a board."""
+    from _lumascope.modules.run_outcome import hardware_disconnected_ending
+    from _lumascope.modules.scope_parts import Board
+
+    assert hardware_disconnected_ending((Board.LED, Board.CAMERA)).unconnected_parts == (
+        Board.LED,
+        Board.CAMERA,
+    )
+    for wrong in (
+        lambda: RunEnding('failed', 'hardware_disconnected', 'Something disconnected.'),
+        lambda: RunEnding('failed', 'position_lost', 'Z lost.', unconnected_parts=(Board.MOTOR,)),
+    ):
+        with pytest.raises(TypeError):
+            wrong()
+
+
 class TestTheCallerHoldsTheEndingOfTheRunItStarted:
     """The run's ending reaches the caller that asked for the run.
 

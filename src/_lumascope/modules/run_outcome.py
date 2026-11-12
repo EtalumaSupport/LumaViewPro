@@ -55,13 +55,9 @@ import pathlib
 import threading
 import uuid
 from collections.abc import Callable
-from typing import TYPE_CHECKING
-
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.api_surface import api, api_fields
-
-if TYPE_CHECKING:
-    from _lumascope.modules.scope_parts import Board
+from _lumascope.modules.scope_parts import Board
 
 
 class RunStatus(enum.StrEnum):
@@ -160,11 +156,15 @@ class RunEnding:
         message: The sentence a user reads. Never a raw exception
             string -- those go to the log, not into a field a remote
             caller serialises.
+        unconnected_parts: The boards found disconnected, for a
+            ``'hardware_disconnected'`` ending, which always names at least
+            one; empty for every other ending.
     """
 
     status: RunStatus
     reason: str
     message: str
+    unconnected_parts: tuple[Board, ...] = ()
 
     def __post_init__(self):
         # Judged where the ending is made: the outcome built from it is
@@ -172,6 +172,15 @@ class RunEnding:
         object.__setattr__(self, 'status', RunStatus(self.status))
         if self.reason not in ENDING_TITLES:
             raise TypeError(f'a run cannot end with the reason {self.reason!r}: it has no title')
+        object.__setattr__(
+            self, 'unconnected_parts', tuple(Board(part) for part in self.unconnected_parts)
+        )
+        if bool(self.unconnected_parts) != (self.reason == 'hardware_disconnected'):
+            raise TypeError(
+                f'a {self.reason!r} ending was given the boards {self.unconnected_parts!r}: '
+                "a 'hardware_disconnected' ending names the boards it lost, and no other "
+                'ending names any'
+            )
 
     @property
     def title(self) -> str:
@@ -192,6 +201,7 @@ def hardware_disconnected_ending(parts: tuple[Board, ...]) -> RunEnding:
         'hardware_disconnected',
         f'The {gone} disconnected during the run. Check the USB cable and power '
         'connections, save the protocol, then restart LumaViewPro and the protocol.',
+        unconnected_parts=parts,
     )
 
 
@@ -207,6 +217,7 @@ def hardware_disconnected_at_start_ending(parts: tuple[Board, ...]) -> RunEnding
         'hardware_disconnected',
         f'The {gone} disconnected, so the run did not start. Check the USB cable and '
         'power connections, then restart LumaViewPro and the protocol.',
+        unconnected_parts=parts,
     )
 
 
@@ -427,6 +438,7 @@ class CaptureTally:
     'reason',
     'status',
     'title',
+    'unconnected_parts',
     'video_save_wait_s',
 )
 @dataclasses.dataclass(frozen=True)
@@ -434,7 +446,8 @@ class RunOutcome:
     """How a run ended, and what its merge produced.
 
     The first four fields are the run's ENDING, copied from the
-    RunEnding whatever ended the run recorded; the next three describe
+    RunEnding whatever ended the run recorded, with the boards a
+    disconnect lost (``unconnected_parts``); the next three describe
     the merge, the next two the autofocus characterization data, then
     what the run captured, which steps putting the scope back after it
     did not finish, whether a scan's focus was written into the caller's
@@ -451,6 +464,9 @@ class RunOutcome:
             'captures_failed', ...).
         title: Short human sentence, suitable as a popup heading.
         message: The sentence a user reads.
+        unconnected_parts: The boards found disconnected when the run
+            ended ``'hardware_disconnected'``, each by its ``Board``; empty
+            for every other reason.
         merged: True only when an artifact was produced.
         artifact_path: Where it landed; None whenever merged is False.
         merge_reason: Why the MERGE produced no file ('write_batch_timeout',
@@ -514,6 +530,7 @@ class RunOutcome:
     reason: str
     title: str
     message: str
+    unconnected_parts: tuple[Board, ...]
     merged: bool
     artifact_path: pathlib.Path | None
     merge_reason: str
@@ -559,6 +576,7 @@ class RunOutcome:
             reason=ending.reason,
             title=ending.title,
             message=ending.message,
+            unconnected_parts=ending.unconnected_parts,
             merged=merged,
             artifact_path=artifact_path,
             merge_reason=merge_reason,

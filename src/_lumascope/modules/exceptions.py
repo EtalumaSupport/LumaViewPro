@@ -2083,7 +2083,7 @@ class RunWaitExpiredError(ProtocolError, Quiet, TimeoutError):
         self.operation = operation
 
 
-@api_fields('holder', 'holder_trigger')
+@api_fields('holder', 'holder_trigger', 'unconnected_parts')
 class ProtocolRunRefusedError(Refusal, ProtocolError):
     """A sequenced run, or the protocol it would run, was refused before any state was committed.
 
@@ -2115,7 +2115,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``'autofocus_running'`` -- an autofocus sweep from a run that
             has ended did not stop, and still occupies the autofocus
             thread. ``'not_connected'`` -- a part the work needs is not
-            connected, and none reconnects during a session.
+            connected, and none reconnects during a session; the boards are
+            ``unconnected_parts``.
             ``'camera_not_streaming'`` -- the camera is connected and
             delivers no frames. ``'camera_not_delivering'`` -- the run has
             a video step and no Recording max FPS, and no delivered rate
@@ -2191,13 +2192,18 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         remedy: The action that answers this refusal, or None. A stalled
             file writer has one (recover it); a writer still making
             progress does not, since its files will land.
+        unconnected_parts: The boards not connected, each a ``Board``, for
+            ``'not_connected'``, which always names at least one; empty for
+            every other reason.
 
-    ``holder`` and ``holder_trigger`` are published, so a REST problem
-    carries who holds the scope beside the words.
+    ``holder``, ``holder_trigger`` and ``unconnected_parts`` are published,
+    so a REST problem carries who holds the scope, and which boards are
+    missing, beside the words.
     """
 
     holder: Holder | None
     holder_trigger: Caller | None
+    unconnected_parts: tuple[Board, ...]
 
     # What a protocol holds is the request's, whoever made it: a client
     # changes the protocol, and the scope's state never makes it runnable.
@@ -2313,6 +2319,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         holder: 'Holder | None' = None,
         holder_trigger: Caller | None = None,
         remedy: Remedy | None = None,
+        unconnected_parts: tuple[Board, ...] = (),
     ):
         super().__init__(message)
         self.reason = reason
@@ -2321,6 +2328,13 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.remedy = remedy
+        self.unconnected_parts = tuple(Board(part) for part in unconnected_parts)
+        if bool(self.unconnected_parts) != (reason == 'not_connected'):
+            raise TypeError(
+                f'a {reason!r} refusal was given the boards {self.unconnected_parts!r}: '
+                "a 'not_connected' refusal names the boards not connected, and no other "
+                'refusal names any'
+            )
 
 
 class RunCheckFailedError(Fault, ProtocolError):

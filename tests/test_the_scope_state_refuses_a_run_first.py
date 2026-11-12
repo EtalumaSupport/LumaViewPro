@@ -15,9 +15,12 @@ Driven through the Session on the simulated scope.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.scope_parts import Board
+from _lumascope.rest.app import build_app
 from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 from tests.test_a_step_may_have_no_position import _rewrite_steps, _saved_steps
 
@@ -96,9 +99,43 @@ def test_a_part_not_connected_is_told_before_an_empty_protocol(make_session, tmp
         )
 
     assert refused.value.reason == 'not_connected'
+    assert refused.value.unconnected_parts == (Board.LED,)
     assert session._sequenced_capture_runner.state_refusal(session._activity_claim).reason == (
         'not_connected'
     )
+
+
+def test_a_wire_client_is_told_which_boards_are_not_connected(make_session):
+    """The problem body names each board not connected as data, as Python's refusal does:
+    a client branches on the board, not on the sentence."""
+    session = make_session('LS850')
+    session.scope._led_driver = NullLEDBoard()
+
+    with TestClient(build_app(session)) as client:
+        protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+        runner = client.post('/api/v1/protocol_runner').json()['handle']
+        answer = client.post(
+            f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',
+            json={'protocol': protocol},
+        )
+
+    assert answer.json()['reason'] == 'not_connected', answer.json()
+    assert answer.json()['unconnected_parts'] == ['led']
+
+
+def test_only_a_not_connected_refusal_names_boards():
+    """A refusal for a part not connected says which; no other refusal names a board."""
+    assert ProtocolRunRefusedError(
+        'not_connected', 'The camera is not connected.', unconnected_parts=(Board.CAMERA,)
+    ).unconnected_parts == (Board.CAMERA,)
+    for wrong in (
+        lambda: ProtocolRunRefusedError('not_connected', 'Something is not connected.'),
+        lambda: ProtocolRunRefusedError(
+            'already_running', 'A run is running.', unconnected_parts=(Board.LED,)
+        ),
+    ):
+        with pytest.raises(TypeError):
+            wrong()
 
 
 def test_a_scope_that_cannot_reach_the_wells_is_told_so_before_it_is_told_to_home(
