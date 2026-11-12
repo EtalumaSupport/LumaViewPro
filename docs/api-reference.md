@@ -14643,7 +14643,7 @@ An autofocus sweep chose no focus; the stage goes back to where it started.
 
 **Attributes**
 
-- `reason`: `'flat_focus_curve'` -- the final pass's curve has no peak: every score zero or invalid, a fit that cannot be made, or a curve with no contrast (every point above half its maximum) whose fit is not concave, peaks outside the measured range, or shifts past twice the step spacing. `'travel_exhausted'` -- a window the sweep reached after it moved the stage reaches past Z's travel; refused before the stage moves there. `'unexpected_error'` -- the sweep raised; its cause is chained.
+- `reason`: `'flat_focus_curve'` -- the final pass's curve has no peak: every score zero or invalid, every score within 5% of the peak, a fit that cannot be made, or a curve with no contrast (every point above half its maximum) whose fit is not concave, peaks outside the measured range, or shifts past twice the step spacing. `'travel_exhausted'` -- a window the sweep reached after it moved the stage reaches past Z's travel; refused before the stage moves there. `'unexpected_error'` -- the sweep raised; its cause is chained.
 
 | Reason | Cause | REST status |
 |---|---|---|

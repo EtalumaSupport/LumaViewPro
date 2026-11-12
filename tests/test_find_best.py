@@ -29,8 +29,9 @@ class TestFindBestRawMax:
     """Tests for the raw-max fallback behavior."""
 
     def test_single_point(self):
+        """One point is no curve: its spread is nothing, so it is no focus."""
         df = pd.DataFrame({'position': [100.0], 'score': [500.0]})
-        assert AutofocusRunner._find_best(df) == (100.0, None)
+        assert AutofocusRunner._find_best(df) == (100.0, 'every score within 5% of the peak')
 
     def test_all_nan(self):
         df = pd.DataFrame({'position': [10.0, 20.0, 30.0], 'score': [np.nan, np.nan, np.nan]})
@@ -162,3 +163,61 @@ class TestFindBestEdgeCases:
         df = pd.DataFrame({'position': [10.0, 20.0, 30.0], 'score': [-5.0, -1.0, -10.0]})
         # highest (least negative)
         assert AutofocusRunner._find_best(df) == (20.0, 'no positive peak')
+
+
+# SN12064, 60x Meiji, 2026-08-27 13:09:22: every point its four passes
+# measured, as autofocus.log has them. Every score within 1.2% of the peak,
+# and the fit's checks passed on it: the curve's shape is the noise's.
+_A_FLAT_FIELD_SWEEP = [
+    (5035.33, 2187569.0), (5039.13, 2190149.0), (5044.95, 2185717.0),
+    (5050.88, 2195234.0), (5056.93, 2192667.0), (5062.79, 2180357.0),
+    (5041.67, 2199455.0), (5043.65, 2190029.0), (5045.64, 2173232.0),
+    (5047.64, 2192942.0), (5049.65, 2182662.0), (5051.64, 2196101.0),
+    (5053.65, 2190076.0), (5039.67, 2193462.0), (5040.33, 2189893.0),
+    (5040.99, 2187412.0), (5041.65, 2194907.0), (5042.32, 2189076.0),
+    (5042.98, 2189702.0), (5043.64, 2197634.0), (5044.30, 2184215.0),
+    (5044.97, 2199466.0), (5045.63, 2185819.0), (5046.29, 2189016.0),
+    (5043.79, 2194466.0), (5044.28, 2199679.0), (5044.78, 2179614.0),
+    (5045.28, 2188112.0),
+]  # fmt: skip
+
+# A faint real sample on a bright floor, 2026-10-22 14:02:24 (bench): every
+# point above half the peak, its scores spread 36%, focused at 7109.
+_A_FAINT_SAMPLE_SWEEP = [
+    (7085.01, 7006595.0), (7094.01, 7001546.0), (7103.01, 7300816.0),
+    (7112.02, 8450388.0), (7121.02, 7007971.0), (7130.03, 7028902.0),
+    (7099.84, 7014168.0), (7102.84, 7290012.0), (7105.84, 8684397.0),
+    (7108.84, 10845872.0), (7111.84, 8695513.0), (7114.85, 7046849.0),
+    (7106.15, 8935812.0), (7107.16, 9945062.0), (7108.16, 10994517.0),
+    (7109.17, 10664375.0), (7110.17, 9909426.0), (7111.17, 9232955.0),
+]  # fmt: skip
+
+
+def _curve(points):
+    return pd.DataFrame(points, columns=['position', 'score'])
+
+
+class TestAFlatCurveIsNoFocus:
+    """A curve whose every score is within 5% of its peak has no focus,
+    whatever a fit on it says; a curve with more spread is judged by the fit."""
+
+    def test_a_flat_field_whose_fit_passes_is_no_focus(self):
+        pick = AutofocusRunner._find_best(_curve(_A_FLAT_FIELD_SWEEP))
+
+        assert pick.untrusted == 'every score within 5% of the peak'
+
+    def test_a_faint_sample_with_more_spread_keeps_its_focus(self):
+        pick = AutofocusRunner._find_best(_curve(_A_FAINT_SAMPLE_SWEEP))
+
+        assert pick.untrusted is None
+        assert abs(pick.position - 7109.0) < 0.5
+
+    def test_a_few_flat_scores_among_dark_frames_are_no_focus(self):
+        """A dark frame scores NaN and is dropped, so a sweep can keep only a
+        few finite scores: too few to fit, and flat, they are no peak."""
+        z = [6454.0, 6460.0, 6466.0, 6472.0, 6478.0, 6484.0, 6490.0]
+        scores = [1.0e6, 1.001e6, np.nan, 1.002e6, np.nan, np.nan, 1.0005e6]
+
+        pick = AutofocusRunner._find_best(pd.DataFrame({'position': z, 'score': scores}))
+
+        assert pick.untrusted == 'every score within 5% of the peak'

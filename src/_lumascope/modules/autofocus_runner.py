@@ -64,7 +64,8 @@ class FocusPick(NamedTuple):
     ``untrusted`` is None when the curve has a peak -- a Gaussian fit it
     trusts, or a curve with contrast (a point below half its maximum) whose
     raw maximum is the focus -- and otherwise says why ``position`` is the
-    raw maximum of a curve with no peak. A raw
+    raw maximum of a curve with no peak, a curve with every score within
+    ``NO_FOCUS_SPREAD`` of its maximum among them. A raw
     maximum stands in while the passes narrow the window; on the final
     pass it is no focus.
     """
@@ -78,6 +79,13 @@ class FocusPick(NamedTuple):
 # focus. Whether each objective needs that many is a parameter to tune on
 # real images, not a property of the step table.
 FINAL_PASS_STEPS_EACH_SIDE = 3
+
+# A curve whose every score lies within this fraction of its peak has no
+# focus, whatever a fit on it says. Recorded empty fields spread 1.5-3.2%
+# (one at 24%) and real samples, a faint one on a bright floor among them,
+# 35.6% and more: this sits at the conservative end of that gap. Where in
+# the gap the line belongs is a parameter to set on real images.
+NO_FOCUS_SPREAD = 0.05
 
 
 class SweepPass(NamedTuple):
@@ -1209,6 +1217,11 @@ class AutofocusRunner:
             peak_score = scores.max()
             if peak_score <= 0:
                 return FocusPick(raw_best, 'no positive peak')
+            if scores.min() >= peak_score * (1.0 - NO_FOCUS_SPREAD):
+                # A curve this flat has nothing to fit or to call sharp: its
+                # shape is the noise's, so a fit that passes on it, or a few
+                # finite points left among dark frames, is no focus.
+                return FocusPick(raw_best, f'every score within {NO_FOCUS_SPREAD:.0%} of the peak')
 
             threshold = peak_score * 0.5
             mask = scores > threshold
@@ -1216,7 +1229,9 @@ class AutofocusRunner:
             # scores all sit near their maximum, and a peak's fall below half
             # of it. A fit the checks below do not trust leaves a curve with
             # contrast its raw maximum as the focus (a flat-topped peak fits
-            # no Gaussian); only a curve with none is left with no focus.
+            # no Gaussian); only a curve with none is left with no focus. A
+            # curve with none whose fit passes is trusted only past the
+            # NO_FOCUS_SPREAD floor above.
             no_contrast = bool(np.all(mask))
 
             def untrusted(reason: str) -> FocusPick:

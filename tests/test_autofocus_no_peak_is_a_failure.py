@@ -43,10 +43,10 @@ _EMPTY_FIELD = [
 ]
 
 
-def test_the_empty_field_sweep_has_no_peak_the_fit_trusts():
+def test_the_empty_field_sweep_is_no_focus():
     pick = AutofocusRunner._find_best(pd.DataFrame(_EMPTY_FIELD, columns=['position', 'score']))
 
-    assert pick == (117.76, 'fit shifted past twice the step spacing')
+    assert pick == (117.76, 'every score within 5% of the peak')
 
 
 def _an_empty_field(scope, monkeypatch):
