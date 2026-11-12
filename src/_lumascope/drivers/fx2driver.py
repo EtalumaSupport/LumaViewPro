@@ -15,7 +15,8 @@ Three objects live in this file, over one seam:
    writes, and the stream (``start_stream`` / ``stop_stream``, the bytes
    arriving in its ``stream``). Every USB library call it makes goes
    through its transport, chosen once per host by ``_platform_transport``:
-   ``_LibusbTransport`` (macOS / Linux) or ``_WinUsbTransport`` (Windows).
+   ``_LibusbTransport`` (macOS / Linux) or ``_WinUsbTransport`` (Windows),
+   which is the same transport with Windows' driver bindings.
    Constructed lazily the first time any driver calls
    ``_FX2Connection.get()``. Raises ``_FX2AbsentError`` when no FX2 is on
    the bus, which each driver reports as found=False like every other
@@ -45,8 +46,8 @@ Dependencies
 ------------
 
 - ``pyusb``  (firmware upload + control transfers)
-- ``libusb1`` (isochronous streaming on macOS/Linux -- python-libusb1 binding)
-- ``_lumascope.drivers.winusb_iso`` (isochronous streaming on Windows -- ctypes wrapper)
+- ``libusb1`` (isochronous streaming, and control while it runs -- python-libusb1 binding)
+- ``_lumascope.drivers.winusb_iso`` (Windows only: which driver Windows bound, through SetupAPI)
 - ``libusb-package`` (the native ``libusb-1.0`` library itself, one
   versioned copy on every platform; never a host copy)
 
@@ -288,10 +289,10 @@ class _Fx2Gate(NamedTuple):
     """Whether this install can reach FX2 hardware, and why not.
 
     FX2 (LumaviewClassic) drivers require pyusb plus a loadable libusb-1.0
-    native backend on every platform, plus libusb1 on macOS / Linux for ISO
-    streaming. On systems missing those, FX2 hardware fundamentally cannot
-    be reached -- registering the drivers anyway causes the registry to
-    attempt instantiation on every auto-detect run, raise NoBackendError /
+    native backend, plus libusb1 for ISO streaming, on every platform. On
+    systems missing those, FX2 hardware fundamentally cannot be reached --
+    registering the drivers anyway causes the registry to attempt
+    instantiation on every auto-detect run, raise NoBackendError /
     ImportError, and dump a confusing traceback on systems that simply
     don't have LVC hardware. Skip-with-INFO-log is the right
     classification: this driver class isn't applicable to this install.
@@ -319,9 +320,9 @@ class _Fx2Gate(NamedTuple):
     unavailable_reason: str | None
 
 
-def _fx2_gate(has_usb: bool, usb1_module, platform: str) -> _Fx2Gate:
-    """Decide the gate from what imported: pyusb (``has_usb``), python-libusb1
-    (``usb1_module``, None when absent) and the host ``platform``.
+def _fx2_gate(has_usb: bool, usb1_module) -> _Fx2Gate:
+    """Decide the gate from what imported: pyusb (``has_usb``) and python-libusb1
+    (``usb1_module``, None when absent).
 
     Binds the bundled libusb when pyusb is present (``_load_bundled_libusb``,
     with its ordering invariant), so it runs once, at import.
@@ -331,7 +332,7 @@ def _fx2_gate(has_usb: bool, usb1_module, platform: str) -> _Fx2Gate:
     if has_usb:
         library_path, library_refusal = _load_bundled_libusb(usb1_module)
     has_backend = library_path is not None
-    available = has_usb and has_backend and (platform == 'win32' or has_usb1)
+    available = has_usb and has_backend and has_usb1
     if available:
         reason = None
     elif not has_usb:
@@ -375,7 +376,7 @@ def _gate_lines(gate: _Fx2Gate) -> list[tuple[int, str]]:
         elif not gate.has_usb1:
             lines.append(
                 '[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) '
-                'drivers will not be registered on macOS/Linux. Install '
+                'drivers will not be registered. Install '
                 'libusb1 (pip install -r requirements.txt) to enable LVC '
                 'hardware support.'
             )
@@ -390,7 +391,7 @@ def _gate_lines(gate: _Fx2Gate) -> list[tuple[int, str]]:
 # Resolved at import so a host without a usable libusb is classified as
 # "FX2 not applicable to this install" here, instead of the first
 # usb.core.find() raising NoBackendError mid-connect on every startup.
-_FX2_GATE = _fx2_gate(_HAS_USB, usb1 if _HAS_USB1 else None, sys.platform)
+_FX2_GATE = _fx2_gate(_HAS_USB, usb1 if _HAS_USB1 else None)
 
 
 def fx2_gate_lines() -> list[tuple[int, str]]:
@@ -398,27 +399,25 @@ def fx2_gate_lines() -> list[tuple[int, str]]:
     return _gate_lines(_FX2_GATE)
 
 
-def fx2_readiness() -> dict[str, bool | None]:
+def fx2_readiness() -> dict[str, bool]:
     """Each term of the availability gate, as this process found it at import.
 
     Keys name what an installer installs: ``pyusb``, ``libusb-package``
     (the native library both bindings run on) and ``libusb1`` (the binding that streams
-    frames off Windows). ``libusb1`` is ``None`` on Windows, where the gate
-    does not need it. ``scripts/install_mac.sh`` reports these rather than
+    frames). ``scripts/install_mac.sh`` reports these rather than
     probing on its own, so what it prints is what the driver will do.
     """
     return {
         'pyusb': _FX2_GATE.has_usb,
         'libusb-package': _FX2_GATE.library_path is not None,
-        'libusb1': None if sys.platform == 'win32' else _FX2_GATE.has_usb1,
+        'libusb1': _FX2_GATE.has_usb1,
     }
 
 
 def fx2_readiness_line() -> str:
     """One line for an installer: ready or not, and each gate term's state."""
     terms = ', '.join(
-        f'{name} {"not needed" if present is None else "present" if present else "missing"}'
-        for name, present in fx2_readiness().items()
+        f'{name} {"present" if present else "missing"}' for name, present in fx2_readiness().items()
     )
     verdict = 'ready' if _FX2_GATE.available else 'NOT ready'
     line = f'FX2 (LS460/LS560/LS620/LS720) support: {verdict} -- {terms}'
@@ -1157,16 +1156,14 @@ class _ByteStream:
 def _is_usb_timeout(error: BaseException) -> bool:
     """Whether ``error`` is a control transfer the device did not answer in time.
 
-    A transfer runs through one of three libraries, each with its own
-    timeout: pyusb's ``USBTimeoutError``, python-libusb1's
-    ``USBErrorTimeout``, and WinUSB's ERROR_SEM_TIMEOUT, which
-    ``src/_lumascope/drivers/winusb_iso.py`` raises as the builtin ``TimeoutError``. A
-    device gone from the bus is none of them: pyusb reports it as a plain
-    ``USBError``, python-libusb1 as ``USBErrorNoDevice`` or
-    ``USBErrorNotFound``, siblings of its timeout. The library classes are
+    A transfer runs through one of two libraries, each with its own
+    timeout: pyusb's ``USBTimeoutError`` and python-libusb1's
+    ``USBErrorTimeout``. A device gone from the bus is neither: pyusb
+    reports it as a plain ``USBError``, python-libusb1 as
+    ``USBErrorNoDevice`` or ``USBErrorNotFound``, siblings of its timeout. The library classes are
     read here, at the failure, rather than captured at import.
     """
-    timeouts: list[type[BaseException]] = [TimeoutError]
+    timeouts: list[type[BaseException]] = []
     if _HAS_USB:
         timeouts.append(usb.core.USBTimeoutError)
     if _HAS_USB1:
@@ -1177,11 +1174,10 @@ def _is_usb_timeout(error: BaseException) -> bool:
 def _usb_errors() -> tuple[type[BaseException], ...]:
     """What the USB libraries raise for a call the device or the host did not complete.
 
-    pyusb's ``USBError`` is an ``OSError``, as is what ``src/_lumascope/drivers/winusb_iso.py``
-    raises for a failed WinUSB call, its timeout included; python-libusb1's
-    ``USBError`` is its own. Anything else a call raises is the driver's own
-    defect, and a handler around a USB call catches only these. Read at the
-    failure, as ``_is_usb_timeout`` reads its classes.
+    pyusb's ``USBError`` is an ``OSError``; python-libusb1's ``USBError`` is
+    its own. Anything else a call raises is the driver's own defect, and a
+    handler around a USB call catches only these. Read at the failure, as
+    ``_is_usb_timeout`` reads its classes.
     """
     errors: list[type[BaseException]] = [OSError]
     if _HAS_USB1:
@@ -1251,7 +1247,7 @@ def _usb_call_failed(what: str) -> Iterator[None]:
 class _PyusbTransport:
     """Discovery, the firmware upload and idle control, through pyusb.
 
-    The base of both platform transports; each adds the stream. While a
+    The base of the stream's transport, which adds the stream. While a
     stream runs, the pyusb handle is released -- only one handle on the
     device at a time -- and control goes through the stream's handle, then
     comes back to a reopened pyusb handle when the stream stops.
@@ -1356,7 +1352,7 @@ class _PyusbTransport:
 
 
 class _LibusbTransport(_PyusbTransport):
-    """macOS / Linux: the ISO stream, and control while it runs, through python-libusb1."""
+    """The ISO stream, and control while it runs, through python-libusb1, on every host."""
 
     def __init__(self):
         super().__init__()
@@ -1567,12 +1563,13 @@ class _LibusbTransport(_PyusbTransport):
                     )
 
 
-class _WinUsbTransport(_PyusbTransport):
-    """Windows: the ISO stream, and control while it runs, through WinUSB (``src/_lumascope/drivers/winusb_iso.py``)."""
+class _WinUsbTransport(_LibusbTransport):
+    """Windows: the libusb transport, with the driver bindings Windows keeps.
 
-    def __init__(self):
-        super().__init__()
-        self._reader = None
+    The stream and control run through libusb as on macOS and Linux, over
+    the WinUSB driver Windows binds to the device; only which driver is
+    bound is Windows' own, read through SetupAPI.
+    """
 
     @staticmethod
     def bindings(identity: str) -> list[DeviceBinding]:
@@ -1585,65 +1582,6 @@ class _WinUsbTransport(_PyusbTransport):
 
         return device_bindings(identity)
 
-    def control_out(self, request: int, value: int, index: int, data: bytes, timeout: int) -> int:
-        if self._reader is not None:
-            return self._reader.device.control_transfer(0x40, request, value, index, data=data)
-        return super().control_out(request, value, index, data, timeout)
-
-    def start_stream(self, stream: _ByteStream, on_gone: Callable[[], None]) -> None:
-        """Stream ISO packets, and each failed read or packet, into ``stream``.
-
-        The reader calls both from its one thread, in arrival order, so a
-        failure lands in the frame it fell in. ``on_gone`` is not called: the
-        WinUSB reader reports no removal of its own, so an unplug is heard as
-        the stream's silence.
-        """
-        from _lumascope.drivers.winusb_iso import WinUsbIsoReader
-
-        # Release the pyusb handle -- WinUSB needs exclusive device access.
-        self._release_idle()
-
-        reader = WinUsbIsoReader(
-            VID,
-            PID_APP,
-            pipe_id=0x82,
-            alt_interface=ISO_ALT_INTERFACE,
-            num_slots=ISO_NUM_TRANSFERS,
-            packets_per_xfer=ISO_NUM_PACKETS,
-            on_data=stream.packet,
-            on_error=stream.fail,
-        )
-        reader.start()
-        # Held before START, so a START that raises leaves the running
-        # reader where stop_stream stops it. It also routes control
-        # transfers through the reader while streaming: without it, any LED
-        # command or exposure/gain change during streaming would fail on
-        # Windows (the branch the 4.0.0-LVCtest integration dropped from the
-        # LVC upstream).
-        self._reader = reader
-
-        # Send VR_START_STREAMING through the WinUSB reader (can't use
-        # the pyusb handle -- it's released).
-        reader.device.control_transfer(0x40, VR_START_STREAMING, 0, 0)
-
-        logger.info(
-            '[FX2 Conn  ] streaming started (WinUSB ISO alt %d, EP 0x82)',
-            ISO_ALT_INTERFACE,
-        )
-
-    def stop_stream(self) -> None:
-        """Stop the WinUSB stream and give control back to a reopened pyusb handle."""
-        if self._reader is not None:
-            try:
-                self._reader.device.control_transfer(0x40, VR_STOP_STREAMING, 0, 0)
-            except Exception as e:
-                # The reader is stopped below whatever the camera answered; the
-                # camera may still be streaming until it is reopened.
-                logger.warning('[FX2 Conn  ] VR_STOP_STREAMING not taken: %s', e)
-            self._reader.stop()
-            self._reader = None
-        self._reopen_idle()
-
 
 def _platform_transport_class() -> type[_PyusbTransport]:
     """The transport class for this host. The platform is decided here and nowhere else."""
@@ -1654,23 +1592,21 @@ def _platform_transport() -> _PyusbTransport:
     """The transport for this host, with the USB libraries it needs.
 
     Raises:
-        ImportError: pyusb, or python-libusb1 off Windows, is not installed.
+        ImportError: pyusb or python-libusb1 is not installed.
     """
     if not _HAS_USB:
         raise ImportError(
             'pyusb is required for FX2 hardware access. Install with: pip install pyusb'
         )
-    if _platform_transport_class() is _WinUsbTransport:
-        return _WinUsbTransport()
-    # libusb1 is needed for ISO streaming on macOS/Linux. Fail fast so an
-    # LS620 user on macOS without libusb1 gets a clear install hint, not a
-    # confusing runtime error 30 seconds in when they hit "start streaming".
+    # libusb1 is needed for ISO streaming. Fail fast so an LS620 user
+    # without libusb1 gets a clear install hint, not a confusing runtime
+    # error 30 seconds in when they hit "start streaming".
     if not _HAS_USB1:
         raise ImportError(
-            'libusb1 (python-libusb1) is required for FX2 ISO streaming '
-            'on macOS / Linux. Install with: pip install -r requirements.txt'
+            'libusb1 (python-libusb1) is required for FX2 ISO streaming. '
+            'Install with: pip install -r requirements.txt'
         )
-    return _LibusbTransport()
+    return _platform_transport_class()()
 
 
 def host_bindings(identity: str) -> list[DeviceBinding] | None:
@@ -1841,7 +1777,7 @@ class _FX2Connection:
             _FX2Connection: The shared singleton instance.
 
         Raises:
-            ImportError: pyusb (or libusb1 on macOS/Linux) is not installed.
+            ImportError: pyusb or libusb1 is not installed.
             _FX2AbsentError: No Lumascope FX2 device is on the bus.
             CameraUsbNotFoundError: The firmware was uploaded and the device
                 did not re-enumerate within the timeout window.
@@ -2079,9 +2015,8 @@ class _FX2Connection:
 
         While streaming, the pyusb handle is closed -- only one handle
         on the device at a time. The transport routes through whichever
-        streaming handle is currently live (libusb1 on macOS/Linux, WinUSB
-        reader on Windows), or the pyusb handle otherwise. Callers don't
-        need to care which path is active.
+        streaming handle is currently live (libusb1's), or the pyusb handle
+        otherwise. Callers don't need to care which path is active.
 
         Args:
             request: USB vendor request code.

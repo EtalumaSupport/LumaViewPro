@@ -145,39 +145,6 @@ def test_libusb_hands_each_packet_on_as_a_packet():
     assert _lengths(stream) == [(FB, False), (FB, False)]
 
 
-def test_the_windows_reader_feeds_packets_and_failures_to_the_stream(monkeypatch):
-    readers = []
-
-    class Reader:
-        def __init__(self, vid, pid, **kwargs):
-            self.kwargs = kwargs
-            self.device = SimpleNamespace(control_transfer=lambda *a, **kw: 0)
-            readers.append(self)
-
-        def start(self):
-            pass
-
-        def stop(self):
-            pass
-
-    monkeypatch.setattr('_lumascope.drivers.winusb_iso.WinUsbIsoReader', Reader)
-    monkeypatch.setattr(fx2driver._WinUsbTransport, '_release_idle', lambda self: None)
-    stream = fx2_stream()
-    fx2driver._WinUsbTransport().start_stream(stream, on_gone=lambda: None)
-    on_data, on_error = readers[0].kwargs['on_data'], readers[0].kwargs['on_error']
-
-    first = _frame(2048 + R)
-    on_data(DELIM)
-    for p in first[:10]:
-        on_data(p)
-    # A failed packet or read, from the reader's one thread, in order.
-    on_error('ISO read failed, Windows error 31')
-    for p in [*first[10:], DELIM, *_frame(2048 + R)]:
-        on_data(p)
-
-    assert _lengths(stream) == [(FB, True), (FB, False)]
-
-
 # -- starts, window changes, and a stream with no frame end --------------------
 
 

@@ -294,9 +294,9 @@ def _install_host_absent_production_modules():
 
     ``src/_lumascope/drivers/winusb_iso.py`` imports ``ctypes.WinDLL`` at module scope, so on
     macOS and Linux the import raises; ``src/_lumascope/drivers/fx2driver.py`` reaches it
-    only on Windows. A test of the WinUSB transport patches what the
-    transport asks for, ``WinUsbIsoReader`` and ``device_bindings``, on the
-    module, the same call on every host; here the module exists to be
+    only on Windows. A test of the Windows transport patches what the
+    transport asks for, ``device_bindings``, on the module, the same call on
+    every host; here the module exists to be
     patched, and to name what the USB census imports from it on Windows
     (``usb_devices``, ``hub_port``, ``present_devices``) for the guards
     that resolve those imports. The guard
@@ -309,7 +309,6 @@ def _install_host_absent_production_modules():
         import _lumascope.drivers
 
         shell = ModuleType('_lumascope.drivers.winusb_iso')
-        shell.WinUsbIsoReader = None
         shell.device_bindings = None
         shell.usb_devices = None
         shell.hub_port = None

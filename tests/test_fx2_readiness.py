@@ -16,8 +16,7 @@ import pytest
 from _lumascope.drivers import fx2driver
 
 
-def _set_gate(monkeypatch, platform: str, refusal: str | None = None, **terms: bool) -> None:
-    monkeypatch.setattr(fx2driver.sys, 'platform', platform)
+def _set_gate(monkeypatch, refusal: str | None = None, **terms: bool) -> None:
     has_usb = terms.get('_HAS_USB', True)
     has_backend = terms.get('_HAS_USB_BACKEND', True)
     has_usb1 = terms.get('_HAS_USB1', True)
@@ -30,14 +29,14 @@ def _set_gate(monkeypatch, platform: str, refusal: str | None = None, **terms: b
             library_path='/bundled/libusb-1.0.dylib' if has_backend else None,
             library_refusal=refusal,
             library_version=None,
-            available=has_usb and has_backend and (platform == 'win32' or has_usb1),
+            available=has_usb and has_backend and has_usb1,
             unavailable_reason=None,
         ),
     )
 
 
-def test_all_present_on_macos_reads_ready(monkeypatch):
-    _set_gate(monkeypatch, 'darwin')
+def test_all_present_reads_ready(monkeypatch):
+    _set_gate(monkeypatch)
 
     assert fx2driver.fx2_readiness() == {'pyusb': True, 'libusb-package': True, 'libusb1': True}
     assert fx2driver.fx2_readiness_line() == (
@@ -50,8 +49,9 @@ def test_all_present_on_macos_reads_ready(monkeypatch):
     ('term', 'key'),
     [('_HAS_USB', 'pyusb'), ('_HAS_USB_BACKEND', 'libusb-package'), ('_HAS_USB1', 'libusb1')],
 )
-def test_each_missing_term_is_named_and_not_ready_on_macos(monkeypatch, term, key):
-    _set_gate(monkeypatch, 'darwin', **{term: False})
+def test_each_missing_term_is_named_and_not_ready(monkeypatch, term, key):
+    """Every host needs all three: Windows streams through libusb too."""
+    _set_gate(monkeypatch, **{term: False})
 
     readiness = fx2driver.fx2_readiness()
     assert readiness[key] is False
@@ -61,19 +61,9 @@ def test_each_missing_term_is_named_and_not_ready_on_macos(monkeypatch, term, ke
     assert f'{key} missing' in line
 
 
-def test_libusb1_is_not_needed_on_windows(monkeypatch):
-    _set_gate(monkeypatch, 'win32', _HAS_USB1=False)
-
-    assert fx2driver.fx2_readiness()['libusb1'] is None
-    assert fx2driver.fx2_readiness_line() == (
-        'FX2 (LS460/LS560/LS620/LS720) support: ready -- '
-        'pyusb present, libusb-package present, libusb1 not needed'
-    )
-
-
 def test_a_refused_bundled_library_says_why(monkeypatch):
     reason = 'another libusb was loaded before the bundled one: /opt/homebrew/lib/libusb-1.0.dylib'
-    _set_gate(monkeypatch, 'darwin', refusal=reason, _HAS_USB_BACKEND=False)
+    _set_gate(monkeypatch, refusal=reason, _HAS_USB_BACKEND=False)
 
     line = fx2driver.fx2_readiness_line()
     assert 'libusb-package missing' in line

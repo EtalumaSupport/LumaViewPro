@@ -739,49 +739,42 @@ class TestFX2ConnectionSingleton:
 
 
 # ---------------------------------------------------------------------------
-# WinUSB control-transfer failure contract
+# The control-transfer failure contract, while the stream runs
 # ---------------------------------------------------------------------------
 #
-# `WinUsbDevice.control_transfer` used to discard the BOOL that
-# WinUsb_ControlTransfer returns, so on the Windows streaming path a failed
-# vendor request was indistinguishable from a successful one: the OUT branch
-# returned None either way and the IN branch returned b'' because the
-# transferred count stays 0 on failure. That None reached `_led_write`'s
-# short-write detector, whose `result is not None` guard skipped the check --
-# a safety check silently disabling itself.
-#
-# These drive the seam the consumers use rather than the ctypes wrapper:
-# `src/_lumascope/drivers/winusb_iso.py` does `from ctypes import windll` at module scope and
-# cannot be imported off-Windows at all. `control_transfer_out` reaches the
-# WinUSB transport, which routes through its streaming reader's plain `device`
-# attribute, so a stub reader substitutes for it on any platform.
+# A vendor write sent while the stream runs goes through the stream's
+# python-libusb1 handle, on every host. A failed write must reach the caller
+# typed, and a successful one must return its count: a None there switches
+# off `_led_write`'s short-write detector, whose `result is not None` guard
+# skips the check.
 
 
-def _conn_on_winusb(device):
-    """A _FX2Connection on a WinUSB transport whose stream is running on a stub.
+def _conn_streaming(control_write):
+    """A _FX2Connection whose stream runs on a stand-in libusb handle.
 
     Built with __new__ rather than the real constructor so the test needs no
     USB device; only the transport control_transfer_out routes through, plus
     the lock it takes.
     """
-    transport = fx2driver._WinUsbTransport()
-    transport._reader = SimpleNamespace(device=device)  # streaming: control goes here
+    transport = fx2driver._LibusbTransport()
+    # a stand-in by design: the subject is the funnel above the library.
+    transport._handle = SimpleNamespace(controlWrite=control_write)  # streaming: control goes here
     conn = object.__new__(fx2driver._FX2Connection)
     conn._lock = threading.Lock()
     conn._transport = transport
     return conn
 
 
-def test_a_failed_winusb_out_transfer_reaches_the_caller_as_a_write_fault():
+def test_a_failed_out_transfer_while_streaming_reaches_the_caller_as_a_write_fault():
     """The contract every consumer in this chain is written against: a
     refused vendor write reaches the caller, typed, naming the request and
     carrying the transport's own words."""
 
     def refuse(*a, **kw):
-        raise OSError('ControlTransfer OUT ... failed: 31')
+        raise fx2driver.usb1.USBError('LIBUSB_ERROR_PIPE [-9]')
 
-    conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
-    with pytest.raises(CameraWriteFailedError, match=r'VR_I2C_WRITE.*failed: 31') as raised:
+    conn = _conn_streaming(refuse)
+    with pytest.raises(CameraWriteFailedError, match=r'VR_I2C_WRITE.*LIBUSB_ERROR_PIPE') as raised:
         conn.sensor_reg_write(0x42, 1)
 
     assert raised.value.reason == 'camera_write_failed'
@@ -794,15 +787,15 @@ def test_a_defect_under_a_vendor_write_leaves_as_itself():
     def defect(*a, **kw):
         raise TypeError('a defect in the transport')
 
-    conn = _conn_on_winusb(SimpleNamespace(control_transfer=defect))
+    conn = _conn_streaming(defect)
     with pytest.raises(TypeError, match='a defect in the transport'):
         conn.sensor_reg_write(0x42, 1)
 
 
-@pytest.mark.parametrize('library', ['pyusb', 'libusb1', 'WinUSB'])
+@pytest.mark.parametrize('library', ['pyusb', 'libusb1'])
 def test_a_vendor_write_the_fx2_does_not_answer_is_no_answer_on_every_path(library):
-    """Every vendor write funnels through one place, and a timeout from any of
-    the three libraries is the writer not answering: the camera's for a
+    """Every vendor write funnels through one place, and a timeout from either
+    library is the writer not answering: the camera's for a
     sensor write, the LED board's for an LED write."""
     from _lumascope.drivers.exceptions import BoardNoReplyError, CameraNoAnswerError
 
@@ -811,7 +804,7 @@ def test_a_vendor_write_the_fx2_does_not_answer_is_no_answer_on_every_path(libra
     def no_answer(*a, **kw):
         raise error
 
-    conn = _conn_on_winusb(SimpleNamespace(control_transfer=no_answer))
+    conn = _conn_streaming(no_answer)
     with pytest.raises(CameraNoAnswerError) as camera:
         conn.sensor_reg_write(0x42, 1)
     with pytest.raises(BoardNoReplyError) as led:
@@ -822,10 +815,10 @@ def test_a_vendor_write_the_fx2_does_not_answer_is_no_answer_on_every_path(libra
     assert str(error) in str(led.value)
 
 
-def test_a_successful_winusb_out_transfer_returns_a_count_not_none():
+def test_a_successful_out_transfer_while_streaming_returns_a_count_not_none():
     """`control_transfer_out` is declared `-> int` and its docstring promises
     bytes written. Returning None is what switched off the detector below."""
-    conn = _conn_on_winusb(SimpleNamespace(control_transfer=lambda *a, **kw: 1))
+    conn = _conn_streaming(lambda *a, **kw: 1)
     result = conn.i2c_write(fx2driver.I2C_LED, [0x01])
     assert result == 1
     assert result is not None
@@ -835,9 +828,9 @@ def test_the_led_short_write_detector_fires_on_a_zero_byte_write(caplog):
     """The test that would have failed for the whole life of the defect.
 
     `_led_write` compares i2c_write's return against the 1 byte it expects,
-    but skips the comparison when the value is None -- which is all the
-    WinUSB transport ever returned. With a real count flowing, a zero-byte
-    write is caught.
+    but skips the comparison when the value is None -- which is all a
+    transport that dropped the count would give. With a real count flowing,
+    a zero-byte write is caught.
     """
     led = object.__new__(fx2driver.FX2LEDController)
     led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 0)  # wrote nothing
@@ -884,8 +877,6 @@ def _usb_timeouts():
     return {
         'pyusb': fx2driver.usb.core.USBTimeoutError('[Errno 60] Operation timed out'),
         'libusb1': fx2driver.usb1.USBErrorTimeout('LIBUSB_ERROR_TIMEOUT [-7]'),
-        # WinUSB's ERROR_SEM_TIMEOUT, as src/_lumascope/drivers/winusb_iso.py raises it.
-        'WinUSB': TimeoutError('ControlTransfer OUT (request=0xB3) timed out: 121'),
     }
 
 
@@ -1025,7 +1016,6 @@ class TestFx2DriverLibusbBackendProbe:
         usb1_opens=True,
         has_usb=True,
         has_usb1=True,
-        platform='darwin',
     ):
         """The gate over a fake binding tree, with what the bindings were handed."""
         import ctypes
@@ -1077,7 +1067,7 @@ class TestFx2DriverLibusbBackendProbe:
             # None in sys.modules makes the import raise ImportError.
             monkeypatch.setitem(sys.modules, 'libusb_package', None)
 
-        gate = fx2driver._fx2_gate(has_usb, usb1_mod if has_usb1 else None, platform)
+        gate = fx2driver._fx2_gate(has_usb, usb1_mod if has_usb1 else None)
         return gate, found, handed_to_usb1
 
     @staticmethod
@@ -1138,11 +1128,10 @@ class TestFx2DriverLibusbBackendProbe:
         ('case', 'kwargs', 'available', 'reason'),
         [
             ('no pyusb', {'has_usb': False}, False, 'pyusb is not installed'),
-            ('no libusb1 off Windows', {'has_usb1': False}, False, 'libusb1 is not installed'),
-            ('no libusb1 on Windows', {'has_usb1': False, 'platform': 'win32'}, True, None),
+            ('no libusb1', {'has_usb1': False}, False, 'libusb1 is not installed'),
         ],
     )
-    def test_the_bindings_each_platform_needs(self, monkeypatch, case, kwargs, available, reason):
+    def test_the_bindings_every_host_needs(self, monkeypatch, case, kwargs, available, reason):
         gate, _found, _handed = self._gate(
             monkeypatch, backend=self._backend_on(self._BUNDLED), **kwargs
         )
