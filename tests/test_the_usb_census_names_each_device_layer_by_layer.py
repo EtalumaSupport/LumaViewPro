@@ -116,7 +116,7 @@ def test_a_driver_property_of_an_unread_type_leaves_the_device_listed_without_it
 
     assert basler.binding is None
     assert basler.unreadable[0] == 'service (type 0x19)'
-    assert 'service as type 0x19' in basler.unreadable[1]
+    assert 'could not be read: service (type 0x19)' in basler.unreadable[1]
 
 
 def test_the_hub_names_a_super_speed_plus_device_and_a_usb2_port():

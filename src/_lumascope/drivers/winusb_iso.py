@@ -659,8 +659,10 @@ def _device_properties(
 ) -> DeviceProperties:
     """Each of ``properties``, and the interface GUIDs when asked, that Windows gave.
 
-    A property of a type this does not read is recorded in ``unreadable``
-    with its type, never read as absent.
+    A property Windows could not give, or gave in a type this does not read,
+    is recorded in ``unreadable`` with why, never read as absent: one
+    device's property never fails the walk of the others, and the reader
+    decides whether it fails its own.
     """
     reads: dict[str, Callable[[], object]] = {
         name: (lambda key=key: _device_property(dev_info, devinfo, key))
@@ -675,6 +677,9 @@ def _device_properties(
             value = read()
         except _UnreadTypeError as e:
             unreadable[name] = e.type_name
+            continue
+        except CameraUsbLookupFailedError as e:
+            unreadable[name] = str(e)
             continue
         if value is not None:
             values[name] = value

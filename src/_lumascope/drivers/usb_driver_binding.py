@@ -182,9 +182,8 @@ class DeviceProperties:
     ``problem_code``, ``problem_status``, ``location``, ``parent``,
     ``address``, the port number on its hub, ``interface_guids``); a name
     absent is a property the device does not have, as a device with no
-    driver has no service. ``unreadable`` holds
-    each property Windows gave in a type LumaViewPro does not read, by name,
-    with that type.
+    driver has no service. ``unreadable`` holds each property Windows could
+    not give or gave in a type LumaViewPro does not read, by name, with why.
     """
 
     instance_id: str
@@ -205,7 +204,8 @@ _WORDS = {
 
 
 class _PropertyTypeUnreadError(CameraUsbLookupFailedError):
-    """Windows gave a property a binding is decided by in a type LumaViewPro does not read."""
+    """A property a binding is decided by could not be read: Windows did not give it, or gave it
+    in a type LumaViewPro does not read."""
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_usb_property_unread': None}
     title = 'Camera USB Property Unread'
@@ -220,15 +220,14 @@ def binding_from(device: DeviceProperties, ours: set[str]) -> DeviceBinding:
             packages in the driver store.
 
     Raises:
-        CameraUsbLookupFailedError: A property the binding is decided by came
-            in a type this does not read.
+        CameraUsbLookupFailedError: A property the binding is decided by could
+            not be read, naming each and why.
     """
     deciding = {name: why for name, why in device.unreadable.items() if name in _DECIDING}
     if deciding:
         raise _PropertyTypeUnreadError(
-            f'{device.instance_id}: SetupDiGetDevicePropertyW returned '
-            + ', '.join(f'{name} as {why}' for name, why in deciding.items())
-            + ', not a type this reads'
+            f'{device.instance_id}: a property its binding is decided by could not be read: '
+            + ', '.join(f'{name} ({why})' for name, why in deciding.items())
         )
     values = device.values
     inf = values.get('inf')

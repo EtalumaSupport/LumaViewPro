@@ -47,4 +47,4 @@ def test_a_deciding_property_of_an_unread_type_fails_the_read_naming_it():
         binding_from(_code_31_on_ours(service='type 0x19'), _OURS)
 
     assert refused.value.reason == 'camera_usb_property_unread'
-    assert 'service as type 0x19' in str(refused.value)
+    assert 'could not be read: service (type 0x19)' in str(refused.value)
