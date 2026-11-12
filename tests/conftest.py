@@ -292,7 +292,7 @@ if BENCH_RUN:
 def _install_host_absent_production_modules():
     """A production module this host cannot import gets an importable shell.
 
-    ``src/_lumascope/drivers/winusb_iso.py`` imports ``ctypes.WinDLL`` at module scope, so on
+    ``src/_lumascope/drivers/windows_usb.py`` imports ``ctypes.WinDLL`` at module scope, so on
     macOS and Linux the import raises; ``src/_lumascope/drivers/fx2driver.py`` reaches it
     only on Windows. A test of the Windows transport patches what the
     transport asks for, ``device_bindings``, on the module, the same call on
@@ -304,18 +304,18 @@ def _install_host_absent_production_modules():
     the one place.
     """
     try:
-        import _lumascope.drivers.winusb_iso
+        import _lumascope.drivers.windows_usb
     except ImportError:
         import _lumascope.drivers
 
-        shell = ModuleType('_lumascope.drivers.winusb_iso')
+        shell = ModuleType('_lumascope.drivers.windows_usb')
         shell.device_bindings = None
         shell.usb_devices = None
         shell.hub_port = None
         shell.present_devices = None
-        sys.modules.setdefault('_lumascope.drivers.winusb_iso', shell)
+        sys.modules.setdefault('_lumascope.drivers.windows_usb', shell)
         # The dotted form of monkeypatch.setattr walks the package's attributes.
-        _lumascope.drivers.winusb_iso = sys.modules['_lumascope.drivers.winusb_iso']
+        _lumascope.drivers.windows_usb = sys.modules['_lumascope.drivers.windows_usb']
 
 
 _install_host_absent_production_modules()

@@ -118,9 +118,9 @@ class WindowsMachine:
         return result.returncode, (result.stdout + result.stderr).strip()
 
     def device_bindings(self, hardware_id: str) -> list[DeviceBinding]:
-        # winusb_iso loads the Windows DLLs at import, so it is imported
+        # windows_usb loads the Windows DLLs at import, so it is imported
         # where it is called, and this module imports on every host.
-        from _lumascope.drivers.winusb_iso import device_bindings
+        from _lumascope.drivers.windows_usb import device_bindings
 
         return device_bindings(hardware_id)
 

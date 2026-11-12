@@ -47,7 +47,7 @@ Dependencies
 
 - ``pyusb``  (firmware upload + control transfers)
 - ``libusb1`` (isochronous streaming, and control while it runs -- python-libusb1 binding)
-- ``_lumascope.drivers.winusb_iso`` (Windows only: which driver Windows bound, through SetupAPI)
+- ``_lumascope.drivers.windows_usb`` (Windows only: which driver Windows bound, through SetupAPI)
 - ``libusb-package`` (the native ``libusb-1.0`` library itself, one
   versioned copy on every platform; never a host copy)
 
@@ -1578,7 +1578,7 @@ class _WinUsbTransport(_LibusbTransport):
         Raises:
             CameraUsbLookupFailedError: A SetupAPI call failed.
         """
-        from _lumascope.drivers.winusb_iso import device_bindings
+        from _lumascope.drivers.windows_usb import device_bindings
 
         return device_bindings(identity)
 

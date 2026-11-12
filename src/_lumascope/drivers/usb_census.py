@@ -8,7 +8,7 @@ driver Windows did not start. The census reads, for each device of a
 vendor in ``CENSUS_VENDORS``, present or seen before:
 
 - on Windows, through the one walk of its USB device list
-  (``winusb_iso.usb_devices``): the device, its port and hub, the driver
+  (``windows_usb.usb_devices``): the device, its port and hub, the driver
   bound to it and whose package, whether Windows started it, and from its
   hub the speed it negotiated and the best its port can do; and every
   other present USB device Windows has a problem code for, since a device
@@ -233,7 +233,7 @@ def read_census() -> UsbCensus:
 
 def _windows_census() -> UsbCensus:
     from _lumascope.drivers.usb_driver_binding import store_inf_folder, store_packages
-    from _lumascope.drivers.winusb_iso import hub_port, usb_devices  # local-import: Windows only
+    from _lumascope.drivers.windows_usb import hub_port, usb_devices  # local-import: Windows only
 
     source = "Windows' device list"
     try:
@@ -285,7 +285,7 @@ def _said(device: DeviceProperties, name: str) -> str:
 
 def read_device_list() -> list[str]:
     """Device Manager's whole list on this Windows host, as lines; the first says so when it cannot be read."""
-    from _lumascope.drivers.winusb_iso import present_devices  # local-import: Windows only
+    from _lumascope.drivers.windows_usb import present_devices  # local-import: Windows only
 
     try:
         devices = present_devices()

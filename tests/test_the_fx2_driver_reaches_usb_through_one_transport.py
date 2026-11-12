@@ -165,7 +165,7 @@ def _connection_on_libusb(monkeypatch, events, transport=fx2driver._LibusbTransp
     bindings through SetupAPI, absent off Windows; here it binds none.
     """
     # a stand-in by design: SetupAPI, absent off Windows; no device to refuse.
-    monkeypatch.setattr('_lumascope.drivers.winusb_iso.device_bindings', lambda identity: [])
+    monkeypatch.setattr('_lumascope.drivers.windows_usb.device_bindings', lambda identity: [])
     found = iter([_PyusbDevice(events, 'first'), _PyusbDevice(events, 'second')])
     handle = _IsoHandle(events)
     monkeypatch.setattr(
@@ -395,7 +395,7 @@ def test_a_defect_in_the_event_pump_ends_it_as_itself(monkeypatch):
     assert len(calls) == 1
 
 
-_USB_NAMES = {'usb', 'usb1', 'winusb_iso'}
+_USB_NAMES = {'usb', 'usb1', 'windows_usb'}
 
 
 def _driver_classes():

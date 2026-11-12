@@ -171,7 +171,7 @@ def test_the_windows_transport_refuses_a_present_device_and_not_a_past_one(monke
     }
     # a stand-in by design: SetupAPI, absent off Windows.
     monkeypatch.setattr(
-        '_lumascope.drivers.winusb_iso.device_bindings', lambda identity: seen[identity]
+        '_lumascope.drivers.windows_usb.device_bindings', lambda identity: seen[identity]
     )
     # a stand-in by design: the USB bus, on which nothing is found.
     monkeypatch.setattr(
@@ -217,7 +217,7 @@ def test_a_running_scope_is_not_refused_for_an_unbound_bootloader_identity(monke
     }
     # a stand-in by design: SetupAPI, absent off Windows.
     monkeypatch.setattr(
-        '_lumascope.drivers.winusb_iso.device_bindings', lambda identity: seen[identity]
+        '_lumascope.drivers.windows_usb.device_bindings', lambda identity: seen[identity]
     )
     # a stand-in by design: the USB bus, holding the running firmware.
     monkeypatch.setattr(

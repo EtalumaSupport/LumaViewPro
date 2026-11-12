@@ -5,7 +5,7 @@ Windows binds each USB identity (``USB\\VID_04B4&PID_EA17``) on its own, to
 the best-ranked package in its driver store that names it. Two readers, both
 without elevation:
 
-- ``_lumascope.drivers.winusb_iso.device_bindings`` reads each device of an identity,
+- ``_lumascope.drivers.windows_usb.device_bindings`` reads each device of an identity,
   present or seen before, and the driver bound to it, through SetupAPI's
   one walk of the USB devices, and ``binding_from`` here decides the
   binding from what the walk read, so it runs on any host;

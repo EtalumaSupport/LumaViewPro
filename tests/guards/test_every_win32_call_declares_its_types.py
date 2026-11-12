@@ -27,7 +27,7 @@ import ast
 
 from tests.ast_seams import REPO_ROOT, Words
 
-_MODULE = 'src/_lumascope/drivers/winusb_iso.py'
+_MODULE = 'src/_lumascope/drivers/windows_usb.py'
 _DLLS = Words({'kernel32', 'setupapi'})
 
 

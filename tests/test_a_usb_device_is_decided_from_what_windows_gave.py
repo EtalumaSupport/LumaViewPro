@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A USB device's binding is decided from the properties Windows' one walk read.
 
-The walk of Windows' USB device list (``winusb_iso.usb_devices``) reads each
+The walk of Windows' USB device list (``windows_usb.usb_devices``) reads each
 wanted device's properties as Windows gives them and decides nothing;
 ``binding_from`` decides the binding on any host. A property read for the
 log alone that came in a type LumaViewPro does not read is recorded on its

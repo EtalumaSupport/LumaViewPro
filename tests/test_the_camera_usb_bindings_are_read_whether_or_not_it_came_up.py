@@ -81,7 +81,7 @@ def test_windows_reads_each_device_present_or_past_through_setupapi(monkeypatch)
         unreadable=(),
     )
     # a stand-in by design: SetupAPI, absent off Windows.
-    monkeypatch.setattr('_lumascope.drivers.winusb_iso.device_bindings', lambda identity: [seen])
+    monkeypatch.setattr('_lumascope.drivers.windows_usb.device_bindings', lambda identity: [seen])
 
     assert fx2driver._WinUsbTransport.bindings(FX2_BOOTLOADER) == [seen]
     # The published record carries every field the driver's does.

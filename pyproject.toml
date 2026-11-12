@@ -183,7 +183,7 @@ ignore = [
 "src/_lumascope/drivers/*.py" = [
     # Drivers have hardware register reads/writes with magic numbers; ruff
     # PLR2004 would flag every byte. (Re-evaluate per-driver if PLR is enabled.)
-    # Win32 ctypes Structure subclasses (winusb_iso.py) must match the API
+    # Win32 ctypes Structure subclasses (windows_usb.py) must match the API
     # struct names exactly -- same justification as the N803/N806 HW names.
     "N801",
 ]
