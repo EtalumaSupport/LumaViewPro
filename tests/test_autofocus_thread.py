@@ -18,12 +18,45 @@ from __future__ import annotations
 import math
 import threading
 import time
+import weakref
 
 import pytest
 
 from _lumascope.modules.autofocus_thread import AutofocusThread
 from _lumascope.modules.exceptions import AutofocusAborted, AutofocusStopped
 from tests.protocol_drives import run_identity
+
+
+class _Tile:
+    """Stands for a sweep's data, held only by the sweep's frame."""
+
+
+class _FailingAFE:
+    """A runner whose sweep fails holding a ``_Tile``; ``freed`` is set once it is collected."""
+
+    def __init__(self):
+        self.freed = threading.Event()
+
+    def run(self, **kwargs):
+        tile = _Tile()
+        weakref.finalize(tile, self.freed.set)
+        raise AutofocusStopped()
+
+
+def test_a_failed_sweeps_frames_are_freed_once_its_caller_lets_go():
+    """The thread keeps nothing of a finished sweep: a failed sweep's traceback frames are
+    freed once its Future is dropped, with no sweep after it to push them out."""
+    afe = _FailingAFE()
+    thread = AutofocusThread(afe=afe)
+    thread.start()
+    try:
+        future = thread.run_autofocus(run=run_identity(), objective_id='4x')
+        assert isinstance(future.exception(timeout=5.0), AutofocusStopped)
+        del future
+
+        assert afe.freed.wait(5.0), "the failed sweep's frames are still held"
+    finally:
+        thread.stop(timeout=2.0)
 
 
 # A sweep that only an abort ends, so it is in flight whenever the test

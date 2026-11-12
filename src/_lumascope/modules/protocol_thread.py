@@ -219,5 +219,9 @@ class ProtocolThread:
                     # already wait in the slot, and its Future is current.
                     if self._current_future is future:
                         self._current_future = None
+                # The run's outcome is its Future's holder's: kept here it
+                # lives until the next run, and a failed run's with every
+                # frame of its traceback.
+                req = run_loop_callable = kwargs = future = result = None
 
         logger.info('protocol_thread exiting')

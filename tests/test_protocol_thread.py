@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import threading
 import time
+import weakref
 
 import pytest
 
+from _lumascope.modules import protocol_thread
 from _lumascope.modules.protocol_thread import ProtocolThread
 
 
@@ -33,6 +35,31 @@ def pt():
     thread.start()
     yield thread
     thread.stop(timeout=2.0)
+
+
+class _Tile:
+    """Stands for a run's data, held only by the run's frame."""
+
+
+def test_a_failed_runs_frames_are_freed_once_its_caller_lets_go(pt, monkeypatch):
+    """The thread keeps nothing of a finished run: a failed run's traceback frames are freed
+    once its Future is dropped, with no run after it to push them out."""
+    # The thread logs the failure with its traceback, and pytest's log
+    # capture keeps every record until the test ends; no production handler
+    # keeps an ERROR record, so the log is kept out of that capture.
+    monkeypatch.setattr(protocol_thread.logger, 'propagate', False)
+    freed = threading.Event()
+
+    def fails():
+        tile = _Tile()
+        weakref.finalize(tile, freed.set)
+        raise RuntimeError('the run fell over')
+
+    future = pt.run_protocol(fails)
+    assert isinstance(future.exception(timeout=5.0), RuntimeError)
+    del future
+
+    assert freed.wait(5.0), "the failed run's frames are still held"
 
 
 class TestLifecycle:

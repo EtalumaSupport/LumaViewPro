@@ -294,5 +294,9 @@ class AutofocusThread:
                     # nothing and survives future refactors.
                     if self._current_sweep is not None and self._current_sweep.future is future:
                         self._current_sweep = None
+                # The sweep's outcome is its Future's holder's: kept here it
+                # lives until the next sweep, and a failed one's with every
+                # frame of its traceback.
+                req = kwargs = future = taking = ask = result = None
 
         logger.info('autofocus_thread exiting')

@@ -134,14 +134,26 @@ class _ReusableTaskWaiter:
         self._exception = exc
         self._event.set()
 
-    def result(self, timeout=None):
+    def result(self, timeout: float | None = None) -> object:
+        """The task's result, or its exception raised; read once, by the caller it was handed to.
+
+        Taken out as it is handed over: the waiter is cached on its thread
+        until that thread's next lane call, and a failure kept here would
+        keep every frame of its traceback alive that long.
+        """
         if not self._event.wait(timeout):
             from concurrent.futures import TimeoutError as _TimeoutError
 
             raise _TimeoutError(f'task did not complete within {timeout}s')
-        if self._exception is not None:
-            raise self._exception
-        return self._result
+        exception, self._exception = self._exception, None
+        result, self._result = self._result, None
+        if exception is not None:
+            try:
+                raise exception
+            finally:
+                # Not left in this frame, which its own traceback holds.
+                exception = None
+        return result
 
 
 # Which lane's worker this thread is, set by the worker as it starts. A lane
@@ -1755,6 +1767,12 @@ class SequentialIOExecutor:
                     f'(dispatch or epilogue); the worker continues: {e}',
                     exc_info=True,
                 )
+            finally:
+                # A finished task's outcome is its waiter's to hold. Kept here
+                # it lives on through the wait for the next task, and with a
+                # failure every frame of its traceback -- a failed build's
+                # tiles -- until the lane next has work, which can be hours.
+                task = run_result = run_exc = None
 
     def _first_in_line_waiting(self) -> bool:
         """Whether the default queue's next task was put first in line.
