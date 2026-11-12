@@ -9,7 +9,7 @@ import ctypes
 import datetime
 import logging
 import threading
-from typing import ClassVar
+from collections.abc import Callable
 from ctypes import (
     Structure,
     byref,
@@ -33,8 +33,13 @@ from _lumascope.drivers.exceptions import (
     CameraUsbNotFoundError,
     CameraUsbOpenFailedError,
 )
-from _lumascope.drivers.usb_driver_binding import DeviceBinding, store_inf_folder, store_packages
-from _lumascope.lib.lumascope_error import RefusalCause
+from _lumascope.drivers.usb_driver_binding import (
+    DeviceBinding,
+    DeviceProperties,
+    binding_from,
+    store_inf_folder,
+    store_packages,
+)
 
 # Under LVP, never ``__name__``: a session's logging hangs the bundle on
 # LumaViewPro's own logger, LVP, so a logger named for this
@@ -368,14 +373,52 @@ def device_bindings(hardware_id: str) -> list[DeviceBinding]:
 
     Raises:
         CameraUsbLookupFailedError: A SetupAPI call failed, naming it and its
-            last error; whether the devices are there is then not known.
+            last error, or a property the binding is decided by came in a
+            type this does not read; whether the devices are there, or
+            usable, is then not known.
+    """
+    prefix = hardware_id.upper() + '\\'
+    ours = {p.inf.lower() for p in store_packages(hardware_id, store_inf_folder()) if p.ours}
+    return [
+        binding_from(device, ours)
+        for device in usb_devices(lambda instance_id: instance_id.upper().startswith(prefix))
+    ]
+
+
+# Each property the walk reads of a device, by the name ``DeviceProperties``
+# holds it under.
+_PROPERTIES = {
+    'present': DEVPKEY_Device_IsPresent,
+    'service': DEVPKEY_Device_Service,
+    'provider': DEVPKEY_Device_DriverProvider,
+    'inf': DEVPKEY_Device_DriverInfPath,
+    'version': DEVPKEY_Device_DriverVersion,
+    'date': DEVPKEY_Device_DriverDate,
+    'problem_code': DEVPKEY_Device_ProblemCode,
+    'problem_status': DEVPKEY_Device_ProblemStatus,
+    'location': DEVPKEY_Device_LocationInfo,
+    'parent': DEVPKEY_Device_Parent,
+}
+
+
+def usb_devices(wanted: Callable[[str], bool]) -> list[DeviceProperties]:
+    """Each USB device Windows lists, present or seen before, whose instance ID is ``wanted``.
+
+    The one walk of Windows' USB device list: every reader of a USB device's
+    driver reads it here. A device's properties are read only once its
+    instance ID is wanted, so another device's never fail the read.
+
+    Args:
+        wanted: Whether a device, by its instance ID, is read.
+
+    Raises:
+        CameraUsbLookupFailedError: A SetupAPI call failed, naming it and its
+            last error.
     """
     dev_info = setupapi.SetupDiGetClassDevsW(None, 'USB', None, DIGCF_ALLCLASSES)
     if dev_info == INVALID_HANDLE_VALUE:
         raise CameraUsbLookupFailedError(f'SetupDiGetClassDevsW failed: {ctypes.get_last_error()}')
-    prefix = hardware_id.upper() + '\\'
-    ours = {p.inf.lower() for p in store_packages(hardware_id, store_inf_folder()) if p.ours}
-    bindings = []
+    devices = []
     try:
         index = 0
         while True:
@@ -384,45 +427,38 @@ def device_bindings(hardware_id: str) -> list[DeviceBinding]:
             if not setupapi.SetupDiEnumDeviceInfo(dev_info, index, byref(devinfo)):
                 code = ctypes.get_last_error()
                 if code == ERROR_NO_MORE_ITEMS:
-                    return bindings
+                    return devices
                 raise CameraUsbLookupFailedError(f'SetupDiEnumDeviceInfo({index}) failed: {code}')
             index += 1
             instance_id = _instance_id(dev_info, devinfo)
-            if not instance_id.upper().startswith(prefix):
-                continue
-            service = _device_property(dev_info, devinfo, DEVPKEY_Device_Service)
-            inf = _device_property(dev_info, devinfo, DEVPKEY_Device_DriverInfPath)
-            unreadable: list[str] = []
-            problem_status = _log_only_property(
-                dev_info, devinfo, DEVPKEY_Device_ProblemStatus, 'problem status', unreadable
-            )
-            location = _log_only_property(
-                dev_info, devinfo, DEVPKEY_Device_LocationInfo, 'location', unreadable
-            )
-            parent = _log_only_property(
-                dev_info, devinfo, DEVPKEY_Device_Parent, 'parent', unreadable
-            )
-            interface_guids = _interface_guids(dev_info, devinfo, unreadable)
-            bindings.append(
-                DeviceBinding(
-                    instance_id=instance_id,
-                    present=bool(_device_property(dev_info, devinfo, DEVPKEY_Device_IsPresent)),
-                    service=service,
-                    provider=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverProvider),
-                    inf=inf,
-                    version=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverVersion),
-                    date=_device_property(dev_info, devinfo, DEVPKEY_Device_DriverDate),
-                    problem_code=_device_property(dev_info, devinfo, DEVPKEY_Device_ProblemCode),
-                    problem_status=problem_status,
-                    location=location,
-                    parent=parent,
-                    interface_guids=interface_guids,
-                    ours=(inf or '').lower() in ours,
-                    unreadable=tuple(unreadable),
-                )
-            )
+            if wanted(instance_id):
+                devices.append(_device_properties(dev_info, devinfo, instance_id))
     finally:
         setupapi.SetupDiDestroyDeviceInfoList(dev_info)
+
+
+def _device_properties(dev_info, devinfo, instance_id: str) -> DeviceProperties:
+    """Every property in ``_PROPERTIES`` and the interface GUIDs, each Windows gave.
+
+    A property of a type this does not read is recorded in ``unreadable``
+    with its type, never read as absent.
+    """
+    reads: dict[str, Callable[[], object]] = {
+        name: (lambda key=key: _device_property(dev_info, devinfo, key))
+        for name, key in _PROPERTIES.items()
+    }
+    reads['interface_guids'] = lambda: _interface_guids(dev_info, devinfo)
+    values: dict[str, object] = {}
+    unreadable: dict[str, str] = {}
+    for name, read in reads.items():
+        try:
+            value = read()
+        except _UnreadTypeError as e:
+            unreadable[name] = e.type_name
+            continue
+        if value is not None:
+            values[name] = value
+    return DeviceProperties(instance_id=instance_id, values=values, unreadable=unreadable)
 
 
 def _instance_id(dev_info, devinfo) -> str:
@@ -436,25 +472,16 @@ def _instance_id(dev_info, devinfo) -> str:
     return buffer.value
 
 
-def _log_only_property(dev_info, devinfo, key: DEVPROPKEY, name: str, unreadable: list[str]):
-    """A device property kept for the log alone: one of a type this does not
-    read is recorded by ``name`` in ``unreadable`` and read as None, never
-    failing the device's read."""
-    try:
-        return _device_property(dev_info, devinfo, key)
-    except _PropertyTypeUnreadError as e:
-        unreadable.append(f'{name} ({e.type_name})')
-        return None
-
-
-def _interface_guids(dev_info, devinfo, unreadable: list[str]) -> tuple[str, ...] | None:
+def _interface_guids(dev_info, devinfo) -> tuple[str, ...] | None:
     """The device interface GUIDs the device's bound package registered for it.
 
     Read from the device's hardware key, where an INF's AddReg writes
     ``DeviceInterfaceGUIDs``: the GUID the stream's lookup finds the device
     by, and on 2026-11-11 the cause of a code 31. None when the device has
-    no hardware key (no driver bound) or no such value; a value of another
-    type is recorded in ``unreadable``.
+    no hardware key (no driver bound) or no such value.
+
+    Raises:
+        _UnreadTypeError: The value is of another registry type, named.
     """
     import winreg  # local-import: Windows' own module, and this one loads only there
 
@@ -473,22 +500,19 @@ def _interface_guids(dev_info, devinfo, unreadable: list[str]) -> tuple[str, ...
         return tuple(value)
     if value_type == winreg.REG_SZ:
         return (value,)
-    unreadable.append(f'interface GUIDs (registry type {value_type})')
-    return None
+    raise _UnreadTypeError(f'registry type {value_type}')
 
 
-class _PropertyTypeUnreadError(CameraUsbLookupFailedError):
-    """Windows gave a device property in a type ``_device_property`` does not read.
+class _UnreadTypeError(Exception):
+    """Windows gave a device property, or a registry value, in a type this module does not read.
 
-    A lookup failure where the property decides the binding; where it is a
-    fact for the log only, its reader records it on the device instead.
+    Caught where the walk reads the device, which records it on the device
+    by ``type_name``; whether that fails the read is the reader's to decide.
     """
 
-    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_usb_property_unread': None}
-
-    def __init__(self, prop_type: int):
-        self.type_name = f'type {prop_type:#x}'
-        super().__init__(f'SetupDiGetDevicePropertyW returned {self.type_name}, not one this reads')
+    def __init__(self, type_name: str):
+        self.type_name = type_name
+        super().__init__(f'{type_name}, not a type this reads')
 
 
 def _device_property(dev_info, devinfo, key: DEVPROPKEY):
@@ -500,7 +524,7 @@ def _device_property(dev_info, devinfo, key: DEVPROPKEY):
 
     Raises:
         CameraUsbLookupFailedError: The read failed.
-        _PropertyTypeUnreadError: The property is of a type this does not read.
+        _UnreadTypeError: The property is of a type this does not read.
     """
     prop_type = c_ulong(0)
     required = c_ulong(0)
@@ -531,7 +555,7 @@ def _device_property(dev_info, devinfo, key: DEVPROPKEY):
         ticks = int.from_bytes(raw[:8], 'little')
         moment = datetime.datetime(1601, 1, 1) + datetime.timedelta(microseconds=ticks // 10)
         return moment.date().isoformat()
-    raise _PropertyTypeUnreadError(prop_type.value)
+    raise _UnreadTypeError(f'type {prop_type.value:#x}')
 
 
 def _transfer_failed(transfer: str) -> Exception:

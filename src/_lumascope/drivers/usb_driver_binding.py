@@ -6,7 +6,9 @@ the best-ranked package in its driver store that names it. Two readers, both
 without elevation:
 
 - ``_lumascope.drivers.winusb_iso.device_bindings`` reads each device of an identity,
-  present or seen before, and the driver bound to it, through SetupAPI;
+  present or seen before, and the driver bound to it, through SetupAPI's
+  one walk of the USB devices, and ``binding_from`` here decides the
+  binding from what the walk read, so it runs on any host;
 - ``store_packages`` here reads the store's published copies of every
   third-party INF (``%WINDIR%\\INF\\oem*.inf``) for the packages that name the
   identity, which is what the driver step removes, and needs no
@@ -17,10 +19,12 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import ClassVar
 
-from _lumascope.drivers.exceptions import CameraUsbDriverUnusableError
+from _lumascope.drivers.exceptions import CameraUsbDriverUnusableError, CameraUsbLookupFailedError
+from _lumascope.lib.lumascope_error import RefusalCause
 
 # The USB vendors a Lumascope is built from, by vendor ID as Windows writes
 # it in a hardware ID: the Classic's FX2, the cameras, the EL-0940 boards.
@@ -167,6 +171,84 @@ class DeviceBinding:
         if self.unreadable:
             problem += f', unreadable: {"; ".join(self.unreadable)}'
         return f'{self.instance_id} ({where}): {driver}{problem}'
+
+
+@dataclass(frozen=True)
+class DeviceProperties:
+    """One USB device as Windows' device list gives it, before any reader decides on it.
+
+    ``values`` holds each property Windows gave, by name (``present``,
+    ``service``, ``provider``, ``inf``, ``version``, ``date``,
+    ``problem_code``, ``problem_status``, ``location``, ``parent``,
+    ``interface_guids``); a name absent is a property the device does not
+    have, as a device with no driver has no service. ``unreadable`` holds
+    each property Windows gave in a type LumaViewPro does not read, by name,
+    with that type.
+    """
+
+    instance_id: str
+    values: Mapping[str, object]
+    unreadable: Mapping[str, str]
+
+
+# The properties read for the log alone, with the words the log names each
+# by: one unreadable is recorded on its device. Every other property decides
+# whether the device is usable, and one unreadable fails the read.
+_LOG_ONLY = {
+    'problem_status': 'problem status',
+    'location': 'location',
+    'parent': 'parent',
+    'interface_guids': 'interface GUIDs',
+}
+
+
+class _PropertyTypeUnreadError(CameraUsbLookupFailedError):
+    """Windows gave a property a binding is decided by in a type LumaViewPro does not read."""
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_usb_property_unread': None}
+
+
+def binding_from(device: DeviceProperties, ours: set[str]) -> DeviceBinding:
+    """The device's binding, from the properties Windows gave.
+
+    Args:
+        device: The device, as the walk of Windows' device list read it.
+        ours: The published INF names (``oem12.inf``), lower case, of our
+            packages in the driver store.
+
+    Raises:
+        CameraUsbLookupFailedError: A property the binding is decided by came
+            in a type this does not read.
+    """
+    deciding = {name: why for name, why in device.unreadable.items() if name not in _LOG_ONLY}
+    if deciding:
+        raise _PropertyTypeUnreadError(
+            f'{device.instance_id}: SetupDiGetDevicePropertyW returned '
+            + ', '.join(f'{name} as {why}' for name, why in deciding.items())
+            + ', not a type this reads'
+        )
+    values = device.values
+    inf = values.get('inf')
+    return DeviceBinding(
+        instance_id=device.instance_id,
+        present=bool(values.get('present')),
+        service=values.get('service'),
+        provider=values.get('provider'),
+        inf=inf,
+        version=values.get('version'),
+        date=values.get('date'),
+        problem_code=values.get('problem_code'),
+        problem_status=values.get('problem_status'),
+        location=values.get('location'),
+        parent=values.get('parent'),
+        interface_guids=values.get('interface_guids'),
+        ours=(inf or '').lower() in ours,
+        unreadable=tuple(
+            f'{words} ({device.unreadable[name]})'
+            for name, words in _LOG_ONLY.items()
+            if name in device.unreadable
+        ),
+    )
 
 
 @dataclass(frozen=True)
