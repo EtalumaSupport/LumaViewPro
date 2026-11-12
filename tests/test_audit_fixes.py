@@ -5027,140 +5027,6 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
         assert _read_validity_chunks(_FrameIdResult())['FrameID'] == 42
 
 
-class TestAcquisitionStopModeSetter:
-    """ImagingAPI.set_acquisition_stop_mode + driver setters give the
-    bench-probe sweep a way to compare BslAcquisitionStopMode='Complete'
-    (default) vs 'AbortExposure' on the same cell.
-
-    Default Complete waits for in-flight exposures to finish on
-    StopGrabbing -- on long fluorescence captures this presents
-    identically to a multi-second app-side stall when the user
-    toggles modes. AbortExposure is the doc-confirmed candidate fix
-    per acquisition-start-stop-and-abort.html. Setter exists for
-    bench characterization; default is unchanged in
-    init_camera_config (per Eric direction: setter-only-first,
-    bench-validate, then flip default if validated).
-
-    B19.
-    """
-
-    def _make_scope_with_fake_camera(self, fake_camera):
-        from _lumascope.modules.lumascope_api import Lumascope
-
-        scope = Lumascope.__new__(Lumascope)
-        bind_settings_like_a_session(scope)
-        scope.runtime_state = RuntimeState(scope)
-        scope._camera_driver = None
-        give_stub_lanes(scope)
-        give_capabilities_of_a_camera_without_auto_modes(scope)
-        give_camera_and_imaging(scope)
-        # Attached once the camera is built: the fake answers only the
-        # setter under test, not the reads a camera's construction makes.
-        scope._camera_driver = fake_camera
-        return scope
-
-    def test_lumascope_method_exists(self):
-        assert hasattr(ImagingAPI, '_set_acquisition_stop_mode')
-        assert callable(ImagingAPI._set_acquisition_stop_mode)
-
-    def test_no_camera_returns_false(self):
-        from _lumascope.modules.lumascope_api import Lumascope
-
-        scope = Lumascope.__new__(Lumascope)
-        bind_settings_like_a_session(scope)
-        scope.runtime_state = RuntimeState(scope)
-        scope._camera_driver = None
-        give_camera_and_imaging(scope)
-        assert scope.imaging._set_acquisition_stop_mode('Complete') is False
-
-    def test_inactive_camera_returns_false(self):
-        class _Fake:
-            active = None
-
-            def set_acquisition_stop_mode(self, **k):
-                raise AssertionError('driver should not be reached')
-
-        scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_acquisition_stop_mode('Complete') is False
-
-    def test_unsupported_driver_returns_false(self):
-        """Camera class without the setter (e.g. SimulatedCamera) -> False."""
-
-        class _NoSetter:
-            active = True
-
-            def is_connected(self):
-                return True
-
-        scope = self._make_scope_with_fake_camera(_NoSetter())
-        assert scope.imaging._set_acquisition_stop_mode('Complete') is False
-
-    def test_routes_to_driver_with_mode_kwarg(self):
-        called_with = {}
-
-        class _Fake:
-            active = True
-
-            def is_connected(self):
-                return True
-
-            def set_acquisition_stop_mode(self, mode):
-                called_with['mode'] = mode
-                return True
-
-        scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_acquisition_stop_mode('AbortExposure') is True
-        assert called_with == {'mode': 'AbortExposure'}
-
-    def test_pylon_driver_method_present(self):
-        from tests.ast_seams import assert_def
-
-        assert_def(
-            'src/_lumascope/drivers/pyloncamera.py',
-            'set_acquisition_stop_mode',
-            msg='PylonCamera must implement set_acquisition_stop_mode for '
-            'the bench-probe sweep to exercise BslAcquisitionStopMode '
-            'without bypassing the API layer.',
-        )
-
-    def test_pylon_driver_validates_mode_argument(self):
-        """Mode must be one of Complete / CancelExposure / AbortExposure
-        per Basler Specifics table; an invalid mode returns False without
-        touching the SDK."""
-        from _lumascope.drivers.pyloncamera import PylonCamera
-
-        assert PylonCamera._ACQ_STOP_MODES == (
-            'Complete',
-            'CancelExposure',
-            'AbortExposure',
-        ), (
-            'PylonCamera._ACQ_STOP_MODES must list the three doc-named '
-            'values per acquisition-start-stop-and-abort.html.'
-        )
-
-        cam = _bare_pylon_camera()
-        assert cam.set_acquisition_stop_mode('Bogus') is False
-        cam.active.GetNodeMap.assert_not_called()
-
-    def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
-        """BslAcquisitionStopMode is a configuration property; setting
-        it does not require an in-flight stop/start cycle (and we do
-        not wrap because that would defeat the purpose of measuring
-        the StopGrabbing behavior change)."""
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
-        ).read_text()
-        body = _function_source(src, 'set_acquisition_stop_mode')
-        assert 'with self.update_camera_config' not in body, (
-            'PylonCamera.set_acquisition_stop_mode must NOT wrap the '
-            'write in update_camera_config -- the setter exists to '
-            'compare stop-grabbing behavior, and the wrap would '
-            'force a stop/start cycle on every call.'
-        )
-
-
 class TestGigeSetters:
     """GigE-specific Pylon node setters: BandwidthReserveMode,
     GevSCPSPacketSize, GevSCPD. Required for the dmA3536-9gm dart M
@@ -5313,7 +5179,7 @@ class TestGigeSetters:
 
     def test_pylon_setters_raise_hardware_error(self):
         """All three setters raise HardwareError on RuntimeException
-        (Rule 29; matches DLTL + AbortExposure setters)."""
+        (Rule 29; matches the DLTL setter)."""
         from pypylon import genicam
 
         from _lumascope.drivers.exceptions import HardwareError
@@ -7105,10 +6971,6 @@ class TestRetiredSurfaceStaysRetired:
         assert hasattr(RuntimeState, 'resolve_current_objective')
         assert hasattr(RuntimeState, 'get_turret_config')
 
-    def test_acquisition_stop_mode_is_private(self):
-        assert hasattr(ImagingAPI, '_set_acquisition_stop_mode')
-        assert not hasattr(ImagingAPI, 'set_acquisition_stop_mode')
-
 
 class TestGetLedStateShape:
     """get_led_states answers LedReading records (address,
@@ -7578,7 +7440,6 @@ class TestImagingPylonSdkPerfSettersPrivatized:
     """
 
     PRIVATIZED = (
-        'set_acquisition_stop_mode',
         'set_bandwidth_reserve_mode',
         'set_device_link_throughput_limit',
         'set_max_transfer_size',

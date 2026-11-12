@@ -89,7 +89,6 @@ class TestSaveImage:
 
 # Each bench-tool SDK setter, the driver method it calls and its arguments.
 SDK_SETTERS = [
-    ('_set_acquisition_stop_mode', 'set_acquisition_stop_mode', ('Complete',)),
     ('_set_bandwidth_reserve_mode', 'set_bandwidth_reserve_mode', ('Performance',)),
     ('_set_device_link_throughput_limit', 'set_device_link_throughput_limit', ('Off',)),
     ('_set_max_transfer_size', 'set_max_transfer_size', (1048576,)),

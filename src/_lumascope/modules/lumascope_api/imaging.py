@@ -548,8 +548,7 @@ class ImagingAPI:
     # --- SDK-perf knobs (write-only by design) ---
     #
     # Considered get_X companions for the cluster below
-    # (set_acquisition_stop_mode, set_bandwidth_reserve_mode,
-    #  set_device_link_throughput_limit, set_max_transfer_size,
+    # (set_bandwidth_reserve_mode, set_device_link_throughput_limit, set_max_transfer_size,
     #  set_num_max_queued_urbs, set_gev_packet_size,
     #  set_gev_inter_packet_delay, set_max_acquisition_frame_rate).
     # Rejected because: these are Pylon / GEV / USB SDK perf knobs
@@ -561,49 +560,6 @@ class ImagingAPI:
     # current setting (e.g. a self-tuning bandwidth limiter); the
     # capability tokens for "supports readback" would belong on
     # scope.capabilities.
-
-    def _set_acquisition_stop_mode(self, mode: str) -> bool:
-        """Set BslAcquisitionStopMode (Pylon-only; no-op on IDS).
-
-        Controls camera behavior when StopGrabbing fires during an
-        in-flight exposure:
-
-          - ``'Complete'`` (Pylon default): waits for the current
-            exposure to finish before stopping.
-          - ``'CancelExposure'``: stops cleanly; partial frame
-            discarded.
-          - ``'AbortExposure'``: aborts immediately; partial frame
-            discarded.
-
-        Default ``'Complete'`` waits up to the full exposure on long
-        fluorescence captures (5-10 s) -- presents identically to a
-        multi-second app-side stall when the user toggles modes.
-        ``'AbortExposure'`` resolves the symptom but is bench-
-        unvalidated on Etaluma's cameras. Setter is provided for
-        bench characterization; default is unchanged.
-
-        Args:
-            mode: One of ``'Complete'``, ``'CancelExposure'``,
-                ``'AbortExposure'``.
-
-        Returns:
-            bool: True on success. False if the camera is absent /
-                inactive, mode is invalid, the driver doesn't
-                implement the setter (IDS), or
-                BslAcquisitionStopMode is not exposed.
-
-        Raises:
-            HardwareError: Underlying SDK call failed in the driver.
-        """
-        if not self._driver or not self._driver.active:
-            return False
-        if not hasattr(self._driver, 'set_acquisition_stop_mode'):
-            logger.warning(
-                f'[SCOPE API ] set_acquisition_stop_mode: '
-                f'{type(self._driver).__name__} does not implement this method'
-            )
-            return False
-        return bool(self._driver.set_acquisition_stop_mode(mode=mode))
 
     def _set_bandwidth_reserve_mode(self, mode: str) -> bool:
         """Set BandwidthReserveMode (GigE-only Pylon node).

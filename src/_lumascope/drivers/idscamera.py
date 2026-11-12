@@ -3043,13 +3043,6 @@ class IDSCamera(Camera):
             )
             return False
 
-    def set_acquisition_stop_mode(self, mode: str) -> bool:
-        """IDS Peak SDK does not expose BslAcquisitionStopMode (Basler-
-        specific node). Stub returns False on all input so the API
-        method's hasattr-and-call shape is identical for both drivers.
-        """
-        return False
-
     def set_bandwidth_reserve_mode(self, mode: str) -> bool:
         """IDS does not expose Pylon BandwidthReserveMode. Stub False."""
         return False

@@ -1671,7 +1671,8 @@ class PylonCamera(Camera):
         Loads the `Default` user set, sets pixel format to Mono8, sets
         explicit gain (0 dB), sets the image orientation (`ReverseY` and
         `ReverseX`, ``orientation_owed``), enables validity
-        chunks (B28-guarded), and runs the auto-gain init defaults.
+        chunks (B28-guarded), runs the auto-gain init defaults, and sets
+        the stop mode that finishes the exposure in flight.
         Wrapped in `update_camera_config()` so the caller does not
         need a separate stop/start cycle.
 
@@ -1777,6 +1778,7 @@ class PylonCamera(Camera):
             # camera body's sensor doesn't reach 1900 in either
             # axis, the SetValue will clamp + warn from set_frame_size.
             ('the 1900x1900 frame', lambda: self.set_frame_size(w=1900, h=1900)),
+            ('the stop mode', self._stop_after_the_exposure),
         ]
         # Each step's own failure is _apply_config_steps'; the guard's own
         # entry and exit (the grab-state read, the stop, the restart) are not
@@ -1791,6 +1793,45 @@ class PylonCamera(Camera):
                 self._write_reverse,
             )
             self.config_not_applied = not_applied + self._apply_config_steps(steps_after)
+
+    def _stop_after_the_exposure(self) -> None:
+        """Have every later stop finish the exposure in flight (``BslAcquisitionStopMode``).
+
+        The ``Default`` user set leaves the mode the body shipped with, and on
+        a daA3840 at firmware 1.1.0 that is ``AbortExposure``: there a stop
+        can hang 11 s in the camera's own ``AcquisitionStop``, and once one
+        has, nearly every later stop does until power-off. Under
+        ``CompleteExposure`` the same body stopped 321 times without a
+        hang. A stop then waits at most the exposure in flight.
+
+        A camera without the node, or one that does not offer
+        ``CompleteExposure`` or will not take a write of it, keeps its own
+        mode: that is told at INFO, naming the mode kept, and is not a step
+        left undone, so it answers None, never False.
+
+        Raises:
+            genicam.GenericException: The camera did not answer the node's
+                access, or refused the write of an offered value; the step
+                is then named in ``config_not_applied``.
+        """
+        nodemap = self.active.GetNodeMap()
+        node = self._find_node(nodemap, 'BslAcquisitionStopMode')
+        if node is None:
+            _cam_log.info(
+                '[CAM Class ] BslAcquisitionStopMode not offered by this camera; '
+                'its stops run in its own mode'
+            )
+            return
+        offered = list(node.GetSymbolics())
+        if 'CompleteExposure' not in offered or not genicam.IsWritable(node):
+            kept = self._safe_node(nodemap, 'BslAcquisitionStopMode')
+            _cam_log.info(
+                f'[CAM Class ] BslAcquisitionStopMode kept at {kept}: this camera does not '
+                f'take CompleteExposure (offers {offered})'
+            )
+            return
+        _cam_log.info("pylon BslAcquisitionStopMode.SetValue('CompleteExposure')")
+        node.SetValue('CompleteExposure')
 
     def _reverse_is_writable(self, name: str) -> bool:
         """Whether the camera takes a write of the reverse node ``name`` (``orientation_owed``).
@@ -2286,33 +2327,6 @@ class PylonCamera(Camera):
         except genicam.GenericException as e:
             _cam_log.error(f'[CAM Class ] {label} failed: {e}')
             raise CameraWriteFailedError(f'{label} failed: {e}') from e
-
-    _ACQ_STOP_MODES = ('Complete', 'CancelExposure', 'AbortExposure')
-
-    def set_acquisition_stop_mode(self, mode: str) -> bool:
-        """Set BslAcquisitionStopMode -- StopGrabbing behavior during in-flight exposure.
-
-        Per Basler `acquisition-start-stop-and-abort.html`:
-          - ``'Complete'`` (default): waits for current exposure (up to N s on long FL).
-          - ``'CancelExposure'``: stops cleanly, partial frame discarded.
-          - ``'AbortExposure'``: aborts immediately, partial frame discarded.
-
-        Supported on ace 2 / dart M/R / boost R. Default unchanged; setter
-        exists for bench characterization. Returns False if camera inactive,
-        mode invalid, or node absent; a failed write raises as
-        ``_write_bench_knob`` does.
-        """
-        if not self.active:
-            return False
-        if mode not in self._ACQ_STOP_MODES:
-            _cam_log.error(
-                f'[CAM Class ] set_acquisition_stop_mode: mode must be one '
-                f'of {self._ACQ_STOP_MODES}; got {mode!r}'
-            )
-            return False
-        return self._write_bench_knob(
-            f'set_acquisition_stop_mode({mode!r})', 'device', {'BslAcquisitionStopMode': mode}
-        )
 
     _BANDWIDTH_RESERVE_MODES = ('Default', 'Performance')
 

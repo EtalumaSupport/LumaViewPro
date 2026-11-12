@@ -10,7 +10,7 @@ node, and a read or write that fails is a failure, not an absence:
 
 - the bench knobs (``set_device_link_throughput_limit``,
   ``set_max_transfer_size``, ``set_num_max_queued_urbs``,
-  ``set_acquisition_stop_mode``, ``set_bandwidth_reserve_mode``,
+  ``set_bandwidth_reserve_mode``,
   ``set_gev_packet_size``, ``set_gev_inter_packet_delay``) answer ``False``
   with one INFO line, so the bench sweep calls every one on every camera; a
   write the camera does not take raises;
@@ -112,12 +112,6 @@ _KNOBS = [
     ),
     ('max_transfer', lambda c: c.set_max_transfer_size(262144), 'stream', 'MaxTransferSize'),
     ('queued_urbs', lambda c: c.set_num_max_queued_urbs(64), 'stream', 'NumMaxQueuedUrbs'),
-    (
-        'stop_mode',
-        lambda c: c.set_acquisition_stop_mode('Complete'),
-        'device',
-        'BslAcquisitionStopMode',
-    ),
     (
         'bw_reserve',
         lambda c: c.set_bandwidth_reserve_mode('Performance'),
