@@ -12,7 +12,6 @@ import threading
 from ctypes import (
     Structure,
     byref,
-    c_bool,
     c_int,
     c_ubyte,
     c_ulong,
@@ -782,7 +781,7 @@ class WinUsbIsoReader:
             slot.isoch_handle,
             c_ulong(0),  # offset
             c_ulong(length),
-            c_bool(continue_stream),
+            continue_stream,
             c_ulong(packet_count),
             ctypes.cast(slot.packets, c_void_p),
             byref(slot.overlapped),
