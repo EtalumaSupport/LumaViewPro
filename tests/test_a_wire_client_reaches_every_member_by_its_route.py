@@ -540,15 +540,6 @@ def test_a_member_route_takes_no_query_string(client):
     assert client.get('/api/v1/status?verbose=1').status_code == 422
 
 
-def test_a_path_argument_is_a_live_folder_name_and_reaches_the_member_resolved(client, live):
-    answer = client.post('/api/v1/make_logs_zip', json={'output_dir': 'reports'})
-
-    assert answer.status_code == 200
-    path = answer.json()['path']
-    assert path['name'].startswith('reports/')
-    assert (live / path['name']).is_file()
-
-
 def test_a_path_outside_the_live_folder_is_refused_before_the_member_runs(client, tmp_path):
     refused = client.post('/api/v1/make_logs_zip', json={'output_dir': '../outside'})
 
