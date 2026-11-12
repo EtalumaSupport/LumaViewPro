@@ -26,19 +26,25 @@ from tests.camera_fakes import stall_with_a_frame_buffered
 def stalled_12bit(sim_session):
     scope = sim_session.scope
     scope.camera.set_image_mode(ImageMode.SCIENTIFIC)
-    stall_with_a_frame_buffered(scope)
-    yield sim_session
+    at_capture = stall_with_a_frame_buffered(scope)
+    yield sim_session, at_capture
     scope.simulation.clear()
 
 
 def test_a_strided_read_is_the_raw_frames_sample_converted_with_no_bar(stalled_12bit):
-    imaging = stalled_12bit.scope.imaging
-    stalled_12bit.set_scale_bar(False)
+    session, at_capture = stalled_12bit
+    imaging = session.scope.imaging
+    session.set_scale_bar(False)
     raw, seq = imaging.get_image_from_buffer(force_to_8bit=False)
-    assert raw.dtype == np.uint16
+    # Red twice in whole runs and green alone: the message says whether the
+    # capture itself was 8-bit, or the buffer later held another frame.
+    assert raw.dtype == np.uint16, (
+        f'the buffer holds frame {seq} as {raw.dtype}; the 12-bit capture took a'
+        f' {at_capture.captured.dtype} frame, after which the buffer held frame {at_capture.seq}'
+    )
     expected = image_utils.convert_to_8bit(raw[::4, ::4], 12)
 
-    stalled_12bit.set_scale_bar(True)
+    session.set_scale_bar(True)
     # The bar is drawn on a whole read: the frame is the one sampled.
     whole, whole_seq = imaging.get_image_from_buffer(force_to_8bit=True)
     assert whole_seq == seq
@@ -50,6 +56,7 @@ def test_a_strided_read_is_the_raw_frames_sample_converted_with_no_bar(stalled_1
 
 
 def test_a_stride_below_one_is_refused(stalled_12bit):
+    session, _at_capture = stalled_12bit
     with pytest.raises(ArgumentRefusedError) as refused:
-        stalled_12bit.scope.imaging.get_image_from_buffer(stride=0)
+        session.scope.imaging.get_image_from_buffer(stride=0)
     assert (refused.value.reason, refused.value.argument) == ('wrong_kind', 'stride')

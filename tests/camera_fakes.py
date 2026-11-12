@@ -578,14 +578,28 @@ class _StreamStopped(logging.Handler):
             self.stopped.set()
 
 
-def stall_with_a_frame_buffered(scope, for_s: float = 600.0, wait_s: float = 10.0) -> None:
+@dataclasses.dataclass(frozen=True)
+class BufferedAtCapture:
+    """The frame the stall's capture took, and the buffer's sequence number read straight after it."""
+
+    captured: object
+    seq: int
+
+
+def stall_with_a_frame_buffered(
+    scope, for_s: float = 600.0, wait_s: float = 10.0
+) -> BufferedAtCapture:
     """Stall a simulated scope's stream with a frame in its buffer, which then stays put.
 
     A capture first, so the buffer holds a frame; then the stall, returned
     from once the sensor says it has stopped. ``scope.simulation.clear()``
-    lifts it.
+    lifts it. What the capture took and the buffer held then are returned,
+    so a test reading the buffer later can say whether it found that frame,
+    an earlier one, or one delivered after the capture.
     """
-    scope.imaging.get_image(force_to_8bit=False)
+    captured = scope.imaging.get_image(force_to_8bit=False)
+    _image, seq = scope.imaging.get_image_from_buffer(force_to_8bit=False)
+    at_capture = BufferedAtCapture(captured, seq)
     watcher = _StreamStopped()
     logger = logging.getLogger('LVP')
     logger.addHandler(watcher)
@@ -594,3 +608,4 @@ def stall_with_a_frame_buffered(scope, for_s: float = 600.0, wait_s: float = 10.
         assert watcher.stopped.wait(wait_s), 'the simulated stream never stopped'
     finally:
         logger.removeHandler(watcher)
+    return at_capture
