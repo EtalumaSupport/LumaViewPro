@@ -346,7 +346,7 @@ class TestHeadlessRefusalDoesNotHang:
         from _lumascope.modules.scope_session import ScopeSession
 
         settings = {
-            'stage_offset': {'x': 0.0, 'y': 0.0},
+            'stage_offset': {'x': 5500.0, 'y': 4000.0},
             'live_folder': str(tmp_path),
             # The objective this file's protocols name: a scope with no turret
             # refuses a protocol for any glass other than the selected one.

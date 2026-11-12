@@ -72,7 +72,7 @@ def headless_settings(
         if isinstance(settings[layer], dict) and 'acquire' in settings[layer]:
             settings[layer]['composite_brightness_threshold'] = 25
     settings['live_folder'] = str(tmp_path)
-    settings['stage_offset'] = {'x': 0.0, 'y': 0.0}
+    settings['stage_offset'] = {'x': 5500.0, 'y': 4000.0}
     # A turreted scope: the session completes this hand-built dict from
     # the shipped template, whose model is the LS850 with no turret, so
     # the model a two-objective run needs is said here.

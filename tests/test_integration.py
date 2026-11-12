@@ -739,7 +739,7 @@ class TestHeadlessSession:
     def test_protocol_runner_runs_protocol(self, tmp_path):
         """ProtocolRunner should execute a protocol to completion on headless session."""
         settings = {
-            'stage_offset': {'x': 0.0, 'y': 0.0},
+            'stage_offset': {'x': 5500.0, 'y': 4000.0},
             'live_folder': str(tmp_path),
             # The objective this file's protocols name: a scope with no turret
             # refuses a protocol for any glass other than the selected one.

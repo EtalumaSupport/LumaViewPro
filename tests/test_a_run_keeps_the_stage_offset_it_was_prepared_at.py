@@ -19,11 +19,11 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
 def test_a_run_holds_the_offset_it_was_prepared_at_and_the_next_reads_the_change(
     executor, scope, tmp_path
 ):
-    bind_settings_like_a_session(scope, stage_offset={'x': 100.0, 'y': 50.0})
+    bind_settings_like_a_session(scope, stage_offset={'x': 5500.0, 'y': 4000.0})
     first = _prepare(executor, tmp_path, str(tmp_path))
 
-    bind_settings_like_a_session(scope, stage_offset={'x': 200.0, 'y': 50.0})
+    bind_settings_like_a_session(scope, stage_offset={'x': 5600.0, 'y': 4000.0})
     second = _prepare(executor, tmp_path, str(tmp_path))
 
-    assert first.stage_offset == StageOffset(x_um=100.0, y_um=50.0)
-    assert second.stage_offset == StageOffset(x_um=200.0, y_um=50.0)
+    assert first.stage_offset == StageOffset(x_um=5500.0, y_um=4000.0)
+    assert second.stage_offset == StageOffset(x_um=5600.0, y_um=4000.0)

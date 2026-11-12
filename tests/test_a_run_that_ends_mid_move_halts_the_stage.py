@@ -43,7 +43,9 @@ def session(tmp_path):
 def _start_held(session, tmp_path):
     """Start a one-step scan whose X move halts part of the way; return the run and X's target."""
     held = session.scope.simulation.hold_axis('X')
-    step = {**_make_single_step_protocol().step_row(step_index=0), 'X': 60.0, 'Y': 20.0}
+    # Plate X 40 is stage X 82 mm, about 22 mm from where the homed stage
+    # stands, so the hold has room to stop the move well short of it.
+    step = {**_make_single_step_protocol().step_row(step_index=0), 'X': 40.0, 'Y': 20.0}
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol([step]), parent_dir=str(tmp_path)
     )

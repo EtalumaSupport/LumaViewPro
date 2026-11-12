@@ -639,13 +639,14 @@ def configure_turret_like_bringup(scope, turret_objectives: dict | None = None) 
             that genuinely carries less.
     """
     # The stage offset is the one a run's travel check and its plate
-    # conversions read.
+    # conversions read: the shipped template's, as a scope brought up on a
+    # fresh install has it.
     bind_settings_like_a_session(
         scope,
         turret_objectives=dict(
             TEST_TURRET_OBJECTIVES if turret_objectives is None else turret_objectives
         ),
-        stage_offset={'x': 0.0, 'y': 0.0},
+        stage_offset={'x': 5500.0, 'y': 4000.0},
     )
     # Startup homes every axis: the turret lands in slot 1 -- the active objective is that
     # slot's assignment, unknown until the slot is -- and a run's moves need
