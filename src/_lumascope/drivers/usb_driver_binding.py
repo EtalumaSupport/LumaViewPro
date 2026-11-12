@@ -206,6 +206,7 @@ class _PropertyTypeUnreadError(CameraUsbLookupFailedError):
     """Windows gave a property a binding is decided by in a type LumaViewPro does not read."""
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_usb_property_unread': None}
+    title = 'Camera USB Property Unread'
 
 
 def binding_from(device: DeviceProperties, ours: set[str]) -> DeviceBinding:
