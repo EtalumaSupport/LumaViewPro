@@ -301,6 +301,8 @@ from _lumascope.modules.lumascope_api.diagnostics import (
     LedCommandSet,
     MotorBoardInfo,
     MotorCommandSet,
+    UsbBusCensus,
+    UsbCensusDevice,
     UsbDeviceBinding,
     UsbIdentityBindings,
 )
@@ -872,6 +874,8 @@ __all__ = [
     'UiDispatcher',
     'UnfitArgument',
     'UpdateError',
+    'UsbBusCensus',
+    'UsbCensusDevice',
     'UsbDeviceBinding',
     'UsbIdentityBindings',
     'Video',

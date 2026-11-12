@@ -118,6 +118,7 @@ if TYPE_CHECKING:
     import os
 
     from _lumascope.drivers.simulated_camera import SimulatedStall
+    from _lumascope.drivers.usb_census import UsbCensus
     from _lumascope.modules.labware import Labware
     from _lumascope.modules.labware_loader import WellPlateLoader
     from _lumascope.modules.channel_record import ChannelIdentity, ScopeModel
@@ -441,6 +442,12 @@ def _no_fx2_bindings(identity: str) -> None:
     return None
 
 
+def _host_usb_census() -> 'UsbCensus':
+    from _lumascope.drivers.usb_census import read_census  # local-import: loaded where it is read
+
+    return read_census()
+
+
 def _board_status(part: Board, fallback) -> 'PartStatus':
     """The record of a board the registry built, real or null by its ``fallback``."""
     if fallback is not None:
@@ -624,6 +631,9 @@ class Lumascope:
         # Where the FX2's USB bindings are read, whether or not an FX2 came
         # up: the host's, unless bring-up simulates the scope.
         self._read_fx2_bindings: Callable[[str], list | None] = _host_fx2_bindings
+        # Where the USB census is read: the host's bus, unless bring-up
+        # simulates the scope, whose census is its own parts.
+        self._read_usb_census: Callable[[], UsbCensus] = _host_usb_census
 
         # The labware, stage offset, turret map, selected objective and
         # whether the scale bar is drawn are the session's settings, held
@@ -835,6 +845,7 @@ class Lumascope:
         sim_conversion_gain_mode: bool = False,
         sim_unit_config: Mapping[str, object] | None = None,
         sim_camera_usb_bindings: 'tuple[SimulatedUsbBinding, ...]' = (),
+        sim_unidentified_usb_devices: int = 0,
         on_progress: ProgressCallback | None = None,
         _composition: object = None,
     ):
@@ -945,6 +956,10 @@ class Lumascope:
                 a Classic on no driver, on another package, or on
                 LumaViewPro's and not started. Refused on real hardware and
                 on a model not simulated with an FX2.
+            sim_unidentified_usb_devices: How many devices whose descriptor
+                Windows could not read are on the simulated bus, so the USB
+                census meets them (``SimulatedScope.unidentified_usb_devices``).
+                Refused on real hardware.
             on_progress: Called before each part is connected, with the
                 share of bring-up's steps already done and the step's words
                 (``bring_up.STEPS``), on this thread; a raise from it is a
@@ -981,6 +996,11 @@ class Lumascope:
             ('sim_conversion_gain_mode', sim_conversion_gain_mode, sim_conversion_gain_mode),
             ('sim_unit_config', sim_unit_config, sim_unit_config is not None),
             ('sim_camera_usb_bindings', sim_camera_usb_bindings, bool(sim_camera_usb_bindings)),
+            (
+                'sim_unidentified_usb_devices',
+                sim_unidentified_usb_devices,
+                sim_unidentified_usb_devices != 0,
+            ),
         ):
             if given and not simulate:
                 raise ArgumentRefusedError('needs_simulated_scope', argument=argument, value=value)
@@ -1229,7 +1249,6 @@ class Lumascope:
             )
 
         if simulate and sim_led_board == LedBoardFamily.FX2:
-            from _lumascope.drivers.fx2driver import FX2LEDController, _FX2AbsentError
             from _lumascope.drivers.simulated_fx2 import SimulatedFX2
 
             sim_fx2 = SimulatedFX2(
@@ -1242,6 +1261,23 @@ class Lumascope:
             self._read_fx2_bindings = sim_fx2.transport.bindings
             for binding in sim_camera_usb_bindings:
                 sim_fx2.transport.bind(binding.hardware_id, binding.service, binding.problem_code)
+        if simulate:
+            from _lumascope.drivers.simulated_usb_bus import SimulatedUsbBus
+
+            self._read_usb_census = SimulatedUsbBus(
+                fx2=None if sim_fx2 is None else sim_fx2.transport,
+                led_board=sim_led_board == LedBoardFamily.EL_0940,
+                motor_board=sim_motor_board is not None,
+                unidentified_devices=int(sim_unidentified_usb_devices),
+            ).census
+        # Read once, before the LED board's connect touches a Classic's FX2
+        # (its firmware upload re-enumerates it), so the log holds the bus as
+        # bring-up found it.
+        self._log_usb_census()
+
+        if sim_fx2 is not None:
+            from _lumascope.drivers.fx2driver import FX2LEDController, _FX2AbsentError
+
             try:
                 fx2_connection = sim_fx2.connect()
             except _FX2AbsentError as absent:
@@ -2017,6 +2053,21 @@ class Lumascope:
             notifications.report_outcome(
                 MotorBoardUnavailableError(motor.cause), solicited=False, category='Motion'
             )
+
+    def _log_usb_census(self) -> None:
+        """Log the USB census once at bring-up: one line per device, or why the bus could not be read.
+
+        The log's record of what was on the bus as bring-up found it; it
+        decides nothing, so a census of a bus that cannot be read is logged
+        as that and bring-up goes on as it would without one.
+        """
+        census = self._read_usb_census()
+        if census.unreadable is not None:
+            logger.warning(f'[USB census] unreadable through {census.source}: {census.unreadable}')
+            return
+        logger.info(f'[USB census] {len(census.devices)} device(s), read through {census.source}')
+        for device in census.devices:
+            logger.info(f'[USB census] {device.describe()}')
 
     def _report_camera(self) -> None:
         """Report, once, the camera failure bring-up kept beside its part.

@@ -166,6 +166,78 @@ class UsbIdentityBindings:
     devices: tuple[UsbDeviceBinding, ...]
 
 
+@api_fields(
+    'vendor_id',
+    'product_id',
+    'vendor',
+    'instance_id',
+    'location',
+    'present',
+    'binding',
+    'speed_mbps',
+    'port_best_mbps',
+    'unreadable',
+)
+@dataclass(frozen=True)
+class UsbCensusDevice:
+    """One device on the USB bus, each layer the host could read.
+
+    Attributes:
+        vendor_id: The USB vendor ID, four hex digits upper case; None
+            where Windows names none (a hub).
+        product_id: The USB product ID, as ``vendor_id``.
+        vendor: Which part of a Lumascope its vendor makes (``'Basler'``,
+            ``'Cypress (the Lumascope Classic)'``); None for a device of
+            another vendor, listed for its problem code.
+        instance_id: Windows' instance ID; None off Windows.
+        location: Where it is: Windows' port and hub, or the USB library's
+            bus and port path; None when neither is given.
+        present: False for a device Windows saw before and does not see now.
+        binding: The driver Windows bound to it, whose package, and whether
+            Windows started it; None off Windows, or when a property it is
+            decided by could not be read (named in ``unreadable``).
+        speed_mbps: The speed it negotiated, in Mb/s; None when not read.
+        port_best_mbps: The fastest speed its port supports, in Mb/s; None
+            when not read, as off Windows.
+        unreadable: Each layer the host could not read for it, with why.
+    """
+
+    vendor_id: str | None
+    product_id: str | None
+    vendor: str | None
+    instance_id: str | None
+    location: str | None
+    present: bool
+    binding: UsbDeviceBinding | None
+    speed_mbps: float | None
+    port_best_mbps: float | None
+    unreadable: tuple[str, ...]
+
+
+@api_fields('source', 'devices', 'unreadable')
+@dataclass(frozen=True)
+class UsbBusCensus:
+    """What is on the USB bus of each vendor a Lumascope is built from.
+
+    Attributes:
+        source: What the host read the bus through: ``"Windows' device
+            list"``, the USB library and its version, or ``'the simulated
+            bus'``.
+        devices: Each device of a Lumascope vendor (Cypress, Basler, IDS,
+            Microchip, Raspberry Pi), present or seen before, then each
+            other present device Windows has a problem code for, in the
+            order the host listed them; empty when ``unreadable``.
+        unreadable: Why the host's device list could not be read (Windows'
+            device list failed, or off Windows the USB library is not in
+            use); None when it was read. What is on the bus is then not
+            known, never empty.
+    """
+
+    source: str
+    devices: tuple[UsbCensusDevice, ...]
+    unreadable: str | None
+
+
 @api_fields('transport', 'link_speed', 'link_speed_unit', 'packet_size_bytes', 'inter_packet_delay')
 @dataclass(frozen=True)
 class CameraLink:
@@ -526,6 +598,45 @@ class DiagnosticsAPI:
                 )
             )
         return tuple(answer)
+
+    @api(reads=True)
+    def get_usb_census(self) -> UsbBusCensus:
+        """Every device of each vendor a Lumascope is built from, on this host's USB bus, read now.
+
+        For each: where it is, the driver Windows bound to it and whether
+        Windows started it, the speed it negotiated and the best its port
+        can do, each layer the host can read; on Windows, every other
+        present device with a problem code too. The census bring-up logs,
+        read again, so a device plugged since is in it. Read without
+        elevation; takes no lane: it asks the host's device list, not the
+        scope. A simulated scope's is its own parts, never the host's. A
+        host whose device list cannot be read answers a census that says why.
+
+        Raises:
+            Nothing.
+        """
+        census = self._scope._read_usb_census()
+        return UsbBusCensus(
+            source=census.source,
+            devices=tuple(
+                UsbCensusDevice(
+                    # Built field by field, so a field the driver's record
+                    # gains or loses fails here rather than going unpublished.
+                    **{
+                        field.name: getattr(device, field.name)
+                        for field in dataclasses.fields(device)
+                        if field.name != 'binding'
+                    },
+                    binding=(
+                        None
+                        if device.binding is None
+                        else UsbDeviceBinding(**dataclasses.asdict(device.binding))
+                    ),
+                )
+                for device in census.devices
+            ),
+            unreadable=census.unreadable,
+        )
 
     @api(in_process=True, engineering=True)
     def run_camera_bandwidth_test(

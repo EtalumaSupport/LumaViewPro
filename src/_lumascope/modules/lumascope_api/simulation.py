@@ -212,6 +212,7 @@ type BoardConfigValue = str | int | float | bool | list | dict | None
     'conversion_gain_mode',
     'unit_config',
     'camera_usb_bindings',
+    'unidentified_usb_devices',
 )
 @dataclasses.dataclass(frozen=True)
 class SimulatedScope:
@@ -289,6 +290,12 @@ class SimulatedScope:
             bring-up meets a Classic on no driver, on another package, or
             on LumaViewPro's and not started; a model simulated with an
             FX2 alone. Empty is LumaViewPro's driver, started, on both.
+        unidentified_usb_devices: How many devices whose descriptor Windows
+            could not read are on the simulated bus (Device Manager's
+            "Unknown USB Device", problem code 43), so the USB census meets
+            them. A whole number, 0 or more; any other is refused
+            ``ArgumentRefusedError`` ``'not_a_number'`` or ``'fault_bound'``
+            as the record is built. 0 is none.
     """
 
     model: str | None = None
@@ -304,6 +311,7 @@ class SimulatedScope:
     unit_config: Mapping[str, BoardConfigValue] | None = None
     ronchi_lines_per_mm: float | None = None
     camera_usb_bindings: tuple[SimulatedUsbBinding, ...] = ()
+    unidentified_usb_devices: int = 0
 
     @property
     def slide_on_stage(self) -> Slide | RonchiRuling:
@@ -313,6 +321,14 @@ class SimulatedScope:
         return self.slide
 
     def __post_init__(self) -> None:
+        refuse_unless_finite_number(self.unidentified_usb_devices, 'unidentified_usb_devices')
+        SimulationAPI._bound(
+            'unidentified_usb_devices',
+            self.unidentified_usb_devices,
+            'a whole number of devices, 0 or more',
+            self.unidentified_usb_devices >= 0
+            and self.unidentified_usb_devices == int(self.unidentified_usb_devices),
+        )
         if self.ronchi_lines_per_mm is not None:
             # No member's argument check stands before a record's build, so
             # a pitch that is not a number is refused before it is compared.

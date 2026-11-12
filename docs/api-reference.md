@@ -152,6 +152,8 @@ A member's **Raises** is its contract: each outcome class it raises, with the re
 - [`UIRegistry`](#UIRegistry)
 - [`UiDispatcher`](#UiDispatcher)
 - [`UnfitArgument`](#UnfitArgument)
+- [`UsbBusCensus`](#UsbBusCensus)
+- [`UsbCensusDevice`](#UsbCensusDevice)
 - [`UsbDeviceBinding`](#UsbDeviceBinding)
 - [`UsbIdentityBindings`](#UsbIdentityBindings)
 - [`Video`](#Video)
@@ -6446,6 +6448,31 @@ and this is read for every saved frame's metadata.
 **Returns**
 
 MotorBoardInfo: Each field None when unknown, all of them with no board connected -- none installed, or one lost since connect, whose cached identity no longer describes a board that is there.
+
+**Raises**
+
+Nothing.
+
+<a id="DiagnosticsAPI.get_usb_census"></a>
+### `DiagnosticsAPI.get_usb_census`
+
+```python
+def get_usb_census(self) -> UsbBusCensus
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/diagnostics/get_usb_census`.
+
+Every device of each vendor a Lumascope is built from, on this host's USB bus, read now.
+
+For each: where it is, the driver Windows bound to it and whether
+Windows started it, the speed it negotiated and the best its port
+can do, each layer the host can read; on Windows, every other
+present device with a problem code too. The census bring-up logs,
+read again, so a device plugged since is in it. Read without
+elevation; takes no lane: it asks the host's device list, not the
+scope. A simulated scope's is its own parts, never the host's. A
+host whose device list cannot be read answers a census that says why.
 
 **Raises**
 
@@ -13021,6 +13048,7 @@ is the declared scope with no fault. A fault is refused where the
 - <a id="SimulatedScope.refused_stream_starts"></a>`refused_stream_starts`: `int` -- How many of the camera's stream starts it refuses from bring-up on (`refuse_stream_start`), so bring-up's own start is refused; the simulated FX2's alone. 0 refuses none.
 - <a id="SimulatedScope.ronchi_lines_per_mm"></a>`ronchi_lines_per_mm`: `float | None` -- The Ronchi ruling's pitch, in lines per mm, given only with `slide` `Slide.RONCHI`. None is the bench's 40. A pitch the objective cannot resolve is drawn, not refused: its bars blur together, as on the bench. Given with the cells, or not a positive finite number, the record is not built: `ArgumentRefusedError` `'fault_bound'` or `'not_a_number'`, naming `ronchi_lines_per_mm`.
 - <a id="SimulatedScope.slide"></a>`slide`: `Slide` -- The slide on the stage, which the scope's camera images for the session: the cell specimen, or a Ronchi ruling, the target the bench measures a camera's move count on. Either simulated camera takes it. The cell specimen is the default.
+- <a id="SimulatedScope.unidentified_usb_devices"></a>`unidentified_usb_devices`: `int` -- How many devices whose descriptor Windows could not read are on the simulated bus (Device Manager's "Unknown USB Device", problem code 43), so the USB census meets them. A whole number, 0 or more; any other is refused `ArgumentRefusedError` `'not_a_number'` or `'fault_bound'` as the record is built. 0 is none.
 - <a id="SimulatedScope.unit_config"></a>`unit_config`: `Mapping[str, BoardConfigValue] | None` -- A unit's own motorconfig.json, as its board's CONFIG answers it, which the simulated motor firmware boots: the scope comes up as that unit does, under the name its board reports, on the axes the config marks present, with its optics, scale and turret positions, and the channels bring-up resolves for it (an OEM unit's own name has the stock optics module's, unless the config carries a `Channels` block). Only the simulated motor firmware runs it: the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board. None boots the model's own board.
 
 <a id="SimulatedStall"></a>
@@ -13455,11 +13483,46 @@ One argument of a request that does not fit its member, as the request reader fo
 - <a id="UnfitArgument.msg"></a>`msg`: `str` -- Why it does not fit, in the reader's words.
 - <a id="UnfitArgument.type"></a>`type`: `str` -- The reader's code for why.
 
+<a id="UsbBusCensus"></a>
+## `lumascope.UsbBusCensus`
+
+A record: it crosses the wire as its data.  
+Returned by: [`DiagnosticsAPI.get_usb_census`](#DiagnosticsAPI.get_usb_census).
+
+What is on the USB bus of each vendor a Lumascope is built from.
+
+**Fields**
+
+- <a id="UsbBusCensus.devices"></a>`devices`: `tuple[UsbCensusDevice, ...]` -- Each device of a Lumascope vendor (Cypress, Basler, IDS, Microchip, Raspberry Pi), present or seen before, then each other present device Windows has a problem code for, in the order the host listed them; empty when `unreadable`.
+- <a id="UsbBusCensus.source"></a>`source`: `str` -- What the host read the bus through: `"Windows' device list"`, the USB library and its version, or `'the simulated bus'`.
+- <a id="UsbBusCensus.unreadable"></a>`unreadable`: `str | None` -- Why the host's device list could not be read (Windows' device list failed, or off Windows the USB library is not in use); None when it was read. What is on the bus is then not known, never empty.
+
+<a id="UsbCensusDevice"></a>
+## `lumascope.UsbCensusDevice`
+
+A record: it crosses the wire as its data.  
+Held in: [`UsbBusCensus.devices`](#UsbBusCensus.devices).
+
+One device on the USB bus, each layer the host could read.
+
+**Fields**
+
+- <a id="UsbCensusDevice.binding"></a>`binding`: `UsbDeviceBinding | None` -- The driver Windows bound to it, whose package, and whether Windows started it; None off Windows, or when a property it is decided by could not be read (named in `unreadable`).
+- <a id="UsbCensusDevice.instance_id"></a>`instance_id`: `str | None` -- Windows' instance ID; None off Windows.
+- <a id="UsbCensusDevice.location"></a>`location`: `str | None` -- Where it is: Windows' port and hub, or the USB library's bus and port path; None when neither is given.
+- <a id="UsbCensusDevice.port_best_mbps"></a>`port_best_mbps`: `float | None` -- The fastest speed its port supports, in Mb/s; None when not read, as off Windows.
+- <a id="UsbCensusDevice.present"></a>`present`: `bool` -- False for a device Windows saw before and does not see now.
+- <a id="UsbCensusDevice.product_id"></a>`product_id`: `str | None` -- The USB product ID, as `vendor_id`.
+- <a id="UsbCensusDevice.speed_mbps"></a>`speed_mbps`: `float | None` -- The speed it negotiated, in Mb/s; None when not read.
+- <a id="UsbCensusDevice.unreadable"></a>`unreadable`: `tuple[str, ...]` -- Each layer the host could not read for it, with why.
+- <a id="UsbCensusDevice.vendor"></a>`vendor`: `str | None` -- Which part of a Lumascope its vendor makes (`'Basler'`, `'Cypress (the Lumascope Classic)'`); None for a device of another vendor, listed for its problem code.
+- <a id="UsbCensusDevice.vendor_id"></a>`vendor_id`: `str | None` -- The USB vendor ID, four hex digits upper case; None where Windows names none (a hub).
+
 <a id="UsbDeviceBinding"></a>
 ## `lumascope.UsbDeviceBinding`
 
 A record: it crosses the wire as its data.  
-Held in: [`UsbIdentityBindings.devices`](#UsbIdentityBindings.devices).
+Held in: [`UsbCensusDevice.binding`](#UsbCensusDevice.binding), [`UsbIdentityBindings.devices`](#UsbIdentityBindings.devices).
 
 One device of a USB identity and the driver Windows has bound to it.
 
@@ -18455,6 +18518,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/diagnostics/get_camera_usb_bindings` | [`DiagnosticsAPI.get_camera_usb_bindings`](#DiagnosticsAPI.get_camera_usb_bindings) |
 | `GET` | `/api/v1/scope/diagnostics/get_led_info` | [`DiagnosticsAPI.get_led_info`](#DiagnosticsAPI.get_led_info) |
 | `GET` | `/api/v1/scope/diagnostics/get_motor_info` | [`DiagnosticsAPI.get_motor_info`](#DiagnosticsAPI.get_motor_info) |
+| `GET` | `/api/v1/scope/diagnostics/get_usb_census` | [`DiagnosticsAPI.get_usb_census`](#DiagnosticsAPI.get_usb_census) |
 | `GET` | `/api/v1/scope/diagnostics/read_camera_node` | [`DiagnosticsAPI.read_camera_node`](#DiagnosticsAPI.read_camera_node) |
 | `GET` | `/api/v1/scope/illumination/get_led_states` | [`IlluminationAPI.get_led_states`](#IlluminationAPI.get_led_states) |
 | `POST` | `/api/v1/scope/illumination/led_off` | [`IlluminationAPI.led_off`](#IlluminationAPI.led_off) |

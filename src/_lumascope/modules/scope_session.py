@@ -1938,6 +1938,7 @@ class ScopeSession:
                 sim_conversion_gain_mode=simulated.conversion_gain_mode,
                 sim_unit_config=simulated.unit_config,
                 sim_camera_usb_bindings=simulated.camera_usb_bindings,
+                sim_unidentified_usb_devices=simulated.unidentified_usb_devices,
                 on_progress=on_progress,
                 _composition=COMPOSED_BY_CREATE,
             )
