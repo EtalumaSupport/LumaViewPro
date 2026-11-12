@@ -30,10 +30,18 @@ def _base_state(cam):
     gains reaches every fake; hand-kept copies drifted (the Pylon fake
     lacked ``_device_removed``, so its disconnect at GC raised inside
     whichever test was running).
+
+    The fake is disconnected when the test that built it ends. One left
+    connected is disconnected by its ``__del__`` at a later collection, and
+    a fake marked removed, or with a handle that lacks a teardown call,
+    logs a WARNING then, inside whichever test is running.
     """
+    from tests.scope_fakes import disconnect_when_the_test_ends
+
     cam.connect = lambda: None
     Camera.__init__(cam)
     del cam.connect
+    disconnect_when_the_test_ends(cam)
     return cam
 
 

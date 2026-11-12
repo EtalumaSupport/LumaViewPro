@@ -132,13 +132,15 @@ def build_scope(**kwargs):
 
 
 def disconnect_when_the_test_ends(camera):
-    """Queue a simulated camera's disconnect with the test's other teardowns.
+    """Queue a camera's disconnect with the test's other teardowns.
 
     A simulated camera that is grabbing runs its own acquisition thread, as
     a real camera's SDK thread runs, until it is disconnected. Tests build
     them directly in many places and drop them unclosed; each one left
     behind keeps making frames for the rest of the worker's run. The
-    autouse fixture in `conftest.py` routes every construction here.
+    autouse fixture in `conftest.py` routes every construction here, and
+    `camera_fakes` routes every bare driver it builds, whose disconnect
+    left to a later collection logs inside whichever test is running.
     """
     _TEARDOWNS.append(camera.disconnect)
 
