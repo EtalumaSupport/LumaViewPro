@@ -18245,6 +18245,21 @@ Firmware update failure with stage and recoverability info.
 |---|---|---|
 | `update_failed` | -- | 500 |
 
+<a id="UsbCensusUnreadableError"></a>
+### `lumascope.UsbCensusUnreadableError`
+
+A fault; bases `Fault`, `HardwareError`.
+
+The host's list of USB devices could not be read for the census.
+
+Windows' device list failed, or off Windows the USB library is not in
+use. Not an absence: what is on the bus is then not known. The words
+name the call or the library and why.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `usb_census_unreadable` | -- | 500 |
+
 <a id="VideoFramesDroppedError"></a>
 ### `lumascope.VideoFramesDroppedError`
 

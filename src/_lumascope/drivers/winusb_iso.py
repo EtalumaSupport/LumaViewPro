@@ -9,7 +9,7 @@ import ctypes
 import datetime
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from ctypes import (
     Structure,
     byref,
@@ -33,6 +33,7 @@ from _lumascope.drivers.exceptions import (
     CameraUsbNotFoundError,
     CameraUsbOpenFailedError,
 )
+from _lumascope.drivers.usb_census import HubPort
 from _lumascope.drivers.usb_driver_binding import (
     DeviceBinding,
     DeviceProperties,
@@ -87,6 +88,22 @@ GUID_DEVINTERFACE_USB_DEVICE = (
     0x11D2,
     (0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED),
 )
+# Every USB hub's interface (usbiodef.h), which answers for the devices on
+# its ports.
+GUID_DEVINTERFACE_USB_HUB = (
+    0xF18A0E88,
+    0xC30C,
+    0x11D0,
+    (0x88, 0x15, 0x00, 0xA0, 0xC9, 0x06, 0xBE, 0xD8),
+)
+# usbioctl.h: CTL_CODE(FILE_DEVICE_USB, function, METHOD_BUFFERED, FILE_ANY_ACCESS).
+IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX = 0x220448
+IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX_V2 = 0x22045C
+# The protocols a V2 query asks the hub about: USB 1.1, 2.0 and 3.x.
+_ASK_EVERY_PROTOCOL = 0x7
+# usbioctl.h's USB_PIPE_INFO is 11 bytes packed; the connection query
+# answers its open pipes after the fixed part, and USBView sizes for 30.
+_PIPE_INFO_BYTES = 11 * 30
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +178,38 @@ DEVPKEY_Device_LocationInfo = _devpropkey(
 DEVPKEY_Device_IsPresent = _devpropkey(
     0x540B947E, 0x8B40, 0x45BC, (0xA8, 0xA2, 0x6A, 0x0B, 0x89, 0x4C, 0xBD, 0xA2), 5
 )
+# A USB device's address on its bus driver: the number of the hub port it is on.
+DEVPKEY_Device_Address = _devpropkey(
+    0xA45C254E, 0xDF1C, 0x4EFD, (0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0), 30
+)
+
+
+class USB_NODE_CONNECTION_INFORMATION_EX(Structure):
+    """usbioctl.h, packed: a hub port's device, its descriptor, and the speed it runs at."""
+
+    _pack_ = 1
+    _fields_ = [
+        ('ConnectionIndex', c_ulong),
+        ('DeviceDescriptor', c_ubyte * 18),
+        ('CurrentConfigurationValue', c_ubyte),
+        ('Speed', c_ubyte),
+        ('DeviceIsHub', c_ubyte),
+        ('DeviceAddress', c_ushort),
+        ('NumberOfOpenPipes', c_ulong),
+        ('ConnectionStatus', c_ulong),
+        ('PipeList', c_ubyte * _PIPE_INFO_BYTES),
+    ]
+
+
+class USB_NODE_CONNECTION_INFORMATION_EX_V2(Structure):
+    """usbioctl.h: the protocols a hub port supports, and how its device runs."""
+
+    _fields_ = [
+        ('ConnectionIndex', c_ulong),
+        ('Length', c_ulong),
+        ('SupportedUsbProtocols', c_ulong),
+        ('Flags', c_ulong),
+    ]
 
 
 class OVERLAPPED(Structure):
@@ -266,6 +315,18 @@ _declare(
     kernel32.CreateFileW, _HANDLE, c_wchar_p, c_ulong, c_ulong, _POINTER, c_ulong, c_ulong, _HANDLE
 )
 _declare(kernel32.CloseHandle, _BOOL, _HANDLE)
+_declare(
+    kernel32.DeviceIoControl,
+    _BOOL,
+    _HANDLE,
+    c_ulong,
+    _POINTER,
+    c_ulong,
+    _POINTER,
+    c_ulong,
+    _POINTER,
+    _POINTER,
+)
 _declare(kernel32.CreateEventW, _HANDLE, _POINTER, _BOOL, _BOOL, c_wchar_p)
 _declare(kernel32.ResetEvent, _BOOL, _HANDLE)
 _declare(winusb.WinUsb_Initialize, _BOOL, _HANDLE, _POINTER)
@@ -308,19 +369,39 @@ def find_device_path(vid: int, pid: int) -> str | None:
     Returns None when no present device interface names it. A lookup that
     failed is not an absence: it raises, naming the call and its last error.
     """
-    guid = GUID(*GUID_DEVINTERFACE_USB_DEVICE)
-    dev_info = setupapi.SetupDiGetClassDevsW(
-        byref(guid), None, None, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE
+    vid_pid = f'vid_{vid:04x}&pid_{pid:04x}'
+    return next(
+        (
+            path
+            for path in _interface_paths(GUID_DEVINTERFACE_USB_DEVICE)
+            if vid_pid in path.lower()
+        ),
+        None,
     )
 
+
+def _interface_paths(interface: tuple, instance_id: str | None = None) -> Iterator[str]:
+    """The path of each present device interface of the class ``interface``, in turn.
+
+    A generator, so a caller that stops at a match reads no interface past it.
+
+    Args:
+        interface: The interface class GUID, as its four parts.
+        instance_id: Only the interfaces of this device; every device's when None.
+
+    Raises:
+        CameraUsbLookupFailedError: A SetupAPI call failed, naming it and its
+            last error.
+    """
+    guid = GUID(*interface)
+    dev_info = setupapi.SetupDiGetClassDevsW(
+        byref(guid), instance_id, None, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE
+    )
     if dev_info == INVALID_HANDLE_VALUE:
         raise CameraUsbLookupFailedError(f'SetupDiGetClassDevsW failed: {ctypes.get_last_error()}')
-
-    vid_pid = f'vid_{vid:04x}&pid_{pid:04x}'
     iface_data = SP_DEVICE_INTERFACE_DATA()
     iface_data.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA)
     idx = 0
-
     try:
         while True:
             if not setupapi.SetupDiEnumDeviceInterfaces(
@@ -328,7 +409,7 @@ def find_device_path(vid: int, pid: int) -> str | None:
             ):
                 code = ctypes.get_last_error()
                 if code == ERROR_NO_MORE_ITEMS:
-                    return None
+                    return
                 raise CameraUsbLookupFailedError(
                     f'SetupDiEnumDeviceInterfaces({idx}) failed: {code}'
                 )
@@ -351,12 +432,75 @@ def find_device_path(vid: int, pid: int) -> str | None:
                 raise CameraUsbLookupFailedError(
                     f'SetupDiGetDeviceInterfaceDetailW({idx - 1}) failed: {ctypes.get_last_error()}',
                 )
-
-            path = detail.DevicePath
-            if vid_pid in path.lower():
-                return path
+            yield detail.DevicePath
     finally:
         setupapi.SetupDiDestroyDeviceInfoList(dev_info)
+
+
+def hub_port(device: DeviceProperties) -> HubPort | None:
+    """The device's connection as the hub it is on reports it: its speed, its port's protocols.
+
+    Asked of the hub's own interface, by the device's port number, without
+    elevation where Windows allows a hub to be opened for it.
+
+    Returns:
+        HubPort | None: None when Windows names no parent or port for the
+            device, or its parent is not a hub (a function of a composite
+            device, whose speed is its parent's).
+
+    Raises:
+        CameraUsbLookupFailedError: The hub could not be opened or asked,
+            naming the call and its last error.
+    """
+    parent = device.values.get('parent')
+    port = device.values.get('address')
+    if parent is None or port is None:
+        return None
+    hub = next(_interface_paths(GUID_DEVINTERFACE_USB_HUB, parent), None)
+    if hub is None:
+        return None
+    handle = kernel32.CreateFileW(
+        hub, GENERIC_WRITE, FILE_SHARE_WRITE, None, OPEN_EXISTING, 0, None
+    )
+    if handle is None or handle == INVALID_HANDLE_VALUE:
+        raise CameraUsbLookupFailedError(f'CreateFileW({parent}) failed: {ctypes.get_last_error()}')
+    try:
+        connection = USB_NODE_CONNECTION_INFORMATION_EX()
+        connection.ConnectionIndex = port
+        _ask_hub(handle, IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX, connection, parent, port)
+        protocols = USB_NODE_CONNECTION_INFORMATION_EX_V2()
+        protocols.ConnectionIndex = port
+        protocols.Length = sizeof(USB_NODE_CONNECTION_INFORMATION_EX_V2)
+        protocols.SupportedUsbProtocols = _ASK_EVERY_PROTOCOL
+        _ask_hub(handle, IOCTL_USB_GET_NODE_CONNECTION_INFORMATION_EX_V2, protocols, parent, port)
+    finally:
+        kernel32.CloseHandle(handle)
+    return HubPort(
+        speed=connection.Speed, protocols=protocols.SupportedUsbProtocols, flags=protocols.Flags
+    )
+
+
+def _ask_hub(handle, code: int, answer: Structure, parent: str, port: int) -> None:
+    """One query of a hub, ``answer`` sent and filled in place.
+
+    Raises:
+        CameraUsbLookupFailedError: The hub refused it, naming the query and
+            its last error.
+    """
+    returned = c_ulong(0)
+    if not kernel32.DeviceIoControl(
+        handle,
+        code,
+        byref(answer),
+        sizeof(answer),
+        byref(answer),
+        sizeof(answer),
+        byref(returned),
+        None,
+    ):
+        raise CameraUsbLookupFailedError(
+            f'DeviceIoControl({code:#x}) of {parent} port {port} failed: {ctypes.get_last_error()}'
+        )
 
 
 def device_bindings(hardware_id: str) -> list[DeviceBinding]:
@@ -398,6 +542,7 @@ _PROPERTIES = {
     'problem_status': DEVPKEY_Device_ProblemStatus,
     'location': DEVPKEY_Device_LocationInfo,
     'parent': DEVPKEY_Device_Parent,
+    'address': DEVPKEY_Device_Address,
 }
 
 

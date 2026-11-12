@@ -113,8 +113,11 @@ from _lumascope.drivers.exceptions import (
     CameraUsbOpenFailedError,
     CameraWriteFailedError,
     HardwareError,
+    UsbCensusUnreadableError,
 )
+from _lumascope.drivers.usb_census import CensusDevice
 from _lumascope.drivers.usb_driver_binding import (
+    CENSUS_VENDORS,
     DEVICE_NAMES,
     FX2_BOOTLOADER,
     FX2_FIRMWARE,
@@ -1261,12 +1264,9 @@ class _PyusbTransport:
         absent here is one LumaViewPro's libusb cannot open, which tells a
         driver fault from a scope not plugged in.
         """
-        library = (
-            f'libusb {_FX2_GATE.library_version or "(version unread)"} '
-            f'from {_FX2_GATE.library_path}'
-        )
+        library = _library_name()
         try:
-            devices = list(usb.core.find(find_all=True, idVendor=VID))
+            devices = _library_devices({VID})
         except (*_usb_errors(), usb.core.NoBackendError) as e:
             return f'the Cypress (0x{VID:04X}) devices {library} sees are unreadable: {e}'
         seen = '; '.join(describe_usb_device(d) for d in devices) or 'none'
@@ -1664,6 +1664,81 @@ def host_bindings(identity: str) -> list[DeviceBinding] | None:
         CameraUsbLookupFailedError: The bindings could not be read.
     """
     return _platform_transport_class().bindings(identity)
+
+
+def _library_name() -> str:
+    """The USB library this process reads the bus through, for the log."""
+    return f'libusb {_FX2_GATE.library_version or "(version unread)"} from {_FX2_GATE.library_path}'
+
+
+def _library_devices(vendor_ids: set[int]) -> list[Any]:
+    """Every device of ``vendor_ids`` the USB library sees, in the order it lists them.
+
+    The one enumeration of the bus through the bundled libusb, which this
+    module alone loads.
+
+    Raises:
+        usb.core.USBError, usb.core.NoBackendError: The library could not
+            list the bus.
+    """
+    return list(usb.core.find(find_all=True, custom_match=lambda d: d.idVendor in vendor_ids))
+
+
+def usb_library_devices(vendor_ids: Iterable[int]) -> tuple[str, list[CensusDevice]]:
+    """Each present device of ``vendor_ids`` the bundled USB library sees, for the census.
+
+    Its bus and port path, and the speed it negotiated; the library cannot
+    say what its port could do, and the host binds no driver to it.
+
+    Returns:
+        tuple[str, list[CensusDevice]]: The library read through, and the devices.
+
+    Raises:
+        UsbCensusUnreadableError: The bundled libusb is not in use, or it
+            could not list the bus, naming why.
+    """
+    if not _HAS_USB or _FX2_GATE.library_path is None:
+        raise UsbCensusUnreadableError(
+            f'the USB library is not in use: {_FX2_GATE.library_refusal}'
+        )
+    library = _library_name()
+    try:
+        devices = _library_devices(set(vendor_ids))
+    except (*_usb_errors(), usb.core.NoBackendError) as e:
+        raise UsbCensusUnreadableError(f'{library} could not list the bus: {e}') from e
+    return library, [_census_device(device) for device in devices]
+
+
+def _census_device(device: Any) -> CensusDevice:
+    """A device the library listed, as the census records it; a field it could not read is named."""
+    unreadable = []
+    fields = {}
+    for name in ('idVendor', 'idProduct', 'bus', 'port_numbers', 'speed'):
+        try:
+            fields[name] = getattr(device, name)
+        except Exception as e:
+            # Recorded on the device: the census lists what it could read of each.
+            unreadable.append(f'{name} ({type(e).__name__}: {e})')
+            fields[name] = None
+    ports = fields['port_numbers']
+    location = None
+    if fields['bus'] is not None:
+        location = f'bus {fields["bus"]}' + (
+            f' port {".".join(str(p) for p in ports)}' if ports else ''
+        )
+    vendor_id = f'{fields["idVendor"]:04X}' if fields['idVendor'] is not None else None
+    return CensusDevice(
+        vendor_id=vendor_id,
+        product_id=f'{fields["idProduct"]:04X}' if fields['idProduct'] is not None else None,
+        vendor=CENSUS_VENDORS.get(vendor_id) if vendor_id else None,
+        instance_id=None,
+        location=location,
+        present=True,
+        binding=None,
+        speed_mbps=_LIBUSB_SPEED_MBPS.get(fields['speed']),
+        port_best_mbps=None,
+        unreadable=tuple(unreadable),
+    )
 
 
 # ---------------------------------------------------------------------------

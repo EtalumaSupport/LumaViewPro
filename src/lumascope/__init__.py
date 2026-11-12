@@ -33,6 +33,7 @@ from _lumascope.drivers.exceptions import (
     MotionInterlockError,
     MotionNotCompletedError,
     PartAbsentError,
+    UsbCensusUnreadableError,
 )
 from _lumascope.drivers.firmware_updater import (
     UpdateError,
@@ -872,6 +873,7 @@ __all__ = [
     'UiDispatcher',
     'UnfitArgument',
     'UpdateError',
+    'UsbCensusUnreadableError',
     'UsbDeviceBinding',
     'UsbIdentityBindings',
     'Video',

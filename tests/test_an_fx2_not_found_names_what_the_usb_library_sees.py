@@ -44,7 +44,8 @@ def test_the_usb_library_names_each_cypress_device_and_its_speed(monkeypatch):
         'usb',
         SimpleNamespace(
             core=SimpleNamespace(
-                find=lambda find_all, idVendor: iter([other_board]), NoBackendError=ValueError
+                find=lambda find_all, custom_match: filter(custom_match, [other_board]),
+                NoBackendError=ValueError,
             )
         ),
         raising=False,
@@ -57,7 +58,7 @@ def test_the_usb_library_names_each_cypress_device_and_its_speed(monkeypatch):
 
 
 def test_a_usb_library_that_cannot_list_says_so(monkeypatch):
-    def no_backend(find_all, idVendor):
+    def no_backend(find_all, custom_match):
         raise ValueError('No backend available')
 
     # a stand-in by design: a host whose libusb did not load.

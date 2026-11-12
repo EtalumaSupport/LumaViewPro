@@ -180,8 +180,9 @@ class DeviceProperties:
     ``values`` holds each property Windows gave, by name (``present``,
     ``service``, ``provider``, ``inf``, ``version``, ``date``,
     ``problem_code``, ``problem_status``, ``location``, ``parent``,
-    ``interface_guids``); a name absent is a property the device does not
-    have, as a device with no driver has no service. ``unreadable`` holds
+    ``address``, the port number on its hub, ``interface_guids``); a name
+    absent is a property the device does not have, as a device with no
+    driver has no service. ``unreadable`` holds
     each property Windows gave in a type LumaViewPro does not read, by name,
     with that type.
     """
@@ -191,14 +192,15 @@ class DeviceProperties:
     unreadable: Mapping[str, str]
 
 
-# The properties read for the log alone, with the words the log names each
-# by: one unreadable is recorded on its device. Every other property decides
-# whether the device is usable, and one unreadable fails the read.
-_LOG_ONLY = {
+# The properties a binding is decided by: one unreadable fails the read,
+# since whether the device is usable is then not known. Every other property
+# is for the log, and one unreadable is recorded on its device, named by its
+# words here or else by its name.
+_DECIDING = ('present', 'service', 'provider', 'inf', 'version', 'date', 'problem_code')
+_WORDS = {
     'problem_status': 'problem status',
-    'location': 'location',
-    'parent': 'parent',
     'interface_guids': 'interface GUIDs',
+    'address': 'port number',
 }
 
 
@@ -221,7 +223,7 @@ def binding_from(device: DeviceProperties, ours: set[str]) -> DeviceBinding:
         CameraUsbLookupFailedError: A property the binding is decided by came
             in a type this does not read.
     """
-    deciding = {name: why for name, why in device.unreadable.items() if name not in _LOG_ONLY}
+    deciding = {name: why for name, why in device.unreadable.items() if name in _DECIDING}
     if deciding:
         raise _PropertyTypeUnreadError(
             f'{device.instance_id}: SetupDiGetDevicePropertyW returned '
@@ -245,9 +247,7 @@ def binding_from(device: DeviceProperties, ours: set[str]) -> DeviceBinding:
         interface_guids=values.get('interface_guids'),
         ours=(inf or '').lower() in ours,
         unreadable=tuple(
-            f'{words} ({device.unreadable[name]})'
-            for name, words in _LOG_ONLY.items()
-            if name in device.unreadable
+            f'{_WORDS.get(name, name)} ({why})' for name, why in device.unreadable.items()
         ),
     )
 

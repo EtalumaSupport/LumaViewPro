@@ -229,6 +229,20 @@ class CameraUsbDriverUnusableError(Fault, HardwareError):
     words_for_person = False
 
 
+class UsbCensusUnreadableError(Fault, HardwareError):
+    """The host's list of USB devices could not be read for the census.
+
+    Windows' device list failed, or off Windows the USB library is not in
+    use. Not an absence: what is on the bus is then not known. The words
+    name the call or the library and why.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'usb_census_unreadable': None}
+    title = 'USB Devices Unreadable'
+
+    words_for_person = False
+
+
 class CameraUsbOpenFailedError(Fault, HardwareError):
     """The camera's USB device was found and could not be opened or set up
     for streaming. The words name the call and its error code.
