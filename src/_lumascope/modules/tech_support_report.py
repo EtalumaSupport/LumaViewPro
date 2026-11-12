@@ -329,6 +329,25 @@ def find_execution_record(recording_dir: pathlib.Path, max_up: int = 3):
     return None
 
 
+def _run(args: list[str], timeout: float = 10) -> str:
+    """What a host command said, for the report: its output, or why there is none.
+
+    A command that prints nothing -- a type its OS no longer has, a refusal
+    written only to stderr -- is said as such, with its exit status and its
+    stderr, so an empty answer never reaches the report as an empty field.
+    """
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, errors='replace', timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        return f'Error: {e}'
+    out = r.stdout.strip()
+    if out:
+        return out
+    said = f'`{" ".join(args)}` answered nothing (exit {r.returncode})'
+    err = r.stderr.strip()
+    return f'{said}: {err}' if err else said
+
+
 def _collect_system_info():
     """Collect OS, CPU, RAM, disks, power/sleep config."""
     info = {
@@ -341,13 +360,6 @@ def _collect_system_info():
         'python_executable': sys.executable,
         'cpu': platform.processor() or 'Unknown',
     }
-
-    def _run(args, timeout=10):
-        try:
-            r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
-            return r.stdout.strip()
-        except Exception as e:
-            return f'Error: {e}'
 
     is_win = platform.system() == 'Windows'
     is_mac = platform.system() == 'Darwin'
@@ -382,11 +394,10 @@ def _collect_system_info():
             ['wmic', 'computersystem', 'get', 'TotalPhysicalMemory', '/format:list']
         )
     elif is_mac:
-        try:
-            mem_bytes = int(_run(['sysctl', '-n', 'hw.memsize']))
-            info['ram_total_gb'] = f'{mem_bytes / (1024**3):.1f} GB'
-        except (ValueError, TypeError):
-            pass
+        mem = _run(['sysctl', '-n', 'hw.memsize'])
+        info['ram_total_gb'] = (
+            f'{int(mem) / (1024**3):.1f} GB' if mem.isdigit() else f'not read: {mem}'
+        )
     else:
         try:
             with open('/proc/meminfo', encoding='utf-8') as f:
@@ -596,18 +607,15 @@ def _collect_usb_devices():
     """
     devices = []
 
-    def _run(args, timeout=15):
-        try:
-            r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
-            return r.stdout
-        except Exception as e:
-            return f'Error: {e}'
-
     system = platform.system()
     if system == 'Darwin':
-        devices.append(('SPUSBDataType', _run(['system_profiler', 'SPUSBDataType'])))
+        # macOS 26 has SPUSBHostDataType alone, with every device under its
+        # bus; the macOS 14 floor may have SPUSBDataType alone. Both are asked,
+        # and the one a host lacks says it answered nothing.
+        for data_type in ('SPUSBHostDataType', 'SPUSBDataType'):
+            devices.append((data_type, _run(['system_profiler', data_type], timeout=15)))
     elif system != 'Windows':
-        devices.append(('lsusb', _run(['lsusb', '-v'])[:5000]))
+        devices.append(('lsusb', _run(['lsusb', '-v'], timeout=15)[:5000]))
 
     # pyserial port enumeration (always)
     try:
