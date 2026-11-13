@@ -19,13 +19,15 @@ from _lumascope.lib import log_helpers
 
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.exceptions import (
+    FramesLostIn,
     MoveFaultError,
     MoveStoppedError,
     RecordingSavedLateNotice,
     RunCleanupFailedError,
     SlowFileWritesNotice,
+    VideoFramesDroppedError,
 )
-from _lumascope.modules.video_recording import RECORDING_SAVE_WAIT_NOTICE_S
+from _lumascope.modules.video_recording import RECORDING_SAVE_WAIT_NOTICE_S, FrameLosses
 from _lumascope.modules.lumascope_api.illumination import (
     LedEndPolicy,
     LedReading,
@@ -163,6 +165,10 @@ def run_cleanup(
     video_save_wait_s: float | None,
     # Whether the run saved its videos as frames, for the words of the wait.
     video_as_frames: bool,
+    # The frames the run's finished video steps lost, together
+    # (ProtocolImageWriter.video_losses): told once here, since each step's
+    # own report goes to the log.
+    video_losses: FrameLosses,
 ) -> bool:
     """Core cleanup logic -- restores state, ends executors.
 
@@ -413,6 +419,25 @@ def run_cleanup(
         from _lumascope.modules.notification_center import notifications
 
         notifications.report_outcome(SlowFileWritesNotice(), solicited=False, category='Protocol')
+
+    # The frames the run's video steps lost, told once at the run's end,
+    # attended or not: a person who left the run reads it when they come
+    # back, and a run of many steps is not a popup a step.
+    if video_losses:
+        from _lumascope.modules.notification_center import notifications
+
+        notifications.report_outcome(
+            VideoFramesDroppedError(
+                video_losses.dropped,
+                video_losses.selected,
+                unstamped=video_losses.unstamped,
+                skipped=video_losses.skipped,
+                lost_at_camera=video_losses.lost_at_camera,
+                lost_in=FramesLostIn.RUN,
+            ),
+            solicited=False,
+            category='Protocol',
+        )
 
     # Saving that ran on long after the run's recordings ended, told once at
     # the run's end beside the slow-writes notice; a person who left the run

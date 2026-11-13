@@ -756,6 +756,54 @@ class TestARunsSlowVideoSaveIsToldAtItsEnd:
         )
 
 
+class TestARunsLostVideoFramesAreToldOnceAtItsEnd:
+    """A run whose video steps lost frames shows one report at its end, with
+    every step's losses together, though the run mutes each step's own
+    report while it runs.
+    """
+
+    def test_two_steps_writes_that_failed_are_told_once_in_the_runs_words(
+        self, executor, scope, tmp_path, monkeypatch, centre_posts
+    ):
+        import _lumascope.modules.protocol_recording as protocol_recording
+
+        real_write = protocol_recording.write_frame
+        lock = threading.Lock()
+        writes = {'n': 0, 'failed': 0}
+
+        def _every_third_write_fails(*args, **kwargs):
+            # A stand-in by design: the simulator has no disk fault to inject.
+            with lock:
+                writes['n'] += 1
+                fails = writes['n'] % 3 == 0
+                writes['failed'] += fails
+            if fails:
+                raise OSError('disk said no')
+            return real_write(*args, **kwargs)
+
+        monkeypatch.setattr(protocol_recording, 'write_frame', _every_third_write_fails)
+        protocol = _make_multi_step_protocol(
+            [
+                {'acquire': 'video', 'video_config': {'duration': 0.5}},
+                {'acquire': 'video', 'video_config': {'duration': 0.5}, 'x': 30.0},
+            ]
+        )
+
+        completed, _ = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
+
+        assert completed
+        manifests = [json.loads(p.read_text()) for p in tmp_path.rglob('recording_manifest.json')]
+        assert len(manifests) == 2
+        assert all(m['write_failures'] > 0 for m in manifests), 'each step must lose a frame'
+        selected = sum(m['frames_selected'] for m in manifests)
+        told = [n for n in centre_posts if n.shown and n.title == 'Video Frames Dropped']
+        assert len(told) == 1, f'expected one report at the run end, shown: {told}'
+        assert told[0].message.startswith(
+            f"{writes['failed']} of {selected} frame(s) in the run's video steps "
+            'could not be written'
+        )
+
+
 class TestFullProtocol:
     """Test 7: Full protocol with multiple scans."""
 

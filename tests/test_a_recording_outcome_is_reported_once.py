@@ -10,12 +10,16 @@ The "FPS budget exceeded" notice is gone: the setting is a limit, and a
 camera slower than a limit is not a problem.
 """
 
+import threading
+
 import pytest
 
 import _lumascope.modules.manual_recording as manual_recording_module
 import _lumascope.modules.stack_builder as stack_builder_module
 import _lumascope.modules.protocol_recording as protocol_recording
+import _lumascope.modules.video_recording as video_recording
 from _lumascope.modules.exceptions import (
+    FramesLostIn,
     HyperstackRefusedError,
     RecordingFinalizeError,
     RecordingFramesUnstampedError,
@@ -68,30 +72,79 @@ def _record_reports(monkeypatch, module):
             'Frames already written are on disk; check the log.',
         ),
         (
-            VideoFramesDroppedError(2, 9, unstamped=0, protocol_step=False),
+            VideoFramesDroppedError(
+                2,
+                9,
+                unstamped=0,
+                skipped=0,
+                lost_at_camera=0,
+                lost_in=FramesLostIn.MANUAL_RECORDING,
+            ),
             'Video Frames Dropped',
-            '2 of 9 frame(s) could not be written, so the saved video is shorter '
-            'than the recording. Check the log for the cause.',
+            '2 of 9 frame(s) could not be written, so the saved video has gaps. Check '
+            'the log for why frames could not be written.',
         ),
         (
-            VideoFramesDroppedError(2, 9, unstamped=0, protocol_step=True),
+            VideoFramesDroppedError(
+                2, 9, unstamped=0, skipped=0, lost_at_camera=0, lost_in=FramesLostIn.VIDEO_STEP
+            ),
             'Video Frames Dropped',
-            '2 of 9 frame(s) in a video step could not be written, so that video is '
-            'shorter than its recording. Check the log for the cause.',
+            '2 of 9 frame(s) in a video step could not be written, so that video has '
+            'gaps. Check the log for why frames could not be written.',
         ),
         (
-            VideoFramesDroppedError(2, 9, unstamped=3, protocol_step=False),
+            VideoFramesDroppedError(
+                2,
+                9,
+                unstamped=3,
+                skipped=0,
+                lost_at_camera=0,
+                lost_in=FramesLostIn.MANUAL_RECORDING,
+            ),
             'Video Frames Dropped',
-            '2 of 9 frame(s) could not be written and 3 frame(s) came from the camera '
-            'without their timestamps and were left out, so the saved video is shorter '
-            'than the recording. Check the log for the cause.',
+            '2 of 9 frame(s) could not be written; 3 frame(s) came from the camera '
+            'without their timestamps and were left out, so the saved video has gaps. '
+            'Check the log for why frames could not be written.',
         ),
         (
-            VideoFramesDroppedError(0, 9, unstamped=3, protocol_step=True),
+            VideoFramesDroppedError(
+                0, 9, unstamped=3, skipped=0, lost_at_camera=0, lost_in=FramesLostIn.VIDEO_STEP
+            ),
             'Video Frames Dropped',
             '3 frame(s) in a video step came from the camera without their timestamps '
-            'and were left out, so that video is shorter than its recording. Check the '
-            'log for the cause.',
+            'and were left out, so that video has gaps.',
+        ),
+        (
+            VideoFramesDroppedError(
+                0,
+                9,
+                unstamped=0,
+                skipped=4,
+                lost_at_camera=None,
+                lost_in=FramesLostIn.MANUAL_RECORDING,
+            ),
+            'Video Frames Dropped',
+            '4 frame(s) were skipped because this PC could not save frames as fast as '
+            'the camera sent them, so the saved video has gaps. A lower Recording max '
+            'FPS in Advanced Settings avoids the skips.',
+        ),
+        (
+            VideoFramesDroppedError(
+                0, 9, unstamped=0, skipped=0, lost_at_camera=5, lost_in=FramesLostIn.VIDEO_STEP
+            ),
+            'Video Frames Dropped',
+            '5 frame(s) the camera sent during a video step never reached the '
+            'recording, so that video has gaps.',
+        ),
+        (
+            VideoFramesDroppedError(
+                0, 9, unstamped=0, skipped=4, lost_at_camera=5, lost_in=FramesLostIn.RUN
+            ),
+            'Video Frames Dropped',
+            "4 frame(s) in the run's video steps were skipped because this PC could not "
+            'save frames as fast as the camera sent them; 5 frame(s) the camera sent during '
+            "the run's video steps never reached their recordings, so those videos have "
+            'gaps. A lower Recording max FPS in Advanced Settings avoids the skips.',
         ),
         (
             RecordingFramesUnstampedError(12, protocol_step=False),
@@ -116,6 +169,9 @@ def _record_reports(monkeypatch, module):
         'dropped-step',
         'dropped-and-unstamped-manual',
         'unstamped-step',
+        'skipped-manual',
+        'lost-at-camera-step',
+        'skipped-and-lost-at-camera-run',
         'all-unstamped-manual',
         'all-unstamped-step',
         'hyperstack',
@@ -232,7 +288,65 @@ def test_dropped_frames_are_reported_once_unsolicited(tmp_path, monkeypatch, pos
 
     ((fault, kw),) = reported
     assert isinstance(fault, VideoFramesDroppedError)
-    assert (fault.dropped, fault.protocol_step) == (1, False)
+    assert (fault.dropped, fault.lost_in) == (1, FramesLostIn.MANUAL_RECORDING)
+    assert kw == {'solicited': False, 'category': 'Recording'}
+
+
+def test_frames_skipped_for_memory_are_reported_once_in_their_own_words(
+    tmp_path, monkeypatch, post_processing
+):
+    controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
+    reported = _record_reports(monkeypatch, manual_recording_module)
+    # A stand-in by design: the host's memory is not the simulator's.
+    monkeypatch.setattr(
+        video_recording,
+        'read_memory_headroom',
+        lambda: video_recording.MemoryHeadroom(
+            physical_available_bytes=256 << 20, commit_headroom_bytes=None
+        ),
+    )
+    real_write = manual_recording_module.write_frame
+    release = threading.Event()
+
+    def _held_write(*args, **kwargs):
+        assert release.wait(5), 'the write was held past 5 s'
+        return real_write(*args, **kwargs)
+
+    monkeypatch.setattr(manual_recording_module, 'write_frame', _held_write)
+    controller.start()
+    # Four frames in the four writers' hands and one waiting; the next three
+    # wait beyond the writers with memory short.
+    feed_frames(scope, clock, 8, fps=10.0)
+    controller.stop()
+    release.set()
+    finish(controller)
+
+    ((fault, kw),) = reported
+    assert isinstance(fault, VideoFramesDroppedError)
+    assert (fault.skipped, fault.dropped, fault.selected) == (3, 0, 5)
+    assert str(fault).startswith(
+        '3 frame(s) were skipped because this PC could not save frames as fast as the '
+        'camera sent them'
+    )
+    assert kw == {'solicited': False, 'category': 'Recording'}
+
+
+def test_frames_the_camera_lost_are_reported_once_and_never_told_as_kept(
+    tmp_path, monkeypatch, post_processing
+):
+    controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
+    reported = _record_reports(monkeypatch, manual_recording_module)
+    monkeypatch.setattr(video_recording, 'RECORDING_SAVE_WAIT_NOTICE_S', -1.0)
+    controller.start()
+    feed_frames(scope, clock, 3, fps=10.0, start_id=0)
+    feed_frames(scope, clock, 3, fps=10.0, start_id=10)  # 3-9 never arrived
+    controller.stop()
+    finish(controller)
+
+    ((fault, kw),) = reported
+    assert isinstance(fault, VideoFramesDroppedError), 'a recording with gaps was told as kept'
+    assert fault.lost_at_camera == 7
+    assert '7 frame(s) the camera sent never reached the recording' in str(fault)
     assert kw == {'solicited': False, 'category': 'Recording'}
 
 
@@ -255,8 +369,9 @@ def test_a_video_steps_dropped_frames_are_reported_under_protocol(sim_scope, tmp
     record_first_frame(sim_scope, tmp_path, monkeypatch, write_fails=True)
 
     ((fault, kw),) = reported
-    assert isinstance(fault, VideoFramesDroppedError) and fault.protocol_step is True
-    assert kw == {'solicited': False, 'category': 'Protocol'}
+    assert isinstance(fault, VideoFramesDroppedError)
+    assert fault.lost_in is FramesLostIn.VIDEO_STEP
+    assert kw == {'solicited': False, 'category': 'Protocol', 'log_only': True}
 
 
 def test_a_video_steps_failed_finish_is_chained_under_protocol(sim_scope, tmp_path, monkeypatch):
@@ -300,4 +415,23 @@ def test_a_video_step_sent_only_unstamped_frames_says_so(sim_scope, tmp_path, mo
     ((fault, kw),) = reported
     assert isinstance(fault, RecordingFramesUnstampedError) and fault.protocol_step is True
     assert fault.unstamped > 0
-    assert kw == {'solicited': False, 'category': 'Protocol'}
+    assert kw == {'solicited': False, 'category': 'Protocol', 'log_only': True}
+
+
+def test_a_dropped_frames_fault_carries_its_counts_on_the_wire():
+    from _lumascope.rest import problems
+
+    fault = VideoFramesDroppedError(
+        1, 9, unstamped=2, skipped=3, lost_at_camera=None, lost_in=FramesLostIn.MANUAL_RECORDING
+    )
+    body = problems.answered_by_member(fault, 'req').body
+    assert body['type'].endswith('video_frames_dropped')
+    assert {
+        k: body[k] for k in ('dropped', 'selected', 'unstamped', 'skipped', 'lost_at_camera')
+    } == {
+        'dropped': 1,
+        'selected': 9,
+        'unstamped': 2,
+        'skipped': 3,
+        'lost_at_camera': None,
+    }

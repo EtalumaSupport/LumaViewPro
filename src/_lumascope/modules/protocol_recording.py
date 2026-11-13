@@ -51,6 +51,7 @@ from _lumascope.modules.write_size import FrameSizing, estimate_step_write_mb
 from _lumascope.modules.coord_transformations import PlatePosition
 from _lumascope.modules.labware import Labware
 from _lumascope.modules.exceptions import (
+    FramesLostIn,
     RecordingDetailsNotSavedError,
     RecordingFinalizeError,
     RecordingFramesUnstampedError,
@@ -84,6 +85,7 @@ from _lumascope.modules.video_cadence import (
 )
 from _lumascope.modules.video_recording import (
     END_REASON_START_FAILED,
+    FrameLosses,
     PreRollEnd,
     RecordingConfig,
     VideoRecordingEngine,
@@ -205,6 +207,11 @@ class ProtocolVideoStep:
         # with its backlog saved, not discarded: what the run's end needs to
         # say "every frame was kept" when it waited for the step's saving.
         self._kept_every_frame = False
+        # The frames the finished step lost, by cause: what the run's end
+        # adds into the one report of the run's losses. None until it has
+        # finished; nothing for a step whose writer died, which ends the run
+        # in its own words.
+        self._frame_losses: FrameLosses | None = None
         self._channel_colors = channel_colors
         self._autogain_settings = autogain_settings
         self._events = events
@@ -272,10 +279,19 @@ class ProtocolVideoStep:
         """True once the step has finished having written every frame it kept.
 
         False while it is unfinished, and for a step whose backlog was
-        discarded, whose writer died, or that lost a frame to a write or a
-        missing camera timestamp.
+        discarded, whose writer died, or that lost a frame
+        (``RecordingResult.kept_every_frame``).
         """
         return self._kept_every_frame
+
+    @property
+    def frame_losses(self) -> FrameLosses | None:
+        """The frames the finished step lost, by cause; None until it has finished.
+
+        Read by the run's end, which tells every step's losses in one
+        report: each step's own report goes to the log.
+        """
+        return self._frame_losses
 
     def wait_until_finished(self, timeout: float | None = None) -> bool:
         """Block until the drain and finish complete; True when finished."""
@@ -637,7 +653,7 @@ class ProtocolVideoStep:
             camera_frame_time(frame, mapping) if mapping is not None else arrival_time(frame)
         )
         if frame_time is None:
-            engine.note_unstamped()
+            engine.note_unstamped(frame.chunks)
             return
         chunks = dict(frame.chunks) if frame.chunks is not None else None
         timestamp_s = frame_time.at.timestamp()
@@ -835,12 +851,15 @@ class ProtocolVideoStep:
                     )
                 elif result.frames_written == 0:
                     if all_unstamped:
+                        # Logged: the run's end tells the step's unstamped
+                        # frames with the run's other losses.
                         notifications.report_outcome(
                             RecordingFramesUnstampedError(
                                 result.frames_unstamped, protocol_step=True
                             ),
                             solicited=False,
                             category='Protocol',
+                            log_only=True,
                         )
                     # The row's reason is the engine's recorded end reason --
                     # a camera death and a user stop must not share a label.
@@ -873,30 +892,26 @@ class ProtocolVideoStep:
                     notifications.report_outcome(
                         unsaved, solicited=False, category='Video Recording'
                     )
-                if (
-                    (dropped > 0 or result.frames_unstamped > 0)
-                    and not result.aborted
-                    and not all_unstamped
-                ):
-                    # The center's protocol mute suppresses this popup during
-                    # an unattended run; the manifest and end-of-run report
-                    # carry the counts either way.
+                if result.lost_frames(writer_dropped) and not result.aborted and not all_unstamped:
+                    # Logged, with the step's counts: the run's end shows
+                    # every step's losses in one report, so a run of many
+                    # steps is told once and an unattended run is told at all.
                     notifications.report_outcome(
                         VideoFramesDroppedError(
                             dropped,
                             result.frames_selected,
                             unstamped=result.frames_unstamped,
-                            protocol_step=True,
+                            skipped=result.frames_skipped,
+                            lost_at_camera=result.frames_lost_at_camera,
+                            lost_in=FramesLostIn.VIDEO_STEP,
                         ),
                         solicited=False,
                         category='Protocol',
+                        log_only=True,
                     )
-                self._kept_every_frame = (
-                    result.save_wait_s is not None
-                    and not result.aborted
-                    and dropped == 0
-                    and result.frames_unstamped == 0
-                )
+                if not result.aborted:
+                    self._frame_losses = result.losses(writer_dropped)
+                self._kept_every_frame = result.kept_every_frame(writer_dropped)
                 logger.info(f'[PROTOCOL-VIDEO] Finished: {result.summary()}')
 
     # ------------------------------------------------------------------

@@ -715,6 +715,35 @@ def _no_refused_edit_outlives_its_test():
 
 
 @pytest.fixture(autouse=True)
+def _the_hosts_memory_is_no_tests_input():
+    """Each test reads the PC's memory as ample unless it states its own reading.
+
+    A recording skips frames while its backlog waits and the PC's memory is
+    under the margin, so a test that builds a backlog would otherwise pass or
+    fail by how much memory the other workers on the host hold. A stand-in by
+    design: the host's memory is not the simulator's. A test of the skip
+    replaces it with its own reading, through ``monkeypatch``, which undoes it
+    before this restores the reader.
+
+    Set and restored here, not through ``monkeypatch``: an autouse fixture
+    that takes it sets ``monkeypatch`` up before every test's own fixtures, so
+    it is torn down after them, and a session fixture's shutdown would then
+    run with the test's patches still in place.
+    """
+    from _lumascope.modules import video_recording
+
+    ample = video_recording.MemoryHeadroom(
+        physical_available_bytes=64 << 30, commit_headroom_bytes=64 << 30
+    )
+    reader = video_recording.read_memory_headroom
+    video_recording.read_memory_headroom = lambda: ample
+    try:
+        yield
+    finally:
+        video_recording.read_memory_headroom = reader
+
+
+@pytest.fixture(autouse=True)
 def _no_settings_replacement_outlives_its_test():
     """Each test starts with no stored-value replacement waiting to be reported.
 

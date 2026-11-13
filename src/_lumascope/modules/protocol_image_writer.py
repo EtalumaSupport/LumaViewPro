@@ -44,6 +44,7 @@ from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
 from _lumascope.modules.protocol_recording import ProtocolVideoStep
+from _lumascope.modules.video_recording import FrameLosses
 from _lumascope.modules.recording_frames import FrameFact, frame_fact
 from _lumascope.modules.run_events import RunEvents, deliver_here
 from _lumascope.modules.run_outcome import (
@@ -820,11 +821,12 @@ class ProtocolImageWriter:
         self._to_plate = to_plate
         # The video steps still recording or finishing: one is dropped when
         # the next is added, once it has finished, and whether it kept every
-        # frame is folded into the flag below first. Written by the protocol
-        # thread alone, as a new list, so a reader on another thread walks
-        # a list no one changes.
+        # frame and what it lost are folded into the two below first. Written
+        # by the protocol thread alone, as a new list, so a reader on another
+        # thread walks a list no one changes.
         self._video_steps: list[ProtocolVideoStep] = []
         self._dropped_videos_kept_every_frame = True
+        self._dropped_videos_losses = FrameLosses()
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
         self._captures_asked = captures_asked
@@ -926,9 +928,25 @@ class ProtocolImageWriter:
         for step in self._video_steps:
             if step.is_busy:
                 unfinished.append(step)
-            elif not step.kept_every_frame:
+                continue
+            if not step.kept_every_frame:
                 self._dropped_videos_kept_every_frame = False
+            if step.frame_losses is not None:
+                self._dropped_videos_losses += step.frame_losses
         self._video_steps = [*unfinished, recorder]
+
+    def video_losses(self) -> FrameLosses:
+        """The frames every finished video step of the run lost, by cause, together.
+
+        Read by the run's end, after its wait for the steps' saving, for the
+        one report of the run's losses; a step still unfinished then has no
+        losses known and adds none.
+        """
+        losses = self._dropped_videos_losses
+        for step in self._video_steps:
+            if step.frame_losses is not None:
+                losses += step.frame_losses
+        return losses
 
     @property
     def video_busy(self) -> bool:

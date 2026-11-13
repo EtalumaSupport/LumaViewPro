@@ -287,10 +287,10 @@ class TestVideoWriterDropAccounting:
 
 
 class TestProtocolVideoDropNotification:
-    """A protocol video step that lost frames must surface the loss as ONE
-    non-fatal warning through the central NotificationCenter -- whose
-    protocol mute owns whether an unattended run pops it -- plus the
-    manifest counts. A clean step posts nothing."""
+    """A clean protocol video step posts nothing. A step that lost frames
+    logs its own report, and the run's end tells every step's losses once
+    (pinned in test_a_recording_outcome_is_reported_once.py and
+    test_protocol_execution.py)."""
 
     @staticmethod
     def _posted(centre_posts):
@@ -298,17 +298,6 @@ class TestProtocolVideoDropNotification:
             level: [n for n in centre_posts if n.severity.name.lower() == level]
             for level in ('warning', 'error', 'critical')
         }
-
-    def test_write_failure_posts_one_nonfatal_error(
-        self, tmp_path, monkeypatch, centre_posts, sim_scope
-    ):
-        record_first_frame(sim_scope, tmp_path, monkeypatch, write_fails=True)
-        fired = self._posted(centre_posts)
-        assert len(fired['error']) == 1 and fired['warning'] == [], (
-            'a step that lost frames must post exactly one error through the '
-            f'center (the protocol mute owns popup policy); got {fired}'
-        )
-        assert fired['critical'] == [], 'a per-frame loss is non-fatal, never critical'
 
     def test_no_drops_posts_nothing(self, tmp_path, monkeypatch, centre_posts, sim_scope):
         record_first_frame(sim_scope, tmp_path, monkeypatch)

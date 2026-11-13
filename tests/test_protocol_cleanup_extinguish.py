@@ -28,6 +28,7 @@ import _lumascope.modules.sequenced_capture_runner as scr
 from _lumascope.modules.activity_claim import acting
 from tests.protocol_drives import a_claim_its_scope_asks, run_identity
 from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
+from _lumascope.modules.video_recording import FrameLosses
 from tests.scope_fakes import build_scope, channel_reading
 from tests.stock_channels import LED0
 
@@ -174,6 +175,7 @@ def _cleanup_told(scope, monkeypatch, apply_led_transition_fn):
         failed_before=(),
         video_save_wait_s=None,
         video_as_frames=False,
+        video_losses=FrameLosses(),
     )
     return applied, told
 

@@ -56,6 +56,7 @@ from _lumascope.modules.config_helpers import (
 )
 from _lumascope.modules.exceptions import (
     POST_PROCESSING_RUNNING_MESSAGE,
+    FramesLostIn,
     HyperstackRefusedError,
     InputFramesUnusableError,
     RecordingDetailsNotSavedError,
@@ -903,7 +904,7 @@ class ManualRecordingController:
             camera_frame_time(frame, mapping) if mapping is not None else arrival_time(frame)
         )
         if frame_time is None:
-            engine.note_unstamped()
+            engine.note_unstamped(frame.chunks)
             return
         chunks = dict(frame.chunks) if frame.chunks is not None else None
         timestamp_s = frame_time.at.timestamp()
@@ -1115,13 +1116,15 @@ class ManualRecordingController:
                         solicited=False,
                         category='Recording',
                     )
-                elif (dropped > 0 or result.frames_unstamped > 0) and not result.aborted:
+                elif result.lost_frames(writer_dropped) and not result.aborted:
                     notifications.report_outcome(
                         VideoFramesDroppedError(
                             dropped,
                             result.frames_selected,
                             unstamped=result.frames_unstamped,
-                            protocol_step=False,
+                            skipped=result.frames_skipped,
+                            lost_at_camera=result.frames_lost_at_camera,
+                            lost_in=FramesLostIn.MANUAL_RECORDING,
                         ),
                         solicited=False,
                         category='Recording',

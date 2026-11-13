@@ -14,6 +14,7 @@ import json
 import typing
 import logging
 import pathlib
+import sys
 import threading
 
 import pytest
@@ -28,6 +29,7 @@ import _lumascope.modules.video_recording as video_recording_module
 from _lumascope.modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
 from _lumascope.modules.lumascope_api.frame_record import TimestampSource
 from _lumascope.modules.video_recording import RecordingConfig, VideoRecordingEngine
+from _lumascope.modules.video_recording import read_memory_headroom as _real_read_memory_headroom
 from tests.video_engine_harness import (
     FakeClock,
     FrameFeed,
@@ -277,8 +279,9 @@ class TestNoRateLimit:
         assert result.summary().startswith('10 written, 0 failed'), result.summary()
 
 
-class TestEnqueueIsUnconditional:
-    def test_lagging_writer_never_causes_capture_drop(self, tmp_path):
+class TestABacklogWithMemoryToSpareIsAllKept:
+    def test_a_lagging_writer_with_memory_to_spare_causes_no_capture_drop(self, tmp_path):
+        # The PC's memory reads ample (the conftest's reading).
         writer = WriterStub(tmp_path, blocked=True)
         engine, _, clock, _ = make_engine(tmp_path, writer=writer)
         engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=2), None))
@@ -426,11 +429,11 @@ class TestMeasuredTruth:
 
     def test_an_unstamped_frame_is_counted_and_never_selected(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)
-        engine.note_unstamped()  # before the recording: nothing to count it in
+        engine.note_unstamped(None)  # before the recording: nothing to count it in
         engine.start(lambda: (make_config(tmp_path, fps=None, duration_s=10), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=0.3)
-        engine.note_unstamped()
-        engine.note_unstamped()
+        engine.note_unstamped(None)
+        engine.note_unstamped(None)
         engine.stop('user_stop')
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
@@ -1184,3 +1187,154 @@ class TestFourWriterLanes:
         result = engine.result()
         assert result.frames_written == result.frames_selected == 5
         assert claim.owner is None
+
+
+_MEMORY_SHORT = video_recording_module.MemoryHeadroom(
+    physical_available_bytes=256 << 20, commit_headroom_bytes=None
+)
+_COMMIT_SHORT = video_recording_module.MemoryHeadroom(
+    physical_available_bytes=64 << 30, commit_headroom_bytes=256 << 20
+)
+
+
+def _read_as(monkeypatch, headroom):
+    # A stand-in by design: the host's memory is not the simulator's.
+    monkeypatch.setattr(video_recording_module, 'read_memory_headroom', lambda: headroom)
+
+
+def _deliver(engine, clock, n, *, fps=10.0, first_id=None):
+    """Deliver n frames at fps; each states a FrameID from first_id, or none."""
+    for k in range(n):
+        clock.advance(1.0 / fps)
+        chunks = None if first_id is None else {'FrameID': first_id + k}
+        engine.ingest_frame(FrameFeed().frame(clock())[0], clock(), chunks, fact=None)
+
+
+class TestABacklogWithMemoryShortSkipsFrames:
+    """Frames waiting beyond the writers with the PC's memory short are skipped, counted.
+
+    The recording goes on: a skipped frame spends its slot, gets no number,
+    and frames are kept again once the writers have shrunk the backlog.
+    """
+
+    @pytest.mark.parametrize(
+        'short', [_MEMORY_SHORT, _COMMIT_SHORT], ids=['physical-short', 'commit-short']
+    )
+    def test_frames_are_skipped_until_the_backlog_shrinks_and_a_skipped_last_slot_ends_it(
+        self, tmp_path, monkeypatch, short
+    ):
+        _read_as(monkeypatch, short)
+        release_0, release_2 = threading.Event(), threading.Event()
+        writer = _LaneWriter(tmp_path, hold={0: release_0, 2: release_2})
+        engine, _writer, clock, claim = make_engine(tmp_path, writer=writer, writers=1)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=2), None))  # 20 slots
+
+        # Frame 0 is in its write and frame 1 waits: the next eight wait
+        # beyond the one writer with memory short, and are skipped.
+        _deliver(engine, clock, 10)
+        assert writer.entered[0].wait(5)
+        release_0.set()
+        assert writer.landed(1).wait(5)
+        # The backlog has shrunk: frames are kept again. Once the lane is in
+        # frame 2's write, frame 1 is wholly done, so frame 3 waits alone
+        # and the rest are skipped; the twentieth slot, skipped, ends it.
+        _deliver(engine, clock, 1)
+        assert writer.entered[2].wait(5)
+        _deliver(engine, clock, 9)
+        assert not engine.is_recording
+        release_2.set()
+        assert engine.wait_for_drain(timeout=5)
+
+        result = engine.result()
+        assert (result.frames_selected, result.frames_skipped) == (4, 16)
+        assert result.frames_written == 4
+        assert sorted(writer.finished) == [0, 1, 2, 3], 'kept frames are numbered without gaps'
+        assert result.end_reason == 'frame_budget_filled'
+        assert not result.kept_every_frame(0)
+        manifest = json.loads(result.manifest_path.read_text())
+        assert manifest['frames_skipped'] == 16
+        assert claim.owner is None
+
+    def test_a_writer_that_keeps_up_skips_none_with_memory_short(self, tmp_path, monkeypatch):
+        _read_as(monkeypatch, _MEMORY_SHORT)
+        writer = _LaneWriter(tmp_path)
+        engine, _writer, clock, _ = make_engine(tmp_path, writer=writer, writers=4)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
+        for n in range(10):
+            _deliver(engine, clock, 1)
+            assert writer.landed(n).wait(5)
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert (result.frames_written, result.frames_skipped) == (10, 0)
+
+
+class TestTheCamerasOwnLossesAreCounted:
+    """A gap in the delivered frames' FrameID is frames the camera sent that never arrived."""
+
+    def _record(self, tmp_path, feed, *, fps=None):
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(lambda: (make_config(tmp_path, fps=fps, duration_s=60), None))
+        feed(engine, clock)
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+        return engine.result()
+
+    def test_a_gap_of_n_counts_n_and_the_recording_did_not_keep_every_frame(self, tmp_path):
+        def feed(engine, clock):
+            _deliver(engine, clock, 3, first_id=100)
+            _deliver(engine, clock, 2, first_id=110)  # 103-109 never arrived
+
+        result = self._record(tmp_path, feed)
+        assert result.frames_lost_at_camera == 7
+        assert json.loads(result.manifest_path.read_text())['frames_lost_at_camera'] == 7
+        assert '7 lost at the camera' in result.summary()
+        assert not result.kept_every_frame(0)
+        late = dataclasses.replace(result, save_wait_s=30.0)
+        assert late.save_wait_to_tell(0) is None, (
+            'a recording with gaps was told every frame was kept'
+        )
+
+    def test_frames_the_cadence_passes_over_are_no_loss(self, tmp_path):
+        result = self._record(
+            tmp_path, lambda engine, clock: _deliver(engine, clock, 20, first_id=0), fps=5
+        )
+        assert result.frames_selected < 20
+        assert result.frames_lost_at_camera == 0
+        assert dataclasses.replace(result, save_wait_s=30.0).save_wait_to_tell(0) == 30.0
+
+    def test_an_unstamped_frame_reached_the_recording_and_is_no_gap(self, tmp_path):
+        def feed(engine, clock):
+            _deliver(engine, clock, 2, first_id=0)
+            engine.note_unstamped({'FrameID': 2})
+            _deliver(engine, clock, 2, first_id=3)
+
+        result = self._record(tmp_path, feed)
+        assert (result.frames_unstamped, result.frames_lost_at_camera) == (1, 0)
+
+    def test_a_camera_that_numbers_no_frames_states_its_losses_not_known(self, tmp_path):
+        result = self._record(tmp_path, lambda engine, clock: _deliver(engine, clock, 5))
+        assert result.frames_lost_at_camera is None
+        assert json.loads(result.manifest_path.read_text())['frames_lost_at_camera'] is None
+        assert 'not known lost at the camera' in result.summary()
+
+    def test_a_numbering_that_restarts_is_logged_and_counts_no_loss(self, tmp_path, caplog):
+        def feed(engine, clock):
+            _deliver(engine, clock, 3, first_id=500)
+            _deliver(engine, clock, 3, first_id=0)
+
+        with caplog.at_level(logging.WARNING):
+            result = self._record(tmp_path, feed)
+        assert result.frames_lost_at_camera == 0
+        assert any(
+            'numbering restarted' in r.getMessage()
+            for r in records_of(caplog, video_recording_module)
+        )
+
+
+def test_the_memory_reading_states_what_this_platform_has():
+    headroom = _real_read_memory_headroom()
+    assert headroom.physical_available_bytes > 0
+    if sys.platform == 'win32':
+        assert headroom.commit_headroom_bytes > 0
+    else:
+        assert headroom.commit_headroom_bytes is None

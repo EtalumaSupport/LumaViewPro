@@ -5,13 +5,14 @@ Video recording engine: select -> queue -> write-final-continuously.
 One engine records video for every caller (manual record, protocol video
 steps, and future REST/SDK clients). Per delivered camera frame the
 engine decides once (cadence selection), enqueues the kept frame on an
-unbounded in-RAM queue, and the recording's writer lanes (as many as its
-caller names) write each frame immediately as its final artifact -- there
-is no scratch buffer and no finalize pass. The queue is a shock absorber
-holding only the writers' current lag: drain speed decides WHEN files
-finish, never WHETHER.
-Capture never drops a frame because the writer is behind; the only bound
-is RAM.
+in-RAM queue, and the recording's writer lanes (as many as its caller
+names) write each frame immediately as its final artifact -- there is no
+scratch buffer and no finalize pass. The queue is a shock absorber holding
+the writers' current lag: drain speed decides WHEN files finish. Its one
+bound is the PC's memory: while frames wait beyond what the writers hold
+and the memory left is under ``MEMORY_AVAILABLE_MARGIN_BYTES``, each new
+frame is skipped, counted, so the backlog never pushes the PC into its
+pagefile or out of commit; the recording goes on.
 
 The engine sits below the UI: no Kivy imports, callers inject the
 dispatcher, writer edge, exclusivity claim, and time source at
@@ -29,8 +30,9 @@ the recording belongs to a run the failure must also end.
   last one's exit.
 - Non-fatal, recording continues, counted: a single frame's write failure
   (costs exactly that frame), short delivery (the camera delivered fewer
-  frames than the configured rate promised), frame drops. These land in
-  the manifest and the result.
+  frames than the configured rate promised), a frame skipped for memory,
+  a frame the camera numbered and the recording never received. These
+  land in the manifest and the result.
 - Non-fatal, the MANIFEST write itself failing: it cannot land in the
   manifest, and the manifest is the sole carrier of channel color and
   measured rate, so its error rides the result as ``manifest_failure``
@@ -39,14 +41,18 @@ the recording belongs to a run the failure must also end.
   ``RecordingRefusedError`` directly to the refused caller.
 """
 
+import ctypes
 import enum
 import json
 import pathlib
 import queue
+import sys
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+import psutil
 
 from _lumascope.lib import profile_trace
 from _lumascope.lvp_logger import logger
@@ -157,6 +163,83 @@ END_REASON_START_FAILED = 'start_failed'
 # PERFORMANCE_BUDGETS.md row recording_save_wait_notice_s.
 RECORDING_SAVE_WAIT_NOTICE_S = 10.0
 
+# The memory a recording's backlog must leave the PC: physical memory
+# available and, on Windows, the memory it can still commit. Under it, with
+# frames waiting beyond what the writers hold, new frames are skipped. 1 GiB
+# is above the +-0.5 GB the Mac's available figure swings at idle; on the
+# 2026-11-12 recording bench (an 8 GB PC, frames at the camera's top rate)
+# available fell under it 11 s before the camera's first lost frame and 13 s
+# before the pagefile began to grow.
+MEMORY_AVAILABLE_MARGIN_BYTES = 1 << 30
+
+
+@dataclass(frozen=True)
+class MemoryHeadroom:
+    """What memory the PC has left, as one reading.
+
+    Attributes:
+        physical_available_bytes: Physical memory available without paging.
+        commit_headroom_bytes: On Windows, what can still be committed before
+            the commit limit (the pagefile at its present size included);
+            None elsewhere, where there is no commit limit of that kind.
+    """
+
+    physical_available_bytes: int
+    commit_headroom_bytes: int | None
+
+    @property
+    def short(self) -> bool:
+        """True when either figure is under ``MEMORY_AVAILABLE_MARGIN_BYTES``."""
+        return self.physical_available_bytes < MEMORY_AVAILABLE_MARGIN_BYTES or (
+            self.commit_headroom_bytes is not None
+            and self.commit_headroom_bytes < MEMORY_AVAILABLE_MARGIN_BYTES
+        )
+
+
+class _MemoryStatusEx(ctypes.Structure):
+    """Win32 ``MEMORYSTATUSEX``."""
+
+    _fields_ = (
+        ('dwLength', ctypes.c_ulong),
+        ('dwMemoryLoad', ctypes.c_ulong),
+        ('ullTotalPhys', ctypes.c_ulonglong),
+        ('ullAvailPhys', ctypes.c_ulonglong),
+        ('ullTotalPageFile', ctypes.c_ulonglong),
+        ('ullAvailPageFile', ctypes.c_ulonglong),
+        ('ullTotalVirtual', ctypes.c_ulonglong),
+        ('ullAvailVirtual', ctypes.c_ulonglong),
+        ('ullAvailExtendedVirtual', ctypes.c_ulonglong),
+    )
+
+
+def read_memory_headroom() -> MemoryHeadroom:
+    """Read the PC's memory left: both figures on Windows, physical elsewhere.
+
+    On Windows both come from one ``GlobalMemoryStatusEx`` call, the one
+    reader of both: psutil publishes the physical figure from the same call
+    and drops the commit headroom (``ullAvailPageFile``). macOS and Linux
+    have no commit limit of Windows' kind, so only psutil's physical figure
+    is read there; on macOS it counts inactive memory, so the margin bounds
+    the backlog without promising nothing is compressed or swapped.
+
+    Raises:
+        OSError: ``GlobalMemoryStatusEx`` failed.
+    """
+    if sys.platform == 'win32':
+        status = _MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(_MemoryStatusEx)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            raise ctypes.WinError()
+        return MemoryHeadroom(
+            physical_available_bytes=status.ullAvailPhys,
+            commit_headroom_bytes=status.ullAvailPageFile,
+        )
+    return MemoryHeadroom(
+        physical_available_bytes=psutil.virtual_memory().available,
+        commit_headroom_bytes=None,
+    )
+
+
 # Queue sentinel closing a writer lane's drain loop. One is enqueued per lane
 # when selection closes, so every lane exits once the frames ahead of it are
 # written.
@@ -244,6 +327,47 @@ class RecordingFinished:
 
 
 @dataclass(frozen=True)
+class FrameLosses:
+    """The frames one recording, or a run's video steps together, lost, by cause.
+
+    Attributes:
+        dropped: Selected frames that could not be written: write failures
+            and the MP4 encoder's drops.
+        selected: Frames selected.
+        unstamped: Frames that came without the camera's timestamp and were
+            left out.
+        skipped: Frames skipped because frames waited to be saved while the
+            PC's memory ran short.
+        lost_at_camera: Frames the camera numbered that never reached the
+            recording; None when no recording's camera numbers its frames.
+    """
+
+    dropped: int = 0
+    selected: int = 0
+    unstamped: int = 0
+    skipped: int = 0
+    lost_at_camera: int | None = None
+
+    def __bool__(self) -> bool:
+        """Whether any frame was lost."""
+        return bool(self.dropped or self.unstamped or self.skipped or self.lost_at_camera)
+
+    def __add__(self, other: 'FrameLosses') -> 'FrameLosses':
+        """Both counts together; lost at the camera is None only when both are."""
+        if self.lost_at_camera is None and other.lost_at_camera is None:
+            lost_at_camera = None
+        else:
+            lost_at_camera = (self.lost_at_camera or 0) + (other.lost_at_camera or 0)
+        return FrameLosses(
+            dropped=self.dropped + other.dropped,
+            selected=self.selected + other.selected,
+            unstamped=self.unstamped + other.unstamped,
+            skipped=self.skipped + other.skipped,
+            lost_at_camera=lost_at_camera,
+        )
+
+
+@dataclass(frozen=True)
 class RecordingResult:
     """Measured truth of a finished recording (the manifest's source).
 
@@ -258,6 +382,12 @@ class RecordingResult:
         frames_unstamped: Frames that arrived without the camera's
             timestamp in a recording whose times are the camera's, and so
             were never offered to the selector (``note_unstamped``).
+        frames_skipped: Frames the selector kept a slot for and the
+            recording skipped, because frames waited beyond its writers while
+            the PC's memory left was under the margin.
+        frames_lost_at_camera: Frames the camera numbered that never reached
+            the recording, from the gaps in its ``FrameID``; None for a
+            camera that numbers none, whose losses are not known.
         writer_failure: What escaped the writer lane and killed it, or
             None; ``aborted`` is read from it, so the two cannot disagree.
         manifest_failure: The manifest write's error, or None. Needed
@@ -293,6 +423,8 @@ class RecordingResult:
     frames_written: int
     write_failures: int
     frames_unstamped: int
+    frames_skipped: int
+    frames_lost_at_camera: int | None
     writer_failure: BaseException | None
     manifest_failure: OSError | None
     configured_fps: float | None
@@ -320,26 +452,61 @@ class RecordingResult:
         saved = (
             '' if self.save_wait_s is None else f', saved {self.save_wait_s:.1f} s after it ended'
         )
+        lost = (
+            'not known' if self.frames_lost_at_camera is None else str(self.frames_lost_at_camera)
+        )
         return (
             f'{self.frames_written} written{budget}, {self.write_failures} failed, '
+            f'{self.frames_skipped} skipped for memory, {lost} lost at the camera, '
             f'measured {self.measured_fps:.2f} fps over {self.measured_duration_s:.2f} s{saved}'
+        )
+
+    def losses(self, writer_dropped: int) -> FrameLosses:
+        """The frames the camera sent that the recording lost, by cause.
+
+        Lost to a write failure, to the caller's own writer
+        (``writer_dropped``, the MP4 encoder's count, known only once the
+        encoder has closed), to a missing camera timestamp, to a skip for
+        memory, or at the camera.
+        """
+        return FrameLosses(
+            dropped=self.write_failures + writer_dropped,
+            selected=self.frames_selected,
+            unstamped=self.frames_unstamped,
+            skipped=self.frames_skipped,
+            lost_at_camera=self.frames_lost_at_camera,
+        )
+
+    def lost_frames(self, writer_dropped: int) -> bool:
+        """Whether any frame the camera sent was lost (``losses``).
+
+        A camera that numbers no frames states no loss there, so its
+        recording is judged by the rest.
+        """
+        return bool(self.losses(writer_dropped))
+
+    def kept_every_frame(self, writer_dropped: int) -> bool:
+        """Whether the recording kept and saved every frame it was sent.
+
+        True only when the backlog was saved, not discarded, the writer did
+        not die, and no frame was lost (``lost_frames``).
+        """
+        return (
+            self.save_wait_s is not None
+            and not self.aborted
+            and not self.lost_frames(writer_dropped)
         )
 
     def save_wait_to_tell(self, writer_dropped: int) -> float | None:
         """The save wait the person is told of, or None when there is none to tell.
 
         Told only when it is longer than ``RECORDING_SAVE_WAIT_NOTICE_S`` and
-        "every frame was kept" is true: the backlog was not discarded, the
-        writer did not die, and no frame was lost to a write failure, to the
-        caller's own writer (``writer_dropped``, the MP4 encoder's count) or
-        to a missing camera timestamp. Each of those is told in its own words.
+        every frame was kept (``kept_every_frame``): the notice says so, and
+        each loss is told in its own words.
         """
         if (
-            self.save_wait_s is None
+            not self.kept_every_frame(writer_dropped)
             or self.save_wait_s <= RECORDING_SAVE_WAIT_NOTICE_S
-            or self.aborted
-            or self.write_failures + writer_dropped > 0
-            or self.frames_unstamped > 0
         ):
             return None
         return self.save_wait_s
@@ -384,6 +551,11 @@ class _Take:
     last_written_path: pathlib.Path | None = None
     write_failures: int = 0
     frames_unstamped: int = 0
+    frames_skipped: int = 0
+    # None until a delivered frame states its FrameID: a camera that numbers
+    # none has losses that are not known, which 0 would claim are none.
+    frames_lost_at_camera: int | None = None
+    last_frame_id: int | None = None
     timestamps: list = field(default_factory=list)
     chunks: list = field(default_factory=list)
     writer_failure: BaseException | None = None
@@ -617,11 +789,22 @@ class VideoRecordingEngine:
     ) -> None:
         """Offer one delivered camera frame: select + enqueue only.
 
-        Runs on the camera ingest thread; must stay cheap. A kept frame
-        is enqueued unconditionally -- writer lag never causes a
-        capture-side drop. Frame numbers derive from enqueue order
-        (contiguous ordinals), so holes are unrepresentable, and a frame
-        keeps its number whichever lane writes it.
+        Runs on the camera ingest thread; must stay cheap. A frame that
+        takes a slot is enqueued, unless frames already wait beyond what
+        the writers hold and the PC's memory left is under
+        ``MEMORY_AVAILABLE_MARGIN_BYTES``: then it is skipped, counted, so
+        writer lag never pushes the backlog into the pagefile or runs the
+        PC out of commit. Its slot is spent, so the cadence does not catch
+        up in a flood when the backlog shrinks, and the recording goes on.
+        The memory is read only while frames wait, so a recording that
+        keeps up reads it only when a write stalls. Frame numbers derive
+        from enqueue order (contiguous ordinals), so holes are
+        unrepresentable, and a frame keeps its number whichever lane
+        writes it.
+
+        A gap in the frames' ``FrameID`` is counted as frames the camera
+        sent that never reached the recording, before the cadence
+        selects, so a frame it passes over is no loss.
 
         ``fact`` is required, with no default, so a caller that records
         frames cannot forget to say what was true when this one arrived;
@@ -648,21 +831,28 @@ class VideoRecordingEngine:
             if config.fps is None and timestamp_s - take.start_ts >= config.duration_s:
                 self._close_selection_locked(take, 'duration_elapsed')
                 return
+            self._count_camera_frame_locked(take, chunks)
             if not take.selector.slot_open(timestamp_s):
                 return
             take.selector.reserve()
-            frame_number = take.frames_selected
-            take.frames_selected += 1
-            take.pending += 1
-            take.timestamps.append(timestamp_s)
-            take.chunks.append(chunks)
-            # Enqueue the delivered array as-is: no copy (pypylon's
-            # GetArray already returns an owned array) and no flip --
-            # orientation and contiguity are the write edge's business,
-            # never paid per-frame in the callback. Chunk metadata and
-            # the caller's fact ride the queue with their frame so
-            # identity, pixels and the moment never separate.
-            take.lane_queue.put((image, timestamp_s, frame_number, chunks, fact))
+            # pending counts queued and in-flight frames, so more than the
+            # writers is at least one frame no lane has taken.
+            if take.pending > take.writers and read_memory_headroom().short:
+                take.frames_skipped += 1
+            else:
+                frame_number = take.frames_selected
+                take.frames_selected += 1
+                take.pending += 1
+                take.timestamps.append(timestamp_s)
+                take.chunks.append(chunks)
+                # Enqueue the delivered array as-is: no copy (pypylon's
+                # GetArray already returns an owned array) and no flip --
+                # orientation and contiguity are the write edge's business,
+                # never paid per-frame in the callback. Chunk metadata and
+                # the caller's fact ride the queue with their frame so
+                # identity, pixels and the moment never separate.
+                take.lane_queue.put((image, timestamp_s, frame_number, chunks, fact))
+            # A skipped last slot ends the recording as a kept one does.
             if take.selector.at_capacity:
                 self._close_selection_locked(take, 'frame_budget_filled')
             elif (
@@ -676,14 +866,16 @@ class VideoRecordingEngine:
                 # the last frame on its way.
                 self._close_selection_locked(take, 'duration_elapsed')
 
-    def note_unstamped(self) -> None:
+    def note_unstamped(self, chunks: Mapping[str, int | float] | None) -> None:
         """Count one delivered frame that came without the camera's timestamp.
 
         In a recording whose times are the camera's frame starts, a frame
         without its tick has no time on that clock: stamped at its arrival
         it would fall behind its neighbours and invert the timeline. It is
         never offered to the selector; it is counted, so the result and the
-        manifest say how many the camera sent that way.
+        manifest say how many the camera sent that way. Its ``chunks`` are
+        the frame's camera chunk metadata (or None): it reached the
+        recording, so its ``FrameID`` is no gap.
         """
         take = self._take
         if take is None:
@@ -691,6 +883,32 @@ class VideoRecordingEngine:
         with self._lock:
             if not take.selection_closed.is_set():
                 take.frames_unstamped += 1
+                self._count_camera_frame_locked(take, chunks)
+
+    def _count_camera_frame_locked(
+        self, take: _Take, chunks: Mapping[str, int | float] | None
+    ) -> None:
+        """Count the camera's frames this delivered frame's ``FrameID`` skipped over.
+
+        A camera that states no ``FrameID`` leaves the count None. A number
+        that does not increase is the camera's numbering restarting: the
+        frames lost across it cannot be known, so the restart is logged and
+        counting goes on from the new number.
+        """
+        frame_id = None if chunks is None else chunks.get('FrameID')
+        if frame_id is None:
+            return
+        frame_id = int(frame_id)
+        last, take.last_frame_id = take.last_frame_id, frame_id
+        if last is None:
+            take.frames_lost_at_camera = 0
+        elif frame_id > last:
+            take.frames_lost_at_camera += frame_id - last - 1
+        else:
+            logger.warning(
+                f"[VideoEngine] The camera's FrameID went from {last} to {frame_id}: its "
+                'numbering restarted, so frames lost across the restart are not counted'
+            )
 
     def stop(self, reason: str, *, taken_for: ControlSession | None = None) -> bool:
         """Close selection promptly (within one selection decision).
@@ -971,6 +1189,8 @@ class VideoRecordingEngine:
             frames_written=take.frames_written,
             write_failures=take.write_failures,
             frames_unstamped=take.frames_unstamped,
+            frames_skipped=take.frames_skipped,
+            frames_lost_at_camera=take.frames_lost_at_camera,
             writer_failure=take.writer_failure,
             manifest_failure=take.manifest_failure,
             configured_fps=take.config.fps,
@@ -1026,6 +1246,8 @@ class VideoRecordingEngine:
                 'frames_written': take.frames_written,
                 'write_failures': take.write_failures,
                 'frames_unstamped': take.frames_unstamped,
+                'frames_skipped': take.frames_skipped,
+                'frames_lost_at_camera': take.frames_lost_at_camera,
                 'end_reason': take.end_reason,
                 'timestamp_grade': str(grade),
                 'configured_fps': take.config.fps,

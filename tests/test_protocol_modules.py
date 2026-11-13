@@ -24,6 +24,7 @@ from tests.protocol_drives import lent_run_claim
 from tests.frame_records import plate
 from _lumascope.modules.protocol_image_writer import RunWriteBatch
 from _lumascope.modules.sequential_io_executor import ENQUEUED
+from _lumascope.modules.video_recording import FrameLosses
 from _lumascope.modules.protocol_state_machine import (
     ProtocolState,
     SequencedCaptureRunMode,
@@ -354,6 +355,7 @@ class TestRunCleanup:
             'failed_before': (),
             'video_save_wait_s': None,
             'video_as_frames': False,
+            'video_losses': FrameLosses(),
         }
         defaults.update(overrides)
         # Cleanup ends the scope's own IO and CAMERA lanes; the fakes, or a

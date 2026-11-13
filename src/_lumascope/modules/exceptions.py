@@ -3009,12 +3009,27 @@ class RecordingFinalizeError(Fault, CaptureError):
         self.protocol_step = protocol_step
 
 
-class VideoFramesDroppedError(Fault, CaptureError):
-    """Frames a recording was sent were not saved, so its video is short.
+class FramesLostIn(StrEnum):
+    """Where a ``VideoFramesDroppedError``'s frames were lost, which its words name."""
 
-    A frame is dropped when its write failed, or when it came from the
-    camera without its timestamp in a recording whose times are the
-    camera's, so it was never kept; the recording's manifest carries the
+    MANUAL_RECORDING = 'manual_recording'
+    # One protocol video step: its own report, written to the log.
+    VIDEO_STEP = 'video_step'
+    # Every video step of a protocol run together: the one report the run's
+    # end shows.
+    RUN = 'run'
+
+
+@api_fields('dropped', 'skipped', 'unstamped', 'lost_at_camera', 'selected')
+class VideoFramesDroppedError(Fault, CaptureError):
+    """Frames the camera sent a recording were not all saved, so its video has gaps.
+
+    A frame is lost when its write failed; when it came from the camera
+    without its timestamp in a recording whose times are the camera's, so
+    it was never kept; when it was skipped because frames waited to be
+    saved while the PC's memory ran short; or when the camera numbered it
+    and it never reached the recording. Every kept frame states its own
+    time, so each loss shows as a gap. The recording's manifest carries the
     counts too.
 
     Attributes:
@@ -3022,20 +3037,51 @@ class VideoFramesDroppedError(Fault, CaptureError):
         selected: Frames the recording selected.
         unstamped: Frames that came without the camera's timestamp and were
             left out.
-        protocol_step: True for a protocol video step, False for a manual
-            recording.
+        skipped: Frames skipped because this PC could not save frames as
+            fast as the camera sent them.
+        lost_at_camera: Frames the camera sent that never reached the
+            recording; None for a camera that numbers no frames, whose
+            losses are not known.
+        lost_in: A manual recording, one protocol video step, or every video
+            step of a protocol run together.
+
+    The counts are published, so a REST problem carries them beside the
+    words.
     """
 
+    dropped: int
+    selected: int
+    unstamped: int
+    skipped: int
+    lost_at_camera: int | None
     title = 'Video Frames Dropped'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'video_frames_dropped': None}
 
-    def __init__(self, dropped: int, selected: int, *, unstamped: int, protocol_step: bool):
-        what = 'in a video step ' if protocol_step else ''
-        short = (
-            'that video is shorter than its'
-            if protocol_step
-            else 'the saved video is shorter than the'
-        )
+    def __init__(
+        self,
+        dropped: int,
+        selected: int,
+        *,
+        unstamped: int,
+        skipped: int,
+        lost_at_camera: int | None,
+        lost_in: FramesLostIn,
+    ):
+        what, during, reached, gaps = {
+            FramesLostIn.MANUAL_RECORDING: ('', '', 'the recording', 'the saved video has gaps'),
+            FramesLostIn.VIDEO_STEP: (
+                'in a video step ',
+                ' during a video step',
+                'the recording',
+                'that video has gaps',
+            ),
+            FramesLostIn.RUN: (
+                "in the run's video steps ",
+                " during the run's video steps",
+                'their recordings',
+                'those videos have gaps',
+            ),
+        }[lost_in]
         lost = []
         if dropped:
             lost.append(f'{dropped} of {selected} frame(s) {what}could not be written')
@@ -3044,14 +3090,30 @@ class VideoFramesDroppedError(Fault, CaptureError):
                 f'{unstamped} frame(s) {what}came from the camera without their timestamps '
                 'and were left out'
             )
+        if skipped:
+            lost.append(
+                f'{skipped} frame(s) {what}were skipped because this PC could not save '
+                'frames as fast as the camera sent them'
+            )
+        if lost_at_camera:
+            lost.append(
+                f'{lost_at_camera} frame(s) the camera sent{during} never reached {reached}'
+            )
+        advice = []
+        if skipped:
+            advice.append('A lower Recording max FPS in Advanced Settings avoids the skips.')
+        if dropped:
+            advice.append('Check the log for why frames could not be written.')
         super().__init__(
-            f'{" and ".join(lost)}, so {short} recording. Check the log for the cause.',
+            ' '.join([f'{"; ".join(lost)}, so {gaps}.', *advice]),
             'video_frames_dropped',
         )
         self.dropped = dropped
         self.selected = selected
         self.unstamped = unstamped
-        self.protocol_step = protocol_step
+        self.skipped = skipped
+        self.lost_at_camera = lost_at_camera
+        self.lost_in = lost_in
 
 
 class RecordingFramesUnstampedError(Fault, CaptureError):

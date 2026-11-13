@@ -18950,11 +18950,14 @@ value the writer was not handed: a stored value applied at bring-up is
 
 A fault; bases `Fault`, `CaptureError`.
 
-Frames a recording was sent were not saved, so its video is short.
+Frames the camera sent a recording were not all saved, so its video has gaps.
 
-A frame is dropped when its write failed, or when it came from the
-camera without its timestamp in a recording whose times are the
-camera's, so it was never kept; the recording's manifest carries the
+A frame is lost when its write failed; when it came from the camera
+without its timestamp in a recording whose times are the camera's, so
+it was never kept; when it was skipped because frames waited to be
+saved while the PC's memory ran short; or when the camera numbered it
+and it never reached the recording. Every kept frame states its own
+time, so each loss shows as a gap. The recording's manifest carries the
 counts too.
 
 **Attributes**
@@ -18962,7 +18965,20 @@ counts too.
 - `dropped`: Selected frames that could not be written.
 - `selected`: Frames the recording selected.
 - `unstamped`: Frames that came without the camera's timestamp and were left out.
-- `protocol_step`: True for a protocol video step, False for a manual recording.
+- `skipped`: Frames skipped because this PC could not save frames as fast as the camera sent them.
+- `lost_at_camera`: Frames the camera sent that never reached the recording; None for a camera that numbers no frames, whose losses are not known.
+- `lost_in`: A manual recording, one protocol video step, or every video step of a protocol run together.
+
+The counts are published, so a REST problem carries them beside the
+words.
+
+**Fields**
+
+- <a id="VideoFramesDroppedError.dropped"></a>`dropped`: `int` -- Selected frames that could not be written.
+- <a id="VideoFramesDroppedError.lost_at_camera"></a>`lost_at_camera`: `int | None` -- Frames the camera sent that never reached the recording; None for a camera that numbers no frames, whose losses are not known.
+- <a id="VideoFramesDroppedError.selected"></a>`selected`: `int` -- Frames the recording selected.
+- <a id="VideoFramesDroppedError.skipped"></a>`skipped`: `int` -- Frames skipped because this PC could not save frames as fast as the camera sent them.
+- <a id="VideoFramesDroppedError.unstamped"></a>`unstamped`: `int` -- Frames that came without the camera's timestamp and were left out.
 
 | Reason | Cause | REST status |
 |---|---|---|
