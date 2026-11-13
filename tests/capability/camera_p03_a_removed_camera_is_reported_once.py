@@ -128,7 +128,7 @@ def _still(session, runner):
         while time.monotonic() < until:
             asked = time.monotonic()
             try:
-                session.manual_capture.capture().result(timeout=60)
+                session.manual_capture.start_save_still().result(timeout=60)
                 stills += 1
             except Exception as e:
                 took = time.monotonic() - asked

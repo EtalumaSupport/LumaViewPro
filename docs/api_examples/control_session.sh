@@ -22,7 +22,7 @@ curl -s -w '\n' $API/control                                        # 200: who h
 MOVE=$(curl -s -H "Control-Session: $CONTROL" --json '{"well": "B2"}' $API/scope/motion/start_move_to_well | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
 curl -s -w '\n' -H "Control-Session: $CONTROL" --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0
-JOB=$(curl -s -H "Control-Session: $CONTROL" --json '{}' $API/manual_capture/capture | jq -r .id)   # 202
+JOB=$(curl -s -H "Control-Session: $CONTROL" --json '{}' $API/manual_capture/start_save_still | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$JOB                 # 200: the still
 curl -s -w '\n' -H "Control-Session: $CONTROL" --json '{}' $API/scope/illumination/leds_off   # 200
 

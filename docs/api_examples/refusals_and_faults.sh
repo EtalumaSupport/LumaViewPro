@@ -17,6 +17,6 @@ curl -s -w '\n' $API/scope/unconnected_parts                        # 200: ["cam
 
 # A still is answered 202 with its job; the job fails with the problem.
 curl -s -w '\n' --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0
-JOB=$(curl -s --json '{}' $API/manual_capture/capture | jq -r .id)   # 202
+JOB=$(curl -s --json '{}' $API/manual_capture/start_save_still | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$JOB                 # 200: "status": "failed", its "error" not_connected
 curl -s -w '\n' --json '{}' $API/scope/illumination/leds_off        # 200

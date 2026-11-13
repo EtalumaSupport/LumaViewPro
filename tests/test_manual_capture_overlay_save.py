@@ -110,7 +110,7 @@ def _run_capture(ctx, sum_count=1):
         return pathlib.Path(ctx.tmp_path) / f'{file_root}{append}.tiff'
 
     with patch('_lumascope.modules.manual_capture.save_image', side_effect=_saved) as save_one:
-        capture.capture(
+        capture.start_save_still(
             bullseye=ctx.use_bullseye,
             crosshairs=ctx.use_crosshairs,
         ).result(timeout=10)

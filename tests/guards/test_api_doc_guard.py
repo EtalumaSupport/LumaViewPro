@@ -1144,7 +1144,7 @@ class TestLumascopeSkillsFencesRun:
             '## Saved\n'
             '```python\n'
             'session.show_channel("BF")\n'
-            'session.manual_capture.capture().result(timeout=30)\n'
+            'session.manual_capture.start_save_still().result(timeout=30)\n'
             '```\n'
         )
         reported = guide_fence_failures([('planted', planted)], unanswering)

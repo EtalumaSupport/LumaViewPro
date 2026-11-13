@@ -54,7 +54,7 @@ def session(tmp_path):
 
 def _still(session):
     """The still's channel (from its file name) and its frame's record."""
-    (still,) = session.manual_capture.capture().result(timeout=30)
+    (still,) = session.manual_capture.start_save_still().result(timeout=30)
     return still.file.name, still.record
 
 
@@ -79,7 +79,7 @@ def test_a_still_with_another_led_lit_is_refused_and_the_camera_keeps_the_shown_
     session.scope.illumination.led_on(LED0, 100.0)
 
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        session.manual_capture.capture().result(timeout=30)
+        session.manual_capture.start_save_still().result(timeout=30)
 
     assert refused.value.reason == 'other_led_lit'
     assert session.scope.camera.get_held_channel() == 'BF'
@@ -92,7 +92,7 @@ def test_a_still_with_two_leds_lit_is_refused(session, tmp_path):
     session.scope.illumination.led_on(LED1, 50.0)
 
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        session.manual_capture.capture().result(timeout=30)
+        session.manual_capture.start_save_still().result(timeout=30)
 
     assert refused.value.reason == 'other_led_lit'
     assert session.scope.camera.get_held_channel() == LED0
@@ -165,7 +165,7 @@ def test_a_still_pressed_as_the_shown_layer_changes_is_one_layers(session):
     pressed = []
 
     def press(layer, _lit):
-        pressed.append(session.manual_capture.capture())
+        pressed.append(session.manual_capture.start_save_still())
 
     session.add_shown_channel_listener(press)
     try:
@@ -196,10 +196,10 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
 
     session.show_channel(LED0)
     session.light_shown_channel(True)
-    held = session.manual_capture.capture().result(timeout=30)[0].file
+    held = session.manual_capture.start_save_still().result(timeout=30)[0].file
     session.light_shown_channel(False)
     session.scope.camera.set_exposure_ms(30.0)
-    raw = session.manual_capture.capture().result(timeout=30)[0].file
+    raw = session.manual_capture.start_save_still().result(timeout=30)[0].file
 
     held_saved = read_file_record(held)
     raw_saved = read_file_record(raw)
@@ -225,7 +225,7 @@ def test_a_still_one_led_lit_states_its_current_in_both_fields(session):
 
     _show_lit(session, LED1, 75.0)
 
-    (still,) = session.manual_capture.capture().result(timeout=30)
+    (still,) = session.manual_capture.start_save_still().result(timeout=30)
 
     saved = read_file_record(still.file)
     assert saved.get('illumination_by_channel_ma') == {LED1: 75.0}, saved
@@ -242,7 +242,7 @@ def test_an_led_left_on_at_0_ma_neither_names_a_still_nor_is_recorded(session):
     _show_lit(session, LED1, 100.0)
     session.scope.illumination.led_on(LED0, 0.0)
 
-    (still,) = session.manual_capture.capture().result(timeout=30)
+    (still,) = session.manual_capture.start_save_still().result(timeout=30)
 
     saved = read_file_record(still.file)
     assert f'_{LED1}_' in still.file.name, still.file.name
@@ -255,7 +255,7 @@ def test_a_composite_states_no_lit_layer_of_its_inputs(session):
     from _lumascope.modules.image_utils import build_postproc_output_metadata
 
     _show_lit(session, LED0, 100.0)
-    (still,) = session.manual_capture.capture().result(timeout=30)
+    (still,) = session.manual_capture.start_save_still().result(timeout=30)
 
     composite = build_postproc_output_metadata(
         [image_utils.read_file_record(still.file)],
@@ -277,7 +277,7 @@ def test_a_still_that_would_change_a_recordings_layer_is_refused(session):
         assert session.scope.camera.get_held_channel() == LED0
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            session.manual_capture.capture().result(timeout=30)
+            session.manual_capture.start_save_still().result(timeout=30)
 
         assert refused.value.reason == 'exclusive_activity_running'
         assert refused.value.holder == 'recording'
@@ -308,7 +308,7 @@ def test_a_shown_layer_that_never_settles_fails_the_still_within_one_budget(sess
     monkeypatch.setattr(controller, '_shown_channel', lambda: next(shown))
 
     with pytest.raises(CaptureFailedError) as failed:
-        controller.capture().result(timeout=60)
+        controller.start_save_still().result(timeout=60)
 
     assert failed.value.reason == 'deadline_expired'
 
@@ -317,7 +317,7 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
     """A still whose lane task has started is taken when an activity takes the
     scope meanwhile: its hold is part of the still the lane admitted, not a
     new request admitted again against the holder. (A still still queued when
-    the scope is taken is refused by the lane, as ``capture`` says.)"""
+    the scope is taken is refused by the lane, as ``start_save_still`` says.)"""
     controller = session.manual_capture
     taken = []
     reads = []
@@ -337,7 +337,7 @@ def test_a_running_still_holds_its_layer_when_the_scope_is_taken_meanwhile(sessi
     session.light_shown_channel(True)
     monkeypatch.setattr(controller, '_shown_channel', shown_layer_after_the_scope_is_taken)
     try:
-        (still,) = controller.capture().result(timeout=30)
+        (still,) = controller.start_save_still().result(timeout=30)
     finally:
         taken[0].release()
     record = still.record

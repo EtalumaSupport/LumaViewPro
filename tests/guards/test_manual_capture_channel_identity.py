@@ -78,7 +78,7 @@ def _run_manual_capture(tmp_path, scope, *, shown_channel, false_color_on, separ
         engineering_mode=lambda: False,
         channel_colors=release_colors,
     )
-    reported = capture.capture().result(timeout=30)
+    reported = capture.start_save_still().result(timeout=30)
 
     return sorted((tmp_path / 'Manual').rglob('*.tiff')), reported
 

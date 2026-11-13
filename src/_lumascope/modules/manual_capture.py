@@ -45,7 +45,7 @@ logger = logging.getLogger('LVP.modules.manual_capture')
 # copy of the same frame, not a reason to give up on it sooner.
 _CAPTURE_RETRY_BUDGET_S = 5.0
 
-_MEMBER = 'manual_capture.capture'
+_MEMBER = 'manual_capture.start_save_still'
 
 
 @api_fields(
@@ -146,7 +146,7 @@ class ManualCaptureController:
     @api
     @property
     def in_flight(self) -> bool:
-        """True from a capture call until its camera-lane body has ended.
+        """True from a ``start_save_still`` call until its camera-lane body has ended.
 
         Raises:
             Nothing.
@@ -154,7 +154,7 @@ class ManualCaptureController:
         return self._in_flight.locked()
 
     @api
-    def capture(
+    def start_save_still(
         self,
         *,
         bullseye: bool = False,

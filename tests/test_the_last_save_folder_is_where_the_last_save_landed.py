@@ -34,7 +34,7 @@ def test_a_still_moves_it_to_the_stills_folder(sim_session):
 
     home_sim_scope(sim_session.scope)
 
-    saved = sim_session.manual_capture.capture().result(timeout=RESULT_TIMEOUT_S)
+    saved = sim_session.manual_capture.start_save_still().result(timeout=RESULT_TIMEOUT_S)
 
     assert sim_session.last_save_folder == saved[0].file.parent
 
@@ -88,7 +88,7 @@ def test_a_stitch_that_makes_nothing_new_leaves_it(sim_session, run_folder):
 
     home_sim_scope(sim_session.scope)
     sim_session.post_processing.stitch(run_folder)
-    saved = sim_session.manual_capture.capture().result(timeout=RESULT_TIMEOUT_S)
+    saved = sim_session.manual_capture.start_save_still().result(timeout=RESULT_TIMEOUT_S)
     still_folder = saved[0].file.parent
     assert run_folder not in (still_folder, *still_folder.parents)
 

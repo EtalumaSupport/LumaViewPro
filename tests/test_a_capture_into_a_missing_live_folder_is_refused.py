@@ -109,7 +109,7 @@ def test_a_manual_still_into_a_missing_folder_is_refused_before_the_grab(capture
         channel_colors=release_colors,
     )
 
-    future = capture.capture(bullseye=False, crosshairs=False)
+    future = capture.start_save_still(bullseye=False, crosshairs=False)
     with pytest.raises(LiveFolderPathRefusedError) as refused:
         future.result(timeout=10)
 

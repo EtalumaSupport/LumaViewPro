@@ -45,7 +45,7 @@ def _settled_with(exc):
 def _press(button_ctx, *, raises=None, settles=None):
     from ui.composite_capture import CompositeCapture
 
-    capture = button_ctx.session.manual_capture.capture
+    capture = button_ctx.session.manual_capture.start_save_still
     if raises is not None:
         capture.side_effect = raises
     else:
@@ -60,7 +60,9 @@ def _one_notice(centre_posts):
 
 @pytest.mark.parametrize('reason', ['exclusive_activity_running', 'capture_in_flight'])
 def test_a_refusal_reads_as_a_sentence(button_ctx, centre_posts, reason):
-    _press(button_ctx, raises=HardwareCommandRefusedError(reason, 'manual_capture.capture'))
+    _press(
+        button_ctx, raises=HardwareCommandRefusedError(reason, 'manual_capture.start_save_still')
+    )
 
     body = _one_notice(centre_posts).message
     assert reason not in body
@@ -69,7 +71,7 @@ def test_a_refusal_reads_as_a_sentence(button_ctx, centre_posts, reason):
 
 def test_a_diagnostics_refusal_shows_its_own_title_and_words(button_ctx, centre_posts):
     refused = HardwareCommandRefusedError(
-        'exclusive_activity_running', 'manual_capture.capture', 'diagnostic'
+        'exclusive_activity_running', 'manual_capture.start_save_still', 'diagnostic'
     )
     _press(button_ctx, raises=refused)
 
@@ -107,7 +109,7 @@ def test_the_button_hands_the_member_only_the_overlays_asked_for(button_ctx):
 
     CompositeCapture.live_capture(object())
 
-    kwargs = button_ctx.session.manual_capture.capture.call_args.kwargs
+    kwargs = button_ctx.session.manual_capture.start_save_still.call_args.kwargs
     assert kwargs == {
         'bullseye': True,
         'crosshairs': False,

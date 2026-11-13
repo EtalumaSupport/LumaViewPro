@@ -51,7 +51,7 @@ def main():
         with session.acting_in_control(session_id):
             scope.motion.move_to_well('B2')
             scope.illumination.led_on('BF', 5)
-            saving = session.manual_capture.capture()
+            saving = session.manual_capture.start_save_still()
             still = saving.result(timeout=30)[0]
             scope.illumination.leds_off()
         print(f'Saved in the session: {still.file.name}')

@@ -1,7 +1,7 @@
 """P13: a still's name, its exposure and gain, and the layer the camera held are one layer's.
 
 Asked of the API alone, as a script or REST would, and read back from each
-saved file: `manual_capture.capture` names the still for the lit LED, else
+saved file: `manual_capture.start_save_still` names the still for the lit LED, else
 the shown layer, and the camera holds that layer's stored settings for the
 frame, whatever ran before it.
 
@@ -41,7 +41,7 @@ TRAVEL_DELAYS_S = (0.0, 0.05, 0.15)
 
 
 def _still(session):
-    stills = session.manual_capture.capture().result(timeout=60)
+    stills = session.manual_capture.start_save_still().result(timeout=60)
     return stills[0].file
 
 

@@ -59,7 +59,7 @@ class CompositeCapture(FloatLayout):
         bullseye = ctx.scope_display.use_bullseye
         crosshairs = ctx.scope_display.use_crosshairs
         run_reported(
-            lambda: ctx.session.manual_capture.capture(
+            lambda: ctx.session.manual_capture.start_save_still(
                 bullseye=bullseye,
                 crosshairs=crosshairs,
             ).add_done_callback(lambda done: schedule_ui(lambda _dt: _still_settled(done))),

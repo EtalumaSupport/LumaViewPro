@@ -156,7 +156,7 @@ job:
 ```
 
 A member that returns an operation -- a run's start, `start_move_to_well`,
-`start_home`, a still's `capture` -- is answered `202` with the operation's
+`start_home`, a saved still's `start_save_still` -- is answered `202` with the operation's
 job as soon as it has started, whatever the wait; the route's description
 names the job's model, its `result` the record the operation ends with
 (`start_build`'s `BuildsResultJob`, a run's `RunOutcomeJob`). Its twin that

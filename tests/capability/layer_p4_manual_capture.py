@@ -23,8 +23,8 @@ try:
     # --- Stage B: the Session member captures and saves one still ---
     scope.illumination.led_on(LED0, 100.0)
     s.show_channel(LED0)
-    paths = [still.file for still in s.manual_capture.capture().result(timeout=30)]
-    print('B: session.manual_capture.capture ->', paths)
+    paths = [still.file for still in s.manual_capture.start_save_still().result(timeout=30)]
+    print('B: session.manual_capture.start_save_still ->', paths)
     written = len(paths) == 1 and paths[0].is_file() and paths[0].parent == live / 'Manual'
     print('B: file exists:', written, 'bytes:', paths[0].stat().st_size if written else None)
     harness.check('session.manual_capture writes one frame to live/Manual', written)

@@ -20,7 +20,7 @@ curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "statu
 curl -s -w '\n' --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0
 
 # A still is answered 202 with its job; the job's result is the saved files.
-JOB=$(curl -s --json '{}' $API/manual_capture/capture | jq -r .id)   # 202
+JOB=$(curl -s --json '{}' $API/manual_capture/start_save_still | jq -r .id)   # 202
 FILE=$(curl -s -H 'Prefer: wait=60' $API/jobs/$JOB | jq -r '.result[0].file.name')   # 200
 curl -s -o still.tiff "$API/files/$FILE"                    # 200: the TIFF, its record inside
 curl -s -w '\n' --json '{}' $API/scope/illumination/leds_off        # 200

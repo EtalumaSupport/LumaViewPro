@@ -40,7 +40,7 @@ frame with no lit pixel is retried until `timeout_s` and then returned, its
 taken again once and then returned, its `saturated_fraction` measured. Read the
 record to tell; never re-measure the pixels.
 
-**A saved still.** `session.manual_capture.capture(...)` takes the still
+**A saved still.** `session.manual_capture.start_save_still(...)` takes the still
 LumaViewPro's Capture button takes, and saves it: the summing and the format
 come from the settings. It returns an `Operation` of a `SavedStill` per file
 written, each its `file` and the record of it, `record` (a `FrameRecord`, as
@@ -60,7 +60,7 @@ file is shown, never what it records.
 scope.motion.move_to_well('B2')             # over the simulator's specimen
 session.show_channel('BF')
 scope.illumination.led_on('BF', 5)
-saving = session.manual_capture.capture()
+saving = session.manual_capture.start_save_still()
 saved = saving.result(timeout=30)
 print(saved[0].file, saved[0].channel, saved[0].statistics.maximum)
 assert saved[0].well_label == 'B2' and saved[0].statistics.maximum > 0   # at B2, and lit
@@ -156,7 +156,7 @@ import tifffile
 
 session.show_channel('BF')
 scope.illumination.led_on('BF', 5)
-path = session.manual_capture.capture().result(timeout=30)[0].file
+path = session.manual_capture.start_save_still().result(timeout=30)[0].file
 scope.illumination.leds_off()
 
 with tifffile.TiffFile(path) as tif:    # a plain TIFF's first description is the view

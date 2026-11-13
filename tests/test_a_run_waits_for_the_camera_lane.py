@@ -112,7 +112,7 @@ class TestAStillInFlightFinishesFirst:
     @pytest.mark.slow
     def test_the_still_saves_and_the_run_starts_after_it(self, lane_session):
         session, runner, tmp_path = lane_session
-        still = session.manual_capture.capture()
+        still = session.manual_capture.start_save_still()
         assert session.manual_capture.in_flight, 'the still never reached the lane'
         seen, events = _first_step_observer(session)
 
@@ -138,7 +138,7 @@ class TestAStillInFlightFinishesFirst:
         session, runner, tmp_path = lane_session
         late = _LateWorker(session)
         try:
-            still = session.manual_capture.capture()
+            still = session.manual_capture.start_save_still()
             outcome = runner.start_composite(sequence_name='after_late', parent_dir=str(tmp_path))
         finally:
             late.release()
@@ -153,14 +153,14 @@ class TestAStillQueuedBehindCameraWork:
     @pytest.mark.slow
     def test_a_run_that_takes_the_scope_refuses_it_and_lets_go_of_it(self, lane_session):
         """A still not yet running when a run takes the scope is refused, as
-        ``ManualCaptureController.capture`` documents: its Future says so and
+        ``ManualCaptureController.start_save_still`` documents: its Future says so and
         the guard is free."""
         session, runner, tmp_path = lane_session
         hold = _LaneHold(session)
         try:
-            still = session.manual_capture.capture()
+            still = session.manual_capture.start_save_still()
             assert session.camera_executor.queue_size() == 1, (
-                'the still was not on the lane when capture() returned'
+                'the still was not on the lane when start_save_still() returned'
             )
             outcome = runner.start_composite(sequence_name='over_queued', parent_dir=str(tmp_path))
         finally:

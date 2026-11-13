@@ -480,6 +480,6 @@ class TestAnUnknownSlotSaysWhatHappensNext:
             assert 'may be wrong' not in message
 
             with pytest.raises(ObjectiveUnknownError):
-                session.manual_capture.capture().result(timeout=30)
+                session.manual_capture.start_save_still().result(timeout=30)
         finally:
             session.shutdown()

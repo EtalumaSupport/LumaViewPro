@@ -123,7 +123,7 @@ def _run_manual_capture(tmp_path, scope, *, false_color_active, use_crosshairs):
         engineering_mode=lambda: False,
         channel_colors=release_colors,
     )
-    capture.capture(crosshairs=use_crosshairs).result(timeout=30)
+    capture.start_save_still(crosshairs=use_crosshairs).result(timeout=30)
 
     return sorted((tmp_path / 'Manual').glob('*.tiff'))
 

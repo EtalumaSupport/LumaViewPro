@@ -152,7 +152,7 @@ def _live_jpeg(session):
 
 
 def _saved_still(session):
-    stills = session.manual_capture.capture().result(timeout=60)
+    stills = session.manual_capture.start_save_still().result(timeout=60)
     path = pathlib.Path(stills[0].file)
     figure('saved_file', str(path))
     return read_tiff_with_legacy_collapse(path)

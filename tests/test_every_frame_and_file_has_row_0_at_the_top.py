@@ -62,7 +62,7 @@ def test_the_api_s_frame_the_saved_file_and_the_rest_outputs_are_one_way_up():
         # The sample brightfield-lit, as the stage-move test lights it.
         frame = _lit_frame(session.scope)
         # BF is shown, and its stored false colour is off: the file is grey.
-        (still,) = session.manual_capture.capture().result(timeout=30)
+        (still,) = session.manual_capture.start_save_still().result(timeout=30)
         outputs = {'the saved TIFF': tifffile.imread(still.file)}
         with _serving(session) as (_app, _server, client):
             answer = client.post('/api/v1/still')

@@ -4111,11 +4111,26 @@ One still at a time, captured on the camera lane and saved.
 - `channel_colors`: Reads every channel's colour, from the Session's one read of it, once per capture, when the capture is asked for.
 - `on_saved`: Told the folder of each still once its files are on disk, on the camera lane, before the caller is answered.
 
-<a id="ManualCaptureController.capture"></a>
-### `ManualCaptureController.capture`
+<a id="ManualCaptureController.in_flight"></a>
+### `ManualCaptureController.in_flight`
 
 ```python
-def capture(
+in_flight: bool  # property
+```
+
+Route: `GET /api/v1/manual_capture/in_flight`.
+
+True from a `start_save_still` call until its camera-lane body has ended.
+
+**Raises**
+
+Nothing.
+
+<a id="ManualCaptureController.start_save_still"></a>
+### `ManualCaptureController.start_save_still`
+
+```python
+def start_save_still(
     self,
     *,
     bullseye: bool = False,
@@ -4123,7 +4138,7 @@ def capture(
 ) -> Operation[tuple[SavedStill, ...]]
 ```
 
-Route: `POST /api/v1/manual_capture/capture`.
+Route: `POST /api/v1/manual_capture/start_save_still`.
 
 Capture one still and save it; returns at once.
 
@@ -4152,21 +4167,6 @@ An `Operation` whose result is a `SavedStill` per file written, the unmarked fil
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `capture_in_flight`
-
-<a id="ManualCaptureController.in_flight"></a>
-### `ManualCaptureController.in_flight`
-
-```python
-in_flight: bool  # property
-```
-
-Route: `GET /api/v1/manual_capture/in_flight`.
-
-True from a capture call until its camera-lane body has ended.
-
-**Raises**
-
-Nothing.
 
 <a id="ManualRecordingController"></a>
 ## `lumascope.ManualRecordingController`
@@ -11447,7 +11447,7 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 <a id="Operation"></a>
 ## `lumascope.Operation`
 
-Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_turret`](#MotionAPI.start_move_turret), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build), [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report), [`ScopeSession.start_select_objective`](#ScopeSession.start_select_objective), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
+Returned by: [`ManualCaptureController.start_save_still`](#ManualCaptureController.start_save_still), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_turret`](#MotionAPI.start_move_turret), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build), [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report), [`ScopeSession.start_select_objective`](#ScopeSession.start_select_objective), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
 Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
 
 One operation in flight: its outcome, its done-callbacks, its stop and its progress.
@@ -13027,7 +13027,7 @@ What `ScopeSession.save_focus` wrote.
 ## `lumascope.SavedStill`
 
 A record: it crosses the wire as its data.  
-Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture).
+Returned by: [`ManualCaptureController.start_save_still`](#ManualCaptureController.start_save_still).
 
 One file a still wrote, with the instrument's record of it.
 
@@ -18655,8 +18655,8 @@ reads what the person was shown.
 | `POST` | `/api/v1/light_shown_channel` | [`ScopeSession.light_shown_channel`](#ScopeSession.light_shown_channel) |
 | `GET` | `/api/v1/live_folder_listing` | [`ScopeSession.live_folder_listing`](#ScopeSession.live_folder_listing) |
 | `POST` | `/api/v1/load_protocol` | [`ScopeSession.load_protocol`](#ScopeSession.load_protocol) |
-| `POST` | `/api/v1/manual_capture/capture` | [`ManualCaptureController.capture`](#ManualCaptureController.capture) |
 | `GET` | `/api/v1/manual_capture/in_flight` | [`ManualCaptureController.in_flight`](#ManualCaptureController.in_flight) |
+| `POST` | `/api/v1/manual_capture/start_save_still` | [`ManualCaptureController.start_save_still`](#ManualCaptureController.start_save_still) |
 | `GET` | `/api/v1/manual_recording/elapsed_s` | [`ManualRecordingController.elapsed_s`](#ManualRecordingController.elapsed_s) |
 | `GET` | `/api/v1/manual_recording/end_reason` | [`ManualRecordingController.end_reason`](#ManualRecordingController.end_reason) |
 | `GET` | `/api/v1/manual_recording/is_busy` | [`ManualRecordingController.is_busy`](#ManualRecordingController.is_busy) |

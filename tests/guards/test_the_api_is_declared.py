@@ -508,7 +508,7 @@ def test_every_operation_handed_out_names_its_result(marked: dict[str, Marked]) 
             if _bare_operations(text):
                 bare.append(f'{name} {edge}: {text}')
     assert not bare, f'an Operation handed out says no result type (Operation[T]): {bare}'
-    assert 'SavedStill' in said['ManualCaptureController.capture return']
+    assert 'SavedStill' in said['ManualCaptureController.start_save_still return']
     assert 'RunFiles' in said['Operation.files field']
 
 
