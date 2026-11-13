@@ -4880,6 +4880,47 @@ its end.
 - 422: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `invalid_setting`
 - 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
+<a id="PostProcessingAPI.start_count_cells"></a>
+### `PostProcessingAPI.start_count_cells`
+
+```python
+def start_count_cells(
+    self,
+    folder: FilePath,
+    *,
+    method: CellCountMethod,
+    channel: str | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> Operation[CellCountResult]
+```
+
+Marks: enters: `post_processing`.  
+Route: `POST /api/v1/post_processing/start_count_cells`.
+
+Start `count_cells` without waiting for it; returns its `Operation`.
+
+The same count, as one task on the post-processing lane; the
+operation is done with what `count_cells` would have returned or
+raised. A count has no stop: once started it runs to its end.
+
+**Args**
+
+- `folder`: As for `count_cells`.
+- `method`: As for `count_cells`.
+- `channel`: As for `count_cells`.
+- `on_progress`: As for `count_cells`.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'channel_unknown'`, *channel* is not one of this release's channels; nothing was queued. Every other refusal and failure `count_cells` raises, the operation raises.
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
+
+**Refusals by REST status**
+
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
+
 <a id="PostProcessingAPI.start_enhance"></a>
 ### `PostProcessingAPI.start_enhance`
 
@@ -10114,7 +10155,7 @@ Which regions a count keeps, each bound checked as the filters are built.
 
 A record: it crosses the wire as its data.  
 Returned by: [`PostProcessingAPI.default_cell_count_method`](#PostProcessingAPI.default_cell_count_method), [`PostProcessingAPI.load_cell_count_method`](#PostProcessingAPI.load_cell_count_method).  
-Taken by: [`PostProcessingAPI.cell_count_size_scale`](#PostProcessingAPI.cell_count_size_scale), [`PostProcessingAPI.count_cells`](#PostProcessingAPI.count_cells), [`PostProcessingAPI.preview_cell_count`](#PostProcessingAPI.preview_cell_count), [`PostProcessingAPI.save_cell_count_method`](#PostProcessingAPI.save_cell_count_method).
+Taken by: [`PostProcessingAPI.cell_count_size_scale`](#PostProcessingAPI.cell_count_size_scale), [`PostProcessingAPI.count_cells`](#PostProcessingAPI.count_cells), [`PostProcessingAPI.preview_cell_count`](#PostProcessingAPI.preview_cell_count), [`PostProcessingAPI.save_cell_count_method`](#PostProcessingAPI.save_cell_count_method), [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells).
 
 How a count finds and keeps cells, checked as it is built.
 
@@ -10150,7 +10191,7 @@ One image counted by a method, as a form shows it.
 ## `lumascope.CellCountResult`
 
 A record: it crosses the wire as its data.  
-Returned by: [`PostProcessingAPI.count_cells`](#PostProcessingAPI.count_cells).
+Returned by: [`PostProcessingAPI.count_cells`](#PostProcessingAPI.count_cells), [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells).
 
 What a cell count wrote.
 
@@ -11359,7 +11400,7 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 <a id="Operation"></a>
 ## `lumascope.Operation`
 
-Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_turret`](#MotionAPI.start_move_turret), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report), [`ScopeSession.start_select_objective`](#ScopeSession.start_select_objective), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
+Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_turret`](#MotionAPI.start_move_turret), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build), [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report), [`ScopeSession.start_select_objective`](#ScopeSession.start_select_objective), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
 Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
 
 One operation in flight: its outcome, its done-callbacks, its stop and its progress.
@@ -18602,6 +18643,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/post_processing/projection_methods` | [`PostProcessingAPI.projection_methods`](#PostProcessingAPI.projection_methods) |
 | `POST` | `/api/v1/post_processing/save_cell_count_method` | [`PostProcessingAPI.save_cell_count_method`](#PostProcessingAPI.save_cell_count_method) |
 | `POST` | `/api/v1/post_processing/start_build` | [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build) |
+| `POST` | `/api/v1/post_processing/start_count_cells` | [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells) |
 | `POST` | `/api/v1/post_processing/start_enhance` | [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance) |
 | `GET` | `/api/v1/post_processing/stitch_modes` | [`PostProcessingAPI.stitch_modes`](#PostProcessingAPI.stitch_modes) |
 | `GET` | `/api/v1/protocol_files_stalled` | [`ScopeSession.protocol_files_stalled`](#ScopeSession.protocol_files_stalled) |

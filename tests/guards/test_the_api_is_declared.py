@@ -921,6 +921,7 @@ OPEN_STRINGS: dict[str, str] = {
     'PostProcessingRegistry.register parameter processor': _PATH,
     'ProcessorResult.message field': _PROSE,
     'PostProcessingAPI.count_cells parameter channel': _CHANNEL,
+    'PostProcessingAPI.start_count_cells parameter channel': _CHANNEL,
     'PostProcessingAPI.draw_graph parameter x': _COLUMN,
     'PostProcessingAPI.draw_graph parameter y': _COLUMN,
     'PostProcessingAPI.draw_graph parameter x_label': _PROSE,

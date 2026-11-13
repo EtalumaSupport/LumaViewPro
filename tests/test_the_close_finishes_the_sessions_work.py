@@ -18,6 +18,7 @@ import time
 
 import pytest
 
+from _lumascope.modules.cell_count_method import CellCountMethod
 from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     PluginProcessorSkippedError,
@@ -314,6 +315,9 @@ def test_after_the_close_a_start_form_is_refused_at_its_call(tmp_path):
         ),
         'start_enhance': lambda: session.post_processing.start_enhance(tmp_path / 'a.tif'),
         'start_build': lambda: session.post_processing.start_build(tmp_path, composite=True),
+        'start_count_cells': lambda: session.post_processing.start_count_cells(
+            tmp_path, method=CellCountMethod()
+        ),
     }
 
     answered = {}

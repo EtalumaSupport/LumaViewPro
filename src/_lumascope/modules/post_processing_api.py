@@ -1527,6 +1527,59 @@ class PostProcessingAPI:
                 be written, or some images could not be counted; the results
                 hold every image that was, and the error names the rest.
         """
+        return self._count_cells_on_lane(
+            folder, method=method, channel=channel, on_progress=on_progress, waiter=None
+        )
+
+    @api(admitted_by=(Admission.POST_PROCESSING,))
+    def start_count_cells(
+        self,
+        folder: FilePath,
+        *,
+        method: CellCountMethod,
+        channel: str | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> Operation[CellCountResult]:
+        """Start ``count_cells`` without waiting for it; returns its ``Operation``.
+
+        The same count, as one task on the post-processing lane; the
+        operation is done with what ``count_cells`` would have returned or
+        raised. A count has no stop: once started it runs to its end.
+
+        Args:
+            folder: As for ``count_cells``.
+            method: As for ``count_cells``.
+            channel: As for ``count_cells``.
+            on_progress: As for ``count_cells``.
+
+        Raises:
+            ArgumentRefusedError: ``'channel_unknown'``, *channel* is not
+                one of this release's channels; nothing was queued. Every
+                other refusal and failure ``count_cells`` raises, the
+                operation raises.
+            SessionClosingError: ``'session_closing'``, the session's close
+                is running or has finished; nothing was started.
+        """
+        return Operation.following(
+            self._count_cells_on_lane(
+                folder,
+                method=method,
+                channel=channel,
+                on_progress=on_progress,
+                waiter=_a_waiter(),
+            )
+        )
+
+    def _count_cells_on_lane(
+        self,
+        folder: FilePath,
+        *,
+        method: CellCountMethod,
+        channel: str | None,
+        on_progress: ProgressCallback | None,
+        waiter: concurrent.futures.Future | None,
+    ):
+        """``count_cells`` put on the lane: answered, or *waiter* returned (``_on_lane``)."""
         from _lumascope.modules.post_processing import PostProcessing
 
         if channel is not None:
@@ -1541,6 +1594,7 @@ class PostProcessingAPI:
             operation=PostProcessingOperation.CELL_COUNT,
             saved_in=lambda result: result.results_path.parent,
             on_progress=on_progress,
+            waiter=waiter,
         )
 
     @api(reads=True)
