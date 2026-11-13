@@ -223,7 +223,7 @@ class Walk:
         field = self._resolve(step['path'])
         if not isinstance(field, TextInput):
             raise WalkStepError(f'{step["path"]} is a {type(field).__name__}, not a text field')
-        self._check_reachable(field, step['path'])
+        self._check_usable(field, step['path'])
         field.focus = True
         yield 0
         field.select_all()
@@ -454,12 +454,29 @@ class Walk:
                 raise WalkStepError(
                     f'{path} is inside the collapsed drawer {parent.title!r}; open it first'
                 )
+        # The app hides a row the model lacks by making it see-through, or by
+        # collapsing it to nothing; a person sees neither, though both still
+        # take a touch and text.
+        if (
+            not target.width
+            or not target.height
+            or any(w.opacity == 0 for w in (target, *_ancestors(target)))
+        ):
+            raise WalkStepError(f'{path} is not shown')
         popups = open_popups()
         if popups and not _contains(popups[0], _placed_by(target)):
             raise WalkStepError(_answer_it_first(popups[0]))
 
-    def _touch(self, target, path: str):
+    def _check_usable(self, target, path: str) -> None:
         self._check_reachable(target, path)
+        # A disabled control drops the touch or the text a person gives it, so
+        # the step would be logged as done with nothing done. Kivy carries a
+        # row's disabled to every control in it.
+        if target.disabled:
+            raise WalkStepError(f'{path} is disabled')
+
+    def _touch(self, target, path: str):
+        self._check_usable(target, path)
         yield from _until_drawers_settle(target, path)
         # A popup fading out after its dismiss still takes every touch until
         # the fade removes it, so a press sent before then lands on it.

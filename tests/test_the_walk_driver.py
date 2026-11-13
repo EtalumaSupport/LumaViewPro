@@ -265,6 +265,47 @@ Builder.load_string('''
         size_hint: None, None
         size: 200, 40
         pos: 380, 20
+    # A row the model hides, as the app hides a channel's Sum row on a camera
+    # without summing: collapsed, see-through and disabled.
+    BoxLayout:
+        size_hint: None, None
+        size: 200, 0
+        pos: 600, 20
+        opacity: 0
+        disabled: True
+        TextInput:
+            id: shut_field
+            multiline: False
+        Button:
+            id: shut_btn
+            text: 'shut'
+    # A row hidden as the JPG quality hint is: collapsed and see-through, left enabled.
+    BoxLayout:
+        size_hint: None, None
+        size: 200, 0
+        pos: 600, 100
+        opacity: 0
+        TextInput:
+            id: gone_field
+            multiline: False
+        Button:
+            id: gone_btn
+            text: 'gone'
+    # Controls greyed out in a row that shows.
+    Button:
+        id: offbtn
+        text: 'off'
+        disabled: True
+        size_hint: None, None
+        size: 100, 40
+        pos: 600, 150
+    TextInput:
+        id: offfield
+        multiline: False
+        disabled: True
+        size_hint: None, None
+        size: 100, 40
+        pos: 710, 150
 ''')
 
 root = FloatLayout()
@@ -296,6 +337,10 @@ def field_focus(field, focused):
         hits.append('commit ' + field.text)
         frames['commit'] = Clock.frames
 ids.field.bind(focus=field_focus)
+for name in ('shut_btn', 'gone_btn', 'offbtn'):
+    ids[name].bind(on_release=on(name))
+for name in ('shut_field', 'gone_field', 'offfield'):
+    ids[name].bind(focus=field_focus)
 
 # When a popup leaves the window, its fade run, on the steady clock: read in the
 # window's own change of children, so in the same call that removes it.
@@ -596,6 +641,35 @@ def test_a_press_inside_a_collapsed_drawer_stops_and_opens_nothing(tmp_path):
     assert 'collapsed' in result['outcome'], result
     assert result['two_collapsed'] is True, result
     assert not any('SELECT' in r for r in result['records']), result['records']
+
+
+@pytest.mark.parametrize(
+    ('step', 'says'),
+    [
+        ({'do': 'type', 'path': 'Panel/shut_field', 'text': '5'}, 'Panel/shut_field is not shown'),
+        ({'do': 'type', 'path': 'Panel/gone_field', 'text': '5'}, 'Panel/gone_field is not shown'),
+        ({'do': 'type', 'path': 'Panel/offfield', 'text': '5'}, 'Panel/offfield is disabled'),
+        ({'do': 'press', 'path': 'Panel/shut_btn'}, 'Panel/shut_btn is not shown'),
+        ({'do': 'press', 'path': 'Panel/gone_btn'}, 'Panel/gone_btn is not shown'),
+        ({'do': 'press', 'path': 'Panel/offbtn'}, 'Panel/offbtn is disabled'),
+    ],
+)
+def test_a_type_or_press_on_a_control_no_person_can_use_stops_and_does_nothing(
+    tmp_path, step, says
+):
+    """A person cannot type into, or press, a control the screen hides or greys out.
+
+    So the walk stops there, naming it, rather than log a step the app never
+    took: a type into a disabled box logged done and stored nothing, a type
+    into a hidden one stored text no person could have typed, and a press
+    fired a hidden button.
+    """
+    # parametrize-justified: each stop ends its walk, so each case is its own run.
+    result = _run(tmp_path, [step, {'do': 'press', 'path': 'Panel/btn'}])
+
+    assert result['outcome'].startswith('stopped at step 1'), result
+    assert says in result['outcome'], result
+    assert result['hits'] == [], result
 
 
 def test_a_press_under_an_open_modal_stops(tmp_path):
