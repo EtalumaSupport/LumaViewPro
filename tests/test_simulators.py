@@ -949,11 +949,12 @@ class TestNoPatternRequestedRendersTheSpecimen:
     specimen field -- not a static ramp.
 
     The ramp was reachable three ways: the constructor default, the
-    disable path, and any unrecognized pattern name.
+    disable path, and any unrecognized pattern name. The cameras below drift,
+    so the specimen moves from frame to frame where the ramp holds still.
     """
 
     def test_disabling_a_pattern_restores_the_moving_specimen(self):
-        cam = SimulatedCamera(width=480, height=300)
+        cam = SimulatedCamera(width=480, height=300, drift=True)
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
@@ -971,7 +972,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
         assert min(diffs) > 0, 'consecutive frames are identical -- this is a static image'
 
     def test_a_fresh_camera_renders_the_moving_specimen(self):
-        cam = SimulatedCamera(width=480, height=300)
+        cam = SimulatedCamera(width=480, height=300, drift=True)
         frames = [
             np.asarray(
                 cam._generate_image(
@@ -982,7 +983,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
             for _ in range(4)
         ]
         diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
-        assert min(diffs) > 0, 'the constructor default is a static image'
+        assert min(diffs) > 0, 'a camera asked for no pattern shows a static image'
 
     def test_an_unknown_pattern_name_warns_and_still_renders(self, caplog):
         cam = SimulatedCamera()

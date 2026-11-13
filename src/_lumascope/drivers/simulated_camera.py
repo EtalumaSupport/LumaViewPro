@@ -450,6 +450,7 @@ class SimulatedCamera(Camera):
         on_bus: bool = True,
         slide: Slide | RonchiRuling = Slide.CELLS,
         conversion_gain_mode: bool = False,
+        drift: bool = False,
     ):
         # Whether the camera is on the bus for connect() to find: False is a
         # camera unplugged before the scope came up, which no connect finds.
@@ -543,6 +544,9 @@ class SimulatedCamera(Camera):
         # drawing holds, and a defocused entry's key carries its blur, so a
         # stale entry is never served.
         self._specimen = the_slide(slide)
+        # The steps the slide is cut at, a frame each: the drift's circle,
+        # or the centre alone for a still slide.
+        self._drift_steps = DRIFT_STEPS if drift else ((0, 0),)
         self._specimen_cut: dict[int, tuple] = {}
         self._drift_index = 0
         self._defocused: dict[str, tuple] = {}
@@ -1605,16 +1609,17 @@ class SimulatedCamera(Camera):
 
         The frame is a region of the sensor, centred on the stage where
         ``exposure`` started: drawn at binning 1 at the objective's scale,
-        then binned, as the sensor sums its pixels. The drift moves it a
-        binned pixel a step.
+        then binned, as the sensor sums its pixels. The drift, when the camera
+        was built with it, moves it a binned pixel a step; a still slide is
+        cut at the centre every frame.
         """
-        step = self._drift_index % len(DRIFT_STEPS)
+        step = self._drift_index % len(self._drift_steps)
         self._drift_index += 1
         h, w, b = registers.height, registers.width, registers.binning
         place = (h, w, b, exposure.x_um, exposure.y_um, exposure.pixel_size_um)
         cached = self._specimen_cut.get(step)
         if cached is None or cached[0] != place:
-            dy, dx = DRIFT_STEPS[step]
+            dy, dx = self._drift_steps[step]
             frame = self._specimen.view(
                 exposure.x_um,
                 exposure.y_um,

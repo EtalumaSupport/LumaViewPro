@@ -155,6 +155,15 @@ if __name__ == '__main__':
                 sim_slide_fields['ronchi_lines_per_mm'] = float(_pitch)
     except ValueError as _slide_error:
         sys.exit(f'{sim_slide_usage}: {_slide_error}')
+    # The GUI simulator's slide drifts a pixel a frame, so its live display
+    # shows a running stream; --sim-scene=still holds it still, as a bench
+    # holds one, for a measurement run through the GUI.
+    try:
+        _scene = take_sim_launch_value(sys.argv, 'sim-scene', simulate=simulate_mode)
+        if _scene not in (None, 'still', 'drift'):
+            raise ValueError(f'{_scene!r} is not still or drift')
+    except ValueError as _scene_error:
+        sys.exit(f'--sim-scene=still|drift: {_scene_error}')
     # --sim-unit-config=<file> brings the simulated scope up as the unit whose
     # motorconfig.json the file is, an OEM unit's included, on the simulated
     # motor firmware: the unit's name, axes and optics are shown without it.
@@ -183,6 +192,7 @@ if __name__ == '__main__':
                 camera_present=_camera != 'absent',
                 conversion_gain_mode=_camera == 'hcg',
                 unit_config=sim_unit_config,
+                drift=_scene != 'still',
                 **sim_slide_fields,
             )
         except ValueError as _record_error:

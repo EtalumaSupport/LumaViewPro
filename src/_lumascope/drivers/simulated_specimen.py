@@ -23,10 +23,12 @@ or a likeness judge on the simulator has a known answer. A frame draws the
 window its camera sees at the objective's image scale, so a turret move
 changes the scale.
 
-The sample is seen drifting one pixel around a circle so a running stream
-looks alive. The four frames of an older cycle were different crops with
-no focus, so what a focus metric scored at one Z was whichever crop came
-up, and a sweep found its peak there.
+A camera built to drift sees the sample drifting one pixel around a
+circle, so a running stream looks alive on the GUI simulator's display;
+every other simulated camera sees it still, as a bench holds it. The four
+frames of an older cycle were different crops with no focus, so what a
+focus metric scored at one Z was whichever crop came up, and a sweep found
+its peak there.
 """
 
 from __future__ import annotations

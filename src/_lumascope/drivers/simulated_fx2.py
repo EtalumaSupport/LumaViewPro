@@ -239,6 +239,7 @@ class SimulatedFX2Device:
         stage_xy: Callable[[], tuple[float | None, float | None]] | None = None,
         pixel_size: Callable[[], float | None] | None = None,
         slide: Slide | RonchiRuling = Slide.CELLS,
+        drift: bool = False,
     ):
         if timing not in TIMINGS:
             raise ValueError(f'timing mode {timing!r} is not one of {TIMINGS}')
@@ -264,8 +265,11 @@ class SimulatedFX2Device:
         self._streaming = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        # The slide on the stage, imaged for the device's life.
+        # The slide on the stage, imaged for the device's life, and the
+        # steps it is cut at, a frame each: the drift's circle, or the centre
+        # alone for a still slide.
         self._specimen = the_slide(slide)
+        self._drift_steps = DRIFT_STEPS if drift else ((0, 0),)
         self._frame_index = 0
         self._pending: deque[bytes] = deque()
         self.extra_rows = 0
@@ -455,7 +459,7 @@ class SimulatedFX2Device:
             return np.zeros((h, w), dtype=np.uint8)
         x, y = (None, None) if self._stage_xy is None else self._stage_xy()
         um_per_px = None if self._pixel_size is None else self._pixel_size()
-        drift = DRIFT_STEPS[self._frame_index % len(DRIFT_STEPS)]
+        drift = self._drift_steps[self._frame_index % len(self._drift_steps)]
         field = self._specimen.view(x, y, h, w, um_per_px, shift=drift)
         self._frame_index += 1
         if self._light_of is None:
@@ -673,6 +677,7 @@ class SimulatedFX2:
         pixel_size: Callable[[], float | None] | None = None,
         on_bus: bool = True,
         slide: Slide | RonchiRuling = Slide.CELLS,
+        drift: bool = False,
     ):
         self.device = SimulatedFX2Device(
             timing=timing,
@@ -680,6 +685,7 @@ class SimulatedFX2:
             stage_xy=stage_xy,
             pixel_size=pixel_size,
             slide=slide,
+            drift=drift,
         )
         if not on_bus:
             # No PID answers, as after the transport's unplug.

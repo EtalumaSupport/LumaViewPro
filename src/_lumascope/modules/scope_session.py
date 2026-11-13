@@ -1935,6 +1935,7 @@ class ScopeSession:
                 sim_focal_spread_um=simulated.focal_spread_um,
                 sim_camera_present=simulated.camera_present,
                 sim_slide=simulated.slide_on_stage,
+                sim_drift=simulated.drift,
                 sim_conversion_gain_mode=simulated.conversion_gain_mode,
                 sim_unit_config=simulated.unit_config,
                 sim_camera_usb_bindings=simulated.camera_usb_bindings,

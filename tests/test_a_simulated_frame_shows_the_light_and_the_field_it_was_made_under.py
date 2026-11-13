@@ -28,11 +28,17 @@ scope can now be brought up with a Ronchi ruling at the bench's light.
 Then the ruling was the bench's 40 lines/mm only, so a run at another
 pitch had nothing to read. A record now gives the ruling its pitch, and
 refuses one that is not a ruling's.
+
+Then every simulated scope's slide drifted a pixel a frame, so a running
+stream looked alive on the GUI's display, and a measurement on the
+simulator read that drift as a scene that never held still. The slide now
+holds still unless the scope's record asks for the drift.
 """
 
 from __future__ import annotations
 
 import contextlib
+import threading
 
 import cv2
 import numpy as np
@@ -188,12 +194,13 @@ def _session(
     homed: bool = False,
     slide: Slide = Slide.CELLS,
     ronchi_lines_per_mm: float | None = None,
+    drift: bool = False,
 ):
-    """A simulated ``model``'s session with ``slide`` on its stage, a ruling at ``ronchi_lines_per_mm``, homed when a test moves the stage, its camera focused where Z stands."""
+    """A simulated ``model``'s session with ``slide`` on its stage, a ruling at ``ronchi_lines_per_mm``, drifting when ``drift``, homed when a test moves the stage, its camera focused where Z stands."""
     session = ScopeSession.create(
         complete_settings(microscope=model),
         simulate=True,
-        simulated=SimulatedScope(slide=slide, ronchi_lines_per_mm=ronchi_lines_per_mm),
+        simulated=SimulatedScope(slide=slide, ronchi_lines_per_mm=ronchi_lines_per_mm, drift=drift),
         warn_pre_release=False,
     )
     try:
@@ -471,3 +478,40 @@ def test_a_real_scope_refuses_a_slide():
     with pytest.raises(ArgumentRefusedError) as refused:
         build_scope(simulate=False, sim_slide=Slide.RONCHI)
     assert (refused.value.reason, refused.value.argument) == ('needs_simulated_scope', 'sim_slide')
+
+
+def _delivered_frames(scope, count: int) -> list[np.ndarray]:
+    """The next ``count`` frames the camera delivers, in order, under the settings in force."""
+    frames: list[np.ndarray] = []
+    enough = threading.Event()
+
+    def keep(frame):
+        if len(frames) < count:
+            frames.append(frame.image.copy())
+        if len(frames) == count:
+            enough.set()
+
+    scope.imaging.add_frame_listener(keep, name='consecutive frames')
+    try:
+        assert enough.wait(10.0), f'{len(frames)} of {count} frames delivered'
+    finally:
+        scope.imaging.remove_frame_listener(keep)
+    return frames
+
+
+# Each simulated camera draws the slide its own way: the stand-in camera and
+# the FX2's sensor.
+@pytest.mark.parametrize('model', ['LS850', 'LS620'])
+def test_the_slide_holds_still_unless_the_record_asks_for_the_drift(model):
+    """Consecutive frames at one position and one setting are the same picture on a still slide, and not all the same when the record asks for the drift."""
+    pictures = {}
+    for drift in (False, True):
+        with _session(model, slide=Slide.RONCHI, drift=drift) as session:
+            # The still returns once the settings are in force, so every
+            # frame after it is made under them.
+            _shown(session.scope, 'BF', *_SHIPPED['BF'])
+            frames = _delivered_frames(session.scope, 5)
+        pictures[drift] = {frame.tobytes() for frame in frames}
+
+    assert len(pictures[False]) == 1, f'{len(pictures[False])} different pictures on a still slide'
+    assert len(pictures[True]) > 1, 'the drifting slide gave one picture'

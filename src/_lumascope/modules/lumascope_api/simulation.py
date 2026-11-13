@@ -209,6 +209,7 @@ type BoardConfigValue = str | int | float | bool | list | dict | None
     'camera_present',
     'slide',
     'ronchi_lines_per_mm',
+    'drift',
     'conversion_gain_mode',
     'unit_config',
     'camera_usb_bindings',
@@ -270,6 +271,13 @@ class SimulatedScope:
             or not a positive finite number, the record is not built:
             ``ArgumentRefusedError`` ``'fault_bound'`` or ``'not_a_number'``,
             naming ``ronchi_lines_per_mm``.
+        drift: Whether the slide drifts a pixel around a circle, a step a
+            frame, so a running stream looks alive on a display. Both
+            simulated cameras take it. False is a still slide, as a bench
+            holds one: two frames made under the same settings at the same
+            stage position are the same picture, which a measurement of
+            what a change does to the frames needs. The GUI simulator asks
+            for it; nothing else does.
         conversion_gain_mode: Whether the scope's camera has a switchable
             conversion gain, as an IDS on firmware 3.95 does, so the
             Advanced Settings toggle and a run in each mode are shown
@@ -310,6 +318,7 @@ class SimulatedScope:
     conversion_gain_mode: bool = False
     unit_config: Mapping[str, BoardConfigValue] | None = None
     ronchi_lines_per_mm: float | None = None
+    drift: bool = False
     camera_usb_bindings: tuple[SimulatedUsbBinding, ...] = ()
     unidentified_usb_devices: int = 0
 
