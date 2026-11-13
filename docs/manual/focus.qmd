@@ -57,19 +57,12 @@ objective while a protocol is running or a video is recording.
 down, away from it:
 
 - The arrow buttons: the double arrows move a coarse step, the single
-  arrows a fine step. The step is the objective's; for a 20x objective, a
-  coarse step is 29 µm and a fine step 2.9 µm.
-- The slider: drag the objective icon, and the focus moves when you release
-  it. Clicking the slider's track doesn't move the focus.
-- [Z-Position (um)]{.guilabel}: shows the focus position, in micrometers,
-  or `--` while the focus is homing. Type a position and press Enter to move
-  there.
+  arrows a fine step. The step size depends on the objective.
+- The slider: drag the objective icon to move the focus.
+- [Z-Position (um)]{.guilabel}: shows the focus position, in micrometers.
+  Type a position and press Enter to move there.
 - Over the live image, hold Ctrl and scroll the mouse wheel to move a fine
-  step at a time, or hold Ctrl and Shift for coarse steps. Scrolling quickly
-  takes steps up to twice as large.
-
-LumaViewPro won't move the focus beyond the motor's travel; the focus
-stays where it is.
+  step at a time, or hold Ctrl and Shift for coarse steps.
 
 [Home]{.guilabel} lowers the focus all the way, to position 0. With
 [Restore Focus and Objective After Home]{.guilabel} on in Advanced Settings
@@ -87,11 +80,7 @@ in the same way, and also saves it as every channel's saved focus, as
 
 [Autofocus]{.guilabel} finds the focus of the shown channel at the current
 stage position, using image contrast. It searches a range centered on the
-current focus: first the whole range in coarse steps, then a narrower
-range around the sharpest position in steps a third as large, and so on
-down to the objective's finest step. For a 20x objective, the range is
-40 µm above and below the current focus, searched in steps from 18 µm down
-to 2 µm. Get the image close to focus before you start, so the true
+current focus, the size of the range set by the objective. Get the image close to focus before you start, so the true
 focus is within the range.
 
 While it's running, the button reads [Focusing...]{.guilabel}; click it
@@ -99,10 +88,6 @@ again to stop, and the focus stays where it is. When autofocus finishes,
 the focus stays at the sharpest position, which is saved as the shown
 channel's focus (@sec-channel-focus). If no focus is found, the focus goes
 back to where it was.
-
-If the autofocus range would reach beyond the focus motor's travel,
-autofocus won't start, and nothing moves. Move the focus away from the end of its
-travel and try again.
 
 To autofocus before each step of a protocol, see @sec-channel-protocol-settings.
 
@@ -141,19 +126,15 @@ positions. Set it up under [Acquire Z Stack]{.guilabel}:
 
 - [Step size (um)]{.guilabel}: the distance between slices, in micrometers.
 - [Range (um)]{.guilabel}: the depth of the stack, in micrometers.
-- [# of Steps]{.guilabel}: the number of slices, calculated from the two:
-  the range divided by the step size, rounded down, plus one, so there's a
-  slice at each end. A step size of 2 µm and a range of 10 µm
-  give 6 slices. When the range isn't a whole number of steps, the
-  slices cover slightly less than the range. The step size and the range
-  must both be greater than 0.
+- [# of Steps]{.guilabel}: the number of slices, calculated from the two,
+  with a slice at each end: a step size of 2 µm and a range of 10 µm
+  give 6 slices.
 - Where the stack sits relative to the current focus:
   [Current Position at Top]{.guilabel},
   [Current Position at Center]{.guilabel} or
   [Current Position at Bottom]{.guilabel}. At the top or the bottom, the
   top or bottom slice is at the current focus. At the center, the slices
-  are centered on it; with an even number of slices, none is exactly at
-  the current focus.
+  are centered on it.
 
 [Acquire]{.guilabel} takes the stack in the shown channel, with that
 channel's settings, from the lowest slice up, without autofocus. While
@@ -177,17 +158,14 @@ The [XY Stage Control]{.guilabel} drawer moves the stage
 (@fig-xy-stage). Positions are on the labware selected in the
 [Protocol]{.guilabel} drawer, in millimeters.
 
-- [X: (mm)]{.guilabel} and [Y: (mm)]{.guilabel} show the stage's position,
-  or `--` while it isn't known. Type a position and press Enter to move
+- [X: (mm)]{.guilabel} and [Y: (mm)]{.guilabel} show the stage's position.
+  Type a position and press Enter to move
   there.
 - The arrow buttons below them: the double arrows move a coarse step, the
-  single arrows a fine step. The step is the objective's; for a 20x
-  objective, a coarse step is 200 µm and a fine step 20 µm.
+  single arrows a fine step. The step size depends on the objective.
 - [Set X]{.guilabel} and [Set Y]{.guilabel} store the current position
   on that axis; [Go to X]{.guilabel} and [Go to Y]{.guilabel} return to it.
 
-LumaViewPro won't move the stage beyond its travel; the stage stays where
-it is.
 How quickly the stage accelerates is set by
 [Acceleration Max (%)]{.guilabel} in Advanced Settings
 (@sec-advanced-general).

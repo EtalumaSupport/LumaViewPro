@@ -45,10 +45,7 @@ Under [Time Settings]{.guilabel}:
   Default: [48]{.default setting="protocol.duration"} hours.
 
 A full run takes Duration divided by Interval scans, rounded down: 48 hours
-at 20 minutes is 144 scans. An interval of 0, or a duration shorter than
-the interval, gives a single scan, and you'll see a "Single Scan" message
-when the run starts. An interval shorter than 1 second, other than 0, isn't
-allowed.
+at 20 minutes is 144 scans.
 
 If a scan takes longer than the interval, the next scan starts as soon as
 it ends; no scan is skipped, so the protocol ends later than its duration.
@@ -83,22 +80,10 @@ is set, and Z-stacked if [Enable Z-Stack]{.guilabel} is checked. Each
 step uses its channel's settings and saved focus, or the current focus if
 the channel has no saved focus.
 
-At each well, the channels follow one another in the order their drawers
-are listed. The wells are taken row by row, each row in the opposite
-direction to the one before, so the stage doesn't travel back across the
-plate between rows: A1, A2, A3, then B3, B2, B1 on a 6-well plate.
-
-New won't run if no channel is set to [Image]{.guilabel} or
-[Video]{.guilabel} ("No Channel Set to Acquire"), if the objective isn't
-set, or if a tile would lie outside the stage's travel.
-
 A step's name is its well and channel, then its tile and Z-stack slice if
 it has them: `A1_BF` is the brightfield image of well A1,
 `A1_BF_TA2` its tile A2, and `A1_BF_TA2_Z0` the lowest slice of that
 tile's Z-stack.
-
-If a protocol would have more than 10,000 steps, a note below the file
-buttons shows its size and how much space its images will take.
 
 ## The list of steps {#sec-protocol-steps}
 
@@ -107,11 +92,9 @@ Below the plate map:
 - [Protocol]{.guilabel}: the protocol's file name, once it's saved or
   loaded.
 - [Root]{.guilabel}: text added to the front of every image file name the
-  protocol saves (@sec-protocol-files). Only letters, digits, `-` and `_`
-  are kept. The root is saved in the protocol.
+  protocol saves (@sec-protocol-files). The root is saved in the protocol.
 - [Step Name]{.guilabel}: the selected step's name. Type a new name and
-  press Enter to rename the step. Only letters, digits, `-` and `_` are
-  kept; a blank name keeps the old one.
+  press Enter to rename the step.
 - [Step]{.guilabel}: the selected step's number and the number of steps.
   The arrow buttons select the previous and the next step; type a number to
   go to that step.
@@ -138,23 +121,12 @@ plate map, or by typing its number in [Step]{.guilabel}), then:
 
 [Change]{.guilabel} rewrites the selected step using the shown channel and
 its settings, the current position and focus, the current objective, and
-the name in [Step Name]{.guilabel}. It won't work if the shown channel
-isn't set to [Image]{.guilabel} or [Video]{.guilabel}, or while the stage
-or focus is moving. It also won't work if another step added along with
-this one already uses the shown channel ("Step Not Saved"): steps added
-together form one composite, with one image per channel.
-
-On a slice of a Z-stack, Change moves the whole stack: every slice of
-every channel there gets the new position and objective, and every slice
-of the step's channel gets the channel's settings. A slice keeps its
-channel: Change won't work on a slice while another channel is shown.
+the name in [Step Name]{.guilabel}.
 
 To change only a step's focus, select it, focus, and click
-[Change]{.guilabel}. On a slice of a Z-stack, a focus saved by
-[Change]{.guilabel} is used only while the channel's
-[Auto Focus]{.guilabel} is off. With it on, the run places the whole stack
-around the focus it finds instead (@sec-protocol-autofocus-all), each slice
-keeping its spacing from the slice the stack was placed against.
+[Change]{.guilabel}. On a slice of a Z-stack, a focus set this way is
+ignored while the channel's [Auto Focus]{.guilabel} is on: the run
+focuses the stack itself.
 
 [Delete]{.guilabel} deletes the selected step and selects the one before
 it. To delete many steps at once, see @sec-protocol-file.
@@ -165,8 +137,7 @@ it. To delete many steps at once, see @sec-protocol-file.
 position: one for each channel set to [Image]{.guilabel} or
 [Video]{.guilabel}. Every added step uses the current focus, not its
 channel's saved focus. With [Enable Z-Stack]{.guilabel} checked, each
-added step is a Z-stack. Add won't work while the stage or focus is
-moving, or while a position isn't known.
+added step is a Z-stack.
 
 Added steps are named `custom` plus a four-digit number that counts up, then
 the channel: `custom0000_BF`, `custom0001_BF`. Rename them in
@@ -195,8 +166,7 @@ protocol again with [New]{.guilabel}, or load the untiled protocol.
 Tiles are named by row and column: `TA1` is the first row's first tile,
 `TA2` the tile beside it, and `TB1` the first tile of the second row. A
 tiled image's name keeps the step's name before it, so the tiles of a well
-or of an added step sort together. Stitching doesn't read the names: it
-places each tile from the run's record (@sec-pp-stitch).
+or of an added step sort together.
 
 Tile positions are based on the frame size, binning and objective in use
 when the grid is made, and don't change if you change these afterwards
@@ -220,26 +190,15 @@ own, named with `Z` and its number, counting from the lowest.
   isn't already in a Z-stack into one, placed around the step's focus by
   the top, center or bottom setting in [Objective Control]{.guilabel}.
 
-Neither works if the step size or range isn't greater than 0, or if a
-slice would lie outside the focus travel.
-
 ## Focusing every step before a run {#sec-protocol-autofocus-all}
 
 *Motorized focus only.*
 
 [Autofocus All Steps]{.guilabel} runs autofocus at every step and saves
 the focus it finds as that step's focus. No images are saved. While it's
-running, the button reads "Running Autofocus Scan"; click it to stop. If
-the scan is stopped or doesn't finish, no step changes, and the same is
-true if the protocol was changed during the scan ("Focus Not Saved"). A
+running, the button reads "Running Autofocus Scan"; click it to stop. A
 finished scan can't be undone, so save the protocol first if you want to
 keep the old focus.
-
-A Z-stack is focused once, before its first slice is taken, searching
-around the focus the stack was built from. The whole stack then moves
-so the slice it was placed against (its top, center or bottom slice, as
-set in [Objective Control]{.guilabel} when the stack was made,
-@sec-zstack) is at the focus found; the slices keep their spacing.
 
 ## Saving and opening a protocol {#sec-protocol-save}
 
@@ -286,16 +245,9 @@ with the number still to write. The toolbar's
 At each step the stage and focus move to the step's position, the step's
 channel is shown with its settings, an autofocus runs if the channel's
 [Auto Focus]{.guilabel} is on, and the image or video is taken. A
-Z-stack is autofocused once, before its first slice, as in
-@sec-protocol-autofocus-all. With
+Z-stack is autofocused once, before its first slice. With
 [Keep LED on across moves]{.guilabel} in Advanced Settings, the LED stays
 on between steps of the same channel (@sec-advanced-protocol).
-
-A run won't start, and you'll see the reason, if the protocol has no
-steps ("No Steps"), another run, a composite or post-processing is in
-progress, files from an earlier acquisition are still being written, the
-microscope or camera isn't ready, a position isn't known, or the
-destination folder can't be written to.
 
 While a run is in progress, the protocol, the channel drawers and the
 other acquisition controls can't be changed (@sec-showing-a-channel).

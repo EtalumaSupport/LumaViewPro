@@ -129,9 +129,6 @@ channel and the frames written. With [Video Recording Format]{.guilabel}
 set to [Frames]{.guilabel}, the frames are saved as separate images in a
 folder with that name instead (@sec-video-format).
 
-You can't start a recording while a protocol is running, and you can't
-change the destination folder or the objective while recording.
-
 ## A Z-stack {#sec-image-zstack}
 
 *Motorized focus only.*

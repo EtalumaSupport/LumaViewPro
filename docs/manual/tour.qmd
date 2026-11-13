@@ -89,7 +89,7 @@ The toolbar buttons are icons (@fig-tour-toolbar). From left to right:
 | Button | What it does |
 |:---|:---|
 | Open last save folder | Opens the folder LumaViewPro saved to most recently, in Windows File Explorer. Before anything is saved, it opens the destination folder. |
-| Destination folder | Chooses the folder every image and video is saved inside. Not available while a protocol is running or a video is recording. |
+| Destination folder | Chooses the folder every image and video is saved inside. |
 | Freeze | Freezes and unfreezes the live image. Only the display stops; the LEDs, captures, recordings and protocols carry on. |
 | Capture | Saves an image of the channel shown, with the channel in its name. |
 | Composite | Captures each channel set to acquire an image and combines them into one composite image. Needs at least two such channels. |

@@ -37,21 +37,14 @@ Run, Z-stack and composite folders each hold `protocol_record.tsv`, a
 record of every image taken and where. A recording saved as frames has no
 record; [Create Video]{.guilabel} reads its frames instead. The tools read
 the record, not the file names, to find each image's channel, position,
-tile, Z-slice and time. A folder without a record isn't accepted
-("Protocol and/or Protocol Record not found in folder"). The images must
+tile, Z-slice and time. The images must
 be TIFF or OME-TIFF. No tool will work on a run saved as JPG, because a
 JPG holds only what the screen showed, none of the capture's details.
 
-Click the tool's button and choose the folder. The folder picker starts in
-`ProtocolData`. On Windows and Linux it shows folders only, not the files
-in them.
+Click the tool's button and choose the folder.
 
 While a tool is running, a window shows its progress. When it finishes,
-the window lists what was made and any images it left out. You can't start
-a run while a tool is running, or start a tool while a run, a recording or
-homing is using the microscope, or while a finished run's files are still
-being written. The tool's button is greyed out, or a message gives the
-reason. Try again when that work is done.
+the window lists what was made and any images it left out.
 
 ### What each tool makes {#sec-pp-outputs}
 
@@ -80,8 +73,6 @@ you get. For a tiled run with Z-stacks in several channels, run:
 4. [Create Video]{.guilabel}, for a time-lapse, which makes a video of each.
 
 Running a tool again on the same folder skips what it already made.
-`protocol_post_record.tsv` in the folder records how each new image was
-made.
 
 To keep a later tool from using a derived folder, delete that whole folder
 first, for example `Composite`. Don't delete images the run took: a tool
@@ -132,8 +123,7 @@ and keeps the tiles' own pixels and colors.
 
 Tiles taken with no overlap ([Tiling Overlap]{.guilabel} 0 in Advanced
 Settings, @sec-advanced-protocol) are placed by stage position alone in
-both modes. Neither mode corrects lens distortion toward the edges of each
-tile.
+both modes.
 
 Stitched images are saved in the run's `Stitched` folder, their names
 ending in `_stitched`, or `_stitched_FastPreview` for a fast preview.
@@ -154,11 +144,9 @@ position with two, Brightfield and Phase Contrast for example, is skipped,
 and the window lists its images.
 
 Composites are 8-bit color images, saved in the run's `Composite` folder:
-OME-TIFF when every image combined is OME-TIFF, otherwise TIFF. Each name
-includes a six-character code for the settings used, for example
-`custom0000_Composite_TA1_0000_a01a3c.tiff`, so a composite made again
-with different settings is saved beside the first instead of replacing
-it.
+OME-TIFF when every image combined is OME-TIFF, otherwise TIFF. A
+composite made again with different settings is saved beside the first
+instead of replacing it.
 
 To make one composite manually, at the microscope, use the toolbar's
 Composite button instead (@sec-image-composite).
@@ -189,8 +177,7 @@ Max shows the brightest structures from every depth in focus at once; Min
 shows the darkest. Average and Median lower the noise. Sum keeps the total
 light, useful for a faint sample. StdDev shows what changes with depth.
 
-The folder picker starts in `Manual/Z-Stacks` or `ProtocolData`, whichever
-exists, or the destination folder when both or neither do. Projections are
+Projections are
 saved in the folder's `ZProject` folder, their names ending in `_zproj_`
 and the method: `custom0000_BF_TA1_0000_zproj_max.tiff`.
 
@@ -210,7 +197,6 @@ It has five steps, each with its own switch below the two buttons
   leaving the background as it is.
 
 Every step except [Denoise]{.guilabel} is on until you turn it off.
-LumaViewPro remembers the switches from one session to the next. The numbers each step uses are fixed.
 
 ![The Quick Enhance controls, at their defaults](images/post-processing-quick-enhance-ls850.png){#fig-pp-enhance width=35%}
 
@@ -224,10 +210,7 @@ light from the sample. Measure on the images as taken.
   aren't included.
 
 Each copy is saved beside its source, named after it, as TIFF (OME-TIFF for an
-OME-TIFF source): `ZStack_Ex405_Z0_0000_enhanced.tiff`. Beside it, a
-`.recipe.json` file of the same name records each step and its settings.
-Enhancing an image again saves a new copy, `_enhanced_001`, and so on. Each
-copy is shown for a moment in the image view as it's saved.
+OME-TIFF source): `ZStack_Ex405_Z0_0000_enhanced.tiff`.
 
 ## Counting and measuring objects {#sec-pp-objects}
 
@@ -281,14 +264,7 @@ The controls:
   brightest pixel, in percent of full scale.
 
 The count looks only at images directly in the folder you chose, not in
-subfolders. In a protocol run's folder, or a folder inside one such as
-`ZProject`, it counts only the images the run's records list: the run's
-captures and the images the post-processing tools made from them. Any other
-image, such as a [Quick Enhance]{.guilabel} copy or a file you put there, is
-left out. In a folder without a run, it counts every image except
-[Quick Enhance]{.guilabel} copies. The count lists each image it left out,
-and why. If the run's records can't be read, or the run's protocol file is
-missing, the count tells you and counts nothing.
+subfolders, and lists each image it left out, and why.
 
 It writes `results.csv` in that folder, one row per image counted, in the
 order the images were taken, or by name where that order isn't known:
@@ -296,12 +272,12 @@ order the images were taken, or by name where that order isn't known:
 | Column | What it holds |
 |:---|:---|
 | `file` | The image. |
-| `well` | The well the image was taken in, as the image states it; blank if it states none. |
-| `channel` | The channel the image was taken in, as the image states it, else as the run's record does. |
-| `scan` | The scan of the run the image was taken in, counted from 0 as the file names count it; blank in a folder with no run. |
-| `tile` | The image's tile, from the run's record; blank for a stitched image and in a folder with no run. |
-| `z` | The focus position the image was taken at, in µm, as the image states it; blank for a Z-projection, which states none. |
-| `time` | When the image was taken, as the image states it. An image a tool made, such as a Z-projection, states none; its time is its scan's, from the run's record. Blank if neither states one. |
+| `well` | The well the image was taken in. |
+| `channel` | The channel the image was taken in. |
+| `scan` | The scan of the run, counted from 0. |
+| `tile` | The image's tile. |
+| `z` | The focus position the image was taken at, in µm. |
+| `time` | When the image was taken. |
 | `num_cells` | The number of objects counted. |
 | `total_object_area_px2` | Their total area, in pixels. |
 | `total_object_area_um2` | Their total area, in µm². |
@@ -311,11 +287,8 @@ order the images were taken, or by name where that order isn't known:
 
 Beside it, the count writes `results_method.json`, the method it used, so
 you can always tell how a count was made. [Load Method]{.guilabel} opens it
-like any saved method. A count never overwrites an earlier one: counting a
-folder again writes `results_001.csv` and `results_001_method.json`, then
-`results_002.csv` and so on, and tells you which files it wrote. If either
-file can't be written, the count tells you, and no method file is left
-beside results it didn't make.
+like any saved method. Counting a folder again writes new files beside
+the earlier ones; it never overwrites them.
 
 ### Graphing the results {#sec-pp-plot}
 

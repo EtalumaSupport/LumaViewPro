@@ -14,9 +14,7 @@ when LumaViewPro starts (@fig-tour-left-ls850).
 
 ### Which model LumaViewPro runs as {#sec-model-line}
 
-The first line, [Lumascope Model]{.guilabel}, shows the model LumaViewPro is running as. On a microscope
-that doesn't report its own model, a different model selected for the next
-start is shown after it, for example "(LS560 at next start)". The model is
+The first line, [Lumascope Model]{.guilabel}, shows the model LumaViewPro is running as. The model is
 selected in
 [Advanced Settings]{.guilabel} (@sec-advanced-general).
 
@@ -39,9 +37,6 @@ objective's field of view.
 | LS460, LS560 | 1700 x 1700, the largest the lens images |
 
 : Largest frame size by model {#tbl-max-frame tbl-colwidths="[30,70]"}
-
-You can't change the frame size while a protocol, Z-stack, composite or
-autofocus is running.
 
 The tiles of a tiled protocol are calculated from the frame size and
 binning in use when the protocol is created. Run the protocol with the same
@@ -102,8 +97,7 @@ protocol video steps.
   images appear at normal brightness in any viewer.
 - RGB (full depth): full bit depth, saved in the channel's false color.
 
-You can't change the mode while a protocol, Z-stack, composite or
-autofocus is running. JPG files are always 8-bit; if you select a
+JPG files are always 8-bit; if you select a
 full-depth mode with a JPG format, a note below the mode says full depth is
 kept only in TIFF. A composite's per-channel images are saved in the
 selected mode; only its combined image is 8-bit.
@@ -128,8 +122,7 @@ mode that extra brightness is lost, and a note below
 images, labeled with its length and the objective magnification, for
 example "100um, 10x". The bar is drawn in black or white for contrast with
 the image. No bar is drawn until an objective is assigned in
-[Objective Control]{.guilabel}. You can't change the setting while a
-protocol is running, a video is recording or the stage is homing. Default: [off]{.default setting="scale_bar.enabled"}.
+[Objective Control]{.guilabel}. Default: [off]{.default setting="scale_bar.enabled"}.
 
 ### Showing crosshairs {#sec-crosshairs}
 
@@ -143,8 +136,7 @@ isn't saved: crosshairs are off each time LumaViewPro starts.
 [Live Image Contrast Stretching]{.guilabel} stretches the displayed brightness of the live image to the full range, so
 the darkest pixels display as black and the brightest as white. This
 brings out detail in dim images. Only the display is affected; saved
-images don't change. Stretching pauses, and the switch is disabled, while a
-protocol, Z-stack, composite or autofocus is running. This setting isn't
+images don't change. This setting isn't
 saved: it's off each time LumaViewPro starts.
 
 ### Showing a control's description on hover {#sec-tooltips}
@@ -176,12 +168,7 @@ the window, to close it.
 
 #### Choosing the model
 
-[Lumascope Model]{.guilabel} sets the model for a microscope that doesn't report its own. On such a
-microscope, a change takes effect the next time LumaViewPro starts, and a
-notice tells you so. A microscope whose motor board reports its model
-always runs as that model; a model chosen while it's connected is kept for
-the next microscope that doesn't report its own, and a notice tells you
-so. You can't change the model while a protocol is running.
+[Lumascope Model]{.guilabel} sets the model for a microscope that doesn't report its own; a change takes effect the next time LumaViewPro starts.
 
 LumaViewPro can't tell an LS460, an LS560 and an LS620 apart. On these
 models, select the correct model here and restart
@@ -200,13 +187,10 @@ loosely attached cells.
 *Motorized focus only.*
 
 When [Restore Focus and Objective After Home]{.guilabel} is on, homing started with [Home Stage]{.guilabel} (@sec-xy-stage) or
-the focus [Home]{.guilabel} (@sec-focus-adjust), or by a program through
-the REST interface, ends by turning the turret, if there is one, back to
+the focus [Home]{.guilabel} (@sec-focus-adjust) ends by turning the turret, if there is one, back to
 the objective it was on and returning the focus to where it was. The stage
 isn't returned. When off, the focus stays near its lowest point and the
-turret at position 1. Default: [off]{.default setting="motion.restore_after_home"}. The homing at startup and during a
-support report (@sec-support-report) always leaves the turret at position
-1, whatever this setting says.
+turret at position 1. Default: [off]{.default setting="motion.restore_after_home"}.
 
 #### Letting other programs control the microscope
 
@@ -253,7 +237,7 @@ protocol run. Default: [off]{.default setting="protocol_led_on"}.
 
 During a protocol run, [Keep LED on across moves]{.guilabel} keeps the LED on while the stage moves between
 consecutive steps of the same channel, instead of switching it off and on
-again, which shortens the scan. It doesn't apply to autofocus scans.
+again, which shortens the scan.
 Default: [off]{.default setting="keep_led_between_steps"}.
 
 #### How much tiles overlap
@@ -275,5 +259,4 @@ are placed by stage position alone.
 #### A folder for each channel
 
 [Save channels in separate folders]{.guilabel} saves each channel's images in a separate folder named for the channel, for
-both manual captures and protocol runs. The setting is read when a protocol
-starts and isn't stored in the protocol. Default: [off]{.default setting="separate_folder_per_channel"}.
+both manual captures and protocol runs. Default: [off]{.default setting="separate_folder_per_channel"}.

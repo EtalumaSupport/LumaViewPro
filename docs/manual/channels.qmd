@@ -20,9 +20,6 @@ in a channel's drawer.
 - **Bioluminescence**: the [Lumi]{.channel} channel, on the Lumi microscope. It has no
   LED: the camera images the light the sample emits.
 
-The drawers are listed in the same order on every model, and only the
-channels your microscope has get a drawer.
-
 ## Showing a channel {#sec-showing-a-channel}
 
 Click a channel's title to open its drawer and show that channel: the live
@@ -49,11 +46,7 @@ and power, and restart LumaViewPro.
 [Enable LED]{.guilabel} turns the shown channel's LED on and off.
 
 [LED (mA)]{.guilabel} sets the LED's current, in milliamperes. Drag the
-slider, or type a value in the box and press Enter. The slider runs to
-50 mA on the transmitted channels and to the LED board's maximum on the
-fluorescence channels. You can type a value above the slider's range, up
-to the LED board's maximum; anything higher isn't accepted, and the setting
-keeps its previous value.
+slider, or type a value in the box and press Enter.
 
 Defaults: [Brightfield]{.channel} [5 mA]{.default setting="BF.illumination_ma"}; [Phase Contrast]{.channel} and
 [Darkfield]{.channel} [50 mA]{.default setting="PC.illumination_ma DF.illumination_ma"}; each fluorescence channel [250 mA]{.default setting="channel_defaults.fluorescence.illumination_ma"}.
@@ -68,16 +61,9 @@ when no camera is connected.
 the camera's maximum, in steps of 0.1. Higher gain brightens the image and
 adds noise.
 
-[Exp (ms)]{.guilabel} is the exposure time, in milliseconds. The slider
-runs to 50 ms on [Brightfield]{.channel}, to 200 ms on
-[Phase Contrast]{.channel} and [Darkfield]{.channel}, and to 1000 ms, or
-the camera's maximum if lower, on the fluorescence channels; on the
-[Lumi]{.channel} channel it runs to the camera's maximum. On the
-fluorescence and [Lumi]{.channel} channels the slider moves in whole
-milliseconds, starting at 1 ms; you can type a finer exposure in the box,
-such as 0.5 or 12.7 ms. You can also type a longer exposure than the slider
-allows; a gain or exposure beyond the camera's limit is applied at that
-limit.
+[Exp (ms)]{.guilabel} is the exposure time, in milliseconds. Drag the
+slider, or type a value in the box and press Enter. A gain or exposure
+typed beyond the camera's limit is applied at that limit.
 
 Defaults: [Brightfield]{.channel} [1 dB]{.default setting="BF.gain_db"} and [2 ms]{.default setting="BF.exposure_ms"}; [Phase Contrast]{.channel}
 [1 dB]{.default setting="PC.gain_db"} and [5 ms]{.default setting="PC.exposure_ms"}; [Darkfield]{.channel} [1 dB]{.default setting="DF.gain_db"} and [30 ms]{.default setting="DF.exposure_ms"}; each fluorescence
@@ -90,8 +76,7 @@ shown on the LS460, LS560, LS620 and LS720, nor on the [Lumi]{.channel} channel.
 
 [Auto Gain/Exp]{.guilabel} lets the camera adjust the gain and exposure
 itself, continuously, to bring the image to a target brightness of 30% of
-full scale. The camera measures brightness over the central half of the
-frame (half the width and half the height). While it's on, the
+full scale. While it's on, the
 [Gain (dB)]{.guilabel} and [Exp (ms)]{.guilabel} controls are disabled.
 When you turn it off on the shown channel, the gain and exposure stay
 where the camera left them, replacing the values set before.
@@ -101,9 +86,7 @@ With Auto Gain/Exp on, set the LED to 10 to 30 mA on a transmitted channel
 and 50 to 400 mA on a fluorescence channel.
 
 The setting belongs to the channel, and each protocol step you add in that
-channel copies it. A step's own setting can differ from the channel's: in a
-tiled scan, for example, steps whose tiles overlap a well's edge can have
-Auto Gain/Exp off while the steps inside the well have it on.
+channel copies it.
 
 ::: {.callout-warning}
 ## Very dark and very light areas in one image
@@ -199,8 +182,7 @@ threshold creates a new one beside the earlier one.
 ## The histogram {#sec-histogram}
 
 Below the acquire settings, a histogram shows how many pixels of the live
-image have each brightness, dark on the left and bright on the right. It
-updates while the channel is shown, but not while a protocol is running.
+image have each brightness, dark on the left and bright on the right.
 
 ## How the channel is shown {#sec-display-properties}
 
