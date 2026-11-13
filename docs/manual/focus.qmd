@@ -62,7 +62,7 @@ down, away from it:
 - The slider: drag the objective icon, and the focus moves when you release
   it. Clicking the slider's track doesn't move the focus.
 - [Z-Position (um)]{.guilabel}: shows the focus position, in micrometers,
-  or `--` while it isn't known. Type a position and press Enter to move
+  or `--` while the focus is homing. Type a position and press Enter to move
   there.
 - Over the live image, hold Ctrl and scroll the mouse wheel to move a fine
   step at a time, or hold Ctrl and Shift for coarse steps. Scrolling quickly

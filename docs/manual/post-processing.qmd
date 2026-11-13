@@ -93,9 +93,9 @@ reports any image the record lists but the folder no longer has
 [Create Video...]{.guilabel} makes a video from a folder:
 
 - a protocol run with more than one scan: one video for each position,
-  channel, tile and Z-slice, its frames the scans in order. A single-scan
-  run has nothing to make a video from, so it isn't accepted ("Video
-  requires multiple time points per scan position");
+  channel, tile and Z-slice, with one frame from each scan, in order. A
+  run of a single scan isn't accepted ("Video requires multiple time
+  points per scan position");
 - a recording saved as frames: one video of the recording.
 
 Its settings:
@@ -141,13 +141,13 @@ channels.
 ## Combining channels into one image {#sec-pp-composite}
 
 [Create Composites...]{.guilabel} combines the channels taken at the same
-place in the same scan into one color image: each fluorescence or
+position in the same scan into one color image: each fluorescence or
 [Lumi]{.channel} channel in its color, laid over a transmitted-light
 channel (Brightfield, Phase Contrast or Darkfield) in gray if one was
 taken. Each color channel shows over the gray where it's brighter than its
 [CBT (%)]{.guilabel}, as set in its channel drawer when the tool runs
 (@sec-cbt). A composite can include only one transmitted-light image: a
-place with two, Brightfield and Phase Contrast for example, is skipped,
+position with two, Brightfield and Phase Contrast for example, is skipped,
 and the window lists its images.
 
 Composites are 8-bit color images, saved in the run's `Composite` folder:
@@ -157,7 +157,7 @@ includes a six-character code for the settings used, for example
 with different settings is saved beside the first instead of replacing
 it.
 
-To make one composite by hand at the microscope, use the toolbar's
+To make one composite manually, at the microscope, use the toolbar's
 Composite button instead (@sec-image-composite).
 
 ## Flattening a Z-stack into one image {#sec-pp-zprojection}

@@ -4,9 +4,8 @@ This chapter describes each setting in [Microscope Settings]{.guilabel} and
 [Advanced Settings]{.guilabel}. Settings that need particular hardware say
 so. Settings are saved and restored at the next start, except where noted.
 
-If you enter a value outside a setting's range, LumaViewPro tells you why
-it can't be used, and the setting keeps its previous value; it's never
-adjusted to the nearest allowed value.
+If you type a value outside a setting's range, a "Setting Not Changed"
+message gives the allowed range, and the setting keeps its previous value.
 
 ## The Microscope Settings drawer {#sec-microscope-settings}
 
@@ -117,9 +116,11 @@ sensitivity and reduces resolution. The available sizes are those the
 camera supports; 1x1 (no binning) is the default. The
 [Frame Size]{.guilabel} boxes update to the binned size.
 
-In [8-bit]{.guilabel} mode, saved images don't keep the extra range from
-binning, and a note below [Binning]{.guilabel} warns you of this. Select a
-full-depth [Image Mode]{.guilabel} to keep it.
+Binning adds the pixels together rather than averaging them, so a binned
+pixel can be brighter than an 8-bit image can hold. In [8-bit]{.guilabel}
+mode that extra brightness is lost, and a note below
+[Binning]{.guilabel} warns you of this. Select a full-depth
+[Image Mode]{.guilabel} to keep it.
 
 ### Showing a scale bar {#sec-scale-bar}
 

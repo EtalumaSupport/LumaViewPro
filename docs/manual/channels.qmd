@@ -13,10 +13,11 @@ in a channel's drawer.
 - **Transmitted light**: [Brightfield]{.channel}, [Phase Contrast]{.channel}
   and [Darkfield]{.channel}, lit from above through the AuraPhase
   (@sec-auraphase). On the LS460, LS560, LS620 and LS720 the one transmitted
-  channel is [BF-Phase]{.channel}.
+  channel, used for both brightfield and phase contrast, is
+  [BF-Phase]{.channel}.
 - **Fluorescence**: each drawer is named for its excitation wavelength, for
   example [488 nm Excitation]{.channel}, and lit by that LED.
-- **Bioluminescence**: the [Lumi]{.channel} channel of the Lumi. It has no
+- **Bioluminescence**: the [Lumi]{.channel} channel, on the Lumi microscope. It has no
   LED: the camera images the light the sample emits.
 
 The drawers are listed in the same order on every model, and only the
@@ -41,8 +42,9 @@ each step's channel in turn.
 ## Turning the light on and setting its brightness {#sec-channel-illumination}
 
 *Channels with an LED only.* The [Lumi]{.channel} channel has no
-Illumination section, and the section isn't shown when LumaViewPro runs
-without the microscope's LED board.
+Illumination section. If LumaViewPro doesn't find the microscope's LED
+board when it starts, the section is hidden: check the microscope's cables
+and power, and restart LumaViewPro.
 
 [Enable LED]{.guilabel} turns the shown channel's LED on and off.
 
@@ -131,8 +133,10 @@ section](images/channels-lumi.png){#fig-channels-lumi width=35%}
 
 *Motorized focus only.*
 
-Under [Focus]{.guilabel}, each channel has its own saved focus, a Z position. A protocol step you
-add in a channel uses that channel's saved focus as its Z.
+Under [Focus]{.guilabel}, each channel has its own saved focus, a Z position.
+[New]{.guilabel} in the [Protocol]{.guilabel} drawer makes each channel's
+steps at that channel's saved focus; [Add]{.guilabel} uses the current
+focus (@sec-protocol-add).
 
 - [Save Focus]{.guilabel} saves the current Z as the channel's focus. If a
   step in this channel is selected in the [Protocol]{.guilabel} drawer,
@@ -140,7 +144,7 @@ add in a channel uses that channel's saved focus as its Z.
 - [Go to Focus]{.guilabel} moves the focus to the channel's saved focus.
 - [To All Steps]{.guilabel} saves the current Z as the channel's focus and
   sets every step of this channel in the current protocol to it. The
-  slices of a Z-stack step keep their spacing around the new Z.
+  slices of a Z-stack keep their spacing around the new Z.
 
 ## Autofocus before each capture {#sec-channel-protocol-settings}
 

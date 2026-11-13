@@ -71,7 +71,7 @@ The right panel has one drawer for each channel your microscope has
 [Brightfield]{.channel}, [Phase Contrast]{.channel}, [Darkfield]{.channel},
 [488 nm Excitation]{.channel} or [Lumi]{.channel}. A fluorescence channel's
 drawer is named for its excitation wavelength, and its color swatch is the
-color that channel is displayed in. As on the left, only one drawer is open
+false color that channel is displayed in. As on the left, only one drawer is open
 at a time, and opening a channel's drawer switches the live image to that
 channel.
 

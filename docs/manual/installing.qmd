@@ -98,8 +98,11 @@ Check, then restart LumaViewPro:
 
 ### The camera doesn't work on a USB2 port {#sec-usb2}
 
-The camera doesn't work on a USB2 port: Windows finds it but doesn't load
-a driver for it. In Device Manager it then appears under "Other devices"
+*Every model except the LS460, LS560, LS620 and LS720, which work on
+either port.*
+
+The camera needs a USB3 port. On a USB2 port, Windows finds it but doesn't
+load a driver for it. In Device Manager a Basler camera then appears under "Other devices"
 (@fig-usb2), instead of under "Basler USB3 Vision Cameras" as it does on a
 USB3 port (@fig-usb3). Move the cable to a USB3 port, often marked SS or colored
 blue, and restart LumaViewPro.

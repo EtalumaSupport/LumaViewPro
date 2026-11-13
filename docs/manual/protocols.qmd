@@ -29,8 +29,10 @@ the window, so scroll to reach its top and bottom.
    times the number of wells, tiles and Z-stack slices.
 6. Step through a few steps with the arrow buttons and check the image at
    each (@sec-protocol-steps).
-7. Click [Save]{.guilabel} and name the protocol.
-8. Click [Run One Scan]{.guilabel} to check one pass, then
+7. To focus every step before the run, click
+   [Autofocus All Steps]{.guilabel} (@sec-protocol-autofocus-all).
+8. Click [Save]{.guilabel} and name the protocol.
+9. Click [Run One Scan]{.guilabel} to check one pass, then
    [Run Full Protocol]{.guilabel}.
 
 ## How often and how long a protocol runs {#sec-protocol-time}
@@ -126,7 +128,8 @@ the map.
 
 ### Changing a step {#sec-protocol-change}
 
-To change a step, select it, then:
+To change a step, select it (with the arrow buttons, by right-clicking the
+plate map, or by typing its number in [Step]{.guilabel}), then:
 
 1. Move to the new position, and focus.
 2. Open the step's channel and adjust its settings: the LED, gain,
@@ -147,9 +150,8 @@ of the step's channel gets the channel's settings. A slice keeps its
 channel: Change won't work on a slice while another channel is shown.
 
 To change only a step's focus, select it, focus, and click
-[Save Focus]{.guilabel} in its channel's drawer (@sec-channel-focus).
-On a slice of a Z-stack, a focus saved this way, or by
-[Change]{.guilabel}, is used only while the channel's
+[Change]{.guilabel}. On a slice of a Z-stack, a focus saved by
+[Change]{.guilabel} is used only while the channel's
 [Auto Focus]{.guilabel} is off. With it on, the run places the whole stack
 around the focus it finds instead (@sec-protocol-autofocus-all), each slice
 keeping its spacing from the slice the stack was placed against.
@@ -200,7 +202,8 @@ Tile positions are based on the frame size, binning and objective in use
 when the grid is made, and don't change if you change these afterwards
 (@sec-frame-size). The overlap between neighboring tiles is
 [Tiling Overlap]{.guilabel} in Advanced Settings
-(@sec-advanced-protocol).
+(@sec-advanced-protocol): overlap moves the tiles closer together, and
+each tile stays the same size.
 
 ## Z-stacks in a protocol {#sec-protocol-zstack}
 
@@ -232,7 +235,8 @@ true if the protocol was changed during the scan ("Focus Not Saved"). A
 finished scan can't be undone, so save the protocol first if you want to
 keep the old focus.
 
-A Z-stack is focused once, at its first slice. The whole stack then moves
+A Z-stack is focused once, before its first slice is taken, searching
+around the focus the stack was built from. The whole stack then moves
 so the slice it was placed against (its top, center or bottom slice, as
 set in [Objective Control]{.guilabel} when the stack was made,
 @sec-zstack) is at the focus found; the slices keep their spacing.
@@ -282,7 +286,7 @@ with the number still to write. The toolbar's
 At each step the stage and focus move to the step's position, the step's
 channel is shown with its settings, an autofocus runs if the channel's
 [Auto Focus]{.guilabel} is on, and the image or video is taken. A
-Z-stack is autofocused once, at its first slice, as in
+Z-stack is autofocused once, before its first slice, as in
 @sec-protocol-autofocus-all. With
 [Keep LED on across moves]{.guilabel} in Advanced Settings, the LED stays
 on between steps of the same channel (@sec-advanced-protocol).

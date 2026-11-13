@@ -9,8 +9,8 @@ automatically, at many positions or over time, use a protocol
 
 ## Before you capture {#sec-image-before}
 
-- Place the sample in its labware holder (@sec-labware-holders), seated
-  flat.
+- Place the sample on the stage: a microplate directly in the nest, other
+  labware in the universal labware holder (@sec-labware-holders).
 - Make sure LumaViewPro knows which objective is in the light path
   (@sec-objective). It won't capture until it does.
 - Choose a destination folder with the toolbar's Destination folder
@@ -102,7 +102,9 @@ transmitted-light channel.
 3. Click Composite in the toolbar. Each channel is captured in turn with
    its own settings, at its saved focus. A channel with no saved focus
    uses the current focus, and a channel with [Auto Focus]{.guilabel} on
-   autofocuses first. Click Composite again to stop.
+   autofocuses first. A composite finishes by itself; to interrupt it,
+   click Composite again. The channels already captured are kept, but no
+   combined image is made.
 
 Each composite gets its own folder, `Manual/Composites/<date>_<time>/`,
 inside your destination folder. It holds one image per channel, such as

@@ -4,10 +4,11 @@
 #let teal = rgb("#9ACCCC")
 #let grey = rgb("#8C8C8C")
 
-#let cover(title, version) = page(margin: (x: 1in, top: 0.6in, bottom: 0.8in), footer: none)[
+#let cover(title, subtitle, version) = page(margin: (x: 1in, top: 0.6in, bottom: 0.8in), footer: none)[
   #align(center, image("../images/cover.png", width: 100%))
   #v(1.2em)
   #text(size: 26pt, tracking: 0.04em)[#title]
+  #if subtitle != none [#v(-0.4em) #text(size: 13pt)[#subtitle]]
   #v(-0.6em)
   #block(width: 70%, height: 7pt, fill: gradient.linear(teal, white))
   #v(0.8em)
@@ -26,7 +27,7 @@
   )
 ]
 
-#let manual(title: none, version: "", outline-depth: 2, body) = {
+#let manual(title: none, subtitle: none, version: "", outline-depth: 2, body) = {
   set document(title: title)
   set text(font: "TeX Gyre Heros", size: 10.5pt, lang: "en")
   set par(justify: false, leading: 0.62em, spacing: 1.1em)
@@ -58,7 +59,7 @@
       LumaViewPro #version Manual #h(1fr) #text(fill: black)[#counter(page).display()]
     ])
 
-  cover(title, version)
+  cover(title, subtitle, version)
 
   // Contents: chapters bold with their page, sections indented on a dotted leader.
   show outline.entry.where(level: 1): it => {
