@@ -2,7 +2,7 @@
 """A support report says what each host command answered, an empty answer included.
 
 The report reads the host through its own commands (``system_profiler``,
-``sysctl``, ``lsusb``, ``wmic``, ``powercfg``). A command that prints
+``sysctl``, ``lsusb``, ``powercfg``). A command that prints
 nothing -- a ``system_profiler`` data type the OS no longer has, a refusal
 written only to stderr -- is said in the report with its exit status and its
 stderr, never left as an empty file or field: on macOS 26 the report's USB

@@ -348,6 +348,76 @@ def _run(args: list[str], timeout: float = 10) -> str:
     return f'{said}: {err}' if err else said
 
 
+# What the report reads of a Windows host through WMI: each field's class and
+# the properties written for it, in this order. Read in-process, not through
+# `wmic`, which current Windows 11 no longer has.
+_WINDOWS_SYSTEM_CLASSES = {
+    'cpu_detail': (
+        'Win32_Processor',
+        ('Name', 'NumberOfCores', 'NumberOfLogicalProcessors', 'MaxClockSpeed'),
+    ),
+    'ram_detail': ('Win32_PhysicalMemory', ('Capacity', 'Speed', 'Manufacturer')),
+    'ram_total': ('Win32_ComputerSystem', ('TotalPhysicalMemory',)),
+    'disk_drives': ('Win32_DiskDrive', ('Model', 'Size', 'InterfaceType', 'MediaType', 'Status')),
+    'disk_partitions': (
+        'Win32_LogicalDisk',
+        ('DeviceID', 'Size', 'FreeSpace', 'FileSystem', 'VolumeName'),
+    ),
+    'display': (
+        'Win32_VideoController',
+        ('Name', 'CurrentHorizontalResolution', 'CurrentVerticalResolution', 'CurrentRefreshRate'),
+    ),
+}
+
+
+def _read_windows_system_classes() -> dict[str, str]:
+    """Each Windows field of the report, by its key: its value, or why it has none.
+
+    A class Windows refuses, or one with no instances, says so in its own
+    field and the others are still read; when WMI cannot be reached at all,
+    every field says why.
+    """
+    try:
+        import pythoncom
+        import pywintypes
+        import win32com.client
+    except ImportError as e:
+        return dict.fromkeys(_WINDOWS_SYSTEM_CLASSES, f'WMI not read: {type(e).__name__}: {e}')
+    try:
+        pythoncom.CoInitialize()
+    except pywintypes.com_error as e:
+        return dict.fromkeys(_WINDOWS_SYSTEM_CLASSES, f'WMI not read: COM not started: {e}')
+    try:
+        try:
+            wmi = win32com.client.GetObject('winmgmts:')
+        except pywintypes.com_error as e:
+            return dict.fromkeys(_WINDOWS_SYSTEM_CLASSES, f'WMI not read: {e}')
+        return {
+            key: _wmi_class_text(wmi, wmi_class, properties, pywintypes.com_error)
+            for key, (wmi_class, properties) in _WINDOWS_SYSTEM_CLASSES.items()
+        }
+    finally:
+        pythoncom.CoUninitialize()
+
+
+def _wmi_class_text(wmi, wmi_class: str, properties: tuple[str, ...], com_error) -> str:
+    """One class's instances as ``Property=Value`` lines, a blank line between them.
+
+    A null is written ``Property=`` with nothing after it, as `wmic` wrote one.
+    """
+    try:
+        instances = [
+            '\n'.join(
+                f'{name}={"" if (value := getattr(instance, name)) is None else value}'
+                for name in properties
+            )
+            for instance in wmi.ExecQuery(f'SELECT {", ".join(properties)} FROM {wmi_class}')
+        ]
+    except com_error as e:
+        return f'{wmi_class} not read: {e}'
+    return '\n\n'.join(instances) if instances else f'{wmi_class}: no instances'
+
+
 def _collect_system_info():
     """Collect OS, CPU, RAM, disks, power/sleep config."""
     info = {
@@ -363,18 +433,11 @@ def _collect_system_info():
 
     is_win = platform.system() == 'Windows'
     is_mac = platform.system() == 'Darwin'
+    windows = _read_windows_system_classes() if is_win else None
 
     # CPU detail
     if is_win:
-        info['cpu_detail'] = _run(
-            [
-                'wmic',
-                'cpu',
-                'get',
-                'Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed',
-                '/format:list',
-            ]
-        )
+        info['cpu_detail'] = windows['cpu_detail']
     elif is_mac:
         info['cpu_detail'] = _run(['sysctl', '-n', 'machdep.cpu.brand_string'])
         info['cpu_cores'] = _run(['sysctl', '-n', 'hw.ncpu'])
@@ -387,12 +450,8 @@ def _collect_system_info():
 
     # RAM
     if is_win:
-        info['ram_detail'] = _run(
-            ['wmic', 'memorychip', 'get', 'Capacity,Speed,Manufacturer', '/format:list']
-        )
-        info['ram_total'] = _run(
-            ['wmic', 'computersystem', 'get', 'TotalPhysicalMemory', '/format:list']
-        )
+        info['ram_detail'] = windows['ram_detail']
+        info['ram_total'] = windows['ram_total']
     elif is_mac:
         mem = _run(['sysctl', '-n', 'hw.memsize'])
         info['ram_total_gb'] = (
@@ -407,24 +466,8 @@ def _collect_system_info():
 
     # Disks
     if is_win:
-        info['disk_drives'] = _run(
-            [
-                'wmic',
-                'diskdrive',
-                'get',
-                'Model,Size,InterfaceType,MediaType,Status',
-                '/format:list',
-            ]
-        )
-        info['disk_partitions'] = _run(
-            [
-                'wmic',
-                'logicaldisk',
-                'get',
-                'DeviceID,Size,FreeSpace,FileSystem,VolumeName',
-                '/format:list',
-            ]
-        )
+        info['disk_drives'] = windows['disk_drives']
+        info['disk_partitions'] = windows['disk_partitions']
     elif is_mac:
         info['disk_usage'] = _run(['df', '-h'])
         info['disk_drives'] = _run(['diskutil', 'list'], timeout=15)[:3000]
@@ -471,17 +514,8 @@ def _collect_system_info():
 
     # Screen resolution and DPI scaling (Kivy rendering issues)
     if is_win:
-        info['display'] = _run(
-            [
-                'wmic',
-                'path',
-                'Win32_VideoController',
-                'get',
-                'Name,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentRefreshRate',
-                '/format:list',
-            ]
-        )
-        # DPI scaling -- reg query is more reliable than wmic here
+        info['display'] = windows['display']
+        # DPI scaling -- read from the registry
         info['dpi_scaling'] = _run(
             ['reg', 'query', r'HKCU\Control Panel\Desktop\WindowMetrics', '/v', 'AppliedDPI'],
             timeout=5,
