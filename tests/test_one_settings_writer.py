@@ -121,8 +121,8 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
         (
             'objective_id',
             ScopeSession,
-            'select_objective',
-            'ScopeSession.select_objective',
+            'start_select_objective',
+            'ScopeSession.start_select_objective',
             'has_member',
         ),
         (

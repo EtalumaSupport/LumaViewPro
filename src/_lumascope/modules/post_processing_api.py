@@ -818,7 +818,7 @@ class PostProcessingAPI:
             on_progress=on_progress,
         )
 
-    @api(admitted_by=(Admission.POST_PROCESSING,))
+    @api(in_process=True, admitted_by=(Admission.POST_PROCESSING,))
     def build(
         self,
         folder: FilePath,
@@ -1209,7 +1209,7 @@ class PostProcessingAPI:
             channel_colors=self._channel_colors(),
         )
 
-    @api(admitted_by=(Admission.POST_PROCESSING,))
+    @api(in_process=True, admitted_by=(Admission.POST_PROCESSING,))
     def enhance(
         self,
         target: FilePath,
@@ -1474,7 +1474,7 @@ class PostProcessingAPI:
             ),
         )
 
-    @api(admitted_by=(Admission.POST_PROCESSING,))
+    @api(in_process=True, admitted_by=(Admission.POST_PROCESSING,))
     def count_cells(
         self,
         folder: FilePath,

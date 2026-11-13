@@ -19,11 +19,14 @@ curl -s -w '\n' --json "{\"objective_id\": \"$OBJECTIVE\", \"slot\": $SLOT}" $AP
 curl -s -w '\n' -X PUT --json '{"channel": "BF", "mode": "image"}' $API/channel_acquire   # 200: "image"
 curl -s -w '\n' --json '{"path": "BF.illumination_ma", "value": 5}' $API/update_settings  # 200
 PROTOCOL=$(curl -s --json '{}' $API/create_empty_protocol | jq -r .handle)        # 200
-curl -s -w '\n' -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200
+MOVE=$(curl -s --json '{"well": "B2"}' $API/scope/motion/start_move_to_well | jq -r .id)   # 202
+curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
 curl -s -w '\n' --json "{\"protocol\": \"$PROTOCOL\", \"channels\": [\"BF\"]}" $API/add_step   # 200
-curl -s -w '\n' -H 'Prefer: wait=60' --json '{"well": "B3"}' $API/scope/motion/move_to_well   # 200
+MOVE=$(curl -s --json '{"well": "B3"}' $API/scope/motion/start_move_to_well | jq -r .id)   # 202
+curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
 curl -s -w '\n' --json "{\"protocol\": \"$PROTOCOL\", \"channels\": [\"BF\"]}" $API/add_step   # 200
-curl -s -w '\n' -H 'Prefer: wait=60' --json '{"well": "B4"}' $API/scope/motion/move_to_well   # 200
+MOVE=$(curl -s --json '{"well": "B4"}' $API/scope/motion/start_move_to_well | jq -r .id)   # 202
+curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
 curl -s -w '\n' --json "{\"protocol\": \"$PROTOCOL\", \"channels\": [\"BF\"]}" $API/add_step   # 200
 curl -s -w '\n' --json "{\"protocol\": \"$PROTOCOL\", \"period_s\": 60.0, \"duration_s\": 3600.0}" $API/set_protocol_schedule   # 200
 

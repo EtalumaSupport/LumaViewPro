@@ -201,35 +201,10 @@ def test_an_answer_the_wire_cannot_carry_is_a_failed_job_and_the_listing_still_r
     assert client.get('/api/v1/jobs').status_code == 200
 
 
-def test_a_members_progress_is_its_jobs_progress(client, session, live, monkeypatch):
-    # Held until it is a job: a zip that finished inside the zero wait would
-    # be answered 200, with no job to read.
-    release = threading.Event()
-    real = session.make_logs_zip
-
-    def zips_once_released(*args, **kwargs):
-        assert release.wait(10)
-        return real(*args, **kwargs)
-
-    monkeypatch.setattr(session, 'make_logs_zip', zips_once_released)
-    accepted = client.post(
-        '/api/v1/make_logs_zip', json={'output_dir': 'reports'}, headers={'Prefer': 'wait=0'}
-    )
-    assert accepted.status_code == 202
-    release.set()
-
-    job = client.get(accepted.headers['Location'], headers={'Prefer': 'wait=30'}).json()
-
-    assert job['status'] == 'completed'
-    assert job['progress']['progress_pct'] == 100.0
-    assert job['result']['path']['name'].startswith('reports/')
-    assert (live / job['result']['path']['name']).is_file()
-
-
 def test_a_start_members_progress_is_its_jobs_progress(client, live):
     """A start member that reports to a callback: its route answers 202 with
     the operation's job at once, and the job's progress is the call's own
-    report, as the waiting route's job is."""
+    report."""
     accepted = client.post('/api/v1/start_make_logs_zip', json={'output_dir': 'reports'})
     assert accepted.status_code == 202
 
@@ -475,15 +450,15 @@ def test_a_runs_job_names_its_files_job_which_ends_once_they_are_written(client,
 
 def test_a_job_is_passed_as_an_argument_by_its_id(client, session, monkeypatch):
     home_sim_scope(session.scope)
-    zipping = threading.Event()
-    real_zip = session.make_logs_zip
+    held = threading.Event()
+    real_leds_off = session.scope.illumination.leds_off
 
-    def zips_once_released(*args, **kwargs):
-        assert zipping.wait(10)
-        return real_zip(*args, **kwargs)
+    def leds_off_once_released(*args, **kwargs):
+        assert held.wait(10)
+        return real_leds_off(*args, **kwargs)
 
     # Held so it is a job, adopted, when the client's wait ends.
-    monkeypatch.setattr(session, 'make_logs_zip', zips_once_released)
+    monkeypatch.setattr(session.scope.illumination, 'leds_off', leds_off_once_released)
     session.set_channel_acquire('BF', 'image')
     reached, release = _scans_held_at_their_first_step(session, monkeypatch)
     protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
@@ -502,7 +477,7 @@ def test_a_job_is_passed_as_an_argument_by_its_id(client, session, monkeypatch):
         unknown = client.get('/api/v1/held_by_other', params={'run': '999'})
         assert (unknown.status_code, unknown.json()['reason']) == (404, 'not_found')
         adopted = client.post(
-            '/api/v1/make_logs_zip', json={'output_dir': 'reports'}, headers={'Prefer': 'wait=0'}
+            '/api/v1/scope/illumination/leds_off', headers={'Prefer': 'wait=0'}
         ).json()
         no_operation = client.get('/api/v1/held_by_other', params={'run': adopted['id']})
         assert (no_operation.status_code, no_operation.json()['reason']) == (
@@ -511,7 +486,7 @@ def test_a_job_is_passed_as_an_argument_by_its_id(client, session, monkeypatch):
         )
     finally:
         release.set()
-        zipping.set()
+        held.set()
 
 
 def test_a_still_job_deleted_while_it_runs_is_accepted_and_ends_as_it_would_have(

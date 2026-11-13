@@ -120,9 +120,10 @@ sensor, not the scope: every FX2 model answers `MT9P031-LS620`.
   `ScopeSession.create` the same way in every host, and owns the settings, runs,
   captures, who may write, and outcomes. **The scope**, `session.scope`, is the
   instrument, in the areas below.
-- **Python and REST are one API**: `scope.motion.move_z` is
-  `POST /api/v1/scope/motion/move_z`, with the same refusals, faults and
-  events. Each part's commands, from every caller, run one at a time, in order.
+- **Python and REST are one API**: `scope.motion.start_move_z` is
+  `POST /api/v1/scope/motion/start_move_z`, with the same refusals, faults and
+  events; the form that waits, `move_z`, is in-process, and a REST client reads
+  the start form's job instead. Each part's commands, from every caller, run one at a time, in order.
 - **A call that works returns its value; every other outcome is a typed
   exception** with a `reason`, raised to the caller or posted to listeners: a
   refusal (nothing was done), a fault (something broke) or a notice (something

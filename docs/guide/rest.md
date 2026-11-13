@@ -84,8 +84,8 @@ prints it, and LumaViewPro shows it in Advanced Settings).
 ## Routes
 
 The session is the root: its member `<member>` is `/api/v1/<member>`, and each sub-object is
-a path segment, so `session.scope.motion.move_xy` is
-`POST /api/v1/scope/motion/move_xy`.
+a path segment, so `session.scope.motion.start_move_xy` is
+`POST /api/v1/scope/motion/start_move_xy`.
 
 - **A read is `GET`**: a property, a published field, or a method that changes
   nothing. A read method's arguments are its query string
@@ -120,8 +120,9 @@ a path segment, so `session.scope.motion.move_xy` is
 
 In-process members -- those taking a callback, returning a live object, or
 waiting on the caller's thread -- have no route; each has a wire form beside
-it (a listener is an event, a waiting call is a job, `acting_in_control` is
-the `Control-Session` header).
+it (a listener is an event; a call that waits for a long action -- a move, a
+home, a go-to, a build, a cell count, a report -- is its `start_` form, read
+as a job; `acting_in_control` is the `Control-Session` header).
 
 ## Handles
 
@@ -156,9 +157,12 @@ job:
 
 A member that returns an operation -- a run's start, `start_move_to_well`,
 `start_home`, a still's `capture` -- is answered `202` with the operation's
-job as soon as it has started, whatever the wait. Its twin that waits for
-the operation and returns its result, `move_to_well` or `home`, is a call
-like any other: `200` with the result within the wait, a `202` job past it. `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads a
+job as soon as it has started, whatever the wait; the route's description
+names the job's model, its `result` the record the operation ends with
+(`start_build`'s `BuildsResultJob`, a run's `RunOutcomeJob`). Its twin that
+waits for the operation, `move_to_well` or `home`, is in-process and has no
+route. Any other call is answered `200` with its result within the wait, a
+`202` job past it. `GET /api/v1/jobs/<id>`, itself waiting by `Prefer: wait`, reads a
 job, `200` whatever its status; with `Prefer: respond-async` it answers at
 once, a poll of the job's `progress`. Once it has ended it carries `result` or `error` (the problem). A job's
 `status` says whether the call answered a problem, not how the operation went:
@@ -303,7 +307,8 @@ API=http://127.0.0.1:8000/api/v1
 
 curl -s $API/status                                         # 200: the scope's work, axes, parts and camera
 curl -s "$API/scope/motion/get_axis_limits?axis=W"          # 422 not_offered: offered X, Y, Z, T
-curl -s -H 'Prefer: wait=60' --json '{"z_um": 4000.0}' $API/scope/motion/move_z    # 200
+MOVE=$(curl -s --json '{"z_um": 4000.0}' $API/scope/motion/start_move_z | jq -r .id)   # 202
+curl -s -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
 curl -s --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0
 curl -s --json '{}' $API/scope/illumination/leds_off        # 200
 ```
@@ -324,7 +329,8 @@ SLOT=$(curl -s $API/current_slot_objective_question | jq -r .turret_slot)    # 2
 curl -s --json "{\"objective_id\": \"$OBJECTIVE\", \"slot\": $SLOT}" $API/confirm_objective   # 200
 curl -s -X PUT --json '{"channel": "BF", "mode": "image"}' $API/channel_acquire   # 200: "image"
 PROTOCOL=$(curl -s --json '{}' $API/create_empty_protocol | jq -r .handle)        # 200
-curl -s -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200
+MOVE=$(curl -s --json '{"well": "B2"}' $API/scope/motion/start_move_to_well | jq -r .id)   # 202
+curl -s -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
 curl -s --json "{\"protocol\": \"$PROTOCOL\", \"channels\": [\"BF\"]}" $API/add_step   # 200: ["custom0000_BF"]
 RUNNER=$(curl -s --json '{}' $API/protocol_runner | jq -r .handle)         # 200
 JOB=$(curl -s --json "{\"protocol\": \"$PROTOCOL\"}" $API/handles/ProtocolRunner/$RUNNER/start_single_scan | jq -r .id)   # 202
@@ -338,8 +344,9 @@ Take the control session, and see another write refused while it is held.
 
 ```bash
 CONTROL=$(curl -s --json '{"name": "walkthrough"}' $API/take_control | jq -r .)   # 200: the id, for this client alone
-curl -s --json '{"z_um": 3000.0}' $API/scope/motion/move_z                          # 409 control_session_held
-curl -s -H "Control-Session: $CONTROL" -H 'Prefer: wait=60' --json '{"z_um": 3000.0}' $API/scope/motion/move_z   # 200
+curl -s --json '{"z_um": 3000.0}' $API/scope/motion/start_move_z                    # 409 control_session_held
+MOVE=$(curl -s -H "Control-Session: $CONTROL" --json '{"z_um": 3000.0}' $API/scope/motion/start_move_z | jq -r .id)   # 202
+curl -s -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
 curl -s --json "{\"session_id\": \"$CONTROL\"}" $API/end_control                    # 200
 curl -s $API/events/held                                    # 200: where a poll of the events begins
 ```

@@ -208,7 +208,7 @@ def test_over_the_wire_a_lost_board_is_a_restart_refusal():
         with TestClient(build_app(session)) as client:
             # A move reaches the board itself, so it answers the loss whether
             # or not an exchange found it first.
-            answer = client.post('/api/v1/scope/motion/move_z_by', json={'dz_um': 1.0})
+            answer = client.post('/api/v1/scope/motion/start_move_z_by', json={'dz_um': 1.0})
         assert (answer.status_code, answer.json()['reason']) == (503, 'not_connected')
     finally:
         session.shutdown()

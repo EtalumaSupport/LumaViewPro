@@ -735,7 +735,7 @@ def _bad_rows() -> list[Bad]:
             lambda s: s.session.make_logs_zip(output_dir=s.live / 'a_file.txt' / 'out'),
             LiveFolderPathRefusedError,
             'not_a_folder',
-            ('/api/v1/make_logs_zip', lambda s: {'output_dir': 'a_file.txt/out'}),
+            ('/api/v1/start_make_logs_zip', lambda s: {'output_dir': 'a_file.txt/out'}),
         ),
         Bad(
             'make_logs_zip into a file',
@@ -743,7 +743,7 @@ def _bad_rows() -> list[Bad]:
             lambda s: s.session.make_logs_zip(output_dir=s.live / 'a_file.txt'),
             LiveFolderPathRefusedError,
             'not_a_folder',
-            ('/api/v1/make_logs_zip', lambda s: {'output_dir': 'a_file.txt'}),
+            ('/api/v1/start_make_logs_zip', lambda s: {'output_dir': 'a_file.txt'}),
         ),
         Bad(
             'make_support_report into a file',
@@ -751,7 +751,7 @@ def _bad_rows() -> list[Bad]:
             lambda s: s.session.make_support_report(output_dir=s.live / 'a_file.txt'),
             LiveFolderPathRefusedError,
             'not_a_folder',
-            ('/api/v1/make_support_report', lambda s: {'output_dir': 'a_file.txt'}),
+            ('/api/v1/start_make_support_report', lambda s: {'output_dir': 'a_file.txt'}),
         ),
         Bad(
             'live_folder_listing missing',
@@ -775,7 +775,7 @@ def _bad_rows() -> list[Bad]:
             lambda s: pp(s).enhance(s.live / 'nothing_here'),
             LiveFolderPathRefusedError,
             'path_not_found',
-            ('/api/v1/post_processing/enhance', lambda s: {'target': 'nothing_here'}),
+            ('/api/v1/post_processing/start_enhance', lambda s: {'target': 'nothing_here'}),
         ),
         Bad(
             'enhance a file that is not an image',
@@ -783,7 +783,7 @@ def _bad_rows() -> list[Bad]:
             lambda s: pp(s).enhance(s.live / 'a_file.txt'),
             PostProcessingRefusedError,
             'unreadable',
-            ('/api/v1/post_processing/enhance', lambda s: {'target': 'a_file.txt'}),
+            ('/api/v1/post_processing/start_enhance', lambda s: {'target': 'a_file.txt'}),
         ),
         Bad(
             'count_cells missing',
@@ -792,7 +792,7 @@ def _bad_rows() -> list[Bad]:
             LiveFolderPathRefusedError,
             'path_not_found',
             (
-                '/api/v1/post_processing/count_cells',
+                '/api/v1/post_processing/start_count_cells',
                 lambda s: {'folder': 'nothing_here', 'method': method.to_dict()},
             ),
         ),
@@ -805,7 +805,7 @@ def _bad_rows() -> list[Bad]:
             PostProcessingRefusedError,
             'method_invalid',
             (
-                '/api/v1/post_processing/count_cells',
+                '/api/v1/post_processing/start_count_cells',
                 lambda s: {
                     'folder': 'images',
                     'method': {**method.to_dict(), 'pixels_per_um': 0.0},
@@ -895,7 +895,7 @@ def _bad_rows() -> list[Bad]:
             lambda s: s.session.scope.motion.home('Q'),
             ArgumentRefusedError,
             'not_offered',
-            ('/api/v1/scope/motion/home', lambda s: {'axis': 'Q'}),
+            ('/api/v1/scope/motion/start_home', lambda s: {'axis': 'Q'}),
         ),
         Bad(
             'move_z past the travel',
@@ -903,7 +903,7 @@ def _bad_rows() -> list[Bad]:
             lambda s: s.session.scope.motion.move_z(1e9),
             PositionOutOfRangeError,
             'position_out_of_range',
-            ('/api/v1/scope/motion/move_z', lambda s: {'z_um': 1e9}),
+            ('/api/v1/scope/motion/start_move_z', lambda s: {'z_um': 1e9}),
         ),
         Bad(
             # No wire row: JSON carries no NaN.
@@ -917,7 +917,7 @@ def _bad_rows() -> list[Bad]:
     # A build's closed-set settings are refused by its settings record, before
     # the call (tests/test_post_processing_is_a_session_member.py); any other
     # by the build.
-    route = '/api/v1/post_processing/build'
+    route = '/api/v1/post_processing/start_build'
     for name, chosen, wire_chosen in (
         ('stitch', lambda: {'stitch': Stitch()}, {'stitch': {'mode': 'quality'}}),
         ('zproject', lambda: {'zproject': ZProject(method='Max')}, {'zproject': {'method': 'Max'}}),
@@ -1058,8 +1058,6 @@ def _fault_rows() -> list[Fault]:
             'wait_until_finished_moving on a held move',
             'MotionAPI.wait_until_finished_moving',
             'LS850',
-            # 1000 past where Z stands, so the move the wire's call waits on
-            # has somewhere to go after the first one was released.
             lambda s: (
                 s.session.scope.simulation.hold_axis('Z'),
                 s.session.scope.motion.start_move_z(
@@ -1069,7 +1067,8 @@ def _fault_rows() -> list[Fault]:
             lambda s: s.session.scope.motion.wait_until_finished_moving(timeout_s=0.2),
             MoveWaitExpiredError,
             'still_moving',
-            ('/api/v1/scope/motion/wait_until_finished_moving', lambda s: {'timeout_s': 0.2}),
+            # In-process: a wire client reads its move's job instead.
+            None,
         ),
         Fault(
             'home with the Z motor stalling',
@@ -1079,7 +1078,7 @@ def _fault_rows() -> list[Fault]:
             lambda s: s.session.scope.motion.home('Z'),
             HomingFaultError,
             None,
-            ('/api/v1/scope/motion/home', lambda s: {'axis': 'Z'}),
+            ('/api/v1/scope/motion/start_home', lambda s: {'axis': 'Z'}),
         ),
         Fault(
             'home with the lid open',
@@ -1089,7 +1088,7 @@ def _fault_rows() -> list[Fault]:
             lambda s: s.session.scope.motion.home(),
             HardwareCommandRefusedError,
             'lid_open_before_motion',
-            ('/api/v1/scope/motion/home', lambda s: {}),
+            ('/api/v1/scope/motion/start_home', lambda s: {}),
         ),
         Fault(
             # The lid stops X and Y; Z moves with it open.
@@ -1100,7 +1099,7 @@ def _fault_rows() -> list[Fault]:
             lambda s: s.session.scope.motion.move_xy(x_um=1000.0),
             HardwareCommandRefusedError,
             'lid_open_before_motion',
-            ('/api/v1/scope/motion/move_xy', lambda s: {'x_um': 1000.0}),
+            ('/api/v1/scope/motion/start_move_xy', lambda s: {'x_um': 1000.0}),
         ),
     ]
 
@@ -1194,18 +1193,21 @@ def test_a_build_asked_while_the_scope_is_held_answers_as_its_contract_says(scop
         (
             'PostProcessingAPI.build',
             lambda: pp(scope).build(scope.live / 'images', stitch=Stitch()),
-            ('/api/v1/post_processing/build', {'folder': 'images', 'stitch': {'mode': 'quality'}}),
+            (
+                '/api/v1/post_processing/start_build',
+                {'folder': 'images', 'stitch': {'mode': 'quality'}},
+            ),
         ),
         (
             'PostProcessingAPI.enhance',
             lambda: pp(scope).enhance(scope.live / 'images' / 'frame.tif'),
-            ('/api/v1/post_processing/enhance', {'target': 'images/frame.tif'}),
+            ('/api/v1/post_processing/start_enhance', {'target': 'images/frame.tif'}),
         ),
         (
             'PostProcessingAPI.count_cells',
             lambda: pp(scope).count_cells(scope.live / 'images', method=method),
             (
-                '/api/v1/post_processing/count_cells',
+                '/api/v1/post_processing/start_count_cells',
                 {'folder': 'images', 'method': method.to_dict()},
             ),
         ),

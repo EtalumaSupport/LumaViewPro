@@ -78,7 +78,7 @@ until its host's startup motion homes them, and again after a fault loses one;
 until then every move is refused `'position_unknown'`
 ([Bringing a session up](concepts.md#bringing-a-session-up)). An engine that connects to a
 host which has not homed, or after a fault, homes the scope (`home()`, over REST
-`POST /api/v1/scope/motion/home`) before its first move.
+`POST /api/v1/scope/motion/start_home` and its job read until it ends) before its first move.
 
 **Binning and frame size are saved.** `scope.camera.set_binning` and
 `set_frame_size` are the one writer of each, and save what they set as

@@ -190,7 +190,13 @@ RENAMED = [
     ),
     ('GET', 'turret_objective', {'position': 2}, 'turret_objective', {'slot': 2}),
     ('POST', 'clear_turret_objective', {'position': 4}, 'clear_turret_objective', {'slot': 4}),
-    ('POST', 'scope/motion/move_turret', {'position': 1}, 'scope/motion/move_turret', {'slot': 1}),
+    (
+        'POST',
+        'scope/motion/start_move_turret',
+        {'position': 1},
+        'scope/motion/start_move_turret',
+        {'slot': 1},
+    ),
     (
         'POST',
         'confirm_objective',
@@ -247,7 +253,8 @@ def test_each_renamed_name_answers_and_its_old_name_is_refused(client):
     wrong = {}
     for method, old_route, old, new_route, new in RENAMED:
         answer = _send(client, method, new_route, new)
-        if answer.status_code != 200:
+        # A start route answers its operation's job, 202, as it starts.
+        if answer.status_code not in (200, 202):
             wrong[f'{method} {new_route} {sorted(new)}'] = (answer.status_code, answer.json())
         answer = _send(client, method, old_route, old)
         if answer.status_code not in (404, 422):

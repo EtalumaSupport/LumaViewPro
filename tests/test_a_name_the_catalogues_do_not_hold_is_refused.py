@@ -171,16 +171,18 @@ def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session, z_ch
 
 
 @pytest.mark.parametrize(
-    ('route', 'body', 'reason', 'argument'),
+    ('method', 'route', 'body', 'reason', 'argument'),
     [
         (
+            'PUT',
             'labware_id',
             {'labware_id': 'Acme 1536 Ultra Plate'},
             'labware_unknown',
             'labware_id',
         ),
         (
-            'objective_id',
+            'POST',
+            'start_select_objective',
             {'objective_id': '10xOly'},
             'objective_not_in_catalogue',
             'objective_id',
@@ -188,10 +190,10 @@ def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session, z_ch
     ],
 )
 def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offers(
-    session, route, body, reason, argument
+    session, method, route, body, reason, argument
 ):
     with TestClient(build_app(session)) as client:
-        answer = client.put(f'/api/v1/{route}', json=body)
+        answer = client.request(method, f'/api/v1/{route}', json=body)
     assert answer.status_code == 422
     problem = answer.json()
     assert problem['reason'] == reason

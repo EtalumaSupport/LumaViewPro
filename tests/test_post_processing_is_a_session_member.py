@@ -284,7 +284,7 @@ def test_the_default_cell_count_method_is_the_one_the_count_and_rest_take(sessio
         # The wire's method, sent back as it came, is built as the record:
         # refused for the empty folder, never for the method.
         counted = client.post(
-            '/api/v1/post_processing/count_cells',
+            '/api/v1/post_processing/start_count_cells',
             json={'folder': 'empty', 'method': answer.json()},
         ).json()
         while counted.get('ended', True) is None:

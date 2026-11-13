@@ -193,3 +193,7 @@ already running when a run starts runs on, on its own lane.
 `session.post_processing` also enhances an image (`enhance`), counts cells
 (`count_cells`, with saved methods: `save_cell_count_method`,
 `load_cell_count_method`) and draws graphs of what was counted (`graph`).
+`build`, `enhance` and `count_cells` each wait for their work; `start_build`,
+`start_enhance` and `start_count_cells` start the same work and return its
+`Operation` at once, the form a REST client calls and reads as a job. None
+has a stop.

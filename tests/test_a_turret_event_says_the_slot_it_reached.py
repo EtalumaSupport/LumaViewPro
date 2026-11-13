@@ -27,17 +27,13 @@ def test_a_rest_clients_turn_tells_the_listener_the_slot_it_reached(sim_turreted
     motion.add_turret_listener(heard.append)
     try:
         with TestClient(build_app(session)) as client:
-            # The server's longest wait, so the turn's own answer comes back
-            # on a loaded runner rather than its job after the 2 s default.
-            answer = client.post(
-                '/api/v1/scope/motion/move_turret',
-                json={'slot': 2},
-                headers={'Prefer': 'wait=60'},
-            )
+            started = client.post('/api/v1/scope/motion/start_move_turret', json={'slot': 2})
+            assert started.status_code == 202, started.text
+            job = client.get(started.headers['Location'], headers={'Prefer': 'wait=60'}).json()
     finally:
         motion.remove_turret_listener(heard.append)
 
-    assert answer.status_code == 200, answer.text
+    assert job['status'] == 'completed', job
     assert heard[-1] == TurretStatus(AxisState.IDLE, 2)
     assert motion.turret_status() == heard[-1]
     assert session.status.turret == heard[-1]

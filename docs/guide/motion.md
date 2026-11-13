@@ -95,7 +95,9 @@ raises `MotorStopFailedError`: the stage may still be moving.
 axis moving now has stopped, and raises if one did not stop well;
 `get_target_positions()` answers where each axis was last commanded to go, and
 None for an axis whose position is not known. A move you started is judged by
-its own operation's `result()`.
+its own operation's `result()`. The wait is in-process; a REST client reads
+each axis's state in `axis_positions`, or hears it change on the event
+stream's `position` events.
 
 **Interlocks.** The LS720's stage refuses to move with its lid open or its
 stage unpowered (`'lid_open_before_motion'`, `'stage_unpowered_before_motion'`);
@@ -106,8 +108,13 @@ it by slot, 1 to 4: `move_turret(slot)`. `turret_status()` answers its slot,
 or `TurretStatus('unknown', None)` while it is not known; None means the scope
 has no turret. A turret move is three moves: Z lowered, the turret turned, and
 Z put back (`restore_z=False` leaves Z down, for a caller that sets Z next);
-a recording refuses it. The objective is the slot's assignment
-([Bringing a session up](concepts.md#bringing-a-session-up), `session.objective_id`).
+a recording refuses it. `start_move_turret(slot)` starts the same change and
+returns its `Operation` at once; its `stop()` is `stop_motion()` while the
+change runs. The objective is the slot's assignment
+([Bringing a session up](concepts.md#bringing-a-session-up), `session.objective_id`):
+`session.select_objective(objective_id)` turns the turret to the slot that
+holds it, and `session.start_select_objective` starts that change without
+waiting, the form a REST client calls.
 
 ```python model=LS850T
 session.assign_turret_objective(2, '10x Oly')

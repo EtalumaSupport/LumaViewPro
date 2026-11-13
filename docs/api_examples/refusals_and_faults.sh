@@ -9,7 +9,7 @@
 API=http://127.0.0.1:8000/api/v1
 
 # The request: a move past the stage's travel is 422, whatever the scope's state.
-curl -s -w '\n' -H 'Prefer: wait=60' --json '{"z_um": 1000000.0}' $API/scope/motion/move_z   # 422 position_out_of_range
+curl -s -w '\n' --json '{"z_um": 1000000.0}' $API/scope/motion/start_move_z   # 422 position_out_of_range
 
 # The camera's cable pulled, by the simulator.
 curl -s -w '\n' --json '{}' $API/scope/simulation/remove_camera     # 200

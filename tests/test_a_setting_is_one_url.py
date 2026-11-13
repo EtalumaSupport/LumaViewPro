@@ -12,6 +12,7 @@ served.
 from __future__ import annotations
 
 import logging
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,7 +32,6 @@ from tests.stock_channels import LED0, LED1
 # no turret -- which leaves the read answering as it did.
 _WRITES = {
     'model': ({'model': 'LS560'}, None, 'LS560'),
-    'objective_id': ({'objective_id': '10x Oly'}, None, '10x Oly'),
     'labware_id': ({'labware_id': '384 well microplate'}, None, '384 well microplate'),
     'scale_bar_enabled': ({'enabled': True}, None, True),
     'engineering_mode': ({'enabled': True}, None, True),
@@ -137,26 +137,30 @@ def test_a_setter_has_no_route_of_its_own(client):
     assert client.post('/api/v1/scope/camera/binning', json={'size': 1}).status_code == 405
 
 
-def test_a_put_that_outlives_its_wait_is_a_job_whose_result_is_the_read(tmp_path):
-    # On a turret scope choosing an objective turns the turret to it, which
-    # outlives a respond-async wait of none.
-    settings = complete_settings(live_folder=str(tmp_path), microscope='LS850T')
-    settings['turret_objectives'] = {1: '4x Oly', 2: '10x Oly', 3: None, 4: None}
-    turreted = ScopeSession.create(settings, simulate=True)
-    try:
-        home_sim_scope(turreted.scope)
-        with TestClient(build_app(turreted)) as client:
-            asked = client.put(
-                '/api/v1/objective_id',
-                json={'objective_id': '10x Oly'},
-                headers={'Prefer': 'respond-async'},
-            )
-            assert asked.status_code == 202
-            ended = client.get(asked.headers['Location'], headers={'Prefer': 'wait=30'}).json()
-            assert (ended['status'], ended['result']) == ('completed', '10x Oly')
-            assert client.get('/api/v1/objective_id').json() == '10x Oly'
-    finally:
-        _shutdown(turreted)
+def test_a_put_that_outlives_its_wait_is_a_job_whose_result_is_the_read(
+    client, session, monkeypatch
+):
+    released = threading.Event()
+    real = session.set_acceleration_limit
+
+    def set_once_released(*args, **kwargs):
+        assert released.wait(10)
+        return real(*args, **kwargs)
+
+    # a stand-in by design: holds the write until the client's wait has
+    # passed; no setting's write outlives a wait on the simulator.
+    monkeypatch.setattr(session, 'set_acceleration_limit', set_once_released)
+    asked = client.put(
+        '/api/v1/acceleration_limit_pct',
+        json={'limit_pct': 40},
+        headers={'Prefer': 'respond-async'},
+    )
+    assert asked.status_code == 202
+    released.set()
+    ended = client.get(asked.headers['Location'], headers={'Prefer': 'wait=30'}).json()
+
+    assert (ended['status'], ended['result']) == ('completed', 40)
+    assert client.get('/api/v1/acceleration_limit_pct').json() == 40
 
 
 class _NoSuchRead:

@@ -94,7 +94,7 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
     'microscope': _session('select_model'),
     'live_folder': _session('set_live_folder'),
     'protocol.filepath': _session('set_protocol_filepath'),
-    'objective_id': _session('select_objective'),
+    'objective_id': _session('start_select_objective', read='objective_id'),
     'objective_confirmed': _session('confirm_objective', read='objective_question'),
     'turret_objectives': _session('assign_turret_objective'),
     'protocol.labware': _session('select_labware'),

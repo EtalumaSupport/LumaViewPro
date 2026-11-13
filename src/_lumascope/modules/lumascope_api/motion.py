@@ -3105,7 +3105,7 @@ class MotionAPI:
         targets = _plate_axes_given(at)
         return self._start_plate_moves('start_move_to_plate', lambda: targets)
 
-    @api(admitted_by=(Admission.LANE_CALL,))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def move_to_plate(self, at: PlateLocation) -> None:
         """Move X and Y to ``at`` on the selected plate, and return once they have arrived.
 
@@ -3176,7 +3176,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api(admitted_by=(Admission.LANE_CALL,))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def move_to_plate_nearest(self, at: PlateLocation) -> PlateLocation:
         """Move X and Y to ``at`` on the selected plate, or as near it as the stage reaches; return where they went, once arrived.
 
@@ -3270,7 +3270,7 @@ class MotionAPI:
 
         return self._start_plate_moves('start_move_to_well', targets)
 
-    @api(admitted_by=(Admission.LANE_CALL,))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def move_to_well(self, well: str) -> None:
         """Move X and Y to the centre of ``well`` on the selected plate, and return once they have arrived.
 
@@ -3389,7 +3389,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api(in_process_arguments=('ignore_limits',), admitted_by=(Admission.LANE_CALL,))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def move_xy(
         self,
         x_um: float | None = None,
@@ -3471,7 +3471,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api(admitted_by=(Admission.LANE_CALL,))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def move_xy_by(self, dx_um: float | None = None, dy_um: float | None = None) -> None:
         """Move X and Y by a distance, in um, each that is given, and return once they have arrived.
 
@@ -3575,7 +3575,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api(in_process_arguments=('ignore_limits',), admitted_by=(Admission.LANE_CALL,))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def move_z(
         self,
         z_um: float,
@@ -3663,7 +3663,7 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
 
-    @api(admitted_by=(Admission.LANE_CALL,))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def move_z_by(self, dz_um: float, overshoot_enabled: bool | None = None) -> None:
         """Move Z by a distance, in um, and return once it has arrived.
 
@@ -3834,7 +3834,7 @@ class MotionAPI:
             )
             return self._move_xy_by_impl(distance.dx_um, distance.dy_um)
 
-    @api(admitted_by=(Admission.LANE_CALL,))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def home(self, axis: HomeTarget = HomeTarget.ALL, put_back: bool | None = None) -> None:
         """Home the given axis set, and wait for it.
 
@@ -4069,7 +4069,7 @@ class MotionAPI:
 
         return body, release_if_unrun, stop, held if held is not None else current
 
-    @api(admitted_by=(Admission.LANE_CALL,))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def move_turret(self, slot: int, restore_z: bool = True) -> None:
         """Move the turret to a slot, and wait for it; a turret already there is not moved.
 
@@ -4162,7 +4162,7 @@ class MotionAPI:
             waiter, stop=lambda: self._stop_motion_while(lambda: not ended.is_set(), marks=True)
         )
 
-    @api
+    @api(in_process=True)
     def wait_until_finished_moving(self, timeout_s: float = 120.0) -> None:
         """Block until every axis moving now has stopped; raise if one did not stop well.
 

@@ -286,8 +286,8 @@ def test_a_call_s_properties_say_its_parameters_words(built):
     def words(member: object, parameter: str) -> str:
         return markdown_of(entries_of(inspect.getdoc(member) or '', 'Args')[parameter])
 
-    body = described['components']['schemas']['MotionAPI_move_z']['properties']['z_um']
-    assert body.get('description') == words(MotionAPI.move_z, 'z_um'), body
+    body = described['components']['schemas']['MotionAPI_start_move_z']['properties']['z_um']
+    assert body.get('description') == words(MotionAPI.start_move_z, 'z_um'), body
     read = described['paths']['/api/v1/scope/camera/applied_gain_db_for']['get']
     query = [p.get('description') for p in read['parameters'] if p['name'] == 'stored_gain_db']
     assert query == [words(CameraAPI.applied_gain_db_for, 'stored_gain_db')], query

@@ -29,7 +29,7 @@ carries the `@api` mark and a published field is named in its class's
 `@api_fields`.
 
 **REST is the same API.** Each member is a route at the path you reach it by
-from the session (`scope.motion.move_z` is `POST /api/v1/scope/motion/move_z`),
+from the session (`scope.motion.start_move_z` is `POST /api/v1/scope/motion/start_move_z`),
 and the same refusals, faults and events reach a REST client as reach a Python
 caller. The server adds routes of its own for jobs, handles, files, events and
 the live view. How a member becomes its route is [Routes](rest.md#routes).
@@ -157,7 +157,8 @@ not hold (`CatalogueNameRefusedError`, its `offered` the names it holds).
 The objective is chosen by
 `select_objective`; on a scope with a turret that turns the turret to the slot
 holding it, since there the objective is the assignment of the slot in the
-light path. Which objective is in which slot is `assign_turret_objective`, and
+light path, and `start_select_objective` starts that change without waiting,
+the form a REST client calls. Which objective is in which slot is `assign_turret_objective`, and
 `session.objective_id` raises `ObjectiveUnknownError` while the objective in the
 light path is unknown, its reason saying why (`'slot_unassigned'` while the slot
 holds none).

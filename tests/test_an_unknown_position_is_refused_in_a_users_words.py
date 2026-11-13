@@ -205,7 +205,7 @@ def test_a_wire_client_is_told_which_axes_have_no_position(tmp_path):
     try:
         session.set_channel_acquire('BF', 'image')
         with TestClient(build_app(session)) as client:
-            moved = client.post('/api/v1/scope/motion/move_xy', json={'x_um': 1000.0}).json()
+            moved = client.post('/api/v1/scope/motion/start_move_xy', json={'x_um': 1000.0}).json()
             protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
             added = client.post('/api/v1/add_step', json={'protocol': protocol}).json()
     finally:

@@ -87,7 +87,9 @@ def test_a_refusal_is_the_python_callers_refusal_and_is_logged_once(client, sess
         session.live_folder_path('../outside')
 
     # The request as sent can never succeed: 422.
-    body = _problem(client.post('/api/v1/make_logs_zip', json={'output_dir': '../outside'}), 422)
+    body = _problem(
+        client.post('/api/v1/start_make_logs_zip', json={'output_dir': '../outside'}), 422
+    )
 
     assert body['type'] == 'urn:lumascope:problem:outside_live_folder'
     assert (body['title'], body['detail']) == (python.value.title, str(python.value))
@@ -106,7 +108,7 @@ def test_a_refusal_the_scopes_state_gave_is_409(client, live):
     # An unplugged drive: the same request succeeds once it is back.
     live.rmdir()
 
-    body = _problem(client.post('/api/v1/make_logs_zip', json={'output_dir': 'reports'}), 409)
+    body = _problem(client.post('/api/v1/start_make_logs_zip', json={'output_dir': 'reports'}), 409)
 
     assert body['reason'] == 'capture_location_unusable'
 
@@ -167,7 +169,7 @@ def test_a_move_another_request_stopped_answers_409_as_a_notice(client, session)
     home_sim_scope(session.scope)
     held = session.scope.simulation.hold_axis('X')
     started = client.post(
-        '/api/v1/scope/motion/move_xy',
+        '/api/v1/scope/motion/start_move_xy',
         json={'x_um': 60000},
         headers={'Prefer': 'wait=0'},
     )
@@ -225,7 +227,7 @@ def test_a_move_past_the_travel_answers_the_axis_and_its_limits(client, session)
     travel = session.scope.motion.get_axis_limits('Z')
 
     body = _problem(
-        client.post('/api/v1/scope/motion/move_z', json={'z_um': travel.max_um + 1000}), 422
+        client.post('/api/v1/scope/motion/start_move_z', json={'z_um': travel.max_um + 1000}), 422
     )
 
     # A client corrects the move from the fields, not the words.
@@ -267,7 +269,9 @@ def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
 def test_a_well_the_plate_lacks_answers_with_the_plate_it_was_looked_for_on(client, session):
     plate = session.scope.runtime_state.get_labware().name
 
-    body = _problem(client.post('/api/v1/scope/motion/move_to_well', json={'well': 'Z99'}), 422)
+    body = _problem(
+        client.post('/api/v1/scope/motion/start_move_to_well', json={'well': 'Z99'}), 422
+    )
 
     assert (body['reason'], body['plate']) == ('well_unknown', plate)
     assert body['detail'] == f"{plate} has no well 'Z99'."

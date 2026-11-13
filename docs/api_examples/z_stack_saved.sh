@@ -15,7 +15,8 @@ OBJECTIVE=$(curl -s $API/current_slot_objective_question | jq -r .proposed)   # 
 SLOT=$(curl -s $API/current_slot_objective_question | jq -r .turret_slot)    # 200: null without a turret
 curl -s -w '\n' --json "{\"objective_id\": \"$OBJECTIVE\", \"slot\": $SLOT}" $API/confirm_objective   # 200
 
-curl -s -w '\n' -H 'Prefer: wait=60' --json '{"well": "B2"}' $API/scope/motion/move_to_well   # 200
+MOVE=$(curl -s --json '{"well": "B2"}' $API/scope/motion/start_move_to_well | jq -r .id)   # 202
+curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
 
 # The stack's extent and step, and where the stage sits in it.
 curl -s -w '\n' --json '{"path": "zstack.range", "value": 20.0}' $API/update_settings        # 200

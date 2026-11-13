@@ -204,7 +204,7 @@ def test_a_wire_client_is_told_which_part_is_missing(make_session):
     session = make_session('LS820')
 
     with TestClient(build_app(session)) as client:
-        answer = client.post('/api/v1/scope/motion/move_xy', json={'x_um': 1000.0})
+        answer = client.post('/api/v1/scope/motion/start_move_xy', json={'x_um': 1000.0})
 
     assert answer.status_code == 422
     assert answer.json()['missing'] == {

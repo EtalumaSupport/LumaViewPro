@@ -3506,7 +3506,7 @@ class ScopeSession:
             moves.append(motion.start_move_z(mark.z_um))
         return Operation.all_of(tuple(moves))
 
-    @api(admitted_by=(Admission.LANE_CALL,))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def go_to_bookmark(self, axes: 'Iterable[StageAxis]') -> None:
         """Move ``axes`` to the bookmark, and return once they have arrived.
 
@@ -3852,7 +3852,7 @@ class ScopeSession:
             protocol, range_um=range_um, step_size_um=step_size_um, z_reference=z_reference
         )
 
-    @api(admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def go_to_step(self, protocol: 'Protocol', step_index: int) -> None:
         """Go to step ``step_index`` of ``protocol``; return once the camera holds the step's channel and the stage has arrived.
@@ -5392,7 +5392,7 @@ class ScopeSession:
             None if rejected is None else SettingsSetAside(pathlib.Path(rejected[0]), rejected[1])
         )
 
-    @api
+    @api(in_process=True)
     @slow_task_budget(SUPPORT_REPORT_SLOW_TASK_S)
     def make_support_report(
         self,
@@ -5444,7 +5444,7 @@ class ScopeSession:
                 SupportReportKind.SUPPORT_REPORT,
             )
 
-    @api
+    @api(in_process=True)
     def make_logs_zip(
         self,
         *,
@@ -5987,7 +5987,11 @@ class ScopeSession:
         objective_id, _ = self.scope.runtime_state.resolve_current_objective()
         return objective_id
 
-    @api(sets='objective_id', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
+    @api(
+        in_process=True,
+        sets='objective_id',
+        admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE),
+    )
     @_guarded_write
     def select_objective(self, objective_id: str) -> bool:
         """Make ``objective_id`` the active objective. Returns whether it changed.

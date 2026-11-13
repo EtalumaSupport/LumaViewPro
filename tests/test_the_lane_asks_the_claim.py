@@ -393,7 +393,7 @@ class TestTheSession:
         from _lumascope.rest.app import build_app
 
         with TestClient(build_app(sim_session)) as client, sim_session.diagnostic_claim():
-            answer = client.post('/api/v1/scope/motion/move_z', json={'z_um': 2000.0})
+            answer = client.post('/api/v1/scope/motion/start_move_z', json={'z_um': 2000.0})
         assert answer.status_code == 409, answer.text
         assert answer.json()['reason'] == 'exclusive_activity_running'
 

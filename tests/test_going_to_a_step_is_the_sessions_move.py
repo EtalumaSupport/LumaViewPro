@@ -304,7 +304,7 @@ class TestTheRefusals:
 
             with pytest.raises(ProtocolRunRefusedError) as refused:
                 turret_session.go_to_step(protocol, 0)
-            answer = client.post('/api/v1/go_to_step', json=asked)
+            answer = client.post('/api/v1/start_go_to_step', json=asked)
         assert refused.value.reason == 'turret_objectives_unassigned'
         assert (answer.status_code, answer.json()['reason']) == (409, refused.value.reason)
 

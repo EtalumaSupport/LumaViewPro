@@ -49,7 +49,7 @@ def _status(cls: type, reason: str) -> str:
 
 
 def test_each_reason_an_entry_quotes_is_described_under_the_status_it_answers(described):
-    refusals = _refusals(described, '/api/v1/scope/motion/move_xy_by')
+    refusals = _refusals(described, '/api/v1/scope/motion/start_move_xy_by')
 
     for reason in ('not_connected', 'axis_absent', 'position_unread', 'lid_open_before_motion'):
         status = _status(HardwareCommandRefusedError, reason)
@@ -58,15 +58,9 @@ def test_each_reason_an_entry_quotes_is_described_under_the_status_it_answers(de
         '422',
         '503',
     }
-    assert refusals['500']['MoveFaultError'] == [
-        'driver_failed',
-        'stalled',
-        'board_lost',
-        'position_unread_after_move',
-        'status_unread',
-        'monitor_ended_mid_move',
-        'faulted',
-    ]
+    # A start form answers the faults of its command at the call; the move's
+    # own faults end its operation, read from its job.
+    assert refusals['500']['MoveFaultError'] == ['driver_failed', 'board_lost']
 
 
 def test_a_bench_read_has_no_route(described):
@@ -138,14 +132,14 @@ def test_a_protocol_is_sized_over_the_wire_through_the_session_alone(described):
 
 def test_a_build_on_the_post_processing_lane_names_no_door(described):
     """The post-processing lane asks no claim, so a build is open to anyone, held session or not."""
-    refusals = _refusals(described, '/api/v1/post_processing/build')
+    refusals = _refusals(described, '/api/v1/post_processing/start_build')
 
     named = {cls for classes in refusals.values() for cls in classes}
     assert named.isdisjoint({'ControlSessionRefusedError', 'HardwareCommandRefusedError'}), named
 
 
 def test_the_ranges_stay_for_what_no_section_declares(described):
-    responses = described['paths']['/api/v1/scope/motion/move_xy_by']['post']['responses']
+    responses = described['paths']['/api/v1/scope/motion/start_move_xy_by']['post']['responses']
 
     assert {'4XX', '5XX'} <= set(responses)
 

@@ -169,10 +169,10 @@ def test_every_event_of_a_home_and_a_run_matches_its_component(session):
     session.set_channel_acquire('BF', 'image')
     with _serving(session, app) as client, _reading(client) as stream:
         seen = stream.until('status')
-        assert (
-            client.post('/api/v1/scope/motion/home', headers={'Prefer': 'wait=60'}).status_code
-            == 200
-        )
+        homing = client.post('/api/v1/scope/motion/start_home')
+        assert homing.status_code == 202
+        homed = client.get(homing.headers['Location'], headers={'Prefer': 'wait=60'}).json()
+        assert homed['status'] == 'completed', homed
         home_sim_scope(session.scope)
         protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
         assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
@@ -271,7 +271,9 @@ def test_the_servers_own_answers_and_a_handle_and_a_path_match_their_models(sess
         _matches(job, running)
 
         zipping = client.post(
-            '/api/v1/make_logs_zip', json={'output_dir': 'reports'}, headers={'Prefer': 'wait=0'}
+            '/api/v1/start_make_logs_zip',
+            json={'output_dir': 'reports'},
+            headers={'Prefer': 'wait=0'},
         )
         assert zipping.status_code == 202
         release.set()
@@ -281,11 +283,6 @@ def test_the_servers_own_answers_and_a_handle_and_a_path_match_their_models(sess
         zipped = client.get(zipping.headers['Location'], headers={'Prefer': 'wait=30'}).json()
         assert zipped['status'] == 'completed' and zipped['progress'] is not None
         _matches(job, zipped)
-        # A job's result is what the member's 200 would have been.
-        _matches(
-            _checker(described, _answer(described, '/api/v1/make_logs_zip', 'post')),
-            zipped['result'],
-        )
         _matches(
             _checker(described, _answer(described, '/api/v1/jobs', 'get')),
             client.get('/api/v1/jobs').json(),

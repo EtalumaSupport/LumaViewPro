@@ -1482,8 +1482,7 @@ Nothing.
 def go_to_bookmark(self, axes: Iterable[StageAxis]) -> None
 ```
 
-Marks: enters: `lane_call`.  
-Route: `POST /api/v1/go_to_bookmark`.
+Marks: in-process; enters: `lane_call`.
 
 Move `axes` to the bookmark, and return once they have arrived.
 
@@ -1503,12 +1502,17 @@ Move `axes` to the bookmark, and return once they have arrived.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_go_to_bookmark`. Nothing was driven.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`
+- [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="ScopeSession.go_to_step"></a>
 ### `ScopeSession.go_to_step`
@@ -1517,8 +1521,7 @@ Move `axes` to the bookmark, and return once they have arrived.
 def go_to_step(self, protocol: Protocol, step_index: int) -> None
 ```
 
-Marks: enters: `lane_call`, `guarded_write`.  
-Route: `POST /api/v1/go_to_step`.
+Marks: in-process; enters: `lane_call`, `guarded_write`.
 
 Go to step `step_index` of `protocol`; return once the camera holds the step's channel and the stage has arrived.
 
@@ -1543,12 +1546,15 @@ It raises what `start_go_to_step` raises, and the following.
 - `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how), raised once the stage has arrived; see `apply_channel_camera`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_go_to_step`. Nothing was started.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `activity_ended`, `scope_disconnected`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="ScopeSession.held_by_other"></a>
 ### `ScopeSession.held_by_other`
@@ -1906,7 +1912,7 @@ def make_logs_zip(
 ) -> SupportReportSaved
 ```
 
-Route: `POST /api/v1/make_logs_zip`.
+Marks: in-process.
 
 Zip the logs, the data folder, the settings the session runs on, the recent protocols and the video receipts.
 
@@ -1927,10 +1933,10 @@ Where the ZIP is, and the words that say where to send it.
 - `LiveFolderPathRefusedError`: `'not_a_folder'`, a file is at `output_dir` or above it; refused before anything is made.
 - `SupportReportNotSavedError`: no ZIP was saved; chained from the failure, whose words it carries.
 
-**Refusals by REST status**
+**Refusals**
 
-- 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_folder`
-- 500: [`SupportReportNotSavedError`](#SupportReportNotSavedError): `support_report_not_saved`
+- [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_folder`
+- [`SupportReportNotSavedError`](#SupportReportNotSavedError): `support_report_not_saved`
 
 <a id="ScopeSession.make_support_report"></a>
 ### `ScopeSession.make_support_report`
@@ -1945,7 +1951,7 @@ def make_support_report(
 ) -> SupportReportSaved
 ```
 
-Route: `POST /api/v1/make_support_report`.
+Marks: in-process.
 
 Make the full Tech Support Report: the boards, the motors, the camera and the files.
 
@@ -1970,10 +1976,10 @@ Where the ZIP is, and the words that say where to send it.
 - `LiveFolderPathRefusedError`: `'not_a_folder'`, a file is at `output_dir` or above it; refused before anything is made.
 - `SupportReportNotSavedError`: no ZIP was saved; chained from the failure, whose words it carries.
 
-**Refusals by REST status**
+**Refusals**
 
-- 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_folder`
-- 500: [`SupportReportNotSavedError`](#SupportReportNotSavedError): `support_report_not_saved`
+- [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_folder`
+- [`SupportReportNotSavedError`](#SupportReportNotSavedError): `support_report_not_saved`
 
 <a id="ScopeSession.model"></a>
 ### `ScopeSession.model`
@@ -2873,8 +2879,7 @@ it is: `'scope_model_deferred'`, it applies at the next start, or
 def select_objective(self, objective_id: str) -> bool
 ```
 
-Marks: sets [`objective_id`](#ScopeSession.objective_id); enters: `lane_call`, `guarded_write`.  
-Route: `PUT /api/v1/objective_id`.
+Marks: in-process; sets [`objective_id`](#ScopeSession.objective_id); enters: `lane_call`, `guarded_write`.
 
 Make `objective_id` the active objective. Returns whether it changed.
 
@@ -2902,12 +2907,17 @@ objective already active is a no-op.
 - `MoveFaultError`: The Z park, the turret move or the Z restore did not arrive (see `MotionAPI.start_move_z`); the slot is unknown afterwards.
 - `MoveStoppedError`: `'stopped'` or `'superseded'`, the Z park, the turret move or the Z restore was ended; the slot is unknown afterwards.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `objective_not_in_catalogue`; [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`, `objective_not_on_turret`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `objective_not_in_catalogue`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`, `objective_not_on_turret`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="ScopeSession.set_acceleration_limit"></a>
 ### `ScopeSession.set_acceleration_limit`
@@ -4381,8 +4391,7 @@ def build(
 ) -> BuildsResult
 ```
 
-Marks: enters: `post_processing`.  
-Route: `POST /api/v1/post_processing/build`.
+Marks: in-process; enters: `post_processing`.
 
 Run the chosen builds over *folder* in one call, in the order that
 keeps the data honest: z-project, stitch, composite, video.
@@ -4427,11 +4436,11 @@ the members one by one.
 - `PostProcessingRefusedError`: `'invalid_setting'`, no build is chosen, or a chosen build's setting is one its own member refuses, before anything is queued; or the refusal of the build that stopped the call, its `operation` naming it: `'protocol_data_unreadable'`, `'no_images'`, `'unsupported_source_format'`, `'output_outside_folder'`, `'collision'`, `'excluded_inputs'` or `'names_exhausted'`. A build with nothing to do is skipped, never raised.
 - `PostProcessingFailedError`: the build that stopped the call did not produce everything; its `operation` names it.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`
-- 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `invalid_setting`, `protocol_data_unreadable`, `no_images`, `unsupported_source_format`, `output_outside_folder`, `collision`, `excluded_inputs`
-- 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `invalid_setting`, `protocol_data_unreadable`, `no_images`, `unsupported_source_format`, `output_outside_folder`, `collision`, `excluded_inputs`
+- [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
+- [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
 <a id="PostProcessingAPI.cell_count_size_scale"></a>
 ### `PostProcessingAPI.cell_count_size_scale`
@@ -4484,8 +4493,7 @@ def count_cells(
 ) -> CellCountResult
 ```
 
-Marks: enters: `post_processing`.  
-Route: `POST /api/v1/post_processing/count_cells`.
+Marks: in-process; enters: `post_processing`.
 
 Count the cells in the images directly in *folder* by *method*,
 writing `results.csv` into the folder and *method* beside it as
@@ -4515,11 +4523,12 @@ The results table, the method file, how many images were counted, each image lef
 - `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; `'protocol_data_unreadable'`, the run's record, its protocol or its post-processing record cannot be read, or the protocol is gone; `'names_exhausted'`, every numbered name for the results is taken; or the folder has nothing to count (reason `no_data`).
 - `PostProcessingFailedError`: the results or the method could not be written, or some images could not be counted; the results hold every image that was, and the error names the rest.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `method_invalid`, `protocol_data_unreadable`, `no_data`
-- 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `method_invalid`, `protocol_data_unreadable`, `no_data`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
+- [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
+- [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
 <a id="PostProcessingAPI.default_cell_count_method"></a>
 ### `PostProcessingAPI.default_cell_count_method`
@@ -4597,8 +4606,7 @@ def enhance(
 ) -> EnhanceResult
 ```
 
-Marks: enters: `post_processing`.  
-Route: `POST /api/v1/post_processing/enhance`.
+Marks: in-process; enters: `post_processing`.
 
 Quick Enhance *target* -- one image, or every image in a folder --
 each to its own derived file beside its source.
@@ -4625,11 +4633,11 @@ Each derived file, the folder they are in, and the outcome in words.
 - `PostProcessingRefusedError`: reason `unreadable`, *target* is a file that is not an image Quick Enhance can read; reason `no_data`, a folder that holds none.
 - `PostProcessingFailedError`: a file could not be enhanced.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
-- 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `unreadable`, `no_data`
-- 500: [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `unreadable`, `no_data`
+- [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`
+- [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 
 <a id="PostProcessingAPI.graph"></a>
 ### `PostProcessingAPI.graph`
@@ -7614,8 +7622,7 @@ Nothing.
 def home(self, axis: HomeTarget = HomeTarget.ALL, put_back: bool | None = None) -> None
 ```
 
-Marks: enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/home`.
+Marks: in-process; enters: `lane_call`.
 
 Home the given axis set, and wait for it.
 
@@ -7655,12 +7662,19 @@ and the controls lock until it ends. Asked by an activity that
 already holds the scope (the support report's diagnostic), it runs
 as that activity's work and takes no claim of its own.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `home_in_flight`, `lid_open_before_motion`; [`HomingStoppedError`](#HomingStoppedError): `stopped`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
-- 500: [`HomingFaultError`](#HomingFaultError): `error`, `board_lost`, `unread`, `lid_open`, `stage_unpowered`; [`MoveFaultError`](#MoveFaultError): `monitor_ended`; [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `home_in_flight`, `lid_open_before_motion`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`HomingStoppedError`](#HomingStoppedError): `stopped`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`
+- [`HomingFaultError`](#HomingFaultError): `error`, `board_lost`, `unread`, `lid_open`, `stage_unpowered`
+- [`MoveFaultError`](#MoveFaultError): `monitor_ended`
+- [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.interlocks"></a>
 ### `MotionAPI.interlocks`
@@ -7737,8 +7751,7 @@ record answers: `jog_z_coarse_um` / `jog_z_fine_um` for Z,
 def move_to_plate(self, at: PlateLocation) -> None
 ```
 
-Marks: enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/move_to_plate`.
+Marks: in-process; enters: `lane_call`.
 
 Move X and Y to `at` on the selected plate, and return once they have arrived.
 
@@ -7758,12 +7771,17 @@ Move X and Y to `at` on the selected plate, and return once they have arrived.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_to_plate`. Nothing was driven.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`
+- [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.move_to_plate_nearest"></a>
 ### `MotionAPI.move_to_plate_nearest`
@@ -7772,8 +7790,7 @@ Move X and Y to `at` on the selected plate, and return once they have arrived.
 def move_to_plate_nearest(self, at: PlateLocation) -> PlateLocation
 ```
 
-Marks: enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/move_to_plate_nearest`.
+Marks: in-process; enters: `lane_call`.
 
 Move X and Y to `at` on the selected plate, or as near it as the stage reaches; return where they went, once arrived.
 
@@ -7796,12 +7813,16 @@ The point on the plate the stage went to, in mm; an axis not given is None.
 - `MoveStoppedError`: As `move_to_plate`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_to_plate_nearest`. Nothing was driven.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.move_to_well"></a>
 ### `MotionAPI.move_to_well`
@@ -7810,8 +7831,7 @@ The point on the plate the stage went to, in mm; an axis not given is None.
 def move_to_well(self, well: str) -> None
 ```
 
-Marks: enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/move_to_well`.
+Marks: in-process; enters: `lane_call`.
 
 Move X and Y to the centre of `well` on the selected plate, and return once they have arrived.
 
@@ -7831,12 +7851,17 @@ Move X and Y to the centre of `well` on the selected plate, and return once they
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_to_well`. Nothing was driven.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `well_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `well_unknown`
+- [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.move_turret"></a>
 ### `MotionAPI.move_turret`
@@ -7845,8 +7870,7 @@ Move X and Y to the centre of `well` on the selected plate, and return once they
 def move_turret(self, slot: int, restore_z: bool = True) -> None
 ```
 
-Marks: enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/move_turret`.
+Marks: in-process; enters: `lane_call`.
 
 Move the turret to a slot, and wait for it; a turret already there is not moved.
 
@@ -7868,12 +7892,16 @@ its own.
 - `MoveStoppedError`: `'stopped'`, a stop ended one of the three; `'superseded'`, another move or a home took its axis first. The slot is unknown afterwards.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread; nothing was started.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `scope_disconnected`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.move_xy"></a>
 ### `MotionAPI.move_xy`
@@ -7887,8 +7915,7 @@ def move_xy(
 ) -> None
 ```
 
-Marks: in-process arguments: `ignore_limits`; enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/move_xy`.
+Marks: in-process; enters: `lane_call`.
 
 Move X and Y to a place, in um, each that is given, and return once they have arrived.
 
@@ -7910,12 +7937,17 @@ Move X and Y to a place, in um, each that is given, and return once they have ar
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_xy`. Nothing was driven.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
+- [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.move_xy_by"></a>
 ### `MotionAPI.move_xy_by`
@@ -7924,8 +7956,7 @@ Move X and Y to a place, in um, each that is given, and return once they have ar
 def move_xy_by(self, dx_um: float | None = None, dy_um: float | None = None) -> None
 ```
 
-Marks: enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/move_xy_by`.
+Marks: in-process; enters: `lane_call`.
 
 Move X and Y by a distance, in um, each that is given, and return once they have arrived.
 
@@ -7946,12 +7977,17 @@ Move X and Y by a distance, in um, each that is given, and return once they have
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_xy_by`. Nothing was driven.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
+- [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.move_z"></a>
 ### `MotionAPI.move_z`
@@ -7965,8 +8001,7 @@ def move_z(
 ) -> None
 ```
 
-Marks: in-process arguments: `ignore_limits`; enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/move_z`.
+Marks: in-process; enters: `lane_call`.
 
 Move Z to a place, in um, and return once it has arrived.
 
@@ -7988,12 +8023,17 @@ Move Z to a place, in um, and return once it has arrived.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_z`. Nothing was driven.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
+- [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.move_z_by"></a>
 ### `MotionAPI.move_z_by`
@@ -8002,8 +8042,7 @@ Move Z to a place, in um, and return once it has arrived.
 def move_z_by(self, dz_um: float, overshoot_enabled: bool | None = None) -> None
 ```
 
-Marks: enters: `lane_call`.  
-Route: `POST /api/v1/scope/motion/move_z_by`.
+Marks: in-process; enters: `lane_call`.
 
 Move Z by a distance, in um, and return once it has arrived.
 
@@ -8024,12 +8063,17 @@ Move Z by a distance, in um, and return once it has arrived.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_z_by`. Nothing was driven.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `exclusive_activity_running`, `axis_absent`, `activity_ended`, `not_connected`, `monitor_ended`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
+- [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.positions_to_keep"></a>
 ### `MotionAPI.positions_to_keep`
@@ -8700,7 +8744,7 @@ Nothing.
 def wait_until_finished_moving(self, timeout_s: float = 120.0) -> None
 ```
 
-Route: `POST /api/v1/scope/motion/wait_until_finished_moving`.
+Marks: in-process.
 
 Block until every axis moving now has stopped; raise if one did not stop well.
 
@@ -8729,11 +8773,13 @@ monitor sets; no serial I/O from the calling thread.
 - `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `timeout_s` is not a wait from 0 to 30 days: a NaN deadline would end the wait at once, and one longer than the host can hold would raise out of it.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, which a wait of up to `timeout_s` would freeze.
 
-**Refusals by REST status**
+**Refusals**
 
-- 409: [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`MoveWaitExpiredError`](#MoveWaitExpiredError): `still_moving`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
-- 500: [`MoveFaultError`](#MoveFaultError): `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
+- [`MoveWaitExpiredError`](#MoveWaitExpiredError): `still_moving`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
+- [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
+- [`MoveFaultError`](#MoveFaultError): `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
 
 <a id="RuntimeState"></a>
 ## `lumascope.RuntimeState`
@@ -18580,8 +18626,6 @@ reads what the person was shown.
 | `PUT` | `/api/v1/engineering_mode` | [`ScopeSession.set_engineering_mode`](#ScopeSession.set_engineering_mode) |
 | `GET` | `/api/v1/get_current_plate_position` | [`ScopeSession.get_current_plate_position`](#ScopeSession.get_current_plate_position) |
 | `GET` | `/api/v1/get_setting` | [`ScopeSession.get_setting`](#ScopeSession.get_setting) |
-| `POST` | `/api/v1/go_to_bookmark` | [`ScopeSession.go_to_bookmark`](#ScopeSession.go_to_bookmark) |
-| `POST` | `/api/v1/go_to_step` | [`ScopeSession.go_to_step`](#ScopeSession.go_to_step) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_prefix` | [`Protocol.capture_prefix`](#Protocol.capture_prefix) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_root` | [`Protocol.capture_root`](#Protocol.capture_root) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/channel_settings` | [`Protocol.channel_settings`](#Protocol.channel_settings) |
@@ -18609,8 +18653,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/light_shown_channel` | [`ScopeSession.light_shown_channel`](#ScopeSession.light_shown_channel) |
 | `GET` | `/api/v1/live_folder_listing` | [`ScopeSession.live_folder_listing`](#ScopeSession.live_folder_listing) |
 | `POST` | `/api/v1/load_protocol` | [`ScopeSession.load_protocol`](#ScopeSession.load_protocol) |
-| `POST` | `/api/v1/make_logs_zip` | [`ScopeSession.make_logs_zip`](#ScopeSession.make_logs_zip) |
-| `POST` | `/api/v1/make_support_report` | [`ScopeSession.make_support_report`](#ScopeSession.make_support_report) |
 | `POST` | `/api/v1/manual_capture/capture` | [`ManualCaptureController.capture`](#ManualCaptureController.capture) |
 | `GET` | `/api/v1/manual_capture/in_flight` | [`ManualCaptureController.in_flight`](#ManualCaptureController.in_flight) |
 | `GET` | `/api/v1/manual_recording/elapsed_s` | [`ManualRecordingController.elapsed_s`](#ManualRecordingController.elapsed_s) |
@@ -18627,16 +18669,12 @@ reads what the person was shown.
 | `GET` | `/api/v1/model_at_next_start` | [`ScopeSession.model_at_next_start`](#ScopeSession.model_at_next_start) |
 | `POST` | `/api/v1/new_protocol` | [`ScopeSession.new_protocol`](#ScopeSession.new_protocol) |
 | `GET` | `/api/v1/objective_id` | [`ScopeSession.objective_id`](#ScopeSession.objective_id) |
-| `PUT` | `/api/v1/objective_id` | [`ScopeSession.select_objective`](#ScopeSession.select_objective) |
 | `GET` | `/api/v1/objective_question` | [`ScopeSession.objective_question`](#ScopeSession.objective_question) |
 | `GET` | `/api/v1/plugin_api_level` | [`ScopeSession.plugin_api_level`](#ScopeSession.plugin_api_level) |
 | `GET` | `/api/v1/plugin_health` | [`ScopeSession.plugin_health`](#ScopeSession.plugin_health) |
 | `POST` | `/api/v1/point_steps_at_turret_slot` | [`ScopeSession.point_steps_at_turret_slot`](#ScopeSession.point_steps_at_turret_slot) |
-| `POST` | `/api/v1/post_processing/build` | [`PostProcessingAPI.build`](#PostProcessingAPI.build) |
 | `POST` | `/api/v1/post_processing/cell_count_size_scale` | [`PostProcessingAPI.cell_count_size_scale`](#PostProcessingAPI.cell_count_size_scale) |
-| `POST` | `/api/v1/post_processing/count_cells` | [`PostProcessingAPI.count_cells`](#PostProcessingAPI.count_cells) |
 | `GET` | `/api/v1/post_processing/default_cell_count_method` | [`PostProcessingAPI.default_cell_count_method`](#PostProcessingAPI.default_cell_count_method) |
-| `POST` | `/api/v1/post_processing/enhance` | [`PostProcessingAPI.enhance`](#PostProcessingAPI.enhance) |
 | `POST` | `/api/v1/post_processing/graph` | [`PostProcessingAPI.graph`](#PostProcessingAPI.graph) |
 | `GET` | `/api/v1/post_processing/graph_options` | [`PostProcessingAPI.graph_options`](#PostProcessingAPI.graph_options) |
 | `GET` | `/api/v1/post_processing/load_cell_count_method` | [`PostProcessingAPI.load_cell_count_method`](#PostProcessingAPI.load_cell_count_method) |
@@ -18726,17 +18764,8 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/motion/axis_positions` | [`MotionAPI.axis_positions`](#MotionAPI.axis_positions) |
 | `GET` | `/api/v1/scope/motion/get_axis_limits` | [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits) |
 | `GET` | `/api/v1/scope/motion/get_target_positions` | [`MotionAPI.get_target_positions`](#MotionAPI.get_target_positions) |
-| `POST` | `/api/v1/scope/motion/home` | [`MotionAPI.home`](#MotionAPI.home) |
 | `GET` | `/api/v1/scope/motion/interlocks` | [`MotionAPI.interlocks`](#MotionAPI.interlocks) |
 | `GET` | `/api/v1/scope/motion/jog_step_um` | [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um) |
-| `POST` | `/api/v1/scope/motion/move_to_plate` | [`MotionAPI.move_to_plate`](#MotionAPI.move_to_plate) |
-| `POST` | `/api/v1/scope/motion/move_to_plate_nearest` | [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest) |
-| `POST` | `/api/v1/scope/motion/move_to_well` | [`MotionAPI.move_to_well`](#MotionAPI.move_to_well) |
-| `POST` | `/api/v1/scope/motion/move_turret` | [`MotionAPI.move_turret`](#MotionAPI.move_turret) |
-| `POST` | `/api/v1/scope/motion/move_xy` | [`MotionAPI.move_xy`](#MotionAPI.move_xy) |
-| `POST` | `/api/v1/scope/motion/move_xy_by` | [`MotionAPI.move_xy_by`](#MotionAPI.move_xy_by) |
-| `POST` | `/api/v1/scope/motion/move_z` | [`MotionAPI.move_z`](#MotionAPI.move_z) |
-| `POST` | `/api/v1/scope/motion/move_z_by` | [`MotionAPI.move_z_by`](#MotionAPI.move_z_by) |
 | `GET` | `/api/v1/scope/motion/positions_to_keep` | [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep) |
 | `POST` | `/api/v1/scope/motion/set_precision_mode` | [`MotionAPI.set_precision_mode`](#MotionAPI.set_precision_mode) |
 | `POST` | `/api/v1/scope/motion/start_center_on` | [`MotionAPI.start_center_on`](#MotionAPI.start_center_on) |
@@ -18752,7 +18781,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/motion/start_move_z_by` | [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by) |
 | `POST` | `/api/v1/scope/motion/stop_motion` | [`MotionAPI.stop_motion`](#MotionAPI.stop_motion) |
 | `GET` | `/api/v1/scope/motion/turret_status` | [`MotionAPI.turret_status`](#MotionAPI.turret_status) |
-| `POST` | `/api/v1/scope/motion/wait_until_finished_moving` | [`MotionAPI.wait_until_finished_moving`](#MotionAPI.wait_until_finished_moving) |
 | `GET` | `/api/v1/scope/motion_expected` | [`Lumascope.motion_expected`](#Lumascope.motion_expected) |
 | `GET` | `/api/v1/scope/objective` | [`Lumascope.objective`](#Lumascope.objective) |
 | `GET` | `/api/v1/scope/plate` | [`Lumascope.plate`](#Lumascope.plate) |

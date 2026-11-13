@@ -118,7 +118,7 @@ def test_the_routes_are_exactly_the_wire_members(client, session):
 
     assert served - {('get', '/api')} == _wire_routes(session)
     # The sub-objects are reached, not only the Session's own members.
-    assert ('post', '/api/v1/scope/motion/move_xy') in served
+    assert ('post', '/api/v1/scope/motion/start_move_xy') in served
     assert ('get', '/api/v1/manual_recording/is_recording') in served
     # A setting is its read's URL, written by PUT, and its setter has no route.
     assert {
@@ -432,10 +432,10 @@ def test_an_led_is_lit_over_the_wire_by_its_channels_name_and_no_address(client,
 @pytest.mark.parametrize(
     'path, body',
     [
-        ('move_z', lambda limits: {'z_um': limits['Z'].max_um + 100.0}),
-        ('move_xy', lambda limits: {'y_um': limits['Y'].max_um + 100.0}),
+        ('start_move_z', lambda limits: {'z_um': limits['Z'].max_um + 100.0}),
+        ('start_move_xy', lambda limits: {'y_um': limits['Y'].max_um + 100.0}),
     ],
-    ids=['move_z', 'move_xy'],
+    ids=['start_move_z', 'start_move_xy'],
 )
 def test_a_wire_move_that_sends_ignore_limits_is_422_and_drives_nothing(
     client, session, path, body
@@ -459,13 +459,11 @@ def test_a_wire_move_that_sends_ignore_limits_is_422_and_drives_nothing(
 
 def test_no_wire_move_takes_ignore_limits(client):
     schemas = client.get('/api/v1/openapi.json').json()['components']['schemas']
-    moves = ('start_move_xy', 'move_xy', 'start_move_z', 'move_z')
+    moves = ('start_move_xy', 'start_move_z')
 
     assert {m: sorted(schemas[f'MotionAPI_{m}']['properties']) for m in moves} == {
         'start_move_xy': ['x_um', 'y_um'],
-        'move_xy': ['x_um', 'y_um'],
         'start_move_z': ['overshoot_enabled', 'z_um'],
-        'move_z': ['overshoot_enabled', 'z_um'],
     }
 
 
@@ -488,7 +486,7 @@ def test_a_number_for_a_bool_is_422_and_reaches_nothing(client, session):
     before = motion.get_current_position('Z')
 
     answer = client.post(
-        '/api/v1/scope/motion/move_z',
+        '/api/v1/scope/motion/start_move_z',
         json={'z_um': before + 50.0, 'overshoot_enabled': 1},
     )
 
@@ -541,7 +539,7 @@ def test_a_member_route_takes_no_query_string(client):
 
 
 def test_a_path_outside_the_live_folder_is_refused_before_the_member_runs(client, tmp_path):
-    refused = client.post('/api/v1/make_logs_zip', json={'output_dir': '../outside'})
+    refused = client.post('/api/v1/start_make_logs_zip', json={'output_dir': '../outside'})
 
     assert refused.status_code == 422
     assert refused.json()['reason'] == 'outside_live_folder'
