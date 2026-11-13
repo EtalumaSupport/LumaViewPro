@@ -85,18 +85,33 @@ class PathAnswer(pydantic.BaseModel):
     host_path: str
 
 
-class StillAsked(pydantic.BaseModel):
-    """What a full-depth still is asked with (``POST /api/v1/still``)."""
+def body_of(
+    function: typing.Callable[..., object], names: tuple[str, ...], model: str
+) -> type[pydantic.BaseModel]:
+    """The model a hand-written route reads *names* of *function*'s parameters by.
 
-    model_config = _MODEL_CONFIG
-    exposed_after_call: bool = pydantic.Field(
-        default=False,
-        description=(
-            'True keeps only a frame exposed after this call, for a caller that '
-            'changed what the camera sees outside LVP (its own light or shutter) '
-            'and waited for it to settle (`ScopeSession.capture_still`).'
-        ),
-    )
+    Each is typed, defaulted and described as a generated route's is: by
+    its annotation's inbound form, its default, and its ``Args:`` entry;
+    every one optional, so a parameter the client leaves out takes the
+    function's own default.
+
+    Raises:
+        NoWireFormError: a parameter named has no inbound form.
+    """
+    signature = inspect.signature(function)
+    words = _words_of(function.__doc__ or '')
+    classes, aliases = wire_encoding.project_classes(), wire_encoding.project_aliases()
+    fields = {}
+    for name in names:
+        text = wire_encoding.annotation_text(function.__annotations__[name])
+        parameter = WireParameter(
+            name,
+            wire_encoding.inbound(text, classes, aliases),
+            False,
+            signature.parameters[name].default,
+        )
+        fields[name] = _field(parameter, {}, words[name])
+    return pydantic.create_model(model, __config__=_MODEL_CONFIG, **fields)
 
 
 class RemedyAnswer(pydantic.BaseModel):
@@ -350,7 +365,11 @@ def query_model(owner: type, member: WireMember) -> type[pydantic.BaseModel]:
 
 def parameter_words(member: WireMember) -> dict[str, str]:
     """Each parameter's words of *member*, as Markdown: its docstring's ``Args:`` entry, as the reference renders it."""
-    entries = api_surface.entries_of(inspect.cleandoc(member.doc), 'Args')
+    return _words_of(member.doc)
+
+
+def _words_of(doc: str) -> dict[str, str]:
+    entries = api_surface.entries_of(inspect.cleandoc(doc), 'Args')
     return {name.lstrip('*'): api_surface.markdown_of(w) for name, w in entries.items()}
 
 

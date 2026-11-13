@@ -65,7 +65,7 @@ from _lumascope.rest.routes import (
     Job,
     PathAnswer,
     Route,
-    StillAsked,
+    body_of,
     job_answer,
     routes,
     sent_of_query,
@@ -376,17 +376,36 @@ def _add_upload_route(
     )
 
 
+# What a client sends a still with: ``capture_still``'s arguments but three.
+# ``force_to_8bit``, since the route answers the camera's own depth;
+# ``exclude_sources``, since a frame handed out to be measured never excludes
+# a change; ``sum_iteration_callback``, a callback, which has no wire form.
+_STILL_SENT = (
+    'channel',
+    'accept_dark',
+    'all_ones_check',
+    'timeout_s',
+    'sum_count',
+    'sum_delay_s',
+    'exposed_after_call',
+)
+
+
 def _add_still_route(
     app: fastapi.FastAPI, session: ScopeSession, jobs: JobRegistry, closing: Closing
 ) -> None:
-    async def still(request: fastapi.Request, asked: StillAsked | None = None) -> fastapi.Response:
-        """A still at the camera's own depth, with the camera as set: its record, then its pixels.
+    asked_by = body_of(inspect.unwrap(ScopeSession.capture_still), _STILL_SENT, 'StillAsked')
 
-        ``ScopeSession.capture_still`` with no channel held and no 8-bit
-        conversion, reached as every write is: on a call thread, as a REST
-        client, in the control session the ``Control-Session`` header names.
-        The body is the still's ``FrameRecord`` as UTF-8 JSON, then the
-        image's bytes, row by row, little-endian, in the array's own type;
+    async def still(request: fastapi.Request, asked: pydantic.BaseModel | None) -> fastapi.Response:
+        """A still at the camera's own depth: its record, then its pixels.
+
+        ``ScopeSession.capture_still`` with no 8-bit conversion and the
+        arguments the body sends, each the member's own when left out, so
+        with none the camera is taken as set. It is reached as every write
+        is: on a call thread, as a REST client, in the control session the
+        ``Control-Session`` header names. The body is the still's
+        ``FrameRecord`` as UTF-8 JSON, then the image's bytes, row by row,
+        little-endian, in the array's own type;
         ``X-Record-Length`` is the record's length in bytes, ``X-Image-Shape``
         the rows and columns, ``X-Image-Dtype`` the type and
         ``X-Significant-Bits`` the depth (``CapturedStill.significant_bits``).
@@ -399,7 +418,7 @@ def _add_still_route(
         if closing.begun:
             raise problems.server_closing()
         jobs.admit(returns_job=False)
-        exposed_after_call = (asked or StillAsked()).exposed_after_call
+        sent = asked.model_dump(include=asked.model_fields_set) if asked is not None else {}
         request_id = request.state.request_id
         control_id = request.headers.get(CONTROL_SESSION_HEADER)
         # The pixels travel beside the answer, which holds only the record.
@@ -407,9 +426,7 @@ def _add_still_route(
 
         def work() -> object:
             with _acting_in(session, control_id):
-                captured = session.capture_still(
-                    None, force_to_8bit=False, exposed_after_call=exposed_after_call
-                )
+                captured = session.capture_still(force_to_8bit=False, **sent)
             taken.append(captured)
             return wire_encoding.encode(
                 captured.record,
@@ -435,6 +452,20 @@ def _add_still_route(
             },
         )
 
+    # The model is built at run time, so FastAPI reads it from the signature.
+    still.__signature__ = inspect.Signature(
+        [
+            inspect.Parameter(
+                'request', inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=fastapi.Request
+            ),
+            inspect.Parameter(
+                'asked',
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=asked_by | None,
+                default=fastapi.Body(None),
+            ),
+        ]
+    )
     app.add_api_route(
         f'{PREFIX}/still',
         still,

@@ -740,9 +740,10 @@ Marks: in-process.
 Capture a frame-valid image and hand it back with its record.
 
 In-process: a CapturedStill has no wire form. On the wire it is
-`POST /api/v1/still`, with the camera as set and at its own depth:
-the record as JSON, then the image's bytes; a Python caller is handed
-the array.
+`POST /api/v1/still`, at the camera's own depth, taking every
+argument but `force_to_8bit`, `exclude_sources` and
+`sum_iteration_callback`: the record as JSON, then the image's
+bytes; a Python caller is handed the array.
 
 **Args**
 
