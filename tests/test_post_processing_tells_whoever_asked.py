@@ -387,7 +387,11 @@ def _manual_video(monkeypatch, tmp_path, video_result):
     )
     monkeypatch.setattr(video_builder.recording_frames, 'is_manual_video_frame', lambda n: True)
     monkeypatch.setattr(video_builder.recording_frames, 'frame_number', lambda n: 0)
-    monkeypatch.setattr(builder, '_read_recording_manifest', lambda path: {'channel_color': None})
+    monkeypatch.setattr(
+        builder,
+        '_read_recording_manifest',
+        lambda path: {'channel_color': None, 'measured_fps': None},
+    )
     monkeypatch.setattr(builder, '_create_video', lambda **kwargs: video_result)
     return builder._build_manual_recording_video(
         tmp_path, frame_rate_fps=10, channel_colors=release_colors()

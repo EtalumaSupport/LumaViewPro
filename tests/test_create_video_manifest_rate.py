@@ -1,27 +1,38 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Create Video's 'auto' rate reads the recording's measured rate.
+"""Create Video's 'auto' rate plays a manual recording as it was recorded.
 
-Encoding an existing frames folder used to run at whatever number sat
-in the FPS box (guess 5 on failure) while the manifest's measured
-capture rate sat unread beside the frames. 'auto' (frame_rate_fps=None)
-now resolves at the build_from_folder dispatch: a manual recording
-plays at its manifest's measured rate -- engine manifests first, the
-legacy session manifest for pre-engine folders -- and folders with no
-measured rate build at the named default. An explicit rate still
-overrides everything (deliberate timelapse speedups stay possible).
+'auto' (frame_rate_fps=None) resolves at the build_from_folder dispatch.
+A manual recording whose first frame states its time plays each frame at
+the time it was taken, so a lost frame shows as a gap; a later frame with
+no time after the one before it is left out and counted. One whose first
+frame states none plays evenly at its manifest's measured rate -- engine
+manifests first, the legacy session manifest for pre-engine folders --
+and a folder with no measured rate builds at the named default. An
+explicit rate still overrides everything (deliberate timelapse speedups
+stay possible).
 """
 
+import datetime
 import json
 import logging
+import pathlib
+from collections import Counter
 from unittest.mock import patch
 
+import av
+import numpy as np
 import pytest
+import tifffile as tf
 
+import _lumascope.modules.image_utils as image_utils
+from _lumascope.modules.exceptions import PostProcessingFailedError
 from _lumascope.modules.video_builder import DEFAULT_BUILD_FPS, VideoBuilder
 from _lumascope.modules.channel_record import release_colors
 from tests.log_capture import records_of
 from tests.stock_channels import LED0, LED1, LED2
 from tests.installation_fixtures import shipped_grids
+from tests.frame_records import recorded_record, write_recorded
+from _lumascope.modules.lumascope_api.frame_record import FrameTime, TimestampSource
 
 
 def _make_manual_folder(tmp_path, n=3):
@@ -142,3 +153,123 @@ def test_frames_without_any_manifest_warn_loudly(tmp_path, caplog):
     assert warned, 'a folder with no readable manifest must warn about the degraded build'
     message = warned[-1]
     assert 'manifest' in message.lower() and 'grayscale' in message.lower()
+
+
+def _write_timed_frames(scope, folder, seconds, first=0):
+    """Recorded frames through the one recorded-frame writer, numbered from
+    ``first``, each at its entry of ``seconds``."""
+    base = datetime.datetime(2026, 11, 12, 16, 35, 0).astimezone()
+    for n, s in enumerate(seconds, start=first):
+        at = base + datetime.timedelta(seconds=s)
+        stamp = at.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
+        write_recorded(
+            scope,
+            np.full((64, 64), 40 + n, dtype=np.uint8),
+            folder / f'ManualVideo_Frame_{n:04}_{stamp}.tiff',
+            record=recorded_record(
+                captured_at=FrameTime(at=at, source=TimestampSource.HOST_ARRIVAL)
+            ),
+            frame_number=n,
+        )
+
+
+def _frame_times_s(video_path) -> list[float]:
+    with av.open(str(video_path)) as container:
+        return [float(frame.time) for frame in container.decode(video=0)]
+
+
+def _build(folder, frame_rate_fps=None):
+    return VideoBuilder(has_turret=False).build_from_folder(
+        folder,
+        shipped_grids(),
+        frame_rate_fps=frame_rate_fps,
+        enable_timestamp_overlay=False,
+        channel_colors=release_colors(),
+    )
+
+
+def test_auto_plays_each_frame_at_its_own_time_so_a_lost_frame_is_a_gap(sim_scope, tmp_path):
+    # Frames 0-2 a tenth of a second apart, then a second lost, then two more.
+    _write_timed_frames(sim_scope, tmp_path, [0.0, 0.1, 0.2, 1.2, 1.3])
+    (tmp_path / 'recording_manifest.json').write_text(json.dumps({'measured_fps': 10.0}))
+
+    result = _build(tmp_path)
+
+    times = _frame_times_s(result['artifact_paths'][0])
+    assert times == pytest.approx([0.0, 0.1, 0.2, 1.2, 1.3], abs=1e-3)
+
+
+def test_a_chosen_rate_plays_the_frames_evenly_at_it(sim_scope, tmp_path):
+    _write_timed_frames(sim_scope, tmp_path, [0.0, 0.1, 0.2, 1.2, 1.3])
+
+    result = _build(tmp_path, frame_rate_fps=10)
+
+    times = _frame_times_s(result['artifact_paths'][0])
+    assert times == pytest.approx([0.0, 0.1, 0.2, 0.3, 0.4], abs=1e-3)
+
+
+def _write_untimed_frame(folder, n, stamp):
+    """A frame another producer wrote: pixels and no record."""
+    tf.imwrite(
+        str(folder / f'ManualVideo_Frame_{n:04}_{stamp}.tiff'),
+        np.full((64, 64), 9, dtype=np.uint8),
+    )
+
+
+def test_a_first_frame_with_no_time_builds_the_folder_evenly_at_the_measured_rate(
+    sim_scope, tmp_path
+):
+    _write_untimed_frame(tmp_path, 0, '2026-11-12_16-34-59-000')
+    _write_timed_frames(sim_scope, tmp_path, [0.0, 0.1, 0.2, 1.2], first=1)
+    (tmp_path / 'recording_manifest.json').write_text(json.dumps({'measured_fps': 4.0}))
+
+    result = _build(tmp_path)
+
+    times = _frame_times_s(result['artifact_paths'][0])
+    assert times == pytest.approx([0.0, 0.25, 0.5, 0.75, 1.0], abs=1e-3)
+
+
+def test_a_later_frame_with_no_time_is_left_out_and_counted(sim_scope, tmp_path):
+    _write_timed_frames(sim_scope, tmp_path, [0.0, 0.1, 0.2, 1.2])
+    _write_untimed_frame(tmp_path, 4, '2026-11-12_16-35-01-300')
+    (tmp_path / 'recording_manifest.json').write_text(json.dumps({'measured_fps': 4.0}))
+
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        _build(tmp_path)
+
+    assert '1 frame(s) could not be added' in str(incomplete.value)
+    video = incomplete.value.produced_paths[0]
+    assert _frame_times_s(video) == pytest.approx([0.0, 0.1, 0.2, 1.2], abs=1e-3)
+
+
+def test_a_frame_at_or_before_the_one_before_it_is_left_out_and_counted(sim_scope, tmp_path):
+    _write_timed_frames(sim_scope, tmp_path, [0.0, 0.2, 0.1, 0.2, 0.3])
+    (tmp_path / 'recording_manifest.json').write_text(json.dumps({'measured_fps': 5.0}))
+
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        _build(tmp_path)
+
+    assert '2 frame(s) could not be added' in str(incomplete.value)
+    video = incomplete.value.produced_paths[0]
+    assert _frame_times_s(video) == pytest.approx([0.0, 0.2, 0.3], abs=1e-3)
+
+
+def test_auto_rate_opens_each_frame_once_but_the_first(sim_scope, tmp_path, monkeypatch):
+    # Reading every frame's time in a pass before the encode opened each file
+    # twice, a disk seek a frame on a slow PC (176 s of 840 on 9,105 frames).
+    # The first frame is read once more, to fix the writer's timing.
+    _write_timed_frames(sim_scope, tmp_path, [0.0, 0.1, 0.2, 1.2, 1.3])
+    opens = Counter()
+    real_tifffile = image_utils.tf.TiffFile
+
+    def counting_tifffile(path, *args, **kwargs):
+        opens[pathlib.Path(path).name] += 1
+        return real_tifffile(path, *args, **kwargs)
+
+    monkeypatch.setattr(image_utils.tf, 'TiffFile', counting_tifffile)
+
+    _build(tmp_path)
+
+    names = sorted(opens)
+    assert len(names) == 5
+    assert [opens[name] for name in names] == [2, 1, 1, 1, 1], dict(opens)

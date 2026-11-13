@@ -530,6 +530,7 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
         path=frames_dir,
         df=df,
         frame_rate_fps=5,
+        vfr=False,
         enable_timestamp_overlay=False,
         output_file_loc=requested,
         on_progress=None,

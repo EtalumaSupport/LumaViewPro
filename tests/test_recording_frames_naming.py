@@ -161,7 +161,7 @@ class TestManualFramesTakeTheNumericSortBranch:
 
         def _record_frame(self, writer, image_path, **kwargs):
             consumed.append(recording_frames.frame_number(image_path.name))
-            return True
+            return True, None
 
         writer = MagicMock()
         writer.dropped_frames = 0
@@ -174,6 +174,7 @@ class TestManualFramesTakeTheNumericSortBranch:
                 path=tmp_path,
                 df=df,
                 frame_rate_fps=10,
+                vfr=False,
                 enable_timestamp_overlay=False,
                 output_file_loc=pathlib.Path('out.mp4'),
                 color=GREY,

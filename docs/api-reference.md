@@ -14176,7 +14176,7 @@ A video, as `build` takes it: each position's time series to one video.
 
 **Fields**
 
-- <a id="Video.frame_rate_fps"></a>`frame_rate_fps`: `float | str | None` -- The playback rate, a finite number of at least 1 or its text; None plays a recording at its own measured rate.
+- <a id="Video.frame_rate_fps"></a>`frame_rate_fps`: `float | str | None` -- The playback rate, a finite number of at least 1 or its text; None plays a recording as it was recorded: each frame at the time it was taken, so a lost frame is a gap, or evenly at its measured rate when its first frame states no time.
 - <a id="Video.timestamp_overlay"></a>`timestamp_overlay`: `bool` -- Whether each frame shows its time.
 
 <a id="VideoConfig"></a>

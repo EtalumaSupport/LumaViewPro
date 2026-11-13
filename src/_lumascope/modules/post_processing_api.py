@@ -370,7 +370,9 @@ class Video:
 
     Attributes:
         frame_rate_fps: The playback rate, a finite number of at least 1 or its
-            text; None plays a recording at its own measured rate.
+            text; None plays a recording as it was recorded: each frame at
+            the time it was taken, so a lost frame is a gap, or evenly at its
+            measured rate when its first frame states no time.
         timestamp_overlay: Whether each frame shows its time.
     """
 
@@ -811,7 +813,9 @@ class PostProcessingAPI:
 
         Args:
             frame_rate_fps: The playback rate, a finite number of at least 1 or its
-                text; None plays a recording at its own measured rate.
+                text; None plays a recording as it was recorded: each frame
+                at the time it was taken, so a lost frame is a gap, or evenly
+                at its measured rate when its first frame states no time.
 
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at

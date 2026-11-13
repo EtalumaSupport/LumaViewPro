@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import datetime
 import json
 import os
 import pathlib
@@ -14,6 +15,7 @@ from _lumascope.modules.channel_record import GREY, ChannelColors, Color
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.common_utils import PostFunction
+from _lumascope.modules.exceptions import InputFramesUnusableError
 from _lumascope.modules.api_surface import ProgressCallback
 from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
 from _lumascope.modules.protocol_post_processing_result import PostProcResult
@@ -29,6 +31,33 @@ from _lumascope.lvp_logger import logger
 # long-standing Create Video default, kept so those builds keep working
 # instead of refusing.
 DEFAULT_BUILD_FPS = 5
+
+
+def _states_a_time(frame_path: pathlib.Path) -> bool:
+    """Whether a frame's record states the time it was taken.
+
+    Read from the record alone, not the pixels. An unreadable frame states
+    none; the encode skips it and counts it.
+    """
+    try:
+        record = image_utils.read_file_record(frame_path)
+    except InputFramesUnusableError:
+        return False
+    return image_utils.stated_frame_time(record) is not None
+
+
+def _follows(frame_ts: datetime.datetime | None, previous: datetime.datetime | None) -> bool:
+    """Whether a frame's time can come next in a video played at each frame's time.
+
+    It must be stated, compare with the frame before it
+    (``image_utils.comparable_times``, the hyperstack's rule), and come after
+    it: the writer places each frame at its time, so a frame with none, or
+    one at or before the last, has no place in the video.
+    """
+    if previous is None:
+        return frame_ts is not None
+    times = image_utils.comparable_times([previous, frame_ts])
+    return times is not None and times[1] > times[0]
 
 
 class VideoBuilder(ProtocolPostProcessor):
@@ -148,6 +177,7 @@ class VideoBuilder(ProtocolPostProcessor):
                 path=path,
                 df=df[['Filepath', 'Scan Count', 'Timestamp']],
                 frame_rate_fps=kwargs['frame_rate_fps'],
+                vfr=False,
                 enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
                 output_file_loc=temporary,
                 on_progress=kwargs['on_progress'],
@@ -201,7 +231,9 @@ class VideoBuilder(ProtocolPostProcessor):
         *,
         enable_timestamp_overlay: bool,
         recorded_time: object = None,
-    ) -> bool:
+        vfr: bool = False,
+        previous_ts: datetime.datetime | None = None,
+    ) -> tuple[bool, datetime.datetime | None]:
         """Read one saved frame and hand it to the writer with its payload depth.
 
         Both encode paths (the protocol-post-processor pipeline and the public
@@ -220,14 +252,20 @@ class VideoBuilder(ProtocolPostProcessor):
         record's time for the frame's row (`image_utils.frame_time`), the one
         answer to a frame's time. The pixels, depth, and timestamp are read
         from a single file open, so an overlay-enabled build opens each frame
-        once rather than twice. When the overlay is off, the timestamp is neither
-        read nor stamped, so the cheaper depth-only read is used.
+        once rather than twice. A build at each frame's own time (``vfr``)
+        reads the file's time the same way, overlay or not, in that one open:
+        reading the times in a pass of their own would open each file twice,
+        a seek a frame on a slow disk. Such a frame
+        must follow ``previous_ts`` (``_follows``); one that does not is not
+        added. When the overlay is off in an even build, the file's time is
+        not read, so the cheaper depth-only read is used.
 
-        Returns True when the frame was added, False when the source could not be
-        read (the caller counts it as a skipped / dropped frame).
+        Returns whether the frame was added, and the time it was handed with.
+        A frame not added (unreadable, or with no place in a ``vfr`` video)
+        is counted by the caller as a skipped / dropped frame.
         """
         try:
-            if enable_timestamp_overlay:
+            if enable_timestamp_overlay or vfr:
                 image, significant_bits, white_bits, stated_ts = (
                     image_utils.load_pixels_with_timestamp(image_path)
                 )
@@ -237,7 +275,14 @@ class VideoBuilder(ProtocolPostProcessor):
                 frame_ts = None
         except Exception as e:
             logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
-            return False
+            return False, None
+        if vfr and not _follows(frame_ts, previous_ts):
+            logger.warning(
+                f'[{self._name}] {image_path.name} states no time after the frame before it '
+                f'({frame_ts} after {previous_ts}), so it has no place in a video played at '
+                'each frame time; it is left out'
+            )
+            return False, None
 
         # image is mono 2D (a legacy 3-channel replica collapses to mono inside
         # load_pixels). VideoWriter applies the channel false-color, the 8-bit
@@ -249,25 +294,30 @@ class VideoBuilder(ProtocolPostProcessor):
             significant_bits=significant_bits,
             white_bits=white_bits,
         )
-        return True
+        return True, frame_ts
 
     def _create_video(
         self,
         path: pathlib.Path,
         df: pd.DataFrame,
-        frame_rate_fps: int,
+        frame_rate_fps: float | None,
         enable_timestamp_overlay: bool,
         output_file_loc: pathlib.Path,
         on_progress: ProgressCallback | None = None,
         total_groups=1,
         current_group=1,
         *,
+        vfr: bool,
         color: Color,
     ) -> dict:
         """Encode ``df``'s frames into one video, mono frames shown in ``color``.
 
         ``color`` is the caller's: a protocol group's channel colour, or a
         manual recording's (grey when it was recorded with false colour off).
+        With ``vfr`` each frame plays at the time its file states, and a
+        frame with no time after the one before it is left out and counted;
+        ``frame_rate_fps`` is then the container's nominal rate only (None
+        for none). Without it the frames play evenly at ``frame_rate_fps``.
         """
 
         if recording_frames.is_video_frame(df['Filepath'].values[0]):
@@ -284,6 +334,7 @@ class VideoBuilder(ProtocolPostProcessor):
             fps=frame_rate_fps,
             color=color,
             include_timestamp_overlay=enable_timestamp_overlay,
+            vfr=vfr,
         )
 
         # The writer's name, not the request: a taken name has moved it.
@@ -298,16 +349,21 @@ class VideoBuilder(ProtocolPostProcessor):
         total_frames = len(df)
         i = 0
         skipped = 0
+        previous_ts = None
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
-            if not self._add_source_frame(
+            added, frame_ts = self._add_source_frame(
                 video,
                 image_path,
                 enable_timestamp_overlay=enable_timestamp_overlay,
                 recorded_time=row['Timestamp'],
-            ):
+                vfr=vfr,
+                previous_ts=previous_ts,
+            )
+            if not added:
                 skipped += 1
                 continue
+            previous_ts = frame_ts
 
             if on_progress is not None:
                 on_progress(start_percentage + (i / total_frames) * percent_diff, None)
@@ -338,7 +394,8 @@ class VideoBuilder(ProtocolPostProcessor):
             # the video is short to whoever asked for it.
             logger.warning(
                 f'[{self._name}] {total_dropped} of {total_frames} frames missing '
-                'from output (unreadable source or encode failure)'
+                'from output (unreadable source, no time after the frame before, '
+                'or encode failure)'
             )
 
         logger.debug(f'[{self._name}] - Complete')
@@ -373,25 +430,16 @@ class VideoBuilder(ProtocolPostProcessor):
         caller can swap one entry point for the other without rewiring.
         """
         path = pathlib.Path(path)
-        is_manual = self._is_manual_recording_folder(path)
-        if kwargs.get('frame_rate_fps') is None:
-            # The UI's 'auto' rate, resolved HERE where the folder type
-            # is known: a manual recording plays at its own measured
-            # capture rate (from its manifest); folders without a
-            # measured rate (protocol scans until their cutover writes
-            # manifests, pre-manifest manual recordings) build at the
-            # standard default.
-            measured = self._read_recording_manifest(path)['measured_fps'] if is_manual else None
-            if measured is not None and measured > 0:
-                kwargs['frame_rate_fps'] = measured
-                logger.info(
-                    f'[{self._name}] auto rate: building at the recorded '
-                    f'{measured:.3g} fps from the manifest'
-                )
-            else:
-                kwargs['frame_rate_fps'] = DEFAULT_BUILD_FPS
-        if is_manual:
+        # The UI's 'auto' rate is None (or no rate passed), resolved HERE
+        # where the folder type is known: a manual recording resolves it from
+        # its own frames and manifest (_build_manual_recording_video); a
+        # protocol scan, which states no measured rate, builds at the
+        # standard default.
+        if self._is_manual_recording_folder(path):
+            kwargs['frame_rate_fps'] = kwargs.get('frame_rate_fps')
             return self._build_manual_recording_video(path, on_progress=on_progress, **kwargs)
+        if kwargs.get('frame_rate_fps') is None:
+            kwargs['frame_rate_fps'] = DEFAULT_BUILD_FPS
         return self.load_folder(
             path=path,
             tiling_grids=tiling_grids,
@@ -476,11 +524,22 @@ class VideoBuilder(ProtocolPostProcessor):
         path: pathlib.Path,
         on_progress: ProgressCallback | None = None,
         *,
-        frame_rate_fps: float,
+        frame_rate_fps: float | None,
         enable_timestamp_overlay: bool = False,
         channel_colors: ChannelColors,
         **_ignored: dict,
     ) -> dict:
+        """Build one video from a manual recording's frames.
+
+        At a chosen ``frame_rate_fps`` the frames play evenly at it. At the
+        automatic rate (None) each frame plays at the time it was taken, so
+        a frame the recording lost shows as the gap it is, when the first
+        frame states a time; a later frame with no time after the one before
+        it is left out and counted. When the first frame states none, the
+        frames play evenly at the recording's measured rate, else at
+        ``DEFAULT_BUILD_FPS``. The writer's timing is fixed when it opens, so
+        the first frame decides it.
+        """
         frame_paths = [
             p
             for p in image_utils.find_tiff_files(path)
@@ -507,7 +566,20 @@ class VideoBuilder(ProtocolPostProcessor):
         # encodes grayscale. The per-frame timestamp is read from each
         # frame's own metadata inside _create_video, so the overlay toggle
         # authoritatively controls whether the video shows a timestamp.
-        channel_color = self._read_recording_manifest(path)['channel_color']
+        manifest = self._read_recording_manifest(path)
+        channel_color = manifest['channel_color']
+        measured = manifest['measured_fps']
+        vfr = frame_rate_fps is None and _states_a_time(frame_paths[0])
+        if frame_rate_fps is None and not vfr:
+            frame_rate_fps = (
+                measured if measured is not None and measured > 0 else DEFAULT_BUILD_FPS
+            )
+            logger.info(
+                f'[{self._name}] auto rate: the first frame states no time, so the frames '
+                f'play evenly at {frame_rate_fps:.3g} fps'
+            )
+        elif vfr:
+            logger.info(f'[{self._name}] auto rate: each frame plays at the time it was taken')
         df = pd.DataFrame(
             {
                 'Filepath': [p.name for p in frame_paths],
@@ -523,7 +595,14 @@ class VideoBuilder(ProtocolPostProcessor):
             result = self._create_video(
                 path=path,
                 df=df,
-                frame_rate_fps=frame_rate_fps,
+                # At each frame's time the rate is the container's nominal
+                # one only: the measured rate, or none.
+                frame_rate_fps=(
+                    (measured if measured is not None and measured > 0 else None)
+                    if vfr
+                    else frame_rate_fps
+                ),
+                vfr=vfr,
                 enable_timestamp_overlay=enable_timestamp_overlay,
                 output_file_loc=output_file_loc,
                 on_progress=on_progress,

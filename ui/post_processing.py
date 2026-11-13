@@ -254,7 +254,7 @@ class VideoCreationControls(BoxLayout):
         popup.progress = 0
         popup.auto_dismiss = False
 
-        # Blank (or 'auto') = the recording's own measured rate; anything
+        # Blank (or 'auto') = a recording played as it was recorded; anything
         # else is the user's playback-rate override, which the build judges.
         fps_text = self.ids['video_gen_fps_id'].text.strip()
         fps = None if fps_text.lower() in ('', 'auto') else fps_text

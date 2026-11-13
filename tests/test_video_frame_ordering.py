@@ -41,7 +41,7 @@ def _consumed_order(tmp_path, frame_numbers):
 
     def _record_frame(self, writer, image_path, **kwargs):
         consumed.append(int(image_path.name.rsplit('_', 1)[1].split('.')[0]))
-        return True
+        return True, None
 
     writer = MagicMock()
     writer.dropped_frames = 0
@@ -54,6 +54,7 @@ def _consumed_order(tmp_path, frame_numbers):
             path=tmp_path,
             df=df,
             frame_rate_fps=10,
+            vfr=False,
             enable_timestamp_overlay=False,
             output_file_loc=pathlib.Path('out.mp4'),
             color=GREY,
@@ -83,6 +84,7 @@ def test_unparseable_frame_name_fails_loudly(tmp_path):
             path=tmp_path,
             df=df,
             frame_rate_fps=10,
+            vfr=False,
             enable_timestamp_overlay=False,
             output_file_loc=pathlib.Path('out.mp4'),
             color=GREY,

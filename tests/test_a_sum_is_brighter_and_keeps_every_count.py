@@ -571,6 +571,7 @@ def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
         path=tmp_path,
         df=pd.DataFrame(rows),
         frame_rate_fps=10,
+        vfr=False,
         enable_timestamp_overlay=False,
         output_file_loc=pathlib.Path('out.mp4'),
         color=GREY,
