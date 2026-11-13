@@ -630,9 +630,13 @@ def assign_turret_objective(self, slot: int, objective_id: str) -> None
 Marks: sets [`turret_objective`](#ScopeSession.turret_objective); enters: `guarded_write`.  
 Route: `PUT /api/v1/turret_objective`.
 
-Bind `objective_id` to the turret's `slot`.
+Bind `objective_id` to the turret's `slot`: a person saying which glass the slot holds.
 
-Binding the objective the slot already holds is a no-op.
+Records that a person has confirmed the objective for this light
+path, as `confirm_objective` does, so `objective_question` no
+longer owes the question for want of one. Binding the objective the
+slot already holds changes no slot and records the confirmation,
+under a hold too.
 
 **Args**
 
@@ -641,7 +645,7 @@ Binding the objective the slot already holds is a no-op.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'axis_absent'`, the scope has no turret, said before `slot` or `objective_id` is judged; or a run, a diagnostic or a recording holds the scope (`'exclusive_activity_running'`). Nothing is written.
+- `HardwareCommandRefusedError`: `'axis_absent'`, the scope has no turret, said before `slot` or `objective_id` is judged; or a run, a diagnostic or a recording holds the scope and `objective_id` is not the slot's assignment (`'exclusive_activity_running'`). Nothing is written.
 - `PositionOutOfRangeError`: `slot` is not a slot number 1-4.
 - `CatalogueNameRefusedError`: `'objective_not_in_catalogue'`, `objective_id` is not exactly a catalogue key.
 
@@ -988,8 +992,9 @@ Route: `POST /api/v1/confirm_objective`.
 
 Answer the objective question: this objective is in the light path.
 
-On a turret scope, assigns the objective to `slot`: the answer
-records the glass in a slot and never turns the turret. With no
+On a turret scope, assigns the objective to `slot`
+(`assign_turret_objective`, which records the confirmation): the
+answer records the glass in a slot and never turns the turret. With no
 turret, selects it (`select_objective`), which records the
 confirmation as the objective id. Records that a person has
 confirmed the objective for this light path, turret or turretless,

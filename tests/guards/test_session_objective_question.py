@@ -19,6 +19,7 @@ import threading
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
 from _lumascope.modules import settings_init
 from _lumascope.modules.exceptions import (
@@ -29,6 +30,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.axes import AxisState
 from _lumascope.modules.objectives_loader import DEFAULT_PROPOSED_OBJECTIVE_ID
 from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.rest.app import build_app
 from tests.ast_seams import (
     REPO_ROOT,
     Words,
@@ -498,6 +500,25 @@ class TestT10TurretWriters:
         assert refused.value.reason == 'objective_not_in_catalogue'
         assert dict(session.settings['turret_objectives']) == before
 
+    @pytest.mark.parametrize(
+        ('slot', 'objective_id'),
+        [(2, '10x Oly'), (1, '4x Oly')],
+        ids=['binds_another_slot', 'rebinds_the_light_paths_own'],
+    )
+    def test_a_wire_assignment_leaves_no_question_owed(self, sessions, slot, objective_id):
+        """``PUT turret_objective`` is a person saying which glass a slot
+        holds, so it records the confirmation as ``confirm_objective`` does:
+        whichever slot it binds, and when it re-binds the slot in the light
+        path to the assignment the question proposes."""
+        session = _at_slot(sessions(**_turret_settings()), 1)
+        assert session.objective_question() is not None
+        with TestClient(build_app(session)) as client:
+            answer = client.put(
+                '/api/v1/turret_objective', json={'slot': slot, 'objective_id': objective_id}
+            )
+        assert answer.status_code == 200, answer.text
+        assert session.objective_question() is None
+
     def test_clear_empties_the_slot(self, sessions):
         session = sessions(**_turret_settings())
         session.clear_turret_objective(1)
@@ -632,7 +653,6 @@ _ALLOWED_WRITERS = {
     ('src/_lumascope/modules/scope_session.py', 'ScopeSession._store_selected_objective'),
     ('src/_lumascope/modules/scope_session.py', 'ScopeSession.assign_turret_objective'),
     ('src/_lumascope/modules/scope_session.py', 'ScopeSession.clear_turret_objective'),
-    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.confirm_objective'),
     # Bring-up's replacement of a stored id the catalogue lacks, before the
     # scope is initialized: there is no runtime state yet to write beside
     # the store, and initialize reads the stored id.

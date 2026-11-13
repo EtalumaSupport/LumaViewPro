@@ -6,8 +6,9 @@ slot clear or a selection mid-run would stamp a different scale into the
 rest of the run's files than the objective its steps were built for. The
 Session's objective writers refuse while a protocol-class run holds the
 activity claim, with the reason every run lockout uses; a write that would
-change nothing stays a silent no-op, because the GUI re-writes the current
-value on programmatic widget updates.
+change no objective is not refused, because the GUI re-writes the current
+value on programmatic widget updates. Re-binding a slot's own objective
+still records that a person confirmed it, which changes no scale.
 """
 
 import pytest
@@ -85,6 +86,33 @@ def test_a_change_is_refused_and_writes_nothing(under_a_run, write):
 )
 def test_a_write_that_changes_nothing_is_not_refused(under_a_run, write):
     write(under_a_run)
+
+
+def test_rebinding_a_slots_own_objective_records_the_confirmation_under_a_run(tmp_path):
+    """The answer the objective question proposes, given while a run holds
+    the scope, changes no slot and still leaves no confirmation owed."""
+    session = ScopeSession.create(
+        complete_settings(
+            live_folder=str(tmp_path),
+            microscope='LS850T',
+            objective_confirmed=None,
+            turret_objectives={1: '10x Oly', 2: None, 3: None, 4: None},
+        ),
+        simulate=True,
+    )
+    try:
+        home_sim_scope(session.scope)
+        session.scope.motion.move_turret(1)
+        taking = session._activity_claim.try_claim('protocol', run=run_identity())
+        assert taking
+        try:
+            session.assign_turret_objective(1, '10x Oly')
+        finally:
+            taking.release()
+        assert session.settings['turret_objectives'][1] == '10x Oly'
+        assert session.objective_question() is None
+    finally:
+        session.shutdown()
 
 
 def test_after_the_run_the_change_is_accepted(under_a_run, run_claim):

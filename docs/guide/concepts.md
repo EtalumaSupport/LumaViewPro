@@ -164,7 +164,8 @@ light path is unknown, its reason saying why (`'slot_unassigned'` while the slot
 holds none).
 Where nobody has said which objective is in the light path, the session asks rather than guesses:
 `objective_question()` answers the question owed, or None, and
-`confirm_objective` answers it. The pixel size and field of view follow from
+`confirm_objective` answers it; on a turret scope binding a slot with
+`assign_turret_objective` is the same answer. The pixel size and field of view follow from
 the objective and the camera, and refuse with the same cause while either is
 unknown. A display reads both as a
 state: `runtime_state.optics_status()` answers the objective and the field of

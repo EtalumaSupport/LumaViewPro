@@ -5925,8 +5925,9 @@ class ScopeSession:
     def confirm_objective(self, objective_id: str, slot: 'int | None' = None) -> bool:
         """Answer the objective question: this objective is in the light path.
 
-        On a turret scope, assigns the objective to ``slot``: the answer
-        records the glass in a slot and never turns the turret. With no
+        On a turret scope, assigns the objective to ``slot``
+        (``assign_turret_objective``, which records the confirmation): the
+        answer records the glass in a slot and never turns the turret. With no
         turret, selects it (``select_objective``), which records the
         confirmation as the objective id. Records that a person has
         confirmed the objective for this light path, turret or turretless,
@@ -5957,8 +5958,6 @@ class ScopeSession:
             before = self.scope.runtime_state.get_current_objective_id()
             self.assign_turret_objective(slot, objective_id)
             changed = self.scope.runtime_state.get_current_objective_id() != before
-            with self.settings_lock:
-                self._store_setting('objective_confirmed', OBJECTIVE_CONFIRMED_ON_A_TURRET)
         else:
             if slot is not None:
                 self._refuse_without_a_turret('confirm_objective')
@@ -6217,9 +6216,13 @@ class ScopeSession:
     @api(sets='turret_objective', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def assign_turret_objective(self, slot: int, objective_id: str) -> None:
-        """Bind ``objective_id`` to the turret's ``slot``.
+        """Bind ``objective_id`` to the turret's ``slot``: a person saying which glass the slot holds.
 
-        Binding the objective the slot already holds is a no-op.
+        Records that a person has confirmed the objective for this light
+        path, as ``confirm_objective`` does, so ``objective_question`` no
+        longer owes the question for want of one. Binding the objective the
+        slot already holds changes no slot and records the confirmation,
+        under a hold too.
 
         Args:
             slot: The turret slot, 1-4.
@@ -6229,7 +6232,8 @@ class ScopeSession:
             HardwareCommandRefusedError: ``'axis_absent'``, the scope has no
                 turret, said before ``slot`` or ``objective_id`` is
                 judged; or a run, a diagnostic or a recording holds the
-                scope (``'exclusive_activity_running'``). Nothing is written.
+                scope and ``objective_id`` is not the slot's assignment
+                (``'exclusive_activity_running'``). Nothing is written.
             PositionOutOfRangeError: ``slot`` is not a slot number 1-4.
             CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
                 ``objective_id`` is not exactly a catalogue key.
@@ -6237,14 +6241,16 @@ class ScopeSession:
         self._refuse_without_a_turret('assign_turret_objective')
         refuse_unless_turret_slot(slot)
         self.scope.objective_helper.get_objective_info(objective_id=objective_id)
-        if self._settings['turret_objectives'].get(slot) == objective_id:
-            return
-        self._refuse_configuration_change_while_held('assign_turret_objective')
+        rebinds = self._settings['turret_objectives'].get(slot) != objective_id
+        if rebinds:
+            self._refuse_configuration_change_while_held('assign_turret_objective')
         with self.settings_lock:
-            # The slots are keyed by integer, which a dotted path cannot
-            # name, so the slot map is stored whole.
-            slots = {**self._settings['turret_objectives'], slot: objective_id}
-            self._store_setting('turret_objectives', slots)
+            if rebinds:
+                # The slots are keyed by integer, which a dotted path cannot
+                # name, so the slot map is stored whole.
+                slots = {**self._settings['turret_objectives'], slot: objective_id}
+                self._store_setting('turret_objectives', slots)
+            self._store_setting('objective_confirmed', OBJECTIVE_CONFIRMED_ON_A_TURRET)
 
     @api(reads=True)
     def turret_objective(self, slot: int) -> 'str | None':
