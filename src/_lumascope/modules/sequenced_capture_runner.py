@@ -28,6 +28,7 @@ from _lumascope.modules.protocol_run_loop import ProtocolRunLoop
 
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from _lumascope.modules.axes import Axis, AxisState
 from _lumascope.modules.scope_parts import Board
 
@@ -398,7 +399,10 @@ class SequencedCaptureRunner:
         on_protocol_files_written: typing.Callable[[pathlib.Path, RunWriteBatch, Caller, str], None]
         | None = None,
         on_step_lit: typing.Callable[[str], None] | None = None,
-        on_run_ending: typing.Callable[[], None] | None = None,
+        on_run_ending: typing.Callable[
+            [typing.Callable[[LedTransition, LedTransitionCtx], object]], None
+        ]
+        | None = None,
     ):
         # Told the channel each step has lit, once its light is on: the
         # session's shown channel follows the run.
@@ -425,9 +429,10 @@ class SequencedCaptureRunner:
         # alone can still read the run as live; this is the edge after
         # which is_live_run says it has ended.
         self._on_run_idle = on_run_idle
-        # Called by the run's cleanup once the camera is restored, on the
-        # protocol thread under the run's taking: the session shows the channel
-        # it showed before the run, at its stored settings.
+        # Called by the run's cleanup once the camera and the LEDs are
+        # restored, on the protocol thread under the run's taking, with the
+        # run's LED door: the session shows the channel it showed before the
+        # run, at its stored settings.
         self._on_run_ending = on_run_ending
         # Told the run's folder once its last image has landed, when it wrote
         # any, before the caller hears its files are written.

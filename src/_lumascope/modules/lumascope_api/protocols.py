@@ -204,7 +204,7 @@ class ProtocolsAPI:
         # The file's own block alone: rows inferred from its steps are the
         # steps' values, lenient here and told below.
         if protocol.has_saved_channel_settings():
-            self.refuse_channel_settings_out_of_range(protocol)
+            self.refuse_channel_settings_out_of_range(protocol, led_max_ma=None)
         self._fill_turret_slots(protocol)
         # Unsolicited, as the loader's duplicate-filename notice is: a load
         # may be the startup adoption, which nobody asked for.
@@ -964,7 +964,9 @@ class ProtocolsAPI:
                 ),
             )
 
-    def refuse_channel_settings_out_of_range(self, protocol: Protocol) -> None:
+    def refuse_channel_settings_out_of_range(
+        self, protocol: Protocol, *, led_max_ma: float | None
+    ) -> None:
         """Refuse a protocol whose Layer Settings hold a value no channel setting takes.
 
         Judged by the settings' channel ranges, for the rows a session applies:
@@ -973,6 +975,10 @@ class ProtocolsAPI:
         file's own block, and ``ScopeSession.apply_channel_settings`` before
         it stores anything, for a protocol built in memory or one whose rows
         are inferred from its steps.
+
+        ``led_max_ma`` is the attached LED board's maximum, judged where the
+        rows are applied (``apply_channel_settings``); None at load, since a
+        file may be for another board.
 
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this refusal through ``ScopeSession.load_protocol`` and
@@ -990,7 +996,8 @@ class ProtocolsAPI:
         present = {record.key_name for record in self._scope.channel_identity.channels}
         rows = {name: row for name, row in protocol.channel_settings().items() if name in present}
         refuse_values_out_of_range(
-            channel_settings_values_refused(rows), "The protocol's Layer Settings"
+            channel_settings_values_refused(rows, led_max_ma=led_max_ma),
+            "The protocol's Layer Settings",
         )
 
     def refuse_absent_channels(self, protocol: Protocol) -> None:

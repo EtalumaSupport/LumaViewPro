@@ -23,6 +23,7 @@ import ui.file_dialogs as file_dialogs
 import ui.protocol_settings as ps
 from _lumascope.modules.acquire_mode import AcquireMode
 from tests.ast_seams import find_def
+from tests.gesture_fakes import worker_submit_reported
 from tests.scope_fakes import home_sim_scope
 from tests.test_a_protocol_edit_is_the_apis_answer import _Panel
 
@@ -35,6 +36,8 @@ def ctx(gui_ctx, monkeypatch):
     gui_ctx.session.set_channel_acquire('BF', AcquireMode.IMAGE)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'button', lambda *a, **kw: None)
+    # The Load waits on the camera lane, so it runs off the inline boundary.
+    monkeypatch.setattr(ps, 'submit_reported', worker_submit_reported)
     return gui_ctx
 
 

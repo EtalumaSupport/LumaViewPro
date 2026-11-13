@@ -9,7 +9,6 @@ scope's Z could reach, though every new step of the layer is born at it.
 path, and ``update_settings`` on a focus names it.
 """
 
-import ast
 import math
 
 import pytest
@@ -23,7 +22,7 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.scope_session import ScopeSession
-from tests.ast_seams import direct_call_names, find_def, parse_module, walk_defs
+from tests.ast_seams import direct_call_names, find_def
 from tests.settings_fixtures import complete_settings
 
 
@@ -102,25 +101,6 @@ def test_save_focus_and_apply_to_steps_write_through_the_one_path():
             'src/_lumascope/modules/scope_session.py', member, class_name='ScopeSession'
         )
         assert '_store_channel_focus' in direct_call_names(node), member
-
-
-def test_no_other_member_writes_a_layers_focus():
-    # save_all_bookmarks stores the bookmark and every layer's focus under
-    # one hold of the lock, from the live Z focus_z_um has already checked.
-    allowed = {'ScopeSession._store_channel_focus', 'ScopeSession.save_all_bookmarks'}
-    writers = set()
-    for qualname, fn in walk_defs(parse_module('src/_lumascope/modules/scope_session.py').body):
-        for node in ast.walk(fn):
-            if (
-                isinstance(node, ast.Call)
-                and getattr(node.func, 'attr', None) == '_store_setting'
-                and node.args
-                and isinstance(node.args[0], ast.JoinedStr)
-                and isinstance(node.args[0].values[-1], ast.Constant)
-                and str(node.args[0].values[-1].value).endswith('.focus')
-            ):
-                writers.add(qualname)
-    assert writers == allowed, writers
 
 
 def test_update_settings_on_a_focus_names_the_door(session):

@@ -131,8 +131,10 @@ def run_cleanup(
     original_led_states: tuple[LedReading, ...] | None,
     saved_camera_state: dict,
     # Shows the channel shown before the run at its stored settings, once the
-    # camera is restored; None when no session composes the run.
-    show_pre_run_channel_fn: Callable[[], None] | None,
+    # camera and the LEDs are restored, lighting through the run's LED door it
+    # is handed; None when no session composes the run.
+    show_pre_run_channel_fn: Callable[[Callable[[LedTransition, LedTransitionCtx], object]], None]
+    | None,
     return_to_position: PlateLocation | None,
     # Dependencies
     scope: Lumascope,
@@ -310,7 +312,7 @@ def run_cleanup(
     # run would be named for one and taken at the other.
     try:
         if show_pre_run_channel_fn is not None:
-            show_pre_run_channel_fn()
+            show_pre_run_channel_fn(apply_led_transition_fn)
     except Exception as ex:
         cleanup_errors.append(
             ('Show the channel shown before the run', f'{type(ex).__name__}: {ex}')

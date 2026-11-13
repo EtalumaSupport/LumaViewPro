@@ -22,6 +22,7 @@ import ui.protocol_settings as ps
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.caller import Caller, calling
 from tests.ast_seams import find_def
+from tests.gesture_fakes import worker_submit_reported
 from tests.scope_fakes import home_sim_scope
 
 
@@ -64,6 +65,8 @@ def ctx(gui_ctx, monkeypatch):
     gui_ctx.set_protocol_filepath(REMEMBERED)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'button', lambda *a, **kw: None)
+    # The Load waits on the camera lane, so it runs off the inline boundary.
+    monkeypatch.setattr(ps, 'submit_reported', worker_submit_reported)
     return gui_ctx
 
 
@@ -224,9 +227,8 @@ class TestLoad:
         previous = ctx.session.create_empty_protocol()
         panel = _Panel(previous)
 
-        loaded = panel.load_protocol(filepath=str(path), navigate=True)
+        panel.load_protocol(filepath=str(path), navigate=True)
 
-        assert loaded is False
         assert panel._protocol is previous
         assert ctx.settings['protocol']['filepath'] == REMEMBERED
         assert panel.ids['protocol_filename'].text == 'plate.tsv'
@@ -282,9 +284,8 @@ class TestLoad:
         panel = _Panel(previous)
         panel.ids['labware_spinner'] = SimpleNamespace(text='')
 
-        loaded = panel.load_protocol(filepath=str(tsv), navigate=True)
+        panel.load_protocol(filepath=str(tsv), navigate=True)
 
-        assert loaded is False
         assert panel._protocol is not previous
         assert panel._protocol.labware_id() == '6 well microplate'
         assert homed.settings['protocol']['filepath'] == str(tsv), 'the Session remembered it'
@@ -304,7 +305,7 @@ class TestLoad:
         panel.ids['labware_spinner'] = SimpleNamespace(text=shown_plate)
 
         with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
-            assert panel.load_protocol(filepath=str(tsv), navigate=True) is True
+            panel.load_protocol(filepath=str(tsv), navigate=True)
 
         assert panel.ids['labware_spinner'].text == '6 well microplate'
         homed.stage.full_redraw.assert_called_once_with()

@@ -29,7 +29,9 @@ from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
 
 def _refused_for_illumination(refusal: ProtocolRunRefusedError, cap: int) -> None:
     assert refusal.reason == 'validation_failed', refusal
-    assert f'Illumination must be 0-{cap} mA' in str(refusal), str(refusal)
+    assert f"Illumination: it must be at most {cap} mA, this LED board's maximum" in str(refusal), (
+        str(refusal)
+    )
 
 
 def test_a_step_above_the_scopes_cap_is_refused(executor, scope, tmp_path):

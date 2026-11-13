@@ -147,7 +147,9 @@ _CATALOGUE = ObjectiveLoader().objectives
 
 def test_a_step_above_the_cap_given_is_refused():
     errors = _protocol_with(900).validate_steps(_CATALOGUE, led_max_ma=840)
-    assert any('Illumination must be 0-840 mA' in e for e in errors), errors
+    assert any(
+        "Illumination: it must be at most 840 mA, this LED board's maximum" in e for e in errors
+    ), errors
 
 
 def test_a_step_at_the_cap_given_is_accepted():

@@ -306,9 +306,12 @@ copy to fall out of step.
 through the session. A write is judged before it is stored: a value outside its
 range is refused, never clamped, and the refusal names the path and the range.
 A write to the shown channel's gain, exposure or current is on the camera and
-its LED when it returns; a write to a channel not shown, or one made while a
-run, a diagnostic or a home holds the scope, is stored only, and is used the
-next time that channel is shown or captured.
+its LED when it returns, whichever member makes it -- a setting, a Load of a
+protocol's Layer Settings, a step visited; a write to a channel not shown is
+stored only, and is used the next time that channel is shown or captured. One
+made while a run or a diagnostic holds the scope is stored only, and the shown
+channel is put on the camera and its LED when that ends; while a home holds
+the scope, a write the shown channel's camera or LED would take is refused.
 
 ```python
 session.update_settings('BF.illumination_ma', 5)

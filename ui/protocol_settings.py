@@ -689,42 +689,57 @@ class ProtocolSettings(FloatLayout):
         to; the reporter shows why it was not loaded.
 
         Non-navigating, as the startup load has always been: it adopts the
-        protocol and fills the panel without driving the stage.
+        protocol and fills the panel without driving the stage. The
+        Session's open waits on the camera lane, so it runs on a worker and
+        the panel is drawn from its answer on the GUI thread.
         """
         ctx = _app_ctx.ctx
-        try:
-            protocol = ctx.session.open_remembered_protocol()
-            if protocol is not None:
-                self._adopt_protocol(protocol, navigate=False)
+        opened = []
+
+        def _open():
+            try:
+                opened.append(ctx.session.open_remembered_protocol())
+            except Exception as e:
+                # Shown, though nobody asked for this load: the panel shows only
+                # the kept file's name, and this is the one place the person
+                # learns why their protocol did not load, or was forgotten.
+                from _lumascope.modules.notification_center import notifications
+
+                notifications.report_outcome(e, solicited=False, category='UI:LOAD_PROTOCOL')
+
+        def _show():
+            # The answer, drawn: the protocol opened, or the kept file's name.
+            if opened and opened[0] is not None:
+                self._adopt_protocol(opened[0], navigate=False)
                 return
-        except Exception as e:
-            # Shown, though nobody asked for this load: the panel shows only
-            # the kept file's name, and this is the one place the person
-            # learns why their protocol did not load, or was forgotten.
-            from _lumascope.modules.notification_center import notifications
+            filepath = ctx.settings['protocol']['filepath']
+            if filepath:
+                # Refused and kept: the name on screen is the only thing telling
+                # the person which protocol to come back to, and the adoption
+                # writes it only for a protocol it adopts.
+                self.ids['protocol_filename'].text = os.path.basename(filepath)
+                logger.info(
+                    f'[LVP Main  ] Saved protocol {filepath} was not adopted at startup; '
+                    'its path is kept so it can be reloaded once the scope can perform it'
+                )
+            else:
+                logger.info(
+                    '[LVP Main  ] No saved protocol loaded at startup -- using empty protocol'
+                )
 
-            notifications.report_outcome(e, solicited=False, category='UI:LOAD_PROTOCOL')
+            self._protocol = ctx.session.create_empty_protocol()
+            self._show_schedule()
+            self.update_step_ui()
 
-        filepath = ctx.settings['protocol']['filepath']
-        if filepath:
-            # Refused and kept: the name on screen is the only thing telling
-            # the person which protocol to come back to, and the adoption
-            # writes it only for a protocol it adopts.
-            self.ids['protocol_filename'].text = os.path.basename(filepath)
-            logger.info(
-                f'[LVP Main  ] Saved protocol {filepath} was not adopted at startup; '
-                'its path is kept so it can be reloaded once the scope can perform it'
-            )
-        else:
-            logger.info('[LVP Main  ] No saved protocol loaded at startup -- using empty protocol')
-
-        self._protocol = ctx.session.create_empty_protocol()
-        self._show_schedule()
-        self.update_step_ui()
+        submit_reported(_open, _show, 'LOAD_PROTOCOL')
 
     # Load Protocol from File
-    def load_protocol(self, filepath: str, *, navigate: bool) -> bool:
-        """Load a protocol from disk through the Session and fill the panel.
+    def load_protocol(self, filepath: str, *, navigate: bool) -> None:
+        """Load a protocol from disk through the Session, then fill the panel.
+
+        The Session's open waits on the camera lane (the protocol's Layer
+        Settings go on the shown channel), so it runs on a worker and the
+        panel is drawn from its answer on the GUI thread.
 
         ``navigate`` says whether a person asked for this load, and so
         whether the stage may drive to the current step. Required rather
@@ -738,18 +753,18 @@ class ProtocolSettings(FloatLayout):
 
         # The Session opens the file: the scope on its plate, its Layer
         # Settings in the channel controls, its path remembered -- or a refusal,
-        # with none of them changed. The panel is drawn only from its answer.
-        # The adoption is inside the reported call: a failure drawing the
-        # panel (the spinners, the move to the first step) is reported here,
-        # not raised out of the file dialog's callback.
-        adopted = []
+        # with none of them changed. The panel is drawn only from its answer,
+        # and a failure drawing it (the spinners, the move to the first step)
+        # is reported by the redraw, not raised out of the file dialog's callback.
+        opened = []
 
-        def _load_and_adopt():
-            self._adopt_protocol(ctx.session.open_protocol(filepath), navigate=navigate)
-            adopted.append(True)
+        def _adopt():
+            if opened:
+                self._adopt_protocol(opened[0], navigate=navigate)
 
-        run_reported(_load_and_adopt, None, 'LOAD_PROTOCOL')
-        return bool(adopted)
+        submit_reported(
+            lambda: opened.append(ctx.session.open_protocol(filepath)), _adopt, 'LOAD_PROTOCOL'
+        )
 
     def _adopt_protocol(self, protocol: Protocol, *, navigate: bool) -> None:
         """Make ``protocol``, loaded from its file, the panel's and draw it.

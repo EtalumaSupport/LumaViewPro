@@ -447,7 +447,7 @@ Nothing.
 def apply_channel_settings(self, protocol: Protocol) -> None
 ```
 
-Marks: enters: `guarded_write`.  
+Marks: enters: `lane_call`, `guarded_write`.  
 Route: `POST /api/v1/apply_channel_settings`.
 
 Put a protocol's Layer Settings into this session's channel controls.
@@ -460,18 +460,34 @@ that channel's control as it was. A channel this release does not know
 (not in `common_utils.get_channels()`), or this scope does not have,
 is logged and dropped.
 
+Every row is judged before any is stored, and is written as any
+channel write is: the shown channel's row is on the camera, and on
+its LED when lit, when this returns; auto-gain off with a gain or
+exposure beside it is those values with the camera's loop off, and
+alone keeps what the loop reached (`set_channel_auto_gain`); a
+channel set to acquire stops stimulating. While a run or a diagnostic
+holds the scope the rows are stored only, and its end puts the shown
+channel on.
+
 **Args**
 
 - `protocol`: The protocol whose Layer Settings are applied, as `load_protocol` returned it or as built in memory.
 
 **Raises**
 
-- `ProtocolRunRefusedError`: `'values_out_of_range'`, a row it would apply holds a value outside its channel setting's range, each named by channel, column and bound; no channel is changed. A loaded protocol was refused at load.
+- `ProtocolRunRefusedError`: `'values_out_of_range'`, a row it would apply holds a value outside its channel setting's range, or an illumination above the attached LED board's maximum, each named by channel, column and bound. A loaded protocol's ranges were judged at load; the board's maximum is judged here, since a file may be for another board.
+- `ArgumentRefusedError`: `'gain_range_inverted'`, a row turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum.
+- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, a home holds the scope and the shown channel's row would change its camera or LED; or the shown channel's LED is lit at 0 mA, its row raises it, and a manual recording runs. Its camera refusals are `apply_channel_camera`'s.
+- `CameraSettingRejected`: the camera did not take a setting of the shown channel; every row is stored.
+
+Nothing is changed on any refusal but the camera's.
 
 **Refusals by REST status**
 
-- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `values_out_of_range`
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
 <a id="ScopeSession.apply_focus_to_channel_steps"></a>
 ### `ScopeSession.apply_focus_to_channel_steps`
@@ -2589,11 +2605,12 @@ What Set All Bookmarks does. Returns the Z bookmark stored, as
 - `ProtocolRunRefusedError`: `'positions_unreachable'` -- this scope has no Z axis. Nothing is written.
 - `AxisStateUnknownError`: Z lost its reference. Nothing is written.
 - `AxisMovingError`: `'axis_moving'`, Z is moving, so its number is a place it is passing through. Nothing is written.
+- `PositionOutOfRangeError`: the live Z lies outside Z's travel (an in-process move past the limits), so no step could be born at it. Nothing is written.
 
 **Refusals by REST status**
 
 - 409: [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 
 <a id="ScopeSession.save_bookmark"></a>
 ### `ScopeSession.save_bookmark`
@@ -3020,9 +3037,10 @@ lock reached them; with no arm standing, or a lock that found
 nothing usable, they are left as they were. Either waits on the
 camera lane. For a channel the camera does not hold, only the
 preference is stored: the camera's arm is another channel's, and its
-values are not this channel's to take. While a run, a diagnostic or a
-home holds the scope, turning auto-gain on is stored only, and
-turning the shown channel's off is refused.
+values are not this channel's to take. While a run or a diagnostic
+holds the scope, turning auto-gain on is stored only, put on the
+camera at its end, and turning the shown channel's off is refused;
+while a home holds it, changing the shown channel's is refused.
 
 Nothing is changed on any refusal.
 
@@ -3037,14 +3055,14 @@ The lock when turning off (its `state` is None when no arm stood), so a caller c
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'gain_range_inverted'`, `enabled` is True and the stored auto-gain range has its minimum gain above its maximum, whichever channel it is.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, `enabled` is True and this scope does not have `channel`; or the lock's `'exclusive_activity_running'`, when a run, a diagnostic or a home holds the scope.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, `enabled` is True and this scope does not have `channel`; or `'exclusive_activity_running'`, the lock's when a run or a diagnostic holds the scope, or a home's for the shown channel.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -3596,9 +3614,10 @@ One task on the scope's IO lane: the axes are asked once whether
 they know their position; the turret turns to the step's objective
 and X, Y and Z are started towards the step together, on the
 protocol's own plate (`ProtocolsAPI.step_targets`, the targets a
-run computes); the step's values go into its channel's live settings,
-the channel acquiring as the step does and its focus at the step's Z,
-so the channel and the step agree; and the step's LED preview is
+run computes); the step's values go into its channel's live settings
+as any channel write puts them, the channel acquiring as the step
+does, so the channel and the step agree; its saved focus is left as
+it is, where New starts the next protocol; and the step's LED preview is
 applied -- its channel at its current when `protocol_led_on` is
 set, every channel dark when not. It returns once that task has run,
 before the stage arrives, with one `Operation` for the moves it
@@ -3634,7 +3653,8 @@ it is refused on the UI thread; a click calls it from a worker.
 - `ProtocolRunRefusedError`: this scope cannot put the step's objective in the light path. Nothing changes.
 - `ArgumentRefusedError`: `'channel_unknown'`, the step's colour is not a channel. Nothing changes.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no channel of the step's colour. Nothing changes.
-- `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes.
+- `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, or its illumination is above the attached LED board's maximum, each named by column and bound. Nothing changes.
+- `ArgumentRefusedError`: `'gain_range_inverted'`, the step turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
 - `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
@@ -3647,7 +3667,7 @@ it is refused on the UI thread; a click calls it from a worker.
 **Refusals by REST status**
 
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `camera_setting_out_of_range`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `camera_setting_out_of_range`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -3993,7 +4013,7 @@ settings has a path.
 
 - `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is in-process, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`); `'installation_only'`, it is set only by the installation; `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run, and a channel's illumination above the attached LED board's maximum, among them). Nothing is written.
 - `ConfigurationDefectError`: `'channels_unresolved'`, the write is to the shown channel's camera settings and this scope's channels could not be resolved; the value is stored, and the camera is not changed.
-- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, the write is the shown channel's illumination, its LED is lit at 0 mA, the value is above 0 mA, and a manual recording runs (a recording keeps the light it started under). Nothing is stored.
+- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, the write is the shown channel's illumination, its LED is lit at 0 mA, the value is above 0 mA, and a manual recording runs (a recording keeps the light it started under); or a home holds the scope and the shown channel's camera or LED would take the write. Nothing is stored.
 
 A numpy scalar in `value`, at any depth, is stored as the Python
 value it holds.
@@ -4001,11 +4021,14 @@ value it holds.
 A channel's gain or exposure is stored as written, the person's
 intent; a camera that cannot reach it is driven at its own limit
 when the channel is applied (`CameraAPI.applied_gain_db_for`).
-A write to the shown channel's gain or exposure (or, while it is on
+A channel's setting is written as every channel write is: a write to
+the shown channel's gain or exposure (or, while it is on
 auto-gain, to the auto-gain bounds) is on the camera, and to its
 illumination on its lit LED, when this returns, a manual recording
-running or not; a write to a hidden channel, or one made while a run,
-a diagnostic or a home holds the scope, is stored only. The
+running or not; a write to a hidden channel, or one made while a run
+or a diagnostic holds the scope, is stored only, and the shown
+channel is put on at its end; while a home holds the scope, one the
+shown channel's camera or LED would take is refused. The
 illumination is put on the LED before it is stored, so a light the
 LED refuses stores nothing. Such a write waits on the camera or LED lane,
 so a caller on the UI thread hands it to a worker. Each auto-gain

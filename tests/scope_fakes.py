@@ -218,14 +218,18 @@ def session_on_a_simulated_scope(*, settings=None, file_io_executor=None, **kwar
     For the claims the session itself owns -- its activity claim, its
     run-state records, its metrics lifecycle -- where bring-up's motion and
     settings are not the subject; a test of what bring-up does takes the
-    `sim_session` fixture. *settings* defaults to none at all;
+    `sim_session` fixture. *settings* defaults to the complete shipped
+    settings, as every session holds: an activity's end puts the shown
+    channel's stored settings back on the camera;
     *file_io_executor* replaces the file lane, for a test that plants writes
     and decides when they land; *kwargs* go to the constructor. The test's
     teardown shuts the session down.
     """
+    from tests.settings_fixtures import complete_settings
+
     lanes = {} if file_io_executor is None else {'file_io_executor': file_io_executor}
     return construct_session(
-        settings={} if settings is None else settings,
+        settings=complete_settings() if settings is None else settings,
         scope=build_scope(simulate=True),
         executor_bundle=real_executor_bundle(**lanes),
         **kwargs,

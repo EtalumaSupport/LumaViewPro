@@ -503,7 +503,7 @@ def nullable_kinds_for(path: str) -> tuple[str, ...] | None:
 
 
 def refused_channel_values(
-    channel: str, values: typing.Mapping[str, object]
+    channel: str, values: typing.Mapping[str, object], *, led_max_ma: float | None
 ) -> list[SettingRefusedError]:
     """Every one of a channel's values the channel rules refuse, each as its refusal.
 
@@ -512,8 +512,10 @@ def refused_channel_values(
     maps a ranged number under the channel (``'exposure_ms'``,
     ``'video_config.duration'``, ``'stim_config.frequency'``) to its value. The
     rule is the channel's whatever ``channel`` names, so a step whose colour is
-    no channel is still judged; ``channel`` names the refusal's path. A hardware
-    ceiling (the LED board's maximum) is not judged here.
+    no channel is still judged; ``channel`` names the refusal's path.
+    ``led_max_ma`` is the attached LED board's maximum, judged for a value
+    about to enter this scope's channels; None for a file's values, which may
+    be for another board.
 
     Returns:
         A ``SettingRefusedError`` for each refused value, in ``values``'
@@ -530,6 +532,7 @@ def refused_channel_values(
             if _kind(value) != 'number':
                 raise SettingRefusedError('wrong_kind', path, f'it must be a number, not {value!r}')
             _RANGES[f'*.{key}'](path, value)
+            _refuse_above_the_led_board(path, value, led_max_ma)
         except SettingRefusedError as e:
             refused.append(e)
     return refused
@@ -633,21 +636,29 @@ def check_write(
             'block', path, 'it is a block of settings; change each by its own path'
         )
     _refuse_kind_or_range(shipped, path, value)
-    if led_max_ma is not None and is_led_current(path) and value > led_max_ma:
+    _refuse_above_the_led_board(path, value, led_max_ma)
+
+
+# A channel's fields that are an LED current, judged against the LED board's maximum.
+_LED_CURRENT_FIELDS = ('illumination_ma', 'stim_config.illumination_ma')
+
+
+def _refuse_above_the_led_board(path: str, value: object, led_max_ma: float | None) -> None:
+    """Refuse a current above the attached LED board's maximum; None is no board to judge.
+
+    Judged by the field whatever the channel names, as the ranges are: a
+    step whose colour is no channel is still told its current is too high.
+    """
+    if (
+        led_max_ma is not None
+        and path.partition('.')[2] in _LED_CURRENT_FIELDS
+        and value > led_max_ma
+    ):
         raise SettingRefusedError(
             'out_of_range',
             path,
             f"it must be at most {led_max_ma:g} mA, this LED board's maximum, not {value!r}",
         )
-
-
-def is_led_current(path: str) -> bool:
-    """Whether ``path`` is a channel's illumination or stimulation current."""
-    channel, _, rest = path.partition('.')
-    return channel in common_utils.get_channels() and rest in (
-        'illumination_ma',
-        'stim_config.illumination_ma',
-    )
 
 
 def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:

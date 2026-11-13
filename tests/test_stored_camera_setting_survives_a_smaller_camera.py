@@ -152,7 +152,8 @@ class TestTheGuiNeverNarrowsTheStore:
         # stored_exposure_after_lock (src/_lumascope/modules/lumascope_api/camera.py) decides this value so that a
         # GUI and a REST caller store the same thing; narrowing it again to a
         # slider's range makes the widget a second answerer over the API.
-        fn = _func(SCOPE_SESSION_PATH, 'set_channel_auto_gain')
+        # The write-back is the one channel write's store of the lock's values.
+        fn = _func(SCOPE_SESSION_PATH, '_write_channel_fields')
         clips = [
             n
             for n in ast.walk(fn)

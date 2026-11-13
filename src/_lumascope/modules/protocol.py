@@ -1104,13 +1104,16 @@ _STEP_CHANNEL_VALUES = (
 _VIDEO_KEYS = ('duration',)
 
 
-def step_channel_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedError]]:
+def step_channel_values_refused(
+    step: Mapping, *, led_max_ma: float | None
+) -> list[tuple[str, SettingRefusedError]]:
     """Each of a step's values the channel ranges refuse, with the column that holds it.
 
     The rules a write of them to the channel's settings holds
     (``settings_paths.refused_channel_values``): the step's exposure,
     illumination, gain and sum, and its video's length (required when it
-    records video).
+    records video). ``led_max_ma`` is the attached LED board's maximum, None
+    where no board is judged.
     """
     # Deferred: settings_paths imports this module.
     from _lumascope.modules.settings_paths import refused_channel_values
@@ -1126,17 +1129,19 @@ def step_channel_values_refused(step: Mapping) -> list[tuple[str, SettingRefused
                 columns[f'video_config.{part}'] = f'Video Config {part}'
     return [
         (columns[r.path.partition('.')[2]], r)
-        for r in refused_channel_values(step['channel'], values)
+        for r in refused_channel_values(step['channel'], values, led_max_ma=led_max_ma)
     ]
 
 
 def channel_settings_values_refused(
-    rows: Mapping[str, ChannelSettings],
+    rows: Mapping[str, ChannelSettings], *, led_max_ma: float | None
 ) -> list[tuple[str, SettingRefusedError]]:
     """Each Layer Settings value the channel ranges refuse, with the channel and column holding it.
 
     ``rows`` are ``Protocol.channel_settings()``' records, or those of them
     a caller will apply. A blank cell holds no value and is not judged.
+    ``led_max_ma`` is the attached LED board's maximum, judged where the rows
+    are applied; None for a file's block, which may be for another board.
     """
     # Deferred: settings_paths imports this module.
     from _lumascope.modules.settings_paths import refused_channel_values
@@ -1152,7 +1157,7 @@ def channel_settings_values_refused(
         }
         refused.extend(
             (f'{name} {columns[r.path.partition(".")[2]]}', r)
-            for r in refused_channel_values(name, values)
+            for r in refused_channel_values(name, values, led_max_ma=led_max_ma)
         )
     return refused
 
@@ -2175,14 +2180,10 @@ class Protocol:
             # Every cell is already its column's type (_set_steps); what is
             # judged here is whether the value is one the run can use, by the
             # channel ranges the settings hold. The camera's own floor is
-            # checked when the run is prepared, against the connected body.
-            for column, refused in step_channel_values_refused(step):
+            # checked when the run is prepared, against the connected body;
+            # the LED board's maximum is the connected board's.
+            for column, refused in step_channel_values_refused(step, led_max_ma=led_max_ma):
                 errors.append(f'{label}: {column}: {refused.detail}')
-
-            # The LED cap is the connected board's, not a range.
-            illum = step['Illumination']
-            if led_max_ma is not None and illum > led_max_ma:
-                errors.append(f'{label}: Illumination must be 0-{led_max_ma} mA, got {illum}')
 
             sum_count = step['Sum']
             if sum_count > 100:

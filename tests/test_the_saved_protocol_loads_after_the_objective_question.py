@@ -23,7 +23,18 @@ from __future__ import annotations
 
 import ast
 
+import pytest
+
 from tests.ast_seams import find_def, parse_module
+from tests.gesture_fakes import worker_submit_reported
+
+
+@pytest.fixture(autouse=True)
+def the_load_runs_off_the_gui_thread(monkeypatch):
+    """The startup load waits on the camera lane, so it runs off the inline boundary."""
+    import ui.protocol_settings as ps
+
+    monkeypatch.setattr(ps, 'submit_reported', worker_submit_reported)
 
 
 class TestTheStartupOrder:

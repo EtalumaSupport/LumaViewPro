@@ -2,12 +2,14 @@
 """The record of each layer's last auto-gain lock has one writer, the turning off.
 
 ``ScopeSession.channel_auto_gain_lock`` answers what the camera reached the last
-time a layer's auto-gain was turned off, from ``_auto_gain_locks``. Only
-``set_channel_auto_gain`` takes that lock, so a write anywhere else would make
-the read answer a lock no turning off took. Every reference that writes the
-record -- an item stored or deleted, the name rebound, a mutating method
-called on it -- is in ``set_channel_auto_gain``, or is the session's
-construction of the empty record.
+time a layer's auto-gain was turned off, from ``_auto_gain_locks``. Only the
+one channel write takes that lock, for auto-gain turned off with no gain or
+exposure beside it (``set_channel_auto_gain``, a Layer Settings row, a step),
+so a write anywhere else would make the read answer a lock no turning off
+took. Every reference that writes the record -- an item stored or deleted,
+the name rebound, a mutating method called on it -- is in the one channel
+write's store, ``_write_channel_fields``, or is the session's construction
+of the empty record.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from tests.ast_seams import REPO_ROOT, MemberNames, Words, tracked_files
 
 _RECORD = '_auto_gain_locks'
 _WRITERS = MemberNames(
-    'src/_lumascope/modules/scope_session.py', {'set_channel_auto_gain', '__init__'}
+    'src/_lumascope/modules/scope_session.py', {'_write_channel_fields', '__init__'}
 )
 _MUTATORS = Words({'pop', 'popitem', 'clear', 'update', 'setdefault', '__setitem__', '__delitem__'})
 

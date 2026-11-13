@@ -169,7 +169,10 @@ class TestValidateIllumination:
     def test_over_max_illumination(self):
         p = _make_protocol([_valid_step(Illumination=1001)])
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
-        assert any('Illumination must be 0-1000' in e for e in errors)
+        assert any(
+            "Illumination: it must be at most 1000 mA, this LED board's maximum" in e
+            for e in errors
+        )
 
     def test_zero_illumination_valid(self):
         p = _make_protocol([_valid_step(Illumination=0)])
@@ -291,8 +294,8 @@ class TestMultipleErrors:
             f'Step 2 ({name}): Video Config duration: it must be above 0 and at most 3600, not 0.0',
             f'Step 3 ({name}): Video Config duration: it must be a number, not False',
             f"Step 4 ({name}): Color 'Bad' is not valid. Must be one of: {colors}",
+            f"Step 4 ({name}): Illumination: it must be at most 1000 mA, this LED board's maximum, not 2000.0",
             f'Step 4 ({name}): Gain: it must be at least 0, not -1.0',
-            f'Step 4 ({name}): Illumination must be 0-1000 mA, got 2000.0',
         ]
 
 
