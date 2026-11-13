@@ -1,0 +1,61 @@
+# Quick start: LS850 and LS820 {#sec-quick-start}
+
+From the box to a first time-lapse. Each step names the section of this
+manual that tells the rest.
+
+## Install LumaViewPro {#sec-qs-install}
+
+1. Download LumaViewPro from the
+   [Etaluma downloads page](https://etaluma.com/products/downloads/), or,
+   without internet, take it from the USB stick in the box.
+2. Open the zip file and run the setup program. It installs LumaViewPro and
+   the camera drivers, and puts a LumaViewPro shortcut on the desktop
+   (@sec-download).
+
+## Connect and start {#sec-qs-connect}
+
+1. Plug the supplied USB cable into the port labeled **COMPUTER** on the
+   microscope and directly into a USB3 port on the computer, not a hub.
+   Plug in the power supply (@sec-connecting).
+2. Start LumaViewPro. The first time, it asks which objective is
+   installed: select it and click [Confirm]{.guilabel} (@sec-objective).
+
+## Get an image {#sec-qs-image}
+
+1. Place the sample. **LS850:** a microplate directly in the nest; dishes,
+   flasks and slides in the universal labware holder. **LS820:** in the
+   universal labware holder on the stage, over the objective
+   (@sec-labware-holders).
+2. **LS850:** move to the sample by clicking its spot on the plate map in
+   [XY Stage Control]{.guilabel}. **LS820:** move the stage by hand.
+3. Open a channel's drawer in the right panel, for example
+   [Brightfield]{.channel}, and turn on [Enable LED]{.guilabel}.
+4. Focus until the sample is sharp (@sec-focus-adjust).
+5. Adjust [LED (mA)]{.guilabel}, [Gain (dB)]{.guilabel} and
+   [Exp (ms)]{.guilabel} until the image is bright but not saturated
+   (@sec-image-still).
+6. Click [Save Focus]{.guilabel}. Click Capture in the toolbar to save a
+   still image.
+
+## Run a time-lapse {#sec-qs-protocol}
+
+1. For each channel you want, get its image as above, click
+   [Save Focus]{.guilabel}, and set [Acquire Settings]{.guilabel} to
+   [Image]{.guilabel}. Turn on [Auto Focus]{.guilabel} to autofocus before
+   each image of that channel.
+2. Open the [Protocol]{.guilabel} drawer. **LS850:** select the labware.
+   **LS820:** the labware is Center Plate, one position.
+3. Set [Interval]{.guilabel} and [Duration]{.guilabel}.
+4. Click [New]{.guilabel}. There is one step for each channel, times each
+   well on the LS850.
+5. Step through a few steps with the arrows and check each image
+   (@sec-protocol-steps).
+6. Click [Save]{.guilabel} and name the protocol.
+7. Click [Run One Scan]{.guilabel} to check one pass, then
+   [Run Full Protocol]{.guilabel} (@sec-protocol-run).
+
+Images are saved in the destination folder, `Documents\LumaViewPro <version>\capture`
+until you choose another: stills in `Manual`, a protocol run in
+`ProtocolData` (@sec-image-files).
+
+For questions, contact Etaluma Technical Support at support@etaluma.com.

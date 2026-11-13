@@ -11,7 +11,9 @@ Each LS820, LS850, LS850T and Lumi ships with:
   to DC power supply; two USB communication cables, USB-A to USB-B and USB-C
   to USB-B, so either kind of computer port works; a foam plug
   for the incubator port; a slide holder; a black microplate lid for blocking
-  room light during fluorescence imaging; and the quick start guide.
+  room light during fluorescence imaging; and two printed sheets from this
+  manual, the quick start (@sec-quick-start) and live-cell imaging in an
+  incubator (@sec-incubator).
 
 ![The AuraPhase accessory's parts](images/auraphase-parts.jpg){#fig-auraphase-parts width=70%}
 

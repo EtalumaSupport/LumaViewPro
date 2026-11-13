@@ -20,6 +20,7 @@ book:
     - post-processing.qmd
     - incubator.qmd
   appendices:
+    - quick-start.qmd
     - sanitizing.qmd
     - windows-timelapse.qmd
     - extending.qmd
