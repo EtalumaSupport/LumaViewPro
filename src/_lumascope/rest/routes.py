@@ -504,7 +504,7 @@ def _answer(a: wire_encoding.Outbound) -> object:
     if a.form == wire_encoding.HANDLE:
         return Handle
     if a.form == wire_encoding.JOB:
-        return Job
+        return _job_of(a.result)
     if a.form == wire_encoding.REFUSAL:
         return RefusalAnswer
     if a.form == wire_encoding.ENUM:
@@ -563,4 +563,56 @@ class Job(pydantic.BaseModel):
     progress: JobProgress | _OPERATION_PROGRESS
     result: typing.Any = pydantic.Field(default=None)
     error: dict | None = pydantic.Field(default=None)
-    files: Job | None = pydantic.Field(default=None)
+    files: _JOB_FILES = pydantic.Field(default=None)
+
+
+# Each operation's job by what it ends with, so a client reading a start
+# route's job reads its result's model: a move's ends with nothing, a
+# build's with its BuildsResult.
+_JOBS: dict[str, type[pydantic.BaseModel]] = {}
+
+
+def _job_of(result: tuple[wire_encoding.Outbound, ...]) -> type[pydantic.BaseModel]:
+    """The model of the job an operation ending with *result* crosses as; ``Job`` when it ends with nothing."""
+    if all(a.form == wire_encoding.SCALAR and a.name == 'None' for a in result):
+        return Job
+    name = f'{_label(result)}Job'
+    if name not in _JOBS:
+        _JOBS[name] = pydantic.create_model(
+            name,
+            __base__=Job,
+            __doc__=f'A job that ends with {_label(result)}: its `result` once it has completed.',
+            result=(answer_type(result) | None, pydantic.Field(default=None)),
+        )
+    return _JOBS[name]
+
+
+def job_answer(returns: tuple[wire_encoding.Outbound, ...]) -> type[pydantic.BaseModel]:
+    """The job a member answering *returns* is answered ``202`` with: its operation's, never its None."""
+    (job,) = [a for a in returns if a.form == wire_encoding.JOB]
+    return _job_of(job.result)
+
+
+def _label(alternatives: tuple[wire_encoding.Outbound, ...]) -> str:
+    """A model name's part for *alternatives*: a record's name, an array's items' with ``List``."""
+    parts = []
+    for a in alternatives:
+        if a.form == wire_encoding.ARRAY:
+            inner = a.items or tuple(p for part in a.parts for p in part)
+            parts.append(f'{_label(inner)}List')
+        else:
+            parts.append(a.name[:1].upper() + a.name[1:])
+    return 'Or'.join(parts)
+
+
+# A job's ``files``, described from what ``Operation`` declares it is.
+_JOB_FILES = answer_type(
+    wire_encoding.outbound(
+        wire_encoding.field_text(Operation, 'files'),
+        wire_encoding.project_classes(),
+        wire_encoding.project_aliases(),
+    )
+)
+Job.model_rebuild()
+for _job in _JOBS.values():
+    _job.model_rebuild()

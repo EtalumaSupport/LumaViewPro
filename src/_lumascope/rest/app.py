@@ -66,6 +66,7 @@ from _lumascope.rest.routes import (
     PathAnswer,
     Route,
     StillAsked,
+    job_answer,
     routes,
     sent_of_query,
 )
@@ -886,7 +887,16 @@ def _add(
         'response_model': None,
         'responses': {
             200: {'model': route.answer, 'description': "The member's answer."},
-            202: _ANSWERED_AS_JOB,
+            # A member that hands back an operation is answered its job, as
+            # its answer describes it; any other call is a job past its wait.
+            202: (
+                {
+                    'model': job_answer(member.returns),
+                    'description': 'The job of the operation the call started.',
+                }
+                if member.returns_job
+                else _ANSWERED_AS_JOB
+            ),
             **problems.declared(doc, classes, member.admitted_by),
         },
     }

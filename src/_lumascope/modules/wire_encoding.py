@@ -740,6 +740,9 @@ class Outbound:
             order; empty for any other array.
         fields: A record's keys -- its published fields, then its wire-marked
             properties -- each with its alternatives.
+        result: An operation's: the alternatives of what its job ends with,
+            the ``T`` of ``Operation[T]``; empty when the annotation does
+            not say.
     """
 
     form: str
@@ -748,6 +751,7 @@ class Outbound:
     items: tuple[Outbound, ...] = ()
     parts: tuple[tuple[Outbound, ...], ...] = ()
     fields: tuple[tuple[str, tuple[Outbound, ...]], ...] = ()
+    result: tuple[Outbound, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -942,7 +946,8 @@ def outbound(
     Read from ``NAMED_FORMS`` and ``class_form``, the table ``encode``
     follows, so each alternative is the form ``encode`` gives a value of
     that type: a record by its published fields and wire properties, a
-    live object as its handle, an ``Operation`` as its job, a path as its
+    live object as its handle, an ``Operation`` as its job (with what the
+    job ends with, when the annotation says), a path as its
     live-folder name and host path, an array or object by its items, a
     fixed-shape tuple by its parts.
 
@@ -976,6 +981,9 @@ def outbound(
             ]
             fields = tuple((k, outbound(t, classes, aliases)) for k, t in keys)
             found.append(Outbound(form, name, cls, fields=fields))
+        elif form == JOB and isinstance(node, ast.Subscript):
+            result = outbound(ast.unparse(node.slice), classes, aliases)
+            found.append(Outbound(form, name, cls, result=result))
         else:
             found.append(Outbound(form, name, cls))
     return tuple(found)

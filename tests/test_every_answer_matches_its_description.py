@@ -208,6 +208,39 @@ def _matches(checker: jsonschema.Draft202012Validator, body: object) -> None:
     assert not errors, (body, errors)
 
 
+def test_a_started_jobs_result_is_described_as_what_its_operation_ends_with(session):
+    """A start route answers its operation's job, described with its ``result``
+    as the record the member's ``Operation[T]`` ends with, so a client that
+    starts a report, a build or a run reads that record's model; a run's
+    ``files`` job is described by what ``Operation.files`` declares."""
+    app = build_app(session)
+    described = app.openapi()
+    schemas = described['components']['schemas']
+
+    def accepted(path: str) -> dict:
+        return described['paths'][path]['post']['responses']['202']['content']['application/json'][
+            'schema'
+        ]
+
+    assert accepted('/api/v1/start_make_logs_zip') == {
+        '$ref': '#/components/schemas/SupportReportSavedJob'
+    }
+    report = schemas['SupportReportSavedJob']['properties']['result']['anyOf']
+    assert {'$ref': '#/components/schemas/SupportReportSaved'} in report
+    files = schemas['RunFilesJob']['properties']['result']['anyOf']
+    assert {'$ref': '#/components/schemas/RunFiles'} in files
+    assert {'$ref': '#/components/schemas/RunFilesJob'} in schemas['Job']['properties']['files'][
+        'anyOf'
+    ]
+    with _serving(session, app) as client:
+        started = client.post('/api/v1/start_make_logs_zip', json={'output_dir': 'reports'})
+        assert started.status_code == 202, started.text
+        ended = client.get(started.headers['Location'], headers={'Prefer': 'wait=30'}).json()
+
+    assert ended['status'] == 'completed', ended
+    _matches(_checker(described, accepted('/api/v1/start_make_logs_zip')), ended)
+
+
 @pytest.mark.slow
 def test_the_servers_own_answers_and_a_handle_and_a_path_match_their_models(session, monkeypatch):
     app = build_app(session)

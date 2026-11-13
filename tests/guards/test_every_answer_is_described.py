@@ -144,8 +144,15 @@ def _untyped(described: dict, events: dict) -> list[str]:
             return
         if '$ref' in node:
             name = node['$ref'].rsplit('/', 1)[-1]
-            if name not in followed:
-                followed.add(name)
+            if name in followed:
+                return
+            followed.add(name)
+            if name in rest_routes._JOBS:
+                # An operation's job is ``Job`` with its result typed: its
+                # own place is its result; the rest are Job's, counted there.
+                walk(schemas[name]['properties']['result'], f'{name}.result')
+                walk({'$ref': '#/components/schemas/Job'}, 'Job')
+            else:
                 walk(schemas[name], name)
             return
         if _bare(node):
@@ -188,7 +195,13 @@ def test_every_member_route_declares_its_answer_and_its_job(built):
         bare = [s for s in top if _bare(s)]
         if len(bare) != len(said_nothing):
             wrong.append(f'{_url(route)}: 200 {json.dumps(answer)} for {route.member.returns}')
-        if _json(responses['202']) != {'$ref': '#/components/schemas/Job'}:
+        # A member that hands back an operation is answered its operation's
+        # job, the job its 200 names; any other call is the job of a call
+        # that outlived its wait.
+        jobs = {f'#/components/schemas/{name}' for name in ('Job', *rest_routes._JOBS)}
+        named = [s for s in top if s.get('$ref') in jobs]
+        job = named[0] if route.member.returns_job and len(named) == 1 else None
+        if _json(responses['202']) != (job or {'$ref': '#/components/schemas/Job'}):
             wrong.append(f'{_url(route)}: 202 is not the job')
     assert len(member_routes) > 200
     assert not wrong, '\n'.join(wrong)
