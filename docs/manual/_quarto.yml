@@ -4,6 +4,8 @@ quarto-required: "1.11.9"
 book:
   title: "LumaViewPro Manual"
   subtitle: "Software for Etaluma Lumascope microscopes"
+  date: today
+  date-format: "MMMM D, YYYY"
   output-file: "LumaViewPro-Manual"
   chapters:
     - index.qmd
