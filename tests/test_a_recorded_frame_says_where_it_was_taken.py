@@ -430,7 +430,11 @@ def _engine(writer, clock):
     from _lumascope.modules.activity_claim import ActivityClaim
 
     return VideoRecordingEngine(
-        write_frame=writer, claim=ActivityClaim(), clock=clock, steady_clock=host_clock.steady_ns
+        write_frame=writer,
+        writers=1,
+        claim=ActivityClaim(),
+        clock=clock,
+        steady_clock=host_clock.steady_ns,
     )
 
 

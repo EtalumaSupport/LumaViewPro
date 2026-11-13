@@ -47,6 +47,14 @@ if TYPE_CHECKING:
 
 _NUM_SEQ_DIGITS = 6
 
+# The writer threads a recording saved as frames writes on. On Windows one
+# thread leaves most of the disk's rate unused, each file paying a fixed wait
+# beside its size's share: on 2400x2400 12-bit bench frames the fast HP wrote
+# 38 fps on one thread and 69 on four; eight were within about 4% of four
+# there and slower on the slow PC for every compressed codec. A recording to
+# MP4 writes on one, as its encoder takes frames in order.
+RECORDED_FRAME_WRITERS = 4
+
 
 def write_recorded_frame(
     scope: Lumascope,

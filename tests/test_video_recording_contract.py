@@ -9,7 +9,9 @@ none of them sleeps against the wall clock -- the engine accepts an
 injected time source precisely so these stay deterministic.
 """
 
+import dataclasses
 import json
+import typing
 import logging
 import pathlib
 import threading
@@ -20,7 +22,7 @@ from _lumascope.drivers import host_clock
 from tests.settings_fixtures import complete_settings
 
 from _lumascope.modules import path_utils
-from _lumascope.modules.activity_claim import ActivityClaim
+from _lumascope.modules.activity_claim import ActivityClaim, current_taking
 from _lumascope.modules.caller import Caller
 import _lumascope.modules.video_recording as video_recording_module
 from _lumascope.modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
@@ -104,12 +106,16 @@ class SingleFileWriterStub:
         return self.output_path
 
 
-def make_engine(tmp_path, *, clock=None, writer=None, claim=None):
+def make_engine(tmp_path, *, clock=None, writer=None, claim=None, writers=1):
     clock = clock or FakeClock()
     writer = writer if writer is not None else WriterStub(tmp_path)
     claim = claim or ActivityClaim()
     engine = VideoRecordingEngine(
-        write_frame=writer, claim=claim, clock=clock, steady_clock=host_clock.steady_ns
+        write_frame=writer,
+        writers=writers,
+        claim=claim,
+        clock=clock,
+        steady_clock=host_clock.steady_ns,
     )
     return engine, writer, clock, claim
 
@@ -822,6 +828,13 @@ class _QueueThatFailsToRead:
         raise RuntimeError('scripted queue read failure')
 
 
+@dataclasses.dataclass(eq=False)
+class _TakeWithAQueueThatFailsToRead(video_recording_module._Take):
+    """A recording whose lane queue fails to read."""
+
+    lane_queue: object = dataclasses.field(default_factory=_QueueThatFailsToRead)
+
+
 class _NoThreadStarts(threading.Thread):
     """Thread exhaustion: every start raises, as the host's does.
 
@@ -882,13 +895,16 @@ class TestClaimLifetime:
     def test_double_finalize_does_not_double_release(self, tmp_path):
         # Behavior-preservation guard: the claim stub raises on a release by
         # a non-owner, so a second end path reaching the release would fail
-        # loudly here rather than silently freeing someone else's claim.
+        # loudly here rather than silently freeing someone else's claim. The
+        # second path is the discard, after the lanes have finalized.
         engine, _writer, clock, claim = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
         assert engine.wait_for_drain(timeout=5)
-        engine._finalize()
+        written = engine.result().frames_written
+        engine.discard_pending()
         assert claim.owner is None
+        assert engine.result().frames_written == written
 
     def test_discard_with_wedged_writer_releases(self, tmp_path):
         # The app-close Discard hatch: the lane is stuck inside a write and
@@ -936,15 +952,17 @@ class TestClaimLifetime:
         assert not list(pathlib.Path(tmp_path).glob('*.json'))
         assert claim.owner is None
 
-    def test_lane_boundary_logs_its_own_abnormal_exit(self, tmp_path, caplog):
+    def test_lane_boundary_logs_its_own_abnormal_exit(self, tmp_path, caplog, monkeypatch):
         # An exception escaping a thread target reaches
         # threading.excepthook, not this module's logger, so without the
         # lane's own boundary the failure it exists to report leaves no
         # trace in the app log -- a support bundle would show a recording
         # that simply stopped. A queue read that raises is outside the
         # per-frame try, so it carries an exception out of the lane body.
+        # A stand-in by design: a queue that fails to read is a fault no
+        # simulated part produces, and each start makes its own queue.
+        monkeypatch.setattr(video_recording_module, '_Take', _TakeWithAQueueThatFailsToRead)
         engine, _writer, _clock, claim = make_engine(tmp_path)
-        engine._queue = _QueueThatFailsToRead()
         engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=2), None))
         assert engine.wait_for_drain(timeout=5)
 
@@ -972,4 +990,197 @@ class TestClaimLifetime:
         feed_uniform(next_engine, next_clock, FrameFeed(), delivery_fps=20, duration_s=2)
         assert next_engine.wait_for_drain(timeout=5)
         assert next_engine.result().frames_written > 0
+        assert claim.owner is None
+
+
+class _LaneWriter:
+    """A writer edge whose frames can be held, released or made to kill their lane.
+
+    ``hold[n]`` keeps frame n's write waiting until its event is set;
+    ``die_on`` raises SystemExit for that frame, the fatal escape. Each
+    write records its number and the taking it ran under, in the order the
+    writes finished.
+    """
+
+    def __init__(self, out_dir, *, hold=None, die_on=None):
+        self.out_dir = pathlib.Path(out_dir)
+        self.hold = dict(hold or {})
+        self.die_on = die_on
+        self.entered = {n: threading.Event() for n in self.hold}
+        self.finished = []
+        self.takings = []
+        self._landed = {}
+        self._lock = threading.Lock()
+
+    def landed(self, frame_number) -> threading.Event:
+        """Set once frame *frame_number*'s write has finished."""
+        with self._lock:
+            return self._landed.setdefault(frame_number, threading.Event())
+
+    def __call__(self, image, timestamp_s, frame_number, config, chunks=None, fact=None):
+        if frame_number in self.hold:
+            self.entered[frame_number].set()
+            assert self.hold[frame_number].wait(5), f'frame {frame_number} was held past 5 s'
+        if frame_number == self.die_on:
+            raise SystemExit('writer lane death (scripted)')
+        path = self.out_dir / f'frame_{frame_number:06d}.tiff'
+        path.write_bytes(image.tobytes())
+        with self._lock:
+            self.finished.append(frame_number)
+            self.takings.append(current_taking())
+        self.landed(frame_number).set()
+        return path
+
+
+class _ThirdLaneFailsToStart(threading.Thread):
+    """Thread exhaustion at the third lane: the first two start, the third raises.
+
+    A stand-in by design: thread exhaustion is the host's, not the simulator's.
+    """
+
+    started_lanes: typing.ClassVar[list] = []
+
+    def start(self):
+        if len(_ThirdLaneFailsToStart.started_lanes) == 2:
+            raise RuntimeError('scripted thread exhaustion at the third lane')
+        _ThirdLaneFailsToStart.started_lanes.append(self)
+        super().start()
+
+
+class TestFourWriterLanes:
+    """A recording drains on the writer lanes its caller names, and stays one recording."""
+
+    def test_every_frame_is_written_once_under_its_number_whatever_order_writes_finish(
+        self, tmp_path
+    ):
+        # Frame 0's write waits until frame 3's has landed: only lanes
+        # writing at once finish frame 3 first, so the order proves four.
+        frame_3_landed = threading.Event()
+        writer = _LaneWriter(tmp_path, hold={0: frame_3_landed})
+        original = writer.__call__
+
+        def _signal_frame_3(image, timestamp_s, frame_number, *rest):
+            path = original(image, timestamp_s, frame_number, *rest)
+            if frame_number == 3:
+                frame_3_landed.set()
+            return path
+
+        engine, _writer, clock, claim = make_engine(tmp_path, writer=_signal_frame_3, writers=4)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+
+        assert engine.wait_for_drain(timeout=10)
+        result = engine.result()
+        assert writer.finished.index(3) < writer.finished.index(0), writer.finished
+        assert sorted(writer.finished) == list(range(result.frames_selected))
+        assert result.frames_written == result.frames_selected == 10
+        manifest = json.loads((tmp_path / video_recording_module.MANIFEST_FILENAME).read_text())
+        assert [row['i'] for row in manifest['frame_index']] == list(range(10))
+        assert claim.owner is None
+
+    def test_the_drain_ends_only_after_the_last_lane(self, tmp_path):
+        release = threading.Event()
+        writer = _LaneWriter(tmp_path, hold={4: release})
+        engine, _writer, clock, claim = make_engine(tmp_path, writer=writer, writers=4)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        assert writer.entered[4].wait(5)
+
+        assert not engine.wait_for_drain(timeout=0.2), 'drained with a lane still writing'
+        assert claim.owner is not None
+        release.set()
+        assert engine.wait_for_drain(timeout=10)
+        assert engine.result().frames_written == 10
+        assert claim.owner is None
+
+    def test_each_lane_writes_under_the_recordings_taking(self, tmp_path):
+        writer = _LaneWriter(tmp_path)
+        engine, _writer, clock, claim = make_engine(tmp_path, writer=writer, writers=4)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
+        taking = claim.holder
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        assert engine.wait_for_drain(timeout=10)
+        assert writer.takings and all(t is not None for t in writer.takings)
+        assert {t.claim for t in writer.takings} == {claim}
+        assert taking is not None
+
+    def test_one_lanes_death_ends_the_recording_aborted_once_every_lane_has_exited(self, tmp_path):
+        release = threading.Event()
+        writer = _LaneWriter(tmp_path, hold={0: release}, die_on=1)
+        engine, _writer, clock, claim = make_engine(tmp_path, writer=writer, writers=4)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=2), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        assert writer.entered[0].wait(5)
+
+        # Frame 1's lane has died; frame 0's is still inside its write.
+        assert not engine.wait_for_drain(timeout=0.5), 'finalized before every lane exited'
+        release.set()
+        assert engine.wait_for_drain(timeout=10)
+        result = engine.result()
+        assert result.aborted
+        assert result.end_reason == 'aborted'
+        assert 0 in writer.finished
+        assert claim.owner is None
+
+    def test_a_discard_with_every_lane_wedged_frees_the_claim_and_drops_the_queue(self, tmp_path):
+        # Every lane is held inside a write; the frames behind them wait.
+        release = threading.Event()
+        writer = _LaneWriter(tmp_path, hold=dict.fromkeys(range(4), release))
+        engine, _writer, clock, claim = make_engine(tmp_path, writer=writer, writers=4)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=2), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        assert all(writer.entered[n].wait(5) for n in range(4))
+
+        engine.discard_pending()
+        assert claim.owner is None
+        assert engine.result().end_reason == 'discarded'
+        release.set()
+        assert all(writer.landed(n).wait(5) for n in range(4))
+        # Each lane exits after its write in flight; no queued frame is written.
+        assert sorted(writer.finished) == [0, 1, 2, 3]
+
+    def test_a_late_write_after_a_discard_counts_in_its_own_recording(self, tmp_path):
+        release = threading.Event()
+        writer = _LaneWriter(tmp_path, hold={0: release})
+        engine, _writer, clock, claim = make_engine(tmp_path, writer=writer, writers=4)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        assert writer.entered[0].wait(5)
+        engine.discard_pending()
+
+        # The next recording on the same engine, with the old lane still in
+        # its write; the held write lands once the next one is under way.
+        writer.hold.clear()
+        next_dir = tmp_path / 'next'
+        next_dir.mkdir()
+        engine.start(lambda: (make_config(next_dir, fps=10, duration_s=1), None))
+        release.set()
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        assert engine.wait_for_drain(timeout=10)
+
+        result = engine.result()
+        assert result.frames_selected == 10
+        assert result.frames_written == 10, 'the late write was counted into the next recording'
+        assert claim.owner is None
+
+    def test_a_start_that_fails_at_the_third_lane_leaves_no_lane_and_restarts_clean(
+        self, tmp_path, monkeypatch
+    ):
+        engine, _writer, clock, claim = make_engine(tmp_path, writers=4)
+        _ThirdLaneFailsToStart.started_lanes = []
+        monkeypatch.setattr(threading, 'Thread', _ThirdLaneFailsToStart)
+        with pytest.raises(RuntimeError, match='third lane'):
+            engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=1), None))
+        monkeypatch.undo()
+
+        assert len(_ThirdLaneFailsToStart.started_lanes) == 2
+        assert not any(lane.is_alive() for lane in _ThirdLaneFailsToStart.started_lanes)
+        assert claim.owner is None
+        assert not engine.is_recording and not engine.is_draining
+
+        engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=1), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert result.frames_written == result.frames_selected == 5
         assert claim.owner is None

@@ -118,6 +118,7 @@ class TestTheDiagnosticHoldsTheScope:
         session = session_on_a_simulated_scope()
         engine = VideoRecordingEngine(
             write_frame=MagicMock(),
+            writers=1,
             claim=session._activity_claim,
             clock=lambda: 0.0,
             steady_clock=host_clock.steady_ns,

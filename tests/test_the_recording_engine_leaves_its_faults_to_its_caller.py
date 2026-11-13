@@ -35,6 +35,7 @@ def _engine(tmp_path, writer=None):
     clock = FakeClock()
     engine = VideoRecordingEngine(
         write_frame=writer if writer is not None else WriterStub(tmp_path),
+        writers=1,
         claim=ActivityClaim(),
         clock=clock,
         steady_clock=host_clock.steady_ns,

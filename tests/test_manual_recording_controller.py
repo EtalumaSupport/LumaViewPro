@@ -1907,3 +1907,73 @@ class TestTheSessionIsToldWhereItSaved:
         finish(controller)
 
         assert told == []
+
+
+class TestARecordingsLanesAreItsOwn:
+    """A recording as frames writes on several lanes, each handed its own recording."""
+
+    def test_a_write_landing_after_a_discard_stays_in_the_discarded_recording(
+        self, tmp_path, monkeypatch
+    ):
+        captured = _capture_hyperstack_df(monkeypatch)
+        real_write = manual_recording_module.write_frame
+        entered, release, landed = threading.Event(), threading.Event(), threading.Event()
+        held = []
+
+        def _hold_the_first_write(scope, image, file_loc, *args, **kwargs):
+            # a stand-in by design: the simulator cannot hold one frame's
+            # write open while a discard and a next start happen around it.
+            if not held:
+                held.append(file_loc)
+                entered.set()
+                assert release.wait(5), 'the held write was never released'
+                real_write(scope, image, file_loc, *args, **kwargs)
+                landed.set()
+                return
+            real_write(scope, image, file_loc, *args, **kwargs)
+
+        monkeypatch.setattr(manual_recording_module, 'write_frame', _hold_the_first_write)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True)
+        controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+        assert entered.wait(5)
+        controller.discard_pending()
+        finish(controller)
+
+        controller.start()
+        next_folder = controller.save_folder
+        release.set()
+        assert landed.wait(5)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert held[0].parent != next_folder
+        assert held[0].exists(), 'the late write lands in its own recording folder'
+        rows = list(captured['df']['Filepath'])
+        assert len(rows) == 2, rows
+        assert all((next_folder / name).exists() for name in rows)
+
+    def test_a_full_disk_is_probed_once_an_interval_whichever_lane_writes(
+        self, tmp_path, monkeypatch, centre_posts
+    ):
+        """The probe's interval is the recording's, shared by its lanes."""
+        recorder = NotifyRecorder(centre_posts)
+        probes = []
+
+        def _a_full_disk(path, required_mb):
+            probes.append(threading.current_thread().name)
+            # The start's pre-flight passes; every rolling probe finds it full.
+            return (len(probes) == 1, 10.0)
+
+        monkeypatch.setattr(manual_recording_module, 'check_disk_space_ok', _a_full_disk)
+        # One elapsed instant for every probe: the interval admits the first
+        # and refuses every later one, whichever lane asks.
+        controller, scope, clock = make_controller(tmp_path, elapsed_clock=lambda: 100.0)
+        controller.start()
+        feed_frames(scope, clock, 8, fps=10.0)
+        assert controller._engine.wait_for_drain(timeout=10)
+        finish(controller)
+
+        assert len(probes) == 2, probes
+        assert recorder.severities().count('error') == 1

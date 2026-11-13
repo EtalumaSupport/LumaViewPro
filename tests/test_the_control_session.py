@@ -762,7 +762,7 @@ class TestATakeWaitsForWhatIsStillFinishing:
         recording = sim_session.manual_recording
         closing, release = threading.Event(), threading.Event()
         done = recording.start()
-        writer = recording._writer
+        writer = recording._recording.writer
         assert writer is not None, 'an MP4 recording, whose file is closed after the drain'
         real_close = writer.close
 

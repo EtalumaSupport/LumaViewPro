@@ -728,15 +728,16 @@ class TestARunsSlowVideoSaveIsToldAtItsEnd:
         self, executor, scope, tmp_path, monkeypatch, centre_posts
     ):
         import _lumascope.modules.protocol_cleanup as protocol_cleanup
+        from _lumascope.modules.image_save import RECORDED_FRAME_WRITERS
         from _lumascope.modules.protocol_recording import ProtocolVideoStep
 
         monkeypatch.setattr(protocol_cleanup, 'RECORDING_SAVE_WAIT_NOTICE_S', 0.2)
         real_write = ProtocolVideoStep._write_frame
 
         def _slow_write(self, *args):
-            # Slower than the simulated camera delivers, so saving runs on
-            # past the step's end.
-            time.sleep(0.1)
+            # Slower than the simulated camera delivers, on every one of the
+            # recording's writers, so saving runs on past the step's end.
+            time.sleep(0.1 * RECORDED_FRAME_WRITERS)
             return real_write(self, *args)
 
         monkeypatch.setattr(ProtocolVideoStep, '_write_frame', _slow_write)

@@ -82,6 +82,7 @@ def _config(tmp_path):
 def _engine(claim):
     return VideoRecordingEngine(
         write_frame=lambda *a, **k: None,
+        writers=1,
         claim=claim,
         clock=lambda: 0.0,
         steady_clock=host_clock.steady_ns,

@@ -74,6 +74,7 @@ from _lumascope.modules.recording_frames import (
     recording_camera,
     write_frame,
 )
+from _lumascope.modules.image_save import RECORDED_FRAME_WRITERS
 from _lumascope.modules.recording_manifest import gather_host_provenance
 from _lumascope.modules.video_cadence import (
     StallWatch,
@@ -236,6 +237,9 @@ class ProtocolVideoStep:
         self._camera: RecordingCamera | None = None
         self._output_dir: Path | None = None
         self._frames_seen = 0
+        # The disk-floor probe's interval, read and set under its lock: the
+        # step's writer lanes reach it concurrently.
+        self._disk_check_lock = threading.Lock()
         self._last_disk_check_ts = 0.0
         self._start_dt: datetime.datetime | None = None
         self._finish_thread: threading.Thread | None = None
@@ -414,6 +418,7 @@ class ProtocolVideoStep:
 
         engine = VideoRecordingEngine(
             write_frame=self._write_frame,
+            writers=RECORDED_FRAME_WRITERS if self._video_as_frames else 1,
             claim=self._run_claim,
             clock=self._clock,
             steady_clock=self._steady_clock,
@@ -686,17 +691,20 @@ class ProtocolVideoStep:
         return writer.output_path
 
     def _check_disk_floor(self, config) -> None:
-        """Rolling floor probe on the write lane; a breach aborts the RUN.
+        """Rolling floor probe on the write lanes; a breach aborts the RUN.
 
         The protocol's disk contract is run-fatal (matching the per-write
         guard the stills lane keeps): a disk that hits the floor mid-step
         aborts the whole run loudly rather than letting later steps fail
-        one by one. Frames already on disk stay.
+        one by one. Frames already on disk stay. The interval is read and
+        set under one lock, so of lanes reaching it together one probes,
+        and at most one reports.
         """
         now = self._elapsed_clock()
-        if now - self._last_disk_check_ts < DISK_FLOOR_CHECK_INTERVAL_S:
-            return
-        self._last_disk_check_ts = now
+        with self._disk_check_lock:
+            if now - self._last_disk_check_ts < DISK_FLOOR_CHECK_INTERVAL_S:
+                return
+            self._last_disk_check_ts = now
         try:
             ok, free_mb = check_disk_space_ok(config.output_dir, MIN_REQUIRED_DISK_MB)
         except OSError as e:
