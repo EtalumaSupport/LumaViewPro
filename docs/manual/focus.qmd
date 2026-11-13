@@ -78,8 +78,8 @@ stays where it is.
 [Set Z]{.guilabel} stores the current focus position, and
 [Go to Set Z]{.guilabel} returns to it. There is one stored position,
 shared by every channel. [Set All Z]{.guilabel} stores the current position
-in the same way, and also saves it as the focus of every channel
-(@sec-channel-focus).
+in the same way, and also saves it as every channel's saved focus, as
+[Save Focus]{.guilabel} does for one channel (@sec-channel-focus).
 
 ## Autofocus {#sec-autofocus}
 

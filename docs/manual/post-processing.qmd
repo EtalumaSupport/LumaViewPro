@@ -92,11 +92,14 @@ reports any image the record lists but the folder no longer has
 
 [Create Video...]{.guilabel} makes a video from a folder:
 
-- a protocol run with more than one scan: one video for each position,
-  channel, tile and Z-slice, with one frame from each scan, in order. A
-  run of a single scan isn't accepted ("Video requires multiple time
-  points per scan position");
-- a recording saved as frames: one video of the recording.
+- a protocol run: from its image steps, one video for each position,
+  channel, tile and Z-slice, with one frame from each scan, in order. A run
+  of one scan has only one image at each position, so it makes no video
+  from them ("Video requires multiple time points per scan position").
+  From its video steps recorded as [Frames]{.guilabel}, one video of each
+  recording;
+- a recording made at the microscope and saved as frames: one video of the
+  recording.
 
 Its settings:
 
