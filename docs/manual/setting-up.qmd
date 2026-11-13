@@ -21,10 +21,8 @@ Each LS820, LS850, LS850T and Lumi ships with:
 
 A microplate sits directly in the stage's nest. The universal labware
 holder, which comes with the microscope, holds dishes, flasks and single
-microscope slides (@fig-labware-holder). A Lumascope without a motorized XY
+microscope slides. A Lumascope without a motorized XY
 stage comes with the universal labware holder on its manual stage.
-
-![The primary labware holder, holding a T75 flask](images/labware-holder.jpg){#fig-labware-holder width=60%}
 
 The optional four-slide holder takes four microscope slides side by side,
 held by magnetic clamps (@fig-four-slide-holders). On a Lumascope with a
