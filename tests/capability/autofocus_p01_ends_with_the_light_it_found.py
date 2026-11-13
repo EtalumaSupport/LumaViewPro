@@ -11,8 +11,10 @@ illumination API.
     python tests/capability/autofocus_p01_ends_with_the_light_it_found.py             # a simulated LS850T
     python tests/capability/autofocus_p01_ends_with_the_light_it_found.py --hardware  # the connected scope
 
+    python tests/capability/autofocus_p01_ends_with_the_light_it_found.py --hardware --at-bookmark  # start at the saved bookmark
+
 On hardware the stage homes at bring-up, Z moves to the middle of its
-travel, and Z sweeps twice; the layer's LED is lit throughout.
+travel (or X, Y and Z to the bookmark), and Z sweeps twice; the layer's LED is lit throughout.
 """
 
 import sys
@@ -23,6 +25,7 @@ from harness import HARDWARE, check, figure, hardware_session, make_session, rep
 from tests.scope_fakes import channel_reading
 
 LAYER = sys.argv[sys.argv.index('--layer') + 1] if '--layer' in sys.argv else 'BF'
+AT_BOOKMARK = '--at-bookmark' in sys.argv
 RUN_TIMEOUT_S = 180.0
 
 
@@ -91,10 +94,15 @@ def main():
         # Bring-up leaves Z at its home, the bottom of travel, where every
         # autofocus window reaches past the floor and the run is refused
         # before it sweeps. The middle of travel has room for any
-        # objective's window.
+        # objective's window. `--at-bookmark` starts both runs at the bookmark
+        # saved in LumaViewPro instead, a field in focus, so the finished run
+        # finds a peak.
         motion = session.scope.motion
-        z_limits = motion.get_axis_limits('Z')
-        motion.move_z((z_limits.min_um + z_limits.max_um) / 2)
+        if AT_BOOKMARK:
+            session.go_to_bookmark(('X', 'Y', 'Z'))
+        else:
+            z_limits = motion.get_axis_limits('Z')
+            motion.move_z((z_limits.min_um + z_limits.max_um) / 2)
         figure('Z start um', motion.get_current_position('Z'))
         current_ma = float(session.settings[LAYER]['illumination_ma'])
         figure(f'{LAYER} saved current mA', current_ma)
