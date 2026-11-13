@@ -43,7 +43,7 @@ from tests.installation_fixtures import shipped_grids
 
 
 def _write_frame(path: pathlib.Path, *, x: float, seed: int, size: int = 256) -> None:
-    # Random pixels, so an LZW strip barely compresses and a half truncation
+    # Random pixels, so a compressed strip barely shrinks and a half truncation
     # cuts into the pixels while the header still reads.
     pixels = np.random.default_rng(seed).integers(0, 256, size=(size, size), dtype=np.uint8)
     image_utils.write_tiff(

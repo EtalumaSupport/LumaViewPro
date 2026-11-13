@@ -2051,7 +2051,7 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
 
     Args:
         image: 2D (grayscale) or 3D (color) numpy array.
-        fmt: Output format -- 'png', 'jpeg', or 'tiff'.
+        fmt: Output format -- 'png' or 'jpeg'.
         jpeg_quality: JPEG quality (1-100), only used for JPEG format.
 
     Returns:
@@ -2067,9 +2067,6 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
     elif fmt == 'png':
         params = [cv2.IMWRITE_PNG_COMPRESSION, 1]  # fast compression
         ext = '.png'
-    elif fmt in ('tiff', 'tif'):
-        params = []
-        ext = '.tiff'
     else:
         raise ValueError(f'Unsupported image format: {fmt}')
 
@@ -2329,6 +2326,31 @@ def _written_whole(file_loc: pathlib.Path | str) -> Iterator[pathlib.Path]:
         tmp_loc.unlink(missing_ok=True)
 
 
+def _tiff_codec(shape: tuple, dtype: np.dtype) -> dict:
+    """The one way every TIFF LVP writes is compressed, by the two writers below.
+
+    No caller chooses it, and a caller's options that name any of these keys
+    are refused by the duplicate keyword (TypeError). Deflate at level 1 with
+    the horizontal predictor: on 2400x2400 bench frames it was the smallest
+    codec at deflate 1's speed (12-bit 0.68 of raw against LZW's 0.96), and
+    with four writer threads within noise of uncompressed on a fast Windows
+    PC. The cost: on dark, low-content frames the predictor makes a file up to
+    about a third larger than LZW. 'adobe_deflate' stamps the standard Deflate
+    code (8); tifffile's 'deflate' stamps the obsolete pre-standard one (32946)
+    on the same stream.
+
+    A 16-bit RGB image is written without the predictor: ImageJ's File > Open
+    refuses it ("ImageJ cannot open 48-bit compressed TIFFs with predictors")
+    and opens the same pixels without it.
+    """
+    predictor = not (is_color_shape(shape) and np.dtype(dtype).itemsize == 2)
+    return {
+        'compression': 'adobe_deflate',
+        'compressionargs': {'level': 1},
+        'predictor': predictor,
+    }
+
+
 def write_hyperstack_tiff(
     planes: Iterator[np.ndarray],
     file_loc: pathlib.Path,
@@ -2359,7 +2381,9 @@ def write_hyperstack_tiff(
     color travels solely as OME Channel.Color (FIJI applies it via the
     Bio-Formats Importer in Composite mode; plain File>Open shows default
     LUTs). The caller (stack_builder) supplies the full OME dict + write
-    options + resolution and they pass through verbatim. Keeping these
+    options + resolution and they pass through verbatim; the compression
+    is this writer's, and options that name one are refused by tifffile's
+    duplicate keyword (``TypeError``). Keeping these
     apart lets write_tiff demand significant_bits as a required argument,
     which this path carries inside its OME dict rather than as a scalar.
 
@@ -2392,6 +2416,7 @@ def write_hyperstack_tiff(
                 metadata=tiff_metadata,
                 software=f'LumaViewPro {version}',
                 datetime=record['datetime'].strftime(_TIFF_DATETIME),
+                **_tiff_codec(shape, dtype),
                 **hyperstack_options,
             )
         _splice_ome_additions(
@@ -2561,6 +2586,7 @@ def write_tiff(
                     datetime=tiff_datetime,
                     software=f'LumaViewPro {version}',
                     extratags=support_data['extratags'],
+                    **_tiff_codec(data.shape, data.dtype),
                     **support_data['options'],
                 )
 
@@ -2572,6 +2598,7 @@ def write_tiff(
                     datetime=tiff_datetime,
                     software=f'LumaViewPro {version}',
                     extratags=support_data['extratags'],
+                    **_tiff_codec(data.shape, data.dtype),
                     **support_data['options'],
                 )
 
@@ -2594,6 +2621,7 @@ def write_tiff(
                     software=f'LumaViewPro {version}',
                     colormap=colormap_array,
                     extratags=support_data['extratags'],
+                    **_tiff_codec(data.shape, data.dtype),
                     **support_data['options'],
                 )
         if image_type == 'ome':
@@ -2748,7 +2776,6 @@ def generate_tiff_data(
         tiff_metadata['Info'] = _view_lines(_readable_view(metadata), ascii_only=False)
         options = {
             'photometric': photometric,
-            'compression': 'deflate',
         }
         # Resolution for ImageJ types is in pixels/pixel
         resolution = (
@@ -2760,7 +2787,6 @@ def generate_tiff_data(
         # ome and default use same options.
         options = {
             'photometric': photometric,
-            'compression': 'lzw',
             # tifffile always emits an XResolution tag, defaulting to 1/1. Under
             # CENTIMETER that reads as one pixel per centimetre -- a concrete and
             # wildly wrong scale claim. NONE is the TIFF convention for "ratio

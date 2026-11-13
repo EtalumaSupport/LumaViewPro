@@ -7546,7 +7546,7 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
             )
 
             # Read both back and compare. tifffile imread returns
-            # the exact array that was written (LZW is lossless).
+            # the exact array that was written (the codec is lossless).
             manual_read = tf.imread(str(manual_tiff))
             protocol_read = tf.imread(str(protocol_tiff))
 
