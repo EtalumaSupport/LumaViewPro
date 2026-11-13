@@ -689,7 +689,7 @@ class SimulatedMotorBoard:
             )
         if cmd.startswith('DRVSTAT_'):
             axis = cmd[len('DRVSTAT_') :]
-            return f'{axis}: DRV_STATUS=0x80000000 (standstill)'
+            return f'{axis}: raw=0x80000000 SG=0 CS=0 STANDSTILL'
 
         # Fan speed setter -- `FAN:<value>` (real firmware accepts a duty
         # cycle 0-100). Tech-support pulses it 50 -> 0 to verify the

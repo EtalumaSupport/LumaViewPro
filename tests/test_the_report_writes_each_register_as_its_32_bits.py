@@ -62,3 +62,22 @@ def test_every_register_is_written_as_its_unsigned_word_in_hex(tmp_path):
     assert not_a_word == []
     # X's driver at standstill: the field firmware sends -2147287040.
     assert ('DRV_STATUS0', '0x80030000') in rows
+
+
+def test_each_axiss_driver_status_is_written_as_its_word_in_hex(tmp_path):
+    # The driver status is the same DRV_STATUS word the register read
+    # writes, so a reader compares the two sections word for word.
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path / 'live'), microscope='LS850T'),
+        simulate=True,
+    )
+    try:
+        TechSupportReport(session=session)._step_firmware_info(tmp_path)
+    finally:
+        session.shutdown()
+        session.scope.disconnect()
+
+    text = (tmp_path / 'firmware_info' / 'motor_status.txt').read_text()
+    section = text.split('Motor Driver Status:\n')[1]
+    rows = dict(re.findall(r'^  ([XYZT]): (.*)$', section, re.M))
+    assert rows == dict.fromkeys('XYZT', '0x00000000'), text

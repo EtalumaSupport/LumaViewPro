@@ -1393,6 +1393,9 @@ class DiagnosticsAPI:
             HardwareCommandRefusedError: ``'not_connected'`` (the motor
                 controller), or ``'axis_absent'``, ``MissingPart(Part.MOTORS)`` on
                 a manual scope; nothing was read.
+            BoardNoReplyError: the board did not answer.
+            BoardReplyUnreadableError: the board answered without the
+                axis's word.
         """
         self._scope.motion.refuse_absent('read_motor_drv_status')
         drv = self._scope._motion_driver

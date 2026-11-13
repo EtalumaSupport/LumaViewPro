@@ -2,6 +2,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import math
+import re
 import threading
 import time
 from typing import ClassVar
@@ -1610,15 +1611,23 @@ class MotorBoard(SerialBoard):
         bits), or None if firmware does not support DRVSTAT_<axis>.
         ``axis`` is one of 'X', 'Y', 'Z', 'T', which the diagnostics API
         has checked.
+
+        The firmware answers with the word and its decode,
+        ``Z: raw=0x8104003F SG=63 CS=4 STANDSTILL STALL``.
+
+        Raises:
+            BoardReplyUnreadableError: the reply does not carry this
+                axis's word.
         """
         raw = self._diagnostic_query(f'DRVSTAT_{axis}')
         if raw is None:
             return None
-        try:
-            return int(raw.strip().split()[0], 0)
-        except (ValueError, IndexError):
-            logger.warning(f'[XYZ Class ] DRVSTAT_{axis} unparseable: {raw!r}')
-            return None
+        word = re.match(rf'{axis}: raw=0x([0-9A-Fa-f]{{8}})(?: |$)', raw.strip())
+        if word is None:
+            raise BoardReplyUnreadableError(
+                f'DRVSTAT_{axis}: the board did not report the driver status (reply {raw!r})'
+            )
+        return int(word.group(1), 16)
 
     def read_fanspeed(self) -> int | None:
         """Read fan tachometer RPM.

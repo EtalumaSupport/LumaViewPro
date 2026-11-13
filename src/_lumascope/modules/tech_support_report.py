@@ -799,9 +799,15 @@ def _write_axis_section(f, heading: str, entries: dict, show=str) -> None:
         f.write(f'  {ax}: {show(value)}\n')
 
 
-def _offered(value) -> str:
-    """A typed motor read as written: its value, or that the firmware does not offer it."""
-    return NOT_OFFERED if value is None else str(value)
+def _driver_status(value) -> str:
+    """An axis's driver status as written: its DRV_STATUS word in hex, as the
+    register read writes it, a read that did not go through, or that the
+    firmware does not offer it."""
+    if value is None:
+        return NOT_OFFERED
+    if isinstance(value, int):
+        return f'0x{value:08X}'
+    return str(value)
 
 
 def _unread_text(unread: dict) -> str:
@@ -1738,7 +1744,7 @@ class TechSupportReport:
                 _write_axis_section(
                     f, 'Motor Positions', positions, lambda v: json.dumps(v, default=str)
                 )
-                _write_axis_section(f, '\nMotor Driver Status', drvstat, _offered)
+                _write_axis_section(f, '\nMotor Driver Status', drvstat, _driver_status)
             fan = self.diag.get_fan_status()
 
         i2c = self.diag.get_i2c_scan()
@@ -1784,7 +1790,7 @@ class TechSupportReport:
             with open(d / 'motor_status.txt', 'w', encoding='utf-8') as f:
                 f.write('Motor Positions: not read.\n')
                 f.write(skipped)
-                _write_axis_section(f, '\nMotor Driver Status', drvstat, _offered)
+                _write_axis_section(f, '\nMotor Driver Status', drvstat, _driver_status)
             fan = self.diag.get_fan_status()
         with open(d / 'peripherals.txt', 'w', encoding='utf-8') as f:
             f.write(f'Fan: {fan}\n\n')

@@ -81,14 +81,6 @@ def _make_motor_with_responses(response_map):
 class TestMotorDriverDiagnosticGating:
     """Driver methods return None on legacy FW, parsed values on new FW."""
 
-    def test_read_drv_status_returns_int(self):
-        motor = _make_motor_with_responses(
-            {
-                'DRVSTAT_X': '0x80000000',
-            }
-        )
-        assert motor.read_drv_status('X') == 0x80000000
-
     def test_read_drv_status_unsupported_returns_none(self):
         motor = _make_motor_with_responses(
             {

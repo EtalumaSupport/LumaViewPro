@@ -96,6 +96,9 @@ _OWN_DOORS: dict[str, str] = {
     'tests/test_motorboard_fullinfo_legacy_firmware.py': (
         "the motor driver's FULLINFO parse on the firmware simulator, no scope"
     ),
+    'tests/test_the_driver_status_is_read_from_the_firmwares_reply.py': (
+        "the motor driver's DRVSTAT parse on the 3.0 firmware simulator, which no scope runs"
+    ),
     'tests/test_motorconfig_provenance.py': (
         "the motor driver's CONFIG read on the firmware simulator, no scope"
     ),
