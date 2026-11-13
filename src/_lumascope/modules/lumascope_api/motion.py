@@ -4112,6 +4112,56 @@ class MotionAPI:
             falsifies_recording=True,
         )
 
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_SUBMIT,))
+    def start_move_turret(self, slot: int, restore_z: bool = True) -> Operation[None]:
+        """Start the turret change ``move_turret`` makes, without waiting for it; returns its ``Operation``.
+
+        For a caller that must not block for the three moves of a turret
+        change -- a button. The change is refused, or put on the io lane,
+        before this returns. The operation is done once the change has ended,
+        with what ``move_turret`` would have returned or raised; its
+        ``stop()`` is ``stop_motion`` until the change has ended, and nothing
+        after: a stop asked before the change reached the lane withholds it.
+
+        Args:
+            slot: The turret slot, 1 to 4.
+            restore_z: As for ``move_turret``.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'`` or
+                ``'axis_absent'``, no motor controller or no turret; or a
+                run, a diagnostic, a home or a recording holds the scope.
+                Nothing was driven.
+            PositionOutOfRangeError: The slot is not a whole number 1 to 4.
+                Nothing was driven.
+        """
+        # Asked here, before the lane holds it, so a request no change can
+        # meet is refused to its caller rather than ending its operation.
+        self.refuse_absent('start_move_turret', 'T')
+        refuse_unless_turret_slot(slot)
+        ended = threading.Event()
+
+        # The lane names a task by its action and reads its slow-task budget
+        # from it, so the body carries both from the change.
+        @functools.wraps(self._move_turret_impl)
+        def body() -> None:
+            try:
+                self._move_turret_impl(slot, restore_z=restore_z)
+            finally:
+                # Under the lock the stop asks it in (``_stop_motion_while``).
+                with self._stop_lock:
+                    ended.set()
+
+        waiter: concurrent.futures.Future[None] = concurrent.futures.Future()
+        # Marked running before the lane holds it, so only the lane settles it.
+        waiter.set_running_or_notify_cancel()
+        self._scope._io_executor.submit(
+            IOTask(action=body, falsifies_recording=True), 'move_turret', waiter=waiter
+        )
+        return Operation.following(
+            waiter, stop=lambda: self._stop_motion_while(lambda: not ended.is_set(), marks=True)
+        )
+
     @api
     def wait_until_finished_moving(self, timeout_s: float = 120.0) -> None:
         """Block until every axis moving now has stopped; raise if one did not stop well.

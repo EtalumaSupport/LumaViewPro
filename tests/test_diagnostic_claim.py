@@ -95,8 +95,10 @@ class TestTheDiagnosticHoldsTheScope:
             lambda s: s.select_objective('20x Oly'),
             lambda s: s.assign_turret_objective(1, '20x Oly'),
             lambda s: s.clear_turret_objective(2),
+            # Refused at the call, never handed back as an operation.
+            lambda s: s.start_select_objective('20x Oly'),
         ],
-        ids=['select', 'assign', 'clear'],
+        ids=['select', 'assign', 'clear', 'start_select'],
     )
     def test_an_objective_change_is_refused_while_it_holds(self, sim_session, write):
         before = dict(sim_session.settings['turret_objectives'])

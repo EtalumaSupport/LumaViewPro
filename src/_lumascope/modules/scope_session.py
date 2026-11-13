@@ -6027,23 +6027,75 @@ class ScopeSession:
                 the turret move or the Z restore was ended; the slot is
                 unknown afterwards.
         """
+        if not self._objective_changes(objective_id, 'select_objective'):
+            return False
+        if self.scope.capabilities.has_turret:
+            self.scope.motion.move_turret(self._the_slot_holding(objective_id), restore_z=True)
+        else:
+            self._store_selected_objective(objective_id)
+        return True
+
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_SUBMIT, Admission.GUARDED_WRITE))
+    @_guarded_write
+    def start_select_objective(self, objective_id: str) -> Operation[bool]:
+        """Start the pick ``select_objective`` makes, without waiting for the turret; returns its ``Operation``.
+
+        For a caller that must not block for a turret change -- a button.
+        Every refusal ``select_objective`` makes is made before this
+        returns. On a turret scope the operation is the turret change
+        (``MotionAPI.start_move_turret``), done with True once it has
+        ended, or with its raise; its ``stop()`` is the change's. Picking
+        the objective already active, or picking on a scope with no turret,
+        is done when this returns, with what ``select_objective`` returns.
+
+        Args:
+            objective_id: The objective's catalogue key.
+
+        Returns:
+            The pick's ``Operation``: its ``result()`` is whether the active
+            objective changed, or raises as ``move_turret`` does --
+            ``AxisStateUnknownError``, ``MoveFaultError``,
+            ``MoveStoppedError`` -- the slot unknown afterwards.
+
+        Raises:
+            CatalogueNameRefusedError: ``'objective_not_in_catalogue'``,
+                as ``select_objective``.
+            ArgumentRefusedError: ``'objective_in_several_slots'`` or
+                ``'objective_not_on_turret'``, as ``select_objective``.
+                Nothing is moved.
+            HardwareCommandRefusedError: A run, a diagnostic, a home or a
+                recording holds the scope (``'exclusive_activity_running'``),
+                nothing written or moved; or ``'not_connected'`` or
+                ``'axis_absent'``, as ``MotionAPI.start_move_turret``.
+        """
+        if not self._objective_changes(objective_id, 'start_select_objective'):
+            return Operation.all_of((), result=False)
+        if self.scope.capabilities.has_turret:
+            turn = self.scope.motion.start_move_turret(
+                self._the_slot_holding(objective_id), restore_z=True
+            )
+            return Operation.all_of((turn,), result=True)
+        self._store_selected_objective(objective_id)
+        return Operation.all_of((), result=True)
+
+    def _objective_changes(self, objective_id: str, member: str) -> bool:
+        """Whether picking ``objective_id`` changes the active objective, refusing a pick that cannot."""
         # Refuses an id that is not a catalogue key, before any write and
         # before the no-op compare: an unknown active objective is None, so
         # a None asked for would otherwise match it and pass unrefused.
         self.scope.objective_helper.get_objective_info(objective_id=objective_id)
         if objective_id == self.scope.runtime_state.get_current_objective_id():
             return False
-        self._refuse_configuration_change_while_held('select_objective')
-        if self.scope.capabilities.has_turret:
-            self.scope.motion.move_turret(self._the_slot_holding(objective_id), restore_z=True)
-        else:
-            # Without a turret, the pick is a person saying what is mounted:
-            # the confirmation names the id it vouches for, under the one
-            # lock, so no read sees the id without it.
-            with self.settings_lock:
-                self._store_setting('objective_id', objective_id)
-                self._store_setting('objective_confirmed', objective_id)
+        self._refuse_configuration_change_while_held(member)
         return True
+
+    def _store_selected_objective(self, objective_id: str) -> None:
+        # Without a turret, the pick is a person saying what is mounted:
+        # the confirmation names the id it vouches for, under the one
+        # lock, so no read sees the id without it.
+        with self.settings_lock:
+            self._store_setting('objective_id', objective_id)
+            self._store_setting('objective_confirmed', objective_id)
 
     def _the_slot_holding(self, objective_id: str) -> int:
         slots = self.scope.runtime_state.get_turret_config()

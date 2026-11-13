@@ -19,6 +19,7 @@ import time
 import pytest
 
 from _lumascope.modules.exceptions import (
+    HardwareCommandRefusedError,
     PluginProcessorSkippedError,
     PostProcessingOperation,
     SessionClosingError,
@@ -299,10 +300,14 @@ def test_after_the_close_nothing_new_takes_the_scope_for_good(tmp_path):
 def test_after_the_close_a_start_form_is_refused_at_its_call(tmp_path):
     """Each start form puts its work on a session lane, so once the close has
     run it is refused at the call and starts nothing, never handed back as
-    an operation that fails later."""
-    session = _session(tmp_path)
+    an operation that fails later. A turret change is refused as its waiting
+    form is: the close disconnected the scope."""
+    session = _session(tmp_path, model='LS850T')
+    session.assign_turret_objective(2, '4x Oly')
     session.shutdown()
     starts = {
+        'start_move_turret': lambda: session.scope.motion.start_move_turret(2),
+        'start_select_objective': lambda: session.start_select_objective('4x Oly'),
         'start_make_logs_zip': lambda: session.start_make_logs_zip(output_dir=tmp_path / 'o'),
         'start_make_support_report': lambda: session.start_make_support_report(
             output_dir=tmp_path / 'o'
@@ -315,10 +320,14 @@ def test_after_the_close_a_start_form_is_refused_at_its_call(tmp_path):
     for name, start in starts.items():
         try:
             answered[name] = start()
-        except SessionClosingError as refused:
+        except (SessionClosingError, HardwareCommandRefusedError) as refused:
             answered[name] = refused.reason
 
-    assert answered == dict.fromkeys(starts, 'session_closing')
+    assert answered == {
+        **dict.fromkeys(starts, 'session_closing'),
+        'start_move_turret': 'scope_disconnected',
+        'start_select_objective': 'scope_disconnected',
+    }
 
 
 def test_a_run_that_passed_its_checks_before_the_close_finished_is_refused_when_it_takes_the_scope(

@@ -627,7 +627,9 @@ _OBJECTIVE_FACTS = Words(
 # Each writer is the one home of its fact for every host; a write anywhere
 # else is a second store the API cannot see.
 _ALLOWED_WRITERS = {
-    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.select_objective'),
+    # A pick without a turret, for ``select_objective`` and
+    # ``start_select_objective`` alike.
+    ('src/_lumascope/modules/scope_session.py', 'ScopeSession._store_selected_objective'),
     ('src/_lumascope/modules/scope_session.py', 'ScopeSession.assign_turret_objective'),
     ('src/_lumascope/modules/scope_session.py', 'ScopeSession.clear_turret_objective'),
     ('src/_lumascope/modules/scope_session.py', 'ScopeSession.confirm_objective'),

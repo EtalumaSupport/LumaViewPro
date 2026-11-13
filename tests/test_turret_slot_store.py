@@ -20,7 +20,11 @@ import time
 
 import pytest
 
-from _lumascope.modules.exceptions import MoveNotCompletedError
+from _lumascope.modules.exceptions import (
+    HardwareCommandRefusedError,
+    MoveNotCompletedError,
+    PositionOutOfRangeError,
+)
 from _lumascope.modules.axes import AxisState
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -77,6 +81,35 @@ class TestTheCommandedSlot:
         motion = session.scope.motion
         motion.move_turret(2)
         assert motion.turret_status().slot == 2
+
+    def test_a_started_turret_change_records_its_slot_once_done(self, session):
+        motion = session.scope.motion
+
+        assert motion.start_move_turret(2).result(timeout=10) is None
+
+        assert motion.turret_status().slot == 2
+
+    def test_a_started_turret_change_to_no_slot_is_refused_at_its_call(self, session):
+        """Refused to the caller, never handed back as an operation that fails."""
+        motion = session.scope.motion
+
+        with pytest.raises(PositionOutOfRangeError) as refused:
+            motion.start_move_turret(5)
+
+        assert refused.value.reason == 'position_out_of_range'
+        assert motion.turret_status().slot == 1
+
+    def test_a_started_turret_change_without_a_turret_is_refused_at_its_call(self, tmp_path):
+        s = ScopeSession.create(
+            complete_settings(live_folder=str(tmp_path), microscope='LS850'), simulate=True
+        )
+        try:
+            with pytest.raises(HardwareCommandRefusedError) as refused:
+                s.scope.motion.start_move_turret(2)
+        finally:
+            s.shutdown()
+
+        assert refused.value.reason == 'axis_absent'
 
     def test_a_stalled_turret_move_leaves_no_slot(self, session, monkeypatch):
         motion = session.scope.motion

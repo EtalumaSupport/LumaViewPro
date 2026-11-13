@@ -3704,6 +3704,46 @@ runs to its end, a step that fails written into the ZIP.
 
 - 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
+<a id="ScopeSession.start_select_objective"></a>
+### `ScopeSession.start_select_objective`
+
+```python
+def start_select_objective(self, objective_id: str) -> Operation[bool]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_submit`, `guarded_write`.  
+Route: `POST /api/v1/start_select_objective`.
+
+Start the pick `select_objective` makes, without waiting for the turret; returns its `Operation`.
+
+For a caller that must not block for a turret change -- a button.
+Every refusal `select_objective` makes is made before this
+returns. On a turret scope the operation is the turret change
+(`MotionAPI.start_move_turret`), done with True once it has
+ended, or with its raise; its `stop()` is the change's. Picking
+the objective already active, or picking on a scope with no turret,
+is done when this returns, with what `select_objective` returns.
+
+**Args**
+
+- `objective_id`: The objective's catalogue key.
+
+**Returns**
+
+The pick's `Operation`: its `result()` is whether the active objective changed, or raises as `move_turret` does -- `AxisStateUnknownError`, `MoveFaultError`, `MoveStoppedError` -- the slot unknown afterwards.
+
+**Raises**
+
+- `CatalogueNameRefusedError`: `'objective_not_in_catalogue'`, as `select_objective`.
+- `ArgumentRefusedError`: `'objective_in_several_slots'` or `'objective_not_on_turret'`, as `select_objective`. Nothing is moved.
+- `HardwareCommandRefusedError`: A run, a diagnostic, a home or a recording holds the scope (`'exclusive_activity_running'`), nothing written or moved; or `'not_connected'` or `'axis_absent'`, as `MotionAPI.start_move_turret`.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `objective_not_in_catalogue`; [`ArgumentRefusedError`](#ArgumentRefusedError): `objective_in_several_slots`, `objective_not_on_turret`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+
 <a id="ScopeSession.status"></a>
 ### `ScopeSession.status`
 
@@ -8334,6 +8374,41 @@ Otherwise as `start_move_to_plate` for both axes.
 - 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
+<a id="MotionAPI.start_move_turret"></a>
+### `MotionAPI.start_move_turret`
+
+```python
+def start_move_turret(self, slot: int, restore_z: bool = True) -> Operation[None]
+```
+
+Marks: stopped by [`Operation.stop`](#Operation.stop); enters: `lane_submit`.  
+Route: `POST /api/v1/scope/motion/start_move_turret`.
+
+Start the turret change `move_turret` makes, without waiting for it; returns its `Operation`.
+
+For a caller that must not block for the three moves of a turret
+change -- a button. The change is refused, or put on the io lane,
+before this returns. The operation is done once the change has ended,
+with what `move_turret` would have returned or raised; its
+`stop()` is `stop_motion` until the change has ended, and nothing
+after: a stop asked before the change reached the lane withholds it.
+
+**Args**
+
+- `slot`: The turret slot, 1 to 4.
+- `restore_z`: As for `move_turret`.
+
+**Raises**
+
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no turret; or a run, a diagnostic, a home or a recording holds the scope. Nothing was driven.
+- `PositionOutOfRangeError`: The slot is not a whole number 1 to 4. Nothing was driven.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+
 <a id="MotionAPI.start_move_xy"></a>
 ### `MotionAPI.start_move_xy`
 
@@ -11284,7 +11359,7 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 <a id="Operation"></a>
 ## `lumascope.Operation`
 
-Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
+Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_turret`](#MotionAPI.start_move_turret), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report), [`ScopeSession.start_select_objective`](#ScopeSession.start_select_objective), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
 Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
 
 One operation in flight: its outcome, its done-callbacks, its stop and its progress.
@@ -18628,6 +18703,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/motion/start_move_to_plate` | [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate) |
 | `POST` | `/api/v1/scope/motion/start_move_to_plate_nearest` | [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest) |
 | `POST` | `/api/v1/scope/motion/start_move_to_well` | [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well) |
+| `POST` | `/api/v1/scope/motion/start_move_turret` | [`MotionAPI.start_move_turret`](#MotionAPI.start_move_turret) |
 | `POST` | `/api/v1/scope/motion/start_move_xy` | [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy) |
 | `POST` | `/api/v1/scope/motion/start_move_xy_by` | [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by) |
 | `POST` | `/api/v1/scope/motion/start_move_z` | [`MotionAPI.start_move_z`](#MotionAPI.start_move_z) |
@@ -18686,6 +18762,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/start_go_to_step` | [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step) |
 | `POST` | `/api/v1/start_make_logs_zip` | [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip) |
 | `POST` | `/api/v1/start_make_support_report` | [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report) |
+| `POST` | `/api/v1/start_select_objective` | [`ScopeSession.start_select_objective`](#ScopeSession.start_select_objective) |
 | `GET` | `/api/v1/status` | [`ScopeSession.status`](#ScopeSession.status) |
 | `POST` | `/api/v1/take_control` | [`ScopeSession.take_control`](#ScopeSession.take_control) |
 | `GET` | `/api/v1/tiling_config` | [`ScopeSession.tiling_config`](#ScopeSession.tiling_config) |

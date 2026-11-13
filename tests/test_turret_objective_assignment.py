@@ -147,6 +147,39 @@ class TestPickingAnObjectiveTurnsTheTurret:
         assert excinfo.value.offered == ()
         assert 'the turret holds nothing.' in str(excinfo.value)
 
+    def test_a_started_pick_turns_the_turret_and_answers_that_it_changed(self, turret_session):
+        pick = turret_session.start_select_objective('20x Oly')
+
+        assert pick.result(timeout=10) is True
+        assert turret_session.scope.motion.turret_status().slot == 2
+        assert turret_session.scope.runtime_state.get_current_objective_id() == '20x Oly'
+
+    def test_a_started_pick_no_slot_holds_is_refused_at_its_call(self, turret_session):
+        """Refused to the caller, never handed back as an operation that fails."""
+        with pytest.raises(ArgumentRefusedError) as excinfo:
+            turret_session.start_select_objective('40x Phase')
+
+        assert excinfo.value.reason == 'objective_not_on_turret'
+        assert turret_session.scope.motion.turret_status().slot == 1
+
+    def test_a_started_pick_of_the_active_objective_is_done_unchanged(self, turret_session):
+        active = turret_session.scope.runtime_state.get_current_objective_id()
+
+        pick = turret_session.start_select_objective(active)
+
+        assert pick.done()
+        assert pick.result() is False
+
+    def test_a_started_pick_without_a_turret_is_stored_when_it_returns(self, turretless_session):
+        """With nothing to turn, the pick is said and confirmed at the call."""
+        assert turretless_session.scope.runtime_state.get_current_objective_id() != '4x Oly'
+
+        pick = turretless_session.start_select_objective('4x Oly')
+
+        assert pick.done()
+        assert pick.result() is True
+        assert turretless_session.objective_id == '4x Oly'
+
     def test_a_confirmation_on_a_turret_scope_names_its_slot(self, turret_session):
         """The answer records glass in a slot; with no slot named it has none to record."""
         with pytest.raises(ArgumentRefusedError) as excinfo:

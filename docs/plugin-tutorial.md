@@ -529,6 +529,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 97 | `imaging.get_image` is an engineering member, and its `force_new_capture` is gone: it always waits for a frame the camera captures after the call. The last buffered frame is `imaging.get_image_from_buffer()`. |
 | level 98 | `diagnostics.read_camera_node` is an engineering member, no longer served (`GET scope/diagnostics/read_camera_node`), and `capabilities.camera_node_maps`, the maps it reads, is no longer published: a node read by its name is for Etaluma's bench and support tools. A setting the API names has its own read, in the API's units (`camera.read_gain_db`, `read_exposure_ms` and the rest). |
 | level 99 | Four calls that wait have a form that does not: `post_processing.start_build`, `post_processing.start_enhance`, `session.start_make_support_report` and `session.start_make_logs_zip`, each taking what its waiting form takes and returning an `Operation` done with what that form would have returned or raised. A REST client reads its job, whose `progress` is what the call last reported. |
+| level 100 | A turret change and an objective pick have a form that does not wait: `motion.start_move_turret` and `session.start_select_objective`, each taking what its waiting form takes, refusing at the call what that form refuses before it moves, and returning an `Operation` done with what that form would have returned or raised. Its `stop()` stops the turret change. |
 
 ---
 

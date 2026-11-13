@@ -267,6 +267,43 @@ def test_a_stop_during_the_turret_leg_leaves_z_parked_and_no_slot(turret_session
     assert motion.turret_status().slot is None
 
 
+def test_a_started_turret_changes_stop_ends_it_with_z_parked_and_no_slot(turret_session):
+    """``start_move_turret``'s ``stop()`` is the change's: asked while T
+    turns, the change ends 'stopped', Z is not restored, and no slot is
+    recorded."""
+    motion = turret_session.scope.motion
+    driver = motion._driver
+    held = turret_session.scope.simulation.hold_axis('T')
+
+    change = motion.start_move_turret(2)
+    held.result(_HOLD_WAIT_S)
+    change.stop()
+
+    assert _reason(change) == 'stopped'
+    assert driver.current_pos('Z') == pytest.approx(0.0, abs=0.1)
+    assert motion.turret_status().slot is None
+
+
+def test_a_started_turret_change_stopped_before_the_lane_reached_it_drives_nothing(
+    turret_session,
+):
+    """A stop asked while the change waits behind a busy lane withholds
+    every move of it: Z is not parked, T does not turn, and the change ends
+    'stopped' with no slot."""
+    motion = turret_session.scope.motion
+    driver = motion._driver
+    z0, t0 = driver.current_pos('Z'), driver.current_pos('T')
+    busy = _Busy(turret_session.scope._io_executor)
+
+    change = motion.start_move_turret(2)
+    change.stop()
+    busy.release.set()
+
+    assert _reason(change) == 'stopped'
+    assert (driver.current_pos('Z'), driver.current_pos('T')) == (z0, t0)
+    assert motion.turret_status().slot is None
+
+
 def test_a_stop_after_the_turret_arrived_leaves_z_parked_and_no_slot(turret_session, monkeypatch):
     """A STOP after T arrived and before the restore: the turn ended
     unremarked, the restore read a generation already past the STOP, and
