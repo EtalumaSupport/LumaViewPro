@@ -157,6 +157,36 @@ def test_an_enhance_runs_its_steps_as_the_stored_switches_say(tmp_path):
     assert operations['illumination_correction']['enabled'] is True
 
 
+def test_a_started_enhance_ends_with_the_derived_file_and_a_missing_target_in_its_operation(
+    tmp_path,
+):
+    """``start_enhance`` puts the same enhance on the lane without waiting:
+    its operation ends with the derived file beside the source; a target
+    that is not there is refused on the lane, so the operation raises it."""
+    import pytest
+
+    from _lumascope.modules.exceptions import LiveFolderPathRefusedError
+    from _lumascope.modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    source = tmp_path / 'source.tif'
+    _write_source(source)
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path / 'live')), simulate=True
+    )
+    try:
+        made = session.post_processing.start_enhance(source).result(timeout=30).created[0]
+        missing = session.post_processing.start_enhance(tmp_path / 'gone.tif')
+        with pytest.raises(LiveFolderPathRefusedError) as caught:
+            missing.result(timeout=30)
+    finally:
+        session.shutdown()
+
+    assert made.output_path.is_file()
+    assert made.output_path.parent == tmp_path
+    assert caught.value.reason == 'path_not_found'
+
+
 def test_the_mode_router_keeps_a_stitcher_for_every_mode():
     # Previously also asserted docs/STITCHING.md described these modes. That
     # doc is not published in this repo, so the prose half of the check cannot

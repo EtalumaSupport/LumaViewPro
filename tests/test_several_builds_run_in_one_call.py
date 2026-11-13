@@ -176,6 +176,26 @@ def test_a_call_that_chooses_no_build_is_refused(session, run_folder):
     assert refused.value.operation == PostProcessingOperation.POST_PROCESSING
 
 
+def test_a_started_build_ends_with_what_the_waiting_call_makes(session, run_folder):
+    """``start_build`` puts the same builds on the lane without waiting: its
+    operation ends with the projections ``build`` makes."""
+    started = session.post_processing.start_build(run_folder, zproject=ZProject())
+
+    made = _made(started.result(timeout=60))
+
+    assert list(made) == [PostProcessingOperation.Z_PROJECTION]
+    assert len(made[PostProcessingOperation.Z_PROJECTION]) == 8
+
+
+def test_a_started_build_that_chooses_none_is_refused_at_the_call(session, run_folder):
+    """The settings are checked before anything is queued, so the refusal is
+    the call's, never an operation that fails later."""
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        session.post_processing.start_build(run_folder)
+
+    assert refused.value.reason == 'invalid_setting'
+
+
 def test_a_build_that_fails_stops_the_call_as_its_own_outcome(session, run_folder):
     """A raw slice missing: z-project fails that tile's projection, and the
     call stops there, raised as z-project's failure -- the stitch after it

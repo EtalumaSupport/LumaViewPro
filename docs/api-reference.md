@@ -3635,6 +3635,75 @@ it is refused on the UI thread; a click calls it from a worker.
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
+<a id="ScopeSession.start_make_logs_zip"></a>
+### `ScopeSession.start_make_logs_zip`
+
+```python
+def start_make_logs_zip(
+    self,
+    *,
+    output_dir: FilePath,
+    on_progress: ProgressCallback | None = None,
+) -> Operation[SupportReportSaved]
+```
+
+Route: `POST /api/v1/start_make_logs_zip`.
+
+Start `make_logs_zip` without waiting for it; returns its `Operation`.
+
+The same zip, on the diagnostics lane; the operation is done with
+what `make_logs_zip` would have returned or raised. A zip has no
+stop: once started it runs to its end.
+
+**Args**
+
+- `output_dir`: As for `make_logs_zip`.
+- `on_progress`: As for `make_logs_zip`.
+
+**Raises**
+
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started. Every refusal and failure `make_logs_zip` raises, the operation raises.
+
+**Refusals by REST status**
+
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
+
+<a id="ScopeSession.start_make_support_report"></a>
+### `ScopeSession.start_make_support_report`
+
+```python
+def start_make_support_report(
+    self,
+    *,
+    output_dir: FilePath,
+    include_bandwidth_test: bool = False,
+    on_progress: ProgressCallback | None = None,
+) -> Operation[SupportReportSaved]
+```
+
+Route: `POST /api/v1/start_make_support_report`.
+
+Start `make_support_report` without waiting for it; returns its `Operation`.
+
+The same report, on the diagnostics lane, so a Stop never waits
+behind it; the operation is done with what `make_support_report`
+would have returned or raised. A report has no stop: once started it
+runs to its end, a step that fails written into the ZIP.
+
+**Args**
+
+- `output_dir`: As for `make_support_report`.
+- `include_bandwidth_test`: As for `make_support_report`.
+- `on_progress`: As for `make_support_report`.
+
+**Raises**
+
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started. Every refusal and failure `make_support_report` raises, the operation raises.
+
+**Refusals by REST status**
+
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
+
 <a id="ScopeSession.status"></a>
 ### `ScopeSession.status`
 
@@ -4724,6 +4793,90 @@ Written on the caller's thread, as the load is read.
 **Refusals by REST status**
 
 - 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_file`, `wrong_extension`, `not_a_folder`; [`PostProcessingRefusedError`](#PostProcessingRefusedError): `method_invalid`
+
+<a id="PostProcessingAPI.start_build"></a>
+### `PostProcessingAPI.start_build`
+
+```python
+def start_build(
+    self,
+    folder: FilePath,
+    *,
+    zproject: ZProject | None = None,
+    stitch: Stitch | None = None,
+    composite: bool = False,
+    video: Video | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> Operation[BuildsResult]
+```
+
+Marks: enters: `post_processing`.  
+Route: `POST /api/v1/post_processing/start_build`.
+
+Start `build` without waiting for it; returns its `Operation`.
+
+The same builds, in the same order, as one task on the
+post-processing lane; the operation is done with what `build` would
+have returned or raised. A build has no stop: once started it runs to
+its end.
+
+**Args**
+
+- `folder`: As for `build`.
+- `zproject`: As for `build`.
+- `stitch`: As for `build`.
+- `composite`: As for `build`.
+- `video`: As for `build`.
+- `on_progress`: As for `build`.
+
+**Raises**
+
+- `PostProcessingRefusedError`: `'invalid_setting'`, no build is chosen, or a chosen build's setting is one its own member refuses; nothing was queued. Every other refusal and failure `build` raises, the operation raises.
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
+
+**Refusals by REST status**
+
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
+- 422: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `invalid_setting`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
+
+<a id="PostProcessingAPI.start_enhance"></a>
+### `PostProcessingAPI.start_enhance`
+
+```python
+def start_enhance(
+    self,
+    target: FilePath,
+    *,
+    on_progress: ProgressCallback | None = None,
+    on_derived_image: Callable[[np.ndarray, int], None] | None = None,
+) -> Operation[EnhanceResult]
+```
+
+Marks: enters: `post_processing`.  
+Route: `POST /api/v1/post_processing/start_enhance`.
+
+Start `enhance` without waiting for it; returns its `Operation`.
+
+The same enhance, its settings read when it is asked, as one task on
+the post-processing lane; the operation is done with what `enhance`
+would have returned or raised. An enhance has no stop: once started
+it runs to its end.
+
+**Args**
+
+- `target`: As for `enhance`.
+- `on_progress`: As for `enhance`.
+- `on_derived_image`: As for `enhance`.
+
+**Raises**
+
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started. Every refusal and failure `enhance` raises, the operation raises.
+
+**Refusals by REST status**
+
+- 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
+- 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="PostProcessingAPI.stitch_modes"></a>
 ### `PostProcessingAPI.stitch_modes`
@@ -9729,7 +9882,7 @@ One build `build` ran, and what it made.
 ## `lumascope.BuildsResult`
 
 A record: it crosses the wire as its data.  
-Returned by: [`PostProcessingAPI.build`](#PostProcessingAPI.build).
+Returned by: [`PostProcessingAPI.build`](#PostProcessingAPI.build), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build).
 
 What `build` made.
 
@@ -10347,7 +10500,7 @@ Nothing.
 ## `lumascope.EnhanceResult`
 
 A record: it crosses the wire as its data.  
-Returned by: [`PostProcessingAPI.enhance`](#PostProcessingAPI.enhance).
+Returned by: [`PostProcessingAPI.enhance`](#PostProcessingAPI.enhance), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance).
 
 What a Quick Enhance made.
 
@@ -11131,7 +11284,7 @@ of assuming silently, and a host renders it however it likes. The answer goes ba
 <a id="Operation"></a>
 ## `lumascope.Operation`
 
-Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
+Returned by: [`ManualCaptureController.capture`](#ManualCaptureController.capture), [`ManualRecordingController.start`](#ManualRecordingController.start), [`MotionAPI.start_center_on`](#MotionAPI.start_center_on), [`MotionAPI.start_home`](#MotionAPI.start_home), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`MotionAPI.start_move_to_well`](#MotionAPI.start_move_to_well), [`MotionAPI.start_move_xy`](#MotionAPI.start_move_xy), [`MotionAPI.start_move_xy_by`](#MotionAPI.start_move_xy_by), [`MotionAPI.start_move_z`](#MotionAPI.start_move_z), [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build), [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack), [`ScopeSession.last_run`](#ScopeSession.last_run), [`ScopeSession.start_application_session`](#ScopeSession.start_application_session), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).  
 Taken by: [`ScopeSession.held_by_other`](#ScopeSession.held_by_other).
 
 One operation in flight: its outcome, its done-callbacks, its stop and its progress.
@@ -13201,7 +13354,7 @@ A `step_started` event, sent as each step begins, step 0 included.
 ## `lumascope.Stitch`
 
 A record: it crosses the wire as its data.  
-Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build).
+Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build).
 
 A stitch, as `build` takes it: each tiled scan to one mosaic.
 
@@ -13233,7 +13386,7 @@ refitted as the API fits one; the saved image mode stays saved.
 ## `lumascope.SupportReportSaved`
 
 A record: it crosses the wire as its data.  
-Returned by: [`ScopeSession.make_logs_zip`](#ScopeSession.make_logs_zip), [`ScopeSession.make_support_report`](#ScopeSession.make_support_report).
+Returned by: [`ScopeSession.make_logs_zip`](#ScopeSession.make_logs_zip), [`ScopeSession.make_support_report`](#ScopeSession.make_support_report), [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip), [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report).
 
 A support report or logs zip that was saved, and the words that say where.
 
@@ -13478,7 +13631,7 @@ A USB identity of a Lumascope Classic and each of its devices' drivers.
 ## `lumascope.Video`
 
 A record: it crosses the wire as its data.  
-Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build).
+Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build).
 
 A video, as `build` takes it: each position's time series to one video.
 
@@ -13540,7 +13693,7 @@ One piece of work the session is still doing.
 ## `lumascope.ZProject`
 
 A record: it crosses the wire as its data.  
-Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build).
+Taken by: [`PostProcessingAPI.build`](#PostProcessingAPI.build), [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build).
 
 A z-projection, as `build` takes it: each Z-stack to one image.
 
@@ -18373,6 +18526,8 @@ reads what the person was shown.
 | `GET` | `/api/v1/post_processing/load_cell_count_method` | [`PostProcessingAPI.load_cell_count_method`](#PostProcessingAPI.load_cell_count_method) |
 | `GET` | `/api/v1/post_processing/projection_methods` | [`PostProcessingAPI.projection_methods`](#PostProcessingAPI.projection_methods) |
 | `POST` | `/api/v1/post_processing/save_cell_count_method` | [`PostProcessingAPI.save_cell_count_method`](#PostProcessingAPI.save_cell_count_method) |
+| `POST` | `/api/v1/post_processing/start_build` | [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build) |
+| `POST` | `/api/v1/post_processing/start_enhance` | [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance) |
 | `GET` | `/api/v1/post_processing/stitch_modes` | [`PostProcessingAPI.stitch_modes`](#PostProcessingAPI.stitch_modes) |
 | `GET` | `/api/v1/protocol_files_stalled` | [`ScopeSession.protocol_files_stalled`](#ScopeSession.protocol_files_stalled) |
 | `GET` | `/api/v1/protocol_files_stuck_write` | [`ScopeSession.protocol_files_stuck_write`](#ScopeSession.protocol_files_stuck_write) |
@@ -18529,6 +18684,8 @@ reads what the person was shown.
 | `GET` | `/api/v1/source_path` | [`ScopeSession.source_path`](#ScopeSession.source_path) |
 | `POST` | `/api/v1/start_go_to_bookmark` | [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark) |
 | `POST` | `/api/v1/start_go_to_step` | [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step) |
+| `POST` | `/api/v1/start_make_logs_zip` | [`ScopeSession.start_make_logs_zip`](#ScopeSession.start_make_logs_zip) |
+| `POST` | `/api/v1/start_make_support_report` | [`ScopeSession.start_make_support_report`](#ScopeSession.start_make_support_report) |
 | `GET` | `/api/v1/status` | [`ScopeSession.status`](#ScopeSession.status) |
 | `POST` | `/api/v1/take_control` | [`ScopeSession.take_control`](#ScopeSession.take_control) |
 | `GET` | `/api/v1/tiling_config` | [`ScopeSession.tiling_config`](#ScopeSession.tiling_config) |

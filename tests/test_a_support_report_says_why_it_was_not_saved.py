@@ -81,6 +81,38 @@ def test_a_saved_logs_zip_says_where_it_is(session, tmp_path):
     assert str(tmp_path / 'out') in saved.message
 
 
+def test_a_started_logs_zip_ends_with_where_it_is(session, tmp_path):
+    saved = session.start_make_logs_zip(output_dir=tmp_path / 'out').result(timeout=30)
+
+    assert saved.path.is_file()
+    assert saved.path.parent == tmp_path / 'out'
+    assert saved.report == SupportReportKind.LOGS_ZIP
+
+
+def test_a_started_report_returns_before_it_ends_and_its_operation_raises_why(
+    session, monkeypatch, tmp_path
+):
+    # a stand-in by design: a report held, then failing the disk, which the
+    # simulator cannot produce (as test_a_support_report_that_fails_says_why).
+    started, release = threading.Event(), threading.Event()
+
+    def _held_then_fails(self, *args):
+        started.set()
+        assert release.wait(timeout=15)
+        raise OSError('the disk is full')
+
+    monkeypatch.setattr(TechSupportReport, '_generate', _held_then_fails)
+    report = session.start_make_support_report(output_dir=tmp_path / 'out')
+    assert started.wait(timeout=5)
+    running = report.done()
+    release.set()
+
+    with pytest.raises(SupportReportNotSavedError, match='the disk is full') as raised:
+        report.result(timeout=15)
+    assert running is False
+    assert raised.value.report == SupportReportKind.SUPPORT_REPORT
+
+
 def test_a_saved_report_names_the_folder_it_is_in_not_the_desktop():
     saved = SupportReportSaved(pathlib.Path('/home/someone/SN1-TSR.zip'), 'support report')
     assert saved.message.startswith('Saved to /home/someone:')

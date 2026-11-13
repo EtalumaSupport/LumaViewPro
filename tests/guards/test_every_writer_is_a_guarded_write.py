@@ -62,6 +62,12 @@ _NOT_GUARDED = {
     'ScopeSession.make_logs_zip': (
         'writes a support artefact and changes no scope state; made by anyone'
     ),
+    'ScopeSession.start_make_support_report': (
+        'make_support_report started on the diagnostics lane: the same artefact'
+    ),
+    'ScopeSession.start_make_logs_zip': (
+        'make_logs_zip started on the diagnostics lane: the same artefact'
+    ),
     'ProtocolsAPI.create_protocol': (
         'builds a protocol only its caller holds; edits nothing anyone else has'
     ),

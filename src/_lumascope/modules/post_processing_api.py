@@ -51,6 +51,7 @@ from _lumascope.modules.exceptions import (
     PostProcessingRefusedError,
 )
 from _lumascope.modules.live_work import WorkItem
+from _lumascope.modules.operation import Operation
 from _lumascope.modules.sequential_io_executor import IOTask
 from _lumascope.modules.stitch_mode import StitchAlgorithm, StitchMode
 from _lumascope.modules.zproject_method import ZProjectMethod
@@ -886,6 +887,74 @@ class PostProcessingAPI:
             PostProcessingFailedError: the build that stopped the call did not
                 produce everything; its ``operation`` names it.
         """
+        return self._build(
+            folder,
+            zproject=zproject,
+            stitch=stitch,
+            composite=composite,
+            video=video,
+            on_progress=on_progress,
+            waiter=None,
+        )
+
+    @api(admitted_by=(Admission.POST_PROCESSING,))
+    def start_build(
+        self,
+        folder: FilePath,
+        *,
+        zproject: ZProject | None = None,
+        stitch: Stitch | None = None,
+        composite: bool = False,
+        video: Video | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> Operation[BuildsResult]:
+        """Start ``build`` without waiting for it; returns its ``Operation``.
+
+        The same builds, in the same order, as one task on the
+        post-processing lane; the operation is done with what ``build`` would
+        have returned or raised. A build has no stop: once started it runs to
+        its end.
+
+        Args:
+            folder: As for ``build``.
+            zproject: As for ``build``.
+            stitch: As for ``build``.
+            composite: As for ``build``.
+            video: As for ``build``.
+            on_progress: As for ``build``.
+
+        Raises:
+            PostProcessingRefusedError: ``'invalid_setting'``, no build is
+                chosen, or a chosen build's setting is one its own member
+                refuses; nothing was queued. Every other refusal and failure
+                ``build`` raises, the operation raises.
+            SessionClosingError: ``'session_closing'``, the session's close
+                is running or has finished; nothing was started.
+        """
+        return Operation.following(
+            self._build(
+                folder,
+                zproject=zproject,
+                stitch=stitch,
+                composite=composite,
+                video=video,
+                on_progress=on_progress,
+                waiter=_a_waiter(),
+            )
+        )
+
+    def _build(
+        self,
+        folder: FilePath,
+        *,
+        zproject: ZProject | None,
+        stitch: Stitch | None,
+        composite: bool,
+        video: Video | None,
+        on_progress: ProgressCallback | None,
+        waiter: concurrent.futures.Future | None,
+    ):
+        """``build``'s builds put on the lane: answered, or *waiter* returned (``_on_lane``)."""
         # Each chosen build made now, so every one's settings are checked
         # before any is queued.
         made = (
@@ -908,6 +977,7 @@ class PostProcessingAPI:
             operation=PostProcessingOperation.POST_PROCESSING,
             saved_in=_chained_folder,
             on_progress=on_progress,
+            waiter=waiter,
         )
 
     def _chain(
@@ -1175,6 +1245,53 @@ class PostProcessingAPI:
                 ``no_data``, a folder that holds none.
             PostProcessingFailedError: a file could not be enhanced.
         """
+        return self._enhance_on_lane(
+            target, on_progress=on_progress, on_derived_image=on_derived_image, waiter=None
+        )
+
+    @api(admitted_by=(Admission.POST_PROCESSING,))
+    def start_enhance(
+        self,
+        target: FilePath,
+        *,
+        on_progress: ProgressCallback | None = None,
+        on_derived_image: Callable[[np.ndarray, int], None] | None = None,
+    ) -> Operation[EnhanceResult]:
+        """Start ``enhance`` without waiting for it; returns its ``Operation``.
+
+        The same enhance, its settings read when it is asked, as one task on
+        the post-processing lane; the operation is done with what ``enhance``
+        would have returned or raised. An enhance has no stop: once started
+        it runs to its end.
+
+        Args:
+            target: As for ``enhance``.
+            on_progress: As for ``enhance``.
+            on_derived_image: As for ``enhance``.
+
+        Raises:
+            SessionClosingError: ``'session_closing'``, the session's close
+                is running or has finished; nothing was started. Every refusal and failure ``enhance``
+                raises, the operation raises.
+        """
+        return Operation.following(
+            self._enhance_on_lane(
+                target,
+                on_progress=on_progress,
+                on_derived_image=on_derived_image,
+                waiter=_a_waiter(),
+            )
+        )
+
+    def _enhance_on_lane(
+        self,
+        target: FilePath,
+        *,
+        on_progress: ProgressCallback | None,
+        on_derived_image: Callable[[np.ndarray, int], None] | None,
+        waiter: concurrent.futures.Future | None,
+    ):
+        """``enhance`` put on the lane: answered, or *waiter* returned (``_on_lane``)."""
         from _lumascope.modules.quick_enhance import QuickEnhanceSettings
 
         return self._run(
@@ -1188,6 +1305,7 @@ class PostProcessingAPI:
             on_derived_image=on_derived_image,
             channel_colors=self._channel_colors(),
             settings=QuickEnhanceSettings(**self._settings_snapshot()['quick_enhance']),
+            waiter=waiter,
         )
 
     @api(reads=True)
@@ -1605,9 +1723,10 @@ class PostProcessingAPI:
         operation: PostProcessingOperation,
         saved_in: Callable[[Any], pathlib.Path | None],
         reads=path_utils.existing_folder,
+        waiter: concurrent.futures.Future | None = None,
         **kwargs,
     ):
-        """Run *action* on the post-processing lane and return its answer.
+        """Run *action* on the post-processing lane and return its answer, or *waiter* given one (``_on_lane``).
 
         The build says on the lane when it starts and how it ends, so a
         folder's derived files can be traced to the build that wrote them
@@ -1652,6 +1771,7 @@ class PostProcessingAPI:
             *args,
             admit=functools.partial(self._refuse_while_busy, operation),
             reads=reads,
+            waiter=waiter,
             **kwargs,
         )
 

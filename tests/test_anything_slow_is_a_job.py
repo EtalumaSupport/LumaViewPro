@@ -226,6 +226,21 @@ def test_a_members_progress_is_its_jobs_progress(client, session, live, monkeypa
     assert (live / job['result']['path']['name']).is_file()
 
 
+def test_a_start_members_progress_is_its_jobs_progress(client, live):
+    """A start member that reports to a callback: its route answers 202 with
+    the operation's job at once, and the job's progress is the call's own
+    report, as the waiting route's job is."""
+    accepted = client.post('/api/v1/start_make_logs_zip', json={'output_dir': 'reports'})
+    assert accepted.status_code == 202
+
+    job = client.get(accepted.headers['Location'], headers={'Prefer': 'wait=30'}).json()
+
+    assert job['status'] == 'completed'
+    assert job['member'] == 'start_make_logs_zip'
+    assert job['progress']['progress_pct'] == 100.0
+    assert (live / job['result']['path']['name']).is_file()
+
+
 def test_a_running_call_a_member_hands_back_is_a_job(client):
     started = client.post('/api/v1/scope/motion/start_home')
 

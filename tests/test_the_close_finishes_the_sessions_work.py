@@ -296,6 +296,31 @@ def test_after_the_close_nothing_new_takes_the_scope_for_good(tmp_path):
     assert (refused.value.reason, refused.value.activity) == ('session_closing', 'home')
 
 
+def test_after_the_close_a_start_form_is_refused_at_its_call(tmp_path):
+    """Each start form puts its work on a session lane, so once the close has
+    run it is refused at the call and starts nothing, never handed back as
+    an operation that fails later."""
+    session = _session(tmp_path)
+    session.shutdown()
+    starts = {
+        'start_make_logs_zip': lambda: session.start_make_logs_zip(output_dir=tmp_path / 'o'),
+        'start_make_support_report': lambda: session.start_make_support_report(
+            output_dir=tmp_path / 'o'
+        ),
+        'start_enhance': lambda: session.post_processing.start_enhance(tmp_path / 'a.tif'),
+        'start_build': lambda: session.post_processing.start_build(tmp_path, composite=True),
+    }
+
+    answered = {}
+    for name, start in starts.items():
+        try:
+            answered[name] = start()
+        except SessionClosingError as refused:
+            answered[name] = refused.reason
+
+    assert answered == dict.fromkeys(starts, 'session_closing')
+
+
 def test_a_run_that_passed_its_checks_before_the_close_finished_is_refused_when_it_takes_the_scope(
     tmp_path,
 ):

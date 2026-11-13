@@ -939,13 +939,19 @@ def _add(
         loop = asyncio.get_running_loop()
         progress = Progress()
 
-        def job_of(operation: Operation, member: str = asked) -> dict:
+        def job_of(operation: Operation, member: str = asked, said: Progress | None = None) -> dict:
             files = operation.files
             return jobs.of_future(
                 operation,
                 member=member,
                 answer=future_answer,
-                progress=lambda: encoded(operation.progress()),
+                # A member that reports its progress to a callback says it
+                # there, not through its operation's progress().
+                progress=(
+                    (lambda: said.last)
+                    if said is not None
+                    else (lambda: encoded(operation.progress()))
+                ),
                 loop=loop,
                 files=None if files is None else lambda: job_of(files, f'{member}/files'),
             )
@@ -974,7 +980,8 @@ def _add(
                         raise problems.not_found(f'{name}: this scope has no {segment}.')
                 value = act(owner, progress, job_of)
             if isinstance(value, Operation):
-                handed.append(job_of(value)['id'])
+                said = progress if member.progress is not None else None
+                handed.append(job_of(value, said=said)['id'])
             return encoded(value)
 
         answered = jobs.run(lambda: _answered(work, request_id), name, request_id)

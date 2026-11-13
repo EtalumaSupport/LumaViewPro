@@ -5486,6 +5486,78 @@ class ScopeSession:
             )
 
     @api
+    def start_make_support_report(
+        self,
+        *,
+        output_dir: FilePath,
+        include_bandwidth_test: bool = False,
+        on_progress: ProgressCallback | None = None,
+    ) -> 'Operation[SupportReportSaved]':
+        """Start ``make_support_report`` without waiting for it; returns its ``Operation``.
+
+        The same report, on the diagnostics lane, so a Stop never waits
+        behind it; the operation is done with what ``make_support_report``
+        would have returned or raised. A report has no stop: once started it
+        runs to its end, a step that fails written into the ZIP.
+
+        Args:
+            output_dir: As for ``make_support_report``.
+            include_bandwidth_test: As for ``make_support_report``.
+            on_progress: As for ``make_support_report``.
+
+        Raises:
+            SessionClosingError: ``'session_closing'``, the session's close
+                is running or has finished; nothing was started. Every refusal and failure
+                ``make_support_report`` raises, the operation raises.
+        """
+        return self._start_on_diagnostics_lane(
+            self.make_support_report,
+            output_dir=output_dir,
+            include_bandwidth_test=include_bandwidth_test,
+            on_progress=on_progress,
+        )
+
+    @api
+    def start_make_logs_zip(
+        self,
+        *,
+        output_dir: FilePath,
+        on_progress: ProgressCallback | None = None,
+    ) -> 'Operation[SupportReportSaved]':
+        """Start ``make_logs_zip`` without waiting for it; returns its ``Operation``.
+
+        The same zip, on the diagnostics lane; the operation is done with
+        what ``make_logs_zip`` would have returned or raised. A zip has no
+        stop: once started it runs to its end.
+
+        Args:
+            output_dir: As for ``make_logs_zip``.
+            on_progress: As for ``make_logs_zip``.
+
+        Raises:
+            SessionClosingError: ``'session_closing'``, the session's close
+                is running or has finished; nothing was started. Every refusal and failure
+                ``make_logs_zip`` raises, the operation raises.
+        """
+        return self._start_on_diagnostics_lane(
+            self.make_logs_zip, output_dir=output_dir, on_progress=on_progress
+        )
+
+    def _start_on_diagnostics_lane(self, member: Callable[..., object], **kwargs) -> Operation:
+        """*member* called with *kwargs* on the diagnostics lane, without waiting: the operation it settles.
+
+        The waiting member itself is the lane's task, so the work has one
+        body and its declared slow-task budget reaches the lane.
+        """
+        waiter: concurrent.futures.Future = concurrent.futures.Future()
+        # Marked running before the lane holds it, so only the lane settles it.
+        waiter.set_running_or_notify_cancel()
+        self.executor_bundle.diagnostics_executor.submit(
+            IOTask(action=member, kwargs=kwargs), member.__name__, waiter=waiter
+        )
+        return Operation.following(waiter)
+
+    @api
     @property
     def app_version(self) -> str | None:
         """The application's version, ``4.0.0-beta36``; None where the build has none.
