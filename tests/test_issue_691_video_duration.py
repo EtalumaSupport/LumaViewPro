@@ -96,16 +96,16 @@ def test_video_duration_text_allows_beyond_slider():
     import json
 
     from _lumascope.modules.exceptions import SettingRefusedError
-    from _lumascope.modules.settings_paths import VIDEO_STEP_DURATION_S_MAX, check_write
+    from _lumascope.modules.settings_paths import VIDEO_STEP_DURATION_S_MAX, check_value
 
     method = _method_node(REPO_ROOT / 'ui' / 'channel_control.py', 'video_duration_text')
     assert 'value_max' not in ast.unparse(method), (
         "video_duration_text must hand the writer no ceiling; the range is the writer's"
     )
     template = json.loads((REPO_ROOT / 'data' / 'settings.json').read_text(encoding='utf-8'))
-    check_write(template, 'BF.video_config.duration', 600)
+    check_value(template, 'BF.video_config.duration', 600)
     with pytest.raises(SettingRefusedError):
-        check_write(template, 'BF.video_config.duration', VIDEO_STEP_DURATION_S_MAX + 1)
+        check_value(template, 'BF.video_config.duration', VIDEO_STEP_DURATION_S_MAX + 1)
 
 
 def test_video_duration_slider_ceiling_is_60():

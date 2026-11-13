@@ -275,7 +275,7 @@ def _make_scope(tmp_path: pathlib.Path, model: str = 'LS850', protocol: bool = T
     else:
         home_sim_scope(session.scope)
     # A protocol has steps only for a layer that acquires.
-    session.set_channel_acquire('BF', 'image')
+    session.set_channel_settings('BF', acquire='image')
     client = TestClient(build_app(session))
     client.__enter__()
     scope = Scope(session, live, client)
@@ -336,8 +336,8 @@ def run_folders(tmp_path_factory):
     try:
         home_sim_scope(session.scope)
         runner = session.protocol_runner()
-        session.set_channel_acquire('BF', 'image')
-        session.set_channel_acquire(LED0, 'image')
+        session.set_channel_settings('BF', acquire='image')
+        session.set_channel_settings(LED0, acquire='image')
 
         def scan(tiling: str) -> object:
             # Parked first: a run that ended may still be returning Z to its

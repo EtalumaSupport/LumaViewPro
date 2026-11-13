@@ -36,8 +36,8 @@ def reported(monkeypatch):
 
 def _acquire_only_bf(session):
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.set_channel_acquire(layer, None)
-    session.set_channel_acquire('BF', 'image')
+        session.set_channel_settings(layer, acquire=None)
+    session.set_channel_settings('BF', acquire='image')
 
 
 def test_a_loaded_file_with_an_invalid_step_loads_and_is_noticed_once(session, reported, tmp_path):

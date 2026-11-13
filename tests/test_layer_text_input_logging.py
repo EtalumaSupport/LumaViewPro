@@ -19,7 +19,7 @@ import logging
 from types import SimpleNamespace
 
 import _lumascope.modules.app_context as _app_ctx
-from tests.settings_fixtures import as_channel_writes, settings_writer
+from tests.settings_fixtures import channel_settings_writer, settings_writer
 from ui.channel_control import ChannelControl
 from tests.stock_channels import LED0
 
@@ -45,20 +45,20 @@ def _blue_panel(monkeypatch, caplog, typed, *, stored=500.0):
     """
     caplog.set_level(logging.INFO, logger=_GUI_LOG)
     settings = {LED0: {'exposure_ms': stored}, 'fx2_debug_wire_enabled': False}
-    write = settings_writer(settings)
+    write = channel_settings_writer(settings)
     writes = []
 
-    def update_settings(path, value):
+    def set_channel_settings(channel, **fields):
         writes.append(_records(caplog))
-        write(path, value)
+        write(channel, **fields)
 
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
         SimpleNamespace(
             settings=settings,
-            update_settings=update_settings,
-            session=SimpleNamespace(set_channel_settings=as_channel_writes(update_settings)),
+            update_settings=settings_writer(settings),
+            session=SimpleNamespace(set_channel_settings=set_channel_settings),
         ),
     )
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record

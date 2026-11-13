@@ -840,7 +840,7 @@ class ScopeSession:
         # channel: what the camera reached, readable after the setter has
         # answered (a setting's URL answers only its read). A record of that
         # turning off, not of the channel now, so no later write forgets it.
-        # In memory only. Written by set_channel_auto_gain under settings_lock.
+        # In memory only. Written by the one channel write under settings_lock.
         self._auto_gain_locks: dict[str, AutoGainLock] = {}
         # Outcome listeners this session registered on the notification
         # centre, so its shutdown takes back exactly what it gave.
@@ -937,7 +937,7 @@ class ScopeSession:
             on_step_lit=self._step_lit_by_run,
             on_run_ending=self._show_the_channel_shown_before_the_run,
             on_saved=self._saved,
-            save_channel_focus=self.save_channel_focus,
+            set_channel_settings=self.set_channel_settings,
         )
         self._protocol_runner = None
         # The computer is kept awake while the session is open, in every host
@@ -2409,26 +2409,6 @@ class ScopeSession:
             entry['autofocus'] = False
 
     @api(reads=True)
-    def saved_focus_z_um(self, channel: str) -> float:
-        """The Z saved as ``channel``'s focus, in micrometres.
-
-        Args:
-            channel: The channel whose saved focus is read.
-
-        Raises:
-            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-            FocusNotSavedError: no focus was ever saved for ``channel``; a step
-                built for it takes the current Z instead.
-        """
-        from _lumascope.modules.exceptions import FocusNotSavedError
-
-        refuse_unknown_channel(channel)
-        focus = self._settings[channel]['focus']
-        if focus is None:
-            raise FocusNotSavedError(channel)
-        return focus
-
-    @api(reads=True)
     def channel_colors(self) -> dict[str, tuple[float, float, float]]:
         """Every channel of the release and the colour it is shown and written
         in, as red, green and blue weights, each 0 to 1.
@@ -2671,7 +2651,7 @@ class ScopeSession:
         channel write is: the shown channel's row is on the camera, and on
         its LED when lit, when this returns; auto-gain off with a gain or
         exposure beside it is those values with the camera's loop off, and
-        alone keeps what the loop reached (``set_channel_auto_gain``); a
+        alone keeps what the loop reached (``channel_auto_gain_lock``); a
         channel set to acquire stops stimulating. While a run or a diagnostic
         holds the scope the rows are stored only, and its end puts the shown
         channel on.
@@ -2772,136 +2752,15 @@ class ScopeSession:
         )
         return path
 
-    @api(sets='channel_acquire', admitted_by=(Admission.GUARDED_WRITE,))
-    @_guarded_write
-    def set_channel_acquire(self, channel: str, mode: AcquireMode | None) -> None:
-        """Set what a channel captures: an ``AcquireMode``, or None (nothing).
-
-        The channels set to acquire are the ones ``new_protocol`` and
-        ``add_step`` build steps for and a composite merges. A channel set to
-        acquire stops stimulating: one channel does not capture and
-        stimulate at once.
-
-        Nothing is changed on any refusal. Setting a channel to acquire
-        nothing is always admitted.
-
-        Args:
-            channel: The channel set.
-            mode: What it captures, an ``AcquireMode``; None sets it to
-                capture nothing.
-
-        Raises:
-            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
-                channel; ``'not_offered'``, ``mode`` is not an
-                ``AcquireMode`` or None.
-            ConfigurationDefectError: ``'channels_unresolved'``, this scope's channels
-                could not be resolved.
-            HardwareCommandRefusedError: ``'not_on_this_scope'``, ``mode`` is not
-                None and this scope does not have ``channel``.
-        """
-        refuse_unknown_channel(channel)
-        if mode is not None:
-            self.scope.channel_identity.refuse_unless_on_scope(
-                channel, 'set_channel_acquire', then='be set to acquire'
-            )
-        self._store_channel_fields({channel: {'acquire': mode}})
-
-    @api(reads=True)
-    def channel_acquire(self, channel: str) -> AcquireMode | None:
-        """What ``channel`` captures: an ``AcquireMode``, or None (nothing).
-
-        Args:
-            channel: The channel read.
-
-        Raises:
-            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-        """
-        refuse_unknown_channel(channel)
-        mode = self._settings[channel]['acquire']
-        return None if mode is None else AcquireMode(mode)
-
-    @api(sets='channel_auto_gain', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
-    @_guarded_write
-    def set_channel_auto_gain(self, channel: str, enabled: bool) -> 'AutoGainLock | None':
-        """Turn a channel's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
-
-        This is the channel's stored setting, which a capture of that channel
-        uses; ``scope.camera.set_auto_gain`` is a raw camera write, which the
-        next channel the camera holds replaces.
-
-        For the shown channel the camera follows when this returns: turning it
-        on arms the camera's auto loop (``apply_channel_camera``); turning it
-        off locks the standing arm (``scope.camera.lock_auto_gain``) and
-        stores what the camera reached as the channel's manual setting: the
-        lock's ``gain_db`` and its ``stored_exposure_ms``, rounded to 0.1 dB
-        and 0.01 ms, the resolution the stored settings carry, both when the
-        lock reached them; with no arm standing, or a lock that found
-        nothing usable, they are left as they were. Either waits on the
-        camera lane. For a channel the camera does not hold, only the
-        preference is stored: the camera's arm is another channel's, and its
-        values are not this channel's to take. While a run or a diagnostic
-        holds the scope, turning auto-gain on is stored only, put on the
-        camera at its end, and turning the shown channel's off is refused;
-        while a home holds it, changing the shown channel's is refused.
-
-        Nothing is changed on any refusal.
-
-        Args:
-            channel: The channel whose auto-gain is set.
-            enabled: True turns it on, False off.
-
-        Returns:
-            The lock when turning off (its ``state`` is None when no arm
-            stood), so a caller can read the state the camera reached, and
-            ``channel_auto_gain_lock`` answers it from then on; None when
-            turning on.
-
-        Raises:
-            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
-                channel; ``'gain_range_inverted'``, ``enabled`` is True and
-                the stored auto-gain range has its minimum gain above its
-                maximum, whichever channel it is.
-            ConfigurationDefectError: ``'channels_unresolved'``, this scope's channels
-                could not be resolved.
-            HardwareCommandRefusedError: ``'not_on_this_scope'``, ``enabled`` is
-                True and this scope does not have ``channel``; or
-                ``'exclusive_activity_running'``, the lock's when a run or a
-                diagnostic holds the scope, or a home's for the shown channel.
-        """
-        refuse_unknown_channel(channel)
-        if enabled:
-            self.scope.channel_identity.refuse_unless_on_scope(
-                channel, 'set_channel_auto_gain', then='run auto-gain'
-            )
-        self._write_channels(
-            {channel: {'auto_gain': enabled}}, member='set_channel_auto_gain', then_camera=True
-        )
-        if enabled:
-            return None
-        with self.settings_lock:
-            return self._auto_gain_locks[channel]
-
-    @api(reads=True)
-    def channel_auto_gain(self, channel: str) -> bool:
-        """Whether ``channel``'s auto-gain is on, as ``set_channel_auto_gain`` set it.
-
-        Args:
-            channel: The channel read.
-
-        Raises:
-            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-        """
-        refuse_unknown_channel(channel)
-        return self._settings[channel]['auto_gain']
-
     @api(reads=True)
     def channel_auto_gain_lock(self, channel: str) -> 'AutoGainLock | None':
         """What the camera reached the last time ``channel``'s auto-gain was turned off.
 
-        The lock ``set_channel_auto_gain(channel, False)`` returned, the last
-        time it was called: its ``state`` says whether the camera converged,
-        hit the exposure ceiling or floor, or reported nothing usable, and is
-        None when no auto-gain was running or the camera did not hold the
+        The lock the camera's arm took the last time a write turned
+        ``channel``'s auto-gain off with no gain or exposure beside it
+        (``set_channel_settings(channel, auto_gain=False)``): its ``state``
+        says whether the camera converged, hit the exposure ceiling or floor,
+        or reported nothing usable, and is None when no auto-gain was running or the camera did not hold the
         channel. It describes that turning off, not the channel now: a later
         turning on, a step's values or a stored gain leave it as it was.
         None when the channel's auto-gain has not been turned off since the
@@ -3024,21 +2883,24 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
-                channel; ``'not_a_number'``, a focus that is not finite;
-                ``'gain_range_inverted'``, ``auto_gain`` True while the
+                channel; ``'gain_range_inverted'``, ``auto_gain`` True while the
                 stored auto-gain range has its minimum gain above its
                 maximum.
             SettingRefusedError: ``'not_offered'``, a field this channel
                 does not carry (stimulation on a channel that does not
                 stimulate); ``'wrong_kind'`` or ``'out_of_range'``, a value
-                its setting does not take, an illumination above the LED
-                board's maximum among them.
+                its setting does not take, a focus that is not finite and an
+                illumination above the LED board's maximum among them.
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
                 channels could not be resolved.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope
                 does not have ``channel`` and the write sets it to acquire,
                 turns its auto-gain on or saves its focus;
-                ``'exclusive_activity_running'``, as described above.
+                ``'exclusive_activity_running'``, as described above, or the
+                write is the shown channel's illumination, its LED is lit at
+                0 mA, the value is above 0 mA, and a manual recording runs (a
+                recording keeps the light it started under). Nothing is
+                stored.
             ProtocolRunRefusedError: ``'positions_unreachable'``, a focus on a
                 scope with no Z axis.
             PositionOutOfRangeError: a focus outside Z's travel.
@@ -3541,40 +3403,6 @@ class ScopeSession:
             f'[Session  ] Focus saved: {channel} Z={z}, and as the Z of step {step_index + 1}'
         )
         return SavedFocus(z_um=z, step_index=step_index)
-
-    @api(sets='saved_focus_z_um', admitted_by=(Admission.GUARDED_WRITE,))
-    @_guarded_write
-    def save_channel_focus(self, channel: str, z_um: float) -> None:
-        """Store ``z_um`` as ``channel``'s focus, the Z every new step of the channel is born at.
-
-        The door for a caller that holds a number rather than a stage: an
-        autofocus run saving the Z it chose, a script saving one it
-        measured. It says only that the number is a Z this scope's focus can
-        reach; it guarantees nothing about where the number came from.
-        ``save_focus``, which saves the live Z, writes through the same path.
-
-        Args:
-            channel: The channel whose focus is stored.
-            z_um: The focus, in micrometres; it must lie within Z's travel.
-
-        Raises:
-            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
-                no ``channel``.
-            ConfigurationDefectError: ``'channels_unresolved'``, this scope's channels
-                could not be resolved. Nothing is written.
-            ProtocolRunRefusedError: ``'positions_unreachable'`` -- this scope
-                has no Z axis. Nothing is written.
-            ArgumentRefusedError: ``'not_a_number'``, ``z_um`` is NaN or
-                infinite. Nothing is written.
-            PositionOutOfRangeError: ``z_um`` lies outside Z's travel.
-                Nothing is written.
-        """
-        self.scope.channel_identity.refuse_unless_on_scope(
-            channel, 'save_channel_focus', then='take a focus'
-        )
-        z = self._store_channel_focus(channel, z_um)
-        logger.info(f'[Session  ] Focus saved: {channel} Z={z}')
 
     def _store_channel_focus(self, channel: str, z_um: float) -> float:
         """A channel's focus through the one channel write, refused unless Z can reach it; returns the Z stored."""
@@ -4828,7 +4656,8 @@ class ScopeSession:
         A setting with a read of its own is read there, so one setting has
         one read: ``get_setting('binning')`` is refused for
         ``scope.camera.binning``, ``get_setting('objective_id')`` for
-        ``objective_id``, ``get_setting('bookmark')`` for ``bookmark``. The
+        ``objective_id``, ``get_setting('bookmark')`` for ``bookmark``,
+        ``get_setting('BF.gain_db')`` for ``channel_settings``. The
         live folder and the protocol file, which only the host moves, are
         read here.
 
@@ -4864,7 +4693,7 @@ class ScopeSession:
 
     @api(admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     def update_settings(self, path: str, value: 'SettingValue') -> None:
-        """Write one setting, named by its dotted path: ``'video.max_fps'``, ``'BF.sum'``.
+        """Write one setting, named by its dotted path: ``'video.max_fps'``, ``'zstack.range'``.
 
         The one write to the live settings for any caller, on any thread.
         Reads take ``get_settings_snapshot``; a write that skips this can
@@ -4872,8 +4701,8 @@ class ScopeSession:
         checks below.
 
         A setting that has its own member -- the objective, the plate, the
-        image mode, a channel's acquire mode or focus, the live folder, ... --
-        is changed only through that member, which checks it against the
+        image mode, every setting of a channel (``set_channel_settings``),
+        the live folder, ... -- is changed only through that member, which checks it against the
         scope or changes another setting with it; the refusal names the
         member. A setting that decides how the next start reaches the scope
         or the machine -- the REST server and its key, the start mode, the
@@ -4899,37 +4728,25 @@ class ScopeSession:
                 setting; ``'block'``, it names a block; ``'wrong_kind'``,
                 ``value`` is not the setting's kind; ``'out_of_range'``, it
                 is outside its range (a ``protocol.period`` or
-                ``protocol.duration`` no protocol can run, and a channel's
-                illumination above the attached LED board's maximum, among
-                them). Nothing is written.
-            ConfigurationDefectError: ``'channels_unresolved'``, the write is to the
-                shown channel's camera settings and this scope's channels could not be
-                resolved; the value is stored, and the camera is not changed.
-            HardwareCommandRefusedError: ``'exclusive_activity_running'``,
-                the write is the shown channel's illumination, its LED is lit
-                at 0 mA, the value is above 0 mA, and a manual recording runs
-                (a recording keeps the light it started under); or a home
-                holds the scope and the shown channel's camera or LED would
-                take the write. Nothing is stored.
+                ``protocol.duration`` no protocol can run among them).
+                Nothing is written.
+            ConfigurationDefectError: ``'channels_unresolved'``, the write is
+                an auto-gain bound the shown channel's camera takes and this
+                scope's channels could not be resolved; the value is stored,
+                and the camera is not changed.
+            HardwareCommandRefusedError: ``'exclusive_activity_running'``, a
+                home holds the scope and the shown channel's camera would take
+                the write. Nothing is stored.
 
         A numpy scalar in ``value``, at any depth, is stored as the Python
         value it holds.
 
-        A channel's gain or exposure is stored as written, the person's
-        intent; a camera that cannot reach it is driven at its own limit
-        when the channel is applied (``CameraAPI.applied_gain_db_for``).
-        A channel's setting is written as every channel write is: a write to
-        the shown channel's gain or exposure (or, while it is on
-        auto-gain, to the auto-gain bounds) is on the camera, and to its
-        illumination on its lit LED, when this returns, a manual recording
-        running or not; a write to a hidden channel, or one made while a run
-        or a diagnostic holds the scope, is stored only, and the shown
-        channel is put on at its end; while a home holds the scope, one the
-        shown channel's camera or LED would take is refused. The
-        illumination is put on the LED before it is stored, so a light the
-        LED refuses stores nothing. Such a write waits on the camera or LED lane,
-        so a caller on the UI thread hands it to a worker. Each auto-gain
-        bound is stored alone; a minimum left above the maximum is refused
+        While the shown channel is on auto-gain, a write to the auto-gain
+        bounds is on the camera when this returns, unless a run or a
+        diagnostic holds the scope, whose end puts the shown channel on;
+        while a home holds the scope it is refused. Such a write waits on
+        the camera lane, so a caller on the UI thread hands it to a worker.
+        Each auto-gain bound is stored alone; a minimum left above the maximum is refused
         when auto-gain is armed with them (``ArgumentRefusedError``,
         ``'gain_range_inverted'``), so this write raises it after the store
         while the shown channel is on auto-gain, and the camera keeps its arm.
@@ -4949,20 +4766,9 @@ class ScopeSession:
                 'hosting the scope can call; a REST client reads it and cannot move it',
                 member=member.path,
             )
-        settings_paths.check_write(
-            self.scope.settings_template,
-            path,
-            value,
-            led_max_ma=self.scope.capabilities.led_max_ma,
-        )
+        settings_paths.check_write(self.scope.settings_template, path, value)
         preference = path in settings_paths.PREFERENCES
-        channel, _, key = path.partition('.')
         with contextlib.nullcontext() if preference else a_guarded_write(self._activity_claim):
-            if channel in common_utils.get_channels():
-                self._write_channels(
-                    {channel: {key: value}}, member='update_settings', then_camera=True
-                )
-                return
             camera = self._a_bound_the_shown_camera_takes(path)
             if camera:
                 self._refuse_during_a_home('update_settings')
@@ -5006,8 +4812,8 @@ class ScopeSession:
         """Refuse a channel write by the rules only the Session can judge, before any of it is stored.
 
         Each door has judged its numbers against the channel ranges and the
-        LED board's maximum in its own refusal's form (``update_settings``'
-        ``settings_paths.check_write``; a protocol row's or a step's
+        LED board's maximum in its own refusal's form (``set_channel_settings``'
+        ``settings_paths.check_value``; a protocol row's or a step's
         ``'values_out_of_range'``). Judged here: a focus Z cannot reach, and
         auto-gain turned on while the stored range has its minimum gain above
         its maximum, which no arm can take, on any channel, since a channel

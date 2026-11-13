@@ -86,6 +86,22 @@ def test_an_illumination_above_the_led_board_is_refused_and_nothing_changes(sess
     assert session.get_settings_snapshot() == before
 
 
+def test_a_stimulation_current_above_the_led_board_is_refused_and_nothing_changes(session):
+    board_max = session.scope.capabilities.led_max_ma
+    before = session.get_settings_snapshot()
+
+    with pytest.raises(SettingRefusedError, match="LED board's maximum") as refused:
+        session.set_channel_settings(STIM_CHANNEL, stim_illumination_ma=board_max + 1)
+
+    assert (refused.value.reason, refused.value.path) == (
+        'out_of_range',
+        f'{STIM_CHANNEL}.stim_config.illumination_ma',
+    )
+    assert session.get_settings_snapshot() == before
+    session.set_channel_settings(STIM_CHANNEL, stim_illumination_ma=board_max)
+    assert session.channel_settings(STIM_CHANNEL).stim_illumination_ma == board_max
+
+
 def test_a_field_the_channel_does_not_carry_is_refused_and_read_none(session):
     before = session.get_settings_snapshot()
 

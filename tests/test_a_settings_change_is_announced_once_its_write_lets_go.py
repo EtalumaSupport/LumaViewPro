@@ -41,12 +41,14 @@ def test_a_write_of_several_paths_in_one_hold_is_announced_once_after_the_releas
 
     def listener(paths):
         # Told outside the lock: a listener may read the store.
-        heard.append((paths, session.settings_lock.locked(), session.channel_acquire(LED0)))
+        heard.append(
+            (paths, session.settings_lock.locked(), session.channel_settings(LED0).acquire)
+        )
 
     session.add_settings_listener(listener)
     try:
         # A layer set to acquire stops stimulating: two paths in one hold.
-        session.set_channel_acquire(LED0, 'image')
+        session.set_channel_settings(LED0, acquire='image')
         # A hold that stored nothing -- a reader's -- tells nothing.
         with session.settings_lock:
             pass

@@ -20,7 +20,7 @@ Test approach
 - Behavioral: on a simulated session, arm the shown layer's auto-gain at a
   sub-floor exposure (the simulated loop converges the gain and leaves the
   exposure where it was) and turn it off through
-  ScopeSession.set_channel_auto_gain; assert the store holds the floored
+  ScopeSession.set_channel_settings; assert the store holds the floored
   value, not the raw one.
 """
 
@@ -38,7 +38,7 @@ from tests.stock_channels import LED0
 
 class TestExposureFloorSourceStructure:
     """Source-level lock on the AG-feedback floor logic in
-    ScopeSession.set_channel_auto_gain."""
+    ScopeSession._write_channel_fields, the one channel write's store."""
 
     def test_the_per_class_floors_live_beside_the_ag_ae_ceiling(self):
         """The floors live beside the AG/AE ceiling in config_helpers: 0.1 ms
@@ -53,7 +53,7 @@ class TestExposureFloorSourceStructure:
         REST caller storing the same result gets the same value. A
         hand-written per-class branch in the GUI is how the BF AG ->
         0.03 ms -> warning-spam path came back once before."""
-        body = inspect.getsource(ScopeSession.set_channel_auto_gain)
+        body = inspect.getsource(ScopeSession._write_channel_fields)
         assert 'stored_exposure_ms' in body
         assert 'get_ag_ae_min_exposure_ms' not in body
         assert 'FLUORESCENCE_MIN_EXPOSURE_MS' not in body
@@ -77,11 +77,11 @@ def leave(sim_session):
     """
 
     def leave(layer: str, raw_exp_ms: float) -> float:
-        sim_session.update_settings(f'{layer}.exposure_ms', raw_exp_ms)
+        sim_session.set_channel_settings(layer, exposure_ms=raw_exp_ms)
         sim_session.show_channel(layer)
-        sim_session.set_channel_auto_gain(layer, True)
-        sim_session.set_channel_auto_gain(layer, False)
-        return sim_session.get_setting(f'{layer}.exposure_ms')
+        sim_session.set_channel_settings(layer, auto_gain=True)
+        sim_session.set_channel_settings(layer, auto_gain=False)
+        return sim_session.channel_settings(layer).exposure_ms
 
     return leave
 

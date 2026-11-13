@@ -47,14 +47,14 @@ def session(tmp_path_factory):
 def test_a_nested_setting_is_written(session):
     session.update_settings('video.max_fps', 25)
     assert session.settings['video']['max_fps'] == 25
-    session.update_settings('BF.sum', 3)
+    session.set_channel_settings('BF', frames_summed=3)
     assert session.settings['BF']['sum'] == 3
 
 
 def test_a_leaf_with_no_shipped_value_takes_the_kind_it_holds_when_set(session):
     # The template ships a channel's colour override as null ("none"): a
     # colour is its value.
-    session.update_settings(f'{LED0}.display_color', '#ff00ff')
+    session.set_channel_settings(LED0, display_color='#ff00ff')
     assert session.settings[LED0]['display_color'] == '#ff00ff'
 
 
@@ -81,8 +81,6 @@ def test_a_leaf_with_no_shipped_value_takes_the_kind_it_holds_when_set(session):
         ('image_output_format.live', 'BMP', 'not_offered'),
         # A format of the set the live selector does not offer.
         ('image_output_format.live', 'OME-TIFF Hyperstack', 'not_offered'),
-        # A leaf shipped null takes null or the kind it holds when set.
-        (f'{LED0}.display_color', 7, 'wrong_kind'),
         # A second channel order every 4.0 beta stored; the drawers' is the one.
         ('step_channel_order', ['BF'], 'not_a_setting'),
     ],
@@ -160,25 +158,26 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
             'scope.camera.set_frame_size',
             'has_member',
         ),
+        # Every setting of a channel, at its block and below it.
+        (
+            LED0,
+            ScopeSession,
+            'set_channel_settings',
+            'ScopeSession.set_channel_settings',
+            'has_member',
+        ),
         (
             f'{LED0}.acquire',
             ScopeSession,
-            'set_channel_acquire',
-            'ScopeSession.set_channel_acquire',
+            'set_channel_settings',
+            'ScopeSession.set_channel_settings',
             'has_member',
         ),
         (
-            f'{LED0}.auto_gain',
+            f'{LED0}.stim_config.frequency',
             ScopeSession,
-            'set_channel_auto_gain',
-            'ScopeSession.set_channel_auto_gain',
-            'has_member',
-        ),
-        (
-            f'{LED0}.focus',
-            ScopeSession,
-            'save_channel_focus',
-            'ScopeSession.save_channel_focus',
+            'set_channel_settings',
+            'ScopeSession.set_channel_settings',
             'has_member',
         ),
     ],
@@ -291,8 +290,8 @@ def test_a_layer_exposure_or_gain_above_the_camera_is_stored_as_the_intent(sessi
     # with the stored value kept for a camera that can reach it.
     assert session.scope.camera.setting_limits.exposure_max_ms == 1000.0
     assert session.scope.camera.setting_limits.gain_max_db == 48.0
-    session.update_settings(f'{LED0}.exposure_ms', 1500.0)
-    session.update_settings(f'{LED0}.gain_db', 60.0)
+    session.set_channel_settings(LED0, exposure_ms=1500.0)
+    session.set_channel_settings(LED0, gain_db=60.0)
     assert session.settings[LED0]['exposure_ms'] == 1500.0
     assert session.settings[LED0]['gain_db'] == 60.0
 
@@ -303,7 +302,7 @@ def test_a_minimum_gain_left_above_the_maximum_is_stored_and_refused_at_the_arm(
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
         layer = s.shown_channel.channel
-        s.set_channel_auto_gain(layer, True)
+        s.set_channel_settings(layer, auto_gain=True)
         with pytest.raises(ArgumentRefusedError) as refused:
             s.update_settings('protocol.autogain.min_gain_db', 30.0)
         assert refused.value.reason == 'gain_range_inverted'
@@ -311,21 +310,6 @@ def test_a_minimum_gain_left_above_the_maximum_is_stored_and_refused_at_the_arm(
         s.update_settings('protocol.autogain.max_gain_db', 40.0)
     finally:
         s.shutdown()
-
-
-@pytest.mark.parametrize('path', [f'{LED0}.illumination_ma', f'{LED0}.stim_config.illumination_ma'])
-def test_a_layer_current_above_the_led_board_is_refused_naming_the_board(session, path):
-    # The board refuses to drive it and over-driving an LED is a damage
-    # mode, so the writer refuses it where the camera's limit is applied.
-    board_max = session.scope.capabilities.led_max_ma
-    assert board_max == 1000
-    before = session.get_settings_snapshot()
-    with pytest.raises(SettingRefusedError, match="LED board's maximum") as refused:
-        session.update_settings(path, board_max + 1)
-    assert (refused.value.reason, refused.value.path) == ('out_of_range', path)
-    assert session.get_settings_snapshot() == before
-    session.update_settings(path, board_max)
-    assert session.get_settings_snapshot() != before
 
 
 def test_the_sessions_own_model_write_is_not_refused(session):
@@ -383,7 +367,7 @@ def test_a_write_into_the_live_settings_raises_at_any_depth_and_changes_nothing(
             let_through.append(name)
 
         assert let_through == []
-        assert session.get_setting('BF.gain_db') == 3.0
+        assert session.channel_settings('BF').gain_db == 3.0
         assert session.settings['rest_api']['allowed_clients'] == []
         assert session.capture_still('BF').record.gain_db == 3.0
     finally:
@@ -391,25 +375,25 @@ def test_a_write_into_the_live_settings_raises_at_any_depth_and_changes_nothing(
 
 
 def test_a_copy_of_the_live_settings_is_a_plain_dict_its_holder_may_edit(session):
-    session.update_settings('BF.sum', 2)
+    session.set_channel_settings('BF', frames_summed=2)
 
     copied = copy.deepcopy(session.settings['BF'])
     copied['sum'] = 7
 
     assert type(copied) is dict
-    assert session.get_setting('BF.sum') == 2
+    assert session.channel_settings('BF').frames_summed == 2
 
 
 def test_a_write_into_a_channel_config_changes_no_setting(session):
-    session.update_settings('BF.video_config.duration', 5)
+    session.set_channel_settings('BF', video_duration_s=5)
 
     configs = session.get_channel_configs(['BF'])
     configs['BF']['video_config']['duration'] = 999
 
-    assert session.get_setting('BF.video_config.duration') == 5
+    assert session.channel_settings('BF').video_duration_s == 5
 
 
-@pytest.mark.parametrize('path', ['bogus', 'BF.bogus', 'BF.gain_db.deeper', ''])
+@pytest.mark.parametrize('path', ['bogus', 'video.bogus', 'video.max_fps.deeper', ''])
 def test_a_read_of_a_path_that_names_no_setting_is_refused_naming_it(session, path):
     with pytest.raises(ArgumentRefusedError) as refused:
         session.get_setting(path)

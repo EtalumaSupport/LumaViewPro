@@ -65,7 +65,7 @@ def test_every_member_that_keeps_the_live_position_refuses_while_z_moves(session
     runner = session.protocol_runner()
     before = {
         'bookmark': session.bookmark,
-        'focus': session.saved_focus_z_um('BF'),
+        'focus': session.channel_settings('BF').focus_z_um,
         'steps': protocol.steps().to_dict('records'),
     }
     keepers = {
@@ -101,7 +101,7 @@ def test_every_member_that_keeps_the_live_position_refuses_while_z_moves(session
 
     assert offenders == {}
     assert session.bookmark == before['bookmark']
-    assert session.saved_focus_z_um('BF') == before['focus']
+    assert session.channel_settings('BF').focus_z_um == before['focus']
     assert protocol.steps().to_dict('records') == before['steps']
     assert not runner.session._sequenced_capture_runner.run_in_progress()
 

@@ -219,7 +219,7 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
     def homed(self, ctx):
         """Homed, with Brightfield acquiring: a scope the Session builds a protocol on."""
         home_sim_scope(ctx.scope)
-        ctx.session.set_channel_acquire('BF', AcquireMode.IMAGE)
+        ctx.session.set_channel_settings('BF', acquire=AcquireMode.IMAGE)
         return ctx
 
     @pytest.fixture

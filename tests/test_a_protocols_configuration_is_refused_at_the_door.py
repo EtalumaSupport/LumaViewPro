@@ -30,7 +30,7 @@ from tests.test_a_command_for_absent_motion_hardware_is_refused import _session
 @pytest.fixture(scope='module')
 def session(tmp_path_factory):
     s = _session(tmp_path_factory.mktemp('c7'), 'LS850')
-    s.set_channel_acquire('BF', 'image')
+    s.set_channel_settings('BF', acquire='image')
     yield s
     s.shutdown()
 

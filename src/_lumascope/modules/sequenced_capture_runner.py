@@ -393,7 +393,7 @@ class SequencedCaptureRunner:
         channel_colors: typing.Callable[[], ChannelColors],
         post_processing: typing.Any,
         on_saved: typing.Callable[[pathlib.Path], None],
-        save_channel_focus: typing.Callable[[str, float], None],
+        set_channel_settings: typing.Callable[..., object],
         autofocus_runner: AutofocusRunner | None = None,
         on_run_idle: typing.Callable[[], None] | None = None,
         on_protocol_files_written: typing.Callable[[pathlib.Path, RunWriteBatch, Caller, str], None]
@@ -437,10 +437,10 @@ class SequencedCaptureRunner:
         # Told the run's folder once its last image has landed, when it wrote
         # any, before the caller hears its files are written.
         self._on_saved = on_saved
-        # The session's save of a channel's focus: a standalone autofocus
-        # saves the Z it chose through it, on the protocol thread, before the
-        # run lets go of the scope.
-        self._save_channel_focus = save_channel_focus
+        # The session's one channel write: a standalone autofocus saves the
+        # Z it chose as its channel's focus through it, on the protocol
+        # thread, before the run lets go of the scope.
+        self._set_channel_settings = set_channel_settings
         # Stateless, so the run keeps its own. The labware catalogue is the
         # scope's, read where a run needs a plate.
         # The offset a run converts plate positions with; prepare() snapshots
@@ -2387,7 +2387,7 @@ class SequencedCaptureRunner:
         if channel is None or z_um is None:
             return
         try:
-            self._save_channel_focus(channel, z_um)
+            self._set_channel_settings(channel, focus_z_um=z_um)
         except Exception as refused:
             from _lumascope.modules.notification_center import notifications
 

@@ -11,7 +11,7 @@ correctness is the instrument's to judge, not this probe's, so a stitch
 outcome is a figure and never a check.
 
 The overlap is written through ``update_settings`` and the other layers set
-to acquire nothing through ``set_channel_acquire``, both in memory only;
+to acquire nothing through ``set_channel_settings``, both in memory only;
 both are put back before the session closes and the installation's
 ``current.json`` is checked unchanged by the harness.
 
@@ -152,13 +152,13 @@ def main():
         figure('other_layers_set_off', sorted(acquiring_before))
         try:
             for layer in acquiring_before:
-                session.set_channel_acquire(layer, None)
+                session.set_channel_settings(layer, acquire=None)
             for overlap in args.overlaps:
                 _one_set(session, runner, live, args, overlap, here)
         finally:
             session.update_settings('tiling_overlap_percent', overlap_before)
             for layer, mode in acquiring_before.items():
-                session.set_channel_acquire(layer, AcquireMode(mode))
+                session.set_channel_settings(layer, acquire=AcquireMode(mode))
         after = session.get_settings_snapshot()
         check(
             'the overlap and every layer acquiring are put back',

@@ -72,15 +72,13 @@ def test_each_read_answers_what_its_setter_wrote(session):
             lambda: session.acceleration_limit_pct,
             40,
         ),
-        'channel_acquire': (
-            lambda: session.set_channel_acquire(LED0, 'video'),
-            lambda: session.channel_acquire(LED0),
-            'video',
-        ),
-        'channel_auto_gain': (
-            lambda: session.set_channel_auto_gain(LED1, True),
-            lambda: session.channel_auto_gain(LED1),
-            True,
+        'channel_settings': (
+            lambda: session.set_channel_settings(LED1, acquire='video', auto_gain=True),
+            lambda: (
+                session.channel_settings(LED1).acquire,
+                session.channel_settings(LED1).auto_gain,
+            ),
+            ('video', True),
         ),
     }
     wrong = {}
@@ -94,10 +92,9 @@ def test_each_read_answers_what_its_setter_wrote(session):
     assert wrong == {}, f'read, expected: {wrong}'
 
 
-@pytest.mark.parametrize('read', ['channel_acquire', 'channel_auto_gain'])
-def test_a_layer_read_refuses_a_name_that_is_no_layer(session, read):
+def test_a_channel_read_refuses_a_name_that_is_no_channel(session):
     with pytest.raises(ArgumentRefusedError) as raised:
-        getattr(session, read)('Purple')
+        session.channel_settings('Purple')
     assert raised.value.reason == 'channel_unknown'
 
 
@@ -206,6 +203,11 @@ def test_get_setting_refuses_a_setting_with_its_own_read_and_names_it(session):
         ('bookmark.z', 'bookmark'),
         ('objective_confirmed', 'objective_question'),
         ('binning.size', 'scope.camera.binning'),
+        # Every path under a channel's block is the channel resource's, a
+        # path naming no setting there among them.
+        (f'{LED0}.gain_db', 'channel_settings'),
+        (f'{LED0}.stim_config.frequency', 'channel_settings'),
+        (f'{LED0}.bogus', 'channel_settings'),
     ):
         with pytest.raises(ArgumentRefusedError) as refused:
             session.get_setting(path)

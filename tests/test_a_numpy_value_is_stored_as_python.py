@@ -95,7 +95,7 @@ class TestTheSettings:
             handed, simulate=True, settings_file=str(tmp_path / 'saved.json')
         )
         try:
-            assert type(session.get_setting('BF.gain')) is float
+            assert type(session.get_settings_snapshot()['BF']['gain']) is float
             assert type(session.get_setting('video.max_fps')) is int
         finally:
             session.shutdown()

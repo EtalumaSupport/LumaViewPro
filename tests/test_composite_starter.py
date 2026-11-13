@@ -75,7 +75,7 @@ def app_ctx(gui_ctx, held, monkeypatch):
     gui_ctx.ui_listener_bridge = MagicMock()
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     for channel in ('BF', LED1):
-        gui_ctx.session.set_channel_acquire(channel, AcquireMode.IMAGE)
+        gui_ctx.session.set_channel_settings(channel, acquire=AcquireMode.IMAGE)
     asked = []
     started = []
     real_start = ProtocolRunner.start_composite

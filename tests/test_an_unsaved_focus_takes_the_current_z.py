@@ -13,13 +13,12 @@ saved focus; Add images every channel at the current Z
 from __future__ import annotations
 
 import pathlib
-from types import SimpleNamespace
 
 import pytest
 
 from _lumascope.modules import settings_init
 from _lumascope.modules.common_utils import get_channels
-from _lumascope.modules.exceptions import FocusNotSavedError, ProtocolRunRefusedError
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from _lumascope.modules.labware_loader import WellPlateLoader
 from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.settings_fixtures import shipped_template
@@ -119,13 +118,3 @@ def test_a_build_with_an_unsaved_channel_and_no_current_z_is_refused(scale_capab
     with pytest.raises(ProtocolRunRefusedError, match=f'No focus is saved for {LED0}') as refused:
         _from_config(_input_config(), scale_capabilities)
     assert refused.value.reason == 'focus_not_given'
-
-
-def test_the_saved_focus_of_a_channel_never_saved_is_refused():
-    from _lumascope.modules.scope_session import ScopeSession
-
-    session = SimpleNamespace(_settings={LED0: {'focus': None}, 'BF': {'focus': 5998.6}})
-
-    assert ScopeSession.saved_focus_z_um(session, 'BF') == 5998.6
-    with pytest.raises(FocusNotSavedError, match=f'No focus is saved for {LED0}'):
-        ScopeSession.saved_focus_z_um(session, LED0)

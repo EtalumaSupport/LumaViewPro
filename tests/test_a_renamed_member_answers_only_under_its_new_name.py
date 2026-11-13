@@ -37,30 +37,32 @@ def _cell_count_method(threshold: str, area: str, perimeter: str, intensity: str
 # arguments are its query, any other method's its JSON body. PROTOCOL in a
 # route or an argument is the new protocol's id.
 RENAMED = [
+    # The six per-channel members, retired into the channel resource, each
+    # under its last name and the layer-era name before it.
     (
         'PUT',
         'channel_acquire',
-        {'layer': 'BF', 'mode': 'image'},
-        'channel_acquire',
         {'channel': 'BF', 'mode': 'image'},
+        'channel_settings',
+        {'channel': 'BF', 'acquire': 'image'},
     ),
-    ('GET', 'channel_acquire', {'layer': 'BF'}, 'channel_acquire', {'channel': 'BF'}),
+    ('GET', 'channel_acquire', {'channel': 'BF'}, 'channel_settings', {'channel': 'BF'}),
     (
         'PUT',
         'layer_acquire',
         {'channel': 'BF', 'mode': 'image'},
-        'channel_acquire',
-        {'channel': 'BF', 'mode': 'image'},
+        'channel_settings',
+        {'channel': 'BF', 'acquire': 'image'},
     ),
-    ('GET', 'layer_acquire', {'channel': 'BF'}, 'channel_acquire', {'channel': 'BF'}),
+    ('GET', 'layer_acquire', {'channel': 'BF'}, 'channel_settings', {'channel': 'BF'}),
     (
         'PUT',
         'channel_auto_gain',
-        {'layer': LED0, 'enabled': True},
-        'channel_auto_gain',
         {'channel': LED0, 'enabled': True},
+        'channel_settings',
+        {'channel': LED0, 'auto_gain': True},
     ),
-    ('GET', 'channel_auto_gain', {'layer': LED0}, 'channel_auto_gain', {'channel': LED0}),
+    ('GET', 'channel_auto_gain', {'channel': LED0}, 'channel_settings', {'channel': LED0}),
     (
         'GET',
         'channel_auto_gain_lock',
@@ -72,10 +74,10 @@ RENAMED = [
         'PUT',
         'layer_auto_gain',
         {'channel': LED0, 'enabled': True},
-        'channel_auto_gain',
-        {'channel': LED0, 'enabled': True},
+        'channel_settings',
+        {'channel': LED0, 'auto_gain': True},
     ),
-    ('GET', 'layer_auto_gain', {'channel': LED0}, 'channel_auto_gain', {'channel': LED0}),
+    ('GET', 'layer_auto_gain', {'channel': LED0}, 'channel_settings', {'channel': LED0}),
     (
         'GET',
         'layer_auto_gain_lock',
@@ -85,12 +87,20 @@ RENAMED = [
     ),
     (
         'PUT',
-        'saved_focus',
-        {'channel': LED0, 'z_um': 5000.0},
         'saved_focus_z_um',
         {'channel': LED0, 'z_um': 5000.0},
+        'channel_settings',
+        {'channel': LED0, 'focus_z_um': 5000.0},
     ),
-    ('GET', 'saved_focus', {'channel': LED0}, 'saved_focus_z_um', {'channel': LED0}),
+    ('GET', 'saved_focus_z_um', {'channel': LED0}, 'channel_settings', {'channel': LED0}),
+    (
+        'PUT',
+        'saved_focus',
+        {'channel': LED0, 'z_um': 5000.0},
+        'channel_settings',
+        {'channel': LED0, 'focus_z_um': 5000.0},
+    ),
+    ('GET', 'saved_focus', {'channel': LED0}, 'channel_settings', {'channel': LED0}),
     (
         'GET',
         'scope/motion/jog_step',

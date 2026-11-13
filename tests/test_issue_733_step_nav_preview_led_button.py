@@ -76,7 +76,7 @@ def stepnav_env(gui_ctx, monkeypatch):
 def _run_manual_nav(env):
     """Click the one step of a protocol the Session built where the scope stands, in BF; return it."""
     session = env.session
-    session.set_channel_acquire('BF', AcquireMode.IMAGE)
+    session.set_channel_settings('BF', acquire=AcquireMode.IMAGE)
     protocol = session.scope.protocols.create_protocol(
         empty_config=session.get_sequenced_capture_config()
     )

@@ -13,7 +13,7 @@ whose one step, added at the live position, records video
 (``runner.start_single_scan``). Each is checked
 by its manifest: 600 frames selected and written, budget 600, none failed,
 ended ``frame_budget_filled``. The settings are written on the session in
-memory (``update_settings``, ``set_channel_acquire``), never saved: the
+memory (``update_settings``, ``set_channel_settings``), never saved: the
 installation's current.json is left as it was, which ``hardware_session()``
 checks.
 
@@ -112,11 +112,11 @@ def _video_step(session, runner, layer, live):
     # installation acquires is set to nothing, on the session alone.
     for other in common_utils.get_channels():
         if other != layer:
-            session.set_channel_acquire(other, None)
-    session.set_channel_acquire(layer, AcquireMode.VIDEO)
+            session.set_channel_settings(other, acquire=None)
+    session.set_channel_settings(layer, acquire=AcquireMode.VIDEO)
     # A step records at the one global limit, as a manual recording does.
     session.update_settings('video.max_fps', float(_FPS))
-    session.update_settings(f'{layer}.video_config.duration', float(_DURATION_S))
+    session.set_channel_settings(layer, video_duration_s=float(_DURATION_S))
     # One step at the live position, as the GUI's Add then Run One Scan.
     protocol = session.create_empty_protocol()
     session.add_step(protocol)

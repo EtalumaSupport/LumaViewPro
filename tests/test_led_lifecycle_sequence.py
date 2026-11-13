@@ -313,7 +313,7 @@ def _make_runner(scope, execs):
     swap_lanes(scope, io=execs['io'], camera=execs['camera'])
     exc = SequencedCaptureRunner(
         on_saved=lambda folder: None,
-        save_channel_focus=lambda channel, z_um: None,
+        set_channel_settings=lambda channel, **fields: None,
         scope=scope,
         protocol_thread=execs['protocol'],
         file_io_executor=execs['file_io'],
@@ -560,7 +560,7 @@ def af_run_runner_on(scope, executors):
         swap_lanes(scope, io=executors['io'], camera=executors['camera'])
         return SequencedCaptureRunner(
             on_saved=lambda folder: None,
-            save_channel_focus=lambda channel, z_um: None,
+            set_channel_settings=lambda channel, **fields: None,
             scope=scope,
             protocol_thread=executors['protocol'],
             file_io_executor=executors['file_io'],

@@ -261,7 +261,7 @@ def test_a_composite_rebuilt_with_a_new_threshold_is_built_and_one_with_the_same
     describes, beside the earlier ones; a rebuild with the same settings
     makes nothing new."""
     first = session.post_processing.composite(run_folder)
-    session.update_settings(f'{LED0}.composite_brightness_threshold', 80)
+    session.set_channel_settings(LED0, composite_brightness_threshold_pct=80)
 
     rebuilt = session.post_processing.composite(run_folder)
     again = session.post_processing.composite(run_folder)

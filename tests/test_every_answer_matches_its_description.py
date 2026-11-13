@@ -166,7 +166,7 @@ def test_every_event_of_a_home_and_a_run_matches_its_component(session):
             ),
         ).items()
     }
-    session.set_channel_acquire('BF', 'image')
+    session.set_channel_settings('BF', acquire='image')
     with _serving(session, app) as client, _reading(client) as stream:
         seen = stream.until('status')
         homing = client.post('/api/v1/scope/motion/start_home')

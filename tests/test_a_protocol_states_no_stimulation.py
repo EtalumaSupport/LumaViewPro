@@ -48,7 +48,7 @@ def _saved(session, path: pathlib.Path, colors=('Ex405', 'Ex488')) -> pathlib.Pa
         for color in colors
     ]
     for color in colors:
-        session.set_channel_acquire(color, 'image')
+        session.set_channel_settings(color, acquire='image')
     return session.save_protocol(_protocol(_PLATE, *steps), path)
 
 

@@ -35,7 +35,7 @@ _STEPS = [
 
 def _protocol_file(session, path):
     protocol = session.create_empty_protocol()
-    session.set_channel_acquire('BF', 'image')
+    session.set_channel_settings('BF', acquire='image')
     for i in range(len(_STEPS)):
         session.scope.motion.move_xy(x_um=10000.0 + 5000.0 * i)
         session.add_step(protocol)

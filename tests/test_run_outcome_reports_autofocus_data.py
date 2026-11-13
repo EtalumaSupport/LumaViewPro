@@ -161,7 +161,7 @@ class _AfRig:
         self.scope.set_activity_claim(claim)
         self.runner = SequencedCaptureRunner(
             on_saved=lambda folder: None,
-            save_channel_focus=lambda channel, z_um: None,
+            set_channel_settings=lambda channel, **fields: None,
             scope=self.scope,
             protocol_thread=self.protocol_thread,
             file_io_executor=self.file_io_executor,

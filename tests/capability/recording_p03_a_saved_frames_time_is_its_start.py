@@ -275,12 +275,12 @@ def main():
             session.scope._camera_driver.set_timing_mode('realistic')
         figure('live_folder', str(live))
         layer = args.layer
-        session.update_settings(f'{layer}.exposure_ms', _EXPOSURE_MS)
+        session.set_channel_settings(layer, exposure_ms=_EXPOSURE_MS)
         session.update_settings('video.max_fps', 0.0)
         for other in common_utils.get_channels():
             if other != layer:
-                session.set_channel_acquire(other, None)
-        session.set_channel_acquire(layer, AcquireMode.IMAGE)
+                session.set_channel_settings(other, acquire=None)
+        session.set_channel_settings(layer, acquire=AcquireMode.IMAGE)
         session.show_channel(layer)
         _still(session, runner, live)
         _manual(session, live, as_frames=True)

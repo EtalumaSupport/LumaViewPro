@@ -24,7 +24,7 @@ from _lumascope.rest.app import SERVER_SEGMENTS, build_app
 from _lumascope.rest.routes import routes
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
-from tests.stock_channels import LED0, LED1
+from tests.stock_channels import LED0
 
 
 class _RecordWith(dict):
@@ -42,13 +42,10 @@ _WRITES = {
     'scale_bar_enabled': ({'enabled': True}, None, True),
     'engineering_mode': ({'enabled': True}, None, True),
     'acceleration_limit_pct': ({'limit_pct': 40}, None, 40),
-    'channel_acquire': ({'channel': LED0, 'mode': 'video'}, {'channel': LED0}, 'video'),
-    'channel_auto_gain': ({'channel': LED1, 'enabled': True}, {'channel': LED1}, True),
-    'saved_focus_z_um': ({'channel': LED0, 'z_um': 5000.0}, {'channel': LED0}, 5000.0),
     'channel_settings': (
-        {'channel': LED0, 'gain_db': 5.0, 'focus_z_um': None},
+        {'channel': LED0, 'acquire': 'video', 'gain_db': 5.0, 'focus_z_um': None},
         {'channel': LED0},
-        _RecordWith(gain_db=5.0, focus_z_um=None),
+        _RecordWith(acquire='video', gain_db=5.0, focus_z_um=None),
     ),
     'scope/camera/image_mode': ({'mode': '12bit_scientific'}, None, '12bit_scientific'),
     'scope/camera/binning': ({'size': 2}, None, 2),

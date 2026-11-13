@@ -53,7 +53,7 @@ def sim_session(tmp_path):
 
 
 def _one_step_protocol(session):
-    session.set_channel_acquire('BF', 'image')
+    session.set_channel_settings('BF', acquire='image')
     return session.new_protocol(duration_s=0, period_s=0)
 
 
@@ -78,7 +78,7 @@ def test_a_live_recording_is_stopped_and_its_file_finished(sim_session, tmp_path
 
 def test_a_live_runs_captured_images_are_written_not_called_incomplete(sim_session, tmp_path):
     protocol = sim_session.create_empty_protocol()
-    sim_session.set_channel_acquire('BF', 'image')
+    sim_session.set_channel_settings('BF', acquire='image')
     for _ in range(40):
         sim_session.add_step(protocol)
     run = sim_session.protocol_runner().start_single_scan(
@@ -371,7 +371,7 @@ def test_a_close_from_run_ended_with_no_dispatcher_completes(tmp_path):
 
     session = _session(tmp_path)
     protocol = session.create_empty_protocol()
-    session.set_channel_acquire('BF', 'image')
+    session.set_channel_settings('BF', acquire='image')
     session.add_step(protocol)
     closed, failed, took, ran_on = threading.Event(), [], [], []
 

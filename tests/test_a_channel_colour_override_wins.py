@@ -34,9 +34,9 @@ def session(tmp_path):
 def test_an_override_is_the_channels_colour_and_null_gives_the_release_back(session):
     release = channel_record.release_colors()
 
-    session.update_settings(f'{LED2}.display_color', MAGENTA)
+    session.set_channel_settings(LED2, display_color=MAGENTA)
     overridden = session.channel_colors()
-    session.update_settings(f'{LED2}.display_color', None)
+    session.set_channel_settings(LED2, display_color=None)
 
     assert overridden == {**release, LED2: (1.0, 0.0, 1.0)}
     assert session.channel_colors() == release
@@ -61,7 +61,7 @@ def test_a_unit_colour_its_board_gives_is_the_channels_unless_overridden(tmp_pat
     )
     try:
         from_the_unit = session.channel_colors()
-        session.update_settings(f'{LED0}.display_color', MAGENTA)
+        session.set_channel_settings(LED0, display_color=MAGENTA)
         overridden = session.channel_colors()
     finally:
         session.shutdown()
@@ -72,18 +72,18 @@ def test_a_unit_colour_its_board_gives_is_the_channels_unless_overridden(tmp_pat
 
 def test_a_colour_the_store_cannot_use_is_refused_at_the_write(session):
     refused = {}
-    for value in ([1, 0, 1], 'magenta', '#800080', '#FF00FF'):
+    # A value of another kind is the door's type refusal, before the store.
+    for value in ('magenta', '#800080', '#FF00FF'):
         with pytest.raises(SettingRefusedError) as raised:
-            session.update_settings(f'{LED2}.display_color', value)
+            session.set_channel_settings(LED2, display_color=value)
         refused[repr(value)] = raised.value.reason
 
     assert refused == {
-        '[1, 0, 1]': 'wrong_kind',
         "'magenta'": 'out_of_range',
         "'#800080'": 'out_of_range',
         "'#FF00FF'": 'out_of_range',
     }
-    assert session.get_setting(f'{LED2}.display_color') is None
+    assert session.channel_settings(LED2).display_color is None
 
 
 def test_a_still_is_saved_in_its_channels_override(tmp_path):
@@ -91,8 +91,8 @@ def test_a_still_is_saved_in_its_channels_override(tmp_path):
     # the palette's brightest entry is the colour at full weight.
     with _open_session(_settings(tmp_path)) as session:
         session.show_channel(LED2)
-        session.update_settings(f'{LED2}.display_color', MAGENTA)
-        session.update_settings(f'{LED2}.false_color', True)
+        session.set_channel_settings(LED2, display_color=MAGENTA)
+        session.set_channel_settings(LED2, false_color=True)
 
         (path,) = _files(session)
 

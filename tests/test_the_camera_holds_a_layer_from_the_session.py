@@ -61,9 +61,9 @@ def session():
 def _two_step_protocol(session):
     """A BF step and an LED 0 step at the current position, from the layers' settings."""
     for layer in session.get_channel_configs():
-        session.set_channel_acquire(layer, None)
-    session.set_channel_acquire('BF', AcquireMode.IMAGE)
-    session.set_channel_acquire(LED0, AcquireMode.IMAGE)
+        session.set_channel_settings(layer, acquire=None)
+    session.set_channel_settings('BF', acquire=AcquireMode.IMAGE)
+    session.set_channel_settings(LED0, acquire=AcquireMode.IMAGE)
     protocol = session.scope.protocols.create_protocol(
         empty_config=session.get_sequenced_capture_config()
     )
@@ -165,7 +165,7 @@ class TestGoingToAStep:
         session.show_channel('BF')
         session.light_shown_channel(True)
         # The lit LED away from the step's current, so the step's light shows.
-        session.update_settings('BF.illumination_ma', step_ma + 10.0)
+        session.set_channel_settings('BF', illumination_ma=step_ma + 10.0)
         recording = session.manual_recording.start()
         try:
             session.go_to_step(protocol, bf_idx)
@@ -183,7 +183,7 @@ class TestGoingToAStep:
         once the loop is off. Written before the loop was turned off, the
         camera stayed at the loop's value and the gate expected nothing.
         """
-        session.set_channel_auto_gain(LED0, True)
+        session.set_channel_settings(LED0, auto_gain=True)
         protocol, bf_idx, blue_idx = _two_step_protocol(session)
 
         session.go_to_step(protocol, blue_idx)
@@ -292,7 +292,7 @@ class TestTheHeldLayer:
 
     def test_a_store_change_is_written_although_the_layer_is_held(self, session):
         session.apply_channel_camera(LED0)
-        session.update_settings(f'{LED0}.exposure_ms', 55.0)
+        session.set_channel_settings(LED0, exposure_ms=55.0)
 
         session.apply_channel_camera(LED0)
 
@@ -373,20 +373,20 @@ class TestAWriteToTheShownLayer:
     when it returns; a hidden layer's, or one under a held scope, is stored."""
 
     def test_the_shown_layers_exposure_is_on_the_camera_when_the_write_returns(self, session):
-        session.update_settings('BF.exposure_ms', 12.0)
+        session.set_channel_settings('BF', exposure_ms=12.0)
 
         assert _camera(session) == (12.0, _BF['gain_db'])
 
     @pytest.mark.parametrize(
-        ('path', 'value', 'source', 'target', 'camera'),
+        ('field', 'value', 'source', 'target', 'camera'),
         [
-            ('BF.gain_db', 5.0, 'gain', 5.0, (_BF['exposure_ms'], 5.0)),
+            ('gain_db', 5.0, 'gain', 5.0, (_BF['exposure_ms'], 5.0)),
             # The exposure's chunk target is in microseconds.
-            ('BF.exposure_ms', 12.0, 'exposure', 12000.0, (12.0, _BF['gain_db'])),
+            ('exposure_ms', 12.0, 'exposure', 12000.0, (12.0, _BF['gain_db'])),
         ],
     )
     def test_a_manual_layers_one_setting_changed_is_the_one_change_a_capture_waits_out(
-        self, session, path, value, source, target, camera
+        self, session, field, value, source, target, camera
     ):
         """A slider tick on the shown manual layer writes the one setting it
         changed: a capture after it waits out that setting's change alone, as
@@ -394,7 +394,7 @@ class TestAWriteToTheShownLayer:
         validity = session.scope.imaging._frame_validity
         before = validity.invalidation_counts
 
-        session.update_settings(path, value)
+        session.set_channel_settings('BF', **{field: value})
 
         after = validity.invalidation_counts
         changed = {s: n - before.get(s, 0) for s, n in after.items() if n != before.get(s, 0)}
@@ -404,7 +404,7 @@ class TestAWriteToTheShownLayer:
         assert session.scope.camera.get_held_channel() == 'BF'
 
     def test_a_hidden_layers_exposure_is_stored_only(self, session):
-        session.update_settings(f'{LED0}.exposure_ms', 33.0)
+        session.set_channel_settings(LED0, exposure_ms=33.0)
 
         assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
         assert session.settings[LED0]['exposure_ms'] == 33.0
@@ -412,14 +412,14 @@ class TestAWriteToTheShownLayer:
     def test_the_lit_shown_layers_illumination_is_on_its_led(self, session):
         session.light_shown_channel(True)
 
-        session.update_settings('BF.illumination_ma', 7.0)
+        session.set_channel_settings('BF', illumination_ma=7.0)
 
         assert channel_reading(session.scope.illumination, 'BF').illumination_ma == 7.0
 
     def test_a_write_while_the_scope_is_held_is_stored_only(self, session):
         held = session._activity_claim.try_claim('diagnostic')
         try:
-            session.update_settings('BF.exposure_ms', 12.0)
+            session.set_channel_settings('BF', exposure_ms=12.0)
         finally:
             held.release()
 
@@ -427,6 +427,6 @@ class TestAWriteToTheShownLayer:
         assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
 
     def test_auto_gain_turned_on_for_the_shown_layer_arms_the_camera(self, session):
-        session.set_channel_auto_gain('BF', True)
+        session.set_channel_settings('BF', auto_gain=True)
 
         assert session.scope.camera.lock_auto_gain().state is not None

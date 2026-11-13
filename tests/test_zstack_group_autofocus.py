@@ -106,9 +106,9 @@ def focusing_session():
     session.scope._camera_driver.set_test_pattern(True, 'focus_target')
     session.scope.imaging.enable_streaming()
     session.scope._camera_driver.set_focal_z(FOCAL_Z_UM)
-    session.set_channel_acquire('BF', 'image')
-    session.save_channel_focus('BF', LAYER_FOCUS_UM)
-    session.update_settings('BF.autofocus', True)
+    session.set_channel_settings('BF', acquire='image')
+    session.set_channel_settings('BF', focus_z_um=LAYER_FOCUS_UM)
+    session.set_channel_settings('BF', autofocus=True)
     session.update_settings('zstack.step_size', STEP_UM)
     yield session
     session.shutdown()
@@ -170,7 +170,7 @@ def test_a_scan_places_the_found_focus_on_the_reference_slice(
 @pytest.mark.slow
 def test_autofocus_all_steps_writes_the_ladder_into_the_callers_protocol(focusing_session):
     """The field case: the scan turns every slice's autofocus on in its own copy."""
-    focusing_session.update_settings('BF.autofocus', False)
+    focusing_session.set_channel_settings('BF', autofocus=False)
     protocol = _stack(focusing_session)
     outcome = (
         focusing_session.protocol_runner()
@@ -233,7 +233,7 @@ def test_a_slice_of_a_stack_keeps_its_channel(focusing_session):
     protocol = _stack(focusing_session)
     before = protocol.steps()
     session = focusing_session
-    session.set_channel_acquire(LED0, 'image')
+    session.set_channel_settings(LED0, acquire='image')
     session.scope.motion.move_z(protocol.step_row(step_index=0)['Z'])
     with pytest.raises(StepEditRefusedError, match='slice of a z-stack of BF'):
         session.update_step(protocol, 0, channel=LED0)
@@ -259,10 +259,10 @@ def test_a_groups_sweep_runs_in_its_reference_slices_light(focusing_session, tmp
     all the same: BF comes first in that order and does not autofocus here, and LED 0,
     saved 10 um below it, is the channel that does."""
     session = focusing_session
-    session.update_settings('BF.autofocus', False)
-    session.set_channel_acquire(LED0, 'image')
-    session.save_channel_focus(LED0, LAYER_FOCUS_UM - 10.0)
-    session.update_settings(f'{LED0}.autofocus', True)
+    session.set_channel_settings('BF', autofocus=False)
+    session.set_channel_settings(LED0, acquire='image')
+    session.set_channel_settings(LED0, focus_z_um=LAYER_FOCUS_UM - 10.0)
+    session.set_channel_settings(LED0, autofocus=True)
     protocol = _stack(session)
     first = protocol.step_row(step_index=0)
     reference = protocol.step_row(step_index=protocol.focus_sweep_step(step_index=0))

@@ -5,11 +5,11 @@ Whether a layer captures an image, a video or nothing decides which steps
 New and Add Step build and what a composite merges. The GUI's acquire
 toggle and its layer-hiding wrote the store directly, and no Session member
 wrote it, so a script or REST could not choose what a protocol acquires
-without writing the settings dict itself. ``ScopeSession.set_channel_acquire``
-is the one writer: it refuses a layer or a mode it does not know, and a
+without writing the settings dict itself. ``ScopeSession.set_channel_settings``
+with ``acquire`` is the one writer: it refuses a layer or a mode it does not know, and a
 layer set to acquire stops stimulating, as the GUI's toggle did. The mode is
 an ``AcquireMode``: the door takes a member or its plain string, the store
-holds the plain string, and ``channel_acquire`` answers the member.
+holds the plain string, and ``channel_settings`` answers the member.
 """
 
 import ast
@@ -32,28 +32,28 @@ def _stim(session, layer):
 class TestTheSessionSetsTheMode:
     @pytest.mark.parametrize('mode', ['image', 'video', None])
     def test_the_mode_is_stored(self, session, mode):
-        session.set_channel_acquire('BF', mode)
+        session.set_channel_settings('BF', acquire=mode)
 
         assert session.settings['BF']['acquire'] == mode
 
     @pytest.mark.parametrize('mode', ['image', 'video'])
     def test_a_layer_set_to_acquire_stops_stimulating(self, session, mode):
-        session.update_settings(f'{LED1}.stim_config.enabled', True)
+        session.set_channel_settings(LED1, stim_enabled=True)
 
-        session.set_channel_acquire(LED1, mode)
+        session.set_channel_settings(LED1, acquire=mode)
 
         assert _stim(session, LED1) is False
 
     def test_a_layer_set_to_nothing_keeps_its_stimulation(self, session):
-        session.update_settings(f'{LED1}.stim_config.enabled', True)
+        session.set_channel_settings(LED1, stim_enabled=True)
 
-        session.set_channel_acquire(LED1, None)
+        session.set_channel_settings(LED1, acquire=None)
 
         assert _stim(session, LED1) is True
 
     def test_an_unknown_layer_is_refused(self, session):
         with pytest.raises(ArgumentRefusedError) as refused:
-            session.set_channel_acquire('Infrared', 'image')
+            session.set_channel_settings('Infrared', acquire='image')
         assert refused.value.reason == 'channel_unknown'
 
         assert 'Infrared' not in session.settings
@@ -63,23 +63,23 @@ class TestTheSessionSetsTheMode:
         before = session.settings['BF']['acquire']
 
         with pytest.raises(ArgumentRefusedError) as refused:
-            session.set_channel_acquire('BF', mode)
+            session.set_channel_settings('BF', acquire=mode)
 
-        assert (refused.value.reason, refused.value.argument) == ('not_offered', 'mode')
+        assert (refused.value.reason, refused.value.argument) == ('not_offered', 'acquire')
         assert refused.value.offered == ('image', 'video')
         assert session.settings['BF']['acquire'] == before
 
     def test_the_store_holds_the_plain_string_and_the_read_answers_the_member(self, session):
-        session.set_channel_acquire('BF', AcquireMode.VIDEO)
+        session.set_channel_settings('BF', acquire=AcquireMode.VIDEO)
 
         assert type(session.settings['BF']['acquire']) is str
         assert session.settings['BF']['acquire'] == 'video'
-        assert session.channel_acquire('BF') is AcquireMode.VIDEO
+        assert session.channel_settings('BF').acquire is AcquireMode.VIDEO
 
     def test_a_layer_set_to_nothing_reads_none(self, session):
-        session.set_channel_acquire('BF', None)
+        session.set_channel_settings('BF', acquire=None)
 
-        assert session.channel_acquire('BF') is None
+        assert session.channel_settings('BF').acquire is None
 
 
 # Step navigation also writes a step's acquire into its layer, through
@@ -107,6 +107,6 @@ def _acquire_writes(path):
 def test_no_gui_code_writes_a_layers_acquire_mode_itself():
     found = {hit for path in tracked_files(('ui',), '*.py') for hit in _acquire_writes(path)}
     assert found == _UI_WRITERS_ALLOWED, (
-        'a layer acquire mode is set through ScopeSession.set_channel_acquire; '
+        'a layer acquire mode is set through ScopeSession.set_channel_settings; '
         f'these write it themselves: {sorted(found - _UI_WRITERS_ALLOWED)}'
     )

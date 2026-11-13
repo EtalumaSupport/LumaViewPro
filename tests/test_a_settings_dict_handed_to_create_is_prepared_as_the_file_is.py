@@ -169,10 +169,10 @@ def test_the_dict_handed_to_create_stays_the_callers(tmp_path):
     session = ScopeSession.create(handed, simulate=True)
     try:
         assert handed == as_handed
-        stored = session.get_setting('BF.gain_db')
+        stored = session.channel_settings('BF').gain_db
         handed['BF']['gain_db'] = stored + 1.0
         handed['live_folder'] = str(tmp_path / 'elsewhere')
-        assert session.get_setting('BF.gain_db') == stored
+        assert session.channel_settings('BF').gain_db == stored
         assert session.get_setting('live_folder') != handed['live_folder']
     finally:
         session.shutdown()

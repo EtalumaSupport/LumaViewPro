@@ -13,7 +13,7 @@ scope = s.scope
 try:
     # 1) settable through the Session's settings store?
     before = s.get_settings_snapshot()[LED0]['false_color']
-    s.update_settings(f'{LED0}.false_color', not before)
+    s.set_channel_settings(LED0, false_color=not before)
     after = s.get_settings_snapshot()[LED0]['false_color']
     print('1: false_color via session.update_settings:', before, '->', after)
     print(

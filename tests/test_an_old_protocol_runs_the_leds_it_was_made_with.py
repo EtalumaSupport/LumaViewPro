@@ -77,7 +77,7 @@ def _old_file(session, path: pathlib.Path, colors, *, rename=_AS_EARLIER):
         for color in colors
     ]
     for color in colors:
-        session.set_channel_acquire(color, 'image')
+        session.set_channel_settings(color, acquire='image')
     saved = session.save_protocol(_protocol(_PLATE, *steps), path)
 
     rows = list(csv.reader(io.StringIO(saved.read_text()), delimiter='\t'))

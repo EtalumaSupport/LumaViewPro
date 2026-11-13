@@ -60,8 +60,12 @@ def test_every_table_entry_names_a_setting_the_template_holds():
         return any(settings_paths._pattern_for((key,), path) == key for path in candidates)
 
     names = {
-        'SETTINGS_WITH_A_MEMBER': lambda key: by_pattern(
-            key, [prefix for path in paths for prefix in _prefixes(path)]
+        # A member's own lookup, ``member_for``, which takes ``*`` alone for
+        # a channel's whole block, as ``_pattern_for`` does not.
+        'SETTINGS_WITH_A_MEMBER': lambda key: any(
+            settings_paths.member_for(prefix) is settings_paths.SETTINGS_WITH_A_MEMBER[key]
+            for path in paths
+            for prefix in _prefixes(path)
         ),
         'INSTALLATION_ONLY': lambda key: any(path.split('.')[0] == key for path in paths),
         'PREFERENCES': lambda key: key in paths,

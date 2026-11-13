@@ -172,11 +172,11 @@ def main():
         # Every frame is kept as its own file, the step's one layer is this one.
         session.update_settings('video_as_frames', True)
         session.update_settings('video.max_fps', 0.0)
-        session.update_settings(f'{layer}.video_config.duration', 1.0)
+        session.set_channel_settings(layer, video_duration_s=1.0)
         for other in common_utils.get_channels():
             if other != layer:
-                session.set_channel_acquire(other, None)
-        session.set_channel_acquire(layer, AcquireMode.VIDEO)
+                session.set_channel_settings(other, acquire=None)
+        session.set_channel_settings(layer, acquire=AcquireMode.VIDEO)
         session.show_channel(layer)
         camera = scope.camera
         parent = live / 'recording_p02'
@@ -193,7 +193,7 @@ def main():
             (FrameValiditySource.BLACK_LEVEL,),
         )
 
-        session.set_channel_auto_gain(layer, True)
+        session.set_channel_settings(layer, auto_gain=True)
         _video_step(
             session,
             runner,
@@ -203,7 +203,7 @@ def main():
             lambda: None,
             (FrameValiditySource.GAIN, FrameValiditySource.EXPOSURE),
         )
-        session.set_channel_auto_gain(layer, False)
+        session.set_channel_settings(layer, auto_gain=False)
 
         gain = session.get_settings_snapshot()[layer]['gain_db']
         camera.set_gain_db(gain)

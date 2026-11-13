@@ -130,7 +130,7 @@ def main():
             # The installation's layers may acquire nothing; this run captures
             # BF and LED 0's channel as stills, on the session's settings in memory only.
             for layer in ('BF', LED0):
-                session.set_channel_acquire(layer, 'image')
+                session.set_channel_settings(layer, acquire='image')
             body(session, runner, live)
         sys.exit(report())
     with headless_session(live, acquiring=('BF', LED0)) as (session, runner):

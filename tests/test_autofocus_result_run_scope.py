@@ -26,7 +26,7 @@ consumers read it across that gap:
 
 The run now clears the result before producing one, and reports what it
 found in its outcome (``af_focus_z_um``). ``start_autofocus`` saves that Z as
-the focus of the channel it focused, through ``ScopeSession.save_channel_focus``,
+the focus of the channel it focused, through ``ScopeSession.set_channel_settings``,
 before the run lets go of the scope; the Autofocus button only displays.
 """
 
@@ -215,7 +215,7 @@ class TestStartAutofocusSavesTheFocusItChose:
                 f'precondition: the sweep chose a focus; got {outcome}'
             )
             assert outcome.af_focus_z_um != stored, 'precondition: the chosen Z differs'
-            assert session.saved_focus_z_um('BF') == outcome.af_focus_z_um
+            assert session.channel_settings('BF').focus_z_um == outcome.af_focus_z_um
             assert outcome.focus_written is True, outcome
 
     def test_a_run_that_chose_no_z_leaves_the_focus_as_it_was(self, tmp_path):
@@ -266,11 +266,14 @@ class TestStartAutofocusSavesTheFocusItChose:
 
         with _session_over_a_focus_target(tmp_path) as (session, runner):
             stored = session.settings['BF']['focus']
-            store = session._store_channel_focus
             # A stand-in by design: the simulator's sweep never chooses a Z
             # outside Z's travel, so the refusal is made by asking the real
-            # store for one.
-            monkeypatch.setattr(session, '_store_channel_focus', lambda ch, _z: store(ch, 1e9))
+            # channel write for one.
+            monkeypatch.setattr(
+                session._sequenced_capture_runner,
+                '_set_channel_settings',
+                lambda ch, **_fields: session.set_channel_settings(ch, focus_z_um=1e9),
+            )
 
             with _reports_of(PositionOutOfRangeError) as reported:
                 outcome = runner.start_autofocus(channel='BF').result(timeout=60)
@@ -343,7 +346,7 @@ class TestTheButtonDisplaysTheRunsEnd:
         assert 'get_current_position' not in called, (
             '_autofocus_run_ended samples the stage again; the run saves the Z it chose (#816).'
         )
-        assert 'save_channel_focus' not in called, (
+        assert 'set_channel_settings' not in called, (
             '_autofocus_run_ended saves a focus; the run already saved the Z it '
             'chose, for every client (start_autofocus).'
         )

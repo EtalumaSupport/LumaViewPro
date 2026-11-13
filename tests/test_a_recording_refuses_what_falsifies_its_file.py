@@ -331,7 +331,7 @@ class TestTheLights:
         written = stored - 10.0 if stored > 10.0 else stored + 10.0
         held = session._activity_claim.try_claim('recording')
         try:
-            session.update_settings('BF.illumination_ma', written)
+            session.set_channel_settings('BF', illumination_ma=written)
         finally:
             held.release()
         assert session.settings['BF']['illumination_ma'] == written
@@ -380,9 +380,9 @@ class TestTheLights:
         session = lit_bf
         held = session._activity_claim.try_claim('recording')
         try:
-            session.update_settings('BF.illumination_ma', 0.0)
+            session.set_channel_settings('BF', illumination_ma=0.0)
             with pytest.raises(HardwareCommandRefusedError) as refused:
-                session.update_settings('BF.illumination_ma', 50.0)
+                session.set_channel_settings('BF', illumination_ma=50.0)
         finally:
             held.release()
         assert (refused.value.reason, refused.value.holder) == (
@@ -418,7 +418,7 @@ class TestTheLights:
 
         def write(name, value):
             try:
-                session.update_settings('BF.illumination_ma', value)
+                session.set_channel_settings('BF', illumination_ma=value)
                 answers[name] = 'stored'
             except HardwareCommandRefusedError as e:
                 answers[name] = (e.reason, e.holder)

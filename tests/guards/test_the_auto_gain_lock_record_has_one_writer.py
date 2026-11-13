@@ -4,7 +4,7 @@
 ``ScopeSession.channel_auto_gain_lock`` answers what the camera reached the last
 time a layer's auto-gain was turned off, from ``_auto_gain_locks``. Only the
 one channel write takes that lock, for auto-gain turned off with no gain or
-exposure beside it (``set_channel_auto_gain``, a Layer Settings row, a step),
+exposure beside it (``set_channel_settings``, a Layer Settings row, a step),
 so a write anywhere else would make the read answer a lock no turning off
 took. Every reference that writes the record -- an item stored or deleted,
 the name rebound, a mutating method called on it -- is in the one channel

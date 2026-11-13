@@ -185,9 +185,9 @@ def test_a_wire_client_reads_settings_by_path_and_not_by_document(client, sessio
     assert {path.rsplit('/', 1)[-1] for path in paths} & documents == set()
 
     assert client.get('/api/v1/get_settings_snapshot').status_code == 404
-    one = client.get('/api/v1/get_setting', params={'path': 'BF.exposure_ms'})
+    one = client.get('/api/v1/get_setting', params={'path': 'video.max_fps'})
     assert one.status_code == 200, one.text
-    assert one.json() == session.get_settings_snapshot()['BF']['exposure_ms']
+    assert one.json() == session.get_settings_snapshot()['video']['max_fps']
 
 
 def test_the_versions_are_answered_unversioned(client):

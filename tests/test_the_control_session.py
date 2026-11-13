@@ -443,7 +443,7 @@ class TestTheSessionsWrites:
     ):
         """The scope's protocol editors refuse a non-holder as the Session's do."""
         with sim_session.acting_in_control(held):
-            sim_session.set_channel_acquire('BF', 'image')
+            sim_session.set_channel_settings('BF', acquire='image')
             protocol = sim_session.create_empty_protocol()
             sim_session.add_step(protocol, after_step_index=-1)
         with pytest.raises(ControlSessionRefusedError) as refused:

@@ -37,8 +37,8 @@ def session():
     try:
         home_sim_scope(session.scope)
         for layer, focus in (('BF', 5000.0), (LED0, 5020.0)):
-            session.set_channel_acquire(layer, 'image')
-            session.save_channel_focus(layer, focus)
+            session.set_channel_settings(layer, acquire='image')
+            session.set_channel_settings(layer, focus_z_um=focus)
         session.update_settings('zstack.step_size', 50.0)
         session.update_settings('zstack.position', 'center')
         session.update_settings('zstack.range', 100.0)
@@ -63,9 +63,9 @@ def _update_a_middle_bf_slice(session, protocol, *, nudge_um=0.0):
     session.go_to_step(protocol, edited)
     if nudge_um:
         session.scope.motion.move_xy_by(dx_um=nudge_um, dy_um=nudge_um)
-    session.update_settings('BF.exposure_ms', 7.0)
-    session.update_settings('BF.gain_db', 3.0)
-    session.update_settings('BF.illumination_ma', 40.0)
+    session.set_channel_settings('BF', exposure_ms=7.0)
+    session.set_channel_settings('BF', gain_db=3.0)
+    session.set_channel_settings('BF', illumination_ma=40.0)
     session.update_step(protocol, edited, channel='BF')
     return edited
 

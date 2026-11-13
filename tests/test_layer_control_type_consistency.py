@@ -37,7 +37,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from tests.settings_fixtures import as_channel_writes, settings_writer
+from tests.settings_fixtures import channel_settings_writer, settings_writer
 from tests.stock_channels import LED0
 
 
@@ -141,7 +141,7 @@ def settings(handler_globals):
     handler_globals['_app_ctx'].ctx.settings = s
     handler_globals['_app_ctx'].ctx.update_settings = settings_writer(s)
     handler_globals['_app_ctx'].ctx.session = SimpleNamespace(
-        set_channel_settings=as_channel_writes(settings_writer(s))
+        set_channel_settings=channel_settings_writer(s)
     )
     return s
 

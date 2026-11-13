@@ -81,7 +81,7 @@ def test_a_colour_file_previews_grey(tmp_path):
     # A JPG still bakes its channel's false colour into its pixels.
     with _open_session(_settings(tmp_path, live_format='JPG')) as session:
         session.show_channel(LED0)
-        session.update_settings(f'{LED0}.false_color', True)
+        session.set_channel_settings(LED0, false_color=True)
         (still,) = _capture(session)
         assert image_utils.load_pixels(still.file)[0].ndim == 3, 'the JPG is colour'
         with TestClient(build_app(session)) as client:

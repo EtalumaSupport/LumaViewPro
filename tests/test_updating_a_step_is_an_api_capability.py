@@ -179,8 +179,8 @@ def session():
 
 def _session_protocol(session):
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.set_channel_acquire(layer, None)
-    session.set_channel_acquire('BF', AcquireMode.IMAGE)
+        session.set_channel_settings(layer, acquire=None)
+    session.set_channel_settings('BF', acquire=AcquireMode.IMAGE)
     protocol = session.scope.protocols.create_protocol(
         empty_config=session.get_sequenced_capture_config()
     )

@@ -144,7 +144,7 @@ def env(gui_ctx, monkeypatch):
     """
     session = gui_ctx.session
     home_sim_scope(session.scope)
-    session.set_channel_acquire('BF', AcquireMode.IMAGE)
+    session.set_channel_settings('BF', acquire=AcquireMode.IMAGE)
     session.update_settings('protocol_led_on', False)
     objective = session.scope.runtime_state.get_current_objective_id()
     held = []
@@ -461,7 +461,7 @@ def test_add_goes_to_the_new_step_of_the_channel_being_viewed(env, shown, select
     bench (LS850T, 2026-10-02). A viewed channel that acquires nothing gets
     the first step added.
     """
-    env.session.set_channel_acquire(LED0, AcquireMode.IMAGE)
+    env.session.set_channel_settings(LED0, acquire=AcquireMode.IMAGE)
     env.session.show_channel(shown)
     panel = env.panel(num_steps=2, curr_step=0)
 

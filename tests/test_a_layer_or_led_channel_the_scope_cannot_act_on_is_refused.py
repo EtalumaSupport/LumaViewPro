@@ -63,10 +63,12 @@ NAME_MEMBERS = {
     'led_on': lambda s, v: s.scope.illumination.led_on(v, 10.0),
     'led_off': lambda s, v: s.scope.illumination.led_off(v),
     'led_address_of': lambda s, v: s.scope.illumination.led_address_of(v),
-    'set_channel_acquire': lambda s, v: s.set_channel_acquire(v, 'image'),
-    'set_channel_auto_gain': lambda s, v: s.set_channel_auto_gain(v, True),
-    'saved_focus_z_um': lambda s, v: s.saved_focus_z_um(v),
-    'save_channel_focus': lambda s, v: s.save_channel_focus(v, 0.0),
+    # set_channel_settings refuses a channel this scope lacks for each field
+    # that would act on it: acquiring, auto-gain on, a focus.
+    'set_channel_settings acquire': lambda s, v: s.set_channel_settings(v, acquire='image'),
+    'set_channel_settings auto_gain': lambda s, v: s.set_channel_settings(v, auto_gain=True),
+    'channel_settings': lambda s, v: s.channel_settings(v),
+    'set_channel_settings focus': lambda s, v: s.set_channel_settings(v, focus_z_um=0.0),
     'get_channel_configs': lambda s, v: s.get_channel_configs([v]),
     'show_channel': lambda s, v: s.show_channel(v),
     'update_step': lambda s, v: s.update_step(s.create_empty_protocol(), 0, channel=v),
@@ -74,9 +76,9 @@ NAME_MEMBERS = {
 
 # A layer this model lacks, on the members that act on a layer, is absent hardware.
 ABSENT_MEMBERS = (
-    'set_channel_acquire',
-    'set_channel_auto_gain',
-    'save_channel_focus',
+    'set_channel_settings acquire',
+    'set_channel_settings auto_gain',
+    'set_channel_settings focus',
     'show_channel',
     'update_step',
 )

@@ -26,11 +26,11 @@ _FOCUS_UM = {'BF': 8000.0, LED0: 7990.0, LED1: 7980.0}
 def _acquiring(session):
     """BF and the stock 405 and 488 channels acquire, each at its own saved focus."""
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.set_channel_acquire(layer, None)
-        session.update_settings(f'{layer}.autofocus', False)
+        session.set_channel_settings(layer, acquire=None)
+        session.set_channel_settings(layer, autofocus=False)
     for layer, focus in _FOCUS_UM.items():
-        session.set_channel_acquire(layer, 'image')
-        session.save_channel_focus(layer, focus)
+        session.set_channel_settings(layer, acquire='image')
+        session.set_channel_settings(layer, focus_z_um=focus)
 
 
 def _stacked_ten_um_by_five(session):

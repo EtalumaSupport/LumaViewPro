@@ -52,7 +52,7 @@ def session(tmp_path):
 
 def _acquire_bf_only(session):
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.set_channel_acquire(layer, AcquireMode.IMAGE if layer == 'BF' else None)
+        session.set_channel_settings(layer, acquire=AcquireMode.IMAGE if layer == 'BF' else None)
 
 
 def _a_step_at_each_slot(session, slots=(1, 2)):

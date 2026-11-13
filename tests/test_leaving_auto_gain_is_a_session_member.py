@@ -5,8 +5,9 @@ The API's lock decides the values a caller leaving auto-gain stores (the
 achieved gain, and the achieved exposure floored to the class's usable floor,
 ``stored_exposure_ms``), but the store write lived in the GUI's toggle
 callback, so a script or a REST caller had to re-implement it.
-``ScopeSession.set_channel_auto_gain`` is now that write for every caller, and
-the GUI's toggle submits it on the camera lane.
+``ScopeSession.set_channel_settings`` with ``auto_gain=False`` is now that
+write for every caller, its lock read by ``channel_auto_gain_lock``, and the
+GUI's toggle submits it on the camera lane.
 
 These run on a simulated session: its auto-gain loop converges the gain to
 the middle of its bounds and leaves the exposure where it was, so the
@@ -39,18 +40,18 @@ _GAIN_DB = 7.0
 def _armed(session, layer='BF', exposure_ms=_EXPOSURE_MS):
     """Show *layer* at *exposure_ms* and arm its auto-gain: the simulated loop
     converges the gain to the middle of its bounds and leaves the exposure."""
-    session.update_settings(f'{layer}.exposure_ms', exposure_ms)
-    session.update_settings(f'{layer}.gain_db', _GAIN_DB)
+    session.set_channel_settings(layer, exposure_ms=exposure_ms)
+    session.set_channel_settings(layer, gain_db=_GAIN_DB)
     session.show_channel(layer)
-    session.set_channel_auto_gain(layer, True)
+    session.set_channel_settings(layer, auto_gain=True)
     return session
 
 
 def _stored(session, layer):
     return {
-        'exposure_ms': session.get_setting(f'{layer}.exposure_ms'),
-        'gain_db': session.get_setting(f'{layer}.gain_db'),
-        'auto_gain': session.channel_auto_gain(layer),
+        'exposure_ms': session.channel_settings(layer).exposure_ms,
+        'gain_db': session.channel_settings(layer).gain_db,
+        'auto_gain': session.channel_settings(layer).auto_gain,
     }
 
 
@@ -67,7 +68,9 @@ def test_turning_off_stores_what_the_lock_reached(sim_session, exposure_ms, stat
         exposure_ms = sim_session.get_setting('ag_ae_max_exposure_ms.transmitted')
     _armed(sim_session, exposure_ms=exposure_ms)
 
-    lock = sim_session.set_channel_auto_gain('BF', False)
+    sim_session.set_channel_settings('BF', auto_gain=False)
+
+    lock = sim_session.channel_auto_gain_lock('BF')
 
     assert lock.state is state
     assert lock.gain_db != _GAIN_DB, 'the loop left the gain where it was: nothing was reached'
@@ -83,11 +86,13 @@ def test_the_stored_values_carry_the_settings_resolution(sim_session):
     sim_session.update_settings('protocol.autogain.max_gain_db', 2.12)
     _armed(sim_session, exposure_ms=5.0049)
 
-    lock = sim_session.set_channel_auto_gain('BF', False)
+    sim_session.set_channel_settings('BF', auto_gain=False)
+
+    lock = sim_session.channel_auto_gain_lock('BF')
 
     assert (lock.exposure_ms, lock.gain_db) == pytest.approx((5.0049, 2.06))
-    assert sim_session.get_setting('BF.gain_db') == 2.1
-    assert sim_session.get_setting('BF.exposure_ms') == 5.0
+    assert sim_session.channel_settings('BF').gain_db == 2.1
+    assert sim_session.channel_settings('BF').exposure_ms == 5.0
 
 
 def test_a_failed_lock_keeps_the_values_and_still_turns_auto_gain_off(sim_session):
@@ -95,7 +100,9 @@ def test_a_failed_lock_keeps_the_values_and_still_turns_auto_gain_off(sim_sessio
     # No frame comes under the arm, so what the loop reached is not known.
     sim_session.scope.simulation.stall_stream(after_s=0.0, for_s=60.0)
 
-    lock = sim_session.set_channel_auto_gain('BF', False)
+    sim_session.set_channel_settings('BF', auto_gain=False)
+
+    lock = sim_session.channel_auto_gain_lock('BF')
 
     assert lock.state is AutoGainConvergence.FAILED
     assert _stored(sim_session, 'BF') == {
@@ -106,11 +113,13 @@ def test_a_failed_lock_keeps_the_values_and_still_turns_auto_gain_off(sim_sessio
 
 
 def test_turning_off_with_no_arm_standing_stores_only_the_preference(sim_session):
-    sim_session.update_settings('BF.exposure_ms', _EXPOSURE_MS)
-    sim_session.update_settings('BF.gain_db', _GAIN_DB)
+    sim_session.set_channel_settings('BF', exposure_ms=_EXPOSURE_MS)
+    sim_session.set_channel_settings('BF', gain_db=_GAIN_DB)
     sim_session.show_channel('BF')
 
-    lock = sim_session.set_channel_auto_gain('BF', False)
+    sim_session.set_channel_settings('BF', auto_gain=False)
+
+    lock = sim_session.channel_auto_gain_lock('BF')
 
     assert lock.state is None
     assert _stored(sim_session, 'BF') == {
@@ -123,9 +132,9 @@ def test_turning_off_with_no_arm_standing_stores_only_the_preference(sim_session
 def test_turning_the_shown_layer_on_stores_it_locks_nothing_and_arms_the_camera(sim_session):
     sim_session.show_channel('BF')
 
-    assert sim_session.set_channel_auto_gain('BF', True) is None
+    sim_session.set_channel_settings('BF', auto_gain=True)
 
-    assert sim_session.channel_auto_gain('BF') is True
+    assert sim_session.channel_settings('BF').auto_gain is True
     assert sim_session.channel_auto_gain_lock('BF') is None
     assert sim_session.scope.camera.read_auto_gain() is CameraAutoMode.CONTINUOUS
 
@@ -133,22 +142,24 @@ def test_turning_the_shown_layer_on_stores_it_locks_nothing_and_arms_the_camera(
 def test_turning_off_the_shown_layer_leaves_the_camera_holding_it(sim_session):
     _armed(sim_session)
 
-    sim_session.set_channel_auto_gain('BF', False)
+    sim_session.set_channel_settings('BF', auto_gain=False)
 
     camera = sim_session.scope.camera
     assert camera.get_held_channel() == 'BF'
     assert camera.read_auto_gain() is CameraAutoMode.OFF
-    assert round(camera.gain_db, 1) == sim_session.get_setting('BF.gain_db')
+    assert round(camera.gain_db, 1) == sim_session.channel_settings('BF').gain_db
 
 
 def test_turning_off_a_hidden_layer_stores_only_its_preference_and_locks_nothing(sim_session):
     """The camera's arm is the shown layer's: its values are not the hidden
     layer's to take, and the shown layer stays armed."""
-    sim_session.update_settings(f'{LED1}.exposure_ms', 55.0)
-    sim_session.update_settings(f'{LED1}.gain_db', 4.0)
+    sim_session.set_channel_settings(LED1, exposure_ms=55.0)
+    sim_session.set_channel_settings(LED1, gain_db=4.0)
     _armed(sim_session)
 
-    lock = sim_session.set_channel_auto_gain(LED1, False)
+    sim_session.set_channel_settings(LED1, auto_gain=False)
+
+    lock = sim_session.channel_auto_gain_lock(LED1)
 
     assert lock.state is None
     assert _stored(sim_session, LED1) == {'exposure_ms': 55.0, 'gain_db': 4.0, 'auto_gain': False}
@@ -174,7 +185,7 @@ def test_a_refused_request_changes_nothing(sim_session, layer, enabled, refused,
     before = sim_session.get_settings_snapshot()
 
     with pytest.raises(refused) as raised:
-        sim_session.set_channel_auto_gain(layer, enabled)
+        sim_session.set_channel_settings(layer, auto_gain=enabled)
     assert getattr(raised.value, 'reason', None) == reason
 
     assert sim_session.get_settings_snapshot() == before
@@ -182,9 +193,9 @@ def test_a_refused_request_changes_nothing(sim_session, layer, enabled, refused,
 
 @pytest.mark.parametrize('sim_session', [{'microscope': 'Lumi'}], indirect=True)
 def test_turning_off_a_layer_this_scope_lacks_is_admitted(sim_session):
-    sim_session.set_channel_auto_gain(LED0, False)
+    sim_session.set_channel_settings(LED0, auto_gain=False)
 
-    assert sim_session.channel_auto_gain(LED0) is False
+    assert sim_session.channel_settings(LED0).auto_gain is False
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +220,7 @@ def test_the_toggle_submits_the_member_on_the_camera_lane_and_redraws(
     monkeypatch.setattr(channel_control.gui_logger, 'toggle', MagicMock())
     session = gui_ctx.session
     session.show_channel('BF')
-    session.set_channel_auto_gain('BF', not enabled)
+    session.set_channel_settings('BF', auto_gain=not enabled)
     widget = SimpleNamespace(
         channel='BF',
         ids={'auto_gain': SimpleNamespace(state=state)},
@@ -222,9 +233,11 @@ def test_the_toggle_submits_the_member_on_the_camera_lane_and_redraws(
     (submit,) = submits
     assert submit.lane is gui_ctx.camera_executor
     assert submit.label == 'AUTO_GAIN_BF'
-    assert session.channel_auto_gain('BF') is (not enabled), 'it runs on the lane, not here'
+    assert session.channel_settings('BF').auto_gain is (not enabled), (
+        'it runs on the lane, not here'
+    )
     submit.call()
-    assert session.channel_auto_gain('BF') is enabled
+    assert session.channel_settings('BF').auto_gain is enabled
     submit.redraw()
     widget.render_channel_values_from_settings.assert_called_once_with()
     widget.show_as_shown.assert_called_once_with()
@@ -263,21 +276,21 @@ def _lock_read(client, layer):
 
 
 def test_over_rest_the_lock_a_turning_off_took_is_its_own_read(client):
-    """``PUT channel_auto_gain`` answers the setting's read, a bool; what the
+    """``PUT channel_settings`` answers the channel's record; what the
     camera reached is ``GET channel_auto_gain_lock``, the lock the turning off
     took, its gain the one stored. It records that turning off, so turning
     auto-gain on again leaves it as it was."""
     session, client = client
     assert _lock_read(client, 'BF') is None
 
-    client.put('/api/v1/channel_auto_gain', json={'channel': 'BF', 'enabled': True})
-    put = client.put('/api/v1/channel_auto_gain', json={'channel': 'BF', 'enabled': False})
+    client.put('/api/v1/channel_settings', json={'channel': 'BF', 'auto_gain': True})
+    put = client.put('/api/v1/channel_settings', json={'channel': 'BF', 'auto_gain': False})
     lock = _lock_read(client, 'BF')
 
-    assert put.json() is False
+    assert put.json()['auto_gain'] is False
     assert lock['state'] in {'CONVERGED', 'MAXED', 'AT_MINIMUM'}
-    assert round(lock['gain_db'], 1) == session.get_setting('BF.gain_db') != 1.0
-    client.put('/api/v1/channel_auto_gain', json={'channel': 'BF', 'enabled': True})
+    assert round(lock['gain_db'], 1) == session.channel_settings('BF').gain_db != 1.0
+    client.put('/api/v1/channel_settings', json={'channel': 'BF', 'auto_gain': True})
     assert _lock_read(client, 'BF') == lock
 
 
@@ -287,7 +300,7 @@ def test_over_rest_a_hidden_layers_turning_off_reads_a_lock_with_no_state(client
     _session, client = client
     assert _lock_read(client, LED0) is None
 
-    client.put('/api/v1/channel_auto_gain', json={'channel': LED0, 'enabled': False})
+    client.put('/api/v1/channel_settings', json={'channel': LED0, 'auto_gain': False})
 
     assert _lock_read(client, LED0)['state'] is None
 

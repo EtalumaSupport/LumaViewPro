@@ -649,7 +649,7 @@ def test_a_lock_right_after_the_arm_reads_a_frame_taken_under_it():
     )
     try:
         home_sim_scope(session.scope)
-        session.set_channel_auto_gain('BF', True)
+        session.set_channel_settings('BF', auto_gain=True)
 
         lock = session.scope.camera.lock_auto_gain()
 

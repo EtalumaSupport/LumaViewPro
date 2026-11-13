@@ -118,8 +118,8 @@ def test_a_still_after_a_run_is_one_layers(session, tmp_path):
     """BF shown before a one-step LED 0 scan: the still after it is named for
     the layer shown and taken at that layer's settings, whichever it is."""
     for layer in session.get_channel_configs():
-        session.set_channel_acquire(layer, None)
-    session.set_channel_acquire(LED0, 'image')
+        session.set_channel_settings(layer, acquire=None)
+    session.set_channel_settings(LED0, acquire='image')
     protocol = session.new_protocol()
     while protocol.num_steps() > 1:
         session.delete_step(protocol, protocol.num_steps() - 1)
@@ -139,7 +139,7 @@ def test_a_still_after_a_run_is_one_layers(session, tmp_path):
 
 
 def test_a_typed_value_is_the_next_stills(session):
-    session.update_settings('BF.exposure_ms', 12.0)
+    session.set_channel_settings('BF', exposure_ms=12.0)
 
     _name, record = _still(session)
 
@@ -214,7 +214,7 @@ def test_the_saved_file_states_the_layer_the_camera_held(session):
 
 
 def _show_lit(session, layer, ma):
-    session.update_settings(f'{layer}.illumination_ma', ma)
+    session.set_channel_settings(layer, illumination_ma=ma)
     session.show_channel(layer)
     session.light_shown_channel(True)
 

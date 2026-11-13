@@ -97,7 +97,7 @@ def _ls850_simulator():
     # As the bench's installation stood: one plate position, two
     # fluorescence channels acquiring.
     for channel in _fluorescence(session.scope)[:2]:
-        session.set_channel_acquire(channel.key_name, 'image')
+        session.set_channel_settings(channel.key_name, acquire='image')
     try:
         yield session, None
     finally:

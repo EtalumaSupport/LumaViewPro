@@ -33,7 +33,7 @@ def ctx(gui_ctx, monkeypatch):
     """The GUI's context over a homed simulated session with Brightfield acquiring."""
     gui_ctx.stage = MagicMock()
     home_sim_scope(gui_ctx.scope)
-    gui_ctx.session.set_channel_acquire('BF', AcquireMode.IMAGE)
+    gui_ctx.session.set_channel_settings('BF', acquire=AcquireMode.IMAGE)
     monkeypatch.setattr(ps.gui_logger, 'protocol_action', lambda *a, **kw: None)
     monkeypatch.setattr(ps.gui_logger, 'button', lambda *a, **kw: None)
     # The Load waits on the camera lane, so it runs off the inline boundary.

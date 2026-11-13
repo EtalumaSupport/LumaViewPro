@@ -106,9 +106,7 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
     'scale_bar.enabled': _session('set_scale_bar'),
     'motion.acceleration_max_pct': _session('set_acceleration_limit'),
     'bookmark': _session('save_bookmark', read='bookmark'),
-    '*.acquire': _session('set_channel_acquire'),
-    '*.auto_gain': _session('set_channel_auto_gain'),
-    '*.focus': _session('save_channel_focus'),
+    '*': _session('set_channel_settings'),
 }
 
 # A setting only the installation's settings file sets: it decides how the
@@ -593,10 +591,40 @@ def is_installation_only(path: str) -> bool:
     return path.split('.')[0] in INSTALLATION_ONLY
 
 
-def check_write(
+def check_write(template: dict, path: str, value: object) -> None:
+    """Refuse a write the store must not take; return when ``value`` may be stored at ``path``.
+
+    ``template`` is ``check_value``'s. A channel's settings are a member's
+    (``*`` in ``SETTINGS_WITH_A_MEMBER``), so no LED current reaches this
+    judge.
+
+    Raises:
+        SettingRefusedError: ``path`` is owned by a member (named),
+            is set only by the installation's settings file, is not a
+            setting, or names a
+            block rather than one setting; or ``value``
+            is not the setting's kind, or is outside its range (a protocol
+            period or duration no protocol can run among them).
+    """
+    member = member_for(path)
+    if member is not None:
+        raise SettingRefusedError(
+            'has_member', path, f'it is changed by {member.words}', member=member.path
+        )
+    if is_installation_only(path):
+        raise SettingRefusedError(
+            'installation_only', path, "it is read from the installation's settings file"
+        )
+    check_value(template, path, value)
+
+
+def check_value(
     template: dict, path: str, value: object, *, led_max_ma: float | None = None
 ) -> None:
-    """Refuse a write the store must not take; return when ``value`` may be stored at ``path``.
+    """Refuse a value the setting at ``path`` does not take, whoever its writer.
+
+    ``check_write`` without its question of who writes: a member that owns
+    a setting judges a value it stores by this.
 
     ``template`` is the shipped ``settings.json``, which describes every
     setting there is. A leaf the template holds as null is one with no
@@ -609,38 +637,9 @@ def check_write(
     with the stored intent kept.
 
     Raises:
-        SettingRefusedError: ``path`` is owned by a member (named),
-            is set only by the installation's settings file, is not a
-            setting, or names a
-            block rather than one setting; or ``value``
-            is not the setting's kind, or is outside its range (a protocol
-            period or duration no protocol can run, and an illumination
-            above the attached board's maximum, among them).
-    """
-    member = member_for(path)
-    if member is not None:
-        raise SettingRefusedError(
-            'has_member', path, f'it is changed by {member.words}', member=member.path
-        )
-    if is_installation_only(path):
-        raise SettingRefusedError(
-            'installation_only', path, "it is read from the installation's settings file"
-        )
-    check_value(template, path, value, led_max_ma=led_max_ma)
-
-
-def check_value(
-    template: dict, path: str, value: object, *, led_max_ma: float | None = None
-) -> None:
-    """Refuse a value the setting at ``path`` does not take, whoever its writer.
-
-    ``check_write`` without its question of who writes: a member that owns
-    a setting judges a value it stores by this. ``template`` and
-    ``led_max_ma`` are ``check_write``'s.
-
-    Raises:
         SettingRefusedError: ``path`` is not a setting or names a block, or
-            ``value`` is not the setting's kind or is outside its range.
+            ``value`` is not the setting's kind or is outside its range (an
+            illumination above the attached board's maximum among them).
     """
     shipped: object = template
     for segment in path.split('.'):

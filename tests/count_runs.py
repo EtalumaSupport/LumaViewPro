@@ -64,8 +64,8 @@ def count_scope(tmp_path_factory):
     try:
         home_sim_scope(session.scope)
         runner = session.protocol_runner()
-        session.set_channel_acquire('BF', 'image')
-        session.set_channel_acquire(LED0, 'image')
+        session.set_channel_settings('BF', acquire='image')
+        session.set_channel_settings(LED0, acquire='image')
 
         def protocol(tiling: str = '1x1', wells: int = 1) -> object:
             positions = _over_a_well(session, wells)

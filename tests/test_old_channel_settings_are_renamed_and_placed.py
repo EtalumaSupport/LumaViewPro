@@ -145,9 +145,9 @@ def test_bring_up_places_old_settings_on_the_units_own_leds(
     write_installation(root, board_block=board_block)
     session = _session(root, microscope=microscope)
     try:
-        held = {key: session.get_setting(f'{key}.gain_db') for key in expected}
+        held = {key: session.channel_settings(key).gain_db for key in expected}
         blue_lands = 'Ex488' if block else 'Ex405'
-        acquiring = session.channel_acquire(blue_lands)
+        acquiring = session.channel_settings(blue_lands).acquire
         leftovers = set(_OLD) & set(session.settings)
         record = settings_init.OLD_CHANNEL_BLOCKS in session.settings
     finally:

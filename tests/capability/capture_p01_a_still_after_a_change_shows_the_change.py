@@ -162,11 +162,11 @@ def main():
         illumination = scope.illumination
         # Written on the session in memory, never saved.
         if args.ma is not None:
-            session.update_settings(f'{channel}.illumination_ma', args.ma)
+            session.set_channel_settings(channel, illumination_ma=args.ma)
         if args.exposure_ms is not None:
-            session.update_settings(f'{channel}.exposure_ms', args.exposure_ms)
+            session.set_channel_settings(channel, exposure_ms=args.exposure_ms)
         if args.gain_db is not None:
-            session.update_settings(f'{channel}.gain_db', args.gain_db)
+            session.set_channel_settings(channel, gain_db=args.gain_db)
         stored = session.get_settings_snapshot()[channel]
         current_ma = stored['illumination_ma']
         figure('illumination_ma', current_ma)

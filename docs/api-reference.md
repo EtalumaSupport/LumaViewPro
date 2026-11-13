@@ -464,7 +464,7 @@ Every row is judged before any is stored, and is written as any
 channel write is: the shown channel's row is on the camera, and on
 its LED when lit, when this returns; auto-gain off with a gain or
 exposure beside it is those values with the camera's loop off, and
-alone keeps what the loop reached (`set_channel_auto_gain`); a
+alone keeps what the loop reached (`channel_auto_gain_lock`); a
 channel set to acquire stops stimulating. While a run or a diagnostic
 holds the scope the rows are stored only, and its end puts the shown
 channel on.
@@ -798,54 +798,6 @@ CapturedStill: The image and the instrument's record of its frame.
 - [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `no_fresh_frame`, `chunk_rejected`, `record_read_failed`
 - [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`
 
-<a id="ScopeSession.channel_acquire"></a>
-### `ScopeSession.channel_acquire`
-
-```python
-def channel_acquire(self, channel: str) -> AcquireMode | None
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/channel_acquire`.
-
-What `channel` captures: an `AcquireMode`, or None (nothing).
-
-**Args**
-
-- `channel`: The channel read.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
-
-**Refusals by REST status**
-
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
-
-<a id="ScopeSession.channel_auto_gain"></a>
-### `ScopeSession.channel_auto_gain`
-
-```python
-def channel_auto_gain(self, channel: str) -> bool
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/channel_auto_gain`.
-
-Whether `channel`'s auto-gain is on, as `set_channel_auto_gain` set it.
-
-**Args**
-
-- `channel`: The channel read.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
-
-**Refusals by REST status**
-
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
-
 <a id="ScopeSession.channel_auto_gain_lock"></a>
 ### `ScopeSession.channel_auto_gain_lock`
 
@@ -858,10 +810,11 @@ Route: `GET /api/v1/channel_auto_gain_lock`.
 
 What the camera reached the last time `channel`'s auto-gain was turned off.
 
-The lock `set_channel_auto_gain(channel, False)` returned, the last
-time it was called: its `state` says whether the camera converged,
-hit the exposure ceiling or floor, or reported nothing usable, and is
-None when no auto-gain was running or the camera did not hold the
+The lock the camera's arm took the last time a write turned
+`channel`'s auto-gain off with no gain or exposure beside it
+(`set_channel_settings(channel, auto_gain=False)`): its `state`
+says whether the camera converged, hit the exposure ceiling or floor,
+or reported nothing usable, and is None when no auto-gain was running or the camera did not hold the
 channel. It describes that turning off, not the channel now: a later
 turning on, a step's values or a stored gain leave it as it was.
 None when the channel's auto-gain has not been turned off since the
@@ -1486,7 +1439,8 @@ and the Session's members do).
 A setting with a read of its own is read there, so one setting has
 one read: `get_setting('binning')` is refused for
 `scope.camera.binning`, `get_setting('objective_id')` for
-`objective_id`, `get_setting('bookmark')` for `bookmark`. The
+`objective_id`, `get_setting('bookmark')` for `bookmark`,
+`get_setting('BF.gain_db')` for `channel_settings`. The
 live folder and the protocol file, which only the host moves, are
 read here.
 
@@ -2720,44 +2674,6 @@ The values stored, as `bookmark` reads them; an axis not in `axes` is None.
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
-<a id="ScopeSession.save_channel_focus"></a>
-### `ScopeSession.save_channel_focus`
-
-```python
-def save_channel_focus(self, channel: str, z_um: float) -> None
-```
-
-Marks: sets [`saved_focus_z_um`](#ScopeSession.saved_focus_z_um); enters: `guarded_write`.  
-Route: `PUT /api/v1/saved_focus_z_um`.
-
-Store `z_um` as `channel`'s focus, the Z every new step of the channel is born at.
-
-The door for a caller that holds a number rather than a stage: an
-autofocus run saving the Z it chose, a script saving one it
-measured. It says only that the number is a Z this scope's focus can
-reach; it guarantees nothing about where the number came from.
-`save_focus`, which saves the live Z, writes through the same path.
-
-**Args**
-
-- `channel`: The channel whose focus is stored.
-- `z_um`: The focus, in micrometres; it must lie within Z's travel.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`.
-- `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing is written.
-- `ProtocolRunRefusedError`: `'positions_unreachable'` -- this scope has no Z axis. Nothing is written.
-- `ArgumentRefusedError`: `'not_a_number'`, `z_um` is NaN or infinite. Nothing is written.
-- `PositionOutOfRangeError`: `z_um` lies outside Z's travel. Nothing is written.
-
-**Refusals by REST status**
-
-- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
-
 <a id="ScopeSession.save_focus"></a>
 ### `ScopeSession.save_focus`
 
@@ -2846,32 +2762,6 @@ The path written; a missing folder is made.
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_file`, `wrong_extension`, `not_a_folder`
 - 500: [`ProtocolNotSavedError`](#ProtocolNotSavedError): `protocol_not_saved`
-
-<a id="ScopeSession.saved_focus_z_um"></a>
-### `ScopeSession.saved_focus_z_um`
-
-```python
-def saved_focus_z_um(self, channel: str) -> float
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/saved_focus_z_um`.
-
-The Z saved as `channel`'s focus, in micrometres.
-
-**Args**
-
-- `channel`: The channel whose saved focus is read.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
-- `FocusNotSavedError`: no focus was ever saved for `channel`; a step built for it takes the current Z instead.
-
-**Refusals by REST status**
-
-- 409: [`FocusNotSavedError`](#FocusNotSavedError): `focus_not_saved`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
 
 <a id="ScopeSession.scale_bar_enabled"></a>
 ### `ScopeSession.scale_bar_enabled`
@@ -3046,98 +2936,6 @@ the stored limit cannot disagree.
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
-<a id="ScopeSession.set_channel_acquire"></a>
-### `ScopeSession.set_channel_acquire`
-
-```python
-def set_channel_acquire(self, channel: str, mode: AcquireMode | None) -> None
-```
-
-Marks: sets [`channel_acquire`](#ScopeSession.channel_acquire); enters: `guarded_write`.  
-Route: `PUT /api/v1/channel_acquire`.
-
-Set what a channel captures: an `AcquireMode`, or None (nothing).
-
-The channels set to acquire are the ones `new_protocol` and
-`add_step` build steps for and a composite merges. A channel set to
-acquire stops stimulating: one channel does not capture and
-stimulate at once.
-
-Nothing is changed on any refusal. Setting a channel to acquire
-nothing is always admitted.
-
-**Args**
-
-- `channel`: The channel set.
-- `mode`: What it captures, an `AcquireMode`; None sets it to capture nothing.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'not_offered'`, `mode` is not an `AcquireMode` or None.
-- `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, `mode` is not None and this scope does not have `channel`.
-
-**Refusals by REST status**
-
-- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
-
-<a id="ScopeSession.set_channel_auto_gain"></a>
-### `ScopeSession.set_channel_auto_gain`
-
-```python
-def set_channel_auto_gain(self, channel: str, enabled: bool) -> AutoGainLock | None
-```
-
-Marks: sets [`channel_auto_gain`](#ScopeSession.channel_auto_gain); enters: `lane_call`, `guarded_write`.  
-Route: `PUT /api/v1/channel_auto_gain`.
-
-Turn a channel's auto-gain on or off, as the GUI's Auto Gain/Exp box does.
-
-This is the channel's stored setting, which a capture of that channel
-uses; `scope.camera.set_auto_gain` is a raw camera write, which the
-next channel the camera holds replaces.
-
-For the shown channel the camera follows when this returns: turning it
-on arms the camera's auto loop (`apply_channel_camera`); turning it
-off locks the standing arm (`scope.camera.lock_auto_gain`) and
-stores what the camera reached as the channel's manual setting: the
-lock's `gain_db` and its `stored_exposure_ms`, rounded to 0.1 dB
-and 0.01 ms, the resolution the stored settings carry, both when the
-lock reached them; with no arm standing, or a lock that found
-nothing usable, they are left as they were. Either waits on the
-camera lane. For a channel the camera does not hold, only the
-preference is stored: the camera's arm is another channel's, and its
-values are not this channel's to take. While a run or a diagnostic
-holds the scope, turning auto-gain on is stored only, put on the
-camera at its end, and turning the shown channel's off is refused;
-while a home holds it, changing the shown channel's is refused.
-
-Nothing is changed on any refusal.
-
-**Args**
-
-- `channel`: The channel whose auto-gain is set.
-- `enabled`: True turns it on, False off.
-
-**Returns**
-
-The lock when turning off (its `state` is None when no arm stood), so a caller can read the state the camera reached, and `channel_auto_gain_lock` answers it from then on; None when turning on.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'gain_range_inverted'`, `enabled` is True and the stored auto-gain range has its minimum gain above its maximum, whichever channel it is.
-- `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, `enabled` is True and this scope does not have `channel`; or `'exclusive_activity_running'`, the lock's when a run or a diagnostic holds the scope, or a home's for the shown channel.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
-
 <a id="ScopeSession.set_channel_settings"></a>
 ### `ScopeSession.set_channel_settings`
 
@@ -3217,17 +3015,17 @@ The channel's settings as stored once the write is done, the lock's values and t
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'not_a_number'`, a focus that is not finite; `'gain_range_inverted'`, `auto_gain` True while the stored auto-gain range has its minimum gain above its maximum.
-- `SettingRefusedError`: `'not_offered'`, a field this channel does not carry (stimulation on a channel that does not stimulate); `'wrong_kind'` or `'out_of_range'`, a value its setting does not take, an illumination above the LED board's maximum among them.
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'gain_range_inverted'`, `auto_gain` True while the stored auto-gain range has its minimum gain above its maximum.
+- `SettingRefusedError`: `'not_offered'`, a field this channel does not carry (stimulation on a channel that does not stimulate); `'wrong_kind'` or `'out_of_range'`, a value its setting does not take, a focus that is not finite and an illumination above the LED board's maximum among them.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope does not have `channel` and the write sets it to acquire, turns its auto-gain on or saves its focus; `'exclusive_activity_running'`, as described above.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope does not have `channel` and the write sets it to acquire, turns its auto-gain on or saves its focus; `'exclusive_activity_running'`, as described above, or the write is the shown channel's illumination, its LED is lit at 0 mA, the value is above 0 mA, and a manual recording runs (a recording keeps the light it started under). Nothing is stored.
 - `ProtocolRunRefusedError`: `'positions_unreachable'`, a focus on a scope with no Z axis.
 - `PositionOutOfRangeError`: a focus outside Z's travel.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `gain_range_inverted`; [`SettingRefusedError`](#SettingRefusedError): `not_offered`, `wrong_kind`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`SettingRefusedError`](#SettingRefusedError): `not_offered`, `wrong_kind`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -4192,7 +3990,7 @@ def update_settings(self, path: str, value: SettingValue) -> None
 Marks: enters: `lane_call`, `guarded_write`.  
 Route: `POST /api/v1/update_settings`.
 
-Write one setting, named by its dotted path: `'video.max_fps'`, `'BF.sum'`.
+Write one setting, named by its dotted path: `'video.max_fps'`, `'zstack.range'`.
 
 The one write to the live settings for any caller, on any thread.
 Reads take `get_settings_snapshot`; a write that skips this can
@@ -4200,8 +3998,8 @@ tear a snapshot being taken concurrently, and takes none of the
 checks below.
 
 A setting that has its own member -- the objective, the plate, the
-image mode, a channel's acquire mode or focus, the live folder, ... --
-is changed only through that member, which checks it against the
+image mode, every setting of a channel (`set_channel_settings`),
+the live folder, ... -- is changed only through that member, which checks it against the
 scope or changes another setting with it; the refusal names the
 member. A setting that decides how the next start reaches the scope
 or the machine -- the REST server and its key, the start mode, the
@@ -4217,28 +4015,19 @@ settings has a path.
 
 **Raises**
 
-- `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is in-process, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`); `'installation_only'`, it is set only by the installation; `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run, and a channel's illumination above the attached LED board's maximum, among them). Nothing is written.
-- `ConfigurationDefectError`: `'channels_unresolved'`, the write is to the shown channel's camera settings and this scope's channels could not be resolved; the value is stored, and the camera is not changed.
-- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, the write is the shown channel's illumination, its LED is lit at 0 mA, the value is above 0 mA, and a manual recording runs (a recording keeps the light it started under); or a home holds the scope and the shown channel's camera or LED would take the write. Nothing is stored.
+- `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is in-process, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`); `'installation_only'`, it is set only by the installation; `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run among them). Nothing is written.
+- `ConfigurationDefectError`: `'channels_unresolved'`, the write is an auto-gain bound the shown channel's camera takes and this scope's channels could not be resolved; the value is stored, and the camera is not changed.
+- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, a home holds the scope and the shown channel's camera would take the write. Nothing is stored.
 
 A numpy scalar in `value`, at any depth, is stored as the Python
 value it holds.
 
-A channel's gain or exposure is stored as written, the person's
-intent; a camera that cannot reach it is driven at its own limit
-when the channel is applied (`CameraAPI.applied_gain_db_for`).
-A channel's setting is written as every channel write is: a write to
-the shown channel's gain or exposure (or, while it is on
-auto-gain, to the auto-gain bounds) is on the camera, and to its
-illumination on its lit LED, when this returns, a manual recording
-running or not; a write to a hidden channel, or one made while a run
-or a diagnostic holds the scope, is stored only, and the shown
-channel is put on at its end; while a home holds the scope, one the
-shown channel's camera or LED would take is refused. The
-illumination is put on the LED before it is stored, so a light the
-LED refuses stores nothing. Such a write waits on the camera or LED lane,
-so a caller on the UI thread hands it to a worker. Each auto-gain
-bound is stored alone; a minimum left above the maximum is refused
+While the shown channel is on auto-gain, a write to the auto-gain
+bounds is on the camera when this returns, unless a run or a
+diagnostic holds the scope, whose end puts the shown channel on;
+while a home holds the scope it is refused. Such a write waits on
+the camera lane, so a caller on the UI thread hands it to a worker.
+Each auto-gain bound is stored alone; a minimum left above the maximum is refused
 when auto-gain is armed with them (`ArgumentRefusedError`,
 `'gain_range_inverted'`), so this write raises it after the store
 while the shown channel is on auto-gain, and the camera keeps its arm.
@@ -10173,7 +9962,7 @@ What a stored gain becomes on the attached camera, in dB (`applied_gain_db_for`)
 ## `lumascope.AutoGainLock`
 
 A record: it crosses the wire as its data.  
-Returned by: [`CameraAPI.lock_auto_gain`](#CameraAPI.lock_auto_gain), [`ScopeSession.channel_auto_gain_lock`](#ScopeSession.channel_auto_gain_lock), [`ScopeSession.set_channel_auto_gain`](#ScopeSession.set_channel_auto_gain).
+Returned by: [`CameraAPI.lock_auto_gain`](#CameraAPI.lock_auto_gain), [`ScopeSession.channel_auto_gain_lock`](#ScopeSession.channel_auto_gain_lock).
 
 The result of locking an auto-gain arm.
 
@@ -14245,9 +14034,8 @@ A closed set crosses the wire as its value, and in Python equals its value's str
 <a id="AcquireMode"></a>
 ### `lumascope.AcquireMode`
 
-Returned by: [`ScopeSession.channel_acquire`](#ScopeSession.channel_acquire).  
 Held in: [`ChannelSettings.acquire`](#ChannelSettings.acquire), [`StepRecord.acquire`](#StepRecord.acquire).  
-Taken by: [`ScopeSession.set_channel_acquire`](#ScopeSession.set_channel_acquire), [`ScopeSession.set_channel_settings`](#ScopeSession.set_channel_settings).
+Taken by: [`ScopeSession.set_channel_settings`](#ScopeSession.set_channel_settings).
 
 What a channel captures: an image or a video.
 
@@ -18860,10 +18648,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/apply_zstacking` | [`ScopeSession.apply_zstacking`](#ScopeSession.apply_zstacking) |
 | `GET` | `/api/v1/bookmark` | [`ScopeSession.bookmark`](#ScopeSession.bookmark) |
 | `GET` | `/api/v1/bring_up_record` | [`ScopeSession.bring_up_record`](#ScopeSession.bring_up_record) |
-| `GET` | `/api/v1/channel_acquire` | [`ScopeSession.channel_acquire`](#ScopeSession.channel_acquire) |
-| `PUT` | `/api/v1/channel_acquire` | [`ScopeSession.set_channel_acquire`](#ScopeSession.set_channel_acquire) |
-| `GET` | `/api/v1/channel_auto_gain` | [`ScopeSession.channel_auto_gain`](#ScopeSession.channel_auto_gain) |
-| `PUT` | `/api/v1/channel_auto_gain` | [`ScopeSession.set_channel_auto_gain`](#ScopeSession.set_channel_auto_gain) |
 | `GET` | `/api/v1/channel_auto_gain_lock` | [`ScopeSession.channel_auto_gain_lock`](#ScopeSession.channel_auto_gain_lock) |
 | `GET` | `/api/v1/channel_colors` | [`ScopeSession.channel_colors`](#ScopeSession.channel_colors) |
 | `GET` | `/api/v1/channel_settings` | [`ScopeSession.channel_settings`](#ScopeSession.channel_settings) |
@@ -18951,8 +18735,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/save_bookmark` | [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark) |
 | `POST` | `/api/v1/save_focus` | [`ScopeSession.save_focus`](#ScopeSession.save_focus) |
 | `POST` | `/api/v1/save_protocol` | [`ScopeSession.save_protocol`](#ScopeSession.save_protocol) |
-| `GET` | `/api/v1/saved_focus_z_um` | [`ScopeSession.saved_focus_z_um`](#ScopeSession.saved_focus_z_um) |
-| `PUT` | `/api/v1/saved_focus_z_um` | [`ScopeSession.save_channel_focus`](#ScopeSession.save_channel_focus) |
 | `GET` | `/api/v1/scale_bar_enabled` | [`ScopeSession.scale_bar_enabled`](#ScopeSession.scale_bar_enabled) |
 | `PUT` | `/api/v1/scale_bar_enabled` | [`ScopeSession.set_scale_bar`](#ScopeSession.set_scale_bar) |
 | `GET` | `/api/v1/scope/all_labware` | [`Lumascope.all_labware`](#Lumascope.all_labware) |

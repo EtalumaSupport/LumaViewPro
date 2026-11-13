@@ -426,7 +426,7 @@ def test_go_to_step_on_a_manual_scope_moves_nothing_and_loads_the_layer(make_ses
 
     going = session.start_go_to_step(protocol, 0)
     assert going.done() and going.result() is None
-    assert session.get_setting('BF')['exposure_ms'] == protocol.step_row(step_index=0)['Exposure']
+    assert session.channel_settings('BF').exposure_ms == protocol.step_row(step_index=0)['Exposure']
 
 
 # --- The run asks presence before it asks about the home --------------------------

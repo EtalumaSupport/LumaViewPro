@@ -282,10 +282,10 @@ def test_a_well_the_plate_lacks_answers_with_the_plate_it_was_looked_for_on(clie
     [
         (
             'PUT',
-            'channel_acquire',
-            {'channel': 'BF', 'mode': 'bogus'},
+            'channel_settings',
+            {'channel': 'BF', 'acquire': 'bogus'},
             'not_offered',
-            {'argument': 'mode', 'offered': ['image', 'video']},
+            {'argument': 'acquire', 'offered': ['image', 'video']},
         ),
         (
             'PUT',

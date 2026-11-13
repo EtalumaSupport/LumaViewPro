@@ -22,9 +22,9 @@ try:
 
     lay = LED0
     s.update_settings('stimulation_enabled', True)
-    s.set_channel_acquire(lay, 'image')
-    s.update_settings(f'{lay}.stim_config.enabled', True)  # the GUI forbids this pair
-    s.set_channel_acquire(LED1, 'image')
+    s.set_channel_settings(lay, acquire='image')
+    s.set_channel_settings(lay, stim_enabled=True)  # the GUI forbids this pair
+    s.set_channel_settings(LED1, acquire='image')
     snap = s.get_settings_snapshot()[lay]
     print(
         f'1: stored pair -> acquire={snap["acquire"]!r} '

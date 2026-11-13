@@ -17,17 +17,17 @@ def show(label, v):
 try:
     lay = LED0
     # --- settings-backed capabilities: write the one store, read it back ---
-    s.update_settings(f'{lay}.sum', 4)
-    s.update_settings(f'{lay}.autofocus', True)
-    s.set_channel_acquire(lay, 'video')
-    s.update_settings(f'{lay}.video_config.duration', 7)
-    for key, value in {
-        'frequency': 3,
-        'pulse_width': 25,
-        'pulse_count': 9,
-        'illumination_ma': 77,
-    }.items():
-        s.update_settings(f'{lay}.stim_config.{key}', value)
+    s.set_channel_settings(lay, frames_summed=4)
+    s.set_channel_settings(lay, autofocus=True)
+    s.set_channel_settings(lay, acquire='video')
+    s.set_channel_settings(lay, video_duration_s=7)
+    s.set_channel_settings(
+        lay,
+        stim_frequency_hz=3,
+        stim_pulse_width_ms=25,
+        stim_pulse_count=9,
+        stim_illumination_ma=77,
+    )
     lc = s.get_channel_configs([lay])[lay]
     show('sum', lc['sum'])
     show('autofocus', lc['autofocus'])
@@ -47,7 +47,7 @@ try:
     time.sleep(2)
     z = sc.motion.get_current_position('Z')
     show('motion.get_current_position(Z)', z)
-    s.save_channel_focus(lay, z)  # == save_focus's layer write
+    s.set_channel_settings(lay, focus_z_um=z)  # == save_focus's layer write
     show(f'settings[{LED0}][focus]', s.get_settings_snapshot()[lay]['focus'])
     proto = sc.protocols.create_protocol(input_config=s.get_sequenced_capture_config())
     show('protocol.modify_step_z_height', proto.modify_step_z_height(step_index=0, z=z + 5))

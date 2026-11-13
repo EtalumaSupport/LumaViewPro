@@ -102,7 +102,7 @@ class TestTheStillIsHandedBackWithItsRecord:
         assert still != session.capture_still('BF')
 
     def test_a_locked_auto_gain_states_where_it_landed(self, session):
-        session.set_channel_auto_gain('BF', True)
+        session.set_channel_settings('BF', auto_gain=True)
 
         still = session.capture_still('BF')
 

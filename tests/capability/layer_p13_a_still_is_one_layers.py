@@ -99,7 +99,7 @@ def body(session, runner):
     x0 = scope.motion.get_target_positions()['X']
     try:
         for layer in layers:
-            session.set_channel_acquire(layer, 'image' if layer in pair else None)
+            session.set_channel_settings(layer, acquire='image' if layer in pair else None)
         here = scope.protocols.create_protocol(empty_config=session.get_sequenced_capture_config())
         session.add_step(here, before_step_index=0)
         scope.motion.move_xy(x_um=x0 + TRAVEL_UM)
@@ -134,14 +134,14 @@ def body(session, runner):
         # 3. A typed value, then a still.
         session.show_channel('BF')
         typed = round(exposure_before + 5.0, 2)
-        session.update_settings('BF.exposure_ms', typed)
+        session.set_channel_settings('BF', exposure_ms=typed)
         check(
             'typed value stored',
             session.get_settings_snapshot()['BF']['exposure_ms'] == typed,
             str(typed),
         )
         judge(session, 'typed value then still', _still(session), expect='BF')
-        session.update_settings('BF.exposure_ms', exposure_before)
+        session.set_channel_settings('BF', exposure_ms=exposure_before)
 
         # 4. A still while a go-to to the other layer's step is under way.
         named = []
@@ -174,8 +174,8 @@ def body(session, runner):
     finally:
         scope.illumination.leds_off()
         for layer, mode in acquire_before.items():
-            session.set_channel_acquire(layer, mode)
-        session.update_settings('BF.exposure_ms', exposure_before)
+            session.set_channel_settings(layer, acquire=mode)
+        session.set_channel_settings('BF', exposure_ms=exposure_before)
         scope.motion.move_xy(x_um=x0)
 
 

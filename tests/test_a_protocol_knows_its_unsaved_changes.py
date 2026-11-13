@@ -27,7 +27,7 @@ from tests.test_a_step_records_its_turret_slot import _as_an_old_file
 def _ready(session):
     """``session`` homed, with Brightfield acquiring: one New and Add build on."""
     home_sim_scope(session.scope)
-    session.set_channel_acquire('BF', 'image')
+    session.set_channel_settings('BF', acquire='image')
     return session
 
 
@@ -173,7 +173,7 @@ def test_the_channel_controls_are_not_a_change(make_session, tmp_path):
     protocol = session.new_protocol()
     session.save_protocol(protocol, tmp_path / 'p.tsv')
 
-    session.update_settings('BF.gain_db', 7.0)
+    session.set_channel_settings('BF', gain_db=7.0)
 
     assert protocol.has_unsaved_changes is False
 

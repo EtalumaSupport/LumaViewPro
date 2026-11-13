@@ -74,7 +74,7 @@ def ctx(gui_ctx, monkeypatch):
 def homed(ctx):
     """``ctx`` homed, with Brightfield acquiring: a scope the Session lets build and edit."""
     home_sim_scope(ctx.scope)
-    ctx.session.set_channel_acquire('BF', AcquireMode.IMAGE)
+    ctx.session.set_channel_settings('BF', acquire=AcquireMode.IMAGE)
     return ctx
 
 

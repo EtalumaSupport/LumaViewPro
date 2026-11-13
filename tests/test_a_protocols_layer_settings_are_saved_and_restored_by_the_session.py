@@ -53,14 +53,13 @@ def _file_with_block(tmp_path, *rows, header=BLOCK_HEADER):
 
 
 def _set_layer(session, layer, **values):
-    # Each value through the writer a caller uses: acquire and auto-gain
-    # have their own members, the rest are written by path.
-    members = {'acquire': session.set_channel_acquire, 'auto_gain': session.set_channel_auto_gain}
+    # Through the writer a caller uses, the channel resource, each value by
+    # the stored key ``protocol.CHANNEL_SETTING_KEYS`` names its field for.
+    from _lumascope.modules.protocol import CHANNEL_SETTING_KEYS
+
+    field_of = {key: field for field, key in CHANNEL_SETTING_KEYS}
     for key, value in values.items():
-        if key in members:
-            members[key](layer, value)
-        else:
-            session.update_settings(f'{layer}.{key}', value)
+        session.set_channel_settings(layer, **{field_of[key]: value})
 
 
 def _layer_fields(session, layer):

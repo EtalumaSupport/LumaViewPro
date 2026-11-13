@@ -126,7 +126,7 @@ def test_a_layers_autofocus_switched_during_a_run_is_still_switched_after_it(ses
     files_written = threading.Event()
 
     def users_switch(*_scan):
-        session.update_settings('BF.autofocus', True)
+        session.set_channel_settings('BF', autofocus=True)
 
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol(

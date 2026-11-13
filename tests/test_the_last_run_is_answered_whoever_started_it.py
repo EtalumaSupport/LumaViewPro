@@ -90,7 +90,7 @@ def _job_ended(lines, job_id: str) -> dict:
 def _start_a_scan(session, **events):
     """A run started in-process, as the GUI or a script starts one."""
     home_sim_scope(session.scope)
-    session.set_channel_acquire('BF', 'image')
+    session.set_channel_settings('BF', acquire='image')
     protocol = session.create_empty_protocol()
     session.add_step(protocol)
     return session.protocol_runner().start_single_scan(

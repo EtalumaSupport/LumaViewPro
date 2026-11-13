@@ -142,6 +142,34 @@ def settings_writer(settings: dict):
     return update_settings
 
 
+def channel_settings_writer(settings: dict):
+    """A ``set_channel_settings(channel, **fields)`` for a fake context holding ``settings``.
+
+    What ``ScopeSession.set_channel_settings`` does to the live dict: each
+    field judged against the shipped template at the key
+    ``protocol.CHANNEL_SETTING_KEYS`` stores it at, then stored, so a widget
+    that writes a value the Session would refuse fails here too. A channel's
+    path is the Session's member's, which ``settings_writer`` refuses.
+    """
+    from _lumascope.modules.protocol import CHANNEL_SETTING_KEYS
+
+    template = shipped_template()
+    keys = dict(CHANNEL_SETTING_KEYS)
+
+    def set_channel_settings(channel: str, **fields: object) -> None:
+        for field, value in fields.items():
+            value = python_values(value)
+            path = f'{channel}.{keys[field]}'
+            settings_paths.check_value(template, path, value)
+            *blocks, leaf = path.split('.')
+            holder = settings
+            for block in blocks:
+                holder = holder[block]
+            holder[leaf] = value
+
+    return set_channel_settings
+
+
 def as_channel_writes(update_settings):
     """A ``set_channel_settings(channel, **fields)`` for a fake context: each field one ``update_settings`` of its path.
 

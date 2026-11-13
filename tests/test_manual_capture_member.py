@@ -199,9 +199,9 @@ class TestTheRenderingIsTheChannels:
         # colour as a palette; a grey one carries none.
         session, _ = still_session
         session.show_channel(LED0)
-        session.update_settings(f'{LED0}.false_color', False)
+        session.set_channel_settings(LED0, false_color=False)
         (grey,) = _files(session)
-        session.update_settings(f'{LED0}.false_color', True)
+        session.set_channel_settings(LED0, false_color=True)
         (colour,) = _files(session)
 
         with tifffile.TiffFile(grey) as tif:

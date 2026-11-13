@@ -127,7 +127,9 @@ def test_a_protocol_of_the_size_a_customer_asked_for_is_saved_and_reopened(sim_s
     """
     home_sim_scope(sim_session.scope)
     for channel in common_utils.get_channels():
-        sim_session.set_channel_acquire(channel, 'image' if channel in _STACKED_CHANNELS else None)
+        sim_session.set_channel_settings(
+            channel, acquire='image' if channel in _STACKED_CHANNELS else None
+        )
     sim_session.select_labware('96 well microplate')
     built = sim_session.new_protocol(use_zstacking=True)
     assert built.num_steps() == 96 * 4 * 200

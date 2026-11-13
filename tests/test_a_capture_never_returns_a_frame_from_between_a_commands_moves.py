@@ -103,7 +103,7 @@ def test_going_to_a_step_on_another_objective_returns_no_frame_from_between_its_
     sim_turreted_session, scope, monkeypatch
 ):
     session = sim_turreted_session
-    session.set_channel_acquire('BF', 'image')
+    session.set_channel_settings('BF', acquire='image')
     protocol = session.create_empty_protocol()
     session.add_step(protocol)
     scope.motion.move_turret(2)

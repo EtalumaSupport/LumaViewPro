@@ -70,9 +70,9 @@ def _row(acquire=AcquireMode.IMAGE, **cells) -> ChannelSettings:
 def _lit_shown_bf(session, illumination_ma=80.0, gain_db=9.0, exposure_ms=30.0):
     """BF shown and lit at ``illumination_ma``, the camera holding it at the given values."""
     session.show_channel('BF')
-    session.update_settings('BF.illumination_ma', illumination_ma)
-    session.update_settings('BF.gain_db', gain_db)
-    session.update_settings('BF.exposure_ms', exposure_ms)
+    session.set_channel_settings('BF', illumination_ma=illumination_ma)
+    session.set_channel_settings('BF', gain_db=gain_db)
+    session.set_channel_settings('BF', exposure_ms=exposure_ms)
     session.light_shown_channel(True)
 
 
@@ -115,7 +115,7 @@ class TestALoadedLayerIsAppliedLikeAnyWrite:
     def test_auto_gain_off_with_its_values_is_those_values_with_the_loop_off(self, session):
         # OP-63: "these values, the loop off" -- no lock takes the loop's values over the row's.
         session.show_channel('BF')
-        session.set_channel_auto_gain('BF', True)
+        session.set_channel_settings('BF', auto_gain=True)
 
         session.apply_channel_settings(
             _layers(BF=_row(gain_db=2.5, exposure_ms=12.0, auto_gain=False))
@@ -132,7 +132,7 @@ class TestALoadedLayerIsAppliedLikeAnyWrite:
     def test_auto_gain_off_alone_keeps_what_the_loop_reached(self, session):
         # OP-63: named alone, auto-gain off is the lock, as the Auto Gain box's untick is.
         session.show_channel('BF')
-        session.set_channel_auto_gain('BF', True)
+        session.set_channel_settings('BF', auto_gain=True)
 
         session.apply_channel_settings(_layers(BF=_row(auto_gain=False)))
 
@@ -144,7 +144,7 @@ class TestALoadedLayerIsAppliedLikeAnyWrite:
 
     def test_a_layer_that_acquires_stops_its_channel_stimulating(self, session):
         # OP-64: one channel does not capture and stimulate at once.
-        session.update_settings(f'{STIM_CHANNEL}.stim_config.enabled', True)
+        session.set_channel_settings(STIM_CHANNEL, stim_enabled=True)
 
         session.apply_channel_settings(_layers(**{STIM_CHANNEL: _row()}))
 
@@ -191,7 +191,7 @@ class TestAutoGainIsNotStoredOnWithARangeNoArmCanTake:
         _invert_the_gain_range(session)
 
         with pytest.raises(ArgumentRefusedError) as refused:
-            session.set_channel_auto_gain(channel, True)
+            session.set_channel_settings(channel, auto_gain=True)
 
         assert refused.value.reason == 'gain_range_inverted'
         assert session.settings[channel]['auto_gain'] is False
@@ -214,8 +214,8 @@ class TestAWriteHeldBackByAnActivityIsAppliedAtItsEnd:
         _lit_shown_bf(session)
 
         with session.diagnostic_claim():
-            session.update_settings('BF.gain_db', 7.5)
-            session.update_settings('BF.illumination_ma', 45.0)
+            session.set_channel_settings('BF', gain_db=7.5)
+            session.set_channel_settings('BF', illumination_ma=45.0)
             # Stored only while the diagnostic holds the scope (D3).
             assert session.scope.camera.read_gain_db() == pytest.approx(9.0)
 
@@ -246,8 +246,8 @@ class TestAWriteHeldBackByAnActivityIsAppliedAtItsEnd:
         )
         try:
             assert entered.wait(_RUN_WAIT_S)
-            session.update_settings('BF.illumination_ma', 80.0)
-            session.update_settings('BF.gain_db', 4.0)
+            session.set_channel_settings('BF', illumination_ma=80.0)
+            session.set_channel_settings('BF', gain_db=4.0)
         finally:
             release.set()
         assert run.result(timeout=_RUN_WAIT_S).status == 'completed'
@@ -267,9 +267,9 @@ def test_a_write_to_the_shown_channels_hardware_during_a_home_is_refused(session
     try:
         assert held.entered.wait(HOME_S)
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            session.update_settings('BF.gain_db', 7.5)
+            session.set_channel_settings('BF', gain_db=7.5)
         assert refused.value.reason == 'exclusive_activity_running'
-        session.update_settings('Ex488.gain_db', 7.5)
+        session.set_channel_settings('Ex488', gain_db=7.5)
     finally:
         held.release.set()
         home.exception(timeout=HOME_S)
@@ -283,7 +283,7 @@ def test_an_auto_gain_bound_the_shown_camera_takes_during_a_home_is_refused(sess
     # The bound goes on the camera while the shown channel is on auto-gain, so it
     # is refused during a home as the channel's own fields are.
     session.show_channel('BF')
-    session.set_channel_auto_gain('BF', True)
+    session.set_channel_settings('BF', auto_gain=True)
     before = session.get_setting('protocol.autogain.max_gain_db')
     held = _HeldHome(session.scope, monkeypatch)
     home = session.scope.motion.start_home('ALL')

@@ -81,7 +81,7 @@ def test_the_hold_taken_is_logged_once_in_the_host_s_words(tmp_path, heard, capl
 
 def test_a_run_a_recording_and_a_control_session_end_without_releasing_it(session, tmp_path):
     session.run_application_session()
-    session.set_channel_acquire('BF', 'image')
+    session.set_channel_settings('BF', acquire='image')
     protocol = session.new_protocol(duration_s=0, period_s=0)
 
     run = session.protocol_runner().start_single_scan(protocol, parent_dir=str(tmp_path / 'runs'))

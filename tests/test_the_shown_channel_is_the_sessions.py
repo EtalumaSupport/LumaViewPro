@@ -111,7 +111,7 @@ def test_lighting_the_shown_channel_leaves_the_camera_on_its_layer(session):
     shown); lighting the shown layer puts the camera back on the shown
     layer's settings."""
     camera = session.scope.camera
-    session.update_settings(f'{LED0}.exposure_ms', 88.0)
+    session.set_channel_settings(LED0, exposure_ms=88.0)
     session.apply_channel_camera(LED0)
     assert camera.get_held_channel() == LED0
 
@@ -173,7 +173,7 @@ def test_a_write_during_a_run_to_the_layer_shown_before_it_is_on_the_camera_afte
 
     def write_while_the_step_is_lit(layer, _lit):
         if layer == LED0:
-            built.update_settings('BF.exposure_ms', 7.0)
+            built.set_channel_settings('BF', exposure_ms=7.0)
 
     built.add_shown_channel_listener(write_while_the_step_is_lit)
     try:
@@ -240,7 +240,7 @@ class TestTheShownChannelsLitIsTheLed:
         session.light_shown_channel(True)
         session.scope.illumination.leds_off()
 
-        session.update_settings('BF.illumination_ma', 80.0)
+        session.set_channel_settings('BF', illumination_ma=80.0)
 
         assert _lit(session) == set()
 

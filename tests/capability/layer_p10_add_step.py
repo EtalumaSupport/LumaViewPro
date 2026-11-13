@@ -16,8 +16,8 @@ s, live = harness.make_session('p10', home=True)
 try:
     scope = s.scope
     for layer in s.get_channel_configs():
-        s.set_channel_acquire(layer, None)
-    s.set_channel_acquire('BF', 'image')
+        s.set_channel_settings(layer, acquire=None)
+    s.set_channel_settings('BF', acquire='image')
 
     protocol = scope.protocols.create_protocol(empty_config=s.get_sequenced_capture_config())
     names = s.add_step(protocol, before_step_index=0)
@@ -29,7 +29,7 @@ try:
 
     from _lumascope.modules.exceptions import ProtocolRunRefusedError
 
-    s.set_channel_acquire('BF', None)
+    s.set_channel_settings('BF', acquire=None)
     refused = False
     try:
         s.add_step(protocol, before_step_index=0)

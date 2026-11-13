@@ -192,7 +192,7 @@ class TestAScriptAddsAStepThroughTheSession:
         saved = {'BF': 7000.0, LED0: 8000.0, LED1: 9000.0}
         _only_acquiring(session, *saved)
         for layer, focus in saved.items():
-            session.save_channel_focus(layer, focus)
+            session.set_channel_settings(layer, focus_z_um=focus)
         session.scope.motion.move_z(5000.0)
         protocol = session.scope.protocols.create_protocol(
             empty_config=session.get_sequenced_capture_config()
@@ -203,7 +203,7 @@ class TestAScriptAddsAStepThroughTheSession:
         steps = protocol.steps()
         assert sorted(steps['channel']) == sorted(saved)
         assert steps['Z'].tolist() == pytest.approx([5000.0] * len(saved))
-        assert {layer: session.saved_focus_z_um(layer) for layer in saved} == saved
+        assert {layer: session.channel_settings(layer).focus_z_um for layer in saved} == saved
 
     def test_a_script_adds_the_layers_it_names_where_it_names_without_changing_the_settings(
         self, session
@@ -239,7 +239,7 @@ class TestAScriptAddsAStepThroughTheSession:
 
 def _only_acquiring(session, *layers):
     for layer in config_helpers.get_channel_configs(session.settings):
-        session.set_channel_acquire(layer, AcquireMode.IMAGE if layer in layers else None)
+        session.set_channel_settings(layer, acquire=AcquireMode.IMAGE if layer in layers else None)
 
 
 def _stack_settings(session, *, range_um, step_size_um):

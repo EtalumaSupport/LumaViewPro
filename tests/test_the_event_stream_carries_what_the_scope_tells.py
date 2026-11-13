@@ -191,7 +191,7 @@ def test_a_listener_members_event_is_its_record(client):
 
 def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session, monkeypatch):
     home_sim_scope(session.scope)
-    session.set_channel_acquire('BF', AcquireMode.IMAGE)
+    session.set_channel_settings('BF', acquire=AcquireMode.IMAGE)
     protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
     assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
     runner = client.post('/api/v1/protocol_runner').json()['handle']
@@ -238,7 +238,7 @@ def test_every_event_of_a_run_names_the_run_its_call_handed_out(client, session,
 
 def _run_one_step(client, session):
     home_sim_scope(session.scope)
-    session.set_channel_acquire('BF', AcquireMode.IMAGE)
+    session.set_channel_settings('BF', acquire=AcquireMode.IMAGE)
     protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
     assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
     runner = client.post('/api/v1/protocol_runner').json()['handle']

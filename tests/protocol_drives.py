@@ -224,7 +224,7 @@ def bare_capture_runner(**overrides):
     runner = SequencedCaptureRunner(
         **kwargs,
         on_saved=lambda folder: None,
-        save_channel_focus=lambda channel, z_um: None,
+        set_channel_settings=lambda channel, **fields: None,
         channel_colors=release_colors,
     )
     # A run takes the camera only once the camera lane is idle; a bare mock

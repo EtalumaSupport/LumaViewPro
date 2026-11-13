@@ -54,13 +54,13 @@ def runs(tmp_path_factory):
                 ),
             )
 
-        session.set_channel_acquire('BF', 'image')
-        session.set_channel_acquire(LED0, 'image')
+        session.set_channel_settings('BF', acquire='image')
+        session.set_channel_settings(LED0, acquire='image')
         saved = {
             'jpg': run('jpg', OutputFormat.JPG),
             'unsaved': run('unsaved', OutputFormat.TIFF, save=False),
         }
-        session.set_channel_acquire(LED0, 'video')
+        session.set_channel_settings(LED0, acquire='video')
         session.update_settings('video_as_frames', True)
         for fmt in (OutputFormat.JPG, OutputFormat.TIFF, OutputFormat.OME_TIFF):
             saved[f'{fmt.name.lower()}_frames'] = run(f'frames_{fmt.name}', fmt)

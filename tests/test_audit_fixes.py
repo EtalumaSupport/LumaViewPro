@@ -1799,7 +1799,7 @@ def _make_capture_runner(**overrides):
     return SequencedCaptureRunner(
         **kwargs,
         on_saved=lambda folder: None,
-        save_channel_focus=lambda channel, z_um: None,
+        set_channel_settings=lambda channel, **fields: None,
         channel_colors=release_colors,
     )
 
@@ -6158,7 +6158,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
 
         exc = SequencedCaptureRunner(
             on_saved=lambda folder: None,
-            save_channel_focus=lambda channel, z_um: None,
+            set_channel_settings=lambda channel, **fields: None,
             scope=MagicMock(),
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
