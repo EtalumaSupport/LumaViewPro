@@ -91,7 +91,7 @@ def test_bring_up_names_the_driver_not_an_absent_camera(monkeypatch):
     notice = CameraNotAvailableError(cause)
     assert cause == 'camera_driver_unusable'
     assert notice.title == 'Camera driver not usable'
-    assert 'install a LumaViewPro build that carries it' in str(notice)
+    assert 'install LumaViewPro with its installer' in str(notice)
 
 
 def test_our_driver_windows_did_not_start_is_refused_naming_its_problem_code():

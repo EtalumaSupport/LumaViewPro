@@ -227,7 +227,7 @@ def test_only_an_unusable_driver_offers_repair_and_says_where_it_can_be_installe
     assert offered.remedy.member == 'repair_camera_driver'
     assert 'Install its driver from here' in str(offered)
     assert not_here.remedy is None
-    assert 'install a LumaViewPro build that carries it' in str(not_here)
+    assert 'install LumaViewPro with its installer' in str(not_here)
     with pytest.raises(TypeError):
         CameraNotAvailableError('not_detected', repairable=True)
 

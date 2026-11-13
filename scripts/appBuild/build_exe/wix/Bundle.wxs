@@ -81,10 +81,9 @@
 		  from Etaluma. Not vital: a declined prompt fails nothing, and
 		  LumaViewPro's Repair completes it at launch. Permanent: uninstall is
 		  the MSI's driver action. Run at every install and upgrade, so an
-		  upgrade takes back what a package installed since took. build.ps1
-		  defines Fx2InfPath only for a build that carries the package.
+		  upgrade takes back what a package installed since took. Every build
+		  carries it: the INF and catalog are the repo's signed pair.
 		-->
-		<?ifdef Fx2InfPath ?>
 		<ExePackage Id="Fx2DriverStep"
 					SourceFile="$(var.Fx2DriverStepExe)"
 					PerMachine="yes"
@@ -95,7 +94,6 @@
 			<Payload SourceFile="$(var.Fx2InfPath)" />
 			<Payload SourceFile="$(var.Fx2CatPath)" />
 		</ExePackage>
-		<?endif ?>
 
 		<MsiPackage Id="PylonDriver"
 					Permanent="yes"

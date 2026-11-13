@@ -105,11 +105,11 @@
 
 	  <!--
 	    The FX2 WinUSB driver package for the Lumascope Classic (LS460/LS560/
-	    LS620/LS720), installed to drivers\fx2\, in a signed build only: build.ps1
-	    defines Fx2InfPath (the INF it stamped, fx2_driver_package.py) and
-	    Fx2CatPath (its signed catalog) only when a signing certificate is
-	    configured, since Windows accepts a driver package only with a signed
-	    catalog.
+	    LS620/LS720), installed to drivers\fx2\, in every build: build.ps1
+	    defines Fx2InfPath and Fx2CatPath as the repo's signed pair
+	    (scripts\appBuild\build_exe\fx2_driver\), signed once and committed,
+	    after checking that the INF is the one its catalog was signed over
+	    (fx2_driver_package.py).
 
 	    This MSI does not bind it: an MSI action runs as SYSTEM with no
 	    desktop for Windows to ask on, or impersonated with user rights. The
@@ -127,7 +127,6 @@
 	    (UPGRADINGPRODUCTCODE): an upgrade leaves our driver installed and
 	    working, and only a full uninstall removes it.
 	  -->
-	  <?ifdef Fx2InfPath ?>
 	  <DirectoryRef Id="INSTALLFOLDER">
 	    <Directory Id="Fx2DriverDir" Name="drivers">
 	      <Directory Id="Fx2DriverSubDir" Name="fx2">
@@ -155,7 +154,6 @@
 	  <InstallExecuteSequence>
 	    <Custom Action="UninstallFx2Driver" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
 	  </InstallExecuteSequence>
-	  <?endif ?>
 
   </Package>
 </Wix>

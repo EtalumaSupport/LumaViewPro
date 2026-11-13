@@ -102,7 +102,14 @@ $ErrorActionPreference = "Stop"
 # INF's raised by one, and names its folder for it; v11 passed the branch's
 # installer version, which the writer now refuses as an argument, so
 # MIN_BUILD_SCRIPT_VERSION is 12.
-$script_version = 12
+#
+# v13: the signed Lumascope Classic driver package is committed, and every
+# build, signed or not, carries it as committed after checking that its INF
+# is the one its catalog was signed over; no build stamps or signs it any
+# more, and only -SignClassicDriver needs Inf2Cat. A v12 copy would stamp an
+# INF that no longer holds the placeholder (a signed build fails) or leave
+# the driver out (an unsigned one), so MIN_BUILD_SCRIPT_VERSION is 13.
+$script_version = 13
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -393,8 +400,8 @@ if ($ids_files) {
 }
 
 # The FX2's driver package (LS460/LS560/LS620/LS720) is not a dependency here:
-# its INF is in the repo (build_exe\fx2_driver\) and is stamped and carried
-# by every build, after the installer version is known. Its libusb library
+# the signed INF and catalog are in the repo (build_exe\fx2_driver\), checked
+# and carried by every build. Its libusb library
 # comes from the libusb-package wheel, with the firmware hex, through the
 # release spec, which refuses a build without either.
 $fx2_dir = Join-Path $deps "fx2"
@@ -443,7 +450,7 @@ if ($ids_files -and -not $ids_peak_iss) {
     }
 }
 # An INF in either place was the old route and is now read by nothing:
-# the build carries the repo's INF, stamped.
+# the build carries the repo's signed INF and catalog.
 foreach ($f in @(Get-ChildItem -Path @($deps, $fx2_dir) -File -ErrorAction SilentlyContinue |
                  Where-Object { $_.Name -match '(?i)\.inf$' })) {
     $near_misses += "$($f.FullName) is no longer bundled: the FX2's INF ships from the repo (scripts\appBuild\build_exe\fx2_driver\). Remove the file"
@@ -521,10 +528,11 @@ $wix_exe = (Get-Command wix).Source
 # build account's certificate store, where the CA's cloud signing tool puts
 # them. The file is read only for a signed run (-Sign, the yes above, or
 # -SignClassicDriver): a configured box still builds unsigned unless asked.
-# A signed build signs every file Windows checks the publisher of and carries
-# the Lumascope Classic driver, as it carries Basler's and IDS's; an unsigned
-# one leaves the Classic driver out, since Windows accepts a driver package
-# only with a signed catalog: no build requires the certificate.
+# A signed build signs every file Windows checks the publisher of; every build,
+# signed or not, carries the Lumascope Classic driver as committed, its
+# catalog signed once by -SignClassicDriver, so no build requires the
+# certificate. Only -SignClassicDriver makes a catalog, so only it needs
+# Inf2Cat.
 $signing_thumbprint = ""
 $signtool = ""
 $inf2cat = ""
@@ -548,12 +556,12 @@ if ($sign_build -or $SignClassicDriver) {
     $inf2cat = (Get-ChildItem $kits -Recurse -Filter Inf2Cat.exe -ErrorAction SilentlyContinue |
         Sort-Object FullName -Descending | Select-Object -First 1).FullName
     if (-not $signtool) { Write-Host "ERROR: signing was asked for and signtool.exe is not under $kits. Install the Windows SDK (its Signing Tools)."; Exit 1 }
-    if (-not $inf2cat) { Write-Host "ERROR: signing was asked for and Inf2Cat.exe is not under $kits. Install the Windows Driver Kit."; Exit 1 }
+    if ($SignClassicDriver -and -not $inf2cat) { Write-Host "ERROR: -SignClassicDriver needs Inf2Cat.exe, and it is not under $kits. Install the Windows Driver Kit."; Exit 1 }
     Write-Host "  Signing: $($signing_cert.Subject) ($signing_thumbprint)"
     Write-Host "  signtool: $signtool"
-    Write-Host "  Inf2Cat: $inf2cat"
+    if ($SignClassicDriver) { Write-Host "  Inf2Cat: $inf2cat" }
 } else {
-    Write-Host "  Signing: not asked for - unsigned build, Lumascope Classic driver NOT included"
+    Write-Host "  Signing: not asked for - unsigned build"
 }
 
 # A configured certificate that fails to sign a file stops the build: an
@@ -643,12 +651,12 @@ if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR:
 # Run when the INF changes. The package is signed in this run's own clone,
 # which the next run deletes, so a failed signature leaves nothing behind:
 # the INF's DriverVer is written with today's date and the driver's own
-# version (the committed INF's with its last part raised by one, the first
-# signing 2.0.0.0), whatever the app's version, its catalog is made and
-# signed with a timestamp, which keeps it valid after the certificate's year
-# ends, and the pair is verified. Only a verified pair is copied out, the
-# catalog named as the INF's CatalogFile names it (Inf2Cat writes the name in
-# lower case), into its own folder under exe_artifacts, for commit.
+# version (the committed INF's with its last part raised by one), whatever
+# the app's version, its catalog is made and signed with a timestamp, which
+# keeps it valid after the certificate's year ends, and the pair is verified.
+# Only a verified pair is copied out, the catalog named as the INF's
+# CatalogFile names it (Inf2Cat writes the name in lower case), into its own
+# folder under exe_artifacts, for commit.
 if ($SignClassicDriver) {
     Write-Phase "Lumascope Classic driver package"
     $fx2_package_dir = Join-Path $clone "scripts\appBuild\build_exe\fx2_driver"
@@ -1108,35 +1116,28 @@ $msi_args = @(
     '-d', "ProductName=$product_installed",
     '-d', "Version=$wix_ver"
 )
-$bundle_args_fx2 = @()
-# The FX2 driver package, in a signed build only: its DriverVer stamped with
-# today's date and the installer version (Windows ranks equally signed
-# packages for one device by that date, so the stamp is what lets ours
-# outrank an older Zadig binding), then its catalog made and signed.
-if ($signing_thumbprint) {
-    $fx2_dir_out = Join-Path $output_dir "fx2_driver"
-    $fx2_inf = & $venv_python (Join-Path $src "scripts\appBuild\config\fx2_driver_package.py") `
-        (Join-Path $src "scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf") `
-        $fx2_dir_out $wix_ver
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: the FX2 driver package could not be stamped"; Set-Location $build_dir; Exit 1 }
-    & $inf2cat "/driver:$fx2_dir_out" "/os:10_X64"
-    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Inf2Cat could not make the FX2 driver's catalog (exit $LASTEXITCODE)"; Set-Location $build_dir; Exit 1 }
-    $fx2_cat = Join-Path $fx2_dir_out "Lumascope_Classic.cat"
-    Invoke-Sign $fx2_cat
-    Write-Host "FX2 driver package: $fx2_inf, $fx2_cat"
-    $msi_args += @('-d', "Fx2InfPath=$fx2_inf", '-d', "Fx2CatPath=$fx2_cat")
-    # The one-file driver step the setup bundle runs at install (Bundle.wxs
-    # Fx2DriverStep), the package beside it; the spec writes it to dist\,
-    # outside the app's folder the MSI carries.
-    $fx2_step_setup = Join-Path $src "dist\lvp_fx2_driver_step_setup.exe"
-    if (-not (Test-Path $fx2_step_setup)) { Write-Host "ERROR: $fx2_step_setup was not built"; Set-Location $build_dir; Exit 1 }
-    Invoke-Sign $fx2_step_setup
-    $bundle_args_fx2 = @(
-        '-d', "Fx2DriverStepExe=$fx2_step_setup",
-        '-d', "Fx2InfPath=$fx2_inf",
-        '-d', "Fx2CatPath=$fx2_cat"
-    )
-}
+# The Lumascope Classic driver package, in every build, as committed: signed
+# once by -SignClassicDriver, so an unsigned build carries the same signed
+# catalog. Checked first: the INF is the one its catalog was signed over,
+# since Windows refuses a package whose INF has changed.
+$fx2_package = Join-Path $src "scripts\appBuild\build_exe\fx2_driver"
+$fx2_driver_ver = & $venv_python (Join-Path $src "scripts\appBuild\config\fx2_driver_package.py") check $fx2_package
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: the Lumascope Classic driver package failed its check"; Set-Location $build_dir; Exit 1 }
+$fx2_inf = Join-Path $fx2_package "Lumascope_Classic.inf"
+$fx2_cat = Join-Path $fx2_package "Lumascope_Classic.cat"
+Write-Host "Lumascope Classic driver package: DriverVer $fx2_driver_ver"
+$msi_args += @('-d', "Fx2InfPath=$fx2_inf", '-d', "Fx2CatPath=$fx2_cat")
+# The one-file driver step the setup bundle runs at install (Bundle.wxs
+# Fx2DriverStep), the package beside it; the spec writes it to dist\,
+# outside the app's folder the MSI carries.
+$fx2_step_setup = Join-Path $src "dist\lvp_fx2_driver_step_setup.exe"
+if (-not (Test-Path $fx2_step_setup)) { Write-Host "ERROR: $fx2_step_setup was not built"; Set-Location $build_dir; Exit 1 }
+if ($signing_thumbprint) { Invoke-Sign $fx2_step_setup }
+$bundle_args_fx2 = @(
+    '-d', "Fx2DriverStepExe=$fx2_step_setup",
+    '-d', "Fx2InfPath=$fx2_inf",
+    '-d', "Fx2CatPath=$fx2_cat"
+)
 $msi_args += @('-out', $msi, 'Package.wxs', 'Folders.wxs')
 & $wix_exe @msi_args
 
@@ -1265,7 +1266,7 @@ $dep_receipt = @(
     "Pylon=$(if ($pylon_msi) {'bundled'} else {'NOT BUNDLED'})"
     "VCRedist=$(if ($vc_redist_exe) {'bundled'} else {'NOT BUNDLED'})"
     "IDS=$(if ($ids_peak_exe -and $ids_peak_iss) {'bundled'} else {'NOT BUNDLED'})"
-    "ClassicDriver=$(if ($signing_thumbprint) {'bundled'} else {'NOT BUNDLED (unsigned build)'})"
+    "ClassicDriver=bundled (DriverVer $fx2_driver_ver)"
 ) -join '  '
 Write-Host "  Drivers:  $dep_receipt"
 Write-Host "  Signed:   $(if ($signing_thumbprint) {"yes ($signing_thumbprint)"} else {'NO'})"

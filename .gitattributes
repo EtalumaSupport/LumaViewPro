@@ -11,3 +11,8 @@
 # The user manual is source for its PDF, not for running LVP: its images
 # stay out of every source archive (GitHub "Download ZIP", git archive).
 docs/manual export-ignore
+# The Lumascope Classic driver package is signed: its catalog holds the INF's
+# hash, so a checkout that changed either file's line endings would ship a
+# package Windows refuses. Both are committed as signed, byte for byte.
+scripts/appBuild/build_exe/fx2_driver/Lumascope_Classic.inf -text
+scripts/appBuild/build_exe/fx2_driver/Lumascope_Classic.cat -text

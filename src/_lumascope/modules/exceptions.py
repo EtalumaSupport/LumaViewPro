@@ -1152,8 +1152,9 @@ class CameraNotAvailableError(Fault, BringUpError):
             'whether to install software from Etaluma. Then restart LumaViewPro.'
         ),
         False: (
-            ' This LumaViewPro installation cannot install the Lumascope Classic driver: install '
-            'a LumaViewPro build that carries it, then restart LumaViewPro.'
+            ' LumaViewPro installs the Lumascope Classic driver only from a complete installation: '
+            'install LumaViewPro with its installer (again, if it is installed), then restart '
+            'LumaViewPro.'
         ),
     }
 
@@ -1202,8 +1203,8 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
             which alone binds a USB device to a driver.
             ``'repair_needs_installed_build'`` -- LumaViewPro is running from
             source or from a build in ``dist``, not from an installation.
-            ``'repair_needs_driver_package'`` -- the installation was built
-            without the Classic driver package.
+            ``'repair_needs_driver_package'`` -- the installation is missing
+            the driver step's executable or the Classic driver package.
             ``'no_classic_bindings'`` -- the scope reads no Classic USB
             device, such as a simulated one without an FX2.
             ``'repair_declined'`` -- the administrator's prompt was not
@@ -1238,8 +1239,8 @@ class CameraDriverRepairRefusedError(Refusal, Exception):
             'and install the driver from there.'
         ),
         'repair_needs_driver_package': (
-            'This LumaViewPro installation does not carry the Lumascope Classic driver (it was '
-            'built without a signing certificate). Install a LumaViewPro build that carries it.'
+            "This LumaViewPro installation is missing the Lumascope Classic driver's files. "
+            'Install LumaViewPro again with its installer, and install the driver from there.'
         ),
         'no_classic_bindings': (
             'This scope reads no Lumascope Classic USB device, so there is no driver to install.'

@@ -133,8 +133,8 @@ def install(machine: Machine, package_dir: pathlib.Path) -> Installed:
 
     Args:
         machine: The PC (``WindowsMachine``).
-        package_dir: ``<install>\\drivers\\fx2``: the stamped INF and its
-            signed catalog.
+        package_dir: ``<install>\\drivers\\fx2``: the signed INF and its
+            catalog.
     """
     inf = package_dir / PACKAGE_INF
     _record(machine, 'before install')
@@ -310,7 +310,7 @@ def repair_refusal() -> str | None:
     Repair needs Windows, which binds a driver to each USB device, and an
     installed build that carries this step's executable and the signed
     package beside it: a source run or a build run from ``dist`` has
-    neither, and a build made without a signing certificate leaves both out.
+    neither, and every installation has both unless its files are gone.
     """
     if sys.platform != 'win32':
         return 'repair_needs_windows'

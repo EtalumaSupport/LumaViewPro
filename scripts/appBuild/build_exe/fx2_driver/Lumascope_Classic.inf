@@ -22,7 +22,7 @@ Signature   = "$Windows NT$"
 Class       = USBDevice
 ClassGUID   = {88BAE032-5A81-49f0-BC3D-A4FF138216D6}
 Provider    = %ManufacturerName%
-DriverVer   = @DRIVER_VER@
+DriverVer   = 11/13/2026,2.0.0.0
 CatalogFile = Lumascope_Classic.cat
 
 [Manufacturer]

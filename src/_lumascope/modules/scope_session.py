@@ -2321,10 +2321,10 @@ class ScopeSession:
                 own, and recovering would lose images for nothing.
             CameraDriverRepairRefusedError: the repair's
                 ``'repair_needs_windows'``, ``'repair_needs_installed_build'``,
-                ``'repair_needs_driver_package'`` (built without the Classic
-                driver), ``'no_classic_bindings'``, ``'driver_already_ours'``
-                (a camera is up, or every present device is on LumaViewPro's
-                driver), ``'repair_declined'`` when the
+                ``'repair_needs_driver_package'`` (the installation is missing
+                the Classic driver's files), ``'no_classic_bindings'``,
+                ``'driver_already_ours'`` (a camera is up, or every present
+                device is on LumaViewPro's driver), ``'repair_declined'`` when the
                 administrator's approval was not given, or
                 ``'driver_not_accepted'`` when Windows did not take the
                 package (declined at its question, or refused).

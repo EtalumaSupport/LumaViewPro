@@ -16,8 +16,10 @@ temporary trees.
 The installer's driver package was an INF staged by hand from the Firmware
 repo, dated 2024-01-01, so any Zadig binding made since outranked it (Windows
 ranks equally signed packages for one device by the INF's date). The INF is
-now in the repo, binding both of the FX2's identities, and every build
-stamps its ``DriverVer`` through ``fx2_driver_package``.
+now in the repo with its signed catalog, binding both of the FX2's
+identities, signed once by ``build.ps1 -SignClassicDriver`` and carried by
+every build as committed, after ``fx2_driver_package`` checks that the INF is
+the one its catalog was signed over.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ import datetime
 import importlib.util
 import pathlib
 import re
+import subprocess
 
 import pytest
 
@@ -35,7 +38,9 @@ from _lumascope.drivers import fx2driver
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG = REPO_ROOT / 'scripts' / 'appBuild' / 'config'
 BUILD_EXE = REPO_ROOT / 'scripts' / 'appBuild' / 'build_exe'
-SHIPPED_INF = BUILD_EXE / 'fx2_driver' / 'Lumascope_Classic.inf'
+SHIPPED_PACKAGE = BUILD_EXE / 'fx2_driver'
+SHIPPED_INF = SHIPPED_PACKAGE / 'Lumascope_Classic.inf'
+SHIPPED_CAT = SHIPPED_PACKAGE / 'Lumascope_Classic.cat'
 
 
 def _load_config_module(name):
@@ -140,10 +145,11 @@ def test_a_built_tree_without_the_driver_step_is_refused(tmp_path):
         fx2_bundle.check_fx2_dist(str(dist), library.name)
 
 
-def test_repair_runs_the_driver_step_the_build_ships():
+def test_repair_runs_the_driver_step_and_package_the_build_ships():
     from _lumascope.modules import fx2_driver_step
 
     assert fx2_driver_step.DRIVER_STEP_EXE == fx2_bundle.DRIVER_STEP_EXE
+    assert fx2_driver_step.PACKAGE_INF == fx2_driver_package.INF_NAME == SHIPPED_INF.name
 
 
 def test_the_frozen_driver_finds_the_hex_where_the_build_puts_it(tmp_path, monkeypatch):
@@ -183,13 +189,14 @@ def _read_inf(path) -> configparser.ConfigParser:
     return inf
 
 
-def test_the_stamped_package_binds_both_identities_dated_and_versioned_by_the_build(tmp_path):
-    stamped = fx2_driver_package.stamp_driver_package(
-        str(SHIPPED_INF), str(tmp_path), '4.0.0.38', datetime.date(2026, 10, 17)
-    )
+def test_the_committed_package_binds_both_identities_and_is_the_one_its_catalog_signed():
+    # The check every build runs before the MSI: an INF edited and not signed
+    # again fails here, on any platform, at its own commit.
+    driver_ver = fx2_driver_package.check_driver_package(str(SHIPPED_PACKAGE))
 
-    inf = _read_inf(stamped)
-    assert inf['Version']['DriverVer'].strip() == '10/17/2026,4.0.0.38'
+    inf = _read_inf(SHIPPED_INF)
+    assert inf['Version']['DriverVer'].strip() == driver_ver
+    assert inf['Version']['CatalogFile'].strip() == SHIPPED_CAT.name
     strings = {key: value.strip().strip('"') for key, value in inf['Strings'].items()}
     bound = {
         model.split(',')[1].strip(): strings[name.strip('%')]
@@ -202,27 +209,42 @@ def test_the_stamped_package_binds_both_identities_dated_and_versioned_by_the_bu
     assert strings['ManufacturerName'] == 'Etaluma'
 
 
-def test_a_version_that_is_not_four_numbers_refuses_the_stamp(tmp_path):
-    with pytest.raises(SystemExit, match='four-part numeric version'):
-        fx2_driver_package.stamp_driver_package(
-            str(SHIPPED_INF), str(tmp_path), '4.0.0-beta38', datetime.date(2026, 10, 17)
-        )
+def _package_copy(tmp_path, inf: bytes | None = None, catalog_name: str = SHIPPED_CAT.name):
+    """The committed pair copied to its own folder, its INF's bytes optionally replaced."""
+    package = tmp_path / 'package'
+    package.mkdir()
+    (package / SHIPPED_INF.name).write_bytes(SHIPPED_INF.read_bytes() if inf is None else inf)
+    (package / catalog_name).write_bytes(SHIPPED_CAT.read_bytes())
+    return package
 
 
-def test_an_inf_without_its_placeholder_refuses_the_stamp(tmp_path):
-    already = tmp_path / 'source' / 'Lumascope_Classic.inf'
-    already.parent.mkdir()
-    already.write_text(
-        SHIPPED_INF.read_text(encoding='ascii').replace(
-            fx2_driver_package.PLACEHOLDER, '01/01/2024,1.0.0.0'
-        ),
-        encoding='ascii',
+def test_an_inf_whose_line_endings_changed_after_signing_is_refused(tmp_path):
+    # A checkout that converts line endings changes every byte the catalog's
+    # hash covers, and Windows then refuses the package at install.
+    package = _package_copy(tmp_path, inf=SHIPPED_INF.read_bytes().replace(b'\r\n', b'\n'))
+
+    with pytest.raises(SystemExit, match=r'is not the INF Lumascope_Classic\.cat was signed over'):
+        fx2_driver_package.check_driver_package(str(package))
+
+
+def test_a_catalog_named_in_another_case_than_the_infs_catalogfile_is_refused(tmp_path):
+    # Inf2Cat writes the catalog's name in lower case; Windows reads the file
+    # the INF names, and macOS's file system would match either.
+    package = _package_copy(tmp_path, catalog_name='lumascope_classic.cat')
+
+    with pytest.raises(SystemExit, match=r'holds no file named Lumascope_Classic\.cat'):
+        fx2_driver_package.check_driver_package(str(package))
+
+
+def test_a_driver_ver_that_names_no_real_date_is_refused(tmp_path):
+    driver_ver = fx2_driver_package.check_driver_package(str(SHIPPED_PACKAGE))
+    version = driver_ver.partition(',')[2]
+    inf = SHIPPED_INF.read_bytes().replace(
+        driver_ver.encode('ascii'), f'13/40/2026,{version}'.encode('ascii')
     )
 
-    with pytest.raises(SystemExit, match='0 times, not once'):
-        fx2_driver_package.stamp_driver_package(
-            str(already), str(tmp_path / 'out'), '4.0.0.38', datetime.date(2026, 10, 17)
-        )
+    with pytest.raises(SystemExit, match='names no real date'):
+        fx2_driver_package.check_driver_package(str(_package_copy(tmp_path, inf=inf)))
 
 
 def _repo_inf_copy(tmp_path) -> pathlib.Path:
@@ -232,36 +254,49 @@ def _repo_inf_copy(tmp_path) -> pathlib.Path:
     return inf
 
 
-def test_the_first_signing_writes_the_drivers_first_version_and_the_signing_day(tmp_path):
-    # The driver's version is its own, not the app's: the INF that has never
-    # been signed holds the build's placeholder, and its first signing writes
-    # 2.0.0.0, a value no build's stamp (the installer's 4.0.0.x) can equal.
-    # The catalog is signed over the INF's bytes as committed, so the writer
-    # changes the DriverVer value and nothing else.
+def test_a_signing_writes_the_signing_day_and_the_committed_version_raised_by_one(tmp_path):
+    # The driver's version is its own, not the app's: a signing raises the
+    # committed INF's last part. The catalog is signed over the INF's bytes as
+    # committed, so the writer changes the DriverVer value and nothing else.
     inf = _repo_inf_copy(tmp_path)
     before = inf.read_bytes()
+    committed = fx2_driver_package.check_driver_package(str(SHIPPED_PACKAGE))
+    *head, last = committed.partition(',')[2].split('.')
+    raised = '.'.join([*head, str(int(last) + 1)])
 
-    written = fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 11, 13))
+    written = fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 12, 1))
 
-    assert written == '11/13/2026,2.0.0.0'
-    assert _read_inf(inf)['Version']['DriverVer'].strip() == written
-    assert inf.read_bytes() == before.replace(
-        fx2_driver_package.PLACEHOLDER.encode('ascii'), written.encode('ascii')
-    )
+    assert written == f'12/01/2026,{raised}'
+    assert inf.read_bytes() == before.replace(committed.encode('ascii'), written.encode('ascii'))
 
 
-def test_each_signing_after_the_first_raises_the_drivers_last_version_part(tmp_path):
+def test_each_signing_raises_the_drivers_last_version_part_even_on_one_day(tmp_path):
     # The driver step keeps the package with our current DriverVer and
     # removes our others, so no two signings may write one DriverVer: the
     # version makes each new, even a second signing on the same day.
     inf = _repo_inf_copy(tmp_path)
-    fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 11, 13))
 
-    second = fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 11, 13))
-    third = fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 12, 1))
+    first = fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 12, 1))
+    second = fx2_driver_package.write_driver_ver(str(inf), datetime.date(2026, 12, 1))
 
-    assert (second, third) == ('11/13/2026,2.0.0.1', '12/01/2026,2.0.0.2')
-    assert _read_inf(inf)['Version']['DriverVer'].strip() == third
+    assert first != second
+    assert first.rpartition('.')[0] == second.rpartition('.')[0]
+    assert int(second.rpartition('.')[2]) == int(first.rpartition('.')[2]) + 1
+    assert _read_inf(inf)['Version']['DriverVer'].strip() == second
+
+
+def test_git_keeps_the_signed_pairs_bytes_in_every_checkout():
+    # A checkout with line-ending conversion would hand the build an INF its
+    # catalog was not signed over; git reads this from .gitattributes.
+    result = subprocess.run(
+        ['git', 'check-attr', 'text', '--', str(SHIPPED_INF), str(SHIPPED_CAT)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert [line.rpartition(': ')[2] for line in result.stdout.splitlines()] == ['unset', 'unset']
 
 
 def _build_script() -> str:
@@ -335,29 +370,39 @@ def test_a_build_reads_the_certificate_only_when_signing_is_asked_for():
     assert "$sign_build = $sign_choice -match '^(y|yes)$'" in questions
 
 
-def test_a_signed_build_alone_carries_the_classic_driver_and_the_installer_only_uninstalls_it():
+def test_every_build_carries_the_committed_pair_checked_and_the_installer_only_uninstalls_it():
     # pin-justified: build.ps1 and the WiX sources run on the Windows build
-    # box, not here. Windows accepts a driver package only with a signed
-    # catalog, so an unsigned build leaves the package out; and the driver is
-    # bound where Windows can ask the person (the setup bundle's step, and the
-    # app's Repair), never by an MSI action running as SYSTEM.
-    build = (REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1').read_text(encoding='utf-8')
+    # box, not here. The pair is signed once and committed, so every build,
+    # signed or not, carries it as committed after its check, and none makes
+    # or signs a catalog; and the driver is bound where Windows can ask the
+    # person (the setup bundle's step, and the app's Repair), never by an MSI
+    # action running as SYSTEM.
+    build = _build_script()
     package = (BUILD_EXE / 'wix' / 'Package.wxs').read_text(encoding='utf-8-sig')
 
-    signed = build.index('if ($signing_thumbprint) {\n    $fx2_dir_out')
-    stamp = build.index('fx2_driver_package.py', signed)
-    assert signed < stamp < build.index('"Fx2CatPath=$fx2_cat"')
-    assert 'build_exe\\fx2_driver\\Lumascope_Classic.inf' in build[stamp : stamp + 300]
-    assert build.index('Invoke-Sign $fx2_cat') < build.index('"Fx2InfPath=$fx2_inf"')
-    start = package.index('<?ifdef Fx2InfPath ?>')
-    driver = package[start : package.index('<?endif ?>', start)]
-    assert '$(var.Fx2CatPath)' in driver
+    check = build.index('fx2_driver_package.py") check $fx2_package')
+    assert (
+        build.index('$fx2_package = Join-Path $src "scripts\\appBuild\\build_exe\\fx2_driver"')
+        < check
+    )
+    assert check < build.index('$msi_args += @(\'-d\', "Fx2InfPath=$fx2_inf"')
+    assert '$fx2_inf = Join-Path $fx2_package "Lumascope_Classic.inf"' in build
+    assert '$fx2_cat = Join-Path $fx2_package "Lumascope_Classic.cat"' in build
+    # Only the signing mode makes and signs a catalog.
+    mode = _block(build, 'if ($SignClassicDriver) {\n    Write-Phase')
+    assert build.count('& $inf2cat ') == mode.count('& $inf2cat ') == 1
+    assert 'Invoke-Sign $fx2_cat' not in build
+    assert '"ClassicDriver=bundled (DriverVer $fx2_driver_ver)"' in build
+    assert 'Fx2InfPath ?>' not in package
+    driver = package[package.index('<Directory Id="Fx2DriverDir"') :]
+    driver = driver[: driver.index('</InstallExecuteSequence>')]
+    assert '$(var.Fx2InfPath)' in driver and '$(var.Fx2CatPath)' in driver
     assert '[INSTALLFOLDER]lvp_fx2_driver_step.exe&quot; uninstall' in driver
     assert 'NOT UPGRADINGPRODUCTCODE' in driver
     assert 'lvp_fx2_driver_step.exe&quot; install' not in package
 
 
-def test_the_setup_bundle_runs_the_one_file_step_after_the_app_in_a_signed_build():
+def test_the_setup_bundle_runs_the_one_file_step_after_the_app_in_every_build():
     # pin-justified: the spec, build.ps1 and Bundle.wxs run on the Windows
     # build box, not here. The bundle's per-machine package is what runs the
     # step elevated on the person's desktop at install (WiX: "must be
@@ -366,8 +411,8 @@ def test_the_setup_bundle_runs_the_one_file_step_after_the_app_in_a_signed_build
     # cache with the INF and catalog beside it. Not vital, so a declined
     # prompt fails nothing and Repair completes it; permanent, so uninstall
     # stays the MSI's; run at every install, so an upgrade takes back what a
-    # later package took. Until the signed pair is committed, only a signed
-    # build has an INF and catalog to give it.
+    # later package took. Every build carries it: the INF and catalog are the
+    # repo's signed pair, and only a signed build signs the step's executable.
     spec = (CONFIG / 'lumaviewpro_win_release.spec').read_text(encoding='utf-8')
     build = (REPO_ROOT / 'scripts' / 'appBuild' / 'build.ps1').read_text(encoding='utf-8')
     bundle = (BUILD_EXE / 'wix' / 'Bundle.wxs').read_text(encoding='utf-8-sig')
@@ -380,8 +425,9 @@ def test_the_setup_bundle_runs_the_one_file_step_after_the_app_in_a_signed_build
     lvp = bundle[bundle.index('<MsiPackage Id="LVP"') :]
     lvp = lvp[: lvp.index('</MsiPackage>')]
     assert '<MsiProperty Name="INSTALLFOLDER" Value="[InstallFolder]" />' in lvp
-    start = bundle.index('<?ifdef Fx2InfPath ?>', bundle.index('<MsiPackage Id="LVP"'))
-    step = bundle[start : bundle.index('<?endif ?>', start)]
+    assert 'Fx2InfPath ?>' not in bundle
+    start = bundle.index('<ExePackage Id="Fx2DriverStep"', bundle.index('<MsiPackage Id="LVP"'))
+    step = bundle[start : bundle.index('</ExePackage>', start)]
     for attribute in (
         'Id="Fx2DriverStep"',
         'SourceFile="$(var.Fx2DriverStepExe)"',
@@ -395,10 +441,10 @@ def test_the_setup_bundle_runs_the_one_file_step_after_the_app_in_a_signed_build
     ):
         assert attribute in step, attribute
 
-    signed = build[build.index('if ($signing_thumbprint) {\n    $fx2_dir_out') :]
-    signed = signed[: signed.index('\n}\n')]
-    assert 'Invoke-Sign $fx2_step_setup' in signed
-    defines = signed[signed.index('$bundle_args_fx2 = @(') :]
+    assert '$fx2_step_setup = Join-Path $src "dist\\lvp_fx2_driver_step_setup.exe"' in build
+    assert 'if ($signing_thumbprint) { Invoke-Sign $fx2_step_setup }' in build
+    defines = build[build.index('$bundle_args_fx2 = @(') :]
+    defines = defines[: defines.index('\n)\n')]
     for define in (
         '"Fx2DriverStepExe=$fx2_step_setup"',
         '"Fx2InfPath=$fx2_inf"',
@@ -406,8 +452,7 @@ def test_the_setup_bundle_runs_the_one_file_step_after_the_app_in_a_signed_build
     ):
         assert define in defines, define
     assert '$bundle_args += $bundle_args_fx2' in build
-    assert 'lvp_fx2_driver_step_setup.exe' in signed
-    assert min_version >= 9
+    assert min_version >= 13
 
 
 def test_a_bundle_variable_that_names_another_is_resolved_when_read():

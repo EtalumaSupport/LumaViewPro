@@ -222,65 +222,42 @@ order and that `requirements.txt` does not currently carry. IDS renumbered
 releases from `2.x` to `YY.MM` (2.21 → 26.06), so any "runtime ≥ 2.18"
 guidance predates the change and cannot be compared numerically.
 
-#### Code Signing Certificate (optional; a signed build also carries the Lumascope Classic driver)
+#### Code Signing (optional)
 
-A build is signed only when asked for: `.\build.ps1 -Sign`, or yes at the
-"Sign this build? [y/N]" question an interactive run asks when a certificate
-is configured (default no; a run given `-BuildType` on the command line is
-signed only by `-Sign`). Each signed build spends signatures from the
-certificate's monthly allowance. An unsigned build leaves the Lumascope
-Classic driver out of the installer (below). To configure signing:
+An unsigned build is complete: it carries everything a signed one does,
+the Lumascope Classic driver included. Signing changes only the publisher
+Windows names for the app, the driver step, the MSI and the bundle, so an
+unsigned installer shows an unknown publisher at its prompt. Etaluma's
+release builds are signed.
 
-1. Buy an OV code-signing certificate issued to Etaluma, with the CA's cloud
-   signing (SSL.com eSigner, Certum SimplySign, or Sectigo through a reseller),
-   not a USB token: a token's PIN needs someone at the build box. Install the
-   CA's signing tool on the build box and sign in; it puts the certificate,
-   with its key, in your certificate store (`Cert:\CurrentUser\My`).
-2. Install the Windows SDK (its Signing Tools give `signtool.exe`) and the
-   Windows Driver Kit (`Inf2Cat.exe`). Both are free from Microsoft.
-3. Put the certificate's SHA-1 thumbprint, on one line, in
-   `dependencies\signing\thumbprint.txt`
-   (`Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert` lists it).
-
-A signed build signs `LumaViewPro.exe`, `lvp_fx2_driver_step.exe`, the
-Classic driver's catalog, the MSI, and the bundle's engine and the bundle,
-each with a timestamp, and stops if any file fails to sign. Its receipt says
-`Signed: yes (<thumbprint>)`, or `Signed: NO`.
-
-The Lumascope Classic driver package is signed once and committed, not at
-each build: run, from the build folder, with the certificate configured,
-
-```powershell
-.\build.ps1 -SignClassicDriver
-```
-
-and pick the branch at its question (or add `-Branch <name>`). In that
-run's own fresh clone it writes the INF's `DriverVer` (today's date and the
-driver's own version: 2.0.0.0 at the first signing, then the committed
-INF's with its last part raised by one, whatever the app's version), makes
-the catalog with `Inf2Cat`, signs it with a timestamp and verifies it with
-`signtool verify`, then copies the INF and `Lumascope_Classic.cat` into
-`exe_artifacts\classic_driver_<driver version>_<time>\` with the run's log,
-and builds nothing. Those two files are committed to
-`scripts\appBuild\build_exe\fx2_driver\` byte for byte. Run it again only
-when the INF changes: the driver step finds our current package by its
-`DriverVer`, so each signing's must be new.
+A build is signed only when asked: `.\build.ps1 -Sign`, or yes at the
+"Sign this build? [y/N]" question an interactive run asks when
+`dependencies\signing\thumbprint.txt` is present (default no; a run given
+`-BuildType` on the command line is signed only by `-Sign`). It needs the
+certificate, with its key, in `Cert:\CurrentUser\My` or
+`Cert:\LocalMachine\My`, its SHA-1 thumbprint on one line in that file,
+and the Windows SDK's Signing Tools (`signtool.exe`). A signed build signs
+`LumaViewPro.exe`, `lvp_fx2_driver_step.exe`,
+`lvp_fx2_driver_step_setup.exe`, the MSI, and the bundle's engine and the
+bundle, each with a timestamp, and stops if any file fails to sign. Its
+receipt says `Signed: yes (<thumbprint>)`, or `Signed: NO`.
 
 #### FX2 WinUSB Driver (Lumascope Classic: LS460 / LS560 / LS620 / LS720)
 
-Nothing to drop in, and in a signed build only. The driver package is
-`scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf` in the repo: it
-binds inbox `WinUSB.sys` to both of the FX2's identities, `0x04B4:0x8613` (the
-bootloader) and `0x04B4:0xEA17` (the running firmware), named "Lumascope
-Classic (Bootloader)" and "Lumascope Classic" in Device Manager. A signed
-build stamps its `DriverVer` with the build's date and the installer version
-(`scripts\appBuild\config\fx2_driver_package.py`), writes the stamped copy to
-the output folder's `fx2_driver\`, makes its catalog with `Inf2Cat` and signs
-it, and the MSI installs both to `<InstallFolder>\drivers\fx2\`. Windows ranks
-equally signed packages for one device by that date, so the stamp is what
-lets ours outrank an older Zadig binding. An unsigned build leaves them out
-and its receipt says `ClassicDriver=NOT BUNDLED (unsigned build)`:
-Windows accepts a driver package only with a signed catalog.
+Nothing to drop in. The driver package is signed once and committed:
+`scripts\appBuild\build_exe\fx2_driver\Lumascope_Classic.inf` and its signed
+catalog `Lumascope_Classic.cat`, committed byte for byte (`.gitattributes`
+keeps their line endings as signed). The INF binds inbox `WinUSB.sys` to
+both of the FX2's identities, `0x04B4:0x8613` (the bootloader) and
+`0x04B4:0xEA17` (the running firmware), named "Lumascope Classic
+(Bootloader)" and "Lumascope Classic" in Device Manager. Every build,
+signed or not, first checks that the INF is the one the catalog was signed
+over (`scripts\appBuild\config\fx2_driver_package.py check`; the test suite
+runs the same check, so an edited INF fails on any platform before a
+build), then the MSI installs both to `<InstallFolder>\drivers\fx2\`; the
+receipt says `ClassicDriver=bundled (DriverVer <it>)`. Any change to the
+INF, its comments included, needs a new signing by Etaluma, which only
+Etaluma's certificate can make.
 
 The setup bundle binds the driver at install. After the MSI it runs
 `lvp_fx2_driver_step_setup.exe install-if-classic`, a one-file build of the
@@ -365,12 +342,11 @@ The script asks for:
      built from (the log says why).
    - `Release` deletes and recreates `buildvenv` for a clean package.
    Then, when a certificate is configured, whether to sign the build
-   (default no; see Code Signing Certificate).
-3. Branch to build. The interactive picker offers:
-   - `[1] 4.0.0-beta` — current shipping beta line
-   - `[2] 4.1.0-dev` — active development
-   - `[3] main` — release
-   - `[0] Enter custom branch` — anything else by name
+   (default no; see Code Signing).
+3. Branch to build. The picker reads the branch list from GitHub and
+   offers the release lines first (every branch named like `4.0.0` or
+   `4.0.0-beta`), then the ten most recently updated branches, numbered
+   from `[1]`; `[0]`, or a name typed at the prompt, builds any other branch.
 
 The selected branch is cloned fresh from GitHub. Local uncommitted changes
 are not included in the package, including local edits to the WiX files
@@ -384,10 +360,12 @@ The script then:
 2. Installs build dependencies into `buildvenv`.
 3. Builds the app folder with PyInstaller, with the FX2's firmware hex and
    `libusb-package`'s library.
-4. Stamps the FX2 driver package and builds `LumaViewPro-<version>.msi`,
-   which carries it and runs the FX2 driver step at install and uninstall.
-5. Builds `LumaViewPro-<version>-setup.exe` if the Pylon MSI is present.
-   Chains the IDS Peak runtime EXE if its files are present.
+4. Checks the committed Lumascope Classic driver package and builds
+   `LumaViewPro-<version>.msi`, which carries it and runs the FX2 driver
+   step at uninstall.
+5. Builds `LumaViewPro-<version>-setup.exe` if the Pylon MSI is present,
+   with the FX2 driver step after the MSI. Chains the IDS Peak runtime EXE
+   if its files are present.
 6. Removes temporary clone/build files.
 
 Example output:
@@ -395,9 +373,7 @@ Example output:
 ```text
 C:\LVP\appbuild\exe_artifacts\LumaViewPro-4.0.0-beta6\
 |-- LumaViewPro-4.0.0-beta6.msi
-|-- LumaViewPro-4.0.0-beta6-setup.exe
-`-- fx2_driver\
-    `-- Lumascope_Classic.inf          # the stamped copy the MSI carries
+`-- LumaViewPro-4.0.0-beta6-setup.exe
 ```
 
 Previous completed packages are preserved in `exe_artifacts\`.

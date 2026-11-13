@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-import importlib.util
 import pathlib
 import re
 import sys
@@ -172,16 +171,16 @@ class _Machine:
 
 
 def _package_dir(tmp_path) -> pathlib.Path:
-    # build.ps1 runs the stamper from its folder by path; the test does the same.
-    path = REPO_ROOT / 'scripts' / 'appBuild' / 'config' / 'fx2_driver_package.py'
-    spec = importlib.util.spec_from_file_location('fx2_driver_package', path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    """The committed signed pair, where the installer puts it."""
     package_dir = tmp_path / 'install' / 'drivers' / 'fx2'
-    module.stamp_driver_package(
-        str(SHIPPED_INF), str(package_dir), '4.0.0.38', datetime.date(2026, 10, 17)
-    )
+    package_dir.mkdir(parents=True)
+    for shipped in (SHIPPED_INF, SHIPPED_INF.with_suffix('.cat')):
+        (package_dir / shipped.name).write_bytes(shipped.read_bytes())
     return package_dir
+
+
+def _shipped_driver_ver() -> str:
+    return re.search(r'^DriverVer\s*=\s*(\S+)', SHIPPED_INF.read_text('ascii'), re.MULTILINE)[1]
 
 
 def _machine(tmp_path, **kwargs) -> _Machine:
@@ -259,7 +258,7 @@ def test_past_devices_and_our_older_package_are_removed(tmp_path):
 
     assert installed is fx2_driver_step.Installed.BOUND
     assert machine.devices == []
-    assert [p.driver_ver for p in machine.store_packages(FX2_FIRMWARE)] == ['10/17/2026,4.0.0.38']
+    assert [p.driver_ver for p in machine.store_packages(FX2_FIRMWARE)] == [_shipped_driver_ver()]
 
 
 def test_a_package_windows_will_not_delete_makes_the_install_incomplete(tmp_path):

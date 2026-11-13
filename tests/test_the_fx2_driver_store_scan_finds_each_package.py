@@ -6,15 +6,14 @@ Windows binds an identity to the best-ranked package in its store that names
 it, so the installer's driver step removes the others for the FX2's running
 firmware and keeps ours. The scan reads the store's published INF copies
 (``oem*.inf``) as text, which needs no Windows call, so it runs here on real
-INFs: the one the build stamps, and one shaped as Zadig writes it (UTF-16,
-the provider through a string, one device name for two IDs).
+INFs: the signed one every build carries, and one shaped as Zadig writes it
+(UTF-16, the provider through a string, one device name for two IDs).
 """
 
 from __future__ import annotations
 
-import datetime
-import importlib.util
 import pathlib
+import re
 
 from _lumascope.drivers.usb_driver_binding import FX2_BOOTLOADER, FX2_FIRMWARE, store_packages
 
@@ -45,23 +44,14 @@ DeviceName   = "LumaScope"
 """
 
 
-def _stamped_shipped_inf(tmp_path) -> pathlib.Path:
-    # build.ps1 runs the stamper from its folder by path; the test does the same.
-    path = REPO_ROOT / 'scripts' / 'appBuild' / 'config' / 'fx2_driver_package.py'
-    spec = importlib.util.spec_from_file_location('fx2_driver_package', path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return pathlib.Path(
-        module.stamp_driver_package(
-            str(SHIPPED_INF), str(tmp_path / 'build'), '4.0.0.38', datetime.date(2026, 10, 17)
-        )
-    )
+def _shipped_driver_ver() -> str:
+    return re.search(r'^DriverVer\s*=\s*(\S+)', SHIPPED_INF.read_text('ascii'), re.MULTILINE)[1]
 
 
 def _store(tmp_path) -> pathlib.Path:
     store = tmp_path / 'INF'
     store.mkdir()
-    (store / 'oem3.inf').write_bytes(_stamped_shipped_inf(tmp_path).read_bytes())
+    (store / 'oem3.inf').write_bytes(SHIPPED_INF.read_bytes())
     (store / 'oem9.inf').write_bytes(ZADIG_SHAPED_INF.encode('utf-16'))
     (store / 'oem12.inf').write_text(
         '[Version]\nProvider = Logitech\n[Manufacturer]\nLogi = M, NTamd64\n'
@@ -84,7 +74,7 @@ def test_each_identity_finds_ours_and_the_zadig_package_and_no_other(tmp_path):
     }
 
     expected = [
-        ('oem3.inf', 'Etaluma', '10/17/2026,4.0.0.38', True),
+        ('oem3.inf', 'Etaluma', _shipped_driver_ver(), True),
         ('oem9.inf', 'libwdi', '03/04/2025, 6.1.7600.16385', False),
     ]
     assert found == {FX2_FIRMWARE: expected, FX2_BOOTLOADER: expected}
@@ -107,10 +97,8 @@ def test_an_older_etaluma_package_with_another_catalog_is_not_ours(tmp_path):
 def test_a_quoted_catalog_name_is_read_without_its_quotes(tmp_path):
     store = tmp_path / 'INF'
     store.mkdir()
-    quoted = (
-        _stamped_shipped_inf(tmp_path)
-        .read_text(encoding='ascii')
-        .replace('CatalogFile = Lumascope_Classic.cat', 'CatalogFile = "Lumascope_Classic.cat"')
+    quoted = SHIPPED_INF.read_text(encoding='ascii').replace(
+        'CatalogFile = Lumascope_Classic.cat', 'CatalogFile = "Lumascope_Classic.cat"'
     )
     (store / 'oem4.inf').write_text(quoted, encoding='ascii')
 
