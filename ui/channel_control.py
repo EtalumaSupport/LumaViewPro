@@ -672,15 +672,11 @@ class ChannelControl(BoxLayout):
         )
 
     def goto_focus(self):
-        from ui.ui_helpers import move_z
+        from ui.ui_helpers import go_to_channel_focus
 
         gui_logger.button(f'GOTO_FOCUS_{self.channel}')
         logger.info('[LVP Main  ] ChannelControl.goto_focus()')
-        run_reported(
-            lambda: move_z(_app_ctx.ctx.session.saved_focus_z_um(self.channel)),
-            None,
-            f'GOTO_FOCUS_{self.channel}',
-        )
+        go_to_channel_focus(f'GOTO_FOCUS_{self.channel}', self.channel)
 
     def led_toggle(self):
         """The Enable LED button's press: record it, then light or darken the shown channel.

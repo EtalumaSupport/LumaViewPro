@@ -186,45 +186,27 @@ def test_the_acceleration_limit_is_written_on_the_io_lane(ctx, boundary, monkeyp
     ctx.session.set_acceleration_limit.assert_called_once_with(40)
 
 
-def test_goto_focus_moves_z_to_the_layers_saved_focus(ctx, monkeypatch):
+def test_goto_focus_starts_the_sessions_go_to_focus_on_the_io_lane(ctx, boundary, monkeypatch):
+    """Go To Focus asks the Session for the channel's focus move, which
+    reads the saved focus and refuses one never saved; the button reads no
+    focus of its own."""
+    import sys
+
     import ui.channel_control as channel_control
     import ui.ui_helpers as ui_helpers
 
-    from _lumascope.modules.scope_session import ScopeSession
-
-    moved = MagicMock()
-    monkeypatch.setattr(ui_helpers, 'move_z', moved)
+    monkeypatch.setattr(ui_helpers, 'submit_reported', boundary.submit_reported)
+    monkeypatch.setattr(sys.modules['kivy.app'].App, 'get_running_app', lambda: None)
     monkeypatch.setattr(channel_control.gui_logger, 'button', MagicMock())
-    # The saved focus is the Session's answer, read from the settings it holds.
-    ctx.session.saved_focus_z_um = lambda layer: ScopeSession.saved_focus_z_um(ctx, layer)
+    ctx.session.start_go_to_channel_focus = MagicMock()
 
     channel_control.ChannelControl.goto_focus(SimpleNamespace(channel=LED1))
 
-    moved.assert_called_once_with(4321.0)
-
-
-def test_goto_focus_on_a_channel_never_saved_is_refused_and_moves_nothing(ctx, monkeypatch):
-    import ui.channel_control as channel_control
-    import ui.ui_helpers as ui_helpers
-    from _lumascope.modules.notification_center import notifications
-    from _lumascope.modules.scope_session import ScopeSession
-
-    moved = MagicMock()
-    reported = []
-    monkeypatch.setattr(ui_helpers, 'move_z', moved)
-    monkeypatch.setattr(channel_control.gui_logger, 'button', MagicMock())
-    monkeypatch.setattr(
-        notifications,
-        'report_outcome',
-        lambda exc, **kw: reported.append((type(exc).__name__, kw['category'])),
-    )
-    ctx.settings[LED1]['focus'] = None
-    ctx.session.saved_focus_z_um = lambda layer: ScopeSession.saved_focus_z_um(ctx, layer)
-
-    channel_control.ChannelControl.goto_focus(SimpleNamespace(channel=LED1))
-
-    moved.assert_not_called()
-    assert reported == [('FocusNotSavedError', f'UI:GOTO_FOCUS_{LED1}')]
+    (submit,) = boundary.submits
+    assert submit.lane is ctx.io_executor
+    assert submit.label == f'GOTO_FOCUS_{LED1}'
+    ctx.session.start_go_to_channel_focus.assert_called_once_with(LED1)
+    ctx.scope.motion.start_move_z.assert_not_called()
 
 
 def test_home_stage_homes_every_axis_through_the_reporter(ctx, boundary, monkeypatch):

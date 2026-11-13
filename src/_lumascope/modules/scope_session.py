@@ -3732,6 +3732,83 @@ class ScopeSession:
         refuse_waiting_on_ui_thread('go_to_bookmark')
         self.start_go_to_bookmark(axes).result()
 
+    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
+    def start_go_to_channel_focus(self, channel: str) -> 'Operation[None]':
+        """Start Z moving to ``channel``'s saved focus, as the Go To Focus button does; return the started move.
+
+        Reads the focus ``channel_settings`` answers as ``focus_z_um`` and
+        moves Z there (``MotionAPI.start_move_z``). A channel whose focus
+        was never saved has no height to go to: a step built for it takes
+        the current Z instead.
+
+        Args:
+            channel: The channel whose focus Z moves to.
+
+        Returns:
+            The started move, as ``MotionAPI.start_move_z`` returns it.
+
+        Raises:
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
+                channel. Nothing was driven.
+            FocusNotSavedError: ``'focus_not_saved'``, no focus was ever
+                saved for ``channel``. Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'position_unread'`` or
+                ``'monitor_ended'``, as ``MotionAPI.start_move_z``. Nothing
+                was driven.
+            PositionOutOfRangeError: The focus is outside Z's travel.
+                Nothing was driven.
+            AxisStateUnknownError: Z does not know its position. Nothing
+                was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command; ``'board_lost'``, the board is no longer connected.
+        """
+        from _lumascope.modules.exceptions import FocusNotSavedError
+
+        refuse_unknown_channel(channel)
+        with self.settings_lock:
+            focus = self._settings[channel]['focus']
+        if focus is None:
+            raise FocusNotSavedError(channel)
+        return self.scope.motion.start_move_z(focus)
+
+    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
+    def go_to_channel_focus(self, channel: str) -> None:
+        """Move Z to ``channel``'s saved focus, and return once it has arrived.
+
+        ``start_go_to_channel_focus`` followed by its operation's ``result()``.
+
+        Args:
+            channel: The channel whose focus Z moves to.
+
+        Raises:
+            ArgumentRefusedError: ``'channel_unknown'``, as
+                ``start_go_to_channel_focus``.
+            FocusNotSavedError: ``'focus_not_saved'``, no focus was ever
+                saved for ``channel``. Nothing was driven.
+            HardwareCommandRefusedError: ``'not_connected'``,
+                ``'axis_absent'``, ``'position_unread'`` or
+                ``'monitor_ended'``, as ``MotionAPI.start_move_z``. Nothing
+                was driven.
+            PositionOutOfRangeError: The focus is outside Z's travel.
+                Nothing was driven.
+            AxisStateUnknownError: Z does not know its position. Nothing
+                was driven.
+            MoveFaultError: ``'driver_failed'``, the board did not take the
+                command; or Z did not arrive and is UNKNOWN, the motion
+                monitor's ``'stalled'``, ``'board_lost'``,
+                ``'position_unread_after_move'``, ``'status_unread'`` or
+                ``'monitor_ended_mid_move'``, or ``'faulted'``; see
+                ``MotionAPI.start_move_z``.
+            MoveStoppedError: ``'stopped'``, a stop ended the move;
+                ``'superseded'``, another move or a home took Z first.
+            BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
+                the UI thread, whose form is ``start_go_to_channel_focus``.
+                Nothing was driven.
+        """
+        refuse_waiting_on_ui_thread('go_to_channel_focus')
+        self.start_go_to_channel_focus(channel).result()
+
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def save_all_bookmarks(self) -> PlateLocation:

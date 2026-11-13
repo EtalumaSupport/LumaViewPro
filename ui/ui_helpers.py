@@ -590,6 +590,17 @@ def go_to_bookmark(label: str, axes: tuple[str, ...]) -> None:
     )
 
 
+def go_to_channel_focus(label: str, channel: str) -> None:
+    """Start Z moving to ``channel``'s saved focus for its Go To Focus button; started, not waited."""
+    ctx = _app_ctx.ctx
+    submit_move(
+        label,
+        axes=('Z',),
+        call=lambda: ctx.session.start_go_to_channel_focus(channel),
+        lane=ctx.io_executor,
+    )
+
+
 def jog(axis: str, steps: float, coarse: bool):
     """Start ``axis`` jogging by ``steps`` objective steps for a person's gesture; started, not waited, as ``move_z``.
 
