@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from _lumascope.modules.finite_number import refuse_unless_wait_s
+from _lumascope.modules.finite_number import refuse_unless_count, refuse_unless_wait_s
 import _lumascope.modules.image_utils as image_utils
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Frame
@@ -1238,8 +1238,10 @@ class ImagingAPI:
             once the bound runs out first.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
-                ``timeout_s`` or ``sum_delay_s`` that is no wait.
+            ArgumentRefusedError: ``'wrong_kind'``, a ``sum_count`` that is
+                not a whole number of at least 1; ``'not_a_number'`` or
+                ``'out_of_range'``, a ``timeout_s`` or ``sum_delay_s`` that is
+                no wait.
             HardwareCommandRefusedError: the lane is closed, or a run, a
                 diagnostic or a home holds the scope and this call is not made
                 under its taking.
@@ -1550,10 +1552,11 @@ class ImagingAPI:
             camera and (H, W, 3) for a color one, and its record.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
-                time is not a wait from 0 to 30 days, or the wait for the
-                capture and every frame of its sum together is longer.
-                Nothing reached the camera.
+            ArgumentRefusedError: ``'wrong_kind'``, ``sum_count`` is not a
+                whole number of at least 1; ``'not_a_number'`` or
+                ``'out_of_range'``, a time is not a wait from 0 to 30 days, or
+                the wait for the capture and every frame of its sum together
+                is longer. Nothing reached the camera.
             CaptureFailedError: ``'no_frame'``, the camera delivered none
                 within its grab window; ``'deadline_expired'``, changes kept
                 landing until the deadline passed; ``'no_fresh_frame'``,
@@ -1634,9 +1637,10 @@ class ImagingAPI:
                 are budgeted here, before they are owed.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, as
-                ``capture_still`` says.
+            ArgumentRefusedError: ``'wrong_kind'``, ``'not_a_number'`` or
+                ``'out_of_range'``, as ``capture_still`` says.
         """
+        refuse_unless_count(sum_count, 'sum_count')
         for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
             refuse_unless_wait_s(value, name)
         # The executor wait is a liveness bound, not a budget, so it scales
@@ -2223,16 +2227,18 @@ class ImagingAPI:
             with no channel's false colour applied.
 
         Raises:
-            ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``, a
-                time is not a wait from 0 to 30 days, or the wait for every
-                frame of the sum together is longer. Nothing reached the
-                camera.
+            ArgumentRefusedError: ``'wrong_kind'``, ``sum_count`` is not a
+                whole number of at least 1; ``'not_a_number'`` or
+                ``'out_of_range'``, a time is not a wait from 0 to 30 days, or
+                the wait for every frame of the sum together is longer.
+                Nothing reached the camera.
             CaptureFailedError: ``'no_frame'``, no frame within the timeouts;
                 ``'chunk_rejected'``, frames came but none at the ``setting``
                 asked (``verify_chunk_targets``).
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, absent at the call or removed during the grab.
         """
+        refuse_unless_count(sum_count, 'sum_count')
         for name, value in (
             ('timeout_s', timeout_s),
             ('sum_delay_s', sum_delay_s),

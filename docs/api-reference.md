@@ -763,7 +763,7 @@ CapturedStill: The image and the instrument's record of its frame.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer. Nothing is captured.
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'wrong_kind'`, `sum_count` is not a whole number of at least 1; `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer. Nothing is captured.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the camera, with none connected or one removed during the capture; `'camera_not_streaming'`, its feed is stopped; `'channel_not_shown'`, `channel` is not the shown channel, nothing captured; `'other_led_lit'`, given `channel`, an LED other than its own is lit before the grab (nothing captured) or lit the frame; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope and this call is not made under it.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing is captured.
 - `CaptureFailedError`: `'no_frame'`, the camera delivered none within its grab window; `'deadline_expired'`, changes kept landing until the deadline passed; `'no_fresh_frame'`, frames came but none within the grab's bound counted for the `setting` changed; `'chunk_rejected'`, frames counted but none at the `setting` asked; `'record_read_failed'`, a frame came but the camera did not answer a read of the gain, exposure or black level its record needs, so it was not kept.
@@ -772,7 +772,7 @@ CapturedStill: The image and the instrument's record of its frame.
 **Refusals**
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `camera_not_streaming`, `channel_not_shown`, `other_led_lit`, `exclusive_activity_running`, `not_on_this_scope`, `not_connected`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `out_of_range`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `wrong_kind`, `not_a_number`, `out_of_range`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
 - [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `no_fresh_frame`, `chunk_rejected`, `record_read_failed`
 - [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`

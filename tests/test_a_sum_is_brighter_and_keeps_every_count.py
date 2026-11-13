@@ -30,7 +30,7 @@ import pytest
 import tifffile as tf
 
 from _lumascope.modules import image_mode, image_utils, zprojection
-from _lumascope.modules.exceptions import FrameDepthError
+from _lumascope.modules.exceptions import ArgumentRefusedError, FrameDepthError
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.stack_builder import StackBuilder
 from _lumascope.modules.zprojector import ZProjector
@@ -140,6 +140,24 @@ def test_the_record_carries_the_count_and_each_frames_depth(sim_camera):
     ).record
     assert record.frames_summed == 3
     assert record.frame_significant_bits == 12
+
+
+def test_a_sum_of_fewer_than_one_frame_is_refused(sim_camera):
+    """A count is a whole number of at least 1, as a stored sum is; under it,
+    both capture members refuse the count by name before the camera is asked."""
+    imaging = sim_camera('Mono12').imaging
+    members = {'capture_still': imaging.capture_still, 'get_image': imaging.get_image}
+    taken = {}
+    for name, member in members.items():
+        for count in (0, -1):
+            try:
+                member(sum_count=count, force_to_8bit=False)
+            except ArgumentRefusedError as refusal:
+                taken[name, count] = (refusal.reason, refusal.argument)
+            else:
+                taken[name, count] = 'taken'
+    assert taken == dict.fromkeys(taken, ('wrong_kind', 'sum_count'))
+    assert len(taken) == 4
 
 
 @pytest.mark.parametrize(('pixel_format', 'frames'), [('Mono8', 3), ('Mono8', 4), ('Mono12', 3)])

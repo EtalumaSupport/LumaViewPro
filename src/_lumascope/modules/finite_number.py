@@ -72,3 +72,18 @@ def refuse_unless_wait_s(value: object, argument: str) -> None:
         ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``.
     """
     refuse_outside(value, argument, WAIT_S)
+
+
+def refuse_unless_count(value: object, argument: str) -> None:
+    """Refuse ``value`` unless it is a count: a whole number of at least 1.
+
+    The rule a stored count holds (``settings_paths``' ``*.sum``), asked
+    where a caller hands the count in, so none is ever counted out short.
+
+    Raises:
+        ArgumentRefusedError: ``'wrong_kind'``, naming ``argument``.
+    """
+    if not (isinstance(value, numbers.Integral) and not isinstance(value, bool) and value >= 1):
+        raise ArgumentRefusedError(
+            'wrong_kind', argument=argument, value=value, takes='a whole number of at least 1'
+        )

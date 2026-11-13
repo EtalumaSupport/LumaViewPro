@@ -2988,9 +2988,11 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
-                channel; ``'not_a_number'`` or ``'out_of_range'``, a time is not
-                a wait from 0 to 30 days, or the wait for the capture and
-                every frame of its sum together is longer. Nothing is captured.
+                channel; ``'wrong_kind'``, ``sum_count`` is not a whole number
+                of at least 1; ``'not_a_number'`` or ``'out_of_range'``, a time
+                is not a wait from 0 to 30 days, or the wait for the capture
+                and every frame of its sum together is longer. Nothing is
+                captured.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope
                 has no ``channel``; ``'not_connected'``, naming the camera,
                 with none connected or one removed during the capture;
