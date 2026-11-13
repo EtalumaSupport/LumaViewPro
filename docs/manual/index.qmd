@@ -1,8 +1,8 @@
 # Your Lumascope {#sec-your-lumascope}
 
 This manual covers every Lumascope model LumaViewPro supports. A section
-that needs particular hardware starts with a line naming it, for example "Requires: a motorized XY stage". @tbl-models shows
-what each model has.
+that needs particular hardware starts with a note naming it, for example
+*Motorized XY stage only.* @tbl-models shows what each model has.
 
 ```{=typst}
 // The model table only: gridlines, and the two short unruled rows (6 and 8)
@@ -37,7 +37,7 @@ what each model has.
 ]
 ```
 
-## For integrators {#sec-integrators}
+## Controlling the microscope from your own software {#sec-integrators}
 
 This manual is for people using LumaViewPro at the microscope. To drive a
 Lumascope from your own software (Python, REST, MATLAB or Micro-Manager),

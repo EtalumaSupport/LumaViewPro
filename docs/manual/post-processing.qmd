@@ -21,7 +21,7 @@ holds six tools that work on images already saved:
 None of the tools changes or deletes the images it reads; each saves what
 it makes as new files beside the source.
 
-## The folders the tools read {#sec-pp-folders}
+## Which folder to choose {#sec-pp-folders}
 
 [Create Video]{.guilabel}, [Stitch]{.guilabel},
 [Composite Generation]{.guilabel} and [Z-Projection]{.guilabel} each work on
@@ -53,7 +53,7 @@ homing is using the microscope, or while a finished run's files are still
 being written. The tool's button is greyed out, or a message gives the
 reason. Try again when that work is done.
 
-### What each tool writes {#sec-pp-outputs}
+### What each tool makes {#sec-pp-outputs}
 
 Each tool saves into a new folder inside the folder you chose, named for
 what it did:
@@ -88,7 +88,7 @@ first, for example `Composite`. Don't delete images the run took: a tool
 reports any image the record lists but the folder no longer has
 ("frame(s) the run recorded are missing"), and builds nothing from them.
 
-## Create Video {#sec-pp-video}
+## Making a video from images {#sec-pp-video}
 
 [Create Video...]{.guilabel} makes a video from a folder:
 
@@ -113,9 +113,9 @@ named for both, for example `Composite-Video`. A recording's video is saved
 inside the recording's own folder, named for the folder:
 `Video_2026-11-04_22.53.29/Video_2026-11-04_22.53.29.mp4`.
 
-## Stitch {#sec-pp-stitch}
+## Stitching tiles into one image {#sec-pp-stitch}
 
-Requires: a motorized XY stage. On a Lumascope without one, the
+*Motorized XY stage only.* On a Lumascope without one, the
 [Stitch]{.guilabel} item isn't shown.
 
 Stitch joins the tiles of each tiled step (@sec-protocol-tiling) into one
@@ -138,7 +138,7 @@ Composites aren't stitched: for a stitched composite, stitch first,
 then run [Composite Generation]{.guilabel}, which composites the stitched
 channels.
 
-## Composite Generation {#sec-pp-composite}
+## Combining channels into one image {#sec-pp-composite}
 
 [Create Composites...]{.guilabel} combines the channels taken at the same
 place in the same scan into one color image: each fluorescence or
@@ -160,7 +160,7 @@ it.
 To make one composite by hand at the microscope, use the toolbar's
 Composite button instead (@sec-image-composite).
 
-## Z-Projection {#sec-pp-zprojection}
+## Flattening a Z-stack into one image {#sec-pp-zprojection}
 
 [Z-Project Folder...]{.guilabel} makes one image from each Z-stack in the
 folder: one for each position, channel, tile and scan. Choose the
@@ -191,7 +191,7 @@ exists, or the destination folder when both or neither do. Projections are
 saved in the folder's `ZProject` folder, their names ending in `_zproj_`
 and the method: `custom0000_BF_TA1_0000_zproj_max.tiff`.
 
-## Quick Enhance {#sec-pp-enhance}
+## Making an image easier to see {#sec-pp-enhance}
 
 Quick Enhance makes an adjusted copy of an image that's easier to look at.
 It has five steps, each with its own switch below the two buttons
@@ -226,7 +226,7 @@ OME-TIFF source): `ZStack_Ex405_Z0_0000_enhanced.tiff`. Beside it, a
 Enhancing an image again saves a new copy, `_enhanced_001`, and so on. Each
 copy is shown for a moment in the image view as it's saved.
 
-## Object Analysis {#sec-pp-objects}
+## Counting and measuring objects {#sec-pp-objects}
 
 [Object Analysis]{.guilabel} counts the objects in each image of a folder,
 cells for example, and measures their area and brightness.
@@ -314,7 +314,7 @@ folder again writes `results_001.csv` and `results_001_method.json`, then
 file can't be written, the count tells you, and no method file is left
 beside results it didn't make.
 
-### Plot {#sec-pp-plot}
+### Graphing the results {#sec-pp-plot}
 
 [Plot]{.guilabel} graphs a `results.csv`:
 

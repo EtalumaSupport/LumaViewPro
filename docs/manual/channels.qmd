@@ -6,7 +6,7 @@ The right panel has one drawer for each channel your microscope has
 (@sec-right-panel). This chapter describes the channels and each setting
 in a channel's drawer.
 
-## The channels {#sec-channel-kinds}
+## Which channels your microscope has {#sec-channel-kinds}
 
 @tbl-models lists the channels of each model.
 
@@ -38,9 +38,9 @@ each step's channel in turn.
 
 ![The 488 nm Excitation drawer on an LS850, with its LED lit](images/channels-ex488-ls850.png){#fig-channels-ex488 width=35%}
 
-## Illumination {#sec-channel-illumination}
+## Turning the light on and setting its brightness {#sec-channel-illumination}
 
-Requires: a channel with an LED. The [Lumi]{.channel} channel has no
+*Channels with an LED only.* The [Lumi]{.channel} channel has no
 Illumination section, and the section isn't shown when LumaViewPro runs
 without the microscope's LED board.
 
@@ -56,9 +56,9 @@ keeps its previous value.
 Defaults: [Brightfield]{.channel} [5 mA]{.default setting="BF.illumination_ma"}; [Phase Contrast]{.channel} and
 [Darkfield]{.channel} [50 mA]{.default setting="PC.illumination_ma DF.illumination_ma"}; each fluorescence channel [250 mA]{.default setting="channel_defaults.fluorescence.illumination_ma"}.
 
-## Camera {#sec-channel-camera}
+## Gain and exposure {#sec-channel-camera}
 
-Each channel keeps its own camera gain and exposure, and the camera
+Under [Camera]{.guilabel}, each channel keeps its own gain and exposure, and the camera
 switches to them when the channel is shown. These controls are disabled
 when no camera is connected.
 
@@ -81,9 +81,9 @@ Defaults: [Brightfield]{.channel} [1 dB]{.default setting="BF.gain_db"} and [2 m
 [1 dB]{.default setting="PC.gain_db"} and [5 ms]{.default setting="PC.exposure_ms"}; [Darkfield]{.channel} [1 dB]{.default setting="DF.gain_db"} and [30 ms]{.default setting="DF.exposure_ms"}; each fluorescence
 channel and the [Lumi]{.channel} channel [10 dB]{.default setting="channel_defaults.fluorescence.gain_db Lumi.gain_db"} and [100 ms]{.default setting="channel_defaults.fluorescence.exposure_ms Lumi.exposure_ms"}.
 
-### Auto Gain/Exp {#sec-auto-gain}
+### Letting the camera set gain and exposure {#sec-auto-gain}
 
-Requires: a camera with automatic gain and exposure. The control isn't
+*Cameras with automatic gain and exposure only.* The control isn't
 shown on the LS460, LS560, LS620 and LS720, nor on the [Lumi]{.channel} channel.
 
 [Auto Gain/Exp]{.guilabel} lets the camera adjust the gain and exposure
@@ -112,9 +112,9 @@ the edge of a well and the bright well beside it, the light part is
 overexposed. Set the gain and exposure by hand for such images.
 :::
 
-### Sum {#sec-sum}
+### Adding frames together for a dim sample {#sec-sum}
 
-Requires: the [Lumi]{.channel} channel.
+*[Lumi]{.channel} channel only.*
 
 [Sum]{.guilabel} adds several frames, each at the set exposure, into one
 image to collect more of a faint signal: 1 to 100 on the slider, or type
@@ -127,11 +127,11 @@ full-depth [Image Mode]{.guilabel} to keep it (@sec-image-mode).
 ![The Lumi drawer on a Lumi: Sum, and no Illumination
 section](images/channels-lumi.png){#fig-channels-lumi width=35%}
 
-## Focus {#sec-channel-focus}
+## Saving the channel's focus {#sec-channel-focus}
 
-Requires: a focus motor.
+*Motorized focus only.*
 
-Each channel has its own saved focus, a Z position. A protocol step you
+Under [Focus]{.guilabel}, each channel has its own saved focus, a Z position. A protocol step you
 add in a channel uses that channel's saved focus as its Z.
 
 - [Save Focus]{.guilabel} saves the current Z as the channel's focus. If a
@@ -142,27 +142,27 @@ add in a channel uses that channel's saved focus as its Z.
   sets every step of this channel in the current protocol to it. The
   slices of a Z-stack step keep their spacing around the new Z.
 
-## Protocol Settings {#sec-channel-protocol-settings}
+## Autofocus before each capture {#sec-channel-protocol-settings}
 
-Requires: a focus motor.
+*Motorized focus only.*
 
-[Auto Focus]{.guilabel} runs a contrast-based autofocus before each of
+Under [Protocol Settings]{.guilabel}, [Auto Focus]{.guilabel} runs a contrast-based autofocus before each of
 this channel's steps in a protocol, and before this channel is captured in
 a composite made with the toolbar's Composite button. Default: [off]{.default setting="channel_defaults.fluorescence.autofocus"}.
 
-## Video Settings {#sec-channel-video}
+## How long a protocol's video runs {#sec-channel-video}
 
-[Duration (s)]{.guilabel} is the length of the video a protocol records in
+Under [Video Settings]{.guilabel}, [Duration (s)]{.guilabel} is the length of the video a protocol records in
 this channel at each step, when the channel's acquire setting is
 [Video]{.guilabel}: 1 to 60 seconds on the slider, or type up to 3600
 seconds. Default: [5]{.default setting="channel_defaults.fluorescence.video_config.duration"} seconds. A recording made with the
 toolbar's Record button is limited by [Video Time Limit (s)]{.guilabel}
 instead (@sec-advanced-camera).
 
-## Acquire Settings {#sec-channel-acquire}
+## What a protocol captures in this channel {#sec-channel-acquire}
 
-What a protocol and the toolbar's Composite button capture in this
-channel:
+[Acquire Settings]{.guilabel} sets what a protocol and the toolbar's Composite
+button capture in this channel:
 
 - [None]{.guilabel}: nothing. Default.
 - [Image]{.guilabel}: an image.
@@ -175,9 +175,9 @@ with at most one transmitted-light channel. If a channel is set to
 LumaViewPro won't start the composite, and the message tells you which
 channels to change.
 
-### CBT (%) {#sec-cbt}
+### Which pixels go into a composite {#sec-cbt}
 
-Requires: a fluorescence channel or the [Lumi]{.channel} channel.
+*Fluorescence and [Lumi]{.channel} channels only.*
 
 [CBT (%)]{.guilabel}, the composite brightness threshold, sets which pixels
 of this channel are laid over the transmitted-light image in a composite: a
@@ -198,7 +198,9 @@ Below the acquire settings, a histogram shows how many pixels of the live
 image have each brightness, dark on the left and bright on the right. It
 updates while the channel is shown, but not while a protocol is running.
 
-## Display Properties {#sec-display-properties}
+## How the channel is shown {#sec-display-properties}
+
+Under [Display Properties]{.guilabel}:
 
 - [False Color]{.guilabel}: shows the channel in its swatch's color
   instead of gray. Available on the fluorescence channels and

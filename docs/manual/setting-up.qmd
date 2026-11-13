@@ -17,7 +17,7 @@ Each LS820, LS850, LS850T and Lumi ships with:
 
 ![The accessories](images/accessories.jpg){#fig-accessories width=60%}
 
-## Labware holders {#sec-labware-holders}
+## Holding plates, flasks and slides {#sec-labware-holders}
 
 The primary labware holder sits in the stage's nest and takes microplates,
 dishes and flasks (@fig-labware-holder). A Lumascope without a motorized XY
@@ -50,7 +50,7 @@ The microscope's ports are on its rear panel (@fig-rear-ls850,
 
 ![The LS820's rear panel](images/rear-panel-ls820.jpg){#fig-rear-ls820 width=60%}
 
-## The AuraPhase accessory {#sec-auraphase}
+## Attaching the AuraPhase accessory {#sec-auraphase}
 
 The AuraPhase accessory provides the transmitted-light channels:
 brightfield, phase contrast and darkfield (each model's channels are in
@@ -94,9 +94,9 @@ it isn't on the microscope. Always keep a cap or an objective in place so
 dust can't get into the optics, and leave a microplate or lid in the nest
 when the microscope isn't in use so dust doesn't settle on the objective.
 
-### Objectives on a turret {#sec-turret-objectives}
+### Putting objectives in a turret {#sec-turret-objectives}
 
-Requires: a turret.
+*Turret only.*
 
 If you install only two objectives, put them in opposite positions to keep
 the turret balanced.

@@ -1,4 +1,4 @@
-# Focus, the objective and the stage {#sec-focus}
+# Focusing and moving the stage {#sec-focus}
 
 The [Objective Control]{.guilabel} drawer in the left panel holds the focus,
 autofocus, the objective in use, the turret and Z-stacks
@@ -18,7 +18,7 @@ is recording.
 The Objective Control drawer
 :::
 
-## The objective {#sec-objective}
+## Telling LumaViewPro which objective is in {#sec-objective}
 
 LumaViewPro needs to know which objective is in the light path. The
 objective sets the image scale recorded with every capture and shown by
@@ -33,9 +33,9 @@ Select the objective from the list, where objectives are grouped by maker,
 and click [Confirm]{.guilabel}.
 
 ::: {#fig-objective-question layout-ncol=2}
-![The question](images/focus-objective-question.png){#fig-objective-question-popup}
+![LumaViewPro asks which objective is in](images/focus-objective-question.png){#fig-objective-question-popup}
 
-![The list, grouped by maker](images/focus-objective-list.png){#fig-objective-question-list width=70%}
+![Choosing the objective from the list, grouped by maker](images/focus-objective-list.png){#fig-objective-question-list width=70%}
 
 The objective question
 :::
@@ -49,9 +49,9 @@ the objective's name, or [Assign Objective]{.guilabel} if none is set. Click it 
 turret position has its own objective (@sec-turret). You can't change the
 objective while a protocol is running or a video is recording.
 
-## Adjusting the focus {#sec-focus-adjust}
+## Focusing by hand {#sec-focus-adjust}
 
-Requires: a focus motor.
+*Motorized focus only.*
 
 [Adjust Focus]{.guilabel} moves the objective up, toward the sample, and
 down, away from it:
@@ -83,7 +83,7 @@ in the same way, and also saves it as the focus of every channel
 
 ## Autofocus {#sec-autofocus}
 
-Requires: a focus motor.
+*Motorized focus only.*
 
 [Autofocus]{.guilabel} finds the focus of the shown channel at the current
 stage position, using image contrast. It searches a range centered on the
@@ -106,9 +106,9 @@ travel and try again.
 
 To autofocus before each step of a protocol, see @sec-channel-protocol-settings.
 
-## The turret {#sec-turret}
+## Changing objectives on a turret {#sec-turret}
 
-Requires: a turret.
+*Turret only.*
 
 [Turret Selection]{.guilabel} has one button for each of the four turret
 positions (@fig-objective-control-ls850t). Each button shows the
@@ -132,9 +132,9 @@ the turret back to the objective it was on; at startup it stays at
 position 1. For installing objectives on the turret, see
 @sec-turret-objectives.
 
-## Z-stacks {#sec-zstack}
+## Imaging through the depth of a sample {#sec-zstack}
 
-Requires: a focus motor.
+*Motorized focus only.*
 
 A Z-stack is a series of images of the shown channel at evenly spaced focus
 positions. Set it up under [Acquire Z Stack]{.guilabel}:
@@ -169,9 +169,9 @@ slice, with the channel and slice number in its name, for example
 
 Protocol steps use the same settings for their Z-stacks.
 
-## The XY stage {#sec-xy-stage}
+## Moving the stage {#sec-xy-stage}
 
-Requires: a motorized XY stage.
+*Motorized XY stage only.*
 
 The [XY Stage Control]{.guilabel} drawer moves the stage
 (@fig-xy-stage). Positions are on the labware selected in the
@@ -204,7 +204,7 @@ middle of its travel either way.
 
 ![The XY Stage Control drawer on an LS850](images/focus-xy-stage-ls850.png){#fig-xy-stage width=30%}
 
-### The plate map {#sec-plate-map}
+### Moving to a well on the plate map {#sec-plate-map}
 
 Below the controls, the plate map shows the selected labware and its
 wells. Once the stage is homed, a red cross marks the stage's position and
@@ -215,7 +215,7 @@ a green ring marks the well it's in.
 - [Show step locations]{.guilabel} in Advanced Settings marks each protocol
   step on the map (@sec-advanced-protocol).
 
-### Centering on a point of the live image {#sec-click-to-center}
+### Centering on a point you click {#sec-click-to-center}
 
 Right-click a point in the live image to move the stage so that point is
 at the center of the image. The objective must be set.

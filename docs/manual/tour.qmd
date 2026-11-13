@@ -17,7 +17,7 @@ window. Wait for it to clear before you use the microscope.
 
 If the microscope isn't found, see @sec-not-found.
 
-## The window {#sec-window}
+## What you see when it opens {#sec-window}
 
 LumaViewPro fills the screen, with the live camera image in the middle
 (@fig-tour-window). The side panels hold the controls: microscope, focus,
@@ -36,7 +36,7 @@ Every control has a tooltip, a short line saying what it does. To see them,
 turn on [Show Tooltips]{.guilabel} in Microscope Settings, then hover the
 mouse pointer over a control.
 
-## The left panel {#sec-left-panel}
+## The left panel: settings, focus, the stage, protocols {#sec-left-panel}
 
 The left panel is a stack of drawers (@fig-tour-panels), and only one is
 open at a time: click a drawer's title to open it, and the open one closes.
@@ -64,7 +64,7 @@ open at a time: click a drawer's title to open it, and the open one closes.
 The side panels
 :::
 
-## The right panel {#sec-right-panel}
+## The right panel: one drawer per channel {#sec-right-panel}
 
 The right panel has one drawer for each channel your microscope has
 (@tbl-models), titled with the channel's name: for example
@@ -80,7 +80,7 @@ and exposure, its saved focus, what a protocol acquires in it, and a
 histogram of the live image's brightness. @fig-tour-right shows the
 [Brightfield]{.channel} drawer.
 
-## The toolbar {#sec-toolbar}
+## The toolbar buttons {#sec-toolbar}
 
 The toolbar buttons are icons (@fig-tour-toolbar). From left to right:
 
@@ -103,7 +103,7 @@ The toolbar buttons are icons (@fig-tour-toolbar). From left to right:
 Everything is saved inside the destination folder: what you take by hand
 in `Manual`, and protocol images in `ProtocolData` (@sec-image-files).
 
-## The live image {#sec-live-image}
+## Zooming and moving around the live image {#sec-live-image}
 
 Scroll the mouse wheel over the live image to zoom in and out, and drag the
 image to move around when zoomed in. Fit and 1:1 on the toolbar reset the
@@ -117,7 +117,7 @@ controls are greyed out while it has control. [Take back control]{.guilabel}
 in the banner ends the program's control immediately and stops any run or
 recording it started; the controls come back once that work has stopped.
 
-## The status line {#sec-status-line}
+## The frame rates at the bottom of the window {#sec-status-line}
 
 The line along the bottom of the window shows two frame rates: Capture, the
 frames per second the camera delivers, and Display, the frames per second

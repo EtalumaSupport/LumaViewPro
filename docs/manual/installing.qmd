@@ -4,7 +4,7 @@ Install LumaViewPro before you connect the microscope to the computer for
 the first time. The installer adds the camera's driver, so the camera is
 recognized as soon as you plug it in.
 
-## Your computer {#sec-computer}
+## What your computer needs {#sec-computer}
 
 LumaViewPro runs on Windows 10 or 11, on a desktop or a laptop. The
 monitor doesn't affect the images LumaViewPro saves; a poor monitor just
@@ -63,7 +63,7 @@ the microscope will fail. To work farther from the microscope, extend the
 monitor, keyboard and mouse instead (@sec-extending).
 :::
 
-### Through an incubator port {#sec-incubator-port}
+### Running the cable through an incubator port {#sec-incubator-port}
 
 For live-cell imaging in an incubator (@sec-incubator), pass the USB cable
 and the 24 V DC cable through the incubator's port, which is often on the
@@ -77,9 +77,9 @@ upper back wall.
 - Leave enough slack in the cables inside the incubator for the shelf to
   slide out.
 
-## Troubleshooting {#sec-troubleshooting}
+## When something goes wrong {#sec-troubleshooting}
 
-### The microscope is not found {#sec-not-found}
+### LumaViewPro can't find the microscope {#sec-not-found}
 
 When LumaViewPro starts, it looks for the microscope's camera, its LED board
 and, on a Lumascope with motors, its motor controller. If none of them is
@@ -96,7 +96,7 @@ Check, then restart LumaViewPro:
 2. The USB cable is plugged in at both ends.
 3. The USB cable is in a USB3 port (below).
 
-### A USB2 port {#sec-usb2}
+### The camera doesn't work on a USB2 port {#sec-usb2}
 
 The camera doesn't work on a USB2 port: Windows finds it but doesn't load
 a driver for it. In Device Manager it then appears under "Other devices"
@@ -110,7 +110,7 @@ blue, and restart LumaViewPro.
 ![On a USB3 port: the camera under "Basler USB3 Vision Cameras"](images/device-manager-usb3.png){#fig-usb3}
 :::
 
-### A panel taller than the window {#sec-display-scale}
+### A panel doesn't fit in the window {#sec-display-scale}
 
 A side panel taller than the LumaViewPro window scrolls, and the
 Protocol panel's run buttons stay in view below it. If the text is larger

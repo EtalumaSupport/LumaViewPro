@@ -7,7 +7,7 @@ The controls the recipes use are described in @sec-channels and
 automatically, at many positions or over time, use a protocol
 (@sec-protocols).
 
-## Before you start {#sec-image-before}
+## Before you capture {#sec-image-before}
 
 - Place the sample in its labware holder (@sec-labware-holders), seated
   flat.
@@ -62,7 +62,7 @@ images will include them.
 
 ## A bioluminescence image {#sec-image-lumi}
 
-Requires: the [Lumi]{.channel} channel.
+*[Lumi]{.channel} channel only.*
 
 A luminescent sample is often too faint to focus by its own light, so
 focus in a transmitted-light channel first:
@@ -132,7 +132,7 @@ change the destination folder or the objective while recording.
 
 ## A Z-stack {#sec-image-zstack}
 
-Requires: a focus motor.
+*Motorized focus only.*
 
 1. Set up the channel as for a still image, and focus at the depth you
    want as the top, center or bottom of the stack.
@@ -143,7 +143,7 @@ Requires: a focus motor.
 
 The slices are saved in a new folder, `Manual/Z-Stacks/<date>_<time>/`.
 
-## Where the files are saved {#sec-image-files}
+## Where your images go {#sec-image-files}
 
 Everything is saved inside the destination folder. Each folder below is
 created the first time something is saved to it.

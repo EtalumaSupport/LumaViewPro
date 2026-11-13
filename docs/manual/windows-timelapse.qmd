@@ -3,7 +3,7 @@
 A computer that sleeps, or restarts for an update, interrupts a run.
 Before a long time-lapse, set up Windows 11 as below.
 
-## Power {#sec-windows-power}
+## Keeping the computer awake {#sec-windows-power}
 
 While LumaViewPro is open, it asks Windows to keep the computer and its
 screen awake. Closing LumaViewPro withdraws the request. Closing a laptop's
@@ -18,7 +18,7 @@ System, then Power & Battery, and set the screen and sleep times to Never
 
 ![Windows 11 power settings](images/windows-power.jpg){#fig-windows-power width=80%}
 
-## Network {#sec-windows-network}
+## Keeping the network from interrupting {#sec-windows-network}
 
 If the computer doesn't need a network during the run (recommended):
 
@@ -34,7 +34,7 @@ If the computer needs a network during the run:
    "Make this PC discoverable" (if offered) to Off and "Metered connection"
    to On. On a metered connection Windows downloads only critical updates.
 
-## Windows Update {#sec-windows-update}
+## Holding off updates during a run {#sec-windows-update}
 
 1. Open Settings, Windows Update (@fig-windows-update).
 2. Set Pause updates to a period that covers the whole run, up to five

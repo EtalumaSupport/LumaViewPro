@@ -9,7 +9,7 @@ First, save a copy of the file under another name, for example
 `labware-original.json`. LumaViewPro reads only `labware.json`, so the copy
 is ignored until you need it back.
 
-## A labware entry
+## Writing a labware entry
 
 Open `labware.json` in Notepad or another text editor. Each labware is an
 entry under `"Wellplate"`. Here is the Four-Slide Holder's:

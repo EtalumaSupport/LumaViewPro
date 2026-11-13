@@ -5,7 +5,7 @@ through the incubator's port (@sec-incubator-port). Clean it before it goes
 in (@sec-sanitizing), and set up the computer for a long time-lapse
 (@sec-windows-timelapse).
 
-## Putting the microscope into a warm, humid incubator {#sec-incubator-in}
+## Putting the microscope in an incubator {#sec-incubator-in}
 
 A room-temperature microscope placed in a warm, humid incubator collects
 condensation. Don't do this. Instead:

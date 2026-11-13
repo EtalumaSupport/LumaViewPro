@@ -22,7 +22,7 @@ sodium dichloroisocyanurate). Household bleach contains 5.25% available
 chlorine, 52,500 ppm. It's a strong oxidizer and loses strength quickly, so
 mix it fresh and use it the day it's made.
 
-## Hydrogen peroxide vapor (HPV) {#sec-hpv}
+## Hydrogen peroxide vapor {#sec-hpv}
 
 Hydrogen peroxide vapor removes biological agents from equipment surfaces,
 including ones hard to sterilize otherwise. Because a vapor reaches every
