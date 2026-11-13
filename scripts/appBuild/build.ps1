@@ -109,7 +109,14 @@ $ErrorActionPreference = "Stop"
 # more, and only -SignClassicDriver needs Inf2Cat. A v12 copy would stamp an
 # INF that no longer holds the placeholder (a signed build fails) or leave
 # the driver out (an unsigned one), so MIN_BUILD_SCRIPT_VERSION is 13.
-$script_version = 13
+#
+# v14: a signed build refuses a certificate that is not Etaluma's before it
+# signs anything (-SignClassicDriver asks instead), and reads back every
+# signature it makes, stopping on one Windows would not trust, and logs each
+# file it verified; v13 checked only signtool's exit code, and its log held
+# no line from signtool. A v13 copy still builds this branch correctly, so
+# MIN_BUILD_SCRIPT_VERSION is unchanged.
+$script_version = 14
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -537,6 +544,11 @@ $signing_thumbprint = ""
 $signtool = ""
 $inf2cat = ""
 $timestamp_url = "http://timestamp.digicert.com"
+# The publisher Windows shows for every file a build signs: the name on
+# Etaluma's certificate.
+$publisher_name = "Etaluma, Inc."
+$signing_name = ""
+$signed_count = 0
 if ($sign_build -or $SignClassicDriver) {
     if (-not (Test-Path $signing_file)) {
         Write-Host "ERROR: signing was asked for and dependencies\signing\thumbprint.txt is not there. Put the certificate's thumbprint in it, or build unsigned."
@@ -548,6 +560,19 @@ if ($sign_build -or $SignClassicDriver) {
     if (-not $signing_cert) {
         Write-Host "ERROR: dependencies\signing\thumbprint.txt names $signing_thumbprint, and no certificate with that thumbprint and its key is in CurrentUser\My or LocalMachine\My. Sign in to the CA's signing tool, or build unsigned."
         Exit 1
+    }
+    # A certificate trusted on this box alone (a test certificate) signs
+    # files every other PC shows as "Unknown publisher", so a build stops on
+    # one before spending a signature. -SignClassicDriver may sign a test
+    # pair on purpose, so it asks.
+    $signing_name = $signing_cert.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+    if ($signing_name -ne $publisher_name) {
+        if (-not $SignClassicDriver) {
+            Write-Host "ERROR: dependencies\signing\thumbprint.txt names a certificate issued to '$signing_name', not '$publisher_name'. Put Etaluma's thumbprint in it, or build unsigned."
+            Exit 1
+        }
+        $sign_anyway = Read-Host -Prompt "The certificate is issued to '$signing_name', not '$publisher_name'. Sign the Classic driver with it? [y/N]"
+        if ($sign_anyway -notmatch '^(y|yes)$') { Write-Host "Not signed: the certificate is not $publisher_name's."; Exit 1 }
     }
     # Newest SDK and Driver Kit first: their version folders sort by name.
     $kits = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
@@ -565,7 +590,11 @@ if ($sign_build -or $SignClassicDriver) {
 }
 
 # A configured certificate that fails to sign a file stops the build: an
-# installer half signed is worse than one plainly unsigned.
+# installer half signed is worse than one plainly unsigned. Each signature
+# is then read back as Windows reads it on a customer's PC: a chain this
+# box trusts, the configured certificate, and a timestamp, without which the
+# signature lapses when the certificate's year ends. The transcript records
+# no output of signtool's, so the verified file is written to it here.
 function Invoke-Sign([string]$path) {
     & $signtool sign /sha1 $signing_thumbprint /fd sha256 /tr $timestamp_url /td sha256 $path
     if ($LASTEXITCODE -ne 0) {
@@ -573,6 +602,14 @@ function Invoke-Sign([string]$path) {
         Set-Location $build_dir
         Exit 1
     }
+    $signature = Get-AuthenticodeSignature -FilePath $path
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $signing_thumbprint -or -not $signature.TimeStamperCertificate) {
+        Write-Host "ERROR: $path did not verify after signing: $($signature.Status) ($($signature.StatusMessage)); signer $($signature.SignerCertificate.Subject); timestamp $(if ($signature.TimeStamperCertificate) {'present'} else {'none'})"
+        Set-Location $build_dir
+        Exit 1
+    }
+    $script:signed_count += 1
+    Write-Host "  Signed and verified: $path ($signing_name, timestamped)"
 }
 
 # ---------------------------------------------------------------------------
@@ -1269,7 +1306,7 @@ $dep_receipt = @(
     "ClassicDriver=bundled (DriverVer $fx2_driver_ver)"
 ) -join '  '
 Write-Host "  Drivers:  $dep_receipt"
-Write-Host "  Signed:   $(if ($signing_thumbprint) {"yes ($signing_thumbprint)"} else {'NO'})"
+Write-Host "  Signed:   $(if ($signing_thumbprint) {"yes, $signed_count files verified ($signing_name, $signing_thumbprint)"} else {'NO'})"
 Write-Host "  Log:      $build_log"
 Write-Host "  Ended:    $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 Write-Host "======================================="

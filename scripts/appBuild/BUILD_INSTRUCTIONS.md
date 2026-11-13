@@ -236,11 +236,18 @@ A build is signed only when asked: `.\build.ps1 -Sign`, or yes at the
 `-BuildType` on the command line is signed only by `-Sign`). It needs the
 certificate, with its key, in `Cert:\CurrentUser\My` or
 `Cert:\LocalMachine\My`, its SHA-1 thumbprint on one line in that file,
-and the Windows SDK's Signing Tools (`signtool.exe`). A signed build signs
+and the Windows SDK's Signing Tools (`signtool.exe`). The certificate
+must be issued to `Etaluma, Inc.`: a signed build stops on any other
+before it signs a file (`-SignClassicDriver` asks instead, so a test pair
+can be signed on purpose). A signed build signs
 `LumaViewPro.exe`, `lvp_fx2_driver_step.exe`,
 `lvp_fx2_driver_step_setup.exe`, the MSI, and the bundle's engine and the
-bundle, each with a timestamp, and stops if any file fails to sign. Its
-receipt says `Signed: yes (<thumbprint>)`, or `Signed: NO`.
+bundle, each with a timestamp, reads each signature back as Windows does
+(a trusted chain, the configured certificate, the timestamp), logs each
+file as `Signed and verified:`, and stops if any file fails to sign or to
+verify. Its receipt says
+`Signed: yes, 6 files verified (Etaluma, Inc., <thumbprint>)`, or
+`Signed: NO`.
 
 #### FX2 WinUSB Driver (Lumascope Classic: LS460 / LS560 / LS620 / LS720)
 
