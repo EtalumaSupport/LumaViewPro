@@ -186,6 +186,61 @@ class TestSaveThenRestore:
         assert [m for m in warned if 'Infrared' in m], 'the dropped layer is named in the log'
 
 
+class TestASaveIsTheProtocolsLayerSettings:
+    """``save_protocol``: the block written becomes the protocol's Layer Settings.
+
+    The protocol kept the block it was loaded with, so after a save the
+    protocol, a run's copy of its file and ``apply_channel_settings``
+    answered settings the saved file did not hold.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _homed(self, session):
+        # New images an unfocused layer at the current Z, which needs a Z
+        # the scope knows.
+        home_sim_scope(session.scope)
+
+    def test_the_protocol_a_run_and_the_restore_read_the_saved_block(self, session, tmp_path):
+        _only_bf_acquiring(session)
+        protocol = session.load_protocol(
+            session.save_protocol(session.new_protocol(), tmp_path / 'loaded.tsv')
+        )
+        _set_layer(session, 'BF', gain_db=9.0)
+
+        session.save_protocol(protocol, tmp_path / 'saved.tsv')
+
+        assert protocol.channel_settings()['BF'].gain_db == 9.0
+        # A run writes its copy of the protocol into its folder this way
+        # (``SequencedCaptureRunner._initialize_run_dir``).
+        run_copy = tmp_path / 'run' / 'saved.tsv'
+        protocol.copy_for_execution().to_file(file_path=run_copy)
+        assert session.load_protocol(run_copy).channel_settings()['BF'].gain_db == 9.0
+        _set_layer(session, 'BF', gain_db=4.0)
+        session.apply_channel_settings(protocol)
+        assert session.settings['BF']['gain_db'] == 9.0
+
+    def test_a_new_protocol_saved_holds_the_block_its_file_holds(self, session, tmp_path):
+        _only_bf_acquiring(session)
+        protocol = session.new_protocol()
+
+        written = session.save_protocol(protocol, tmp_path / 'plate.tsv')
+
+        assert protocol.has_saved_channel_settings()
+        assert protocol.channel_settings() == session.load_protocol(written).channel_settings()
+
+    def test_a_save_that_writes_no_block_leaves_the_protocol_none(self, session, tmp_path):
+        _only_bf_acquiring(session)
+        protocol = session.load_protocol(
+            session.save_protocol(session.new_protocol(), tmp_path / 'loaded.tsv')
+        )
+        _set_layer(session, 'BF', acquire=None)
+
+        written = session.save_protocol(protocol, tmp_path / 'saved.tsv')
+
+        assert not session.load_protocol(written).has_saved_channel_settings()
+        assert not protocol.has_saved_channel_settings()
+
+
 class TestTheBlockIsTypedAtLoad:
     def test_a_saved_block_comes_back_typed(self, session, tmp_path):
         tsv = _file_with_block(

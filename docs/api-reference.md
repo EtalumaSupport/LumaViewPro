@@ -2752,8 +2752,10 @@ the values its controls hold now; `apply_channel_settings` puts them
 back. What the GUI opens at its next start-up is not changed: a
 script's scratch save is not the person's protocol.
 
-The protocol then has no unsaved changes, and its file is this one
-(`Protocol.has_unsaved_changes`, `Protocol.file_path`).
+The protocol then has no unsaved changes, its file is this one, and
+its Layer Settings are the block written (`Protocol.has_unsaved_changes`,
+`Protocol.file_path`, `Protocol.channel_settings`), so a run's copy
+of the file and `apply_channel_settings` read what was saved.
 
 **Args**
 

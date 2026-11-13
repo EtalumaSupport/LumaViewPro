@@ -85,9 +85,10 @@ assert protocol.num_scans() == 6
 `LumaViewPro Protocol`, then the version, the period (minutes), the duration
 (hours), the plate and the capture root; then a Layer Settings block, a row of
 each channel's settings; then a table of steps under a row naming its columns.
-`save_protocol` writes the block from each channel acquiring in the settings;
-the copy a run saves in its folder has it only when its protocol was read from
-a file that had one, so a protocol built in memory runs to a file with none.
+`save_protocol` writes the block from each channel acquiring in the settings,
+and that block is then the protocol's (`channel_settings`). The copy a run
+saves in its folder has the block the protocol was last read with or saved
+with, so a protocol built in memory and never saved runs to a file with none.
 
 `X` and `Y` are plate millimetres from the plate's top-left, `Z` stage
 micrometres, `Illumination` milliamps, `Gain` dB, `Exposure` milliseconds, and

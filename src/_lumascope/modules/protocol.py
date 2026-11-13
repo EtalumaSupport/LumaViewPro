@@ -1870,22 +1870,41 @@ class Protocol:
         """
         return self._fingerprint_of(self._header_text(), self._steps_text())
 
-    def record_saved(self, fingerprint: str, file_path: pathlib.Path | None) -> None:
+    def record_saved(
+        self,
+        fingerprint: str,
+        file_path: pathlib.Path | None,
+        *,
+        channel_settings: Mapping[str, ChannelSettings] | None = None,
+    ) -> None:
         """Record what this protocol is as built, loaded or saved, and its file.
 
         Not published: called where a build, a load or a save returns whole
         (``ProtocolsAPI.create_protocol``, ``ScopeSession.load_protocol``,
         ``ScopeSession.save_protocol``), never by a client.
 
+        A save's Layer Settings block becomes the protocol's, so
+        ``channel_settings()``, a run's copy of the file and
+        ``apply_channel_settings`` read what the file holds: the protocol
+        kept the block it was loaded with, and a run then recorded settings
+        the saved file did not.
+
         Args:
             fingerprint: The fingerprint of the protocol as it then was
                 (``fingerprint``, or what ``to_file`` returned).
             file_path: The file it was loaded from or saved to; None for one
                 built.
+            channel_settings: The Layer Settings records a save wrote, keyed
+                by channel; empty when it wrote no block, which the protocol
+                then holds none of, as its file. None for a build or a load,
+                whose block (a load's, read with its file; a build's, none)
+                the protocol already holds.
 
         Raises:
             Nothing.
         """
+        if channel_settings is not None:
+            self._config['channel_settings'] = dict(channel_settings) if channel_settings else None
         self._saved_as = _SavedAs(fingerprint, file_path)
 
     @api
