@@ -22,7 +22,7 @@ curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "statu
 curl -s -w '\n' --json '{"path": "zstack.range", "value": 20.0}' $API/update_settings        # 200
 curl -s -w '\n' --json '{"path": "zstack.step_size", "value": 5.0}' $API/update_settings     # 200
 curl -s -w '\n' --json '{"path": "zstack.position", "value": "center"}' $API/update_settings # 200
-curl -s -w '\n' --json '{"path": "BF.illumination_ma", "value": 5}' $API/update_settings     # 200
+curl -s -w '\n' -X PUT --json '{"channel": "BF", "illumination_ma": 5}' $API/channel_settings   # 200
 
 # A z-stack is a run: its job, then its files' job once the slices are on disk.
 RUNNER=$(curl -s --json '{}' $API/protocol_runner | jq -r .handle)         # 200

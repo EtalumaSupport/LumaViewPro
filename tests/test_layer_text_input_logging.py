@@ -19,7 +19,7 @@ import logging
 from types import SimpleNamespace
 
 import _lumascope.modules.app_context as _app_ctx
-from tests.settings_fixtures import settings_writer
+from tests.settings_fixtures import as_channel_writes, settings_writer
 from ui.channel_control import ChannelControl
 from tests.stock_channels import LED0
 
@@ -53,7 +53,13 @@ def _blue_panel(monkeypatch, caplog, typed, *, stored=500.0):
         write(path, value)
 
     monkeypatch.setattr(
-        _app_ctx, 'ctx', SimpleNamespace(settings=settings, update_settings=update_settings)
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(
+            settings=settings,
+            update_settings=update_settings,
+            session=SimpleNamespace(set_channel_settings=as_channel_writes(update_settings)),
+        ),
     )
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
     panel = ChannelControl.__new__(ChannelControl)

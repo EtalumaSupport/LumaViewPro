@@ -119,6 +119,12 @@ from _lumascope.modules.manual_recording import ManualRecordingController
 from _lumascope.modules.config_helpers import DisplayRates, log_environment_once
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.protocol import (
+    CHANNEL_SETTING_KEYS,
+    NOT_THIS_FIELD,
+    ChannelSettings,
+    protocol_row_of,
+)
 from _lumascope.modules.axes import StageAxis
 from _lumascope.modules.video_cadence import video_sizing_fps
 from _lumascope.modules.zstack_config import ZStackReference
@@ -178,22 +184,25 @@ _COUNTED_WORK_NAMES = {
     live_work.WorkKind.PLUGIN_RUN: 'An engineering plugin run',
 }
 
-# A protocol's ChannelSettings field and the channel-settings key it is saved
-# from and restored into; acquire is handled apart. The
-# file's columns are the protocol's to map (protocol._CHANNEL_SETTINGS_CELLS).
-_CHANNEL_SETTINGS_KEYS = (
-    ('illumination_ma', 'illumination_ma'),
-    ('gain_db', 'gain_db'),
-    ('auto_gain', 'auto_gain'),
-    ('exposure_ms', 'exposure_ms'),
-    ('false_color', 'false_color'),
-    ('frames_summed', 'sum'),
-)
 
 # A channel's fields the camera takes, and with the illumination those the
 # shown channel's hardware takes when they are written.
 _CAMERA_FIELDS = frozenset({'gain_db', 'exposure_ms', 'auto_gain'})
 _HARDWARE_FIELDS = _CAMERA_FIELDS | {'illumination_ma'}
+
+# Each ChannelSettings field's key under a channel's settings block.
+_CHANNEL_FIELD_KEYS = dict(CHANNEL_SETTING_KEYS)
+
+
+def _channel_value(block: dict, key: str) -> tuple[bool, object]:
+    """Whether a channel's settings ``block`` carries ``key`` (dotted), and its value there; None where it does not."""
+    value: object = block
+    for segment in key.split('.'):
+        if not isinstance(value, dict) or segment not in value:
+            return False, None
+        value = value[segment]
+    return True, value
+
 
 # ProtocolRunner is referenced only in a return annotation; it is
 # imported function-locally to avoid a circular import. Declare it here
@@ -2712,9 +2721,9 @@ class ScopeSession:
                     'that channel is dropped on load.'
                 )
                 continue
-            fields[name] = {'acquire': row.acquire} | {
+            fields[name] = {
                 key: getattr(row, field)
-                for field, key in _CHANNEL_SETTINGS_KEYS
+                for field, key in CHANNEL_SETTING_KEYS
                 if getattr(row, field) is not None
             }
         self._write_channels(fields, member='apply_channel_settings', then_camera=True)
@@ -2750,19 +2759,13 @@ class ScopeSession:
             ProtocolNotSavedError: The file could not be written; a file
                 already at the path is unchanged.
         """
-        from _lumascope.modules.protocol import ChannelSettings
-
         path = pathlib.Path(file_path)
         records = {}
         with self.settings_lock:
             for name in common_utils.get_channels():
-                channel = self._settings[name]
-                if channel['acquire'] is None:
-                    continue
-                records[name] = ChannelSettings(
-                    acquire=channel['acquire'],
-                    **{field: channel[key] for field, key in _CHANNEL_SETTINGS_KEYS},
-                )
+                record = self._stored_channel_settings(name)
+                if record.acquire is not None:
+                    records[name] = protocol_row_of(record)
         fingerprint = protocol.to_file(file_path=path, channel_settings=records)
         protocol.record_saved(
             fingerprint, pathlib.Path(os.path.abspath(path)), channel_settings=records
@@ -2913,6 +2916,169 @@ class ScopeSession:
         refuse_unknown_channel(channel)
         with self.settings_lock:
             return self._auto_gain_locks.get(channel)
+
+    @api(reads=True)
+    def channel_settings(self, channel: str) -> ChannelSettings:
+        """``channel``'s settings, every one, as ``set_channel_settings`` writes them.
+
+        A setting the channel does not carry reads None (stimulation on a
+        transmitted channel). On a scope with no Z axis ``autofocus`` reads
+        False, as ``get_channel_configs`` reads it; the stored setting is
+        not changed.
+
+        Args:
+            channel: The channel read.
+
+        Raises:
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
+        """
+        refuse_unknown_channel(channel)
+        with self.settings_lock:
+            return self._stored_channel_settings(channel)
+
+    def _stored_channel_settings(self, channel: str) -> ChannelSettings:
+        """Under ``settings_lock``: ``channel``'s stored settings as their record."""
+        block = self._settings[channel]
+        values = {
+            field: copy.deepcopy(_channel_value(block, key)[1])
+            for field, key in CHANNEL_SETTING_KEYS
+        }
+        if values['acquire'] is not None:
+            values['acquire'] = AcquireMode(values['acquire'])
+        if not self.scope.capabilities.has_focus:
+            values['autofocus'] = False
+        return ChannelSettings(**values)
+
+    @api(sets='channel_settings', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
+    @_guarded_write
+    def set_channel_settings(
+        self,
+        channel: str,
+        *,
+        acquire: AcquireMode | None = NOT_THIS_FIELD,
+        illumination_ma: float = NOT_THIS_FIELD,
+        gain_db: float = NOT_THIS_FIELD,
+        auto_gain: bool = NOT_THIS_FIELD,
+        exposure_ms: float = NOT_THIS_FIELD,
+        false_color: bool = NOT_THIS_FIELD,
+        frames_summed: int = NOT_THIS_FIELD,
+        focus_z_um: float | None = NOT_THIS_FIELD,
+        autofocus: bool = NOT_THIS_FIELD,
+        display_color: str | None = NOT_THIS_FIELD,
+        composite_brightness_threshold_pct: float = NOT_THIS_FIELD,
+        video_duration_s: float = NOT_THIS_FIELD,
+        stim_enabled: bool = NOT_THIS_FIELD,
+        stim_illumination_ma: float = NOT_THIS_FIELD,
+        stim_frequency_hz: float = NOT_THIS_FIELD,
+        stim_pulse_width_ms: float = NOT_THIS_FIELD,
+        stim_pulse_count: int = NOT_THIS_FIELD,
+    ) -> ChannelSettings:
+        """Write any of ``channel``'s settings, judged whole: all of them are stored, or none.
+
+        Each field named is written; a field left out is left as it is, and
+        None is a value (``acquire`` None stops the channel acquiring,
+        ``focus_z_um`` None clears the saved focus, ``display_color`` None
+        shows the catalogue's colour). On the wire a key left out is a
+        field not written, and null is the value.
+
+        Every field is judged before any is stored: its range, the LED
+        board's maximum for a current, Z's travel for a focus, and the
+        stored auto-gain range for auto-gain turned on. Then, for the shown
+        channel, an illumination goes on its lit LED before it is stored,
+        and the camera takes the stored gain, exposure and auto-gain when
+        this returns. ``auto_gain`` False named with a gain or an exposure
+        means those values, the loop off; named alone, it keeps what the
+        loop reached (the lock, read by ``channel_auto_gain_lock``).
+        Setting a channel to acquire stops it stimulating. While a run or a
+        diagnostic holds the scope the values are stored only and put on at
+        its end; while a home holds it, a value the shown channel's camera
+        or LED would take is refused.
+
+        Args:
+            channel: The channel written.
+            acquire: What the channel captures; None, nothing.
+            illumination_ma: The LED current, in mA.
+            gain_db: The camera gain, in dB.
+            auto_gain: The camera's auto-gain is on.
+            exposure_ms: The camera exposure, in ms.
+            false_color: The channel's image is false-coloured.
+            frames_summed: How many frames a capture sums.
+            focus_z_um: The Z saved as the channel's focus, in micrometres;
+                None clears it.
+            autofocus: A step of the channel autofocuses.
+            display_color: The channel's colour as ``'#rrggbb'``; None, the
+                catalogue's.
+            composite_brightness_threshold_pct: The brightness, as a percentage
+                of full scale, below which the channel's pixels add nothing
+                to a composite.
+            video_duration_s: How long a video step of the channel records, in s.
+            stim_enabled: The channel stimulates.
+            stim_illumination_ma: The stimulation's LED current, in mA.
+            stim_frequency_hz: The stimulation's pulse rate, in Hz.
+            stim_pulse_width_ms: Each stimulation pulse's length, in ms.
+            stim_pulse_count: How many pulses a stimulation gives.
+
+        Returns:
+            The channel's settings as stored once the write is done, the
+            lock's values and the focus as Z stores it among them.
+
+        Raises:
+            ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
+                channel; ``'not_a_number'``, a focus that is not finite;
+                ``'gain_range_inverted'``, ``auto_gain`` True while the
+                stored auto-gain range has its minimum gain above its
+                maximum.
+            SettingRefusedError: ``'not_offered'``, a field this channel
+                does not carry (stimulation on a channel that does not
+                stimulate); ``'wrong_kind'`` or ``'out_of_range'``, a value
+                its setting does not take, an illumination above the LED
+                board's maximum among them.
+            ConfigurationDefectError: ``'channels_unresolved'``, this scope's
+                channels could not be resolved.
+            HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope
+                does not have ``channel`` and the write sets it to acquire,
+                turns its auto-gain on or saves its focus;
+                ``'exclusive_activity_running'``, as described above.
+            ProtocolRunRefusedError: ``'positions_unreachable'``, a focus on a
+                scope with no Z axis.
+            PositionOutOfRangeError: a focus outside Z's travel.
+        """
+        # Read first, before any other name is bound: the fields this call
+        # was asked to write, by their parameter names.
+        asked = {
+            field: value
+            for field, value in locals().items()
+            if field in _CHANNEL_FIELD_KEYS and value is not NOT_THIS_FIELD
+        }
+        refuse_unknown_channel(channel)
+        with self.settings_lock:
+            carried = {
+                key
+                for _, key in CHANNEL_SETTING_KEYS
+                if _channel_value(self._settings[channel], key)[0]
+            }
+        template = self.scope.settings_template
+        fields = {}
+        for field, value in asked.items():
+            value = python_values(value)
+            key = _CHANNEL_FIELD_KEYS[field]
+            path = f'{channel}.{key}'
+            if key not in carried:
+                raise SettingRefusedError('not_offered', path, f'{channel} has no {field}')
+            settings_paths.check_value(
+                template, path, value, led_max_ma=self.scope.capabilities.led_max_ma
+            )
+            fields[key] = value
+        if (
+            fields.get('acquire') is not None
+            or fields.get('auto_gain') is True
+            or fields.get('focus') is not None
+        ):
+            self.scope.channel_identity.refuse_unless_on_scope(
+                channel, 'set_channel_settings', then='take these settings'
+            )
+        self._write_channels({channel: fields}, member='set_channel_settings', then_camera=True)
+        return self.channel_settings(channel)
 
     def apply_channel_camera(self, channel: str) -> dict | None:
         """Put ``channel``'s stored exposure, gain and auto-gain on the camera, and wait.

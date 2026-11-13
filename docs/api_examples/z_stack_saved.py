@@ -36,7 +36,7 @@ def main():
         session.update_settings('zstack.range', 20.0)
         session.update_settings('zstack.step_size', 5.0)
         session.update_settings('zstack.position', 'center')
-        session.update_settings('BF.illumination_ma', 5)
+        session.set_channel_settings('BF', illumination_ma=5)
 
         runner = session.protocol_runner()
         stacking = runner.start_zstack('BF', sequence_name='example_stack')

@@ -908,6 +908,35 @@ release's, so a folder captured on another unit still has one.
 
 - 500: [`InstallationFileError`](#InstallationFileError): `installation_file_unusable`
 
+<a id="ScopeSession.channel_settings"></a>
+### `ScopeSession.channel_settings`
+
+```python
+def channel_settings(self, channel: str) -> ChannelSettings
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/channel_settings`.
+
+`channel`'s settings, every one, as `set_channel_settings` writes them.
+
+A setting the channel does not carry reads None (stimulation on a
+transmitted channel). On a scope with no Z axis `autofocus` reads
+False, as `get_channel_configs` reads it; the stored setting is
+not changed.
+
+**Args**
+
+- `channel`: The channel read.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
+
+**Refusals by REST status**
+
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
+
 <a id="ScopeSession.channel_slider_maxima"></a>
 ### `ScopeSession.channel_slider_maxima`
 
@@ -3065,6 +3094,99 @@ The lock when turning off (its `state` is None when no arm stood), so a caller c
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+
+<a id="ScopeSession.set_channel_settings"></a>
+### `ScopeSession.set_channel_settings`
+
+```python
+def set_channel_settings(
+    self,
+    channel: str,
+    *,
+    acquire: AcquireMode | None = NOT_THIS_FIELD,
+    illumination_ma: float = NOT_THIS_FIELD,
+    gain_db: float = NOT_THIS_FIELD,
+    auto_gain: bool = NOT_THIS_FIELD,
+    exposure_ms: float = NOT_THIS_FIELD,
+    false_color: bool = NOT_THIS_FIELD,
+    frames_summed: int = NOT_THIS_FIELD,
+    focus_z_um: float | None = NOT_THIS_FIELD,
+    autofocus: bool = NOT_THIS_FIELD,
+    display_color: str | None = NOT_THIS_FIELD,
+    composite_brightness_threshold_pct: float = NOT_THIS_FIELD,
+    video_duration_s: float = NOT_THIS_FIELD,
+    stim_enabled: bool = NOT_THIS_FIELD,
+    stim_illumination_ma: float = NOT_THIS_FIELD,
+    stim_frequency_hz: float = NOT_THIS_FIELD,
+    stim_pulse_width_ms: float = NOT_THIS_FIELD,
+    stim_pulse_count: int = NOT_THIS_FIELD,
+) -> ChannelSettings
+```
+
+Marks: sets [`channel_settings`](#ScopeSession.channel_settings); enters: `lane_call`, `guarded_write`.  
+Route: `PUT /api/v1/channel_settings`.
+
+Write any of `channel`'s settings, judged whole: all of them are stored, or none.
+
+Each field named is written; a field left out is left as it is, and
+None is a value (`acquire` None stops the channel acquiring,
+`focus_z_um` None clears the saved focus, `display_color` None
+shows the catalogue's colour). On the wire a key left out is a
+field not written, and null is the value.
+
+Every field is judged before any is stored: its range, the LED
+board's maximum for a current, Z's travel for a focus, and the
+stored auto-gain range for auto-gain turned on. Then, for the shown
+channel, an illumination goes on its lit LED before it is stored,
+and the camera takes the stored gain, exposure and auto-gain when
+this returns. `auto_gain` False named with a gain or an exposure
+means those values, the loop off; named alone, it keeps what the
+loop reached (the lock, read by `channel_auto_gain_lock`).
+Setting a channel to acquire stops it stimulating. While a run or a
+diagnostic holds the scope the values are stored only and put on at
+its end; while a home holds it, a value the shown channel's camera
+or LED would take is refused.
+
+**Args**
+
+- `channel`: The channel written.
+- `acquire`: What the channel captures; None, nothing.
+- `illumination_ma`: The LED current, in mA.
+- `gain_db`: The camera gain, in dB.
+- `auto_gain`: The camera's auto-gain is on.
+- `exposure_ms`: The camera exposure, in ms.
+- `false_color`: The channel's image is false-coloured.
+- `frames_summed`: How many frames a capture sums.
+- `focus_z_um`: The Z saved as the channel's focus, in micrometres; None clears it.
+- `autofocus`: A step of the channel autofocuses.
+- `display_color`: The channel's colour as `'#rrggbb'`; None, the catalogue's.
+- `composite_brightness_threshold_pct`: The brightness, as a percentage of full scale, below which the channel's pixels add nothing to a composite.
+- `video_duration_s`: How long a video step of the channel records, in s.
+- `stim_enabled`: The channel stimulates.
+- `stim_illumination_ma`: The stimulation's LED current, in mA.
+- `stim_frequency_hz`: The stimulation's pulse rate, in Hz.
+- `stim_pulse_width_ms`: Each stimulation pulse's length, in ms.
+- `stim_pulse_count`: How many pulses a stimulation gives.
+
+**Returns**
+
+The channel's settings as stored once the write is done, the lock's values and the focus as Z stores it among them.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'not_a_number'`, a focus that is not finite; `'gain_range_inverted'`, `auto_gain` True while the stored auto-gain range has its minimum gain above its maximum.
+- `SettingRefusedError`: `'not_offered'`, a field this channel does not carry (stimulation on a channel that does not stimulate); `'wrong_kind'` or `'out_of_range'`, a value its setting does not take, an illumination above the LED board's maximum among them.
+- `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope does not have `channel` and the write sets it to acquire, turns its auto-gain on or saves its focus; `'exclusive_activity_running'`, as described above.
+- `ProtocolRunRefusedError`: `'positions_unreachable'`, a focus on a scope with no Z axis.
+- `PositionOutOfRangeError`: a focus outside Z's travel.
+
+**Refusals by REST status**
+
+- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`, `gain_range_inverted`; [`SettingRefusedError`](#SettingRefusedError): `not_offered`, `wrong_kind`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -6172,7 +6294,7 @@ does not apply raises and records no arm. With no camera connected,
 turning auto-gain off is satisfied: True, as a camera already in
 manual answers. The write is a raw one, which the next channel the
 camera holds replaces; a channel's own auto-gain, which a capture of
-that channel uses, is `ScopeSession.set_channel_auto_gain`.
+that channel uses, is `ScopeSession.set_channel_settings`' `auto_gain`.
 
 **Args**
 
@@ -6296,7 +6418,7 @@ One command on the camera's lane, waited for, as `set_gain_db`
 is; a write the camera does not apply raises. The write is a raw
 one: afterwards the camera holds no channel's stored settings. A
 channel's own exposure, which a capture of that channel uses, is its
-stored setting (`ScopeSession.update_settings('<channel>.exposure_ms', ...)`).
+stored setting (`ScopeSession.set_channel_settings(channel, exposure_ms=...)`).
 
 **Args**
 
@@ -6381,7 +6503,7 @@ settings until a channel's are put on again, and a still taken
 meanwhile, one naming a channel included, keeps the raw values and
 records `held_channel` None. A channel's own gain, which a capture
 of that channel uses, is its stored setting
-(`ScopeSession.update_settings('<channel>.gain_db', ...)`).
+(`ScopeSession.set_channel_settings(channel, gain_db=...)`).
 
 **Args**
 
@@ -10431,23 +10553,41 @@ Identity of one channel on one unit.
 ## `lumascope.ChannelSettings`
 
 A record: it crosses the wire as its data.  
-Returned by: [`Protocol.channel_settings`](#Protocol.channel_settings).
+Returned by: [`Protocol.channel_settings`](#Protocol.channel_settings), [`ScopeSession.channel_settings`](#ScopeSession.channel_settings), [`ScopeSession.set_channel_settings`](#ScopeSession.set_channel_settings).
 
-One channel's row of a protocol's Layer Settings, each cell typed.
+One channel's settings, each typed: as the session holds them, or as a protocol's Layer Settings row names them.
 
-Every field but `acquire` is None where the cell is blank, or where a
-row inferred from the channel's first step cannot supply it: applied,
-the channel's control keeps what it holds.
+Read from the session (`ScopeSession.channel_settings`), every field
+is the channel's stored value; None is that value where the setting
+takes None (`acquire` nothing, `focus_z_um` never saved,
+`display_color` the catalogue's colour), and None for a setting the
+channel does not carry (stimulation is a fluorescence channel's; the
+composite threshold a fluorescence or luminescence channel's).
+
+As a Layer Settings row (`Protocol.channel_settings`), a field is None
+where its cell is blank, where a row inferred from the channel's first
+step cannot supply it, and for every field the row has no column for
+(`focus_z_um` onwards): applied, the channel keeps what it holds.
 
 **Fields**
 
-- <a id="ChannelSettings.acquire"></a>`acquire`: `AcquireMode` -- What the channel captures.
+- <a id="ChannelSettings.acquire"></a>`acquire`: `AcquireMode | None` -- What the channel captures; None, nothing.
 - <a id="ChannelSettings.auto_gain"></a>`auto_gain`: `bool | None` -- The camera's auto-gain is on.
+- <a id="ChannelSettings.autofocus"></a>`autofocus`: `bool | None` -- A step of the channel autofocuses.
+- <a id="ChannelSettings.composite_brightness_threshold_pct"></a>`composite_brightness_threshold_pct`: `float | None` -- The brightness, as a percentage of full scale, below which the channel's pixels add nothing to a composite.
+- <a id="ChannelSettings.display_color"></a>`display_color`: `str | None` -- The channel's colour as `'#rrggbb'`; None, the catalogue's.
 - <a id="ChannelSettings.exposure_ms"></a>`exposure_ms`: `float | None` -- The camera exposure, in ms.
 - <a id="ChannelSettings.false_color"></a>`false_color`: `bool | None` -- The channel's image is false-coloured.
+- <a id="ChannelSettings.focus_z_um"></a>`focus_z_um`: `float | None` -- The Z saved as the channel's focus, in micrometres.
 - <a id="ChannelSettings.frames_summed"></a>`frames_summed`: `int | None` -- How many frames a capture sums.
 - <a id="ChannelSettings.gain_db"></a>`gain_db`: `float | None` -- The camera gain, in dB.
 - <a id="ChannelSettings.illumination_ma"></a>`illumination_ma`: `float | None` -- The LED current, in mA.
+- <a id="ChannelSettings.stim_enabled"></a>`stim_enabled`: `bool | None` -- The channel stimulates.
+- <a id="ChannelSettings.stim_frequency_hz"></a>`stim_frequency_hz`: `float | None` -- The stimulation's pulse rate, in Hz.
+- <a id="ChannelSettings.stim_illumination_ma"></a>`stim_illumination_ma`: `float | None` -- The stimulation's LED current, in mA.
+- <a id="ChannelSettings.stim_pulse_count"></a>`stim_pulse_count`: `int | None` -- How many pulses a stimulation gives.
+- <a id="ChannelSettings.stim_pulse_width_ms"></a>`stim_pulse_width_ms`: `float | None` -- Each stimulation pulse's length, in ms.
+- <a id="ChannelSettings.video_duration_s"></a>`video_duration_s`: `float | None` -- How long a video step of the channel records, in s.
 
 <a id="ChannelSliderMaxima"></a>
 ## `lumascope.ChannelSliderMaxima`
@@ -14025,7 +14165,7 @@ A closed set crosses the wire as its value, and in Python equals its value's str
 
 Returned by: [`ScopeSession.channel_acquire`](#ScopeSession.channel_acquire).  
 Held in: [`ChannelSettings.acquire`](#ChannelSettings.acquire), [`StepRecord.acquire`](#StepRecord.acquire).  
-Taken by: [`ScopeSession.set_channel_acquire`](#ScopeSession.set_channel_acquire).
+Taken by: [`ScopeSession.set_channel_acquire`](#ScopeSession.set_channel_acquire), [`ScopeSession.set_channel_settings`](#ScopeSession.set_channel_settings).
 
 What a channel captures: an image or a video.
 
@@ -18349,7 +18489,7 @@ A refusal; bases `Refusal`, `ConfigError`.
 A settings write was refused; nothing was written.
 
 Raised by `ScopeSession.update_settings` and `set_live_folder`, by
-the members that own a ranged setting (`set_channel_acquire`,
+the members that own a ranged setting (`set_channel_settings`,
 `set_image_mode`, through `settings_paths.refuse_outside_range`) and
 for a settings dict handed to a session, at `create`'s door
 (`settings_init.prepare_loaded`, through
@@ -18644,6 +18784,8 @@ reads what the person was shown.
 | `PUT` | `/api/v1/channel_auto_gain` | [`ScopeSession.set_channel_auto_gain`](#ScopeSession.set_channel_auto_gain) |
 | `GET` | `/api/v1/channel_auto_gain_lock` | [`ScopeSession.channel_auto_gain_lock`](#ScopeSession.channel_auto_gain_lock) |
 | `GET` | `/api/v1/channel_colors` | [`ScopeSession.channel_colors`](#ScopeSession.channel_colors) |
+| `GET` | `/api/v1/channel_settings` | [`ScopeSession.channel_settings`](#ScopeSession.channel_settings) |
+| `PUT` | `/api/v1/channel_settings` | [`ScopeSession.set_channel_settings`](#ScopeSession.set_channel_settings) |
 | `GET` | `/api/v1/channel_slider_maxima` | [`ScopeSession.channel_slider_maxima`](#ScopeSession.channel_slider_maxima) |
 | `POST` | `/api/v1/clear_current_turret_objective` | [`ScopeSession.clear_current_turret_objective`](#ScopeSession.clear_current_turret_objective) |
 | `POST` | `/api/v1/clear_turret_objective` | [`ScopeSession.clear_turret_objective`](#ScopeSession.clear_turret_objective) |

@@ -2,8 +2,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Channels, each with its own current, exposure and gain, on the simulator.
 
-A channel's current, exposure and gain are settings, stored per channel:
-written by path, they reach the camera when the channel is shown, and a
+A channel's current, exposure and gain are its settings, written together
+by ``set_channel_settings``: they reach the camera when the channel is shown, and a
 still of the channel is taken with them. This saves a still of brightfield
 and of a fluorescence channel that way, then one still after writing the
 camera directly, which the still's record tells apart. Prints what each
@@ -56,10 +56,11 @@ def main():
 
         stored = {}
         for channel, (current_ma, exposure_ms, gain_db) in CHANNELS.items():
-            # A write outside a setting's range is refused, never clamped.
-            session.update_settings(f'{channel}.illumination_ma', current_ma)
-            session.update_settings(f'{channel}.exposure_ms', exposure_ms)
-            session.update_settings(f'{channel}.gain_db', gain_db)
+            # One write, judged whole: a value outside its range is refused,
+            # never clamped, and then none of the three is stored.
+            session.set_channel_settings(
+                channel, illumination_ma=current_ma, exposure_ms=exposure_ms, gain_db=gain_db
+            )
 
             # Showing the channel puts its stored exposure and gain on the
             # camera; lighting it lights it at its stored current.

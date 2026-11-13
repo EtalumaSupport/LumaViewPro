@@ -95,8 +95,9 @@ a path segment, so `session.scope.motion.start_move_xy` is
   JSON object; the answer is the read after the write, the value the scope took
   (`PUT /api/v1/scope/camera/binning` with `{"size": 2}` answers `2`). A
   setting kept per channel takes the channel in the body and the query
-  (`PUT /api/v1/channel_acquire` with `{"channel": "BF", "mode": "image"}`,
-  then `GET /api/v1/channel_acquire?channel=BF`). The setter itself has no
+  (`PUT /api/v1/channel_settings` with `{"channel": "BF", "acquire": "image"}`,
+  then `GET /api/v1/channel_settings?channel=BF`); there a key left out is a
+  setting not written, and `null` is the value. The setter itself has no
   route.
 - **Every other call is `POST`**, its arguments a JSON object by parameter
   name; `null` is None, and a parameter left out takes its default. A member
@@ -331,7 +332,7 @@ nothing there. Its `turret_slot` is `null` without a turret.
 OBJECTIVE=$(curl -s $API/current_slot_objective_question | jq -r .proposed)   # 200
 SLOT=$(curl -s $API/current_slot_objective_question | jq -r .turret_slot)    # 200: null without a turret
 curl -s --json "{\"objective_id\": \"$OBJECTIVE\", \"slot\": $SLOT}" $API/confirm_objective   # 200
-curl -s -X PUT --json '{"channel": "BF", "mode": "image"}' $API/channel_acquire   # 200: "image"
+curl -s -X PUT --json '{"channel": "BF", "acquire": "image"}' $API/channel_settings   # 200: BF's settings
 PROTOCOL=$(curl -s --json '{}' $API/create_empty_protocol | jq -r .handle)        # 200
 MOVE=$(curl -s --json '{"well": "B2"}' $API/scope/motion/start_move_to_well | jq -r .id)   # 202
 curl -s -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"

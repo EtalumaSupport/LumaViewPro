@@ -1676,7 +1676,7 @@ class CameraAPI:
         meanwhile, one naming a channel included, keeps the raw values and
         records ``held_channel`` None. A channel's own gain, which a capture
         of that channel uses, is its stored setting
-        (``ScopeSession.update_settings('<channel>.gain_db', ...)``).
+        (``ScopeSession.set_channel_settings(channel, gain_db=...)``).
 
         Args:
             gain_db: The gain in dB, within the camera's range now
@@ -1734,7 +1734,7 @@ class CameraAPI:
         is; a write the camera does not apply raises. The write is a raw
         one: afterwards the camera holds no channel's stored settings. A
         channel's own exposure, which a capture of that channel uses, is its
-        stored setting (``ScopeSession.update_settings('<channel>.exposure_ms', ...)``).
+        stored setting (``ScopeSession.set_channel_settings(channel, exposure_ms=...)``).
 
         Args:
             exposure_ms: The exposure time in milliseconds, within the
@@ -1795,7 +1795,7 @@ class CameraAPI:
         turning auto-gain off is satisfied: True, as a camera already in
         manual answers. The write is a raw one, which the next channel the
         camera holds replaces; a channel's own auto-gain, which a capture of
-        that channel uses, is ``ScopeSession.set_channel_auto_gain``.
+        that channel uses, is ``ScopeSession.set_channel_settings``' ``auto_gain``.
 
         Args:
             state: True to turn auto-gain on, False to turn it off.

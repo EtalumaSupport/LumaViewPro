@@ -37,6 +37,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.ast_seams import find_def, parse_module
+from _lumascope.modules.protocol import CHANNEL_SETTING_KEYS
 from _lumascope.modules.scope_session import ScopeSession
 from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- stepnav_env is a fixture
     _run_manual_nav,
@@ -509,14 +510,16 @@ class TestStimIlluminationTextWritesTheSliderKey:
             'ui/channel_control.py', 'stim_ill_slider', class_name='ChannelControl'
         )
         assert slider_fn is not None
-        # The slider writes f'{self.layer}.<path>' through the settings writer.
+        # The slider writes its field through the channel write, stored at
+        # the key the one table maps it to.
+        keys = dict(CHANNEL_SETTING_KEYS)
         slider_paths = {
-            node.args[0].values[-1].value.removeprefix('.')
+            keys[keyword.arg]
             for node in ast.walk(slider_fn)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'update_settings'
-            and isinstance(node.args[0], ast.JoinedStr)
+            and node.func.attr == 'set_channel_settings'
+            for keyword in node.keywords
         }
 
         assert text_path == 'stim_config.illumination_ma'

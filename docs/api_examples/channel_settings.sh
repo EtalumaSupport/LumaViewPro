@@ -19,10 +19,9 @@ curl -s -w '\n' --json "{\"objective_id\": \"$OBJECTIVE\", \"slot\": $SLOT}" $AP
 MOVE=$(curl -s --json '{"well": "B2"}' $API/scope/motion/start_move_to_well | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
 
-# Brightfield's settings, by path; showing it puts them on the camera.
-curl -s -w '\n' --json '{"path": "BF.illumination_ma", "value": 5}' $API/update_settings     # 200
-curl -s -w '\n' --json '{"path": "BF.exposure_ms", "value": 2.0}' $API/update_settings       # 200
-curl -s -w '\n' --json '{"path": "BF.gain_db", "value": 1.0}' $API/update_settings           # 200
+# Brightfield's settings, in one write; a key left out is left as it is.
+# Showing the channel puts them on the camera.
+curl -s -w '\n' -X PUT --json '{"channel": "BF", "illumination_ma": 5, "exposure_ms": 2.0, "gain_db": 1.0}' $API/channel_settings   # 200: BF's settings
 curl -s -w '\n' --json '{"channel": "BF"}' $API/show_channel                                 # 200
 curl -s -w '\n' --json '{"lit": true}' $API/light_shown_channel                              # 200
 BF_JOB=$(curl -s --json '{}' $API/manual_capture/start_save_still | jq -r .id)   # 202
@@ -30,9 +29,7 @@ curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$BF_JOB              # 200: the s
 curl -s -w '\n' --json '{"lit": false}' $API/light_shown_channel                             # 200
 
 # The same for a fluorescence channel.
-curl -s -w '\n' --json '{"path": "Ex488.illumination_ma", "value": 300}' $API/update_settings   # 200
-curl -s -w '\n' --json '{"path": "Ex488.exposure_ms", "value": 100.0}' $API/update_settings     # 200
-curl -s -w '\n' --json '{"path": "Ex488.gain_db", "value": 10.0}' $API/update_settings          # 200
+curl -s -w '\n' -X PUT --json '{"channel": "Ex488", "illumination_ma": 300, "exposure_ms": 100.0, "gain_db": 10.0}' $API/channel_settings   # 200
 curl -s -w '\n' --json '{"channel": "Ex488"}' $API/show_channel                                 # 200
 curl -s -w '\n' --json '{"lit": true}' $API/light_shown_channel                                 # 200
 EX488_JOB=$(curl -s --json '{}' $API/manual_capture/start_save_still | jq -r .id)   # 202

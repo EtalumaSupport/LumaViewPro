@@ -113,9 +113,7 @@ record's `held_channel` None -- until a channel's settings are put back:
 `show_channel`, a run's step, `go_to_step`, or a write to the shown channel's
 gain or exposure. A channel's own gain, exposure and auto-gain are its stored
 settings, which a capture of that channel uses:
-`session.update_settings('BF.gain_db', ...)`,
-`session.update_settings('BF.exposure_ms', ...)` and
-`session.set_channel_auto_gain('BF', ...)`. A script that images a channel
+`session.set_channel_settings('BF', gain_db=..., exposure_ms=..., auto_gain=...)`. A script that images a channel
 sets the channel's settings; a raw write is for work on the camera itself.
 
 **Auto gain and exposure.** `set_auto_gain(state, settings)` turns the

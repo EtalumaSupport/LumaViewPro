@@ -1006,32 +1006,110 @@ def _step_record(row: Mapping) -> StepRecord:
     'exposure_ms',
     'false_color',
     'frames_summed',
+    'focus_z_um',
+    'autofocus',
+    'display_color',
+    'composite_brightness_threshold_pct',
+    'video_duration_s',
+    'stim_enabled',
+    'stim_illumination_ma',
+    'stim_frequency_hz',
+    'stim_pulse_width_ms',
+    'stim_pulse_count',
 )
 @dataclasses.dataclass(frozen=True)
 class ChannelSettings:
-    """One channel's row of a protocol's Layer Settings, each cell typed.
+    """One channel's settings, each typed: as the session holds them, or as a protocol's Layer Settings row names them.
 
-    Every field but ``acquire`` is None where the cell is blank, or where a
-    row inferred from the channel's first step cannot supply it: applied,
-    the channel's control keeps what it holds.
+    Read from the session (``ScopeSession.channel_settings``), every field
+    is the channel's stored value; None is that value where the setting
+    takes None (``acquire`` nothing, ``focus_z_um`` never saved,
+    ``display_color`` the catalogue's colour), and None for a setting the
+    channel does not carry (stimulation is a fluorescence channel's; the
+    composite threshold a fluorescence or luminescence channel's).
+
+    As a Layer Settings row (``Protocol.channel_settings``), a field is None
+    where its cell is blank, where a row inferred from the channel's first
+    step cannot supply it, and for every field the row has no column for
+    (``focus_z_um`` onwards): applied, the channel keeps what it holds.
 
     Attributes:
-        acquire: What the channel captures.
+        acquire: What the channel captures; None, nothing.
         illumination_ma: The LED current, in mA.
         gain_db: The camera gain, in dB.
         auto_gain: The camera's auto-gain is on.
         exposure_ms: The camera exposure, in ms.
         false_color: The channel's image is false-coloured.
         frames_summed: How many frames a capture sums.
+        focus_z_um: The Z saved as the channel's focus, in micrometres.
+        autofocus: A step of the channel autofocuses.
+        display_color: The channel's colour as ``'#rrggbb'``; None, the
+            catalogue's.
+        composite_brightness_threshold_pct: The brightness, as a percentage of
+            full scale, below which the channel's pixels add nothing to a
+            composite.
+        video_duration_s: How long a video step of the channel records, in s.
+        stim_enabled: The channel stimulates.
+        stim_illumination_ma: The stimulation's LED current, in mA.
+        stim_frequency_hz: The stimulation's pulse rate, in Hz.
+        stim_pulse_width_ms: Each stimulation pulse's length, in ms.
+        stim_pulse_count: How many pulses a stimulation gives.
     """
 
-    acquire: AcquireMode
-    illumination_ma: float | None
-    gain_db: float | None
-    auto_gain: bool | None
-    exposure_ms: float | None
-    false_color: bool | None
-    frames_summed: int | None
+    acquire: AcquireMode | None
+    illumination_ma: float | None = None
+    gain_db: float | None = None
+    auto_gain: bool | None = None
+    exposure_ms: float | None = None
+    false_color: bool | None = None
+    frames_summed: int | None = None
+    focus_z_um: float | None = None
+    autofocus: bool | None = None
+    display_color: str | None = None
+    composite_brightness_threshold_pct: float | None = None
+    video_duration_s: float | None = None
+    stim_enabled: bool | None = None
+    stim_illumination_ma: float | None = None
+    stim_frequency_hz: float | None = None
+    stim_pulse_width_ms: float | None = None
+    stim_pulse_count: int | None = None
+
+
+# Each ChannelSettings field and the key under a channel's settings block it
+# is stored at: the one place a field maps to the store, for the session's
+# read and write and a protocol's Layer Settings alike.
+CHANNEL_SETTING_KEYS: tuple[tuple[str, str], ...] = (
+    ('acquire', 'acquire'),
+    ('illumination_ma', 'illumination_ma'),
+    ('gain_db', 'gain_db'),
+    ('auto_gain', 'auto_gain'),
+    ('exposure_ms', 'exposure_ms'),
+    ('false_color', 'false_color'),
+    ('frames_summed', 'sum'),
+    ('focus_z_um', 'focus'),
+    ('autofocus', 'autofocus'),
+    ('display_color', 'display_color'),
+    ('composite_brightness_threshold_pct', 'composite_brightness_threshold'),
+    ('video_duration_s', 'video_config.duration'),
+    ('stim_enabled', 'stim_config.enabled'),
+    ('stim_illumination_ma', 'stim_config.illumination_ma'),
+    ('stim_frequency_hz', 'stim_config.frequency'),
+    ('stim_pulse_width_ms', 'stim_config.pulse_width'),
+    ('stim_pulse_count', 'stim_config.pulse_count'),
+)
+
+
+class _NotThisField:
+    """The default of a channel field a write leaves as it is; None is a value."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return 'NOT_THIS_FIELD'
+
+
+NOT_THIS_FIELD = _NotThisField()
+"""A field ``ScopeSession.set_channel_settings`` is not asked to change; left out on the wire."""
 
 
 # Each Layer Settings column after 'Layer', with the channel settings' field
@@ -1047,6 +1125,13 @@ _CHANNEL_SETTINGS_CELLS = (
     ('False_Color', 'false_color', _bool_cell),
     ('Sum', 'frames_summed', _int_cell),
 )
+
+
+def protocol_row_of(record: ChannelSettings) -> ChannelSettings:
+    """``record`` as a Layer Settings row holds it: its columns' fields, every other None."""
+    return ChannelSettings(
+        **{field: getattr(record, field) for _, field, _ in _CHANNEL_SETTINGS_CELLS}
+    )
 
 
 def _channel_settings_cells(record: ChannelSettings) -> list[str]:

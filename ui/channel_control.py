@@ -14,9 +14,13 @@ import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.image_mode as image_mode
 from _lumascope.modules import gui_logger
 from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.protocol import CHANNEL_SETTING_KEYS
 from ui.ui_helpers import run_reported, show_on_slider, submit_reported, typed_number
 
 logger = logging.getLogger('LVP.ui.channel_control')
+
+# The channel-settings field each stored key is written as.
+_FIELD_OF_KEY = {key: field for field, key in CHANNEL_SETTING_KEYS}
 
 # Every channel's slider maxima, brightfield's included, are the session's
 # answer (ScopeSession.channel_slider_maxima), set in image_settings.
@@ -148,7 +152,7 @@ class ChannelControl(BoxLayout):
     ) -> bool:
         """Hand a typed channel value to the settings writer; True when the store changed.
 
-        Parses the text and writes it through ``update_settings``. The Session
+        Parses the text and writes it through ``set_channel_settings``. The Session
         decides what is stored: it refuses a value outside the setting's range
         (an illumination past the LED board's maximum among them), telling
         the person, and stores a gain or exposure past the camera's limit as
@@ -187,7 +191,7 @@ class ChannelControl(BoxLayout):
         # carry what the user actually typed rather than what we made of it.
         typed_text = self.ids[text_id].text
 
-        path = f'{self.channel}.{settings_path or settings_key}'
+        field = _FIELD_OF_KEY[settings_path or settings_key]
 
         def stored_value():
             val = settings[self.channel]
@@ -230,14 +234,18 @@ class ChannelControl(BoxLayout):
 
             session = _app_ctx.ctx.session
             submit_reported(
-                lambda: session.update_settings(path, raw),
+                lambda: session.set_channel_settings(self.channel, **{field: raw}),
                 shown_once_written,
                 record_name,
                 lane=lane,
             )
             return False
 
-        run_reported(lambda: _app_ctx.ctx.update_settings(path, raw), show_stored, record_name)
+        run_reported(
+            lambda: _app_ctx.ctx.session.set_channel_settings(self.channel, **{field: raw}),
+            show_stored,
+            record_name,
+        )
         stored = stored_value()
 
         # text_input (not slider): this is a typed commit, and the twin slider
@@ -313,7 +321,6 @@ class ChannelControl(BoxLayout):
         """
         ctx = _app_ctx.ctx
         session = ctx.session
-        path = f'{self.channel}.{key}'
         (slider_id, text_id) = next((s, t) for s, t, k in _CHANNEL_VALUE_WIDGETS if k == key)
 
         def show_stored():
@@ -322,7 +329,7 @@ class ChannelControl(BoxLayout):
             self._show_value_on_widgets(slider_id, text_id, stored)
 
         submit_reported(
-            lambda: session.update_settings(path, value),
+            lambda: session.set_channel_settings(self.channel, **{_FIELD_OF_KEY[key]: value}),
             show_stored,
             f'{name}_{self.channel}',
             lane=lane,
@@ -390,7 +397,7 @@ class ChannelControl(BoxLayout):
         logger.info('[LVP Main  ] ChannelControl.sum_slider()')
         total = int(self.ids['sum_slider'].value)
         gui_logger.slider(f'SUM_{self.channel}', total)
-        _app_ctx.ctx.update_settings(f'{self.channel}.sum', total)
+        _app_ctx.ctx.session.set_channel_settings(self.channel, frames_summed=total)
         self._refresh_sum_depth_hint()
 
     def sum_text(self):
@@ -402,7 +409,7 @@ class ChannelControl(BoxLayout):
         logger.info('[LVP Main  ] ChannelControl.video_duration_slider()')
         duration = self.ids['video_duration_slider'].value
         gui_logger.slider(f'VIDEO_DURATION_{self.channel}', duration)
-        _app_ctx.ctx.update_settings(f'{self.channel}.video_config.duration', duration)
+        _app_ctx.ctx.session.set_channel_settings(self.channel, video_duration_s=duration)
 
     def video_duration_text(self):
         logger.info('[LVP Main  ] ChannelControl.video_duration_text()')
@@ -432,7 +439,7 @@ class ChannelControl(BoxLayout):
             self.show_as_shown()
 
         submit_reported(
-            lambda: ctx.session.set_channel_auto_gain(channel, enabled),
+            lambda: ctx.session.set_channel_settings(channel, auto_gain=enabled),
             redraw,
             f'AUTO_GAIN_{channel}',
             lane=ctx.camera_executor,
@@ -461,8 +468,8 @@ class ChannelControl(BoxLayout):
         logger.info('[LVP Main  ] ChannelControl.composite_threshold_slider()')
         composite_threshold = self.ids['composite_threshold_slider'].value
         gui_logger.slider(f'COMPOSITE_THRESHOLD_{self.channel}', composite_threshold)
-        _app_ctx.ctx.update_settings(
-            f'{self.channel}.composite_brightness_threshold', composite_threshold
+        _app_ctx.ctx.session.set_channel_settings(
+            self.channel, composite_brightness_threshold_pct=composite_threshold
         )
 
     def composite_threshold_text(self):
@@ -501,19 +508,19 @@ class ChannelControl(BoxLayout):
         logger.info('[LVP Main  ] ChannelControl.stim_freq_slider()')
         frequency = self.ids['stim_freq_slider'].value
         gui_logger.slider(f'STIM_FREQ_{self.channel}', frequency)
-        _app_ctx.ctx.update_settings(f'{self.channel}.stim_config.frequency', frequency)
+        _app_ctx.ctx.session.set_channel_settings(self.channel, stim_frequency_hz=frequency)
 
     def stim_pulse_count_slider(self):
         logger.info('[LVP Main  ] ChannelControl.stim_pulse_count_slider()')
         pulse_count = int(self.ids['stim_pulse_count_slider'].value)
         gui_logger.slider(f'STIM_PULSE_COUNT_{self.channel}', pulse_count)
-        _app_ctx.ctx.update_settings(f'{self.channel}.stim_config.pulse_count', pulse_count)
+        _app_ctx.ctx.session.set_channel_settings(self.channel, stim_pulse_count=pulse_count)
 
     def stim_pulse_width_slider(self):
         logger.info('[LVP Main  ] ChannelControl.stim_pulse_width_slider()')
         pulse_width = int(self.ids['stim_pulse_width_slider'].value)
         gui_logger.slider(f'STIM_PULSE_WIDTH_{self.channel}', pulse_width)
-        _app_ctx.ctx.update_settings(f'{self.channel}.stim_config.pulse_width', pulse_width)
+        _app_ctx.ctx.session.set_channel_settings(self.channel, stim_pulse_width_ms=pulse_width)
 
     def stim_freq_text(self):
         logger.info('[LVP Main  ] ChannelControl.stim_freq_text()')
@@ -548,7 +555,7 @@ class ChannelControl(BoxLayout):
         logger.info('[LVP Main  ] ChannelControl.stim_ill_slider()')
         illumination = round(self.ids['stim_ill_slider'].value)
         gui_logger.slider(f'STIM_ILL_{self.channel}', illumination)
-        _app_ctx.ctx.update_settings(f'{self.channel}.stim_config.illumination_ma', illumination)
+        _app_ctx.ctx.session.set_channel_settings(self.channel, stim_illumination_ma=illumination)
         new_text = str(illumination)
         if self.ids['stim_ill_text'].text != new_text:
             self.ids['stim_ill_text'].text = new_text
@@ -567,7 +574,7 @@ class ChannelControl(BoxLayout):
         logger.info('[LVP Main  ] ChannelControl.false_color()')
         enabled = bool(self.ids['false_color'].active)
         gui_logger.toggle(f'FALSE_COLOR_{self.channel}', enabled)
-        _app_ctx.ctx.update_settings(f'{self.channel}.false_color', enabled)
+        _app_ctx.ctx.session.set_channel_settings(self.channel, false_color=enabled)
         self.show_as_shown()
 
     def log_histogram_scale(self) -> None:
@@ -592,7 +599,9 @@ class ChannelControl(BoxLayout):
 
         # The Session stops the channel stimulating when it acquires; the
         # stimulation switch is drawn off to match.
-        _app_ctx.ctx.session.set_channel_acquire(self.channel, None if mode == 'none' else mode)
+        _app_ctx.ctx.session.set_channel_settings(
+            self.channel, acquire=None if mode == 'none' else mode
+        )
         if mode != 'none':
             self.ids['stim_disable_btn'].active = True
             self.show_stim_controls = False
@@ -605,11 +614,13 @@ class ChannelControl(BoxLayout):
         logger.info('[LVP Main  ] ChannelControl.update_stim_enable()')
         enabled = self.ids['stim_enable_btn'].active
         gui_logger.toggle(f'STIM_{self.channel}', enabled)
+        # One write: a channel that stimulates captures nothing.
         if enabled:
-            ctx.session.set_channel_acquire(self.channel, None)
+            ctx.session.set_channel_settings(self.channel, acquire=None, stim_enabled=True)
             self.ids['acquire_none'].active = True
             self.ids['acquire_none'].state = 'down'
-        ctx.update_settings(f'{self.channel}.stim_config.enabled', enabled)
+        else:
+            ctx.session.set_channel_settings(self.channel, stim_enabled=False)
 
         self.update_stim_controls_visibility()
 
@@ -617,7 +628,7 @@ class ChannelControl(BoxLayout):
         logger.info('[LVP Main  ] ChannelControl.update_autofocus()')
         enabled = bool(self.ids['autofocus'].active)
         gui_logger.toggle(f'AUTOFOCUS_ENABLED_{self.channel}', enabled)
-        _app_ctx.ctx.update_settings(f'{self.channel}.autofocus', enabled)
+        _app_ctx.ctx.session.set_channel_settings(self.channel, autofocus=enabled)
 
     def save_focus(self):
         gui_logger.button(f'SAVE_FOCUS_{self.channel}')

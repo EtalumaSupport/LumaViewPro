@@ -34,8 +34,7 @@ def main():
         scope = session.scope
 
         # A brightfield step at each well, a scan every 60 s for an hour.
-        session.set_channel_acquire('BF', 'image')
-        session.update_settings('BF.illumination_ma', 5)
+        session.set_channel_settings('BF', acquire='image', illumination_ma=5)
         protocol = session.create_empty_protocol()
         for well in WELLS:
             scope.motion.move_to_well(well)

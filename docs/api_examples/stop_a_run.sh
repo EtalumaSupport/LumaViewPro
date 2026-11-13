@@ -16,8 +16,7 @@ SLOT=$(curl -s $API/current_slot_objective_question | jq -r .turret_slot)    # 2
 curl -s -w '\n' --json "{\"objective_id\": \"$OBJECTIVE\", \"slot\": $SLOT}" $API/confirm_objective   # 200
 
 # A brightfield step at each of three wells, a scan every 60 s for an hour.
-curl -s -w '\n' -X PUT --json '{"channel": "BF", "mode": "image"}' $API/channel_acquire   # 200: "image"
-curl -s -w '\n' --json '{"path": "BF.illumination_ma", "value": 5}' $API/update_settings  # 200
+curl -s -w '\n' -X PUT --json '{"channel": "BF", "acquire": "image", "illumination_ma": 5}' $API/channel_settings   # 200: BF's settings
 PROTOCOL=$(curl -s --json '{}' $API/create_empty_protocol | jq -r .handle)        # 200
 MOVE=$(curl -s --json '{"well": "B2"}' $API/scope/motion/start_move_to_well | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"

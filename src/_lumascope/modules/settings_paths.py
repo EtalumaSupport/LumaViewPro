@@ -626,6 +626,22 @@ def check_write(
         raise SettingRefusedError(
             'installation_only', path, "it is read from the installation's settings file"
         )
+    check_value(template, path, value, led_max_ma=led_max_ma)
+
+
+def check_value(
+    template: dict, path: str, value: object, *, led_max_ma: float | None = None
+) -> None:
+    """Refuse a value the setting at ``path`` does not take, whoever its writer.
+
+    ``check_write`` without its question of who writes: a member that owns
+    a setting judges a value it stores by this. ``template`` and
+    ``led_max_ma`` are ``check_write``'s.
+
+    Raises:
+        SettingRefusedError: ``path`` is not a setting or names a block, or
+            ``value`` is not the setting's kind or is outside its range.
+    """
     shipped: object = template
     for segment in path.split('.'):
         if not isinstance(shipped, dict) or segment not in shipped:

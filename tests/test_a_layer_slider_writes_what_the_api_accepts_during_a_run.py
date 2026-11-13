@@ -23,6 +23,7 @@ from types import SimpleNamespace
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules.exceptions import UNDER_CONTROL_TITLE, ControlSessionRefusedError
 from tests.gesture_fakes import inline_submit_reported
+from tests.settings_fixtures import as_channel_writes
 from ui.channel_control import ChannelControl
 from tests.stock_channels import LED0
 
@@ -53,7 +54,10 @@ def _panel(monkeypatch, *, initializing, update_settings=None):
         SimpleNamespace(
             settings=settings,
             settings_lock=threading.Lock(),
-            session=SimpleNamespace(run_lockout=True, update_settings=update_settings or _stored),
+            session=SimpleNamespace(
+                run_lockout=True,
+                set_channel_settings=as_channel_writes(update_settings or _stored),
+            ),
             camera_executor=object(),
             io_executor=object(),
         ),

@@ -261,7 +261,7 @@ def _paired_read(owner: type, setter: WireMember, by_name: dict[str, WireMember]
     setter's key, by name and type; and what the setter writes is what the
     read answers: its one other argument is of the read's answer type (the
     read may add None), or its other arguments are the fields of the record
-    the read answers, by name and type.
+    the read answers, by name and type (each field may add None).
 
     Raises:
         TypeError: the read is missing, is not a read, or does not pair.
@@ -286,8 +286,11 @@ def _paired_read(owner: type, setter: WireMember, by_name: dict[str, WireMember]
     if (
         record is not None
         and answered == _kinds((record,))
-        and [(p.name, _kinds(p.alternatives)) for p in written]
-        == [(f, _kinds(alts)) for f, alts in record.fields]
+        and [p.name for p in written] == [f for f, _ in record.fields]
+        and all(
+            _kinds(p.alternatives) <= _kinds(alts) <= _kinds(p.alternatives) | {_NONE}
+            for p, (_, alts) in zip(written, record.fields, strict=True)
+        )
     ):
         return read
     answers = sorted(name for _, name, _ in answered)

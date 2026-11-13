@@ -26,10 +26,16 @@ from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
 from tests.stock_channels import LED0, LED1
 
+
+class _RecordWith(dict):
+    """A record answered whole, of which these fields are the ones written."""
+
+
 # Each setting with a URL on a simulated LS850: the body its PUT is sent, the
-# key its GET is asked with, and what both then answer; or the reason the
-# simulated scope refuses it -- its camera lacks the feature, the LS850 has
-# no turret -- which leaves the read answering as it did.
+# key its GET is asked with, and what both then answer (for a record, the
+# fields written in it); or the reason the simulated scope refuses it -- its
+# camera lacks the feature, the LS850 has no turret -- which leaves the read
+# answering as it did.
 _WRITES = {
     'model': ({'model': 'LS560'}, None, 'LS560'),
     'labware_id': ({'labware_id': '384 well microplate'}, None, '384 well microplate'),
@@ -39,6 +45,11 @@ _WRITES = {
     'channel_acquire': ({'channel': LED0, 'mode': 'video'}, {'channel': LED0}, 'video'),
     'channel_auto_gain': ({'channel': LED1, 'enabled': True}, {'channel': LED1}, True),
     'saved_focus_z_um': ({'channel': LED0, 'z_um': 5000.0}, {'channel': LED0}, 5000.0),
+    'channel_settings': (
+        {'channel': LED0, 'gain_db': 5.0, 'focus_z_um': None},
+        {'channel': LED0},
+        _RecordWith(gain_db=5.0, focus_z_um=None),
+    ),
     'scope/camera/image_mode': ({'mode': '12bit_scientific'}, None, '12bit_scientific'),
     'scope/camera/binning': ({'size': 2}, None, 2),
     'scope/camera/frame_size': ({'width': 600, 'height': 400}, None, {'width': 600, 'height': 400}),
@@ -112,6 +123,8 @@ def test_each_setting_is_written_by_put_and_answered_its_read(client):
         put = client.put(f'/api/v1/{path}', json=body)
         read = client.get(f'/api/v1/{path}', params=key)
         answers = (put.status_code, put.json(), read.status_code, read.json())
+        if isinstance(expected, _RecordWith) and put.status_code == 200:
+            expected = {**put.json(), **expected}
         if answers != (200, expected, 200, expected):
             wrong[path] = answers
     for path, (body, key, reason) in _REFUSED.items():

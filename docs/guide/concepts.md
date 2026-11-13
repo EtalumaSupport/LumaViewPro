@@ -302,21 +302,34 @@ is the illumination API's, where an axis is the motion API's. Nothing keeps a
 copy to fall out of step.
 
 **Settings by path.** A setting is named by its dotted path into the settings
--- `BF.exposure_ms`, `video.max_fps`, `zstack.range` -- and read and written
-through the session. A write is judged before it is stored: a value outside its
-range is refused, never clamped, and the refusal names the path and the range.
-A write to the shown channel's gain, exposure or current is on the camera and
-its LED when it returns, whichever member makes it -- a setting, a Load of a
-protocol's Layer Settings, a step visited; a write to a channel not shown is
-stored only, and is used the next time that channel is shown or captured. One
-made while a run or a diagnostic holds the scope is stored only, and the shown
-channel is put on the camera and its LED when that ends; while a home holds
-the scope, a write the shown channel's camera or LED would take is refused.
+-- `video.max_fps`, `zstack.range` -- and read and written through the
+session. A write is judged before it is stored: a value outside its range is
+refused, never clamped, and the refusal names the path and the range.
 
 ```python
-session.update_settings('BF.illumination_ma', 5)
-assert session.get_setting('BF.illumination_ma') == 5
-print(session.get_setting('BF'))            # a whole block, as a dict
+session.update_settings('video.max_fps', 30)
+assert session.get_setting('video.max_fps') == 30
+print(session.get_setting('video'))         # a whole block, as a dict
+```
+
+**A channel's settings.** A channel's settings are one record,
+[`ChannelSettings`](../api-reference.md#ChannelSettings):
+`session.channel_settings(channel)` reads them all, and
+`session.set_channel_settings(channel, ...)` writes any of them, judged whole --
+every field named is stored, or none -- and answers the record as stored. A
+field left out is left as it is; None is a value (`acquire=None` stops the
+channel acquiring). A write to the shown channel's gain, exposure or current is
+on the camera and its LED when it returns, whichever member makes it -- this
+one, a Load of a protocol's Layer Settings, a step visited; a write to a
+channel not shown is stored only, and is used the next time that channel is
+shown or captured. One made while a run or a diagnostic holds the scope is
+stored only, and the shown channel is put on the camera and its LED when that
+ends; while a home holds the scope, a write the shown channel's camera or LED
+would take is refused.
+
+```python
+bf = session.set_channel_settings('BF', illumination_ma=5, gain_db=2.0)
+assert session.channel_settings('BF') == bf
 ```
 
 ```python raises=SettingRefusedError:out_of_range
@@ -340,8 +353,8 @@ A listener hears every accepted write, with the paths it changed:
 ```python
 changed = []
 session.add_settings_listener(changed.append)
-session.update_settings('BF.gain_db', 2.0)
-assert ('BF.gain_db',) in changed
+session.update_settings('video.max_fps', 60)
+assert ('video.max_fps',) in changed
 session.remove_settings_listener(changed.append)
 ```
 

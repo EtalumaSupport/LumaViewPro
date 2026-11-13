@@ -33,8 +33,7 @@ def main():
 
         # The channels set to acquire are the ones a step captures; a step
         # is added where the stage is, on the protocol's plate.
-        session.set_channel_acquire('BF', 'image')
-        session.update_settings('BF.illumination_ma', 5)
+        session.set_channel_settings('BF', acquire='image', illumination_ma=5)
         protocol = session.create_empty_protocol()
         for well in WELLS:
             scope.motion.move_to_well(well)

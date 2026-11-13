@@ -142,6 +142,25 @@ def settings_writer(settings: dict):
     return update_settings
 
 
+def as_channel_writes(update_settings):
+    """A ``set_channel_settings(channel, **fields)`` for a fake context: each field one ``update_settings`` of its path.
+
+    The widget under test writes a channel's settings through
+    ``ScopeSession.set_channel_settings``; this hands each field to the fake
+    context's path writer at the key ``protocol.CHANNEL_SETTING_KEYS`` stores
+    it at, so a rig's record of ``(path, value)`` writes holds as before.
+    """
+    from _lumascope.modules.protocol import CHANNEL_SETTING_KEYS
+
+    keys = dict(CHANNEL_SETTING_KEYS)
+
+    def set_channel_settings(channel: str, **fields: object) -> None:
+        for field, value in fields.items():
+            update_settings(f'{channel}.{keys[field]}', value)
+
+    return set_channel_settings
+
+
 def protocol_filepath_writer(settings: dict):
     """A ``set_protocol_filepath(file_path)`` for a fake context holding ``settings``."""
 

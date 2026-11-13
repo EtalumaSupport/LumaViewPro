@@ -25,7 +25,7 @@ import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules.notification_center import notifications
 from ui.channel_control import ChannelControl
 from tests.gesture_fakes import inline_submit_reported
-from tests.settings_fixtures import settings_writer
+from tests.settings_fixtures import as_channel_writes, settings_writer
 from tests.stock_channels import LED0
 
 
@@ -48,7 +48,9 @@ def _blue_layer(monkeypatch, *, exposure_ms, illumination_ma):
         SimpleNamespace(
             settings=settings,
             update_settings=writer,
-            session=SimpleNamespace(update_settings=writer),
+            session=SimpleNamespace(
+                update_settings=writer, set_channel_settings=as_channel_writes(writer)
+            ),
             camera_executor=object(),
             io_executor=object(),
         ),

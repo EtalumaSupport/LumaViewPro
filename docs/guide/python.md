@@ -284,7 +284,7 @@ is a job ([Jobs](rest.md#jobs)).
 import threading
 from lumascope import RunEvents, RunStatus
 
-session.set_channel_acquire('BF', 'image')
+session.set_channel_settings('BF', acquire='image')
 protocol = session.create_empty_protocol()          # one step, at B2
 scope.motion.move_to_well('B2')
 session.add_step(protocol, channels=('BF',))
