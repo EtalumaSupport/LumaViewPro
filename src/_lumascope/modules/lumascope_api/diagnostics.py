@@ -476,16 +476,27 @@ class DiagnosticsAPI:
         # fails here rather than going unpublished.
         return CameraLink(**driver.get_link_info())
 
-    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
+    @api(in_process=True, reads=True, engineering=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_camera_node(self, name: str, node_map: str = 'device') -> CameraNodeValue | None:
         """Read one of the camera's settings by the camera's own name, live.
 
-        The name is the camera's (a GenICam node: ``Gain``,
-        ``DeviceTemperature``, ``BslChunkTimestampSelector``), so any
-        setting the camera has is read without a member of its own; the
-        answer is the camera's. A node that a selector indexes
+        A bench and support read. The name is the camera's (a GenICam
+        node: ``Gain``, ``DeviceTemperature``,
+        ``BslChunkTimestampSelector``), so any setting the camera has is
+        read without a member of its own; the answer is the camera's, in
+        the camera's units. A node that a selector indexes
         (``DeviceTemperature`` under ``DeviceTemperatureSelector``) reads at
         the selector's present entry.
+
+        A setting the API names has its own read, in the API's units:
+        gain ``camera.read_gain_db``, exposure ``camera.read_exposure_ms``,
+        auto-gain and auto-exposure ``camera.read_auto_gain`` /
+        ``read_auto_exposure``, binning ``camera.read_binning``, frame size
+        ``camera.read_frame_size``, pixel format
+        ``camera.read_pixel_format``, black level
+        ``camera.read_black_level``, frame rate
+        ``camera.read_frame_rate_fps``, the sensor's temperatures
+        ``diagnostics.get_camera_temperatures_degc``.
 
         Runs on the camera lane, admitted whatever holds the scope, like the
         temperature read: a node read must not interleave with a camera

@@ -974,7 +974,6 @@ OPEN_STRINGS: dict[str, str] = {
     'SavedStill.well_label field': _WELL,
     'ScopeCapabilities.camera_firmware_version field': _CAMERA,
     'ScopeCapabilities.camera_model field': _CAMERA,
-    'ScopeCapabilities.camera_node_maps field': _CAMERA,
     'ScopeCapabilities.camera_pixel_formats field': _CAMERA,
     'ScopeCapabilities.camera_sdk_version field': _CAMERA,
     'ScopeCapabilities.camera_sensor field': _CAMERA,

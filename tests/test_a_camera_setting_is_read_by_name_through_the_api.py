@@ -6,7 +6,9 @@ is refused before anything reaches it (``camera_node_unsupported``), as is a
 map the camera does not have or a name that is not one, and a scope with no
 camera is refused naming the camera. A camera that answers gives its value
 and unit, None for a name its map lacks, and a node that holds no value is
-refused with its kind as the reason. The same holds over REST.
+refused with its kind as the reason. It is an engineering read, never
+served: ``tests/test_a_wire_client_reaches_every_member_by_its_route.py``
+holds every engineering member off the wire.
 
 Which node is what is the driver's to read (``tests/test_a_camera_driver_reads_a_setting_by_its_name.py``);
 here the simulated camera's reader stands in for one that has named
@@ -16,7 +18,6 @@ settings, so the API's half is proven on the real scope and lane.
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
 from _lumascope.drivers.camera import CameraNodeHasNoValue, CameraNodeValue
 from _lumascope.drivers.exceptions import CameraReadFailedError
@@ -31,10 +32,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
-from _lumascope.rest.app import build_app
 from tests.settings_fixtures import complete_settings
-
-_ROUTE = '/api/v1/scope/diagnostics/read_camera_node'
 
 # What the stand-in camera's maps hold, by map and name.
 _NODES = {
@@ -168,31 +166,3 @@ def test_a_map_or_name_the_camera_cannot_take_is_refused_before_anything_reaches
     )
     assert set(names.values()) == {'wrong_kind'}, names
     assert reached == []
-
-
-def test_rest_reads_a_setting_and_states_each_refusal(named):
-    session, _reached = named
-
-    with TestClient(build_app(session)) as client:
-        value = client.get(_ROUTE, params={'name': 'DeviceTemperature'})
-        absent = client.get(_ROUTE, params={'name': 'BslChunkTimestampSelector'})
-        command = client.get(_ROUTE, params={'name': 'AcquisitionStart'})
-        not_now = client.get(_ROUTE, params={'name': 'AcquisitionFrameRate'})
-        wrong_map = client.get(_ROUTE, params={'name': 'Gain', 'node_map': 'event'})
-
-    assert (value.status_code, value.json()) == (200, {'value': 41.5, 'unit': 'C'})
-    assert (absent.status_code, absent.json()) == (200, None)
-    assert (command.status_code, command.json()['reason']) == (422, 'command')
-    assert (not_now.status_code, not_now.json()['reason']) == (409, 'not_readable_now')
-    assert (wrong_map.status_code, wrong_map.json()['reason']) == (422, 'not_offered')
-
-
-def test_rest_refuses_a_camera_with_no_named_settings():
-    session = _session()
-    try:
-        with TestClient(build_app(session)) as client:
-            answer = client.get(_ROUTE, params={'name': 'Gain'})
-    finally:
-        session.shutdown()
-
-    assert (answer.status_code, answer.json()['reason']) == (422, 'camera_node_unsupported')

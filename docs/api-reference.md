@@ -6443,59 +6443,6 @@ host whose device list cannot be read answers a census that says why.
 
 Nothing.
 
-<a id="DiagnosticsAPI.read_camera_node"></a>
-### `DiagnosticsAPI.read_camera_node`
-
-```python
-def read_camera_node(
-    self,
-    name: str,
-    node_map: str = 'device',
-) -> CameraNodeValue | None
-```
-
-Marks: reads (changes nothing); enters: `lane_override`.  
-Route: `GET /api/v1/scope/diagnostics/read_camera_node`.
-
-Read one of the camera's settings by the camera's own name, live.
-
-The name is the camera's (a GenICam node: `Gain`,
-`DeviceTemperature`, `BslChunkTimestampSelector`), so any
-setting the camera has is read without a member of its own; the
-answer is the camera's. A node that a selector indexes
-(`DeviceTemperature` under `DeviceTemperatureSelector`) reads at
-the selector's present entry.
-
-Runs on the camera lane, admitted whatever holds the scope, like the
-temperature read: a node read must not interleave with a camera
-write, and a run does not stop it. It waits behind what is queued
-there, up to 170 s, which a long summed capture or an engineering
-diagnostic ahead of it can outlast.
-
-**Args**
-
-- `name`: The node's name, as the camera's SDK names it.
-- `node_map`: Which of the camera's maps holds it, one of `capabilities.camera_node_maps`: `'device'`, the camera's own, holds its settings; on a Basler, `'stream'` holds the stream grabber's statistics and `'instant_camera'` the SDK's buffer counts.
-
-**Returns**
-
-CameraNodeValue | None: The value and the unit the node states (an enumeration's value is its symbolic name); None when the map has no node of that name.
-
-**Raises**
-
-- `CameraSettingUnsupportedError`: `'camera_node_unsupported'`, the camera has no named settings (`capabilities.camera_node_maps` is empty: a Classic's, the simulated camera's). Nothing reaches the camera.
-- `ArgumentRefusedError`: `'not_offered'`, `node_map` is not one of `capabilities.camera_node_maps`; `'wrong_kind'`, `name` is not a node name. Nothing reaches the camera.
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
-- `CameraNodeNotReadableError`: The node holds no value to read, the reason its kind: `'command'`, `'category'`, `'register'`, `'port'`, `'enum_entry'`; or `'not_readable_now'`, a value node the camera does not offer for reading in its present state.
-- `CameraReadFailedError`: `'camera_read_failed'`, the camera did not answer the read.
-
-**Refusals by REST status**
-
-- 409: [`CameraNodeNotReadableError`](#CameraNodeNotReadableError): `not_readable_now`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `camera_node_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `wrong_kind`; [`CameraNodeNotReadableError`](#CameraNodeNotReadableError): `command`, `category`, `register`, `port`, `enum_entry`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
 <a id="IlluminationAPI"></a>
 ## `lumascope.IlluminationAPI`
 
@@ -9831,8 +9778,7 @@ camera does not report it.
 <a id="CameraNodeValue"></a>
 ## `lumascope.CameraNodeValue`
 
-A record: it crosses the wire as its data.  
-Returned by: [`DiagnosticsAPI.read_camera_node`](#DiagnosticsAPI.read_camera_node).
+A record: it crosses the wire as its data.
 
 One of the camera's named settings, as the camera answered a read of it.
 
@@ -12840,7 +12786,6 @@ tuple.
 - <a id="ScopeCapabilities.camera_limits"></a>`camera_limits`: `CameraLimits | None` -- The frames the attached camera takes, read once at connect; None with no camera connected.
 - <a id="ScopeCapabilities.camera_max_significant_bits"></a>`camera_max_significant_bits`: `int | None` -- The deepest depth the camera delivers over its pixel formats: 12 for a camera that offers Mono12, 8 for one that streams only 8 bits. None with no camera, or one whose formats are unknown. The depth of the frames it delivers now, which follows `set_image_mode`, is `imaging.significant_bits`.
 - <a id="ScopeCapabilities.camera_model"></a>`camera_model`: `str | None` -- The model the camera reports at connect; None with no camera, or one that did not say.
-- <a id="ScopeCapabilities.camera_node_maps"></a>`camera_node_maps`: `tuple[str, ...]` -- The maps of the camera's named settings `scope.diagnostics.read_camera_node` reads, by the camera SDK's names for them: `'device'` (the camera's own), and on a Basler `'transport'`, `'stream'`, `'instant_camera'` and `'event'`, on an IDS body `'stream'`. Empty for a camera with no named settings -- a Classic's, the simulated camera -- and with no camera.
 - <a id="ScopeCapabilities.camera_pixel_formats"></a>`camera_pixel_formats`: `tuple[str, ...]` -- The pixel formats the camera offers (`'Mono8'`, `'Mono12'`, ...); empty with no camera.
 - <a id="ScopeCapabilities.camera_reports_temperature"></a>`camera_reports_temperature`: `bool | None` -- True when the camera has a temperature sensor. Where it is False, `scope.diagnostics.get_camera_temperatures_degc` answers `{}`; where it is True an empty answer cannot happen, and a read that fails raises. None when the probe failed as the camera came up; the read is live, and answers as the camera does.
 - <a id="ScopeCapabilities.camera_sdk_version"></a>`camera_sdk_version`: `str | None` -- The version of the camera vendor's SDK the camera is driven through, read at connect, which ties a measurement to the runtime that made it. None when the SDK does not say, for a camera driven without one (a Classic's, the simulator's), or no camera.
@@ -18494,7 +18439,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/diagnostics/get_led_info` | [`DiagnosticsAPI.get_led_info`](#DiagnosticsAPI.get_led_info) |
 | `GET` | `/api/v1/scope/diagnostics/get_motor_info` | [`DiagnosticsAPI.get_motor_info`](#DiagnosticsAPI.get_motor_info) |
 | `GET` | `/api/v1/scope/diagnostics/get_usb_census` | [`DiagnosticsAPI.get_usb_census`](#DiagnosticsAPI.get_usb_census) |
-| `GET` | `/api/v1/scope/diagnostics/read_camera_node` | [`DiagnosticsAPI.read_camera_node`](#DiagnosticsAPI.read_camera_node) |
 | `GET` | `/api/v1/scope/illumination/get_led_states` | [`IlluminationAPI.get_led_states`](#IlluminationAPI.get_led_states) |
 | `POST` | `/api/v1/scope/illumination/led_off` | [`IlluminationAPI.led_off`](#IlluminationAPI.led_off) |
 | `POST` | `/api/v1/scope/illumination/led_on` | [`IlluminationAPI.led_on`](#IlluminationAPI.led_on) |
