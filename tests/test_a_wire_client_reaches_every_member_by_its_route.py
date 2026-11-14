@@ -128,6 +128,15 @@ def test_the_routes_are_exactly_the_wire_members(client, session):
     assert not {p for _, p in served if p.endswith('/set_binning')}
 
 
+def test_a_display_hint_and_a_host_path_have_no_route(client):
+    """Where a control's sliders stop is a display hint, never a bound, and the
+    session's data folder is a path on the host: neither is a wire client's,
+    so neither is served."""
+    paths = client.get('/api/v1/openapi.json').json()['paths']
+
+    assert {'/api/v1/channel_slider_maxima', '/api/v1/source_path'} & set(paths) == set()
+
+
 def test_every_engineering_member_is_in_process_and_served_nowhere(client, session):
     """A bench tool is the engineering plugin's, called in-process; a wire
     client reaches none (C6).

@@ -890,8 +890,7 @@ not changed.
 def channel_slider_maxima(self, channel: str) -> ChannelSliderMaxima
 ```
 
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/channel_slider_maxima`.
+Marks: in-process; reads (changes nothing).
 
 Where `channel`'s manual exposure and illumination sliders stop.
 
@@ -909,10 +908,10 @@ a channel with no LED on this scope.
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
 - `CameraReadFailedError`: `'camera_read_failed'`, the camera's range could not be read after its last readout change.
 
-**Refusals by REST status**
+**Refusals**
 
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
+- [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
 
 <a id="ScopeSession.clear_current_turret_objective"></a>
 ### `ScopeSession.clear_current_turret_objective`
@@ -3426,7 +3425,7 @@ again.
 source_path: Path  # property
 ```
 
-Route: `GET /api/v1/source_path`.
+Marks: in-process.
 
 The data folder this session runs on: its scope's, never a copy.
 
@@ -18661,7 +18660,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/channel_colors` | [`ScopeSession.channel_colors`](#ScopeSession.channel_colors) |
 | `GET` | `/api/v1/channel_settings` | [`ScopeSession.channel_settings`](#ScopeSession.channel_settings) |
 | `PUT` | `/api/v1/channel_settings` | [`ScopeSession.set_channel_settings`](#ScopeSession.set_channel_settings) |
-| `GET` | `/api/v1/channel_slider_maxima` | [`ScopeSession.channel_slider_maxima`](#ScopeSession.channel_slider_maxima) |
 | `POST` | `/api/v1/clear_current_turret_objective` | [`ScopeSession.clear_current_turret_objective`](#ScopeSession.clear_current_turret_objective) |
 | `POST` | `/api/v1/clear_turret_objective` | [`ScopeSession.clear_turret_objective`](#ScopeSession.clear_turret_objective) |
 | `POST` | `/api/v1/confirm_objective` | [`ScopeSession.confirm_objective`](#ScopeSession.confirm_objective) |
@@ -18874,7 +18872,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/settings_are_provisional` | [`ScopeSession.settings_are_provisional`](#ScopeSession.settings_are_provisional) |
 | `POST` | `/api/v1/show_channel` | [`ScopeSession.show_channel`](#ScopeSession.show_channel) |
 | `GET` | `/api/v1/shown_channel` | [`ScopeSession.shown_channel`](#ScopeSession.shown_channel) |
-| `GET` | `/api/v1/source_path` | [`ScopeSession.source_path`](#ScopeSession.source_path) |
 | `POST` | `/api/v1/start_go_to_bookmark` | [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark) |
 | `POST` | `/api/v1/start_go_to_channel_focus` | [`ScopeSession.start_go_to_channel_focus`](#ScopeSession.start_go_to_channel_focus) |
 | `POST` | `/api/v1/start_go_to_step` | [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step) |

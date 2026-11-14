@@ -956,7 +956,7 @@ class ScopeSession:
         """The scope's CAMERA lane. Read from the scope, never held as a copy."""
         return self.scope.camera_lane()
 
-    @api
+    @api(in_process=True)
     @property
     def source_path(self) -> pathlib.Path:
         """The data folder this session runs on: its scope's, never a copy.
@@ -2436,7 +2436,7 @@ class ScopeSession:
                 colors[key] = parse_display_color(override)
         return colors
 
-    @api(reads=True)
+    @api(in_process=True, reads=True)
     def channel_slider_maxima(self, channel: str) -> ChannelSliderMaxima:
         """Where ``channel``'s manual exposure and illumination sliders stop.
 
