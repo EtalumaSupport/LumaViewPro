@@ -1382,6 +1382,13 @@ class _LibusbTransport(_PyusbTransport):
         # cleanup registration. open() returns the context; the paired
         # explicit close() lives in stop_stream.
         self._ctx = usb1.USBContext().open()
+        logger.info('[DIAG-UNPLUG] libusb %r', usb1.getVersion())
+        self._ctx.setLogCallback(
+            lambda _c, lvl, msg: logger.info(
+                '[DIAG-UNPLUG] libusb[%s] %s', lvl, msg.decode(errors='replace').rstrip()
+            )
+        )
+        self._ctx.setDebug(usb1.LOG_LEVEL_WARNING)
         handle = self._ctx.openByVendorIDAndProductID(VID, PID_APP)
         if handle is None:
             raise CameraUsbNotFoundError(
@@ -1442,11 +1449,26 @@ class _LibusbTransport(_PyusbTransport):
         start that raised part way, so each step runs only on what was opened.
         """
         self._streaming = False
-        for xfer in self._transfers:
+        _diag_t0 = time.monotonic()
+        logger.info(
+            '[DIAG-UNPLUG] stop begins mono=%.3f; submitted %r',
+            _diag_t0,
+            [x.isSubmitted() for x in self._transfers],
+        )
+        if self._ctx is not None:
+            self._ctx.setDebug(usb1.LOG_LEVEL_DEBUG)
+        for _diag_i, xfer in enumerate(self._transfers):
             try:
                 xfer.cancel()
-            except Exception:
-                pass
+                logger.info('[DIAG-UNPLUG] cancel #%d id=%x ok', _diag_i, id(xfer))
+            except Exception as e:
+                logger.info(
+                    '[DIAG-UNPLUG] cancel #%d id=%x raised %s: %r',
+                    _diag_i,
+                    id(xfer),
+                    type(e).__name__,
+                    e,
+                )
 
         # Drain cancelled transfers.
         if self._ctx is not None:
@@ -1459,7 +1481,31 @@ class _LibusbTransport(_PyusbTransport):
 
         if self._event_thread is not None:
             self._event_thread.join(timeout=3.0)
+            logger.info(
+                '[DIAG-UNPLUG] event thread joined, alive=%r, t=%.3f',
+                self._event_thread.is_alive(),
+                time.monotonic() - _diag_t0,
+            )
             self._event_thread = None
+
+        _diag_next = time.monotonic()
+        while self._ctx is not None and time.monotonic() - _diag_t0 < 32.0:
+            _diag_out = [i for i, x in enumerate(self._transfers) if x.isSubmitted()]
+            if time.monotonic() >= _diag_next or not _diag_out:
+                logger.info(
+                    '[DIAG-UNPLUG] t=%.3f still submitted %d: %r',
+                    time.monotonic() - _diag_t0,
+                    len(_diag_out),
+                    _diag_out,
+                )
+                _diag_next += 1.0
+            if not _diag_out:
+                break
+            try:
+                self._ctx.handleEventsTimeout(tv=0.1)
+            except Exception as e:
+                logger.info('[DIAG-UNPLUG] handleEventsTimeout raised %s: %r', type(e).__name__, e)
+                time.sleep(0.1)
 
         if self._handle is not None:
             try:
@@ -1476,17 +1522,21 @@ class _LibusbTransport(_PyusbTransport):
                 self._handle.releaseInterface(0)
             except Exception:
                 pass
+            logger.info('[DIAG-UNPLUG] handle close entering, t=%.3f', time.monotonic() - _diag_t0)
             try:
                 self._handle.close()
             except Exception:
                 pass
+            logger.info('[DIAG-UNPLUG] handle close returned, t=%.3f', time.monotonic() - _diag_t0)
         self._transfers = []
         # Paired with the explicit open() at stream start: dropping the
         # reference without close() leaks the libusb context until GC. The
         # transfers are cancelled and the handle closed above, so close()
         # is safe here.
         if self._ctx is not None:
+            logger.info('[DIAG-UNPLUG] context close entering, t=%.3f', time.monotonic() - _diag_t0)
             self._ctx.close()
+            logger.info('[DIAG-UNPLUG] context close returned, t=%.3f', time.monotonic() - _diag_t0)
         self._ctx = None
         self._handle = None
         self._stream = None
@@ -1503,6 +1553,14 @@ class _LibusbTransport(_PyusbTransport):
         bytes are missing from the frame they fell in.
         """
         status = transfer.getStatus()
+        if status != usb1.TRANSFER_COMPLETED:
+            logger.info(
+                '[DIAG-UNPLUG] callback id=%x status=%r streaming=%r mono=%.3f',
+                id(transfer),
+                status,
+                self._streaming,
+                time.monotonic(),
+            )
         if status == usb1.TRANSFER_CANCELLED:
             return
         if status == usb1.TRANSFER_COMPLETED:
