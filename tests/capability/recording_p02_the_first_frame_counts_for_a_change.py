@@ -164,7 +164,7 @@ def main():
     with session_cm as (session, runner):
         scope = session.scope
         if HARDWARE:
-            live = pathlib.Path(session.get_settings_snapshot()['live_folder'])
+            live = pathlib.Path(session.settings_snapshot()['live_folder'])
         else:
             scope._camera_driver.set_timing_mode('realistic')
         figure('live_folder', str(live))
@@ -205,7 +205,7 @@ def main():
         )
         session.set_channel_settings(layer, auto_gain=False)
 
-        gain = session.get_settings_snapshot()[layer]['gain_db']
+        gain = session.settings_snapshot()[layer]['gain_db']
         camera.set_gain_db(gain)
         scope.imaging.capture_still()
         _manual(session, live, lambda: camera.set_gain_db(gain + 6.0), FrameValiditySource.GAIN)

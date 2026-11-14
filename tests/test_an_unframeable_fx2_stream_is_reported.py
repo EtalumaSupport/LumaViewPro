@@ -39,7 +39,7 @@ def session():
     settings['simulator_tier'] = 'fast'
     session = ScopeSession.create(settings, simulate=True)
     session.scope.imaging.enable_streaming()
-    assert _wait_until(lambda: session.scope.imaging.get_image() is not None, 5.0)
+    assert _wait_until(lambda: session.scope.imaging.capture_image() is not None, 5.0)
     session.scope._camera_driver.FRAMING_STALL_S = 0.5
     yield session
     session.shutdown()

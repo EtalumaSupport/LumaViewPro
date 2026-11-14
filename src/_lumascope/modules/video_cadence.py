@@ -49,7 +49,7 @@ def video_sizing_fps(global_max_fps: float, delivered_fps: float) -> float | Non
         global_max_fps: The user's global limit (``video.max_fps``); 0
             means none.
         delivered_fps: The camera's delivered rate
-            (``ImagingAPI.get_delivered_rate().frame_rate_fps``); 0 when it
+            (``ImagingAPI.delivered_rate().frame_rate_fps``); 0 when it
             is delivering nothing.
 
     Returns:

@@ -119,7 +119,7 @@ def test_histogram_calls_is_displayed_before_camera_read():
     # Structural lock: the display guard must run before the camera read,
     # so a refactor can't reintroduce off-screen computation.
     guard = SRC.index('_is_displayed(ctx)')
-    read = SRC.index('get_image_from_buffer(force_to_8bit')
+    read = SRC.index('buffered_image(force_to_8bit')
     assert guard < read, '_is_displayed guard must precede the camera read'
 
 

@@ -3775,7 +3775,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
     raise it too while a run, a diagnostic or a home holds the scope: the run
     stamps the active objective's scale into each capture, so a change
     mid-run is a command against the run's hardware state. The Session's
-    scale bar setter (``set_scale_bar``) raises it while a run, a diagnostic,
+    scale bar setter (``set_scale_bar_enabled``) raises it while a run, a diagnostic,
     a home or a recording holds the scope, since a run's stills are drawn
     under the setting it started with.
 

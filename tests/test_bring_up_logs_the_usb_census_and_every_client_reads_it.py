@@ -3,7 +3,7 @@
 
 The census is read before the LED board's connect touches a Classic's FX2,
 so the log holds the bus as bring-up found it, one line per device;
-``DiagnosticsAPI.get_usb_census`` reads it again for REST, the SDK and the
+``DiagnosticsAPI.read_usb_census`` reads it again for REST, the SDK and the
 support report. A simulated scope's census is its own parts. A bus that
 cannot be read is logged as that, and the scope comes up as it would
 without a census.
@@ -38,7 +38,7 @@ def test_bring_up_logs_a_classic_on_our_driver_windows_did_not_start(caplog):
             ),
         )
     try:
-        (classic,) = session.scope.diagnostics.get_usb_census().devices
+        (classic,) = session.scope.diagnostics.read_usb_census().devices
     finally:
         session.shutdown()
 
@@ -52,7 +52,7 @@ def test_bring_up_logs_a_classic_on_our_driver_windows_did_not_start(caplog):
 def test_an_el_0940_scopes_census_names_its_boards_and_an_unidentified_device():
     session = _session('LS850T', SimulatedScope(unidentified_usb_devices=1))
     try:
-        census = session.scope.diagnostics.get_usb_census()
+        census = session.scope.diagnostics.read_usb_census()
     finally:
         session.shutdown()
 
@@ -78,7 +78,7 @@ def test_a_bus_that_cannot_be_read_is_logged_as_that_and_the_scope_comes_up(monk
     with caplog.at_level('INFO', logger='LVP'):
         session = _session('LS850T')
     try:
-        assert session.scope.diagnostics.get_usb_census().unreadable == (
+        assert session.scope.diagnostics.read_usb_census().unreadable == (
             'SetupDiGetClassDevsW failed: 5'
         )
         assert all(part.up for part in session.bring_up_record().parts)

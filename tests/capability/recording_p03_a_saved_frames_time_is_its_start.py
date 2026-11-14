@@ -270,7 +270,7 @@ def main():
     session_cm = hardware_session() if HARDWARE else headless_session(live, acquiring=(args.layer,))
     with session_cm as (session, runner):
         if HARDWARE:
-            live = pathlib.Path(session.get_settings_snapshot()['live_folder'])
+            live = pathlib.Path(session.settings_snapshot()['live_folder'])
         else:
             session.scope._camera_driver.set_timing_mode('realistic')
         figure('live_folder', str(live))

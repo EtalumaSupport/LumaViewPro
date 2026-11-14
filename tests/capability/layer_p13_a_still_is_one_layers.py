@@ -54,7 +54,7 @@ def judge(session, label, path, expect=None):
     channel = meta.get('channel')
     held = meta.get('camera_held_channel')
     got = (meta.get('exposure_time_ms'), meta.get('gain_db'))
-    stored = session.get_settings_snapshot()[channel]
+    stored = session.settings_snapshot()[channel]
     figure(f'{label}: file', {'name': path.name, 'channel': channel, 'held': held, 'file': got})
     figure(f'{label}: {channel} stored', (stored['exposure_ms'], stored['gain_db']))
     check(f'{label}: the name is the channel', channel in path.name, path.name)
@@ -93,10 +93,10 @@ def body(session, runner):
     fluor = LED0 if LED0 in layers else next(layer for layer in layers if layer != 'BF')
     pair = ('BF', fluor)
     figure('layers compared', pair)
-    snapshot = session.get_settings_snapshot()
+    snapshot = session.settings_snapshot()
     acquire_before = {layer: snapshot[layer]['acquire'] for layer in layers}
     exposure_before = snapshot['BF']['exposure_ms']
-    x0 = scope.motion.get_target_positions()['X']
+    x0 = scope.motion.target_positions()['X']
     try:
         for layer in layers:
             session.set_channel_settings(layer, acquire='image' if layer in pair else None)
@@ -137,7 +137,7 @@ def body(session, runner):
         session.set_channel_settings('BF', exposure_ms=typed)
         check(
             'typed value stored',
-            session.get_settings_snapshot()['BF']['exposure_ms'] == typed,
+            session.settings_snapshot()['BF']['exposure_ms'] == typed,
             str(typed),
         )
         judge(session, 'typed value then still', _still(session), expect='BF')

@@ -30,7 +30,7 @@ from tests.af_drives import af_runner_on, sweep
 
 
 def _lit(scope):
-    return [r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT]
+    return [r.name for r in scope.illumination.led_states() if r.state is LedState.LIT]
 
 
 def test_is_focusing_true_while_af_runs(sim_scope, monkeypatch):

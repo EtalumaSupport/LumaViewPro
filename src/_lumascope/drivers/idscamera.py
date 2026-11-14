@@ -2511,7 +2511,7 @@ class IDSCamera(Camera):
         # Oversize-then-crop delivers any aligned size BELOW the hardware AOI
         # minimum (set_frame_size acquires the AOI floor and crops down), so the
         # DELIVERABLE minimum is the alignment granularity -- the same deliverable
-        # space get_pixel_alignment reports -- NOT the Width/Height node Minimum
+        # space pixel_alignment reports -- NOT the Width/Height node Minimum
         # (the smallest ACQUIRABLE AOI, e.g. 1056x418 at 2x binning). Reporting
         # the AOI minimum made the UI clamp a half-resolution request up to it,
         # delivering a non-square frame (1056x950 for a 950x950 request at 2x).
@@ -3361,8 +3361,8 @@ class IDSCamera(Camera):
         except Exception as e:
             raise CameraReadFailedError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
 
-    def get_black_level_range(self) -> tuple[float, float] | None:
-        """BlackLevel's minimum and maximum, live. See ``Camera.get_black_level_range``."""
+    def read_black_level_range(self) -> tuple[float, float] | None:
+        """BlackLevel's minimum and maximum, live. See ``Camera.read_black_level_range``."""
         if not self.active or self.remote_nodemap is None:
             return None
         try:

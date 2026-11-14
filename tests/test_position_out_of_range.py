@@ -40,11 +40,11 @@ def motion(sim_turreted_session):
 def test_the_simulated_scope_publishes_the_travel_these_cases_assume(motion):
     published = {
         axis: (limits.min_um, limits.max_um)
-        for axis, limits in ((axis, motion.get_axis_limits(axis)) for axis in TRAVEL)
+        for axis, limits in ((axis, motion.axis_limits(axis)) for axis in TRAVEL)
     }
     assert published == TRAVEL
     # T carries no travel: its position is a slot, not a distance.
-    assert motion.get_axis_limits('T') is None
+    assert motion.axis_limits('T') is None
 
 
 def test_it_is_a_valueerror_subclass():
@@ -78,13 +78,13 @@ def test_the_message_names_the_axis_the_request_and_the_range(motion):
 )
 def test_out_of_travel_is_refused_and_nothing_is_driven(motion, axis, position):
     """A refused move writes no target, so the previous one stands."""
-    target_before = motion.get_target_positions()[axis]
+    target_before = motion.target_positions()[axis]
 
     with pytest.raises(PositionOutOfRangeError) as caught:
         axis_move(motion, axis, position)
 
     assert (caught.value.axis, caught.value.bound) == (axis, 'travel range')
-    assert motion.get_target_positions()[axis] == target_before
+    assert motion.target_positions()[axis] == target_before
 
 
 @pytest.mark.parametrize(
@@ -99,7 +99,7 @@ def test_in_travel_and_the_boundaries_are_allowed(motion, axis, position):
     """
     axis_move(motion, axis, position)
 
-    assert motion.get_target_positions()[axis] == position
+    assert motion.target_positions()[axis] == position
     assert motion.get_current_position(axis) == pytest.approx(position, abs=1.0)
 
 

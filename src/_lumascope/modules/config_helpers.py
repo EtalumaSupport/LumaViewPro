@@ -332,7 +332,7 @@ def get_current_plate_position(
             plate would put every position
             in the wrong frame.
     """
-    scope.motion.refuse_controller_not_connected('get_current_plate_position')
+    scope.motion.refuse_controller_not_connected('plate_position')
     labware_id = scope.wellplate_loader.resolve_plate_key(labware_id)
     pos = scope.motion.settled_positions(_plate_axes(scope, axes))
     return _on_plate(scope, labware_id, pos)
@@ -343,7 +343,7 @@ def kept_plate_position(
 ) -> PlateLocation:
     """The current plate position, as a position to keep: every axis read at rest and known.
 
-    ``get_current_plate_position`` for a caller that keeps the position
+    ``plate_position`` for a caller that keeps the position
     itself and has no owner to refuse an unknown axis after the read: the
     states and the numbers are one snapshot (``positions_to_keep``), so a
     home that starts between a separate state question and the read cannot
@@ -351,13 +351,13 @@ def kept_plate_position(
 
     Args:
         labware_id: The plate the position is stated on.
-        axes: The stage axes the caller keeps, as ``get_current_plate_position``
+        axes: The stage axes the caller keeps, as ``plate_position``
             takes them.
         then: What the user does once the scope knows its position, ending
             the refusal (e.g. ``'save the bookmark'``).
 
     Returns:
-        The position on the plate, as ``get_current_plate_position`` answers.
+        The position on the plate, as ``plate_position`` answers.
 
     Raises:
         HardwareCommandRefusedError: ``'not_connected'`` -- this scope's
@@ -370,7 +370,7 @@ def kept_plate_position(
     """
     # The cable before the reference: with the controller gone every axis
     # is unknown, and the remedy is the cable, not a home.
-    scope.motion.refuse_controller_not_connected('get_current_plate_position')
+    scope.motion.refuse_controller_not_connected('plate_position')
     labware_id = scope.wellplate_loader.resolve_plate_key(labware_id)
     pos = scope.motion.positions_to_keep(_plate_axes(scope, axes), then=then)
     return _on_plate(scope, labware_id, pos)
@@ -734,7 +734,7 @@ def log_system_metrics(
     # allocates ~3 fresh OS-level buffers (camera copy, 12->8 LUT, tobytes()).
     # The standby-cache growth in [PDH METRICS] should track the data rate
     # roughly. The display's rate is the GUI's, logged only where one exists.
-    delivered = scope.imaging.get_delivered_rate()
+    delivered = scope.imaging.delivered_rate()
     wire_frame_bytes = (
         delivered.bytes_per_s / delivered.frame_rate_fps if delivered.frame_rate_fps else 0.0
     )

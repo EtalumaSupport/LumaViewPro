@@ -12,7 +12,7 @@ Covered:
     not be treated as 12-bit (which crushes it ~4x dark).
   - The "sum into a 16-bit container" rule: accumulate, saturate at 65535.
 
-These drive the REAL ImagingAPI.get_image path against the simulated camera in
+These drive the REAL ImagingAPI.capture_image path against the simulated camera in
 a chosen pixel format + white test pattern, so every grabbed frame is uniform
 and summed values are exact and deterministic.
 
@@ -80,14 +80,14 @@ class TestSummedCaptureDepthCeiling:
         downconvert scales it as 16-bit instead of indexing the 12-bit table.
         """
         scope = make_scope('Mono12')
-        img = scope.imaging.get_image(force_to_8bit=True, sum_count=sum_count)
+        img = scope.imaging.capture_image(force_to_8bit=True, sum_count=sum_count)
         assert img is not None
         assert img.dtype == np.uint8
 
     def test_sum_into_16bit_container_accumulates(self, make_scope):
         """Summing accumulates into a 16-bit container (Sum=2 of 4095 -> 8190)."""
         scope = make_scope('Mono12')
-        img = scope.imaging.get_image(force_to_8bit=False, sum_count=2)
+        img = scope.imaging.capture_image(force_to_8bit=False, sum_count=2)
         assert img is not None
         assert img.dtype == np.uint16
         assert int(img.max()) == 2 * WHITE['Mono12']  # 8190, no overflow, no over-clip
@@ -95,7 +95,7 @@ class TestSummedCaptureDepthCeiling:
     def test_sum_saturates_at_container_ceiling(self, make_scope):
         """A high sum count saturates at the 16-bit container max (65535)."""
         scope = make_scope('Mono12')
-        img = scope.imaging.get_image(force_to_8bit=False, sum_count=30)
+        img = scope.imaging.capture_image(force_to_8bit=False, sum_count=30)
         assert img is not None
         # 4095 * 30 = 122850 > 65535 -> saturates at the container ceiling.
         assert int(img.max()) == 65535
@@ -103,7 +103,7 @@ class TestSummedCaptureDepthCeiling:
     def test_single_frame_identity(self, make_scope):
         """Sum=1 returns the native frame unchanged (no clip, no dtype change)."""
         scope = make_scope('Mono12')
-        img = scope.imaging.get_image(force_to_8bit=False, sum_count=1)
+        img = scope.imaging.capture_image(force_to_8bit=False, sum_count=1)
         assert img is not None
         assert img.dtype == np.uint16
         assert int(img.max()) == WHITE['Mono12']  # 4095, untouched
@@ -111,7 +111,7 @@ class TestSummedCaptureDepthCeiling:
     def test_8bit_camera_sum_unaffected(self, make_scope):
         """An 8-bit camera path keeps working: no crash, uint8, saturates at 255."""
         scope = make_scope('Mono8')
-        img = scope.imaging.get_image(force_to_8bit=True, sum_count=2)
+        img = scope.imaging.capture_image(force_to_8bit=True, sum_count=2)
         assert img is not None
         assert img.dtype == np.uint8
         assert int(img.max()) == 255  # 255 * 2 -> saturates at 8-bit ceiling
@@ -130,7 +130,7 @@ class TestDisplayDownconvertGenericDepth:
         # simulated camera made to offer a 10-bit format.
         scope = make_scope('Mono10', offered=('Mono8', 'Mono10', 'Mono12'))
         assert scope._camera_driver.get_pixel_format() == 'Mono10'
-        img = scope.imaging.get_image(force_to_8bit=True, sum_count=1)
+        img = scope.imaging.capture_image(force_to_8bit=True, sum_count=1)
         assert img is not None
         assert img.dtype == np.uint8
         assert int(img.max()) == 255
@@ -138,7 +138,7 @@ class TestDisplayDownconvertGenericDepth:
     def test_12bit_white_maps_to_full_8bit_white(self, make_scope):
         """A full-white 12-bit frame already maps to 255 (guards against regression)."""
         scope = make_scope('Mono12')
-        img = scope.imaging.get_image(force_to_8bit=True, sum_count=1)
+        img = scope.imaging.capture_image(force_to_8bit=True, sum_count=1)
         assert img is not None
         assert img.dtype == np.uint8
         assert int(img.max()) == 255

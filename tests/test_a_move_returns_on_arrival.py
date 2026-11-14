@@ -79,7 +79,7 @@ def _pull_the_cable_mid_move(session, axes, monkeypatch) -> threading.Thread:
 
 def _far_x(motion) -> float:
     """An X target across most of the travel: seconds of motion in realistic timing."""
-    limits = motion.get_axis_limits('X')
+    limits = motion.axis_limits('X')
     here = motion.get_current_position('X')
     far = limits.max_um * 0.9 if here < (limits.min_um + limits.max_um) / 2 else limits.min_um
     return far
@@ -236,7 +236,7 @@ class TestWaitingForMotionTheCallerDidNotStart:
         monkeypatch.setattr(motion, '_MOVE_STALL_WINDOW_S', _TRAVEL_WAIT_S)
         session.scope.simulation.drop_replies('motor', count=None, command='STATUS_RY')
         session.scope.simulation.hold_axis('Y')
-        limits = motion.get_axis_limits('Y')
+        limits = motion.axis_limits('Y')
         motion.start_move_xy(y_um=limits.max_um * 0.9)
         x_move = motion.start_move_xy(x_um=motion.get_current_position('X') + 2000.0)
         closer = threading.Thread(

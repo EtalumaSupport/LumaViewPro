@@ -83,7 +83,7 @@ def _turret(scope, monkeypatch, *, has_turret=True, carries=(ON_TURRET,), select
     )
     monkeypatch.setattr(
         scope.runtime_state,
-        'get_turret_config',
+        'turret_config',
         lambda: dict(enumerate(carries, start=1)),
     )
     monkeypatch.setattr(scope.runtime_state, 'get_current_objective_id', lambda: selected)

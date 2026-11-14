@@ -10,13 +10,13 @@ session, live = make_session('edit', home=True)
 try:
     import _lumascope.modules.config_helpers as config_helpers
 
-    settings = session.get_settings_snapshot()
+    settings = session.settings_snapshot()
     banner('base protocol')
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
         objective_helper=session.scope.objective_helper,
         wellplate_loader=session.scope.wellplate_loader,
-        current_z=session.get_current_plate_position().z_um,
+        current_z=session.plate_position().z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -27,7 +27,7 @@ try:
     print('steps:', p.num_steps())
 
     banner('ADD a step (insert_step)')
-    pos = session.get_current_plate_position()
+    pos = session.plate_position()
     obj_id, _ = session.scope.runtime_state.resolve_current_objective()
     lc = config_helpers.get_channel_configs(settings, specific_channels=['BF'])['BF']
     lc['acquire'] = 'image'
@@ -80,7 +80,7 @@ try:
     print('step0 X/Y/Z/Color/Objective:', st['X'], st['Y'], st['Z'], st['channel'], st['Objective'])
     session.scope.motion.move_to_plate(PlateLocation(x_mm=st['X'], y_mm=st['Y'], z_um=None))
     session.scope.motion.move_z(st['Z'])
-    now = session.get_current_plate_position()
+    now = session.plate_position()
     print('landed at:', now)
     print(
         'ASSERT stage at step:',

@@ -4,8 +4,8 @@
 The close's disconnect() shuts the scope's lanes, then writes every axis
 UNKNOWN, which tells the position listeners; the window's bridge schedules
 the XY readout and the stage map for the next Kivy tick. Both read
-get_axis_limits only to clamp a position the API already keeps inside
-travel, and get_axis_limits refuses scope_disconnected once the lanes are
+axis_limits only to clamp a position the API already keeps inside
+travel, and axis_limits refuses scope_disconnected once the lanes are
 shut: the refusal was raised on the Kivy clock, the loop ended, and on_stop
 never ran (the LS850T, 2026-10-15 and 2026-10-16).
 

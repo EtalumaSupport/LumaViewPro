@@ -122,7 +122,7 @@ def test_the_composite_takes_the_users_thresholds(session, monkeypatch, tmp_path
     seen = _spy_build(monkeypatch, CompositeGeneration, 'load_folder')
     session.post_processing.composite(tmp_path)
 
-    settings = session.get_settings_snapshot()
+    settings = session.settings_snapshot()
     assert seen['brightness_thresholds_percent'] == (
         config_helpers.get_composite_blend_thresholds(settings)
     )

@@ -46,7 +46,7 @@ def _runner():
     session = MagicMock()
     session.settings = _zstack_settings()
     session.capture_settings_snapshot.return_value = session.settings
-    session.get_settings_snapshot.return_value = session.settings
+    session.settings_snapshot.return_value = session.settings
     session.plate_position_on.return_value = _POSITION
     session.scope.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session, engine=session._sequenced_capture_runner)

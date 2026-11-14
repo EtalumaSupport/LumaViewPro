@@ -173,6 +173,6 @@ def test_the_dict_handed_to_create_stays_the_callers(tmp_path):
         handed['BF']['gain_db'] = stored + 1.0
         handed['live_folder'] = str(tmp_path / 'elsewhere')
         assert session.channel_settings('BF').gain_db == stored
-        assert session.get_setting('live_folder') != handed['live_folder']
+        assert session.setting('live_folder') != handed['live_folder']
     finally:
         session.shutdown()

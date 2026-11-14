@@ -6,7 +6,7 @@ refuses, naming why, and writes nothing: the path is not a setting, names a
 block, belongs to a Session member, is set only by the installation, or the
 value is the wrong kind or out of the setting's range. A REST caller, a script and the GUI all reach the same
 checks, because they all reach the same member. Its read by path,
-``get_setting``, refuses a path that names no setting.
+``setting``, refuses a path that names no setting.
 """
 
 import copy
@@ -86,12 +86,12 @@ def test_a_leaf_with_no_shipped_value_takes_the_kind_it_holds_when_set(session):
     ],
 )
 def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reason):
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
     with pytest.raises(SettingRefusedError) as refused:
         session.update_settings(path, value)
     assert refused.value.reason == reason
     assert refused.value.path == path
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 # A session member is named by its name, and its words say ``ScopeSession.``;
@@ -212,12 +212,12 @@ def test_a_setting_with_a_member_is_refused_naming_it(session, path, owner, memb
     ],
 )
 def test_a_setting_only_the_installation_sets_is_refused(session, path, value):
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
     with pytest.raises(SettingRefusedError, match="installation's settings file") as refused:
         session.update_settings(path, value)
     assert refused.value.reason == 'installation_only'
     assert refused.value.path == path
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 def test_a_remembered_protocol_is_stored_and_forgotten(session):
@@ -237,24 +237,24 @@ def test_a_remembered_relative_path_is_the_data_roots(session):
 
 
 def test_a_live_folder_no_file_system_can_name_is_refused(session):
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
     with pytest.raises(SettingRefusedError) as refused:
         session.set_live_folder('/no/such\x00place')
     assert refused.value.reason == 'out_of_range'
     assert refused.value.path == 'live_folder'
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 def test_a_live_folder_under_a_file_is_refused_and_the_old_one_stays(session, tmp_path):
     # Told at the write, not at the first capture into it.
     blocker = tmp_path / 'a_file'
     blocker.write_text('')
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
     with pytest.raises(SettingRefusedError) as refused:
         session.set_live_folder(str(blocker / 'captures'))
     assert (refused.value.reason, refused.value.path) == ('out_of_range', 'live_folder')
     assert str(blocker / 'captures') in str(refused.value)
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 @pytest.mark.skipif(
@@ -267,11 +267,11 @@ def test_a_live_folder_the_os_will_not_create_is_refused(session, tmp_path):
     locked.mkdir()
     locked.chmod(0o500)
     try:
-        before = session.get_settings_snapshot()
+        before = session.settings_snapshot()
         with pytest.raises(SettingRefusedError) as refused:
             session.set_live_folder(str(locked / 'captures'))
         assert (refused.value.reason, refused.value.path) == ('out_of_range', 'live_folder')
-        assert session.get_settings_snapshot() == before
+        assert session.settings_snapshot() == before
     finally:
         locked.chmod(0o700)
 
@@ -332,7 +332,7 @@ def test_a_snapshot_never_sees_a_write_half_done(session):
     writer.start()
     try:
         for _ in range(200):
-            value = session.get_settings_snapshot()['video']['max_fps']
+            value = session.settings_snapshot()['video']['max_fps']
             if value not in (10, 20, 25, 0):
                 torn.append(value)
     finally:
@@ -396,7 +396,7 @@ def test_a_write_into_a_channel_config_changes_no_setting(session):
 @pytest.mark.parametrize('path', ['bogus', 'video.bogus', 'video.max_fps.deeper', ''])
 def test_a_read_of_a_path_that_names_no_setting_is_refused_naming_it(session, path):
     with pytest.raises(ArgumentRefusedError) as refused:
-        session.get_setting(path)
+        session.setting(path)
     assert (refused.value.reason, refused.value.argument, refused.value.value) == (
         'not_a_setting',
         'path',
@@ -449,36 +449,36 @@ def test_a_camera_mode_is_stored_only_once_the_camera_took_it(
 
 
 def test_the_scale_bar_read_and_its_setting_change_together(session):
-    session.set_scale_bar(True)
+    session.set_scale_bar_enabled(True)
     assert session.scale_bar_enabled is True
     assert session.settings['scale_bar']['enabled'] is True
-    session.set_scale_bar(False)
+    session.set_scale_bar_enabled(False)
     assert session.scale_bar_enabled is False
     assert session.settings['scale_bar']['enabled'] is False
 
 
 def test_an_acceleration_out_of_range_is_refused_and_not_stored(session):
-    session.set_acceleration_limit(60)
+    session.set_acceleration_limit_pct(60)
     assert session.settings['motion']['acceleration_max_pct'] == 60
     with pytest.raises(ValueError):
-        session.set_acceleration_limit(500)
+        session.set_acceleration_limit_pct(500)
     assert session.settings['motion']['acceleration_max_pct'] == 60
 
 
 def test_an_acceleration_out_of_range_is_a_refusal_not_a_fault(session):
     """Reported as a fault it read "Operation failed ... Check the main log"."""
     with pytest.raises(AccelerationLimitRefusedError) as refused:
-        session.set_acceleration_limit(250)
+        session.set_acceleration_limit_pct(250)
     assert isinstance(refused.value, Refusal) and isinstance(refused.value, ValueError)
     assert '250' in str(refused.value) and '1 to 100' in str(refused.value)
 
 
 def test_an_acceleration_with_no_motor_controller_is_refused_and_not_stored(session, monkeypatch):
-    session.set_acceleration_limit(37)
+    session.set_acceleration_limit_pct(37)
     monkeypatch.setattr(type(session.scope), 'motor_connected', property(lambda self: False))
     for val_pct in (60, 500):
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            session.set_acceleration_limit(val_pct)
+            session.set_acceleration_limit_pct(val_pct)
         assert refused.value.reason == 'not_connected'
     assert session.settings['motion']['acceleration_max_pct'] == 37
 
@@ -490,8 +490,8 @@ def test_an_acceleration_the_motion_api_sets_is_the_one_stored(session):
     the scope's motion member leaves the session reading, and the next
     bring-up giving the board, the limit it has.
     """
-    session.set_acceleration_limit(100)
-    session.scope.motion.set_acceleration_limit(limit_pct=37)
+    session.set_acceleration_limit_pct(100)
+    session.scope.motion.set_acceleration_limit_pct(limit_pct=37)
     assert session.acceleration_limit_pct == 37
     assert session.settings['motion']['acceleration_max_pct'] == 37
 
@@ -499,14 +499,14 @@ def test_an_acceleration_the_motion_api_sets_is_the_one_stored(session):
 def test_a_bookmark_is_the_live_position_in_the_go_to_frame(session):
     session.scope.motion.home('ALL')
     saved = session.save_bookmark(('X', 'Y', 'Z'))
-    assert saved == session.get_current_plate_position()
+    assert saved == session.plate_position()
     assert session.bookmark == saved
 
 
 def test_set_all_bookmarks_stamps_the_focus_of_the_scopes_own_layers(session):
     session.scope.motion.home('ALL')
     saved = session.save_all_bookmarks()
-    z = session.get_current_plate_position().z_um
+    z = session.plate_position().z_um
     assert saved == PlateLocation(x_mm=None, y_mm=None, z_um=z)
     on_scope = {record.key_name for record in session.scope.channel_identity.channels}
     assert session.settings['bookmark']['z'] == z

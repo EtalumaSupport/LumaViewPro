@@ -603,7 +603,7 @@ class MotorBoard(SerialBoard):
         return limits
 
     # Sets the percentage acceleration/deceleration limit (of max) for a single axis/parameter
-    def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int) -> None:
+    def set_acceleration_limit_pct(self, axis: str, parameter: str, val_pct: int) -> None:
         """Set acceleration or deceleration as a percentage of the max.
 
         Resolves the per-axis SPI register address, scales the firmware's
@@ -639,7 +639,7 @@ class MotorBoard(SerialBoard):
 
         self.spi_write(axis=axis, addr=SPI_ADDRS[axis][parameter], payload=setpoint)
         logger.info(
-            f'[XYZ Class ] MotorBoard.set_acceleration_limit({axis}, {parameter}, {val_pct}%)'
+            f'[XYZ Class ] MotorBoard.set_acceleration_limit_pct({axis}, {parameter}, {val_pct}%)'
         )
 
     # Sets the percentage acceleration/deceleration (of max) for all supported axes/parameters
@@ -647,12 +647,12 @@ class MotorBoard(SerialBoard):
         """Apply ``val_pct`` to acceleration + deceleration on every axis.
 
         Args:
-            val_pct: Percentage of the maximum, as ``set_acceleration_limit``.
+            val_pct: Percentage of the maximum, as ``set_acceleration_limit_pct``.
         """
         config = self._acceleration_supported_info()
         for axis in config['axes']:
             for parameter in config['parameters']:
-                self.set_acceleration_limit(axis=axis, parameter=parameter, val_pct=val_pct)
+                self.set_acceleration_limit_pct(axis=axis, parameter=parameter, val_pct=val_pct)
 
     # ----------------------------------------------------------
     # SPI-direct related functions
@@ -1537,7 +1537,7 @@ class MotorBoard(SerialBoard):
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
+    def axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Return the configured min/max travel limits for an axis.
 
         Args:
@@ -1555,7 +1555,7 @@ class MotorBoard(SerialBoard):
         """
         AXES_CONFIG = self.axes_config
         if axis not in AXES_CONFIG:
-            logger.error(f'[XYZ Class ] MotorBoard.get_axis_limits(): Unsupported axis ({axis})')
+            logger.error(f'[XYZ Class ] MotorBoard.axis_limits(): Unsupported axis ({axis})')
             raise PartAbsentError(f'Unsupported axis ({axis})')
 
         axis_config = AXES_CONFIG[axis]

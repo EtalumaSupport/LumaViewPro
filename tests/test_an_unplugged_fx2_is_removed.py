@@ -3,7 +3,7 @@
 
 An unplug sends the FX2 driver no error: the bytes just stop. Before, nothing
 measured the silence, so the camera and the LED -- one USB device -- both
-went on answering "connected", a run could start, get_image() handed back the
+went on answering "connected", a run could start, capture_image() handed back the
 last frame, and only the GUI's live-view stall notice ever fired. Now the
 driver notices (the bytes stop and the device is gone from the bus, or a
 transfer reports the device gone), marks the camera removed and tears it down
@@ -60,7 +60,7 @@ def session():
 def _delivers(scope) -> bool:
     """Whether a grab now returns a frame; one that got none raises."""
     try:
-        scope.imaging.get_image()
+        scope.imaging.capture_image()
     except CaptureFailedError:
         return False
     return True
@@ -81,7 +81,7 @@ def test_an_unplug_while_streaming_disconnects_the_camera_and_the_led(session):
     assert scope.led_connected is False
     assert scope.are_all_connected() is False
     with pytest.raises(HardwareCommandRefusedError) as refused:
-        scope.imaging.get_image()
+        scope.imaging.capture_image()
     assert refused.value.reason == 'not_connected'
     assert _wait_until(lambda: not grab_thread.is_alive(), 6.0)
     assert _wait_until(lambda: scope._camera_driver.active is None, 6.0)

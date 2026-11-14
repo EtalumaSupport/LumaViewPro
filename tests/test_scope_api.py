@@ -297,7 +297,7 @@ class TestGetCurrentPlatePosition:
         settings['microscope'] = 'LS820'
         with _open_session(settings) as session:
             session.scope.motion.move_z(500.0)
-            result = session.get_current_plate_position()
+            result = session.plate_position()
             z = session.scope.motion.get_current_position('Z')
         assert result.z_um == pytest.approx(z, abs=0.01)
 

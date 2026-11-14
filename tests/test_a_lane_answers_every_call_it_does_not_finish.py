@@ -375,7 +375,7 @@ def test_runs_complete_while_clients_poll_the_camera_temperature(tmp_path):
         def poll():
             while not stop.is_set():
                 try:
-                    session.scope.diagnostics.get_camera_temperatures_degc()
+                    session.scope.diagnostics.read_camera_temperatures_degc()
                 except Exception as ex:
                     failed.append(ex)
 

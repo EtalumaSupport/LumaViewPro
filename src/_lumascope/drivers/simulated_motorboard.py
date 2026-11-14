@@ -1237,7 +1237,7 @@ class SimulatedMotorBoard:
             for axis in ('X', 'Y')
         }
 
-    def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int) -> None:
+    def set_acceleration_limit_pct(self, axis: str, parameter: str, val_pct: int) -> None:
         """Stub: log the requested acceleration limit (no state change).
 
         Args:
@@ -1245,7 +1245,7 @@ class SimulatedMotorBoard:
             parameter: ``'acceleration'`` or ``'deceleration'``.
             val_pct: Percentage of the maximum (1-100, inclusive).
         """
-        logger.info(f'[XYZ Sim   ] set_acceleration_limit({axis}, {parameter}, {val_pct}%)')
+        logger.info(f'[XYZ Sim   ] set_acceleration_limit_pct({axis}, {parameter}, {val_pct}%)')
 
     def set_acceleration_limits(self, val_pct: int) -> None:
         """Read each limit, as the driver does before writing it, and log the request.
@@ -1360,7 +1360,7 @@ class SimulatedMotorBoard:
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
+    def axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Return the configured min/max travel limits for an axis.
 
         Args:

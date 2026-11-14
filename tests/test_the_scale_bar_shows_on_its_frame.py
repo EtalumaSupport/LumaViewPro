@@ -171,7 +171,7 @@ def test_a_capture_draws_the_bar_its_frame_needs_with_no_gui(sim_scope, pattern,
     bind_settings_like_a_session(sim_scope, scale_bar={'enabled': True})
     sim_scope._camera_driver.set_test_pattern(enabled=True, pattern=pattern)
 
-    image = sim_scope.imaging.get_image(force_to_8bit=True)
+    image = sim_scope.imaging.capture_image(force_to_8bit=True)
 
     frame_value = 255 if pattern == 'white' else 0
     bar = image != frame_value
@@ -188,12 +188,12 @@ def test_the_setting_is_refused_while_the_scope_is_held(sim_session, kind):
     )
     try:
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            sim_session.set_scale_bar(not before)
+            sim_session.set_scale_bar_enabled(not before)
         # The setting it already has is no change, and is admitted.
-        sim_session.set_scale_bar(before)
+        sim_session.set_scale_bar_enabled(before)
     finally:
         held.release()
     assert (refused.value.reason, refused.value.holder) == ('exclusive_activity_running', kind)
     assert sim_session.scale_bar_enabled is before
-    sim_session.set_scale_bar(not before)
+    sim_session.set_scale_bar_enabled(not before)
     assert sim_session.scale_bar_enabled is (not before)

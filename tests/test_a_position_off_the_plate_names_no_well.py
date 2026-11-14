@@ -20,11 +20,11 @@ def plate():
 
 
 def _centre(plate, i, j):
-    return plate.get_well_position(i, j)
+    return plate.well_position(i, j)
 
 
 def test_a_position_off_the_plate_has_no_well_index(plate):
-    assert plate.get_well_index(500, 500) is None
+    assert plate.well_index(500, 500) is None
 
 
 def test_a_position_off_the_plate_is_labelled_as_no_well(plate):
@@ -32,7 +32,7 @@ def test_a_position_off_the_plate_is_labelled_as_no_well(plate):
 
 
 def test_the_index_is_plain_ints(plate):
-    i, j = plate.get_well_index(*_centre(plate, 3, 2))
+    i, j = plate.well_index(*_centre(plate, 3, 2))
     assert (type(i), type(j)) == (int, int)
     assert (i, j) == (3, 2)
 
@@ -42,7 +42,7 @@ def test_within_half_a_pitch_of_an_edge_well_names_it(plate, fraction):
     columns = plate.columns
     x, y = _centre(plate, columns - 1, 0)
     x += fraction * plate.spacing_x_mm
-    assert plate.get_well_index(x, y) == (columns - 1, 0)
+    assert plate.well_index(x, y) == (columns - 1, 0)
 
 
 @pytest.mark.parametrize('axis', ['x', 'y'])
@@ -53,7 +53,7 @@ def test_more_than_half_a_pitch_beyond_the_outer_centres_names_none(plate, axis)
         x -= 0.51 * pitch
     else:
         y -= 0.51 * pitch
-    assert plate.get_well_index(x, y) is None
+    assert plate.well_index(x, y) is None
 
 
 def test_a_plate_with_no_wells_names_no_well():
@@ -66,6 +66,6 @@ def test_a_plate_with_no_wells_names_no_well():
     """
     blank = WellPlateLoader().get_plate('Blank')
 
-    assert blank.get_well_index(10.0, 10.0) is None
+    assert blank.well_index(10.0, 10.0) is None
     assert blank.get_well_label(x=10.0, y=10.0) == ''
     assert blank.get_positions_with_labels() == []

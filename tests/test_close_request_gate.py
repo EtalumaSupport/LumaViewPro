@@ -198,8 +198,8 @@ def test_the_close_asks_from_the_sessions_live_work_and_discards_through_it():
 
     assert 'live_work' in _attrs(_method(class_node, 'on_request_close'))
     reads = _attrs(_method(class_node, '_close_the_session'))
-    assert {'live_work', 'discard_close_drain'} <= reads, (
-        "the close must show the session's live_work and discard through discard_close_drain"
+    assert {'live_work', 'discard_pending_video'} <= reads, (
+        "the close must show the session's live_work and discard through discard_pending_video"
     )
 
 

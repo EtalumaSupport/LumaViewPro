@@ -37,7 +37,7 @@ class _RecordWith(dict):
 # camera lacks the feature, the LS850 has no turret -- which leaves the read
 # answering as it did.
 _WRITES = {
-    'model': ({'model': 'LS560'}, None, 'LS560'),
+    'selected_model': ({'model': 'LS560'}, None, 'LS560'),
     'labware_id': ({'labware_id': '384 well microplate'}, None, '384 well microplate'),
     'scale_bar_enabled': ({'enabled': True}, None, True),
     'engineering_mode': ({'enabled': True}, None, True),
@@ -151,7 +151,7 @@ def test_a_put_that_outlives_its_wait_is_a_job_whose_result_is_the_read(
     client, session, monkeypatch
 ):
     released = threading.Event()
-    real = session.set_acceleration_limit
+    real = session.set_acceleration_limit_pct
 
     def set_once_released(*args, **kwargs):
         assert released.wait(10)
@@ -159,7 +159,7 @@ def test_a_put_that_outlives_its_wait_is_a_job_whose_result_is_the_read(
 
     # a stand-in by design: holds the write until the client's wait has
     # passed; no setting's write outlives a wait on the simulator.
-    monkeypatch.setattr(session, 'set_acceleration_limit', set_once_released)
+    monkeypatch.setattr(session, 'set_acceleration_limit_pct', set_once_released)
     asked = client.put(
         '/api/v1/acceleration_limit_pct',
         json={'limit_pct': 40},

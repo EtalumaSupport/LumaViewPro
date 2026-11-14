@@ -428,7 +428,7 @@ class SimulatedCamera(Camera):
         'pixel_format': 'get_pixel_format',
         'pixel_formats': 'get_supported_pixel_formats',
         'black_level': 'get_black_level',
-        'black_level_range': 'get_black_level_range',
+        'black_level_range': 'read_black_level_range',
         'frame_rate': 'get_resulting_frame_rate',
         'minimum_exposure': 'get_min_exposure',
         'auto_gain': 'get_auto_gain_mode',
@@ -1884,7 +1884,7 @@ class SimulatedCamera(Camera):
             return None
         return self._black_level
 
-    def get_black_level_range(self) -> tuple[float, float] | None:
+    def read_black_level_range(self) -> tuple[float, float] | None:
         if not self.active:
             return None
         return self._BLACK_LEVEL_RANGE

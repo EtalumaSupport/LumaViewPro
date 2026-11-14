@@ -243,7 +243,7 @@ def scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    # Camera must be grabbing for get_image to work
+    # Camera must be grabbing for capture_image to work
     s.imaging.enable_streaming()
     home_sim_scope(s)
     yield s
@@ -450,7 +450,7 @@ class TestIntegrationMultiChannel:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        lit = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        lit = [r for r in scope.illumination.led_states() if r.state is not LedState.DARK]
         assert lit == [], f'LEDs still on: {lit}'
 
 

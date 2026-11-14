@@ -4,7 +4,7 @@
 A name that was no axis met seven answers: five members raised a bare
 ``ValueError``, a home raised its own, ``get_axis_state`` answered
 ``'unknown'``, the position reads answered None, ``position_is_known``
-answered False, ``get_axis_limits`` raised whatever the driver raised, and
+answered False, ``axis_limits`` raised whatever the driver raised, and
 the drive-status read passed it to the driver. A home took ``'all'``, and a
 fan duty of 101 reached the board. Each is now one check, asked first,
 refused with ``ArgumentRefusedError`` whose cause is the request's, so a
@@ -28,15 +28,15 @@ from tests.case_walk import failing_cases
 EVERY_AXIS = ('X', 'Y', 'Z', 'T')
 # The turret has a slot, not a position, so the position reads take the stage axes.
 STAGE_AXES = ('X', 'Y', 'Z')
-STAGE_ONLY = {'get_actual_position', 'get_current_position'}
+STAGE_ONLY = {'read_actual_position', 'get_current_position'}
 
 AXIS_MEMBERS = {
     'get_axis_state': lambda s, a: s.motion.get_axis_state(a),
-    'get_actual_position': lambda s, a: s.motion.get_actual_position(a),
+    'read_actual_position': lambda s, a: s.motion.read_actual_position(a),
     'get_current_position': lambda s, a: s.motion.get_current_position(a),
-    'get_axis_limits': lambda s, a: s.motion.get_axis_limits(a),
+    'axis_limits': lambda s, a: s.motion.axis_limits(a),
     'get_target_status': lambda s, a: s.motion.get_target_status(a),
-    'get_limit_switch_status': lambda s, a: s.motion.get_limit_switch_status(a),
+    'read_limit_switches': lambda s, a: s.motion.read_limit_switches(a),
     'refuse_unknown_positions': lambda s, a: s.motion.refuse_unknown_positions(
         [a], recording=True, then='move it'
     ),
@@ -62,7 +62,7 @@ def _refused(call, reason):
 def _motion_state(scope):
     motion = scope.motion
     states = {axis: motion.get_axis_state(axis) for axis in EVERY_AXIS}
-    return states, motion.get_target_positions(), motion.turret_status().slot
+    return states, motion.target_positions(), motion.turret_status().slot
 
 
 NO_AXIS = [(member, name) for member in AXIS_MEMBERS for name in ('Q', 'x')]
@@ -98,13 +98,13 @@ def test_a_home_takes_z_the_turret_or_all_in_capitals(scope, member, name):
     assert refusal.offered == ('Z', 'T', 'ALL')
 
 
-@pytest.mark.parametrize('member', ['get_axis_limits', 'home'])
+@pytest.mark.parametrize('member', ['axis_limits', 'home'])
 def test_a_name_that_is_no_axis_is_refused_whatever_the_scope_is_doing(tmp_path, member):
     """Refused at the door, so a shut scope does not answer for the name."""
     session = _session(tmp_path, 'LS850')
     session.shutdown()
     calls = {
-        'get_axis_limits': lambda m: m.get_axis_limits('Q'),
+        'axis_limits': lambda m: m.axis_limits('Q'),
         'home': lambda m: m.home('Q'),
     }
     _refused(lambda: calls[member](session.scope.motion), 'not_offered')

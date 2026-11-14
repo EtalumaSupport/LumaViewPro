@@ -310,7 +310,7 @@ def _over_a_well(session: ScopeSession) -> list[dict]:
     motion.move_xy(y_um=30000.0)
     motion.move_z(1000.0)
     motion.wait_until_finished_moving(timeout_s=60)
-    here = session.get_current_plate_position()
+    here = session.plate_position()
     return [{'x': here.x_mm, 'y': here.y_mm, 'z': here.z_um, 'name': 'A1'}]
 
 
@@ -420,7 +420,7 @@ def _silent(backend: type, settings: dict) -> None:
 def _came_up(session: ScopeSession, model: str) -> str | None:
     """Why ``session`` is not a scope up as ``model``, or None; it is shut down either way."""
     try:
-        return None if session.model == model else f'came up as {session.model}'
+        return None if session.selected_model == model else f'came up as {session.selected_model}'
     finally:
         session.shutdown()
 
@@ -590,11 +590,11 @@ def _valid_rows() -> list[Valid]:
             lambda s, _: (
                 None
                 if all(
-                    math.isclose(s.session.scope.motion.get_actual_position(a), um, abs_tol=1.0)
+                    math.isclose(s.session.scope.motion.read_actual_position(a), um, abs_tol=1.0)
                     for a, um in (('X', 60000.0), ('Y', 40000.0))
                 )
-                else f'X, Y at {s.session.scope.motion.get_actual_position("X")}, '
-                f'{s.session.scope.motion.get_actual_position("Y")}'
+                else f'X, Y at {s.session.scope.motion.read_actual_position("X")}, '
+                f'{s.session.scope.motion.read_actual_position("Y")}'
             ),
         ),
         Valid(
@@ -604,9 +604,9 @@ def _valid_rows() -> list[Valid]:
             lambda s, _: (
                 None
                 if math.isclose(
-                    s.session.scope.motion.get_actual_position('Z'), 1000.0, abs_tol=1.0
+                    s.session.scope.motion.read_actual_position('Z'), 1000.0, abs_tol=1.0
                 )
-                else f'Z at {s.session.scope.motion.get_actual_position("Z")}'
+                else f'Z at {s.session.scope.motion.read_actual_position("Z")}'
             ),
         ),
         Valid(
@@ -1061,7 +1061,7 @@ def _fault_rows() -> list[Fault]:
             lambda s: (
                 s.session.scope.simulation.hold_axis('Z'),
                 s.session.scope.motion.start_move_z(
-                    s.session.scope.motion.get_actual_position('Z') + 1000.0
+                    s.session.scope.motion.read_actual_position('Z') + 1000.0
                 ),
             ),
             lambda s: s.session.scope.motion.wait_until_finished_moving(timeout_s=0.2),

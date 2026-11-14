@@ -35,11 +35,11 @@ def _arguments():
 
 def _toggle(session, name, setter, held, stored_path):
     camera = session.scope.camera
-    start = session.get_settings_snapshot()['camera'][stored_path]
+    start = session.settings_snapshot()['camera'][stored_path]
     figure(f'{name}.stored_at_start', start)
     for enabled in (True, False, True, False):
         setter(enabled)
-        stored = session.get_settings_snapshot()['camera'][stored_path]
+        stored = session.settings_snapshot()['camera'][stored_path]
         check(
             f'{name}: {"on" if enabled else "off"} is held and stored',
             getattr(camera, held) is enabled and stored is enabled,

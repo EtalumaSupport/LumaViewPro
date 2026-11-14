@@ -138,7 +138,7 @@ The detail is [concepts.md](guide/concepts.md).
 | Area | What it does, and the members that matter | File |
 |---|---|---|
 | Bring-up and settings | `ScopeSession.create` (`simulate=True` for the simulator), then `session.run_application_session()` to home; `session.update_settings` writes a setting by path. | [concepts](guide/concepts.md), [python](guide/python.md) |
-| `scope.motion` | Homes and moves the stage, focus and turret: `home`, `move_z`, `move_xy`, `move_to_well`, `move_turret`, `start_move_z`; `get_axis_limits` bounds every move. | [motion](guide/motion.md) |
+| `scope.motion` | Homes and moves the stage, focus and turret: `home`, `move_z`, `move_xy`, `move_to_well`, `move_turret`, `start_move_z`; `axis_limits` bounds every move. | [motion](guide/motion.md) |
 | `scope.illumination`, `scope.camera` | The LEDs (`led_on`, `leds_off`), the camera's settings (`set_exposure_ms`, `set_gain_db`), and `session.show_channel`, the channel a capture is named for. | [light-and-camera](guide/light-and-camera.md) |
 | Captures and files | A saved still (`session.manual_capture.start_save_still`), a recording (`session.manual_recording.start`), and the record a saved file carries. | [captures-and-files](guide/captures-and-files.md) |
 | Protocols and runs | A protocol of steps (`create_empty_protocol`, `add_step`), run by `session.protocol_runner()` (`start_single_scan`, `start_protocol`), then post-processed (`post_processing.build`). | [runs](guide/runs.md) |

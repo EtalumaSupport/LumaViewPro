@@ -40,7 +40,7 @@ def _runner(acquiring=('BF',)):
     session = MagicMock()
     session.settings = _settings(acquiring=acquiring)
     session.capture_settings_snapshot.return_value = session.settings
-    session.get_settings_snapshot.return_value = session.settings
+    session.settings_snapshot.return_value = session.settings
     session.plate_position_on.return_value = PlateLocation(x_mm=1.0, y_mm=2.0, z_um=3.0)
     session.scope.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session, engine=session._sequenced_capture_runner)

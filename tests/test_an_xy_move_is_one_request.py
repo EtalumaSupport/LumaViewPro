@@ -40,7 +40,7 @@ def scope():
 
 
 def _targets(scope):
-    return {axis: scope.motion.get_target_positions()[axis] for axis in ('X', 'Y')}
+    return {axis: scope.motion.target_positions()[axis] for axis in ('X', 'Y')}
 
 
 def _lose_y(scope, monkeypatch):
@@ -58,7 +58,7 @@ def _lose_y(scope, monkeypatch):
 
 class TestARefusalMovesNeither:
     def test_a_place_with_y_past_travel_leaves_x_where_it_was(self, scope):
-        y_max = scope.motion.get_axis_limits('Y').max_um
+        y_max = scope.motion.axis_limits('Y').max_um
 
         with pytest.raises(PositionOutOfRangeError) as refused:
             scope.motion.start_move_xy(_START['X'] - 500.0, y_max + 1_000.0)
@@ -68,7 +68,7 @@ class TestARefusalMovesNeither:
         assert scope.motion.get_axis_state('X') == AxisState.IDLE
 
     def test_a_distance_taking_y_past_travel_leaves_x_where_it_was(self, scope):
-        y_max = scope.motion.get_axis_limits('Y').max_um
+        y_max = scope.motion.axis_limits('Y').max_um
 
         with pytest.raises(PositionOutOfRangeError) as refused:
             scope.motion.start_move_xy_by(100.0, y_max)
@@ -83,7 +83,7 @@ class TestARefusalMovesNeither:
             scope.motion.start_move_xy(_START['X'] - 500.0, _START['Y'])
 
         assert refused.value.reason == 'position_unknown'
-        assert scope.motion.get_target_positions()['X'] == _START['X']
+        assert scope.motion.target_positions()['X'] == _START['X']
 
     def test_a_y_that_is_no_number_is_refused_by_its_name(self, scope):
         with pytest.raises(ArgumentRefusedError) as refused:
@@ -114,7 +114,7 @@ class TestAnAxisNotAskedForIsLeftAsItIs:
             scope.motion.move_xy(x_um=_START['X'] - 500.0)
 
         assert list(refused.value.axes_without_position) == ['Y']
-        assert scope.motion.get_target_positions()['X'] == _START['X']
+        assert scope.motion.target_positions()['X'] == _START['X']
 
     def test_a_distance_for_y_alone_leaves_x(self, scope):
         scope.motion.move_xy_by(dy_um=-200.0)
@@ -206,21 +206,21 @@ class TestOverRest:
         job = client.get(started.headers['Location'], headers={'Prefer': 'wait=60'}).json()
 
         assert job['status'] == 'completed', job
-        assert {a: motion.get_target_positions()[a] for a in ('X', 'Y')} == {
+        assert {a: motion.target_positions()[a] for a in ('X', 'Y')} == {
             'X': 61_000.0,
             'Y': 41_000.0,
         }
 
     def test_an_empty_body_moves_nothing(self, client):
         client, motion = client
-        before = {a: motion.get_target_positions()[a] for a in ('X', 'Y')}
+        before = {a: motion.target_positions()[a] for a in ('X', 'Y')}
 
         started = client.post('/api/v1/scope/motion/start_move_xy', json={})
         assert started.status_code == 202, started.text
         job = client.get(started.headers['Location'], headers={'Prefer': 'wait=60'}).json()
 
         assert job['status'] == 'completed', job
-        assert {a: motion.get_target_positions()[a] for a in ('X', 'Y')} == before
+        assert {a: motion.target_positions()[a] for a in ('X', 'Y')} == before
 
     @pytest.mark.parametrize(
         'member', ['move_absolute', 'move_relative', 'start_move_absolute', 'start_move_relative']

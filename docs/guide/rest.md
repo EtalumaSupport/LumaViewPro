@@ -89,7 +89,7 @@ a path segment, so `session.scope.motion.start_move_xy` is
 
 - **A read is `GET`**: a property, a published field, or a method that changes
   nothing. A read method's arguments are its query string
-  (`GET /api/v1/scope/motion/get_axis_limits?axis=Z`); a list is its key
+  (`GET /api/v1/scope/motion/axis_limits?axis=Z`); a list is its key
   repeated, and a record one key per field, `<parameter>.<field>`.
 - **A setting is `PUT` on its read's URL**, with the setter's arguments as a
   JSON object; the answer is the read after the write, the value the scope took
@@ -311,7 +311,7 @@ test suite.
 API=http://127.0.0.1:8000/api/v1
 
 curl -s $API/status                                         # 200: the scope's work, axes, parts and camera
-curl -s "$API/scope/motion/get_axis_limits?axis=W"          # 422 not_offered: offered X, Y, Z, T
+curl -s "$API/scope/motion/axis_limits?axis=W"          # 422 not_offered: offered X, Y, Z, T
 MOVE=$(curl -s --json '{"z_um": 4000.0}' $API/scope/motion/start_move_z | jq -r .id)   # 202
 curl -s -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
 curl -s --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0

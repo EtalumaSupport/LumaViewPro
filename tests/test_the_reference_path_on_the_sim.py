@@ -114,11 +114,11 @@ def test_a_jog_with_the_objective_unknown_is_one_objective_unknown_warning(
     # Slot 3 has no objective assigned, so the step cannot be sized.
     home_sim_scope(session.scope)
     session.scope.motion.move_turret(3)
-    before = session.scope.motion.get_target_positions()
+    before = session.scope.motion.target_positions()
 
     _jog_from_the_gui(session, monkeypatch, axis)
 
-    assert session.scope.motion.get_target_positions() == before
+    assert session.scope.motion.target_positions() == before
     assert [(n.severity, n.title) for n in centre_posts] == [
         (Severity.WARNING, 'Objective Unknown')
     ]
@@ -130,9 +130,9 @@ def test_a_jog_on_an_unhomed_scope_is_one_scope_not_homed_warning(
     session, monkeypatch, axis, centre_posts
 ):
     """The turret has no slot either, but the gate answers: a home is what helps."""
-    before = session.scope.motion.get_target_positions()
+    before = session.scope.motion.target_positions()
 
     _jog_from_the_gui(session, monkeypatch, axis)
 
-    assert session.scope.motion.get_target_positions() == before
+    assert session.scope.motion.target_positions() == before
     assert [(n.severity, n.title) for n in centre_posts] == [(Severity.WARNING, 'Scope Not Homed')]

@@ -33,7 +33,7 @@ def test_restore_does_not_blink_channel_already_at_target(scope):
     """restore_led_state leaves a channel already at its snapshot target lit,
     without an off->on blink -- the autofocus scan-end case."""
     scope.illumination.led_on_by_address(0, 100)
-    snapshot = scope.illumination.get_led_states()
+    snapshot = scope.illumination.led_states()
 
     events = []
     scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, st)))
@@ -48,7 +48,7 @@ def test_restore_still_relights_a_channel_that_was_turned_off(scope):
     off is turned back on by restore."""
     lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
     scope.illumination._led_on_impl(0, 100, member='led_on', _lease=lease)
-    snapshot = scope.illumination.get_led_states()
+    snapshot = scope.illumination.led_states()
     lease.release()  # turns off the channels this lease lit
     assert led_reading(scope, 0).state is LedState.DARK
 

@@ -12,9 +12,9 @@ s, live = harness.make_session('p6')
 scope = s.scope
 try:
     # 1) settable through the Session's settings store?
-    before = s.get_settings_snapshot()[LED0]['false_color']
+    before = s.settings_snapshot()[LED0]['false_color']
     s.set_channel_settings(LED0, false_color=not before)
-    after = s.get_settings_snapshot()[LED0]['false_color']
+    after = s.settings_snapshot()[LED0]['false_color']
     print('1: false_color via session.update_settings:', before, '->', after)
     print(
         '1: session.get_channel_configs sees:', s.get_channel_configs([LED0])[LED0]['false_color']

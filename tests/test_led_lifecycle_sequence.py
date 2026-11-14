@@ -610,7 +610,7 @@ def _standalone_autofocus_on_lit_bf(scope, runner, tmp_path, *, ends):
 def _assert_never_darkened_and_handed_back(scope, sub):
     offs = [(c, m) for c, lit, m in sub.events if not lit]
     assert offs == [], f'the run darkened a light its end relights\n{sub.render()}'
-    lit = {r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT}
+    lit = {r.name for r in scope.illumination.led_states() if r.state is LedState.LIT}
     assert lit == {'BF'}, sub.render()
 
 
@@ -655,7 +655,7 @@ def _lit_as_each_autofocus_scan_step_starts(scope, runner, tmp_path, specs, **kw
 
     def seen(step_index):
         lit_at[step_index] = {
-            r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT
+            r.name for r in scope.illumination.led_states() if r.state is LedState.LIT
         }
 
     af_fields = {'Objective': AF_OBJECTIVE, 'Z': PARKED_Z_UM, 'Exposure': 2.0, 'Gain': 1.0}

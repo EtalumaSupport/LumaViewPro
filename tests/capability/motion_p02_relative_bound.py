@@ -14,10 +14,10 @@ def body(s):
     m = s.scope.motion
     m.home('ALL')
     print('MOTOR_POSITION_LIMIT =', MOTOR_POSITION_LIMIT, flush=True)
-    print('Z travel limits =', m.get_axis_limits('Z'), flush=True)
+    print('Z travel limits =', m.axis_limits('Z'), flush=True)
 
     m.move_z(2000.0)
-    zmax = m.get_axis_limits('Z').max_um
+    zmax = m.axis_limits('Z').max_um
 
     # a jog well past the travel ceiling but inside the safety limit
     over = zmax + 5000.0

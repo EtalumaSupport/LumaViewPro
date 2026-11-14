@@ -438,7 +438,7 @@ def hardware_session(objective=None):
         scope = session.scope
         IDENTITY.update(
             model=scope.channel_identity.model,
-            motor=scope.diagnostics.get_motor_info().to_dict(),
+            motor=scope.diagnostics.motor_info().to_dict(),
             camera={
                 'model': scope.capabilities.camera_model,
                 'serial': scope.capabilities.camera_serial_number,

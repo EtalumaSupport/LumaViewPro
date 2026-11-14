@@ -2,7 +2,7 @@
 """ImagingAPI state guarded by ``_state_lock`` must never be touched without it.
 
 The scale bar's settings were once written by the GUI thread and read by the
-capture and live-view threads inside ``get_image`` / ``get_image_from_buffer``,
+capture and live-view threads inside ``capture_image`` / ``buffered_image``,
 with none of those sites holding the lock that the public accessors took, so
 a toggle landing between two unlocked reads drew a bar from two
 configurations. The capture's record (``_last_capture_info``) and its summing

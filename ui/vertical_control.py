@@ -92,7 +92,7 @@ class VerticalControl(BoxLayout):
     def show_z_travel(self) -> None:
         """Span the focus slider over the scope's Z travel.
 
-        The travel is ``MotionAPI.get_axis_limits('Z')``, the one owner of
+        The travel is ``MotionAPI.axis_limits('Z')``, the one owner of
         it; the slider's kv range is a placeholder until this runs at
         bring-up. The range is display: a move past travel is the API's
         refusal, whatever the slider offers.
@@ -100,7 +100,7 @@ class VerticalControl(BoxLayout):
         scope = _app_ctx.ctx.lumaview.scope
         if not scope.capabilities.has_focus:
             return
-        travel = scope.motion.get_axis_limits('Z')
+        travel = scope.motion.axis_limits('Z')
         slider = self.ids['obj_position']
         slider.min = travel.min_um
         slider.max = travel.max_um
@@ -119,7 +119,7 @@ class VerticalControl(BoxLayout):
         has focus, so a drag is not overwritten.
         """
         slider = self.ids['obj_position']
-        target = _app_ctx.ctx.lumaview.scope.motion.get_target_positions().get('Z')
+        target = _app_ctx.ctx.lumaview.scope.motion.target_positions().get('Z')
         if target is not None and not slider.user_interacting:
             slider.value = target
         self._write_z_text(polled)
@@ -238,7 +238,7 @@ class VerticalControl(BoxLayout):
         ctx = _app_ctx.ctx
         turret = ctx.scope.motion.turret_status()
         slot = turret.slot if turret is not None else None
-        for position, assigned in ctx.scope.runtime_state.get_turret_config().items():
+        for position, assigned in ctx.scope.runtime_state.turret_config().items():
             button = self.ids[f'turret_pos_{position}_btn']
             button.state = 'down' if position == slot else 'normal'
             # A name outside the catalogue is shown as assigned, because it
@@ -254,7 +254,7 @@ class VerticalControl(BoxLayout):
             # The turret row is shown only on a scope that has one.
             slots = ' '.join(
                 f'{position}={self.ids[f"turret_pos_{position}_btn"].text}'
-                for position in ctx.scope.runtime_state.get_turret_config()
+                for position in ctx.scope.runtime_state.turret_config()
             )
             shown += f' slot={slot} turret=[{slots}]'
         gui_logger.display('OBJECTIVE', shown)

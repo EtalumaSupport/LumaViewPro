@@ -61,11 +61,11 @@ def _run_and_wait_for_files(session, tmp_path, protocol):
 def test_the_run_ends_at_the_steps_z_and_the_image_says_so(zonly_session, tmp_path):
     motion = zonly_session.scope.motion
     assert not zonly_session.scope.capabilities.has_xy_stage
-    assert motion.get_actual_position('Z') == pytest.approx(START_Z_UM)
+    assert motion.read_actual_position('Z') == pytest.approx(START_Z_UM)
 
     _run_and_wait_for_files(zonly_session, tmp_path, _step_at(STEP_Z_UM))
 
-    assert motion.get_actual_position('Z') == pytest.approx(STEP_Z_UM)
+    assert motion.read_actual_position('Z') == pytest.approx(STEP_Z_UM)
     (image,) = [
         p for p in pathlib.Path(tmp_path).rglob('*') if p.suffix.lower() in ('.tif', '.tiff')
     ]

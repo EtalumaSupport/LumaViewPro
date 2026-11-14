@@ -55,7 +55,7 @@ def test_a_live_folder_that_is_not_there_is_named_and_nothing_is_collected_in_it
     sim_session_on_its_own_installation, documents, tmp_path, monkeypatch
 ):
     session = sim_session_on_its_own_installation
-    live = pathlib.Path(session.get_setting('live_folder'))
+    live = pathlib.Path(session.setting('live_folder'))
     shutil.rmtree(live)
 
     report = _logs_zip(session, tmp_path, monkeypatch)
@@ -69,7 +69,7 @@ def test_the_disk_speed_is_not_tested_without_the_live_folder(
     sim_session_on_its_own_installation, tmp_path
 ):
     session = sim_session_on_its_own_installation
-    live = pathlib.Path(session.get_setting('live_folder'))
+    live = pathlib.Path(session.setting('live_folder'))
     shutil.rmtree(live)
     bundle = tmp_path / 'bundle'
     bundle.mkdir()

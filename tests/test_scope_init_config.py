@@ -119,5 +119,5 @@ class TestAccelerationBound:
         # Bound as a session binds it: the limit the board takes is stored there.
         bind_settings_like_a_session(scope)
         with pytest.raises(ValueError):
-            scope.motion.set_acceleration_limit(limit_pct=ACCELERATION_PCT_MAX + 1)
-        scope.motion.set_acceleration_limit(limit_pct=ACCELERATION_PCT_MAX)
+            scope.motion.set_acceleration_limit_pct(limit_pct=ACCELERATION_PCT_MAX + 1)
+        scope.motion.set_acceleration_limit_pct(limit_pct=ACCELERATION_PCT_MAX)

@@ -36,18 +36,18 @@ def test_the_answers_name_their_axes_by_the_members(session):
     motion = session.scope.motion
     seen = []
     motion.add_position_listener(lambda axis, at: seen.append(axis))
-    motion.move_z(motion.get_target_positions()['Z'] + 1.0)
+    motion.move_z(motion.target_positions()['Z'] + 1.0)
     motion.wait_until_finished_moving()
 
     answered = {
         'axis_positions': list(motion.axis_positions()),
-        'get_target_positions': list(motion.get_target_positions()),
+        'target_positions': list(motion.target_positions()),
         'Status.axes': list(session.status.axes),
         'position event': seen[:1],
     }
     assert {name: [(type(a), a) for a in axes] for name, axes in answered.items()} == {
         'axis_positions': [(StageAxis, a) for a in 'XYZ'],
-        'get_target_positions': [(StageAxis, a) for a in 'XYZ'],
+        'target_positions': [(StageAxis, a) for a in 'XYZ'],
         'Status.axes': [(StageAxis, a) for a in 'XYZ'],
         'position event': [(StageAxis, 'Z')],
     }

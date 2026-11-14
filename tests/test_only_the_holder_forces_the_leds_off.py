@@ -38,7 +38,7 @@ def session(tmp_path):
 
 
 def _lit(scope):
-    return [r.name for r in scope.illumination.get_led_states() or () if r.state == LedState.LIT]
+    return [r.name for r in scope.illumination.led_states() or () if r.state == LedState.LIT]
 
 
 def test_a_force_off_from_outside_the_activity_is_refused_and_sends_nothing(session):

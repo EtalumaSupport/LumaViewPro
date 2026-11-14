@@ -353,12 +353,12 @@ class TestAMoveUnderWay:
 class TestTheMotorBoardsConfig:
     def test_get_axis_limits(self, motor):
         board, _sim = motor
-        assert board.get_axis_limits('Z') == {'min': 0.0, 'max': 14000.0}
+        assert board.axis_limits('Z') == {'min': 0.0, 'max': 14000.0}
 
     def test_get_axis_limits_on_an_axis_the_board_lacks_is_refused(self, motor):
         board, _sim = motor
         with pytest.raises(PartAbsentError, match=r'Unsupported axis \(Q\)'):
-            board.get_axis_limits('Q')
+            board.axis_limits('Q')
 
     def test_get_axes_config_has_all_four_axes_of_a_turret_scope(self, motor):
         board, _sim = motor

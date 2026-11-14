@@ -396,7 +396,7 @@ def generate_image_metadata(
 
     # Instrument + Plate metadata for OME-XML compatibility (#491). The
     # board's identity is what it reported at connect: no serial traffic.
-    motor_info = scope.diagnostics.get_motor_info()
+    motor_info = scope.diagnostics.motor_info()
     # The frame's own exposure and gain, from its record: the capture took
     # them from the frame's chunks, or beside the grab on a camera without
     # chunks, and left out a value it could not read -- so an absent key

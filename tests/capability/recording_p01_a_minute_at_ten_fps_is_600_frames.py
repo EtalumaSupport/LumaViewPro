@@ -148,7 +148,7 @@ def main():
         if HARDWARE:
             import pathlib
 
-            live = pathlib.Path(session.get_settings_snapshot()['live_folder'])
+            live = pathlib.Path(session.settings_snapshot()['live_folder'])
             figure('live_folder', str(live))
         _manual(session, args.layer, live)
         _video_step(session, runner, args.layer, live)

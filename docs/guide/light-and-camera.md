@@ -34,7 +34,7 @@ written again.
 
 ```python
 scope.illumination.led_on('Ex405', 50)
-print(scope.illumination.get_led_states())  # one LedReading per board address
+print(scope.illumination.led_states())  # one LedReading per board address
 scope.illumination.leds_off()
 ```
 
@@ -45,7 +45,7 @@ from anyone else is refused `'exclusive_activity_running'`. While a recording
 runs, lighting an LED that is dark or at 0 mA is refused the same way;
 changing the current of an LED lit above 0 mA, and turning one off, are open. Work that borrows the
 light and gives it back reads it first and restores it after
-(`get_led_states`, then `restore_led_state` with what it answered).
+(`led_states`, then `restore_led_state` with what it answered).
 
 **The shown channel.** LumaViewPro shows one channel at a time, and so does
 the session: `session.show_channel(channel)` puts that channel's stored gain,
@@ -124,7 +124,7 @@ reads answer `OFF`, and turning it on is refused
 `CameraSettingUnsupportedError`.
 
 **Black level.** `set_black_level(level)` writes the camera's black level,
-`read_black_level()` reads it fresh, and `get_black_level_range()` answers its
+`read_black_level()` reads it fresh, and `read_black_level_range()` answers its
 range; every saved file records it.
 
 **Geometry and image mode.** `set_binning(size)` and

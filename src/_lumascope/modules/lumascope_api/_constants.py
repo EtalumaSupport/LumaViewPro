@@ -29,7 +29,7 @@ from _lumascope.modules.axes import AxisState
 SIMULATOR_TIERS = ('fast', 'firmware', 'realistic')
 
 # Absolute position bounds in um -- generous outer limits. Per-axis
-# travel is the API's to refuse (MotionAPI.get_axis_limits).
+# travel is the API's to refuse (MotionAPI.axis_limits).
 MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
 
 # The turret's four positions. Unlike X/Y/Z this is not travel and not um:

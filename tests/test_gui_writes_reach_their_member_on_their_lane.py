@@ -175,7 +175,7 @@ def test_the_acceleration_limit_is_written_on_the_io_lane(ctx, boundary, monkeyp
         _pending_acceleration_pct=40, _show_stored_acceleration_limit=lambda: None
     )
     # The Session member commands the motors and stores what they took.
-    ctx.session.set_acceleration_limit = MagicMock()
+    ctx.session.set_acceleration_limit_pct = MagicMock()
 
     advanced_settings.AdvancedSettings._dispatch_acceleration_to_motor(widget)
 
@@ -183,7 +183,7 @@ def test_the_acceleration_limit_is_written_on_the_io_lane(ctx, boundary, monkeyp
     assert submit.lane is ctx.io_executor
     # The redraw shows the stored limit, so a refused entry does not stay in the box.
     assert submit.redraw is widget._show_stored_acceleration_limit
-    ctx.session.set_acceleration_limit.assert_called_once_with(40)
+    ctx.session.set_acceleration_limit_pct.assert_called_once_with(40)
 
 
 def test_goto_focus_starts_the_sessions_go_to_focus_on_the_io_lane(ctx, boundary, monkeypatch):

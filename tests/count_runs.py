@@ -39,7 +39,7 @@ def _over_a_well(session, wells: int = 1) -> list[dict]:
     motion.move_xy(y_um=30000.0)
     motion.move_z(1000.0)
     motion.wait_until_finished_moving(timeout_s=60)
-    here = session.get_current_plate_position()
+    here = session.plate_position()
     return [
         {'x': here.x_mm + i * _WELL_PITCH_MM, 'y': here.y_mm, 'z': here.z_um, 'name': f'P{i}'}
         for i in range(wells)

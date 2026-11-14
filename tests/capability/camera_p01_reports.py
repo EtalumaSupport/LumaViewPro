@@ -5,7 +5,7 @@ level (`read_black_level`) and the one each captured frame's record carries,
 the frame rate its settings allow (`read_frame_rate_fps`; the FX2
 reports none), the frame rate the stream delivers (frame arrivals counted
 by a frame listener, at the session's exposure and at 1 ms), and the link
-(`diagnostics.get_camera_link_info`). Reads only; a scope with a stage does
+(`diagnostics.read_camera_link`). Reads only; a scope with a stage does
 not move.
 
     python tests/capability/camera_p01_reports.py             # an LS620 simulator
@@ -95,7 +95,7 @@ def main():
         finally:
             camera_api.set_exposure_ms(exposure)
 
-        link = scope.diagnostics.get_camera_link_info()
+        link = scope.diagnostics.read_camera_link()
         figure('link', link)
         check('the link is reported', link is not None, link)
         if link is not None:

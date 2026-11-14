@@ -117,7 +117,7 @@ def test_a_stored_folder_that_cannot_be_created_still_brings_the_scope_up(tmp_pa
 
     session = ScopeSession.create(settings, source_path=str(directory), simulate=True)
     try:
-        assert session.get_setting('live_folder') == str(unreachable)
+        assert session.setting('live_folder') == str(unreachable)
     finally:
         session.shutdown()
     assert len(_warnings_naming(caplog, unreachable)) == 1
@@ -138,7 +138,7 @@ def test_a_handed_folder_that_cannot_be_created_is_warned_about_at_create(tmp_pa
         {'live_folder': str(unreachable)}, source_path=str(directory), simulate=True
     )
     try:
-        assert session.get_setting('live_folder') == str(unreachable)
+        assert session.setting('live_folder') == str(unreachable)
     finally:
         session.shutdown()
     assert len(_warnings_naming(caplog, unreachable)) == 1

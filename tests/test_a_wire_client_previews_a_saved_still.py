@@ -30,7 +30,7 @@ def _jpeg(answer) -> np.ndarray:
 
 
 def _name(session, still) -> str:
-    return still.file.relative_to(session.get_setting('live_folder')).as_posix()
+    return still.file.relative_to(session.setting('live_folder')).as_posix()
 
 
 @pytest.fixture
@@ -92,7 +92,7 @@ def test_a_colour_file_previews_grey(tmp_path):
 
 def test_a_name_that_is_no_file_or_no_image_is_refused(summed):
     session, client, _ = summed
-    (pathlib.Path(session.get_setting('live_folder')) / 'notes.txt').write_bytes(b'not an image')
+    (pathlib.Path(session.setting('live_folder')) / 'notes.txt').write_bytes(b'not an image')
 
     missing = client.get('/api/v1/previews/nothing_here.tiff')
     unreadable = client.get('/api/v1/previews/notes.txt')

@@ -26,7 +26,7 @@ def session():
 
 
 def _lit(session) -> set[str]:
-    return {r.name for r in session.scope.illumination.get_led_states() if r.state is LedState.LIT}
+    return {r.name for r in session.scope.illumination.led_states() if r.state is LedState.LIT}
 
 
 def test_the_session_comes_up_showing_bf_dark(session):

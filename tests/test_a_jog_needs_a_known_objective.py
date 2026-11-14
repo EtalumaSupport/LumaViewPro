@@ -84,13 +84,13 @@ def test_the_step_is_the_active_objective_s(turret_session):
 def test_a_jog_moves_its_steps_of_the_objective_s_step(turret_session):
     motion = _homed_at(turret_session, 1)
     objective = turret_session.scope.objectives['4x Oly']
-    z = motion.get_target_positions()['Z']
+    z = motion.target_positions()['Z']
 
     motion.start_jog('Z', 1, coarse=False).result()
     motion.start_jog('Z', 1.5, coarse=False).result()
 
     # The board holds Z in microsteps, so the target is the distance to within one.
-    assert motion.get_target_positions()['Z'] == pytest.approx(
+    assert motion.target_positions()['Z'] == pytest.approx(
         z + 2.5 * objective.jog_z_fine_um, abs=0.01
     )
 
@@ -100,7 +100,7 @@ def test_a_jog_after_a_failed_home_is_refused_by_the_motion_gate_not_the_objecti
 ):
     """The turret has no slot, so the objective is unknown too; the gate answers first."""
     motion = failed_home_session.scope.motion
-    before = motion.get_target_positions()
+    before = motion.target_positions()
 
     for axis, steps, coarse in (('Z', 1, False), ('X', -1, True)):
         with pytest.raises(AxisStateUnknownError) as refused:
@@ -108,7 +108,7 @@ def test_a_jog_after_a_failed_home_is_refused_by_the_motion_gate_not_the_objecti
         assert refused.value.reason == 'position_unknown'
         assert set(refused.value.axes_without_position) == {'X', 'Y', 'Z', 'T'}
 
-    assert motion.get_target_positions() == before
+    assert motion.target_positions() == before
 
 
 def test_an_unknown_objective_on_a_scope_that_may_move_is_refused_with_its_reason(
@@ -154,14 +154,14 @@ def test_an_axis_without_a_jog_is_refused(turret_session):
 
 def test_steps_that_are_not_a_finite_number_are_refused_and_nothing_moves(turret_session):
     motion = _homed_at(turret_session, 1)
-    before = motion.get_target_positions()
+    before = motion.target_positions()
 
     for steps in (float('nan'), float('inf')):
         with pytest.raises(ArgumentRefusedError) as refused:
             motion.start_jog('Z', steps, coarse=False)
         assert refused.value.reason == 'not_a_number'
 
-    assert motion.get_target_positions() == before
+    assert motion.target_positions() == before
 
 
 def test_every_gui_jog_hands_the_gesture_to_the_api_and_sizes_nothing():

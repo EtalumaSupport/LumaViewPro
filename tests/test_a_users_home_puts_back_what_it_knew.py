@@ -9,7 +9,7 @@ it was known before the home. The startup motion always homes plainly, so
 every session starts on slot 1.
 
 Each test runs a simulated LS850T (X, Y, Z and a turret) through the API and
-reads the result through ``turret_status``, ``get_target_positions`` and the
+reads the result through ``turret_status``, ``target_positions`` and the
 simulated board's own turret target: the recorded slot alone could be right
 while the board is not.
 """
@@ -54,7 +54,7 @@ def _where(scope):
     return (
         scope.motion.turret_status().slot,
         scope._motion_driver.target_pos('T'),
-        scope.motion.get_target_positions()['Z'],
+        scope.motion.target_positions()['Z'],
     )
 
 
@@ -99,7 +99,7 @@ def test_a_z_home_puts_the_focus_back(session):
 
     scope.motion.home('Z', put_back=True)
 
-    assert scope.motion.get_target_positions()['Z'] == _FOCUS_UM
+    assert scope.motion.target_positions()['Z'] == _FOCUS_UM
 
 
 def test_a_turret_home_puts_the_turret_back_and_z_with_it(session):

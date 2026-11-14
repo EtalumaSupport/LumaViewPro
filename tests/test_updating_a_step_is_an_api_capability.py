@@ -197,7 +197,7 @@ class TestAScriptUpdatesAStepThroughTheSession:
         session.update_step(protocol, 0, channel='BF')
 
         step = _step(protocol)
-        position = session.get_current_plate_position()
+        position = session.plate_position()
         assert (step['X'], step['Y'], step['Z']) == (position.x_mm, position.y_mm, position.z_um)
         assert step['Objective'] == session.scope.runtime_state.resolve_current_objective()[0]
 

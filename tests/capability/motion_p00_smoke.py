@@ -8,9 +8,9 @@ try:
     print('motor_connected:', s.scope.motor_connected)
     print('has_xy_stage:', s.scope.capabilities.has_xy_stage)
     print('has_turret:', getattr(s.scope.capabilities, 'has_turret', 'n/a'))
-    print('limits X:', m.get_axis_limits('X'))
-    print('limits Y:', m.get_axis_limits('Y'))
-    print('limits Z:', m.get_axis_limits('Z'))
+    print('limits X:', m.axis_limits('X'))
+    print('limits Y:', m.axis_limits('Y'))
+    print('limits Z:', m.axis_limits('Z'))
     print('current:', m.get_current_positions())
     # Before a home the plate position is refused; the axes say why.
     print('axis positions:', m.axis_positions())

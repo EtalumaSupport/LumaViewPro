@@ -63,7 +63,7 @@ def turret_session(tmp_path):
 
 
 def _xy(motion) -> tuple[float, float]:
-    targets = motion.get_target_positions()
+    targets = motion.target_positions()
     return targets['X'], targets['Y']
 
 
@@ -99,7 +99,7 @@ def test_an_unconfirmed_objective_with_no_turret_refuses_and_moves_nothing(tmp_p
 
 def test_a_point_moves_each_axis_by_its_fraction_of_the_field_from_the_centre(turret_session):
     scope = turret_session.scope
-    field = scope.runtime_state.get_field_of_view()
+    field = scope.runtime_state.field_of_view()
 
     scope.motion.start_center_on(0.5, 0.5).result()
     assert _xy(scope.motion) == pytest.approx((60_000.0, 40_000.0), abs=0.01)
@@ -115,7 +115,7 @@ def test_a_point_whose_y_is_past_travel_moves_neither(turret_session):
     """One X and Y request: refused, it moves neither, never X then a refused Y."""
     motion = turret_session.scope.motion
     dy = turret_session.scope.runtime_state.frame_point_distance(0.6, 0.1).dy_um
-    limits = motion.get_axis_limits('Y')
+    limits = motion.axis_limits('Y')
     # Y half the point's distance short of the end it would move past.
     y = limits.max_um - dy / 2
     motion.move_xy(60_000.0, y)

@@ -34,7 +34,7 @@ _KEEPERS = (
     ),
     (_SESSION, 'ScopeSession', 'get_sequenced_capture_config', 'settled_positions'),
     (_SESSION, 'ScopeSession', 'save_bookmark', 'kept_plate_position'),
-    (_SESSION, 'ScopeSession', 'get_current_plate_position', 'kept_plate_position'),
+    (_SESSION, 'ScopeSession', 'plate_position', 'kept_plate_position'),
     (_SESSION, 'ScopeSession', 'plate_position_on', 'get_current_plate_position'),
     (_SESSION, 'ScopeSession', 'add_step', 'plate_position_on'),
     (_SESSION, 'ScopeSession', 'update_step', 'plate_position_on'),

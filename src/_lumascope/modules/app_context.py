@@ -159,7 +159,7 @@ class AppContext:
     # holding either half would let a caller construct a second store, or
     # a lock guarding only one alias of the dict, and nothing would report
     # the mismatch. Forwarding makes both unconstructible. Worker threads
-    # take get_settings_snapshot() at task entry and read from that;
+    # take settings_snapshot() at task entry and read from that;
     # writers off the host thread use update_settings().
 
     @property
@@ -172,9 +172,9 @@ class AppContext:
         """The lock guarding the settings dict, owned by the session."""
         return self._require_session().settings_lock
 
-    def get_settings_snapshot(self) -> dict:
+    def settings_snapshot(self) -> dict:
         """A deep copy of settings taken under the lock."""
-        return self._require_session().get_settings_snapshot()
+        return self._require_session().settings_snapshot()
 
     def update_settings(self, path: str, value: object) -> None:
         """Write one setting by its dotted path; ``ScopeSession.update_settings``."""

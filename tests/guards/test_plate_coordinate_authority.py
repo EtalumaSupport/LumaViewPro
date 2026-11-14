@@ -57,14 +57,14 @@ class TestTheScopeCarriesTheGeometryTheBandsAssume:
         to any of them fails here, by name, before a band case fails by number."""
         labware = scope.runtime_state.get_labware()
         assert {'x': labware.width_mm, 'y': labware.height_mm} == PLATE_DIMENSIONS
-        assert scope.runtime_state.get_stage_offset() == STAGE_OFFSET
-        assert {axis: scope.motion.get_axis_limits(axis) for axis in AXIS_TRAVEL} == (AXIS_TRAVEL)
+        assert scope.runtime_state.stage_offset() == STAGE_OFFSET
+        assert {axis: scope.motion.axis_limits(axis) for axis in AXIS_TRAVEL} == (AXIS_TRAVEL)
 
 
 class TestRefusalNamesWhatTheUserTyped:
     def test_out_of_plate_entry_reports_the_typed_number(self, scope):
         """The message carries 180, not the -98520.0 it converts to, and Y stays."""
-        target_before = scope.motion.get_target_positions()['Y']
+        target_before = scope.motion.target_positions()['Y']
 
         with pytest.raises(PositionOutOfRangeError) as exc:
             scope.motion.move_to_plate(_y(180.0))
@@ -73,7 +73,7 @@ class TestRefusalNamesWhatTheUserTyped:
         assert '-98520' not in str(exc.value)
         assert exc.value.bound == 'reachable range'
         assert exc.value.quantity == 'plate position'
-        assert scope.motion.get_target_positions()['Y'] == target_before
+        assert scope.motion.target_positions()['Y'] == target_before
 
     def test_a_clicked_coordinate_is_stated_as_the_range_is(self, scope):
         """A plate point from a click is a float of sixteen digits; the
@@ -105,7 +105,7 @@ class TestRefusalNamesWhatTheUserTyped:
         """40 mm is inside the band and the stage goes to its stage um."""
         scope.motion.move_to_plate(_y(40.0))
 
-        assert scope.motion.get_target_positions()['Y'] == pytest.approx(41480.0)
+        assert scope.motion.target_positions()['Y'] == pytest.approx(41480.0)
 
 
 class TestEquivalentToTheTravelCheck:
@@ -196,14 +196,14 @@ class TestAPickedPointGoesAsNearAsTheStageReaches:
         """The plate frame inverts both axes: a plate point below the plate is
         past the travel's maximum, one beyond it below its minimum."""
         motion = offset_scope.motion
-        limits = {axis: motion.get_axis_limits(axis) for axis in ('X', 'Y')}
+        limits = {axis: motion.axis_limits(axis) for axis in ('X', 'Y')}
         corner = {
             axis: (limit.max_um if far < 0 else limit.min_um) for axis, limit in limits.items()
         }
 
         went = motion.move_to_plate_nearest(PlateLocation(x_mm=far, y_mm=far, z_um=None))
 
-        targets = motion.get_target_positions()
+        targets = motion.target_positions()
         assert (targets['X'], targets['Y']) == (corner['X'], corner['Y'])
         on_plate = offset_scope.runtime_state.stage_to_plate(corner['X'], corner['Y'])
         assert went == PlateLocation(x_mm=on_plate.x_mm, y_mm=on_plate.y_mm, z_um=None)
@@ -218,7 +218,7 @@ class TestAPickedPointGoesAsNearAsTheStageReaches:
 
         assert went == asked
         expected = offset_scope.runtime_state.plate_to_stage(asked.x_mm, asked.x_mm).x_um
-        assert motion.get_target_positions()['X'] == expected
+        assert motion.target_positions()['X'] == expected
 
 
 def _y(plate_mm: float) -> PlateLocation:
@@ -242,7 +242,7 @@ class TestHatchesAndBoundaries:
         scope = build_scope(simulate=True)
 
         with pytest.raises(ConfigError, match='stage_offset'):
-            scope.runtime_state.get_stage_offset()
+            scope.runtime_state.stage_offset()
 
 
 class TestEnumeratorsKeepTheirValue:

@@ -1674,7 +1674,7 @@ class MotionAPI:
         return objective.jog_xy_coarse_um if coarse else objective.jog_xy_fine_um
 
     @api(in_process=True, reads=True, engineering=True)
-    def get_actual_position(self, axis: StageAxis) -> float | None:
+    def read_actual_position(self, axis: StageAxis) -> float | None:
         """The motor controller's own answer for a stage axis's position, in um: the bench's read, not a client's.
 
         A caller reads ``axis_positions``, which pairs each position with
@@ -1684,7 +1684,7 @@ class MotionAPI:
         arrived where the board says it is, and
         ``tests/capability/serial_p01_cable_pull.py`` watches the read meet
         a pulled cable. The commanded target is a third thing again --
-        ``get_target_positions`` answers that.
+        ``target_positions`` answers that.
 
         Costs one serial round-trip (~5ms).
 
@@ -1712,7 +1712,7 @@ class MotionAPI:
         """
         if not self._has_position(axis):
             return None
-        self.refuse_absent('get_actual_position')
+        self.refuse_absent('read_actual_position')
         return self._driver.current_pos(axis)
 
     @api(admitted_by=(Admission.LANE_CALL,))
@@ -1791,7 +1791,7 @@ class MotionAPI:
             return False
 
     @api(in_process=True, reads=True, engineering=True)
-    def get_limit_switch_status(self, axis: Axis) -> tuple[int, int]:
+    def read_limit_switches(self, axis: Axis) -> tuple[int, int]:
         """Get the limit switch status for an axis.
 
         Tells a caller WHY a move stopped short: an axis that reached a limit
@@ -1826,7 +1826,7 @@ class MotionAPI:
                 ``refuse_absent``); a switch the scope does not have is
                 never answered as clear.
         """
-        self.refuse_absent('get_limit_switch_status', axis)
+        self.refuse_absent('read_limit_switches', axis)
         return self._driver.limit_switch_status(axis=axis)
 
     def get_limit_switch_status_all_axes(self) -> dict:
@@ -1834,7 +1834,7 @@ class MotionAPI:
 
         Returns:
             dict: Axis name -> the ``(left, right)`` pair described on
-            ``get_limit_switch_status``. Covers only the axes the board
+            ``read_limit_switches``. Covers only the axes the board
             reports, so a scope without a turret has no "T" key.
 
         Raises:
@@ -1845,11 +1845,11 @@ class MotionAPI:
         self.refuse_absent('get_limit_switch_status_all_axes')
         resp = {}
         for axis in self._scope.capabilities.axes:
-            resp[axis] = self.get_limit_switch_status(axis=axis)
+            resp[axis] = self.read_limit_switches(axis=axis)
         return resp
 
     @_guarded_write
-    def set_acceleration_limit(self, limit_pct: int) -> None:
+    def set_acceleration_limit_pct(self, limit_pct: int) -> None:
         """Set the motor controller acceleration limit (percent of max), and store it.
 
         Stored (``motion.acceleration_max_pct``) in the same lane task, once
@@ -1885,7 +1885,7 @@ class MotionAPI:
         """
         return self._dispatch_motion(
             self._set_and_store_acceleration_limit_impl,
-            'set_acceleration_limit',
+            'set_acceleration_limit_pct',
             kwargs={'limit_pct': limit_pct},
             timeout_s=self._MOTION_WAIT_BASE_S,
         )
@@ -1895,7 +1895,7 @@ class MotionAPI:
         self._scope._store_settings({'motion.acceleration_max_pct': limit_pct})
 
     def _set_acceleration_limit_impl(self, limit_pct: int) -> None:
-        self.refuse_absent('set_acceleration_limit')
+        self.refuse_absent('set_acceleration_limit_pct')
         refuse_acceleration_pct(limit_pct)
         self._driver.set_acceleration_limits(val_pct=limit_pct)
 
@@ -2146,7 +2146,7 @@ class MotionAPI:
             return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
 
     @api(reads=True)
-    def get_axis_limits(self, axis: Axis) -> AxisLimits | None:
+    def axis_limits(self, axis: Axis) -> AxisLimits | None:
         """Get the travel limits for an axis, in um.
 
         Args:
@@ -2165,8 +2165,8 @@ class MotionAPI:
                 ``refuse_absent``); an axis the scope does not have has no
                 travel to answer with.
         """
-        self.refuse_absent('get_axis_limits', axis)
-        limits = self._driver.get_axis_limits(axis=axis)
+        self.refuse_absent('axis_limits', axis)
+        limits = self._driver.axis_limits(axis=axis)
         if limits is None:
             return None
         return AxisLimits(min_um=float(limits['min']), max_um=float(limits['max']))
@@ -2514,7 +2514,7 @@ class MotionAPI:
         return None
 
     def _target_position(self, axis: str) -> float | None:
-        """One axis's target by the rule ``get_target_positions`` uses, read from the axis store as it stands; None for an axis with no hardware behind it (``_has_position``).
+        """One axis's target by the rule ``target_positions`` uses, read from the axis store as it stands; None for an axis with no hardware behind it (``_has_position``).
 
         Unlike the published read, an axis whose position is not known
         answers its cached number: the home's put-back and the turret's Z
@@ -2529,7 +2529,7 @@ class MotionAPI:
         return target if target is not None else self._read_position_cache(axis)
 
     @api(reads=True)
-    def get_target_positions(self) -> dict[StageAxis, float | None]:
+    def target_positions(self) -> dict[StageAxis, float | None]:
         """The target of every stage axis the scope has a position for (where it is commanded to go), by axis name, in um.
 
         The last target this API wrote to the board for each axis, while
@@ -2640,11 +2640,11 @@ class MotionAPI:
         """
         stage_position = self._plate_to_stage_um(axis, plate_mm)
 
-        limits = self.get_axis_limits(axis)
+        limits = self.axis_limits(axis)
         if limits is not None and not (limits.min_um <= stage_position <= limits.max_um):
             labware = self._scope.runtime_state.get_labware()
             dimension = labware.width_mm if axis == 'X' else labware.height_mm
-            offset = self._scope.runtime_state.get_stage_offset()
+            offset = self._scope.runtime_state.stage_offset()
             offset_mm = (offset.x_um if axis == 'X' else offset.y_um) / 1000
 
             def reachable(edge_mm: float) -> bool:
@@ -2687,7 +2687,7 @@ class MotionAPI:
         drive takes.
         """
         stage_um = self._plate_to_stage_um(axis, plate_mm)
-        limits = self.get_axis_limits(axis)
+        limits = self.axis_limits(axis)
         if limits is None:
             return stage_um
         return min(max(stage_um, limits.min_um), limits.max_um)
@@ -2766,12 +2766,12 @@ class MotionAPI:
         # That does not make them unbounded: the turret's own bound is
         # checked below, against its slots.
         if not ignore_limits:
-            limits = self.get_axis_limits(axis)
+            limits = self.axis_limits(axis)
             if limits is not None and not (limits.min_um <= position <= limits.max_um):
                 raise PositionOutOfRangeError(axis, position, limits.min_um, limits.max_um)
 
         # The turret's bound, which the travel check above cannot express: a
-        # slot is not a distance, so get_axis_limits returns None for T and
+        # slot is not a distance, so axis_limits returns None for T and
         # nothing there refuses anything. Without this, a T target of 99 is
         # 24.5 revolutions. No public move takes T; the caller that reaches
         # this body with T is move_turret, and the bound keeps that one
@@ -2927,7 +2927,7 @@ class MotionAPI:
         # offset into an absolute move beyond travel and nothing refused it,
         # so a jog past a limit reported success from wherever the stage
         # stopped.
-        limits = self.get_axis_limits(axis)
+        limits = self.axis_limits(axis)
         if limits is not None and not (limits.min_um <= target_pos <= limits.max_um):
             raise PositionOutOfRangeError(axis, target_pos, limits.min_um, limits.max_um)
         return target_pos

@@ -57,7 +57,7 @@ class TestTheRunReadsOneSnapshotOfTheSettings:
         snapshot['live_folder'] = str(tmp_path)
         snapshot['keep_led_between_steps'] = True
         snapshot['protocol']['autogain']['target_brightness'] = 0.123
-        runner.session.get_settings_snapshot.return_value = snapshot
+        runner.session.settings_snapshot.return_value = snapshot
 
         _run(runner, 'start_protocol')
 

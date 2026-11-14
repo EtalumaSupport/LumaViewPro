@@ -922,7 +922,7 @@ class TestTheRefusalFunnel:
                 'capabilities',
                 dataclasses.replace(scope.capabilities, has_turret=True),
             )
-            mp.setattr(scope.runtime_state, 'get_turret_config', lambda: {1: '10x Oly'})
+            mp.setattr(scope.runtime_state, 'turret_config', lambda: {1: '10x Oly'})
             return _make_two_objective_protocol()
 
         def channel_not_on_scope(mp):

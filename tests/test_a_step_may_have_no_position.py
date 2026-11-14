@@ -237,7 +237,7 @@ def test_the_plate_read_and_the_steps_record_nothing_for_an_absent_axis(
 ):
     session = make_session(model, acquiring=('BF',))
 
-    here = session.get_current_plate_position()
+    here = session.plate_position()
     added = session.create_empty_protocol()
     session.add_step(added)
     new = session.new_protocol()

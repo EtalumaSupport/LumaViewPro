@@ -190,7 +190,7 @@ def _session_over_a_focus_target(tmp_path, *, in_focus=True):
 
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
         motion = session.scope.motion
-        limits = motion.get_axis_limits('Z')
+        limits = motion.axis_limits('Z')
         # Mid-travel, so the sweep's window fits inside Z's travel.
         mid = (limits.min_um + limits.max_um) / 2.0
         motion.move_z(mid)

@@ -5,7 +5,7 @@ The drivers' position reads answered None on a failed exchange (the
 simulator 0, the null board 0.0), and each reader took the stand-in for
 a position: the Z move decided "not above the target" and skipped its
 backlash leg, reporting arrived with the backlash taken the wrong way;
-``get_actual_position`` answered 0.0. The reads now raise, and each
+``read_actual_position`` answered 0.0. The reads now raise, and each
 reader decides where it owns the decision.
 """
 
@@ -65,14 +65,14 @@ def test_a_z_move_whose_position_cannot_be_read_is_refused_with_nothing_written(
 def test_the_actual_position_raises_when_the_board_does_not_report_it(scope):
     scope.simulation.drop_replies('motor', count=None, command='ACTUAL_RZ')
     with pytest.raises(HardwareError):
-        scope.motion.get_actual_position('Z')
+        scope.motion.read_actual_position('Z')
 
 
 def test_the_actual_position_is_refused_with_no_board(scope):
     scope.motion._disconnect()
     scope._motion_driver.disconnect()
     with pytest.raises(HardwareCommandRefusedError) as exc:
-        scope.motion.get_actual_position('Z')
+        scope.motion.read_actual_position('Z')
     assert exc.value.reason == 'not_connected'
 
 

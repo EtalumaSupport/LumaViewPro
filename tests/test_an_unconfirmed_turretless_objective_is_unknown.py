@@ -86,7 +86,7 @@ def test_an_unconfirmed_objective_is_unknown_and_asked_for(tmp_path, case):
             _ = session.objective_id
         assert no_objective.value.reason == 'none_selected'
         with pytest.raises(ObjectiveUnknownError) as no_scale:
-            session.scope.runtime_state.get_pixel_size_um()
+            session.scope.runtime_state.pixel_size_um()
         assert no_scale.value.reason == 'none_selected'
         assert session.objective_question() is not None
     finally:

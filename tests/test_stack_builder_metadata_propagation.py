@@ -241,7 +241,7 @@ class TestEachPlaneStatesWhereItsFrameWasTaken:
 
         settings = headless_settings(tmp_path, sequenced_format=OutputFormat.HYPERSTACK)
         with open_composite_session(settings) as (session, runner):
-            limits = session.scope.motion.get_axis_limits('Z')
+            limits = session.scope.motion.axis_limits('Z')
             # Mid-travel, so the sweep's window fits inside Z's travel.
             planned_z = round((limits.min_um + limits.max_um) / 2.0)
             camera = session.scope._camera_driver

@@ -83,8 +83,8 @@ def test_a_value_outside_the_range_is_refused_and_nothing_moves(sim_scope):
 
 def test_the_range_is_the_one_the_setter_refuses_outside(sim_scope):
     camera = sim_scope.camera
-    low, high = camera.get_black_level_range()
-    assert (low, high) == sim_scope._camera_driver.get_black_level_range()
+    low, high = camera.read_black_level_range()
+    assert (low, high) == sim_scope._camera_driver.read_black_level_range()
     assert camera.set_black_level(high) == high
     with pytest.raises(CameraSettingOutOfRangeError) as refused:
         camera.set_black_level(high + 1.0)
@@ -95,12 +95,12 @@ def test_a_failed_range_read_raises(sim_scope):
     with (
         patch.object(
             sim_scope._camera_driver,
-            'get_black_level_range',
+            'read_black_level_range',
             side_effect=CameraReadFailedError('BlackLevel range read failed'),
         ),
         pytest.raises(HardwareError, match='BlackLevel range read failed'),
     ):
-        sim_scope.camera.get_black_level_range()
+        sim_scope.camera.read_black_level_range()
 
 
 def test_with_no_active_camera_the_range_read_is_refused_naming_it(sim_scope):
@@ -108,7 +108,7 @@ def test_with_no_active_camera_the_range_read_is_refused_naming_it(sim_scope):
         patch.object(sim_scope._camera_driver, '_active', None),
         pytest.raises(HardwareCommandRefusedError) as exc,
     ):
-        sim_scope.camera.get_black_level_range()
+        sim_scope.camera.read_black_level_range()
     assert (exc.value.reason, exc.value.missing) == ('not_connected', MissingPart(Part.CAMERA))
 
 
@@ -125,7 +125,7 @@ def test_the_fx2_reports_its_row_black_target_and_offers_no_setting(fx2_session)
     scope = fx2_session.scope
     assert scope.capabilities.camera_supports_black_level is False
     assert scope.camera.read_black_level() == 0.0
-    assert scope.camera.get_black_level_range() is None
+    assert scope.camera.read_black_level_range() is None
     with pytest.raises(CameraSettingUnsupportedError) as caught:
         scope.camera.set_black_level(4.0)
     assert caught.value.reason == 'black_level_unsupported'
@@ -201,7 +201,7 @@ def test_pylon_failed_read_raises_and_keeps_the_camera():
 def test_pylon_without_the_node_reports_none_and_offers_nothing():
     cam = _pylon(nodes=())
     assert cam.get_black_level() is None
-    assert cam.get_black_level_range() is None
+    assert cam.read_black_level_range() is None
     assert cam.supports_black_level() is False
 
 

@@ -876,7 +876,7 @@ class ImagingAPI:
                 None -- for callers whose dark frames are legitimate while
                 lit: autofocus sweeps (an out-of-focus fluorescence plane can
                 carry no signal) and benchmark probes.
-            timeout_s: Timeout (seconds) for the final get_image call.
+            timeout_s: Timeout (seconds) for the final capture_image call.
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay between summed frames.
             sum_iteration_callback: Called after each summed frame.
@@ -1769,7 +1769,7 @@ class ImagingAPI:
                 timeout_s expires keep the dark one (``_Grabbed.dark``).
                 Internal transport of the value
                 capture_still derives from commanded LED state; the
-                public get_image never sets it (probes and diagnostics
+                public capture_image never sets it (probes and diagnostics
                 must see what the camera sees, dark or not).
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay in seconds between summed frames.
@@ -1847,15 +1847,15 @@ class ImagingAPI:
                     # removal is seen; ``active`` is released later, off-thread,
                     # so it alone would miss a failure in between.
                     if self._camera.camera_removed or not self._driver.active:
-                        logger.error('[SCOPE API ] get_image: camera disconnected')
+                        logger.error('[SCOPE API ] capture_image: camera disconnected')
                         return _NoFrame('removed', leg)
                     if host_clock.steady_ns() > stop_ns:
                         logger.error(
-                            f'[SCOPE API ] get_image timeout ({timeout_s:.1f}s) exceeded; '
+                            f'[SCOPE API ] capture_image timeout ({timeout_s:.1f}s) exceeded; '
                             f'{mark.account(self._driver)}'
                         )
                         return _NoFrame('no_frame', leg)
-                    logger.debug('[SCOPE API ] get_image grab failed, retrying')
+                    logger.debug('[SCOPE API ] capture_image grab failed, retrying')
                     time.sleep(0.05)
                     continue
 
@@ -1867,7 +1867,7 @@ class ImagingAPI:
                     source = unmet.change.source
                     if host_clock.steady_ns() > stop_ns:
                         logger.warning(
-                            f'[SCOPE API ] get_image: no frame counted for the {source} '
+                            f'[SCOPE API ] capture_image: no frame counted for the {source} '
                             f'change within the grab bound (last frame seq={frame.seq}, '
                             f'{unmet.frames_after} frames after it, its count '
                             f'{unmet.change.skip}) -- capture rejected. '
@@ -1875,7 +1875,7 @@ class ImagingAPI:
                         )
                         return _NoFrame('no_fresh_frame', leg, source=source)
                     logger.debug(
-                        f'[SCOPE API ] get_image: frame seq={frame.seq} does not count '
+                        f'[SCOPE API ] capture_image: frame seq={frame.seq} does not count '
                         f'for the {source} change; waiting for the next'
                     )
                     continue
@@ -1909,7 +1909,7 @@ class ImagingAPI:
                         # whoever took the capture tells it (a run once per
                         # step, a still once), so it is not told here.
                         logger.debug(
-                            f'[SCOPE API ] get_image: kept a frame '
+                            f'[SCOPE API ] capture_image: kept a frame '
                             f'{frame_saturation * 100.0:.0f}% saturated'
                         )
 
@@ -1933,7 +1933,7 @@ class ImagingAPI:
                             # told by whoever took the capture, as a blown
                             # frame is.
                             logger.debug(
-                                f'[SCOPE API ] get_image: frame is dark -- '
+                                f'[SCOPE API ] capture_image: frame is dark -- '
                                 f'{lit_fraction:.6f} of pixels above '
                                 f'{self._DARK_FLOOR_FRACTION:.0%} of full scale '
                                 f'(minimum {self._DARK_MIN_LIT_FRACTION}) with '
@@ -1952,7 +1952,7 @@ class ImagingAPI:
                             # exactly the path a lit frame takes.
                         else:
                             logger.debug(
-                                '[SCOPE API ] get_image: dark frame; waiting for a lit frame'
+                                '[SCOPE API ] capture_image: dark frame; waiting for a lit frame'
                             )
                             continue
 
@@ -1973,7 +1973,7 @@ class ImagingAPI:
                             chunks = frame.chunks or {}
                             chunk_key = self._frame_validity.CHUNK_KEY_FOR_SOURCE.get(stale_source)
                             logger.warning(
-                                f'[SCOPE API ] get_image: frame chunk for '
+                                f'[SCOPE API ] capture_image: frame chunk for '
                                 f'{stale_source} never matched the requested '
                                 f'target within {timeout_s:.1f}s '
                                 f'(chunk={chunks.get(chunk_key)}, '
@@ -1985,7 +1985,7 @@ class ImagingAPI:
                             )
                             return _NoFrame('chunk_rejected', leg, source=stale_source)
                         logger.debug(
-                            f'[SCOPE API ] get_image: rejecting frame exposed '
+                            f'[SCOPE API ] capture_image: rejecting frame exposed '
                             f'under stale {stale_source}; waiting for a frame '
                             f'matching the requested value'
                         )
@@ -2009,14 +2009,14 @@ class ImagingAPI:
                 # The expected path for a buffered camera, not a fault: the
                 # driver returned the frame we already summed, so poll again.
                 logger.debug(
-                    f'[SCOPE API ] get_image: frame {frame.seq} already summed '
+                    f'[SCOPE API ] capture_image: frame {frame.seq} already summed '
                     f'(need > {earliest_seq}); waiting for the next arrival'
                 )
 
                 # Timestamp not met -- check timeout then retry
                 if host_clock.steady_ns() > stop_ns:
                     logger.error(
-                        f'[SCOPE API ] get_image timeout ({timeout_s:.1f}s) exceeded; '
+                        f'[SCOPE API ] capture_image timeout ({timeout_s:.1f}s) exceeded; '
                         f'{mark.account(self._driver)}'
                     )
                     return _NoFrame('no_frame', leg)
@@ -2030,10 +2030,10 @@ class ImagingAPI:
                 time.sleep(sum_delay_s)
 
         # Chain via a local variable instead of self.image_buffer. The old
-        # field was a permanent shadow copy of the latest get_image result,
-        # only ever read by get_image itself -- shadow state that pinned a
+        # field was a permanent shadow copy of the latest capture_image result,
+        # only ever read by capture_image itself -- shadow state that pinned a
         # frame indefinitely between calls. The _state_lock around per-write
-        # didn't actually serialize concurrent get_image calls anyway (chained
+        # didn't actually serialize concurrent capture_image calls anyway (chained
         # writes from different threads could still interleave).
         # The depth the frames were delivered at, carried by the frames
         # themselves: with the count, it is the sum's whole account.
@@ -2175,7 +2175,7 @@ class ImagingAPI:
             self._frame_validity.use_rules(self._scope.capabilities.frame_rules)
 
     @api(in_process=True, engineering=True)
-    def get_image(
+    def capture_image(
         self,
         force_to_8bit: bool = True,
         timeout_s: float = 5.0,
@@ -2199,7 +2199,7 @@ class ImagingAPI:
         pass-through would re-open the door this split closed.
 
         It waits for a frame the camera captures after the call; the last
-        buffered frame is ``get_image_from_buffer``'s. The grab is one command
+        buffered frame is ``buffered_image``'s. The grab is one command
         on the camera's lane, waited for. It does not wait for frame validity,
         so the frame may not reflect a just-changed gain, exposure, LED or
         stage position.
@@ -2254,7 +2254,7 @@ class ImagingAPI:
         refuse_unless_wait_s(wait_s, 'the wait for every frame of the sum')
         grabbed = self._camera._dispatch_camera(
             self._get_image_impl,
-            'get_image',
+            'capture_image',
             kwargs={
                 'force_to_8bit': force_to_8bit,
                 'timeout_s': timeout_s,
@@ -2268,11 +2268,11 @@ class ImagingAPI:
             timeout_s=wait_s,
         )
         if isinstance(grabbed, _NoFrame):
-            raise grabbed.error('get_image')
+            raise grabbed.error('capture_image')
         return grabbed.image
 
-    @api(in_process=True)
-    def get_image_from_buffer(
+    @api(in_process=True, reads=True)
+    def buffered_image(
         self,
         force_to_8bit: bool = True,
         out_8bit: np.ndarray | None = None,
@@ -2446,7 +2446,7 @@ class ImagingAPI:
         """Stop camera streaming, and wait.
 
         After this, ``capture_still()`` fails until streaming resumes;
-        ``get_image_from_buffer()`` still returns the last frame the camera
+        ``buffered_image()`` still returns the last frame the camera
         delivered.
         Satisfied with no camera connected: nothing is streaming. Dispatched
         as ``enable_streaming`` is.
@@ -2593,14 +2593,14 @@ class ImagingAPI:
 
         No-op when no camera is connected. Called once on startup and
         periodically by ``start_camera_temp_logging``. Reads temperatures
-        through `scope.diagnostics.get_camera_temperatures_degc` -- the canonical
+        through `scope.diagnostics.read_camera_temperatures_degc` -- the canonical
         camera-temp probe (cold probes live on DiagnosticsAPI).
 
         Raises:
             HardwareError: The read failed. On the first sample and on each
                 tick the session's scheduler reports it and keeps the schedule.
         """
-        temps = self._scope.diagnostics.get_camera_temperatures_degc()
+        temps = self._scope.diagnostics.read_camera_temperatures_degc()
         if temps is None:
             return
         for source, temp in temps.items():
@@ -2617,7 +2617,7 @@ class ImagingAPI:
         """Own the periodic camera-temp logging schedule.
 
         Internal metrics scheduling -- not part of the L2 API surface
-        (clients read ``get_camera_temperatures_degc`` and schedule their
+        (clients read ``read_camera_temperatures_degc`` and schedule their
         own logging).
 
         Was previously a Clock.schedule_interval registered by the App
@@ -2733,7 +2733,7 @@ class ImagingAPI:
             self._stream_check_scheduler.unschedule(handle)
 
     @api(reads=True)
-    def get_delivered_rate(self) -> DeliveredRate:
+    def delivered_rate(self) -> DeliveredRate:
         """Read the rate the camera delivered frames, and their bytes on the link.
 
         Measured over the last second from the frames every driver stores,
@@ -2764,7 +2764,7 @@ class ImagingAPI:
         A stream that has just started has no window measured yet: the rate
         is measured over the stream check's 1 s ticks, so the first one is
         published up to two ticks after the stream starts, and
-        ``get_delivered_rate`` reads 0 until then. A caller that needs the
+        ``delivered_rate`` reads 0 until then. A caller that needs the
         rate, not the absence of one, waits here for it.
 
         In-process: it blocks the caller's thread.
@@ -2773,7 +2773,7 @@ class ImagingAPI:
             wait_s: The longest to wait, in seconds.
 
         Returns:
-            DeliveredRate: The rate as ``get_delivered_rate`` answers it once
+            DeliveredRate: The rate as ``delivered_rate`` answers it once
                 one is measured; ``NOT_DELIVERING`` when none is measured
                 within ``wait_s``.
 
@@ -2785,7 +2785,7 @@ class ImagingAPI:
         deadline = time.monotonic() + wait_s
         with self._delivered_rate_published:
             while True:
-                rate = self.get_delivered_rate()
+                rate = self.delivered_rate()
                 remaining = deadline - time.monotonic()
                 if rate.frame_rate_fps > 0 or remaining <= 0:
                     return rate

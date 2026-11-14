@@ -41,6 +41,7 @@ _READS = (
     ('read_frame_size', 'frame_size'),
     ('read_pixel_format', 'pixel_format'),
     ('read_black_level', 'black_level'),
+    ('read_black_level_range', 'black_level_range'),
     ('read_frame_rate_fps', 'frame_rate'),
     ('read_auto_gain', 'auto_gain'),
     ('read_auto_exposure', 'auto_exposure'),
@@ -78,17 +79,6 @@ def test_every_fresh_read_raises_naming_its_setting_when_the_camera_does_not_ans
         if getattr(camera, read)() is None:
             unraised.append(f'{read} answered None from an answering camera')
     assert unraised == [], '\n'.join(unraised)
-
-
-def test_the_black_level_range_read_raises_naming_it_when_the_camera_does_not_answer(sim_scope):
-    """The range ``set_black_level`` accepts is read live, so a read the
-    camera did not answer raises naming it, never answering the last range."""
-    camera = sim_scope.camera
-    sim_scope.simulation.refuse_camera_read('black_level_range', 'failed')
-    with pytest.raises(CameraReadFailedError, match='black level range'):
-        camera.get_black_level_range()
-    # The next read is answered: the refusal was one read.
-    assert camera.get_black_level_range() is not None
 
 
 def test_a_defect_in_any_fresh_read_leaves_as_itself(sim_scope, monkeypatch):

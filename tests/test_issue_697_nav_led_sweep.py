@@ -63,7 +63,7 @@ def test_nav_drives_no_camera_and_no_led_itself(stepnav_env, preview_on):
 
     _run_manual_nav(stepnav_env)
 
-    lit = [r.name for r in session.scope.illumination.get_led_states() if r.state is LedState.LIT]
+    lit = [r.name for r in session.scope.illumination.led_states() if r.state is LedState.LIT]
     assert lit == (['BF'] if preview_on else [])
     if preview_on:
         bf = channel_reading(session.scope.illumination, 'BF')

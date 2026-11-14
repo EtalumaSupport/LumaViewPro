@@ -98,7 +98,7 @@ def test_with_its_board_an_led_lights_and_goes_dark_as_before(make_session, capl
     illumination.led_on('BF', 10.0)
     illumination.leds_off()
 
-    assert {r.name: r for r in illumination.get_led_states()}['BF'].state is LedState.DARK
+    assert {r.name: r for r in illumination.led_states()}['BF'].state is LedState.DARK
     assert _led_lines(caplog) == []
 
 
@@ -216,7 +216,7 @@ def test_the_reads_answer_none_and_nothing_is_believed_lit_after_disconnect(make
     session.shutdown()
 
     assert channel_reading(illumination, 'BF') is None
-    assert illumination.get_led_states() is None
+    assert illumination.led_states() is None
     assert ('BF', LedState.DARK) in heard
     assert lit_other_than(illumination, LED1) == []
 

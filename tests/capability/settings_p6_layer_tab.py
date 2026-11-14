@@ -28,7 +28,7 @@ try:
     # The drawer's ask, through the API: the shown channel lit, then moved
     s.light_shown_channel(True)
     s.show_channel(target)
-    lit = [r.name for r in ill.get_led_states() if r.state is LedState.LIT]
+    lit = [r.name for r in ill.led_states() if r.state is LedState.LIT]
     _common.ok('exactly the target layer is lit', lit == [target], f'lit={lit}')
     _common.ok(
         'camera took the layer gain',

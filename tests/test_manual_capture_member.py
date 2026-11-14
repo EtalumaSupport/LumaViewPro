@@ -77,11 +77,11 @@ def over_the_first_well(session) -> str:
     no well, so a test about the well a file records puts the stage over one.
     """
     scope = session.scope
-    x_mm, y_mm = scope.runtime_state.get_labware().get_well_position(0, 0)
+    x_mm, y_mm = scope.runtime_state.get_labware().well_position(0, 0)
     stage = scope.runtime_state.plate_to_stage(x_mm, y_mm)
     scope.motion.move_xy(x_um=stage.x_um)
     scope.motion.move_xy(y_um=stage.y_um)
-    label = scope.runtime_state.get_well_label()
+    label = scope.runtime_state.well_label()
     assert label, 'the stage was moved over a well'
     return label
 
@@ -497,7 +497,7 @@ class TestTheStillIsMadeAfterThePendingWrites:
         LED change (the owner's ``invalidate('led')``, which every LED write
         makes) leaves 'led' pending for its skip count, and the capture
         drains that many frames before the one it saves. A still grabbed
-        without the drain (a bare get_image) would save a frame that may
+        without the drain (a bare capture_image) would save a frame that may
         have integrated before the LED changed, and records no drain."""
         session, _ = still_session
         imaging = session.scope.imaging
@@ -526,7 +526,7 @@ class TestAStillReturnsItsRecord:
     def test_each_format_returns_its_file_with_the_record(self, tmp_path, live_format):
         with _open_session(_settings(tmp_path, live_format=live_format)) as session:
             well = over_the_first_well(session)
-            x_mm, y_mm = session.scope.runtime_state.get_labware().get_well_position(0, 0)
+            x_mm, y_mm = session.scope.runtime_state.get_labware().well_position(0, 0)
             objective_id, _ = session.scope.runtime_state.resolve_current_objective()
 
             (still,) = _capture(session)

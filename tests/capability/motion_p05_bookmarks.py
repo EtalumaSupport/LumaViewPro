@@ -33,7 +33,7 @@ def body(s):
     )
 
     # 2. the stored value: settings['bookmark'] -- the only store either GUI writes
-    snap = s.get_settings_snapshot()
+    snap = s.settings_snapshot()
     check(
         "settings['bookmark'] is the store, with x/y/z",
         set(snap.get('bookmark', {})) >= {'x', 'y', 'z'},
@@ -57,7 +57,7 @@ def body(s):
     m.move_z(500.0)
     m.move_to_plate(PlateLocation(x_mm=10.0, y_mm=10.0, z_um=None))
     s.go_to_bookmark(('X', 'Y', 'Z'))
-    back = s.get_current_plate_position()
+    back = s.plate_position()
     check(
         'a script can RETURN to the bookmark and the stage arrives',
         abs(back.x_mm - saved.x_mm) < 0.05
@@ -69,7 +69,7 @@ def body(s):
     # 5. "Set ALL bookmarks" also stamps every layer's focus
     z = s.save_all_bookmarks().z_um
     on_scope = [record.key_name for record in s.scope.channel_identity.channels]
-    after = s.get_settings_snapshot()
+    after = s.settings_snapshot()
     check(
         'a script can stamp every layer focus (the Set-All half)',
         all(abs(after[layer]['focus'] - z) < 1e-6 for layer in on_scope),

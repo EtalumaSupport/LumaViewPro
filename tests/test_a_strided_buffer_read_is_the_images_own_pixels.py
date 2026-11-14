@@ -2,7 +2,7 @@
 """A strided read of the buffered frame is every Nth pixel of the image, converted, with no overlay.
 
 The histogram counts every fourth pixel of the live frame. It used to read
-the whole frame through ``get_image_from_buffer``, which drew the scale bar
+the whole frame through ``buffered_image``, which drew the scale bar
 into a full-frame copy and converted every pixel of a 12-bit frame to 8
 bits, and only then took every fourth pixel: 3.67 ms on the Kivy main
 thread twice a second, where converting the sample alone is 1.14 ms. It
@@ -34,8 +34,8 @@ def stalled_12bit(sim_session):
 def test_a_strided_read_is_the_raw_frames_sample_converted_with_no_bar(stalled_12bit):
     session, at_capture = stalled_12bit
     imaging = session.scope.imaging
-    session.set_scale_bar(False)
-    raw, seq = imaging.get_image_from_buffer(force_to_8bit=False)
+    session.set_scale_bar_enabled(False)
+    raw, seq = imaging.buffered_image(force_to_8bit=False)
     # Red twice in whole runs and green alone: the message says whether the
     # capture itself was 8-bit, or the buffer later held another frame.
     assert raw.dtype == np.uint16, (
@@ -44,13 +44,13 @@ def test_a_strided_read_is_the_raw_frames_sample_converted_with_no_bar(stalled_1
     )
     expected = image_utils.convert_to_8bit(raw[::4, ::4], 12)
 
-    session.set_scale_bar(True)
+    session.set_scale_bar_enabled(True)
     # The bar is drawn on a whole read: the frame is the one sampled.
-    whole, whole_seq = imaging.get_image_from_buffer(force_to_8bit=True)
+    whole, whole_seq = imaging.buffered_image(force_to_8bit=True)
     assert whole_seq == seq
     assert not np.array_equal(whole, image_utils.convert_to_8bit(raw, 12)), 'no bar was drawn'
 
-    sample, sample_seq = imaging.get_image_from_buffer(force_to_8bit=True, stride=4)
+    sample, sample_seq = imaging.buffered_image(force_to_8bit=True, stride=4)
     assert sample_seq == seq
     np.testing.assert_array_equal(sample, expected)
 
@@ -58,5 +58,5 @@ def test_a_strided_read_is_the_raw_frames_sample_converted_with_no_bar(stalled_1
 def test_a_stride_below_one_is_refused(stalled_12bit):
     session, _at_capture = stalled_12bit
     with pytest.raises(ArgumentRefusedError) as refused:
-        session.scope.imaging.get_image_from_buffer(stride=0)
+        session.scope.imaging.buffered_image(stride=0)
     assert (refused.value.reason, refused.value.argument) == ('wrong_kind', 'stride')

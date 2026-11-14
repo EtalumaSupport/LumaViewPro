@@ -52,26 +52,24 @@ try:
 
     # --- acceleration limit: API setter with a documented raise ----------
     try:
-        mo.set_acceleration_limit(limit_pct=50)
+        mo.set_acceleration_limit_pct(limit_pct=50)
         _common.ok('acceleration 50% applied', True)
     except Exception as e:
         _common.ok('acceleration 50% applied', False, f'{type(e).__name__}: {e}')
     for bad in (0, 250, -5):
         try:
-            mo.set_acceleration_limit(limit_pct=bad)
+            mo.set_acceleration_limit_pct(limit_pct=bad)
             _common.ok(f'acceleration {bad}% refused', False, 'accepted')
         except ValueError as e:
             _common.ok(f'acceleration {bad}% refused', True, f'{type(e).__name__}: {e}')
-    s.set_acceleration_limit(50)
-    _common.ok(
-        'acceleration stored', s.get_settings_snapshot()['motion']['acceleration_max_pct'] == 50
-    )
+    s.set_acceleration_limit_pct(50)
+    _common.ok('acceleration stored', s.settings_snapshot()['motion']['acceleration_max_pct'] == 50)
 
     # --- pure settings-store rows ----------------------------------------
     s.update_settings('video.max_fps', 25)
     s.update_settings('video.max_duration_s', 120)
     s.update_settings('video.timestamp_overlay', False)
-    back = s.get_settings_snapshot()['video']
+    back = s.settings_snapshot()['video']
     _common.ok(
         'video limits took effect',
         back['max_fps'] == 25 and back['max_duration_s'] == 120,
@@ -90,7 +88,7 @@ try:
             s.update_settings(key, bad)
         except SettingRefusedError as e:
             return True, f'{e.reason}: {e}'
-        return False, f'stored {s.get_settings_snapshot()[key]!r} unchecked'
+        return False, f'stored {s.settings_snapshot()[key]!r} unchecked'
 
     # A bad value of the wrong kind, or outside a range the writer owns, is
     # refused.
@@ -104,7 +102,7 @@ try:
         ('stimulation_enabled', False, 'sure', True),
     ):
         s.update_settings(key, good)
-        got = s.get_settings_snapshot()[key]
+        got = s.settings_snapshot()[key]
         _common.ok(f'{key} took effect', got == good, f'stored {got!r}')
         was_refused, detail = refused(key, bad)
         if is_refused:

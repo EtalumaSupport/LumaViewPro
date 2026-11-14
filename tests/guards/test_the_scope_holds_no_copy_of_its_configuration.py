@@ -30,7 +30,7 @@ _NO_SETTER = RetiredNames(
         'set_stage_offset',
         'set_turret_config',
         'set_objective',
-        'set_scale_bar',
+        'set_scale_bar_enabled',
     }
 )
 

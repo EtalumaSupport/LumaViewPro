@@ -19,7 +19,7 @@ caller or REST can tell a dark capture from a lit one without re-measuring
 pixels; the capture tells no one, whoever took it does. A nothing-commanded
 capture is dark by design and is not measured at all: ``dark`` is None.
 ``accept_dark=True`` skips the measurement for callers that expect dark
-frames (autofocus sweeps, benchmark probes). Public ``get_image`` is the
+frames (autofocus sweeps, benchmark probes). Public ``capture_image`` is the
 ungated primitive.
 
 The metric is lit-pixel COUNT against the frame's payload depth -- sparse
@@ -164,14 +164,14 @@ class TestDarkFrameDelivery:
         )
 
     def test_public_get_image_never_dark_rejects(self, dark_scope, monkeypatch):
-        """Public get_image is the ungated primitive: liveness probes and
+        """Public capture_image is the ungated primitive: liveness probes and
         diagnostics must see what the camera sees, dark or not, even while
         a channel is lit. (The recording prologue counts arrivals through
         it; a dark-rejection there reads as feed-dead.)"""
         dark_scope.illumination.led_on('BF', 100)
         frames_carrying(monkeypatch, dark_scope._camera_driver, lambda: _DARK)
 
-        out = dark_scope.imaging.get_image(timeout_s=0.5)
+        out = dark_scope.imaging.capture_image(timeout_s=0.5)
         assert out is not None, 'the ungated primitive must return the dark frame'
 
 

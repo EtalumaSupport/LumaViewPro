@@ -1,9 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The scope publishes its effective pixel size and field of view, so no caller recomputes them.
 
-``scope.runtime_state.get_pixel_size_um()`` is the micrometres per pixel at
+``scope.runtime_state.pixel_size_um()`` is the micrometres per pixel at
 the current objective and the camera's binning, the scale every saved image
-carries; ``get_field_of_view()`` is the area the camera's frame covers at
+carries; ``field_of_view()`` is the area the camera's frame covers at
 that scale, a record of width and height in micrometres. Each is refused,
 naming its first cause, when it cannot be known: no objective known
 (``ObjectiveUnknownError``), no camera (the camera's ``'not_connected'``), or
@@ -69,9 +69,9 @@ def test_each_answers_the_scale_and_extent_of_a_saved_still(tmp_path, microscope
             path = _saved_still(session)
             height, width = tifffile.imread(path).shape[:2]
 
-            pixel_size_um = state.get_pixel_size_um()
+            pixel_size_um = state.pixel_size_um()
             assert _rounded(pixel_size_um) == read_pixel_size_um(path), (microscope, size)
-            assert state.get_field_of_view() == FieldOfView(
+            assert state.field_of_view() == FieldOfView(
                 width_um=pixel_size_um * width, height_um=pixel_size_um * height
             ), (microscope, size)
     finally:
@@ -81,9 +81,9 @@ def test_each_answers_the_scale_and_extent_of_a_saved_still(tmp_path, microscope
 def test_the_pixel_size_follows_the_binning(tmp_path):
     session = _session(tmp_path, microscope='LS850')
     try:
-        at_one = session.scope.runtime_state.get_pixel_size_um()
+        at_one = session.scope.runtime_state.pixel_size_um()
         session.scope.camera.set_binning(2)
-        assert session.scope.runtime_state.get_pixel_size_um() == pytest.approx(2 * at_one)
+        assert session.scope.runtime_state.pixel_size_um() == pytest.approx(2 * at_one)
     finally:
         session.shutdown()
 
@@ -91,8 +91,8 @@ def test_the_pixel_size_follows_the_binning(tmp_path):
 def _refusals(state):
     """Each scale read's refusal, by read: its type and reason."""
     reads = {
-        'pixel_size': state.get_pixel_size_um,
-        'field_of_view': state.get_field_of_view,
+        'pixel_size': state.pixel_size_um,
+        'field_of_view': state.field_of_view,
         'frame_point_distance': lambda: state.frame_point_distance(0.5, 0.5),
     }
     refused = {}
@@ -130,14 +130,14 @@ def test_with_the_cameras_binning_or_frame_unknown_each_is_refused_naming_it(tmp
     session = _session(tmp_path, microscope='LS850')
     try:
         state = session.scope.runtime_state
-        assert state.get_pixel_size_um() is not None
+        assert state.pixel_size_um() is not None
         # Unanswered twice: the write and the API's one resend.
         session.scope.simulation.refuse_camera_write('frame_size', 'no_answer', count=2)
         with pytest.raises(CameraSettingRejected):
             session.scope.camera.set_frame_size(800, 600)
-        assert state.get_pixel_size_um() > 0
+        assert state.pixel_size_um() > 0
         with pytest.raises(PixelSizeUnknownError) as frame_unread:
-            state.get_field_of_view()
+            state.field_of_view()
         assert frame_unread.value.reason == 'frame_size_unread'
 
         session.scope.simulation.refuse_camera_write('binning', 'no_answer', count=2)
@@ -182,7 +182,7 @@ def test_the_optics_status_answers_the_objective_and_the_field_of_view(tmp_path)
     try:
         state = session.scope.runtime_state
         assert state.optics_status() == OpticsStatus(
-            objective=state.get_current_objective_id(), field_of_view=state.get_field_of_view()
+            objective=state.get_current_objective_id(), field_of_view=state.field_of_view()
         )
         assert isinstance(state.optics_status().field_of_view, FieldOfView)
     finally:

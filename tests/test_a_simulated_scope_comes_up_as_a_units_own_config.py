@@ -91,7 +91,7 @@ class TestTheScopeIsTheUnit:
         finally:
             stock.shutdown()
         assert scope.capabilities.lens_focal_length_mm == 61.5
-        assert scope.motion.get_axis_limits('Z').max_um == 11500.0
+        assert scope.motion.axis_limits('Z').max_um == 11500.0
 
     def test_a_units_channel_block_is_its_channels(self, unit_session):
         block = {'BF': {'led_channel': 3, 'display_name': 'Brightfield'}}

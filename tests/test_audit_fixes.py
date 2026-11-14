@@ -232,7 +232,7 @@ class TestSettingsSnapshot:
 
     def test_snapshot_is_deep_copy(self):
         session = self._session({'display': {'brightness': 80}})
-        snap = session.get_settings_snapshot()
+        snap = session.settings_snapshot()
 
         snap['display']['brightness'] = 999
         snap['new_key'] = True
@@ -254,7 +254,7 @@ class TestSettingsSnapshot:
     def test_snapshot_after_update(self):
         session = self._session({})
         session.update_settings('video.max_fps', 11)
-        snap = session.get_settings_snapshot()
+        snap = session.settings_snapshot()
         session.update_settings('video.max_fps', 22)
 
         assert snap['video']['max_fps'] == 11
@@ -594,35 +594,35 @@ class TestPositionCache:
     def test_a_homed_cache_holds_where_the_home_left_the_stage(self, sim_scope):
         """Before any move, the cache holds the position the home sent the
         stage to, which is the board's position after home, not zero."""
-        targets = sim_scope.motion.get_target_positions()
+        targets = sim_scope.motion.target_positions()
         for axis in ('X', 'Y', 'Z'):
             assert targets[axis] == pytest.approx(
-                sim_scope.motion.get_actual_position(axis), abs=0.1
+                sim_scope.motion.read_actual_position(axis), abs=0.1
             )
 
     def test_move_z_updates_cache(self, sim_scope):
         """move_z should push the new position into the cache."""
         sim_scope.motion.move_z(5000.0)
-        assert sim_scope.motion.get_target_positions()['Z'] == 5000.0
+        assert sim_scope.motion.target_positions()['Z'] == 5000.0
 
     def test_move_z_only_updates_its_axis(self, sim_scope):
         """Moving Z should not affect X or Y cache."""
-        before = sim_scope.motion.get_target_positions()
+        before = sim_scope.motion.target_positions()
         sim_scope.motion.move_z(5000.0)
-        assert sim_scope.motion.get_target_positions()['X'] == before['X']
-        assert sim_scope.motion.get_target_positions()['Y'] == before['Y']
+        assert sim_scope.motion.target_positions()['X'] == before['X']
+        assert sim_scope.motion.target_positions()['Y'] == before['Y']
 
     def test_move_xy_by_updates_cache(self, sim_scope):
         """move_xy_by should accumulate into the cache."""
         sim_scope.motion.start_move_xy(x_um=1000.0)
         sim_scope.motion.start_move_xy_by(dx_um=500.0).result()
-        assert sim_scope.motion.get_target_positions()['X'] == pytest.approx(1500.0, abs=0.1)
+        assert sim_scope.motion.target_positions()['X'] == pytest.approx(1500.0, abs=0.1)
 
     def test_move_z_by_negative(self, sim_scope):
         """Negative relative moves should subtract from cache."""
         sim_scope.motion.start_move_z(3000.0)
         sim_scope.motion.start_move_z_by(-1000.0).result()
-        assert sim_scope.motion.get_target_positions()['Z'] == pytest.approx(2000.0, abs=0.1)
+        assert sim_scope.motion.target_positions()['Z'] == pytest.approx(2000.0, abs=0.1)
 
     def test_get_current_position_matches_target(self, sim_scope):
         """After a blocking move, get_current_position is at the target
@@ -643,11 +643,11 @@ class TestPositionCache:
         # Use move_abs_pos to set a known position, then verify refresh reads it.
         sim_scope._motion_driver.move_abs_pos('Z', 5000.0)
         # Cache still has old value since we bypassed the motion API
-        assert sim_scope.motion.get_target_positions()['Z'] != 5000.0
+        assert sim_scope.motion.target_positions()['Z'] != 5000.0
         # Now refresh from hardware
         sim_scope.motion._refresh_position_cache()
         # Should now match what the motor reports
-        pos = sim_scope.motion.get_target_positions()['Z']
+        pos = sim_scope.motion.target_positions()['Z']
         assert abs(pos - 5000.0) < 1.0  # allow microstep rounding
 
 
@@ -1450,7 +1450,7 @@ class TestRule1_PylonCameraNoNotifications:
     """Rule 1: Pylon SDK removal callback (OnCameraDeviceRemoved) runs in
     a native SDK thread. Before the Rule 1 cleanup it called
     notifications.error from that thread, a secondary crash risk on top
-    of the layering violation. API-level detection in get_image handles
+    of the layering violation. API-level detection in capture_image handles
     the user-facing notification on the main thread."""
 
     def test_pyloncamera_does_not_import_notifications(self):
@@ -1661,7 +1661,7 @@ class TestIssue710_LumiLS820PlateViewRestored:
 
 
 class TestAOC1_SaturationCheckShortCircuit:
-    """AOC-1: lumascope_api.get_image saturation check uses
+    """AOC-1: lumascope_api.capture_image saturation check uses
     `not np.any(tmp != max)` (short-circuit) instead of `np.all(tmp == max)`.
 
     Both forms allocate a bool array, but `np.any` short-circuits on the
@@ -2328,13 +2328,13 @@ class TestPF2_FileIoExecutorClearedOnAbort:
 
 class TestPF5_ImageBufferRetired:
     """PF-5: Lumascope.image_buffer was a permanent shadow copy of the latest
-    get_image() result -- Rule 2 violation. Only ever read by get_image() itself
+    capture_image() result -- Rule 2 violation. Only ever read by capture_image() itself
     (for chaining sum/scale-bar/8-bit-convert ops), never by external callers.
     Pinned one frame indefinitely between calls. The _state_lock around per-
-    write didn't actually serialize concurrent get_image calls -- chained
+    write didn't actually serialize concurrent capture_image calls -- chained
     writes from different threads could still interleave.
 
-    Fix: chain through a local variable in get_image(). Remove the
+    Fix: chain through a local variable in capture_image(). Remove the
     image_buffer property + setter, the _image_buffer attribute, and its
     initialization in __init__ + diagnostic-instance setup.
     """
@@ -2378,7 +2378,7 @@ class TestPF5_ImageBufferRetired:
         )
 
     def test_get_image_returns_conversion_result(self, monkeypatch):
-        """get_image must return the 8-bit-conversion result, not a
+        """capture_image must return the 8-bit-conversion result, not a
         pre-conversion shadow buffer."""
         import numpy as np
 
@@ -2395,8 +2395,8 @@ class TestPF5_ImageBufferRetired:
             '_lumascope.modules.image_utils.convert_to_8bit',
             lambda image, *args, **kwargs: sentinel,
         )
-        out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
-        assert out is sentinel, 'get_image must return the convert_to_8bit result'
+        out = imaging.capture_image(force_to_8bit=True, timeout_s=2.0)
+        assert out is sentinel, 'capture_image must return the convert_to_8bit result'
 
     def test_get_image_returns_scale_bar_result(self, monkeypatch):
         """The scale-bar step's return value must flow into the returned
@@ -2411,8 +2411,8 @@ class TestPF5_ImageBufferRetired:
         monkeypatch.setattr(
             '_lumascope.modules.image_utils.add_scale_bar', lambda **kwargs: sentinel
         )
-        out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
-        assert out is sentinel, 'get_image must return the add_scale_bar result'
+        out = imaging.capture_image(force_to_8bit=True, timeout_s=2.0)
+        assert out is sentinel, 'capture_image must return the add_scale_bar result'
 
 
 class TestPF1_CpuPoolRetired:
@@ -2531,7 +2531,7 @@ def _sim_backed_imaging():
     Returns ``(imaging, camera, driver)``. The sub-APIs are built as the
     constructor builds them (``give_camera_and_imaging``), with their locks
     and the one frame_validity, so the scope stub only needs the camera-driver slot the _driver property resolves,
-    runtime_state (read by get_image's scale-bar gate) with the objective
+    runtime_state (read by capture_image's scale-bar gate) with the objective
     catalogue it reads, and capabilities
     (the optics the scale bar's pixel size is resolved from).
     """
@@ -2556,7 +2556,7 @@ def _sim_backed_imaging():
     # dark-by-design (the same result the retired explicit False gave).
     from types import SimpleNamespace
 
-    scope.illumination = SimpleNamespace(get_led_states=lambda: (), led_address_of=lambda c: None)
+    scope.illumination = SimpleNamespace(led_states=lambda: (), led_address_of=lambda c: None)
     give_camera_capabilities(scope, cam)
     scope.capabilities = dataclasses.replace(
         scope.capabilities, pixel_size_um=None, lens_focal_length_mm=None
@@ -6476,7 +6476,7 @@ class TestImagingTimeoutsAreFloatSeconds:
     """Audit Finding #11 -- imaging timeout convention unified to
     float seconds. Pre-freeze, the four cited shapes (`timedelta`,
     `int ms`, `float s`, untyped) collapse to `float` seconds.
-    Also surfaces a unit fix on `get_image.new_capture_timeout`,
+    Also surfaces a unit fix on `capture_image.new_capture_timeout`,
     which historically defaulted to `1000` (claiming "ms" in the
     docstring) but the value flowed unchanged into the driver
     `grab_new_capture(timeout: float)` which is seconds."""
@@ -6501,15 +6501,15 @@ class TestImagingTimeoutsAreFloatSeconds:
         import inspect
         from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
-        sig = inspect.signature(ImagingAPI.get_image)
+        sig = inspect.signature(ImagingAPI.capture_image)
         timeout_s = sig.parameters['timeout_s']
         assert isinstance(timeout_s.default, float), (
-            f'get_image.timeout_s default {timeout_s.default!r} not float seconds; '
+            f'capture_image.timeout_s default {timeout_s.default!r} not float seconds; '
             f'previously datetime.timedelta'
         )
         assert timeout_s.default == 5.0
         assert 'timeout' not in sig.parameters, (
-            'get_image must not still expose bare `timeout` (audit U6 rename)'
+            'capture_image must not still expose bare `timeout` (audit U6 rename)'
         )
 
     def test_get_image_new_capture_timeout_is_float_seconds(self):
@@ -6522,7 +6522,7 @@ class TestImagingTimeoutsAreFloatSeconds:
         import inspect
         from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 
-        sig = inspect.signature(ImagingAPI.get_image)
+        sig = inspect.signature(ImagingAPI.capture_image)
         nct = sig.parameters['new_capture_timeout_s']
         assert isinstance(nct.default, float)
         assert nct.default == 5.0
@@ -6531,7 +6531,7 @@ class TestImagingTimeoutsAreFloatSeconds:
 
 class TestImagingGetCameraTempsRetired:
     """Audit Finding #2 -- imaging.get_camera_temps was a duplicate path
-    for the diagnostics.get_camera_temperatures_degc probe. Retired pre-freeze.
+    for the diagnostics.read_camera_temperatures_degc probe. Retired pre-freeze.
     _log_camera_temps (the live-in-flight logger) stays on imaging -- now
     private, since the metrics schedule is its only caller -- and routes
     through diagnostics for the data read."""
@@ -6541,12 +6541,12 @@ class TestImagingGetCameraTempsRetired:
 
         assert not hasattr(ImagingAPI, 'get_camera_temps'), (
             'imaging.get_camera_temps must be retired; '
-            'callers route through scope.diagnostics.get_camera_temperatures_degc'
+            'callers route through scope.diagnostics.read_camera_temperatures_degc'
         )
 
     def test_diagnostics_get_camera_temperatures_still_callable(self, sim_scope):
         # Sim drivers may not expose temperatures; method must return a dict.
-        result = sim_scope.diagnostics.get_camera_temperatures_degc()
+        result = sim_scope.diagnostics.read_camera_temperatures_degc()
         assert isinstance(result, dict)
 
     def test_imaging_log_camera_temps_still_exists(self):
@@ -6642,7 +6642,7 @@ class TestTimeoutParamNamesUseSecondSuffix:
         # (module-path, class-or-fn, method_name_or_None)
         ('_lumascope.modules.lumascope_api.motion', 'MotionAPI', 'wait_until_finished_moving'),
         ('_lumascope.modules.lumascope_api.imaging', 'ImagingAPI', 'capture_still'),
-        ('_lumascope.modules.lumascope_api.imaging', 'ImagingAPI', 'get_image'),
+        ('_lumascope.modules.lumascope_api.imaging', 'ImagingAPI', 'capture_image'),
         (
             '_lumascope.modules.lumascope_api.diagnostics',
             'DiagnosticsAPI',
@@ -6668,7 +6668,7 @@ class TestTimeoutParamNamesUseSecondSuffix:
 
     def test_driver_grab_new_capture_uses_timeout_s(self):
         """L2-mirror driver method -- grab_new_capture is invoked from
-        ImagingAPI.capture_still and ImagingAPI.get_image with a
+        ImagingAPI.capture_still and ImagingAPI.capture_image with a
         seconds value, and now exposes that unit on the signature."""
         import inspect
         from _lumascope.drivers.camera import Camera
@@ -6726,7 +6726,7 @@ class TestAxisTravelLimitsOnCapabilities:
     """Freeze audit Finding #20 -- `Lumascope.travel_limit_um(axis)`
     lived on the composition root but read `motorconfig.travel_limit_um`
     (motion-driver state). The travel bound's one door is
-    `motion.get_axis_limits(axis)`. The wrapper is retired."""
+    `motion.axis_limits(axis)`. The wrapper is retired."""
 
     def test_null_motor_has_no_stage_or_turret(self):
         """A NullMotionBoard has no stage and no turret, which gates the
@@ -6969,11 +6969,11 @@ class TestRetiredSurfaceStaysRetired:
         assert not hasattr(Lumascope, 'set_objective')
         assert not hasattr(RuntimeState, 'set_objective')
         assert hasattr(RuntimeState, 'resolve_current_objective')
-        assert hasattr(RuntimeState, 'get_turret_config')
+        assert hasattr(RuntimeState, 'turret_config')
 
 
 class TestGetLedStateShape:
-    """get_led_states answers LedReading records (address,
+    """led_states answers LedReading records (address,
     name, state, illumination_ma) and use None (not -1) for the
     illumination_ma of an address that is not lit: an unknown value is
     None, never a stand-in number. Closes API audit F2 / F3 / F12 cluster.
@@ -6988,9 +6988,9 @@ class TestGetLedStateShape:
 
     def test_get_led_states_off_channels_use_none(self):
         scope = self._scope()
-        readings = scope.illumination.get_led_states()
+        readings = scope.illumination.led_states()
         assert [r.address for r in readings] == list(range(8)), (
-            'get_led_states must return one reading per board address'
+            'led_states must return one reading per board address'
         )
         for reading in readings:
             assert reading.state is LedState.DARK
@@ -7001,7 +7001,7 @@ class TestGetLedStateShape:
 
 class TestProtocolCleanupLedRestoreKey:
     """`protocol_cleanup.restore_after_protocol` reads `color_data['illumination_ma']`
-    from the `original_led_states` snapshot taken via `get_led_states()`.
+    from the `original_led_states` snapshot taken via `led_states()`.
     A prior typo (`color_data['illumination']`) silently raised KeyError
     on every LED-restore path and was swallowed by the surrounding
     try/except. Rule 16 cluster fix paired with the audit F2/F12

@@ -303,7 +303,7 @@ class AutofocusRunner:
         window is refused before the stage has moved, any later one fails a
         sweep that has.
         """
-        limits = self._scope.motion.get_axis_limits('Z')
+        limits = self._scope.motion.axis_limits('Z')
         if limits is None or (limits.min_um <= low and high <= limits.max_um):
             return False
         _af_log.warning(
@@ -463,7 +463,7 @@ class AutofocusRunner:
             # The camera snapshot must precede the auto-gain lock below: it
             # records a live-view arm BEFORE the lock consumes it, and the
             # restore in the finally is what puts that arm back.
-            self._saved_led_state = self._scope.illumination.get_led_states()
+            self._saved_led_state = self._scope.illumination.led_states()
             self._saved_camera_state = self._scope.camera.save_camera_state('autofocus')
             # A live-view auto-gain arm is locked ONCE for the whole sweep
             # and resumed in the finally below. Left standing, every sweep

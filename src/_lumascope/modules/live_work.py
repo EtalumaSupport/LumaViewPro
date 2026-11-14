@@ -63,7 +63,7 @@ class WorkItem:
             when it counts them; None when it does not.
         progress_pct: How far a build has got, as its own progress last said;
             None before it has said, or for work that reports none.
-        discardable: True when ``ScopeSession.discard_close_drain`` drops
+        discardable: True when ``ScopeSession.discard_pending_video`` drops
             what this work has left; a host offers that discard only while
             some item says so.
     """

@@ -45,7 +45,7 @@ from tests.stock_channels import LED1, LED2
 
 
 def _lit(scope):
-    return [r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT]
+    return [r.name for r in scope.illumination.led_states() if r.state is LedState.LIT]
 
 
 # ---------------------------------------------------------------------------

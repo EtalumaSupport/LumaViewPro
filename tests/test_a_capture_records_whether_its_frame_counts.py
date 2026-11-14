@@ -142,7 +142,7 @@ def test_a_frame_the_preview_counted_names_the_preview(sim_scope, caplog):
     change = imaging._frame_validity.changes()['gain']
     assert arrived.wait(5.0), 'no frame arrived after the gain write'
     imaging.remove_frame_listener(on_frame)
-    imaging.get_image_from_buffer()
+    imaging.buffered_image()
 
     with caplog.at_level(VERBOSE, logger='LVP.api'):
         record = imaging.capture_still(accept_dark=True).record
@@ -184,7 +184,7 @@ def test_frames_a_grab_counted_name_the_grab(sim_scope, caplog):
     for _ in range(imaging._frame_validity.changes()['gain'].skip + 3):
         if imaging._frame_validity.changes()['gain'].remaining == 0:
             break
-        imaging.get_image()
+        imaging.capture_image()
 
     with caplog.at_level(VERBOSE, logger='LVP.api'):
         record = imaging.capture_still(accept_dark=True).record

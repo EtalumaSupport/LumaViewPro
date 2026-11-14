@@ -65,7 +65,7 @@ class TestLEDListener:
         scope.illumination.add_led_listener(lambda a, n, st, m: events.append((a, n, st, m)))
         scope.illumination.leds_off()
         # One event per board address, every one dark.
-        board = [r.address for r in scope.illumination.get_led_states()]
+        board = [r.address for r in scope.illumination.led_states()]
         assert [e[0] for e in events] == board
         assert all(e[2] is LedState.DARK for e in events)
 
@@ -162,13 +162,13 @@ class TestLEDOwnership:
 
 
 class TestLEDSaveRestore:
-    """Tests for restoring saved readings (get_led_states / restore_led_state)."""
+    """Tests for restoring saved readings (led_states / restore_led_state)."""
 
     def test_save_restore_roundtrip(self, scope):
         """Save state with LEDs on, turn all off, restore, verify original."""
         scope.illumination.led_on_by_address(0, 100)
         scope.illumination.led_on_by_address(1, 50)
-        snapshot = scope.illumination.get_led_states()
+        snapshot = scope.illumination.led_states()
         scope.illumination.leds_off()
         assert led_reading(scope, 0).state is LedState.DARK
         scope.illumination.restore_led_state(snapshot)
@@ -178,7 +178,7 @@ class TestLEDSaveRestore:
     def test_restoring_an_all_dark_snapshot_darkens_what_was_lit_since(self, scope):
         """The readings hold every address, so ones taken with nothing lit
         restore every address dark."""
-        snapshot = scope.illumination.get_led_states()
+        snapshot = scope.illumination.led_states()
         scope.illumination.led_on_by_address(0, 100)
         scope.illumination.restore_led_state(snapshot)
         assert led_reading(scope, 0).state is LedState.DARK
@@ -188,7 +188,7 @@ class TestLEDSaveRestore:
         # User has LED 0 on
         scope.illumination.led_on_by_address(0, 100)
         # AF starts
-        snapshot = scope.illumination.get_led_states()
+        snapshot = scope.illumination.led_states()
         lease = scope.illumination.acquire_led_lease('autofocus', claim=held_run_claim())
         scope.illumination._led_on_impl(3, 200, member='led_on', _lease=lease)  # BF for AF
         # AF finishes

@@ -6,7 +6,7 @@ asks it of the connected scope, where the operator pulls and replugs the
 cable, and of the firmware simulator.
 
 Each stage reads both boards two ways: through the API (`motor_connected`,
-`led_connected`, `get_actual_position('Z')`) and with one INFO exchange
+`led_connected`, `read_actual_position('Z')`) and with one INFO exchange
 through the production driver. With the cable out, the exchange raises,
 and the raise is the observation. The driver's port and open state are
 reported beside them.
@@ -67,7 +67,7 @@ def _actual_z(scope):
     """The API's answer for Z, or the refusal or failure it raised: with the
     cable out, a raise is the observation."""
     try:
-        return scope.motion.get_actual_position('Z')
+        return scope.motion.read_actual_position('Z')
     except Exception as e:
         return f'raised {type(e).__name__}: {e}'
 

@@ -64,7 +64,7 @@ from tests.ast_seams import MemberNames
 # 16 since the cell-count method is a record; 15 since the bookmark saves
 # answer the PlateLocation the bookmark read does; 14 since a protocol's
 # channel settings are records; 13 since the whole-settings snapshot, a
-# dict, left the wire for get_setting.
+# dict, left the wire for setting.
 UNTYPED_PIN = 13
 
 _SERVER_MODELS = MemberNames(

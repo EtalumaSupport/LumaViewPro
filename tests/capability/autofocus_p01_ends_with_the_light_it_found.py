@@ -101,7 +101,7 @@ def main():
         if AT_BOOKMARK:
             session.go_to_bookmark(('X', 'Y', 'Z'))
         else:
-            z_limits = motion.get_axis_limits('Z')
+            z_limits = motion.axis_limits('Z')
             motion.move_z((z_limits.min_um + z_limits.max_um) / 2)
         figure('Z start um', motion.get_current_position('Z'))
         current_ma = float(session.settings[LAYER]['illumination_ma'])

@@ -54,7 +54,7 @@ _UI_THREAD = {
         1,
         "every close's watch, started on the UI thread",
     ),
-    ('ui/advanced_settings.py', 'AdvancedSettings.set_acceleration_limit'): (1, _DEBOUNCE),
+    ('ui/advanced_settings.py', 'AdvancedSettings.set_acceleration_limit_pct'): (1, _DEBOUNCE),
     ('ui/image_settings.py', 'ImageSettings.__init__'): (1, _CONSTRUCTION),
     ('ui/image_settings.py', 'ImageSettings._init_ui'): (1, _CONSTRUCTION),
     ('ui/image_settings.py', 'set_histogram_channel'): (1, _DEBOUNCE),

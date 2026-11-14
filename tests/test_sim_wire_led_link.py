@@ -77,9 +77,7 @@ def _warnings(posts) -> list:
 def _believed(illumination) -> dict:
     """Address -> mA, for each address the API believes is lit."""
     return {
-        r.address: r.illumination_ma
-        for r in illumination.get_led_states()
-        if r.state is LedState.LIT
+        r.address: r.illumination_ma for r in illumination.led_states() if r.state is LedState.LIT
     }
 
 
@@ -104,7 +102,7 @@ def test_a_dropped_echo_leaves_the_answer_and_the_api_is_right(scope):
 
 
 def _state(illumination, address: int) -> LedState:
-    return next(r.state for r in illumination.get_led_states() if r.address == address)
+    return next(r.state for r in illumination.led_states() if r.address == address)
 
 
 def test_a_write_the_board_did_not_answer_raises_and_its_led_is_unknown(scope):
@@ -207,7 +205,7 @@ def test_after_a_reboot_the_api_does_not_believe_a_channel_lit(scope):
 
 
 def _states(illumination) -> set:
-    return {r.state for r in illumination.get_led_states()}
+    return {r.state for r in illumination.led_states()}
 
 
 def test_an_all_off_the_board_did_not_answer_raises_and_every_led_is_unknown(scope):

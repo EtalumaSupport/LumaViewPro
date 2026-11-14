@@ -209,15 +209,15 @@ def test_the_limits_run_from_each_index_position_to_the_margin_inside_its_far_sw
     79.79 mm sat 0.21 mm inside the 80 mm the unmeasured limit admitted).
     The index position places the travel: X runs down from its index
     toward the plate's column-12 end, Y and Z up from theirs."""
-    assert board.get_axis_limits('X') == {
+    assert board.axis_limits('X') == {
         'min': pytest.approx(117_690 - 122_710),
         'max': pytest.approx(117_690),
     }
-    assert board.get_axis_limits('Y') == {
+    assert board.axis_limits('Y') == {
         'min': pytest.approx(950),
         'max': pytest.approx(950 + 78_790),
     }
-    assert board.get_axis_limits('Z') == {'min': 0.0, 'max': pytest.approx(10_830, abs=0.01)}
+    assert board.axis_limits('Z') == {'min': 0.0, 'max': pytest.approx(10_830, abs=0.01)}
 
 
 # --- The surface every motor driver provides ------------------------------
@@ -234,7 +234,7 @@ def test_the_members_the_api_reads(board):
     assert board.takes_text_commands is False
     assert not hasattr(board, 'exchange_command')
     assert not hasattr(board, 'exchange_multiline')
-    assert board.get_axis_limits('Y') == {'min': 950.0, 'max': pytest.approx(79_740.0)}
+    assert board.axis_limits('Y') == {'min': 950.0, 'max': pytest.approx(79_740.0)}
 
 
 # --- Moves, arrival, the lid ----------------------------------------------
@@ -516,7 +516,7 @@ def test_an_acceleration_change_writes_the_speed_first_then_the_scaled_accelerat
 
 def test_z_has_no_acceleration_limit(board):
     with pytest.raises(NotImplementedError):
-        board.set_acceleration_limit('Z', 'acceleration', 50)
+        board.set_acceleration_limit_pct('Z', 'acceleration', 50)
 
 
 # --- A board that goes away -----------------------------------------------

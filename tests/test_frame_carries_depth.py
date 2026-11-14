@@ -12,7 +12,7 @@ value -> IndexError).
 These pin the coupling at each layer:
   - ImageHandlerBase stores + returns the frame's depth (where Pylon/IDS buffer).
   - grab_latest carries it (the simulated camera, end to end).
-  - get_image_from_buffer downconverts by the FRAME's depth, never a live driver
+  - buffered_image downconverts by the FRAME's depth, never a live driver
     re-query -- the direct regression for the mode-switch crash.
 """
 
@@ -86,7 +86,7 @@ class TestGetImageFromBufferUsesFrameDepth:
 
         imaging = sim_scope.imaging
 
-        img, _ts = imaging.get_image_from_buffer(force_to_8bit=True)
+        img, _ts = imaging.buffered_image(force_to_8bit=True)
 
         assert img is not None  # did not crash on the wide frame
         assert img.dtype == np.uint8

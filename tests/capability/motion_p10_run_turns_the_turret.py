@@ -97,7 +97,7 @@ def main():
             motion.move_turret(1)
         slots = {
             slot: objective
-            for slot, objective in session.scope.runtime_state.get_turret_config().items()
+            for slot, objective in session.scope.runtime_state.turret_config().items()
             if objective
         }
         start_slot = motion.turret_status().slot
@@ -125,7 +125,7 @@ def main():
         away = slots[away_slot]
 
         labware = session.settings['protocol']['labware']
-        position = session.get_current_plate_position()
+        position = session.plate_position()
         figure('step position (plate mm, z um)', position)
         layer = session.settings['BF']
         protocol = protocol_of(
@@ -153,9 +153,7 @@ def main():
 
         def _observed_move_turret(slot, restore_z=True):
             lit_at_turn.append(
-                sorted(
-                    str(r.name) for r in illumination.get_led_states() if r.state is LedState.LIT
-                )
+                sorted(str(r.name) for r in illumination.led_states() if r.state is LedState.LIT)
             )
             real_move_turret(slot=slot, restore_z=restore_z)
             turned_to.append((slot, motion.turret_status().slot))

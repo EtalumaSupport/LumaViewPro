@@ -340,7 +340,7 @@ class TestNewStacksAsApplyDoes:
         assert [row['Z'] for row in swept] == pytest.approx([5000.0] * wells)
 
     def test_a_stack_past_the_z_travel_is_refused(self, session):
-        z_max = session.scope.motion.get_axis_limits('Z').max_um
+        z_max = session.scope.motion.axis_limits('Z').max_um
 
         with pytest.raises(ProtocolRunRefusedError) as refused:
             _new_bf_and_blue(session, bf_focus=z_max - 1.0, blue_focus=z_max - 1.0)
@@ -394,7 +394,7 @@ class TestNewTilesAsApplyDoes:
 
 
 def test_the_motion_api_has_one_read_of_the_travel():
-    """The limits are get_axis_limits'. Two retired doors answered them too:
+    """The limits are axis_limits'. Two retired doors answered them too:
     the motion API's, as the driver's microstep config, and the composition
     root's, as the motor config's own number."""
     from _lumascope.modules.lumascope_api import Lumascope

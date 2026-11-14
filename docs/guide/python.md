@@ -28,7 +28,7 @@ A source copy that LumaViewPro has never run has no `current.json`: the
 template is read instead, and the first saved write creates the file.
 Each call reads the files afresh, so the dict it answers is yours; a plugin
 inside a running LumaViewPro reads the session's settings with
-`session.get_setting(path)`. Settings are an argument of `create`, never read
+`session.setting(path)`. Settings are an argument of `create`, never read
 behind your back.
 
 ```python bringup
@@ -61,7 +61,7 @@ completed from the template, and each of its values is judged as a write of it
 would be: a value outside its range is refused (`SettingRefusedError`, naming
 the path), never clamped. When the motor board reports a model the catalogue
 knows and it differs from `settings['microscope']`, bring-up stores the board's
-model, `session.get_setting('microscope')`: the hardware outranks the stored
+model, `session.setting('microscope')`: the hardware outranks the stored
 selection.
 `settings['simulator_tier']` picks the simulator's fidelity
 ([The simulator](simulator.md#the-simulator)).
@@ -125,7 +125,7 @@ disconnects the scope. From its first step, new work that would take the scope
 -- a run, a recording, a home, a diagnostic -- is refused `SessionClosingError`
 (`'session_closing'`), and once it has closed every command is refused
 `'scope_disconnected'`. It waits for the work's files with no time limit;
-`discard_close_drain()` drops the video frames still queued, so a close stuck
+`discard_pending_video()` drops the video frames still queued, so a close stuck
 behind a slow disk can end. A second call during the close waits for it.
 
 ```python

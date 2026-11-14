@@ -2809,8 +2809,8 @@ class PylonCamera(Camera):
         except Exception as e:
             raise CameraReadFailedError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
 
-    def get_black_level_range(self) -> tuple[float, float] | None:
-        """BlackLevel's minimum and maximum, live. See ``Camera.get_black_level_range``."""
+    def read_black_level_range(self) -> tuple[float, float] | None:
+        """BlackLevel's minimum and maximum, live. See ``Camera.read_black_level_range``."""
         if not self.active:
             return None
         try:

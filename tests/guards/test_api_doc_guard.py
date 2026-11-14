@@ -53,7 +53,7 @@ A name the prose states is checked by its kind, each kind at its owner
 (polarity 5): a ``session.`` / ``scope.`` / ``caps.`` form or a
 ``Class.member`` of a class the API names resolves to API; a route
 (``/api/...``, with or without its method) is answered by the app's routes; a
-dotted path whose first part is a setting is one (``get_setting``); and a
+dotted path whose first part is a setting is one (``setting``); and a
 quoted reason (``'not_offered'``) is one a published outcome, the server or a
 run's ending carries. Every other backticked token is not checked. The
 Changelog names, by design, surfaces that do NOT resolve -- its ``removal``
@@ -1105,7 +1105,7 @@ class TestLumascopeSkillsFencesRun:
             '```\n'
             '## Wrong class\n'
             '```python raises=ValueError\n'
-            "session.get_setting('nope')\n"
+            "session.setting('nope')\n"
             '```\n'
             '## Never raised\n'
             '```python raises=ValueError\n'
@@ -1116,7 +1116,7 @@ class TestLumascopeSkillsFencesRun:
             'x = 1\n'
             '```\n'
             '```python\n'
-            "assert session.model == 'LS720'\n"
+            "assert session.selected_model == 'LS720'\n"
             '```\n'
             '## Skipped\n'
             '```python norun\n'
@@ -1373,11 +1373,11 @@ class TestLumascopeSkillsWalkthroughRuns:
         cases = {
             'a typed job id': '```bash\nAPI=http://h/api/v1\ncurl -s $API/jobs/1\n```\n',
             'a wrong status': (
-                '```bash\nAPI=http://h/api/v1\ncurl -s "$API/scope/motion/get_axis_limits?axis=W"'
+                '```bash\nAPI=http://h/api/v1\ncurl -s "$API/scope/motion/axis_limits?axis=W"'
                 '   # 200\n```\n'
             ),
             'a wrong reason': (
-                '```bash\nAPI=http://h/api/v1\ncurl -s "$API/scope/motion/get_axis_limits?axis=W"'
+                '```bash\nAPI=http://h/api/v1\ncurl -s "$API/scope/motion/axis_limits?axis=W"'
                 '   # 422 axis_absent\n```\n'
             ),
             'an unstated failure': '```bash\nAPI=http://h/api/v1\ncurl -s $API/no_such_member\n```\n',
@@ -1456,7 +1456,7 @@ class _ProseOwners:
         self.routes = [
             (route.path, getattr(route, 'methods', None) or set()) for route in app.routes
         ]
-        self.settings = live_objects['session'].get_settings_snapshot().keys()
+        self.settings = live_objects['session'].settings_snapshot().keys()
         self.reasons = (
             # A kind itself (Refusal, Fault, ...) carries no reasons; its classes do.
             {r for cls in outcome_classes().values() for r in getattr(cls, 'causes', ())}
@@ -1498,7 +1498,7 @@ class _ProseOwners:
             return 'member', f'{cls.__name__}.{name} is not API'
         if (match := _DOTTED.match(token)) and match.group(1) in self.settings:
             try:
-                self.live['session'].get_setting(token)
+                self.live['session'].setting(token)
             except LumascopeError as refused:
                 if getattr(refused, 'reason', None) == 'not_a_setting':
                     return 'setting', 'not a setting'

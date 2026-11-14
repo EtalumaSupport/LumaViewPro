@@ -2,7 +2,7 @@
 """The support report names the driver Windows bound to each Lumascope Classic identity.
 
 A Classic on a wrong or missing driver does not come up, and the report is
-what support reads. It writes ``diagnostics.get_camera_usb_bindings``, the
+what support reads. It writes ``diagnostics.read_camera_usb_bindings``, the
 camera connect's own read, as text and as JSON, and says when the host binds
 no driver at all.
 

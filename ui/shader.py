@@ -325,7 +325,7 @@ void main (void) {
 
         scope_display = self.ids.get('scope_display_id')
         if scope_display:
-            delivered = ctx.scope.imaging.get_delivered_rate()
+            delivered = ctx.scope.imaging.delivered_rate()
             status = frame_rate_title(
                 delivered.frame_rate_fps,
                 scope_display.display_fps(),

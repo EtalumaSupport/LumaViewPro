@@ -60,7 +60,7 @@ class Histogram(Widget):
             return
 
         # Skip during protocol acquisition. The histogram contends with
-        # the capture / protocol pipeline for get_image_from_buffer and
+        # the capture / protocol pipeline for buffered_image and
         # the texture isn't user-visible during a run anyway. The run
         # surface's own holder, not the lockout: an idle control session
         # locks the controls while the live picture still shows the scope.
@@ -82,7 +82,7 @@ class Histogram(Widget):
             # Every fourth pixel of every fourth row, about 16x fewer to
             # convert and count; the sample is the image's own pixels, with
             # no scale bar drawn into it.
-            sampled, _ = ctx.scope.imaging.get_image_from_buffer(force_to_8bit=True, stride=4)
+            sampled, _ = ctx.scope.imaging.buffered_image(force_to_8bit=True, stride=4)
             if sampled is None:
                 return
 

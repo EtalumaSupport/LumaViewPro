@@ -103,8 +103,8 @@ SETTINGS_WITH_A_MEMBER: typing.Final[dict[str, SettingMember]] = {
     'frame': _camera('set_frame_size'),
     'camera.high_conversion_gain': _camera('set_high_conversion_gain'),
     'camera.line_noise_reduction': _camera('set_line_noise_reduction'),
-    'scale_bar.enabled': _session('set_scale_bar'),
-    'motion.acceleration_max_pct': _session('set_acceleration_limit'),
+    'scale_bar.enabled': _session('set_scale_bar_enabled'),
+    'motion.acceleration_max_pct': _session('set_acceleration_limit_pct'),
     'bookmark': _session('save_bookmark', read='bookmark'),
     '*': _session('set_channel_settings'),
 }
@@ -177,7 +177,7 @@ KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
 )
 
 # Any finite number, whose bound another owner holds where it is used: the
-# stage offset, whose position past travel is ``MotionAPI.get_axis_limits``'
+# stage offset, whose position past travel is ``MotionAPI.axis_limits``'
 # refusal at the move.
 BOUND_AT_USE: typing.Final[frozenset[str]] = frozenset({'stage_offset.x', 'stage_offset.y'})
 

@@ -36,13 +36,13 @@ def stalled_12bit(sim_scope):
 
 def test_a_read_of_the_frame_the_caller_has_returns_its_ordinal_and_no_image(stalled_12bit):
     imaging = stalled_12bit.imaging
-    image, seq = imaging.get_image_from_buffer(force_to_8bit=True)
+    image, seq = imaging.buffered_image(force_to_8bit=True)
     assert image is not None and seq is not None
 
-    assert imaging.get_image_from_buffer(force_to_8bit=True, unless_seq=seq) == (None, seq)
+    assert imaging.buffered_image(force_to_8bit=True, unless_seq=seq) == (None, seq)
 
     # Any other ordinal is not the frame the caller has: the frame comes back.
-    again, again_seq = imaging.get_image_from_buffer(force_to_8bit=True, unless_seq=seq - 1)
+    again, again_seq = imaging.buffered_image(force_to_8bit=True, unless_seq=seq - 1)
     assert again_seq == seq
     assert again is not None and again.shape == image.shape
 

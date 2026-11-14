@@ -36,7 +36,7 @@ def session(tmp_path_factory):
 
 
 def _z_limits(session):
-    limits = session.scope.motion.get_axis_limits('Z')
+    limits = session.scope.motion.axis_limits('Z')
     return limits.min_um, limits.max_um
 
 

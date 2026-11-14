@@ -169,7 +169,7 @@ def _autofocus(session, runner):
     # The home leaves Z at the end of its travel, where an autofocus refuses
     # to search; from the middle each run sweeps, capturing as it goes.
     motion = session.scope.motion
-    z = motion.get_axis_limits('Z')
+    z = motion.axis_limits('Z')
     motion.start_move_z((z.min_um + z.max_um) / 2).result(timeout=60)
     _arm(session)
     runs = 0

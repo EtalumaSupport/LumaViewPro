@@ -2,7 +2,7 @@
 """Every support bundle carries the USB census and, on Windows, Device Manager's whole list.
 
 Support reads the report on a PC it cannot inspect, so the report writes
-the census bring-up logs, read again through ``get_usb_census``, as text
+the census bring-up logs, read again through ``read_usb_census``, as text
 and JSON; and on Windows every present device, its class, status and
 problem code, from the same walk of Windows' device list the census
 reads, in place of the ``wmic`` reads current Windows 11 does not have

@@ -133,7 +133,7 @@ class _StubRuntimeState:
 
 
 class _StubIllumination:
-    def get_led_states(self):
+    def led_states(self):
         return ()
 
 

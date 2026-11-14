@@ -111,7 +111,7 @@ def _hold_while_moving(motion, reads, axis, target):
 def _progress_holds(session, reads):
     motion = session.scope.motion
     for axis in ('X', 'Y'):
-        if motion.get_axis_limits(axis) is None:
+        if motion.axis_limits(axis) is None:
             continue
         centre = CENTRE[axis]
         for target in (centre - SPAN_UM, centre + SPAN_UM, centre):

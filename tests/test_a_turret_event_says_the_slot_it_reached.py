@@ -43,5 +43,5 @@ def test_the_position_reads_carry_the_stage_axes_alone(sim_turreted_session):
     motion = sim_turreted_session.scope.motion
 
     assert set(motion.axis_positions()) == {'X', 'Y', 'Z'}
-    assert set(motion.get_target_positions()) == {'X', 'Y', 'Z'}
+    assert set(motion.target_positions()) == {'X', 'Y', 'Z'}
     assert set(sim_turreted_session.status.axes) == {'X', 'Y', 'Z'}

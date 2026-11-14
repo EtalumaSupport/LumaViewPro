@@ -12,13 +12,13 @@ session, live = make_session('abort', home=True)
 try:
     import _lumascope.modules.config_helpers as config_helpers
 
-    settings = session.get_settings_snapshot()
+    settings = session.settings_snapshot()
     runner = session.protocol_runner()
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
         objective_helper=session.scope.objective_helper,
         wellplate_loader=session.scope.wellplate_loader,
-        current_z=session.get_current_plate_position().z_um,
+        current_z=session.plate_position().z_um,
         tiling='1x1',
         use_zstacking=False,
     )

@@ -251,9 +251,9 @@ class TestTheLights:
         illumination = session.scope.illumination
         led0 = illumination.led_address_of(LED0)
         illumination.led_on(LED0, 80.0)
-        lit_led0 = illumination.get_led_states()
+        lit_led0 = illumination.led_states()
         illumination.led_off(LED0)
-        before = illumination.get_led_states()
+        before = illumination.led_states()
         lights = [
             ('led_on, another layer', lambda: illumination.led_on(LED0, 100.0)),
             ('led_on_by_address', lambda: illumination.led_on_by_address(led0, 90.0)),
@@ -276,7 +276,7 @@ class TestTheLights:
                     'exclusive_activity_running',
                     'recording',
                 )
-                assert illumination.get_led_states() == before
+                assert illumination.led_states() == before
 
             failed = failing_cases(lights, check, label=lambda case: case[0])
         finally:
@@ -303,7 +303,7 @@ class TestTheLights:
                 call()
             finally:
                 held.release()
-            assert snapshot_lit_pairs(illumination.get_led_states()) == frozenset()
+            assert snapshot_lit_pairs(illumination.led_states()) == frozenset()
 
         failed = failing_cases(offs, check, label=lambda case: case[0])
         assert not failed, failed
@@ -314,7 +314,7 @@ class TestTheLights:
         held = session._activity_claim.try_claim('recording')
         try:
             illumination.led_on(LED0, 0.0)
-            before = illumination.get_led_states()
+            before = illumination.led_states()
             with pytest.raises(HardwareCommandRefusedError) as refused:
                 illumination.led_on(LED0, 50.0)
         finally:
@@ -323,7 +323,7 @@ class TestTheLights:
             'exclusive_activity_running',
             'recording',
         )
-        assert illumination.get_led_states() == before
+        assert illumination.led_states() == before
 
     def test_the_shown_layers_illumination_goes_on_its_lit_led_and_is_stored(self, lit_bf):
         session = lit_bf
@@ -371,7 +371,7 @@ class TestTheLights:
                 call()
             finally:
                 held.release()
-            assert snapshot_lit_pairs(illumination.get_led_states()) == {(bf, current)}
+            assert snapshot_lit_pairs(illumination.led_states()) == {(bf, current)}
 
         failed = failing_cases(changes, check, label=lambda case: case[0])
         assert not failed, failed

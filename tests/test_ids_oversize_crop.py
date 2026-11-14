@@ -146,7 +146,7 @@ def test_min_frame_size_is_deliverable_alignment_not_aoi_min():
     min frame size must be the deliverable alignment, NOT the Width/Height node
     Minimum (1056x418 at 2x binning). The UI clamps a requested frame UP to this
     min; reporting the AOI min forced a half-resolution 2x request (950) up to
-    1056 -- the non-square delivered frame. Mirrors get_pixel_alignment, which
+    1056 -- the non-square delivered frame. Mirrors pixel_alignment, which
     already reports deliverable (not AOI-grid) space for this driver."""
     cam = _ids_camera_with_aoi(minimums={'Width': 1056, 'Height': 418})
 

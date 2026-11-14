@@ -20,10 +20,10 @@ try:
     from _lumascope.modules import config_helpers
     from _lumascope.modules.lumascope_api.illumination import lit_other_than
 
-    step('runtime_state.get_well_label()', lambda: scope.runtime_state.get_well_label())
+    step('runtime_state.well_label()', lambda: scope.runtime_state.well_label())
     step(
         'config_helpers.get_image_capture_config_from_settings',
-        lambda: config_helpers.get_image_capture_config_from_settings(s.get_settings_snapshot()),
+        lambda: config_helpers.get_image_capture_config_from_settings(s.settings_snapshot()),
     )
     step(
         f'session.get_channel_configs([{LED0}])',

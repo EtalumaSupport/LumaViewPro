@@ -9,7 +9,7 @@ The arrival plan's bench row. Through the motion API, on a homed scope:
    move whole, and the leg itself is read off ``serial.log`` (the time
    between the leg's ``TARGET_WZ`` and the target's).
 2. X, Y and Z moves, each waited: the position the API holds against a
-   fresh board read (``get_actual_position``).
+   fresh board read (``read_actual_position``).
 3. A retarget mid-move on X: the first move ends ``'superseded'``, the
    second arrives at its own target.
 4. The same on Z with overshoot, the retarget sent while the first move is
@@ -44,7 +44,7 @@ def _timed_move(m, axis, position, **kwargs):
 
 def _held_against_the_board(m, axis):
     held = m.get_current_position(axis)
-    board = m.get_actual_position(axis)
+    board = m.read_actual_position(axis)
     figure(f'{axis} held vs board (um)', {'held': held, 'board': board})
     check(
         f"{axis}: the position the API holds is the board's", abs(held - board) < 1.0, (held, board)
@@ -63,14 +63,14 @@ def _retarget(m, axis, first, second, **kwargs):
     except MoveStoppedError as e:
         check(f'{axis}: the first move is superseded', e.reason == 'superseded', e.reason)
     check(f'{axis}: the second move arrives', two.result() is None)
-    landed = m.get_actual_position(axis)
+    landed = m.read_actual_position(axis)
     figure(f'{axis} retarget landed (um)', {'target': second, 'board': landed})
     check(f'{axis}: the board is at the second target', abs(landed - second) < 1.0, landed)
 
 
 def _measure(session):
     m = session.scope.motion
-    z = m.get_axis_limits('Z')
+    z = m.axis_limits('Z')
     backlash = m._driver.backlash_um()
     figure('Z limits (um)', (z.min_um, z.max_um))
     figure('Z backlash (um)', backlash)
@@ -83,9 +83,11 @@ def _measure(session):
         'full-travel downward move with overshoot, s',
         _timed_move(m, 'Z', lowest_with_leg, overshoot_enabled=True),
     )
-    check('Z arrived at the bottom target', abs(m.get_actual_position('Z') - lowest_with_leg) < 1.0)
+    check(
+        'Z arrived at the bottom target', abs(m.read_actual_position('Z') - lowest_with_leg) < 1.0
+    )
 
-    x, y = m.get_axis_limits('X'), m.get_axis_limits('Y')
+    x, y = m.axis_limits('X'), m.axis_limits('Y')
     x_mid, y_mid = (x.min_um + x.max_um) / 2, (y.min_um + y.max_um) / 2
     for axis, position in (('X', x_mid), ('Y', y_mid), ('Z', (z.min_um + z.max_um) / 2)):
         axis_move(m, axis, position)

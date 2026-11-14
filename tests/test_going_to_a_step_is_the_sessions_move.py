@@ -217,7 +217,7 @@ class TestTheMove:
 
         assert (refused.value.reason, refused.value.axis) == ('position_out_of_range', 'Y')
         motion.wait_until_finished_moving(timeout_s=_MOVE_WAIT_S)
-        assert (motion.get_target_positions()['X'], motion.get_target_positions()['Y']) == (
+        assert (motion.target_positions()['X'], motion.target_positions()['Y']) == (
             60_000.0,
             40_000.0,
         )
@@ -294,7 +294,7 @@ class TestTheRefusals:
         objective = '20x Oly'
         slot = next(s for s, o in TEST_TURRET_OBJECTIVES.items() if o == objective)
         protocol = _protocol('6 well microplate', _step(30.0, 20.0, 4000.0, objective))
-        live = turret_session.get_setting('live_folder')
+        live = turret_session.setting('live_folder')
         turret_session.save_protocol(protocol, f'{live}/one_step.tsv')
         with TestClient(build_app(turret_session)) as client:
             loaded = client.post('/api/v1/load_protocol', json={'file_path': 'one_step.tsv'}).json()
@@ -427,7 +427,7 @@ class TestTheStepIntoItsLayer:
         )
         stimulating = [
             layer
-            for layer, values in no_motor_session.get_settings_snapshot().items()
+            for layer, values in no_motor_session.settings_snapshot().items()
             if isinstance(values, dict) and values.get('stim_config') is not None
         ]
         for layer in stimulating:
@@ -451,7 +451,7 @@ class TestTheLedPreview:
         """The name of every lit LED address (None for one the identity does not name)."""
         return {
             reading.name
-            for reading in built.scope.illumination.get_led_states()
+            for reading in built.scope.illumination.led_states()
             if reading.state is LedState.LIT
         }
 
@@ -590,14 +590,14 @@ class TestTheSlotLookupCannotDisagreeWithTheRule:
         moves = _spy_moves(monkeypatch, turret_session)
         # a stand-in by design: the clear lands between two reads one call makes
         runtime_state = turret_session.scope.runtime_state
-        before_the_clear = runtime_state.get_turret_config()
+        before_the_clear = runtime_state.turret_config()
         reads = []
 
         def turret_config():
             reads.append(None)
             return before_the_clear if len(reads) == 1 else dict.fromkeys(before_the_clear)
 
-        monkeypatch.setattr(runtime_state, 'get_turret_config', turret_config)
+        monkeypatch.setattr(runtime_state, 'turret_config', turret_config)
         protocol = _protocol('6 well microplate', _step(30.0, 20.0, 4000.0, '20x Oly'))
 
         with pytest.raises(ProtocolRunRefusedError) as refused:

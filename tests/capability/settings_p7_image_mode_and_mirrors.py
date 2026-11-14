@@ -34,7 +34,7 @@ try:
         im_camera.pixel_format == target,
         f'cached={im_camera.pixel_format}',
     )
-    _common.ok('image_mode recorded in the store', s.get_settings_snapshot()['image_mode'] == mode)
+    _common.ok('image_mode recorded in the store', s.settings_snapshot()['image_mode'] == mode)
     print('significant_bits after the mode change:', im.significant_bits)
 
     # A bogus mode: refused by the resolver, or accepted by the store?
@@ -49,8 +49,8 @@ try:
         im_camera.set_image_mode('37bit')
         _common.ok(
             'bogus image mode refused by the store',
-            s.get_settings_snapshot()['image_mode'] != '37bit',
-            f'stored {s.get_settings_snapshot()["image_mode"]!r}',
+            s.settings_snapshot()['image_mode'] != '37bit',
+            f'stored {s.settings_snapshot()["image_mode"]!r}',
         )
     except Exception as e:
         _common.ok('bogus image mode refused by the store', True, f'{type(e).__name__}: {e}')
@@ -61,9 +61,9 @@ try:
     # came from once the camera took them (scope.camera, W3b), so the
     # settings follow every apply; what this records is that the API knows
     # the geometry after one.
-    before = s.get_settings_snapshot()
+    before = s.settings_snapshot()
     im_camera.set_frame_size(1024, 768)
-    after = s.get_settings_snapshot()
+    after = s.settings_snapshot()
     _common.ok(
         'the API knows the delivered frame size after an apply',
         (im_camera.read_frame_size().width, im_camera.read_frame_size().height) != (0, 0),
@@ -73,7 +73,7 @@ try:
     _common.ok(
         'the API knows the delivered binning after an apply',
         im_camera.read_binning() == 2,
-        f'API {im_camera.read_binning()}, settings {s.get_settings_snapshot()["binning"]}',
+        f'API {im_camera.read_binning()}, settings {s.settings_snapshot()["binning"]}',
     )
     print("settings['frame'] native keys:", dict(after['frame']))
 except Exception:

@@ -1,6 +1,6 @@
-"""Regression tests for MotorBoard.get_axis_limits() sentinel return.
+"""Regression tests for MotorBoard.axis_limits() sentinel return.
 
-Bug shape (#665): ``MotorBoard.get_axis_limits('T')`` logged at ERROR
+Bug shape (#665): ``MotorBoard.axis_limits('T')`` logged at ERROR
 on every call, including the documented "T has no configured limits"
 case. The error fired multiple times per protocol scan because the
 caller in sequenced_capture_runner.py iterates every axis returned by
@@ -34,7 +34,7 @@ from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 
 class TestMotorBoardReturnsSentinelForNoLimits:
-    """src/_lumascope/drivers/motorboard.py::get_axis_limits returns None when an axis
+    """src/_lumascope/drivers/motorboard.py::axis_limits returns None when an axis
     is supported but has no ``limits`` key in its config. Programmer-
     error case (unsupported axis at all) still raises HardwareError."""
 
@@ -58,7 +58,7 @@ class TestMotorBoardReturnsSentinelForNoLimits:
 
     def test_t_axis_returns_none_not_raises(self, motorboard_with_t_no_limits):
         # Was: raised HardwareError + logged ERROR. Now: returns None.
-        result = motorboard_with_t_no_limits.get_axis_limits('T')
+        result = motorboard_with_t_no_limits.axis_limits('T')
         assert result is None, (
             'T axis (no configured limits) must return None, not raise. '
             'ERROR-level logging on every protocol scan was a Rule 20 '
@@ -67,7 +67,7 @@ class TestMotorBoardReturnsSentinelForNoLimits:
 
     def test_xyz_axis_still_returns_limits_dict(self, motorboard_with_t_no_limits):
         for axis in ('X', 'Y', 'Z'):
-            limits = motorboard_with_t_no_limits.get_axis_limits(axis)
+            limits = motorboard_with_t_no_limits.axis_limits(axis)
             assert limits is not None, f'{axis} must return its configured limits'
             assert 'min' in limits and 'max' in limits
 
@@ -77,7 +77,7 @@ class TestMotorBoardReturnsSentinelForNoLimits:
         # Programmer error (axis not in config at all) is distinct from
         # configuration variant ("no limits") and must still raise.
         with pytest.raises(HardwareError):
-            motorboard_with_t_no_limits.get_axis_limits('Q')
+            motorboard_with_t_no_limits.axis_limits('Q')
 
 
 # ---------------------------------------------------------------------------
@@ -93,9 +93,9 @@ class TestSimulatedMotorBoardReturnsSentinelForNoLimits:
         from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        result = board.get_axis_limits('T')
+        result = board.axis_limits('T')
         assert result is None, (
-            "SimulatedMotorBoard.get_axis_limits('T') must return None "
+            "SimulatedMotorBoard.axis_limits('T') must return None "
             'to match the real MotorBoard contract.'
         )
 
@@ -104,7 +104,7 @@ class TestSimulatedMotorBoardReturnsSentinelForNoLimits:
 
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         for axis in ('X', 'Y', 'Z'):
-            limits = board.get_axis_limits(axis)
+            limits = board.axis_limits(axis)
             assert limits is not None
             assert 'min' in limits and 'max' in limits
 
@@ -114,7 +114,7 @@ class TestSimulatedMotorBoardReturnsSentinelForNoLimits:
 
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         with pytest.raises(HardwareError, match='Unsupported axis'):
-            board.get_axis_limits('Q')
+            board.axis_limits('Q')
 
 
 # ---------------------------------------------------------------------------
@@ -134,18 +134,18 @@ class TestNoErrorLogForExpectedNoLimitsCase:
         source = path.read_text()
         tree = ast.parse(source)
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == 'get_axis_limits':
+            if isinstance(node, ast.FunctionDef) and node.name == 'axis_limits':
                 text = ast.get_source_segment(source, node)
                 assert text is not None
                 return text
-        raise AssertionError('get_axis_limits not found in motorboard.py')
+        raise AssertionError('axis_limits not found in motorboard.py')
 
     def test_no_limits_branch_does_not_log_error(self):
         body = self._get_axis_limits_source()
         # The unsupported-axis branch still legitimately logs at ERROR
         # (genuine programmer error). The 'no limits' branch must not.
         assert 'No limits defined' not in body, (
-            'src/_lumascope/drivers/motorboard.py::get_axis_limits must not log '
+            'src/_lumascope/drivers/motorboard.py::axis_limits must not log '
             "'No limits defined' at ERROR -- that case is now a "
             'sentinel return, not an error condition.'
         )

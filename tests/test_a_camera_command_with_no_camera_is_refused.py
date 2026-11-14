@@ -281,8 +281,8 @@ def test_with_no_camera_a_fresh_read_is_refused_and_a_held_one_answers_none(
     for read in (camera.read_gain_db, camera.read_exposure_ms, camera.read_frame_size):
         _assert_names_the_camera(_refused(read))
     assert (camera.active, camera.gain_db, camera.frame_size) == (False, None, None)
-    assert scope.diagnostics.get_camera_temperatures_degc() is None
-    assert scope.diagnostics.get_camera_link_info() is None
+    assert scope.diagnostics.read_camera_temperatures_degc() is None
+    assert scope.diagnostics.read_camera_link() is None
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))
@@ -340,7 +340,7 @@ def test_with_no_camera_showing_a_channel_shows_it_and_reports_nothing(
 
     assert session.show_channel(LED1) == ShownChannel(LED1, lit=True)
 
-    lit = {r.name for r in session.scope.illumination.get_led_states() if r.state is LedState.LIT}
+    lit = {r.name for r in session.scope.illumination.led_states() if r.state is LedState.LIT}
     assert lit == {LED1}
     assert _camera_store(session) == before
     assert [(n.title, n.message) for n in centre_posts] == []
@@ -396,8 +396,8 @@ def test_after_disconnect_no_read_describes_the_camera_that_left(make_session, m
         assert _refused(read).reason == 'scope_disconnected'
     assert camera.frame_size is None
     assert camera.gain_db is None
-    assert scope.diagnostics.get_camera_temperatures_degc() is None
-    assert scope.diagnostics.get_camera_link_info() is None
+    assert scope.diagnostics.read_camera_temperatures_degc() is None
+    assert scope.diagnostics.read_camera_link() is None
 
 
 @pytest.mark.parametrize('model', ('LS850', 'LS620'))

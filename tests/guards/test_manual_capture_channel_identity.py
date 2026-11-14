@@ -124,7 +124,7 @@ def test_the_shown_lit_channel_names_and_colours_the_still(identity_scope, tmp_p
 def _illumination(*readings):
     # a stand-in by design: the subject is the other-light check, and these readings
     # are its interchangeable input, built to each clause
-    return SimpleNamespace(get_led_states=lambda: readings)
+    return SimpleNamespace(led_states=lambda: readings)
 
 
 def _lit(address, name):
@@ -156,7 +156,7 @@ def test_another_light_clauses():
     assert lit_other_than(two_lit, LED1) == [LED0, LED2]
     unnamed_lit = _illumination(_lit(6, None), _dark(2, LED2))
     assert lit_other_than(unnamed_lit, LED1) == ['LED address 6']
-    no_board = SimpleNamespace(get_led_states=lambda: None)
+    no_board = SimpleNamespace(led_states=lambda: None)
     assert lit_other_than(no_board, LED1) == []
     assert lit_other_than(none_lit, LED1, {2: 100.0}) == [LED2]
 

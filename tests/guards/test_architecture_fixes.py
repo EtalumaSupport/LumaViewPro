@@ -471,7 +471,13 @@ _ORCHESTRATION_MEMBERS = MemberNames(
         'src/_lumascope/modules/lumascope_api/imaging.py',
         'src/_lumascope/modules/lumascope_api/motion.py',
     ),
-    {'initialize', 'enable_streaming', 'disable_streaming', 'disconnect', 'set_acceleration_limit'},
+    {
+        'initialize',
+        'enable_streaming',
+        'disable_streaming',
+        'disconnect',
+        'set_acceleration_limit_pct',
+    },
 )
 _ORCHESTRATION_CONSTRUCTORS = MemberNames(
     (

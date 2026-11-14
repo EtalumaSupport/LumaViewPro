@@ -132,7 +132,7 @@ def main():
         motion.start_move_z(0.0).result(timeout=TURN_TIMEOUT_S)
         if not check('Z is at 0 before any pick', abs(motion.get_current_position('Z')) < 1.0):
             return
-        slots = session.scope.runtime_state.get_turret_config()
+        slots = session.scope.runtime_state.turret_config()
         start_state, start_slot = _turret(session)
         here = slots.get(start_slot)
         figure('turret slots assigned', slots)

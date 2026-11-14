@@ -93,14 +93,14 @@ class TestTwoResolverSplit:
         scope.illumination.add_led_listener(lambda *reading: heard.append(LedReading(*reading)))
         scope.illumination.led_on_by_address(6, 50)
         lit = LedReading(6, None, LedState.LIT, 50.0)
-        assert lit in scope.illumination.get_led_states()
+        assert lit in scope.illumination.led_states()
         assert heard == [lit]
 
     def test_a_snapshot_lighting_an_led_the_model_lacks_is_refused(self, scope, ls850_0):
         """Replayed from a snapshot taken on a scope that has the LED, a
         light of an LED this model lacks is refused and lights nothing."""
         scope.illumination.led_on(channel=LED1, illumination_ma=50)
-        snapshot = scope.illumination.get_led_states()
+        snapshot = scope.illumination.led_states()
         scope.illumination.led_off(channel=LED1)
 
         with pytest.raises(HardwareCommandRefusedError) as refused:

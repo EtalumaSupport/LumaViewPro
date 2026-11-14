@@ -93,5 +93,5 @@ def test_the_server_starts_after_the_metrics_from_the_enabled_setting():
     start = _function(app, '_start_the_rest_server')
     # Only false leaves it off: any other value reaches the server's judge,
     # which refuses it, rather than being read as off.
-    assert "ctx.session.get_setting('rest_api.enabled') is False" in ast.unparse(start)
+    assert "ctx.session.setting('rest_api.enabled') is False" in ast.unparse(start)
     assert 'serve_beside' in _called(start)

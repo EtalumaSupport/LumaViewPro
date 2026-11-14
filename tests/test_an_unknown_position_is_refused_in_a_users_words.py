@@ -164,7 +164,7 @@ def test_a_homing_axis_may_be_moved_but_not_recorded(unhomed_scope, centre_posts
 def test_the_well_label_of_an_unknown_position_is_none_not_a_stale_well(unhomed_scope):
     # '' is a plate with no wells; None is a position nobody knows. Both are
     # omitted from the file name, and they stay distinct for the caller.
-    assert unhomed_scope.runtime_state.get_well_label() is None
+    assert unhomed_scope.runtime_state.well_label() is None
 
 
 def test_a_hyperstack_states_no_position_it_does_not_have(tmp_path):

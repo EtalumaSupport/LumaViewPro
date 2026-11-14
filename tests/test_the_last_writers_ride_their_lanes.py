@@ -46,8 +46,8 @@ def _lane_now():
 # (the member, the call, the driver slot, the driver method it transmits through, its lane)
 _GATED = [
     (
-        'set_acceleration_limit',
-        lambda sc: sc.motion.set_acceleration_limit(limit_pct=50),
+        'set_acceleration_limit_pct',
+        lambda sc: sc.motion.set_acceleration_limit_pct(limit_pct=50),
         '_motion_driver',
         'set_acceleration_limits',
         'io',
@@ -185,7 +185,7 @@ class TestTheTemperatureRead:
         )
         try:
             with spy:
-                temps = sc.diagnostics.get_camera_temperatures_degc()
+                temps = sc.diagnostics.read_camera_temperatures_degc()
         finally:
             held.release()
         assert temps, 'the temperature read was refused or returned nothing during a hold'
@@ -196,7 +196,7 @@ class TestTheTemperatureRead:
         held = sim_session._activity_claim.try_claim('protocol', run=run_identity())
         sim_session.camera_executor.protocol_start(held)
         try:
-            assert sc.diagnostics.get_camera_temperatures_degc()
+            assert sc.diagnostics.read_camera_temperatures_degc()
         finally:
             sim_session.camera_executor.protocol_end()
             held.release()
@@ -210,7 +210,7 @@ class TestAcceleration:
         monkeypatch.setattr(type(sc), 'motor_connected', property(lambda self: False))
         spy, lanes = _spy(sc, '_motion_driver', 'set_acceleration_limits')
         with spy, pytest.raises(HardwareCommandRefusedError):
-            sc.motion.set_acceleration_limit(limit_pct=50)
+            sc.motion.set_acceleration_limit_pct(limit_pct=50)
         assert lanes == []
 
 
@@ -240,7 +240,7 @@ class TestTheSupportReportDuringARun:
 
         assert led_sent == [] and led_multi_sent == [], 'an LED command went out during a run'
         assert motor_sent == [] and motor_multi_sent == [], 'a motor command went out during a run'
-        assert sn == sc.diagnostics.get_motor_info().serial_number
+        assert sn == sc.diagnostics.motor_info().serial_number
         motor_info = (tmp_path / 'firmware_info' / 'motor_info.txt').read_text()
         assert sn in motor_info and 'SKIPPED' in motor_info
         for rel in (

@@ -137,14 +137,14 @@ def main():
         if args.z is not None or (not HARDWARE and not args.at_bookmark):
             motion.move_z(args.z if args.z is not None else 1000.0)
         motion.wait_until_finished_moving(timeout_s=60)
-        before = session.get_settings_snapshot()
+        before = session.settings_snapshot()
         overlap_before = before['tiling_overlap_percent']
         acquiring_before = {
             layer: stored['acquire']
             for layer, stored in before.items()
             if isinstance(stored, dict) and stored.get('acquire') and layer != args.layer
         }
-        here = session.get_current_plate_position()
+        here = session.plate_position()
         figure('specimen', args.specimen)
         figure('objective', session.scope.runtime_state.get_current_objective_id())
         figure('layer', args.layer)
@@ -159,7 +159,7 @@ def main():
             session.update_settings('tiling_overlap_percent', overlap_before)
             for layer, mode in acquiring_before.items():
                 session.set_channel_settings(layer, acquire=AcquireMode(mode))
-        after = session.get_settings_snapshot()
+        after = session.settings_snapshot()
         check(
             'the overlap and every layer acquiring are put back',
             after['tiling_overlap_percent'] == overlap_before

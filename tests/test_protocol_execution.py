@@ -394,7 +394,7 @@ class TestSingleScanBasicImage:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # A scan ends with every LED off
-        not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        not_dark = [r for r in scope.illumination.led_states() if r.state is not LedState.DARK]
         assert not_dark == [], f'LEDs not dark after protocol: {not_dark}'
 
     def test_auto_gain_disabled_in_step(self, executor, scope, tmp_path):
@@ -836,7 +836,7 @@ class TestLedStateAtEnd:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Verify all LEDs are off via simulator public API
-        not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        not_dark = [r for r in scope.illumination.led_states() if r.state is not LedState.DARK]
         assert not_dark == [], f'LEDs not dark: {not_dark}'
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
@@ -2076,7 +2076,7 @@ class TestCleanupCorrectness:
         run.stop()
         done.wait(timeout=COMPLETION_TIMEOUT)
 
-        not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        not_dark = [r for r in scope.illumination.led_states() if r.state is not LedState.DARK]
         assert not_dark == [], f'LEDs not dark after abort: {not_dark}'
 
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):

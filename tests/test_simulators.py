@@ -51,7 +51,7 @@ class TestSimulatedLEDBoard:
     # Driver-side state-query tests (test_initial_state, test_led_on_off,
     # test_led_on_fast, test_leds_off_all, test_leds_off_fast,
     # test_get_led_state, test_get_led_states) retired in Wave 7 Phase
-    # 3d.5 -- get_led_ma / is_led_on / get_led_state / get_led_states
+    # 3d.5 -- get_led_ma / is_led_on / get_led_state / led_states
     # are no longer on the driver protocol. Equivalent API-side coverage
     # lives in tests/test_lumascope_api.py and
     # tests/test_state_observer.py.
@@ -290,7 +290,7 @@ class TestSimulatedMotorBoard:
 
     def test_axis_limits(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-        z_limits = board.get_axis_limits('Z')
+        z_limits = board.axis_limits('Z')
         assert z_limits['min'] == 0
         assert z_limits['max'] == 14000
 

@@ -366,7 +366,7 @@ class TestTheSession:
         first frame raises the refusal, never counted as a failed frame."""
         scope = sim_session.scope
         calls = {
-            'get_image': lambda: scope.imaging.get_image(),
+            'capture_image': lambda: scope.imaging.capture_image(),
             'run_camera_bandwidth_test': lambda: scope.diagnostics.run_camera_bandwidth_test(5),
         }
         box = {}
@@ -557,7 +557,7 @@ class TestTheHoldersWorkRunsOnTheLane:
             )
             fut.result(timeout=30.0)
             assert seen['thread'] == session.io_executor.executor_name
-            assert motion.get_actual_position('Z') == pytest.approx(1500.0)
+            assert motion.read_actual_position('Z') == pytest.approx(1500.0)
         finally:
             session.shutdown()
 

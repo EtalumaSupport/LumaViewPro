@@ -65,7 +65,7 @@ def main():
         # --- assign an objective to a turret slot, then select that slot ---
         s.assign_turret_objective(2, first)
         s.assign_turret_objective(3, other)
-        slots = s.get_settings_snapshot().get('turret_objectives')
+        slots = s.settings_snapshot().get('turret_objectives')
         check('turret slot assignment is stored', slots is not None, str(slots))
 
         # --- rotate the turret (what the 4 turret buttons do) ---

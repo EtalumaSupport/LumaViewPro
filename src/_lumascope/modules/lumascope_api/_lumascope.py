@@ -1601,7 +1601,7 @@ class Lumascope:
             # path, derived on every read. An assignment the catalogue does
             # not hold reads as unknown whenever its slot is in the light
             # path; said once here, not raised per read.
-            for slot, objective_id in self.runtime_state.get_turret_config().items():
+            for slot, objective_id in self.runtime_state.turret_config().items():
                 if objective_id is not None and objective_id not in self.objectives:
                     logger.warning(
                         f'[SCOPE API ] turret slot {slot} is assigned {objective_id!r}, '
@@ -1669,7 +1669,7 @@ class Lumascope:
                     # region's at the factor applied; the binning's notice tells
                     # the change of scale, and the frame's below only a refit.
                     rescaled = binning.native_to_displayed(
-                        region, camera_binning, self.camera.get_pixel_alignment()
+                        region, camera_binning, self.camera.pixel_alignment()
                     )
                     asked = (rescaled['width'], rescaled['height'])
                     logger.info(

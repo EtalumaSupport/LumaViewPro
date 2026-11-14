@@ -77,7 +77,7 @@ def test_the_scored_frame_is_drained_past_the_step_s_z_move():
     The last capture of a sweep follows that step's Z move, which leaves
     'z_move' pending for its skip count, so the frame the step scored is
     one the capture drained past it. A sweep that grabbed without the
-    drain (a bare get_image), or that excluded Z motion from it, records
+    drain (a bare capture_image), or that excluded Z motion from it, records
     no drained frame here.
     """
     with _session_over_the_focus_target() as session:

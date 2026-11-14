@@ -114,7 +114,7 @@ class Stage(Widget):
         ctx = _app_ctx.ctx
         if self._xy_stage_present():
             motion = ctx.scope.motion
-            return (motion.get_axis_limits('X').max_um, motion.get_axis_limits('Y').max_um)
+            return (motion.axis_limits('X').max_um, motion.axis_limits('Y').max_um)
         from _lumascope.modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
 
         return (DEFAULT_STAGE_TRAVEL_UM['x'], DEFAULT_STAGE_TRAVEL_UM['y'])
@@ -267,7 +267,7 @@ class Stage(Widget):
         fbo.release()
 
         runtime_state = _app_ctx.ctx.scope.runtime_state
-        stage_offset = runtime_state.get_stage_offset()
+        stage_offset = runtime_state.stage_offset()
         to_plate = runtime_state.plate_transform()
 
         # Now draw to the FBO
@@ -339,7 +339,7 @@ class Stage(Widget):
             Color(0.4, 0.4, 0.4, 0.5)
             for i in range(cols):
                 for j in range(rows):
-                    well_plate_x, well_plate_y = labware.get_well_position(i, j)
+                    well_plate_x, well_plate_y = labware.well_position(i, j)
                     well_pixel_x, well_pixel_y = _plate_to_pixel(
                         labware, well_plate_x, well_plate_y, scale_x, scale_y
                     )
@@ -464,7 +464,7 @@ class Stage(Widget):
             # both reads, so the None check is the whole gate. Each read
             # answers for itself: the close can land between the two.
             positions = scope.motion.axis_positions()
-            targets = scope.motion.get_target_positions()
+            targets = scope.motion.target_positions()
             x_target = targets.get('X')
             y_target = targets.get('Y')
             x_current = positions['X'].position_um
@@ -547,16 +547,14 @@ class Stage(Widget):
             # frame of reference.
             to_plate = scope.runtime_state.plate_transform()
             target = to_plate(x_target, y_target)
-            target_well = labware.get_well_index(target.x_mm, target.y_mm)
+            target_well = labware.well_index(target.x_mm, target.y_mm)
             gui_logger.display(
                 'TARGET_WELL', labware.get_well_label(target.x_mm, target.y_mm) or None
             )
             if target_well is not None:
                 # Draw selected well (updates when target changes)
                 target_i, target_j = target_well
-                target_well_plate_x, target_well_plate_y = labware.get_well_position(
-                    target_i, target_j
-                )
+                target_well_plate_x, target_well_plate_y = labware.well_position(target_i, target_j)
                 target_well_pixel_x, target_well_pixel_y = _plate_to_pixel(
                     labware, target_well_plate_x, target_well_plate_y, scale_x, scale_y
                 )

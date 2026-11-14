@@ -978,7 +978,7 @@ class FirmwareDiagnostics:
         unread = self._unread_motor_board()
         if unread is not None:
             return unread
-        if self._scope.diagnostics.get_motor_info().command_set is None:
+        if self._scope.diagnostics.motor_info().command_set is None:
             return {'not_applicable': NO_MOTOR_TEXT}
         return None
 
@@ -1004,7 +1004,7 @@ class FirmwareDiagnostics:
         """
         if not self._led_ok():
             return {'error': 'LED board not connected'}
-        command_set = self._scope.diagnostics.get_led_info().command_set
+        command_set = self._scope.diagnostics.led_info().command_set
         if command_set is None:
             return {'not_applicable': 'Not supported on this LED board (no text command channel)'}
         if needs_v2 and command_set != LedCommandSet.V2:
@@ -1152,7 +1152,7 @@ class FirmwareDiagnostics:
         connect, or ``'UNKNOWN'``.
         """
         if self._no_motor_text() is not None:
-            return self._scope.diagnostics.get_motor_info().serial_number or 'UNKNOWN'
+            return self._scope.diagnostics.motor_info().serial_number or 'UNKNOWN'
         fullinfo = self.get_motor_fullinfo()
         if isinstance(fullinfo, _NotRead):
             return 'UNKNOWN'
@@ -1655,7 +1655,7 @@ class TechSupportReport:
         nothing is collected from anywhere in its place.
         """
         try:
-            return require_capture_location(self._session.get_setting('live_folder'))
+            return require_capture_location(self._session.setting('live_folder'))
         except CaptureLocationError as e:
             section.mkdir(exist_ok=True)
             (section / LIVE_FOLDER_NOT_READ).write_text(f'{skipped}: {e}\n')
@@ -1765,7 +1765,7 @@ class TechSupportReport:
             sn = self.diag.get_serial_number()
             # Read at connect, so a board with no text channel, which INFO
             # and FULLINFO cannot ask, still states its firmware.
-            version = self.scope.diagnostics.get_motor_info().firmware_version
+            version = self.scope.diagnostics.motor_info().firmware_version
             with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
                 f.write(f'{Board.MOTOR.label} INFO:\n{motor_info}\n\n')
                 f.write(f'{Board.MOTOR.label} FULLINFO:\n{fullinfo}\n\n')
@@ -1803,7 +1803,7 @@ class TechSupportReport:
         """
         d = tmp / 'firmware_info'
         d.mkdir()
-        led_info = self.scope.diagnostics.get_led_info().to_dict()
+        led_info = self.scope.diagnostics.led_info().to_dict()
         skipped = (
             f'SKIPPED board queries: {skip.reason}\n'
             'The microscope was in use; these are the values cached at connect.\n'
@@ -1815,7 +1815,7 @@ class TechSupportReport:
             sn = 'UNKNOWN'
             self._write_no_motor_board(d, sn)
         else:
-            motor_info = self.scope.diagnostics.get_motor_info().to_dict()
+            motor_info = self.scope.diagnostics.motor_info().to_dict()
             sn = motor_info['serial_number'] or 'UNKNOWN'
             with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
                 f.write(f'{Board.MOTOR.label} (cached at connect):\n{motor_info}\n\n')
@@ -2221,7 +2221,7 @@ class TechSupportReport:
                 lambda: getattr(camera.setting_limits, 'exposure_max_ms', None)
             ),
         }
-        temperatures = _hardware_reading(self.scope.diagnostics.get_camera_temperatures_degc)
+        temperatures = _hardware_reading(self.scope.diagnostics.read_camera_temperatures_degc)
         if isinstance(temperatures, _NotRead):
             info['Temperatures'] = temperatures
         else:
@@ -2469,7 +2469,7 @@ class TechSupportReport:
         """
         d = tmp / 'usb_census'
         d.mkdir()
-        census = self.scope.diagnostics.get_usb_census()
+        census = self.scope.diagnostics.read_usb_census()
         lines = [f'USB census, read through {census.source}', '=' * 40, '']
         if census.unreadable is not None:
             lines.append(f'Unreadable: {census.unreadable}')
@@ -2494,7 +2494,7 @@ class TechSupportReport:
         d.mkdir()
         lines = ['Lumascope Classic USB driver bindings', '=' * 40, '']
         try:
-            bindings = self.scope.diagnostics.get_camera_usb_bindings()
+            bindings = self.scope.diagnostics.read_camera_usb_bindings()
         except CameraUsbLookupFailedError as e:
             lines.append(f'The bindings could not be read: {e}')
             bindings = None
@@ -2592,7 +2592,7 @@ class TechSupportReport:
         while the settings are provisional, and a save follows a write by a
         second, so the file on disk can differ from what the session runs on.
         """
-        snapshot = json.dumps(self._session.get_settings_snapshot(), indent=4)
+        snapshot = json.dumps(self._session.settings_snapshot(), indent=4)
         (tmp / 'live_settings.json').write_bytes(_without_api_keys(snapshot.encode('utf-8')))
 
     def _step_logs(self, tmp):

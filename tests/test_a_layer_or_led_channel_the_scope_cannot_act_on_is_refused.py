@@ -54,7 +54,7 @@ def _lit(session):
     """Every board address lit, named or not."""
     return [
         reading.address
-        for reading in session.scope.illumination.get_led_states()
+        for reading in session.scope.illumination.led_states()
         if reading.state is LedState.LIT
     ]
 

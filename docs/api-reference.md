@@ -198,7 +198,7 @@ Route: `GET /api/v1/acceleration_limit_pct`.
 
 The motors' acceleration limit, as a percent of the firmware's maximum.
 
-The one `set_acceleration_limit` stored, which bring-up gives the
+The one `set_acceleration_limit_pct` stored, which bring-up gives the
 motor controller.
 
 **Raises**
@@ -551,7 +551,7 @@ refuses if not.
 
 **Returns**
 
-The remedy's own answer: `recover_file_writer` answers how many of the run's images it gave up on, `repair_camera_driver` the bindings read after the repair, as `scope.diagnostics.get_camera_usb_bindings`.
+The remedy's own answer: `recover_file_writer` answers how many of the run's images it gave up on, `repair_camera_driver` the bindings read after the repair, as `scope.diagnostics.read_camera_usb_bindings`.
 
 **Raises**
 
@@ -716,7 +716,7 @@ Marks: in-process; reads (changes nothing).
 
 A settings snapshot for composing a capture or a run.
 
-`get_settings_snapshot`, refused while the active objective
+`settings_snapshot`, refused while the active objective
 (`objective_id`) is unknown: a capture
 stamps its scale, so it is never composed without one.
 
@@ -1274,15 +1274,15 @@ again with the same instance.
 
 Nothing.
 
-<a id="ScopeSession.discard_close_drain"></a>
-### `ScopeSession.discard_close_drain`
+<a id="ScopeSession.discard_pending_video"></a>
+### `ScopeSession.discard_pending_video`
 
 ```python
-def discard_close_drain(self) -> None
+def discard_pending_video(self) -> None
 ```
 
 Marks: enters: `guarded_write`.  
-Route: `POST /api/v1/discard_close_drain`.
+Route: `POST /api/v1/discard_pending_video`.
 
 Drop every video frame still queued in either drain, loudly.
 
@@ -1381,93 +1381,6 @@ In engineering mode a saved still or run image on a scope with a
 turret names the slot it was taken at, and the system metrics are
 sampled more often unless the settings name an interval. A run reads
 it once, when it is prepared; a still, when it is asked for.
-
-**Raises**
-
-Nothing.
-
-<a id="ScopeSession.get_current_plate_position"></a>
-### `ScopeSession.get_current_plate_position`
-
-```python
-def get_current_plate_position(self) -> PlateLocation
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/get_current_plate_position`.
-
-The stage's position in plate coordinates, on the session's labware.
-
-**Returns**
-
-Where the scope is on the plate: X and Y in mm, Z in um.
-
-**Raises**
-
-- `AxisStateUnknownError`: `'position_unknown'`, an axis the scope has does not know its position (before a home, after a lost reference, while it homes), so there is no position to convert. Raised, not reported.
-- `AxisMovingError`: `'axis_moving'`, an axis is moving, so its number is a place it is passing through.
-- `HardwareCommandRefusedError`: `'not_connected'`, the model's motor controller is not connected.
-
-**Refusals by REST status**
-
-- 409: [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`AxisMovingError`](#AxisMovingError): `axis_moving`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
-
-<a id="ScopeSession.get_setting"></a>
-### `ScopeSession.get_setting`
-
-```python
-def get_setting(self, path: str) -> SettingValue
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/get_setting`.
-
-A copy of one setting, named by its dotted path: `'stage_offset'`, `'video.max_fps'`.
-
-Taken under the lock, so it is never a value part-way through a
-write; a copy, so changing it changes no setting (`update_settings`
-and the Session's members do).
-
-A setting with a read of its own is read there, so one setting has
-one read: `get_setting('binning')` is refused for
-`scope.camera.binning`, `get_setting('objective_id')` for
-`objective_id`, `get_setting('bookmark')` for `bookmark`,
-`get_setting('BF.gain_db')` for `channel_settings`. The
-live folder and the protocol file, which only the host moves, are
-read here.
-
-**Args**
-
-- `path`: The setting's dotted path, each segment a key one level down the settings.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_a_setting'`, the settings have no value at `path`; `'has_member'`, the setting at or above `path` has its own read, named in `member`: its setter's, or the read of the action that stores it (`bookmark`, `objective_question`).
-
-**Refusals by REST status**
-
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_setting`, `has_member`
-
-<a id="ScopeSession.get_settings_snapshot"></a>
-### `ScopeSession.get_settings_snapshot`
-
-```python
-def get_settings_snapshot(self) -> dict
-```
-
-Marks: in-process; reads (changes nothing).
-
-A deep copy of the settings dict, taken under the lock.
-
-A worker thread takes one of these at task entry and reads from it
-for the rest of the task, rather than reading a dict another
-thread may be part-way through rewriting. In-process: a wire client
-reads a setting by its path, through `get_setting`.
-
-`objective_id` is the active objective, as `get_setting` answers
-it: on a turret scope, the slot's in the light path, or None while
-that is unknown.
 
 **Raises**
 
@@ -1925,7 +1838,7 @@ called first opens no file.
 
 **Args**
 
-- `source_path`: The installation folder whose settings are read: its `current.json` first, else its shipped `settings.json`. Each call prepares them afresh, so the dict is the caller's; a running session's values are its `get_setting`'s.
+- `source_path`: The installation folder whose settings are read: its `current.json` first, else its shipped `settings.json`. Each call prepares them afresh, so the dict is the caller's; a running session's values are its `setting`'s.
 
 **Raises**
 
@@ -2019,27 +1932,6 @@ Where the ZIP is, and the words that say where to send it.
 
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `not_a_folder`
 - [`SupportReportNotSavedError`](#SupportReportNotSavedError): `support_report_not_saved`
-
-<a id="ScopeSession.model"></a>
-### `ScopeSession.model`
-
-```python
-model: str  # property
-```
-
-Route: `GET /api/v1/model`.
-
-The saved scope model: the one `select_model` saved.
-
-A scope that does not report its own model is brought up as it at
-its next start; a scope whose board names its model runs as the
-board's at every start, and this stays the selection. The running
-scope's model is `scope.channel_identity.model`; whether a start
-will change it is `model_at_next_start`.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.model_at_next_start"></a>
 ### `ScopeSession.model_at_next_start`
@@ -2181,6 +2073,33 @@ and a polled read must not log per poll.
 **Refusals by REST status**
 
 - 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`
+
+<a id="ScopeSession.plate_position"></a>
+### `ScopeSession.plate_position`
+
+```python
+def plate_position(self) -> PlateLocation
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/plate_position`.
+
+The stage's position in plate coordinates, on the session's labware.
+
+**Returns**
+
+Where the scope is on the plate: X and Y in mm, Z in um.
+
+**Raises**
+
+- `AxisStateUnknownError`: `'position_unknown'`, an axis the scope has does not know its position (before a home, after a lost reference, while it homes), so there is no position to convert. Raised, not reported.
+- `AxisMovingError`: `'axis_moving'`, an axis is moving, so its number is a place it is passing through.
+- `HardwareCommandRefusedError`: `'not_connected'`, the model's motor controller is not connected.
+
+**Refusals by REST status**
+
+- 409: [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`AxisMovingError`](#AxisMovingError): `axis_moving`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="ScopeSession.plugin_api_level"></a>
 ### `ScopeSession.plugin_api_level`
@@ -2765,7 +2684,7 @@ scale_bar_enabled: bool  # property
 
 Route: `GET /api/v1/scale_bar_enabled`.
 
-Whether captured images are drawn with the scale bar, as `set_scale_bar` set it.
+Whether captured images are drawn with the scale bar, as `set_scale_bar_enabled` set it.
 
 **Raises**
 
@@ -2817,8 +2736,8 @@ on one would image one field under every well's name.
 def select_model(self, model: str) -> None
 ```
 
-Marks: sets [`model`](#ScopeSession.model); enters: `guarded_write`.  
-Route: `PUT /api/v1/model`.
+Marks: sets [`selected_model`](#ScopeSession.selected_model); enters: `guarded_write`.  
+Route: `PUT /api/v1/selected_model`.
 
 Save the operator's scope model, for a scope that does not report its own.
 
@@ -2897,11 +2816,32 @@ objective already active is a no-op.
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
-<a id="ScopeSession.set_acceleration_limit"></a>
-### `ScopeSession.set_acceleration_limit`
+<a id="ScopeSession.selected_model"></a>
+### `ScopeSession.selected_model`
 
 ```python
-def set_acceleration_limit(self, limit_pct: int) -> None
+selected_model: str  # property
+```
+
+Route: `GET /api/v1/selected_model`.
+
+The saved scope model: the one `select_model` saved.
+
+A scope that does not report its own model is brought up as it at
+its next start; a scope whose board names its model runs as the
+board's at every start, and this stays the selection. The running
+scope's model is `scope.channel_identity.model`; whether a start
+will change it is `model_at_next_start`.
+
+**Raises**
+
+Nothing.
+
+<a id="ScopeSession.set_acceleration_limit_pct"></a>
+### `ScopeSession.set_acceleration_limit_pct`
+
+```python
+def set_acceleration_limit_pct(self, limit_pct: int) -> None
 ```
 
 Marks: sets [`acceleration_limit_pct`](#ScopeSession.acceleration_limit_pct); enters: `lane_call`, `guarded_write`.  
@@ -3185,11 +3125,11 @@ One scan is 0 for both.
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolScheduleRefusedError`](#ProtocolScheduleRefusedError): `schedule_not_runnable`
 
-<a id="ScopeSession.set_scale_bar"></a>
-### `ScopeSession.set_scale_bar`
+<a id="ScopeSession.set_scale_bar_enabled"></a>
+### `ScopeSession.set_scale_bar_enabled`
 
 ```python
-def set_scale_bar(self, enabled: bool) -> None
+def set_scale_bar_enabled(self, enabled: bool) -> None
 ```
 
 Marks: sets [`scale_bar_enabled`](#ScopeSession.scale_bar_enabled); enters: `guarded_write`.  
@@ -3282,6 +3222,42 @@ run here, each raise reported.
 
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `swap_in_delivery`
 
+<a id="ScopeSession.setting"></a>
+### `ScopeSession.setting`
+
+```python
+def setting(self, path: str) -> SettingValue
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/setting`.
+
+A copy of one setting, named by its dotted path: `'stage_offset'`, `'video.max_fps'`.
+
+Taken under the lock, so it is never a value part-way through a
+write; a copy, so changing it changes no setting (`update_settings`
+and the Session's members do).
+
+A setting with a read of its own is read there, so one setting has
+one read: `setting('binning')` is refused for
+`scope.camera.binning`, `setting('objective_id')` for
+`objective_id`, `setting('bookmark')` for `bookmark`,
+`setting('BF.gain_db')` for `channel_settings`. The
+live folder and the protocol file, which only the host moves, are
+read here.
+
+**Args**
+
+- `path`: The setting's dotted path, each segment a key one level down the settings.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_setting'`, the settings have no value at `path`; `'has_member'`, the setting at or above `path` has its own read, named in `member`: its setter's, or the read of the action that stores it (`bookmark`, `objective_question`).
+
+**Refusals by REST status**
+
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_setting`, `has_member`
+
 <a id="ScopeSession.settings_are_provisional"></a>
 ### `ScopeSession.settings_are_provisional`
 
@@ -3299,6 +3275,30 @@ has decided its fate. While it holds, accepted writes are kept in
 memory and not saved (`SettingsNotSavedNotice`) -- resolve with
 retire_rejected_settings() after the user has chosen to start
 over.
+
+**Raises**
+
+Nothing.
+
+<a id="ScopeSession.settings_snapshot"></a>
+### `ScopeSession.settings_snapshot`
+
+```python
+def settings_snapshot(self) -> dict
+```
+
+Marks: in-process; reads (changes nothing).
+
+A deep copy of the settings dict, taken under the lock.
+
+A worker thread takes one of these at task entry and reads from it
+for the rest of the task, rather than reading a dict another
+thread may be part-way through rewriting. In-process: a wire client
+reads a setting by its path, through `setting`.
+
+`objective_id` is the active objective, as `setting` answers
+it: on a turret scope, the slot's in the light path, or None while
+that is unknown.
 
 **Raises**
 
@@ -3387,7 +3387,7 @@ stopped (its ending `aborted` / `shutdown`) and a live recording
 is stopped. Then it waits, without a time limit, until
 `live_work` lists nothing: the run's writes and post-run builds,
 the recording's file, post-processing builds running or queued, a
-support report, a still. `discard_close_drain` is the escape from
+support report, a still. `discard_pending_video` is the escape from
 waiting on video frames, and any client may call it meanwhile. A
 finished run's file writer judged stuck (`protocol_files_stalled`)
 is recovered by the close itself, its unwritten images given up on,
@@ -3986,7 +3986,7 @@ Route: `POST /api/v1/update_settings`.
 Write one setting, named by its dotted path: `'video.max_fps'`, `'zstack.range'`.
 
 The one write to the live settings for any caller, on any thread.
-Reads take `get_settings_snapshot`; a write that skips this can
+Reads take `settings_snapshot`; a write that skips this can
 tear a snapshot being taken concurrently, and takes none of the
 checks below.
 
@@ -5565,68 +5565,6 @@ The gain in dB the camera last reported or took; None when unknown.
 
 Nothing.
 
-<a id="CameraAPI.get_black_level_range"></a>
-### `CameraAPI.get_black_level_range`
-
-```python
-def get_black_level_range(self) -> tuple[float, float] | None
-```
-
-Marks: reads (changes nothing); enters: `lane_override`.  
-Route: `GET /api/v1/scope/camera/get_black_level_range`.
-
-Read the range `set_black_level` accepts, live, in the units of
-`read_black_level`.
-
-Runs on the camera lane, admitted whatever holds the scope, behind what
-is queued there, up to 170 s, which a long summed capture or an
-engineering diagnostic ahead of it can outlast.
-
-The camera's own minimum and maximum for its current pixel format;
-the range changes with the format. `set_black_level` refuses a value
-outside it before anything reaches the camera.
-
-Read live, never held: the range follows the pixel format.
-
-**Returns**
-
-tuple[float, float] | None: `(minimum, maximum)`; None when the camera has no black level setting. A camera holding its black level automatically still answers its range; `set_black_level` is then refused by the camera.
-
-**Raises**
-
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
-- `CameraReadFailedError`: `'camera_read_failed'`, the camera has a black level setting and the read failed.
-
-**Refusals by REST status**
-
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="CameraAPI.get_pixel_alignment"></a>
-### `CameraAPI.get_pixel_alignment`
-
-```python
-def get_pixel_alignment(self) -> dict
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/get_pixel_alignment`.
-
-Return the camera's deliverable frame-size granularity.
-
-Every camera delivers the size asked for exactly, by acquiring the next
-window up on its grid and cropping back, so the only constraint is even
-dimensions (H.264): `{2, 2}`, the camera profile's step.
-
-**Returns**
-
-dict: `{'width': int, 'height': int}`.
-
-**Raises**
-
-Nothing.
-
 <a id="CameraAPI.high_conversion_gain"></a>
 ### `CameraAPI.high_conversion_gain`
 
@@ -5742,6 +5680,30 @@ needs this, not the held value.
 **Returns**
 
 float | None: The bound in ms; None when it is unknown and no maximum is known: none reported, or the last read of the camera's range failed (`setting_limits` raises it).
+
+**Raises**
+
+Nothing.
+
+<a id="CameraAPI.pixel_alignment"></a>
+### `CameraAPI.pixel_alignment`
+
+```python
+def pixel_alignment(self) -> dict
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/camera/pixel_alignment`.
+
+Return the camera's deliverable frame-size granularity.
+
+Every camera delivers the size asked for exactly, by acquiring the next
+window up on its grid and cropping back, so the only constraint is even
+dimensions (H.264): `{2, 2}`, the camera profile's step.
+
+**Returns**
+
+dict: `{'width': int, 'height': int}`.
 
 **Raises**
 
@@ -5898,6 +5860,44 @@ float | None: The black level; None when the camera reports none.
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
+<a id="CameraAPI.read_black_level_range"></a>
+### `CameraAPI.read_black_level_range`
+
+```python
+def read_black_level_range(self) -> tuple[float, float] | None
+```
+
+Marks: reads (changes nothing); enters: `lane_override`.  
+Route: `GET /api/v1/scope/camera/read_black_level_range`.
+
+Read the range `set_black_level` accepts, live, in the units of
+`read_black_level`.
+
+Runs on the camera lane, admitted whatever holds the scope, behind what
+is queued there, up to 170 s, which a long summed capture or an
+engineering diagnostic ahead of it can outlast.
+
+The camera's own minimum and maximum for its current pixel format;
+the range changes with the format. `set_black_level` refuses a value
+outside it before anything reaches the camera.
+
+Read live, never held: the range follows the pixel format.
+
+**Returns**
+
+tuple[float, float] | None: `(minimum, maximum)`; None when the camera has no black level setting. A camera holding its black level automatically still answers its range; `set_black_level` is then refused by the camera.
+
+**Raises**
+
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera has a black level setting and the read failed.
+
+**Refusals by REST status**
+
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+
 <a id="CameraAPI.read_exposure_ms"></a>
 ### `CameraAPI.read_exposure_ms`
 
@@ -5949,7 +5949,7 @@ engineering diagnostic ahead of it can outlast.
 The camera's own figure: Basler's resulting acquisition frame rate,
 IDS's AcquisitionFrameRate maximum, the simulator's pacing rate. The
 FX2 reports none. It is what the camera says it can do, not what
-reaches the host; what reaches the host is `get_delivered_rate`.
+reaches the host; what reaches the host is `delivered_rate`.
 
 **Returns**
 
@@ -6539,15 +6539,59 @@ depends on, and the temperature log keeps running through a run. The
 board commands go on the IO lane through the motion API's dispatcher,
 the lane's one blocking dispatch with a wait bound.
 
-<a id="DiagnosticsAPI.get_camera_link_info"></a>
-### `DiagnosticsAPI.get_camera_link_info`
+<a id="DiagnosticsAPI.led_info"></a>
+### `DiagnosticsAPI.led_info`
 
 ```python
-def get_camera_link_info(self) -> CameraLink | None
+def led_info(self) -> LedBoardInfo
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/diagnostics/led_info`.
+
+The LED board's firmware and command set.
+
+**Returns**
+
+LedBoardInfo: Each field None when unknown, all of them with no board connected.
+
+**Raises**
+
+Nothing.
+
+<a id="DiagnosticsAPI.motor_info"></a>
+### `DiagnosticsAPI.motor_info`
+
+```python
+def motor_info(self) -> MotorBoardInfo
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/diagnostics/motor_info`.
+
+The motor board's identity.
+
+Served from what FULLINFO and INFO cached at connect, never re-queried
+over the serial bus: identity is fixed for the life of a connection,
+and this is read for every saved frame's metadata.
+
+**Returns**
+
+MotorBoardInfo: Each field None when unknown, all of them with no board connected -- none installed, or one lost since connect, whose cached identity no longer describes a board that is there.
+
+**Raises**
+
+Nothing.
+
+<a id="DiagnosticsAPI.read_camera_link"></a>
+### `DiagnosticsAPI.read_camera_link`
+
+```python
+def read_camera_link(self) -> CameraLink | None
 ```
 
 Marks: reads (changes nothing); enters: `lane_override`.  
-Route: `GET /api/v1/scope/diagnostics/get_camera_link_info`.
+Route: `GET /api/v1/scope/diagnostics/read_camera_link`.
 
 Read the camera's link, live.
 
@@ -6571,15 +6615,15 @@ CameraLink | None: The link, each field None where the camera does not report it
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
-<a id="DiagnosticsAPI.get_camera_temperatures_degc"></a>
-### `DiagnosticsAPI.get_camera_temperatures_degc`
+<a id="DiagnosticsAPI.read_camera_temperatures_degc"></a>
+### `DiagnosticsAPI.read_camera_temperatures_degc`
 
 ```python
-def get_camera_temperatures_degc(self) -> dict[str, float] | None
+def read_camera_temperatures_degc(self) -> dict[str, float] | None
 ```
 
 Marks: reads (changes nothing); enters: `lane_override`.  
-Route: `GET /api/v1/scope/diagnostics/get_camera_temperatures_degc`.
+Route: `GET /api/v1/scope/diagnostics/read_camera_temperatures_degc`.
 
 Get all camera temperature sensor readings.
 
@@ -6603,15 +6647,15 @@ dict[str, float] | None: Each sensor's temperature in degC, by the sensor's name
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
-<a id="DiagnosticsAPI.get_camera_usb_bindings"></a>
-### `DiagnosticsAPI.get_camera_usb_bindings`
+<a id="DiagnosticsAPI.read_camera_usb_bindings"></a>
+### `DiagnosticsAPI.read_camera_usb_bindings`
 
 ```python
-def get_camera_usb_bindings(self) -> tuple[UsbIdentityBindings, ...] | None
+def read_camera_usb_bindings(self) -> tuple[UsbIdentityBindings, ...] | None
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/diagnostics/get_camera_usb_bindings`.
+Route: `GET /api/v1/scope/diagnostics/read_camera_usb_bindings`.
 
 Which driver Windows has bound to each USB identity of a Lumascope Classic.
 
@@ -6633,59 +6677,15 @@ tuple[UsbIdentityBindings, ...] | None: The bootloader's, then the running firmw
 
 - 500: [`CameraUsbLookupFailedError`](#CameraUsbLookupFailedError): `camera_usb_lookup_failed`
 
-<a id="DiagnosticsAPI.get_led_info"></a>
-### `DiagnosticsAPI.get_led_info`
+<a id="DiagnosticsAPI.read_usb_census"></a>
+### `DiagnosticsAPI.read_usb_census`
 
 ```python
-def get_led_info(self) -> LedBoardInfo
+def read_usb_census(self) -> UsbBusCensus
 ```
 
 Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/diagnostics/get_led_info`.
-
-The LED board's firmware and command set.
-
-**Returns**
-
-LedBoardInfo: Each field None when unknown, all of them with no board connected.
-
-**Raises**
-
-Nothing.
-
-<a id="DiagnosticsAPI.get_motor_info"></a>
-### `DiagnosticsAPI.get_motor_info`
-
-```python
-def get_motor_info(self) -> MotorBoardInfo
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/diagnostics/get_motor_info`.
-
-The motor board's identity.
-
-Served from what FULLINFO and INFO cached at connect, never re-queried
-over the serial bus: identity is fixed for the life of a connection,
-and this is read for every saved frame's metadata.
-
-**Returns**
-
-MotorBoardInfo: Each field None when unknown, all of them with no board connected -- none installed, or one lost since connect, whose cached identity no longer describes a board that is there.
-
-**Raises**
-
-Nothing.
-
-<a id="DiagnosticsAPI.get_usb_census"></a>
-### `DiagnosticsAPI.get_usb_census`
-
-```python
-def get_usb_census(self) -> UsbBusCensus
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/diagnostics/get_usb_census`.
+Route: `GET /api/v1/scope/diagnostics/read_usb_census`.
 
 Every device of each vendor a Lumascope is built from, on this host's USB bus, read now.
 
@@ -6734,29 +6734,6 @@ UI work via `Clock.schedule_once`.
 **Args**
 
 - `listener`: `callable(address: int, name: str | None, state: LedState, illumination_ma: float | None)`
-
-**Raises**
-
-Nothing.
-
-<a id="IlluminationAPI.get_led_states"></a>
-### `IlluminationAPI.get_led_states`
-
-```python
-def get_led_states(self) -> tuple[LedReading, ...] | None
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/illumination/get_led_states`.
-
-Read every LED address of the attached board.
-
-Every address is reported, whether or not the unit's identity
-names it, so a lit address is never hidden by its missing name.
-
-**Returns**
-
-One reading per address, in address order, each named through the unit's identity. None when no LED board is installed (none came up, or after `disconnect()`).
 
 **Raises**
 
@@ -6839,6 +6816,29 @@ The commanded current in mA.
 - 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
+<a id="IlluminationAPI.led_states"></a>
+### `IlluminationAPI.led_states`
+
+```python
+def led_states(self) -> tuple[LedReading, ...] | None
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/illumination/led_states`.
+
+Every LED address of the attached board, as the API holds it: no board is asked.
+
+Every address is reported, whether or not the unit's identity
+names it, so a lit address is never hidden by its missing name.
+
+**Returns**
+
+One reading per address, in address order, each named through the unit's identity. None when no LED board is installed (none came up, or after `disconnect()`).
+
+**Raises**
+
+Nothing.
+
 <a id="IlluminationAPI.leds_off"></a>
 ### `IlluminationAPI.leds_off`
 
@@ -6908,7 +6908,7 @@ the addresses they have lit at a positive current.
 
 **Args**
 
-- `readings`: What `get_led_states` answered when the state was saved.
+- `readings`: What `led_states` answered when the state was saved.
 
 **Raises**
 
@@ -6988,6 +6988,54 @@ name are kept).
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
+<a id="ImagingAPI.buffered_image"></a>
+### `ImagingAPI.buffered_image`
+
+```python
+def buffered_image(
+    self,
+    force_to_8bit: bool = True,
+    out_8bit: np.ndarray | None = None,
+    unless_seq: int | None = None,
+    stride: int = 1,
+) -> tuple
+```
+
+Marks: in-process; reads (changes nothing).
+
+Grab the latest buffered frame from the camera without forcing a new capture.
+
+Copy budget (per frame):
+  - grab(): 0 copies (returns the read-only stored frame)
+  - add_scale_bar(): 1 copy when the bar is drawn (the stored frame
+    is shared with every other consumer and is never written)
+  - convert_to_8bit(): 1 copy (LUT indexing creates new array),
+    or 0 fresh allocations when the caller supplies out_8bit.
+  - Total without the bar: 0 copies (8-bit) or 1 copy (12-bit with
+    force_to_8bit); the bar adds 1
+  The caller adds 1 more copy via tobytes() for GPU blit.
+
+**Args**
+
+- `force_to_8bit`: Convert 12-bit images to 8-bit output.
+- `out_8bit`: Optional caller-owned (H, W) uint8 buffer reused as the 12->8 LUT destination, avoiding a fresh per-frame allocation on the 30 fps preview path. Each caller must supply its OWN buffer (the preview thread and the histogram run on different threads); a None / mismatched buffer falls back to a fresh allocation. The returned array is the buffer itself when used, so the caller must copy (e.g. tobytes()) before the next call overwrites it.
+- `unless_seq`: The ordinal of the frame the caller already has. When the buffer still holds that frame, nothing is drawn or converted: a poll faster than the camera delivers costs no conversion.
+- `stride`: Take every `stride`-th pixel of every `stride`-th row, 1 or more. A read with a stride above 1 samples the raw frame and converts only the sample, and draws no scale bar, whose size would be wrong on a sample: the pixels are the image's own.
+
+**Returns**
+
+tuple: (image, seq) where image is numpy.ndarray and seq is the frame's hand-over ordinal (`Frame.seq`), the same for every read of one frame; (None, seq) when the buffered frame is `unless_seq`'s; or (None, None) if unavailable. Per the Sentinel-return contract: `if image is None: ...`.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'wrong_kind'`, a `stride` that is not a whole number 1 or more.
+- `ConfigurationDefectError`: `'scope_not_composed'`, a read with no stride when no session has bound this scope, so it has no scale-bar setting to read.
+
+**Refusals**
+
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`
+- [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+
 <a id="ImagingAPI.changes_in_force"></a>
 ### `ImagingAPI.changes_in_force`
 
@@ -7052,6 +7100,32 @@ float: Seconds, measured from now.
 
 Nothing.
 
+<a id="ImagingAPI.delivered_rate"></a>
+### `ImagingAPI.delivered_rate`
+
+```python
+def delivered_rate(self) -> DeliveredRate
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/imaging/delivered_rate`.
+
+Read the rate the camera delivered frames, and their bytes on the link.
+
+Measured over the last second from the frames every driver stores,
+in every host, so it is the camera's rate whether a display is
+drawing, paused or absent. A window older than two checks -- the
+camera stopped streaming, was disconnected, or the check stopped --
+reads 0, never the last rate seen.
+
+**Returns**
+
+DeliveredRate: Frames and link bytes per second; `NOT_DELIVERING` (both 0) when nothing was delivered in the last window.
+
+**Raises**
+
+Nothing.
+
 <a id="ImagingAPI.disable_streaming"></a>
 ### `ImagingAPI.disable_streaming`
 
@@ -7065,7 +7139,7 @@ Route: `POST /api/v1/scope/imaging/disable_streaming`.
 Stop camera streaming, and wait.
 
 After this, `capture_still()` fails until streaming resumes;
-`get_image_from_buffer()` still returns the last frame the camera
+`buffered_image()` still returns the last frame the camera
 delivered.
 Satisfied with no camera connected: nothing is streaming. Dispatched
 as `enable_streaming` is.
@@ -7116,80 +7190,6 @@ near 11 s on a Pylon body.
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraStreamStartFailedError`](#CameraStreamStartFailedError): `camera_stream_start_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="ImagingAPI.get_delivered_rate"></a>
-### `ImagingAPI.get_delivered_rate`
-
-```python
-def get_delivered_rate(self) -> DeliveredRate
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/imaging/get_delivered_rate`.
-
-Read the rate the camera delivered frames, and their bytes on the link.
-
-Measured over the last second from the frames every driver stores,
-in every host, so it is the camera's rate whether a display is
-drawing, paused or absent. A window older than two checks -- the
-camera stopped streaming, was disconnected, or the check stopped --
-reads 0, never the last rate seen.
-
-**Returns**
-
-DeliveredRate: Frames and link bytes per second; `NOT_DELIVERING` (both 0) when nothing was delivered in the last window.
-
-**Raises**
-
-Nothing.
-
-<a id="ImagingAPI.get_image_from_buffer"></a>
-### `ImagingAPI.get_image_from_buffer`
-
-```python
-def get_image_from_buffer(
-    self,
-    force_to_8bit: bool = True,
-    out_8bit: np.ndarray | None = None,
-    unless_seq: int | None = None,
-    stride: int = 1,
-) -> tuple
-```
-
-Marks: in-process.
-
-Grab the latest buffered frame from the camera without forcing a new capture.
-
-Copy budget (per frame):
-  - grab(): 0 copies (returns the read-only stored frame)
-  - add_scale_bar(): 1 copy when the bar is drawn (the stored frame
-    is shared with every other consumer and is never written)
-  - convert_to_8bit(): 1 copy (LUT indexing creates new array),
-    or 0 fresh allocations when the caller supplies out_8bit.
-  - Total without the bar: 0 copies (8-bit) or 1 copy (12-bit with
-    force_to_8bit); the bar adds 1
-  The caller adds 1 more copy via tobytes() for GPU blit.
-
-**Args**
-
-- `force_to_8bit`: Convert 12-bit images to 8-bit output.
-- `out_8bit`: Optional caller-owned (H, W) uint8 buffer reused as the 12->8 LUT destination, avoiding a fresh per-frame allocation on the 30 fps preview path. Each caller must supply its OWN buffer (the preview thread and the histogram run on different threads); a None / mismatched buffer falls back to a fresh allocation. The returned array is the buffer itself when used, so the caller must copy (e.g. tobytes()) before the next call overwrites it.
-- `unless_seq`: The ordinal of the frame the caller already has. When the buffer still holds that frame, nothing is drawn or converted: a poll faster than the camera delivers costs no conversion.
-- `stride`: Take every `stride`-th pixel of every `stride`-th row, 1 or more. A read with a stride above 1 samples the raw frame and converts only the sample, and draws no scale bar, whose size would be wrong on a sample: the pixels are the image's own.
-
-**Returns**
-
-tuple: (image, seq) where image is numpy.ndarray and seq is the frame's hand-over ordinal (`Frame.seq`), the same for every read of one frame; (None, seq) when the buffered frame is `unless_seq`'s; or (None, None) if unavailable. Per the Sentinel-return contract: `if image is None: ...`.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'wrong_kind'`, a `stride` that is not a whole number 1 or more.
-- `ConfigurationDefectError`: `'scope_not_composed'`, a read with no stride when no session has bound this scope, so it has no scale-bar setting to read.
-
-**Refusals**
-
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`
-- [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
 <a id="ImagingAPI.held_frame_rules"></a>
 ### `ImagingAPI.held_frame_rules`
@@ -7405,7 +7405,7 @@ Read the delivered rate, waiting up to `wait_s` for one to be measured.
 A stream that has just started has no window measured yet: the rate
 is measured over the stream check's 1 s ticks, so the first one is
 published up to two ticks after the stream starts, and
-`get_delivered_rate` reads 0 until then. A caller that needs the
+`delivered_rate` reads 0 until then. A caller that needs the
 rate, not the absence of one, waits here for it.
 
 In-process: it blocks the caller's thread.
@@ -7416,7 +7416,7 @@ In-process: it blocks the caller's thread.
 
 **Returns**
 
-DeliveredRate: The rate as `get_delivered_rate` answers it once one is measured; `NOT_DELIVERING` when none is measured within `wait_s`.
+DeliveredRate: The rate as `delivered_rate` answers it once one is measured; `NOT_DELIVERING` when none is measured within `wait_s`.
 
 **Raises**
 
@@ -7533,6 +7533,36 @@ dict[Axis, AxisState]: Axis to its state (`AxisState.UNKNOWN` or `AxisState.HOMI
 
 Nothing.
 
+<a id="MotionAPI.axis_limits"></a>
+### `MotionAPI.axis_limits`
+
+```python
+def axis_limits(self, axis: Axis) -> AxisLimits | None
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/motion/axis_limits`.
+
+Get the travel limits for an axis, in um.
+
+**Args**
+
+- `axis`: Axis name ("X", "Y", "Z", or "T").
+
+**Returns**
+
+The travel moves are refused against, or `None` if the axis has no configured limits (typical for the turret T axis). Callers must handle the None case.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_offered'`, `axis` is no axis name.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis (see `refuse_absent`); an axis the scope does not have has no travel to answer with.
+
+**Refusals by REST status**
+
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
+
 <a id="MotionAPI.axis_positions"></a>
 ### `MotionAPI.axis_positions`
 
@@ -7562,71 +7592,6 @@ its reverse.
 **Returns**
 
 dict[StageAxis, AxisPosition]: Stage axis to (state, position), in the scope's axis order.
-
-**Raises**
-
-Nothing.
-
-<a id="MotionAPI.get_axis_limits"></a>
-### `MotionAPI.get_axis_limits`
-
-```python
-def get_axis_limits(self, axis: Axis) -> AxisLimits | None
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/motion/get_axis_limits`.
-
-Get the travel limits for an axis, in um.
-
-**Args**
-
-- `axis`: Axis name ("X", "Y", "Z", or "T").
-
-**Returns**
-
-The travel moves are refused against, or `None` if the axis has no configured limits (typical for the turret T axis). Callers must handle the None case.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_offered'`, `axis` is no axis name.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis (see `refuse_absent`); an axis the scope does not have has no travel to answer with.
-
-**Refusals by REST status**
-
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
-
-<a id="MotionAPI.get_target_positions"></a>
-### `MotionAPI.get_target_positions`
-
-```python
-def get_target_positions(self) -> dict[StageAxis, float | None]
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/motion/get_target_positions`.
-
-The target of every stage axis the scope has a position for (where it is commanded to go), by axis name, in um.
-
-The last target this API wrote to the board for each axis, while
-the move runs and after it arrives: the commanded number, not the
-polled position, which sits up to a microstep off it. A relative
-move's target is the board's own target plus the offset, so it
-carries that target's microstep rounding. Where no target was
-reached it is the polled position: before the axis's first move,
-after a home, after a STOP ended the move, and while a move has not
-yet written its final target (a Z backlash leg). A refused move
-writes nothing, so the previous target stands.
-
-An axis whose position is not known -- UNKNOWN or HOMING, or every
-axis while the motor board is lost, as `axis_positions` answers
-it -- answers None: no move stands and none may start, so it has
-no target. The states, the moves and the numbers come from one
-snapshot.
-
-An axis with no hardware behind it is left out, and so is the
-turret, which has a slot (`turret_status`). No serial I/O.
 
 **Raises**
 
@@ -8724,6 +8689,41 @@ and ends the live run (its press listeners are told first).
 - 500: [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
+<a id="MotionAPI.target_positions"></a>
+### `MotionAPI.target_positions`
+
+```python
+def target_positions(self) -> dict[StageAxis, float | None]
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/motion/target_positions`.
+
+The target of every stage axis the scope has a position for (where it is commanded to go), by axis name, in um.
+
+The last target this API wrote to the board for each axis, while
+the move runs and after it arrives: the commanded number, not the
+polled position, which sits up to a microstep off it. A relative
+move's target is the board's own target plus the offset, so it
+carries that target's microstep rounding. Where no target was
+reached it is the polled position: before the axis's first move,
+after a home, after a STOP ended the move, and while a move has not
+yet written its final target (a Z backlash leg). A refused move
+writes nothing, so the previous target stands.
+
+An axis whose position is not known -- UNKNOWN or HOMING, or every
+axis while the motor board is lost, as `axis_positions` answers
+it -- answers None: no move stands and none may start, so it has
+no target. The states, the moves and the numbers come from one
+snapshot.
+
+An axis with no hardware behind it is left out, and so is the
+turret, which has a slot (`turret_status`). No serial I/O.
+
+**Raises**
+
+Nothing.
+
 <a id="MotionAPI.turret_status"></a>
 ### `MotionAPI.turret_status`
 
@@ -8807,6 +8807,39 @@ Held in: [`Lumascope.runtime_state`](#Lumascope.runtime_state).
 The answers for the user configuration a Lumascope acts on
 (labware / objective / turret / stage), read from the session's settings.
 
+<a id="RuntimeState.field_of_view"></a>
+### `RuntimeState.field_of_view`
+
+```python
+def field_of_view(self) -> FieldOfView
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/runtime_state/field_of_view`.
+
+The area the camera's frame covers on the sample, at the current
+objective and the camera's binning.
+
+A display reads it as a state through `optics_status`.
+
+**Returns**
+
+FieldOfView: Width and height in micrometres.
+
+**Raises**
+
+- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `pixel_size_um`.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'scope_disconnected'`, as `pixel_size_um`.
+- `PixelSizeUnknownError`: `'optics_undeclared'` or `'binning_unread'`, as `pixel_size_um`; `'frame_size_unread'`, the camera has not reported its frame.
+- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
+
+**Refusals by REST status**
+
+- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`, `frame_size_unread`
+- 422: [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+
 <a id="RuntimeState.frame_point_distance"></a>
 ### `RuntimeState.frame_point_distance`
 
@@ -8839,9 +8872,9 @@ StageDistance: Positive `dx_um` for a point right of centre, positive `dy_um` fo
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a fraction that is not a number from 0 to 1.
-- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `get_field_of_view`.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'scope_disconnected'`, as `get_field_of_view`.
-- `PixelSizeUnknownError`: `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`, as `get_field_of_view`.
+- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `field_of_view`.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'scope_disconnected'`, as `field_of_view`.
+- `PixelSizeUnknownError`: `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`, as `field_of_view`.
 - `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
 
 **Refusals by REST status**
@@ -8894,150 +8927,6 @@ The `PlatePosition`, in mm; or the first reason it is unknown, in this order: `H
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`; [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
-<a id="RuntimeState.get_field_of_view"></a>
-### `RuntimeState.get_field_of_view`
-
-```python
-def get_field_of_view(self) -> FieldOfView
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/runtime_state/get_field_of_view`.
-
-The area the camera's frame covers on the sample, at the current
-objective and the camera's binning.
-
-A display reads it as a state through `optics_status`.
-
-**Returns**
-
-FieldOfView: Width and height in micrometres.
-
-**Raises**
-
-- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `get_pixel_size_um`.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'scope_disconnected'`, as `get_pixel_size_um`.
-- `PixelSizeUnknownError`: `'optics_undeclared'` or `'binning_unread'`, as `get_pixel_size_um`; `'frame_size_unread'`, the camera has not reported its frame.
-- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
-
-**Refusals by REST status**
-
-- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`, `frame_size_unread`
-- 422: [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="RuntimeState.get_pixel_size_um"></a>
-### `RuntimeState.get_pixel_size_um`
-
-```python
-def get_pixel_size_um(self) -> float
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/runtime_state/get_pixel_size_um`.
-
-The effective pixel size: micrometres per pixel at the current
-objective and the camera's binning, the scale a saved image carries.
-
-A display reads it as a state through `optics_status`.
-
-**Raises**
-
-- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, no objective is known, as `ScopeSession.objective_id`.
-- `HardwareCommandRefusedError`: `'not_connected'`, no camera is connected; `'scope_disconnected'`, after `disconnect()`.
-- `PixelSizeUnknownError`: `'optics_undeclared'`, the scope cannot report its optics; `'binning_unread'`, the camera has not reported its binning.
-- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
-
-**Refusals by REST status**
-
-- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`
-- 422: [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="RuntimeState.get_stage_offset"></a>
-### `RuntimeState.get_stage_offset`
-
-```python
-def get_stage_offset(self) -> coord_transformations.StageOffset
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/runtime_state/get_stage_offset`.
-
-The stage offset for coordinate transformations, from the settings.
-
-**Returns**
-
-Where the plate is mounted on the stage, in um.
-
-**Raises**
-
-- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
-
-**Refusals by REST status**
-
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-
-<a id="RuntimeState.get_turret_config"></a>
-### `RuntimeState.get_turret_config`
-
-```python
-def get_turret_config(self) -> dict[int, str | None]
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/runtime_state/get_turret_config`.
-
-The turret's objective assignments, from the settings.
-
-The map `ScopeSession.turret_objective` reads one slot of: on a
-scope with no turret (`capabilities.has_turret`) it is empty, as
-that read refuses every slot there.
-
-**Returns**
-
-Turret position (1-4) to objective ID, None for an unassigned slot; empty on a scope with no turret. A copy: changing it changes no assignment (`ScopeSession.assign_turret_objective` does).
-
-**Raises**
-
-- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
-
-**Refusals by REST status**
-
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-
-<a id="RuntimeState.get_well_label"></a>
-### `RuntimeState.get_well_label`
-
-```python
-def get_well_label(self) -> str | None
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/runtime_state/get_well_label`.
-
-Get the well label for the current stage XY position.
-
-Maps the current target X/Y stage position to a plate-frame
-coordinate using the selected labware and stage offset, then
-looks up the matching well label.
-
-**Returns**
-
-str | None: Well label (e.g. `"A1"`); `''` when the selected labware has no wells (the Blank plate) or the position is more than half a pitch beyond its outer well centres; None when X or Y does not know its position, or the scope has no X or Y at all. Consumers omit the well from filenames and metadata for both rather than stamping a fabricated one -- the last number an axis had before it lost its reference names a real well the scope may no longer be over. The two stay distinct so a caller can say which it was.
-
-**Raises**
-
-- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
-- `CatalogueNameRefusedError`: `'labware_unknown'`, the selected labware is not in the catalogue.
-
-**Refusals by REST status**
-
-- 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-
 <a id="RuntimeState.optics_status"></a>
 ### `RuntimeState.optics_status`
 
@@ -9067,6 +8956,35 @@ OpticsStatus: Each value, or its refusal.
 **Refusals by REST status**
 
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+
+<a id="RuntimeState.pixel_size_um"></a>
+### `RuntimeState.pixel_size_um`
+
+```python
+def pixel_size_um(self) -> float
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/runtime_state/pixel_size_um`.
+
+The effective pixel size: micrometres per pixel at the current
+objective and the camera's binning, the scale a saved image carries.
+
+A display reads it as a state through `optics_status`.
+
+**Raises**
+
+- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, no objective is known, as `ScopeSession.objective_id`.
+- `HardwareCommandRefusedError`: `'not_connected'`, no camera is connected; `'scope_disconnected'`, after `disconnect()`.
+- `PixelSizeUnknownError`: `'optics_undeclared'`, the scope cannot report its optics; `'binning_unread'`, the camera has not reported its binning.
+- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
+
+**Refusals by REST status**
+
+- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`
+- 422: [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="RuntimeState.plate_to_stage"></a>
 ### `RuntimeState.plate_to_stage`
@@ -9153,6 +9071,30 @@ A function of `(x_um, y_um)` answering their `PlatePosition`; it raises only as 
 - [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
+<a id="RuntimeState.stage_offset"></a>
+### `RuntimeState.stage_offset`
+
+```python
+def stage_offset(self) -> coord_transformations.StageOffset
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/runtime_state/stage_offset`.
+
+The stage offset for coordinate transformations, from the settings.
+
+**Returns**
+
+Where the plate is mounted on the stage, in um.
+
+**Raises**
+
+- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
+
+**Refusals by REST status**
+
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+
 <a id="RuntimeState.stage_to_plate"></a>
 ### `RuntimeState.stage_to_plate`
 
@@ -9192,6 +9134,64 @@ Convert a stage position (um) to a plate position (mm).
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
+<a id="RuntimeState.turret_config"></a>
+### `RuntimeState.turret_config`
+
+```python
+def turret_config(self) -> dict[int, str | None]
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/runtime_state/turret_config`.
+
+The turret's objective assignments, from the settings.
+
+The map `ScopeSession.turret_objective` reads one slot of: on a
+scope with no turret (`capabilities.has_turret`) it is empty, as
+that read refuses every slot there.
+
+**Returns**
+
+Turret position (1-4) to objective ID, None for an unassigned slot; empty on a scope with no turret. A copy: changing it changes no assignment (`ScopeSession.assign_turret_objective` does).
+
+**Raises**
+
+- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
+
+**Refusals by REST status**
+
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+
+<a id="RuntimeState.well_label"></a>
+### `RuntimeState.well_label`
+
+```python
+def well_label(self) -> str | None
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/runtime_state/well_label`.
+
+Get the well label for the current stage XY position.
+
+Maps the current target X/Y stage position to a plate-frame
+coordinate using the selected labware and stage offset, then
+looks up the matching well label.
+
+**Returns**
+
+str | None: Well label (e.g. `"A1"`); `''` when the selected labware has no wells (the Blank plate) or the position is more than half a pitch beyond its outer well centres; None when X or Y does not know its position, or the scope has no X or Y at all. Consumers omit the well from filenames and metadata for both rather than stamping a fabricated one -- the last number an axis had before it lost its reference names a real well the scope may no longer be over. The two stay distinct so a caller can say which it was.
+
+**Raises**
+
+- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
+- `CatalogueNameRefusedError`: `'labware_unknown'`, the selected labware is not in the catalogue.
+
+**Refusals by REST status**
+
+- 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
+
 <a id="SimulationAPI"></a>
 ## `lumascope.SimulationAPI`
 
@@ -9221,7 +9221,7 @@ Route: `POST /api/v1/scope/simulation/answer_model`.
 The motor board names `model` as its own, until `clear`.
 
 Its axes stay the ones it was built with, as a board whose firmware
-names a model its motors are not: `diagnostics.get_motor_info`
+names a model its motors are not: `diagnostics.motor_info`
 reports the answer, and bring-up reads it to decide the scope's
 model.
 
@@ -9261,7 +9261,7 @@ LumaViewPro's package installed, and WinUSB stands for that package;
 any other driver stands for another package, as LumaView's libusbK
 package binds both identities. The camera already up
 keeps running: the binding is read by
-`diagnostics.get_camera_usb_bindings` and checked at the next
+`diagnostics.read_camera_usb_bindings` and checked at the next
 connect.
 
 **Args**
@@ -9974,7 +9974,7 @@ The result of locking an auto-gain arm.
 ## `lumascope.AxisLimits`
 
 A record: it crosses the wire as its data.  
-Returned by: [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits).
+Returned by: [`MotionAPI.axis_limits`](#MotionAPI.axis_limits).
 
 An axis's travel, in um: a move outside it is refused.
 
@@ -10094,7 +10094,7 @@ the camera's readout, so the camera API holds and re-reads them
 ## `lumascope.CameraLink`
 
 A record: it crosses the wire as its data.  
-Returned by: [`DiagnosticsAPI.get_camera_link_info`](#DiagnosticsAPI.get_camera_link_info).
+Returned by: [`DiagnosticsAPI.read_camera_link`](#DiagnosticsAPI.read_camera_link).
 
 The camera's link to the host, read live; each field None where the
 camera does not report it.
@@ -10616,7 +10616,7 @@ A file a build made by its fallback algorithm, and why.
 ## `lumascope.DeliveredRate`
 
 A record: it crosses the wire as its data.  
-Returned by: [`ImagingAPI.get_delivered_rate`](#ImagingAPI.get_delivered_rate), [`ImagingAPI.wait_for_delivered_rate`](#ImagingAPI.wait_for_delivered_rate).
+Returned by: [`ImagingAPI.delivered_rate`](#ImagingAPI.delivered_rate), [`ImagingAPI.wait_for_delivered_rate`](#ImagingAPI.wait_for_delivered_rate).
 
 What the camera delivered to the host over the last second.
 
@@ -10768,7 +10768,7 @@ One capture a run was asked for that produced no image.
 ## `lumascope.FieldOfView`
 
 A record: it crosses the wire as its data.  
-Returned by: [`RuntimeState.get_field_of_view`](#RuntimeState.get_field_of_view).  
+Returned by: [`RuntimeState.field_of_view`](#RuntimeState.field_of_view).  
 Held in: [`OpticsStatus.field_of_view`](#OpticsStatus.field_of_view).
 
 The area a frame covers on the sample, in micrometres.
@@ -11107,11 +11107,11 @@ Plate positions are in mm from the plate's top-left corner.
 - <a id="Labware.well_diameter_mm"></a>`well_diameter_mm`: `float | None` -- A well's diameter, in mm; None where the catalogue states none.
 - <a id="Labware.width_mm"></a>`width_mm`: `float` -- The plate's outline along X, in mm.
 
-<a id="Labware.get_well_index"></a>
-### `Labware.get_well_index`
+<a id="Labware.well_index"></a>
+### `Labware.well_index`
 
 ```python
-def get_well_index(self, x_mm: float, y_mm: float) -> tuple[int, int] | None
+def well_index(self, x_mm: float, y_mm: float) -> tuple[int, int] | None
 ```
 
 Marks: in-process; reads (changes nothing).
@@ -11138,11 +11138,11 @@ diameter.
 
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
 
-<a id="Labware.get_well_position"></a>
-### `Labware.get_well_position`
+<a id="Labware.well_position"></a>
+### `Labware.well_position`
 
 ```python
-def get_well_position(self, i: int, j: int) -> tuple[float, float]
+def well_position(self, i: int, j: int) -> tuple[float, float]
 ```
 
 Marks: in-process; reads (changes nothing).
@@ -11180,7 +11180,7 @@ Nothing.
 ## `lumascope.LedBoardInfo`
 
 A record: it crosses the wire as its data.  
-Returned by: [`DiagnosticsAPI.get_led_info`](#DiagnosticsAPI.get_led_info).
+Returned by: [`DiagnosticsAPI.led_info`](#DiagnosticsAPI.led_info).
 
 The LED board's firmware, as it reported it at connect.
 
@@ -11198,7 +11198,7 @@ peripheral). Whether a board is connected is `led_connected`.
 ## `lumascope.LedReading`
 
 A record: it crosses the wire as its data.  
-Returned by: [`IlluminationAPI.get_led_states`](#IlluminationAPI.get_led_states).  
+Returned by: [`IlluminationAPI.led_states`](#IlluminationAPI.led_states).  
 Taken by: [`IlluminationAPI.restore_led_state`](#IlluminationAPI.restore_led_state).  
 Delivered by: [`IlluminationAPI.add_led_listener`](#IlluminationAPI.add_led_listener).
 
@@ -11361,7 +11361,7 @@ address its `address`; every other part carries none.
 ## `lumascope.MotorBoardInfo`
 
 A record: it crosses the wire as its data.  
-Returned by: [`DiagnosticsAPI.get_motor_info`](#DiagnosticsAPI.get_motor_info).
+Returned by: [`DiagnosticsAPI.motor_info`](#DiagnosticsAPI.motor_info).
 
 The motor board's identity, as it reported it at connect.
 
@@ -11713,7 +11713,7 @@ Nothing.
 ## `lumascope.PlateLocation`
 
 A record: it crosses the wire as its data.  
-Returned by: [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`ScopeSession.bookmark`](#ScopeSession.bookmark), [`ScopeSession.get_current_plate_position`](#ScopeSession.get_current_plate_position), [`ScopeSession.save_all_bookmarks`](#ScopeSession.save_all_bookmarks), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark).  
+Returned by: [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`ScopeSession.bookmark`](#ScopeSession.bookmark), [`ScopeSession.plate_position`](#ScopeSession.plate_position), [`ScopeSession.save_all_bookmarks`](#ScopeSession.save_all_bookmarks), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark).  
 Taken by: [`MotionAPI.move_to_plate`](#MotionAPI.move_to_plate), [`MotionAPI.move_to_plate_nearest`](#MotionAPI.move_to_plate_nearest), [`MotionAPI.start_move_to_plate`](#MotionAPI.start_move_to_plate), [`MotionAPI.start_move_to_plate_nearest`](#MotionAPI.start_move_to_plate_nearest), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ScopeSession.add_step`](#ScopeSession.add_step).
 
 Where the scope is on a plate, focus included: X and Y in mm on the plate, Z in um.
@@ -13141,7 +13141,7 @@ tuple.
 - <a id="ScopeCapabilities.camera_max_significant_bits"></a>`camera_max_significant_bits`: `int | None` -- The deepest depth the camera delivers over its pixel formats: 12 for a camera that offers Mono12, 8 for one that streams only 8 bits. None with no camera, or one whose formats are unknown. The depth of the frames it delivers now, which follows `set_image_mode`, is `imaging.significant_bits`.
 - <a id="ScopeCapabilities.camera_model"></a>`camera_model`: `str | None` -- The model the camera reports at connect; None with no camera, or one that did not say.
 - <a id="ScopeCapabilities.camera_pixel_formats"></a>`camera_pixel_formats`: `tuple[str, ...]` -- The pixel formats the camera offers (`'Mono8'`, `'Mono12'`, ...); empty with no camera.
-- <a id="ScopeCapabilities.camera_reports_temperature"></a>`camera_reports_temperature`: `bool | None` -- True when the camera has a temperature sensor. Where it is False, `scope.diagnostics.get_camera_temperatures_degc` answers `{}`; where it is True an empty answer cannot happen, and a read that fails raises. None when the probe failed as the camera came up; the read is live, and answers as the camera does.
+- <a id="ScopeCapabilities.camera_reports_temperature"></a>`camera_reports_temperature`: `bool | None` -- True when the camera has a temperature sensor. Where it is False, `scope.diagnostics.read_camera_temperatures_degc` answers `{}`; where it is True an empty answer cannot happen, and a read that fails raises. None when the probe failed as the camera came up; the read is live, and answers as the camera does.
 - <a id="ScopeCapabilities.camera_sdk_version"></a>`camera_sdk_version`: `str | None` -- The version of the camera vendor's SDK the camera is driven through, read at connect, which ties a measurement to the runtime that made it. None when the SDK does not say, for a camera driven without one (a Classic's, the simulator's), or no camera.
 - <a id="ScopeCapabilities.camera_sensor"></a>`camera_sensor`: `str | None` -- The camera's sensor (`'Sony IMX334LLR-C'`), from its datasheet entry; None for a camera no entry describes, or no camera.
 - <a id="ScopeCapabilities.camera_serial_number"></a>`camera_serial_number`: `str | None` -- The serial number the camera reports at connect, or None.
@@ -13440,7 +13440,7 @@ A distance the stage moves on X and Y, in micrometres.
 ## `lumascope.StageOffset`
 
 A record: it crosses the wire as its data.  
-Returned by: [`RuntimeState.get_stage_offset`](#RuntimeState.get_stage_offset).  
+Returned by: [`RuntimeState.stage_offset`](#RuntimeState.stage_offset).  
 Taken by: [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage), [`RuntimeState.plate_transform`](#RuntimeState.plate_transform), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate).
 
 Where the plate is mounted on the stage, in um: the offset the two conversions apply.
@@ -13758,7 +13758,7 @@ One argument of a request that does not fit its member, as the request reader fo
 ## `lumascope.UsbBusCensus`
 
 A record: it crosses the wire as its data.  
-Returned by: [`DiagnosticsAPI.get_usb_census`](#DiagnosticsAPI.get_usb_census).
+Returned by: [`DiagnosticsAPI.read_usb_census`](#DiagnosticsAPI.read_usb_census).
 
 What is on the USB bus of each vendor a Lumascope is built from.
 
@@ -13818,7 +13818,7 @@ One device of a USB identity and the driver Windows has bound to it.
 ## `lumascope.UsbIdentityBindings`
 
 A record: it crosses the wire as its data.  
-Returned by: [`DiagnosticsAPI.get_camera_usb_bindings`](#DiagnosticsAPI.get_camera_usb_bindings), [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
+Returned by: [`DiagnosticsAPI.read_camera_usb_bindings`](#DiagnosticsAPI.read_camera_usb_bindings), [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
 
 A USB identity of a Lumascope Classic and each of its devices' drivers.
 
@@ -13885,7 +13885,7 @@ One piece of work the session is still doing.
 
 **Fields**
 
-- <a id="WorkItem.discardable"></a>`discardable`: `bool` -- True when `ScopeSession.discard_close_drain` drops what this work has left; a host offers that discard only while some item says so.
+- <a id="WorkItem.discardable"></a>`discardable`: `bool` -- True when `ScopeSession.discard_pending_video` drops what this work has left; a host offers that discard only while some item says so.
 - <a id="WorkItem.kind"></a>`kind`: `WorkKind` -- Where the work runs.
 - <a id="WorkItem.left"></a>`left`: `int | None` -- How many frames, images or builds it still has to finish, when it counts them; None when it does not.
 - <a id="WorkItem.name"></a>`name`: `str` -- What it is, in words a person reads.
@@ -14085,7 +14085,7 @@ the achieved values and a run continues.
 
 Returned by: [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position).  
 Held in: [`AxisStateUnknownError.axes_without_position`](#AxisStateUnknownError.axes_without_position), [`PositionOutOfRangeError.axis`](#PositionOutOfRangeError.axis), [`ProtocolRunRefusedError.axes_without_position`](#ProtocolRunRefusedError.axes_without_position), [`RunOutcome.axes_without_position`](#RunOutcome.axes_without_position), [`ScopeCapabilities.axes`](#ScopeCapabilities.axes).  
-Taken by: [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits), [`SimulationAPI.fail_home`](#SimulationAPI.fail_home), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).
+Taken by: [`MotionAPI.axis_limits`](#MotionAPI.axis_limits), [`SimulationAPI.fail_home`](#SimulationAPI.fail_home), [`SimulationAPI.hold_axis`](#SimulationAPI.hold_axis).
 
 An axis a motion member names: a stage axis, or the turret, T.
 
@@ -14422,7 +14422,7 @@ and LEDs both.
 
 Held in: [`LedBoardInfo.command_set`](#LedBoardInfo.command_set).
 
-The LED board's text command set, as `get_led_info().command_set` names it.
+The LED board's text command set, as `led_info().command_set` names it.
 
 INFO predates the v2 firmware; SELFTEST, I2CSCAN and the LEDREAD
 current reads came with it. A board with no text command channel at
@@ -14501,7 +14501,7 @@ The kind of board a model's motor axes are on, as its catalogue row names it.
 
 Held in: [`MotorBoardInfo.command_set`](#MotorBoardInfo.command_set).
 
-The motor board's text command set, as `get_motor_info().command_set` names it.
+The motor board's text command set, as `motor_info().command_set` names it.
 
 The EL-0940's (INFO, FULLINFO, ACTUAL_R, SPI and the rest). A board
 with no text command channel (the TMCM-6110, which speaks binary
@@ -14703,7 +14703,7 @@ The slide a simulated scope is brought up with.
 <a id="StageAxis"></a>
 ### `lumascope.StageAxis`
 
-Returned by: [`MotionAPI.axis_positions`](#MotionAPI.axis_positions), [`MotionAPI.get_target_positions`](#MotionAPI.get_target_positions), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep).  
+Returned by: [`MotionAPI.axis_positions`](#MotionAPI.axis_positions), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep), [`MotionAPI.target_positions`](#MotionAPI.target_positions).  
 Held in: [`MissingPart.axis`](#MissingPart.axis), [`PositionChanged.axis`](#PositionChanged.axis), [`Status.axes`](#Status.axes).  
 Taken by: [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener), [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um), [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep), [`MotionAPI.remove_position_listener`](#MotionAPI.remove_position_listener), [`MotionAPI.start_jog`](#MotionAPI.start_jog), [`ScopeSession.go_to_bookmark`](#ScopeSession.go_to_bookmark), [`ScopeSession.save_bookmark`](#ScopeSession.save_bookmark), [`ScopeSession.start_go_to_bookmark`](#ScopeSession.start_go_to_bookmark).
 
@@ -16388,7 +16388,7 @@ The Session's objective writers (select, slot assign and slot clear)
 raise it too while a run, a diagnostic or a home holds the scope: the run
 stamps the active objective's scale into each capture, so a change
 mid-run is a command against the run's hardware state. The Session's
-scale bar setter (`set_scale_bar`) raises it while a run, a diagnostic,
+scale bar setter (`set_scale_bar_enabled`) raises it while a run, a diagnostic,
 a home or a recording holds the scope, since a run's stills are drawn
 under the setting it started with.
 
@@ -18646,7 +18646,7 @@ reads what the person was shown.
 | Method | Path | Member |
 |---|---|---|
 | `GET` | `/api/v1/acceleration_limit_pct` | [`ScopeSession.acceleration_limit_pct`](#ScopeSession.acceleration_limit_pct) |
-| `PUT` | `/api/v1/acceleration_limit_pct` | [`ScopeSession.set_acceleration_limit`](#ScopeSession.set_acceleration_limit) |
+| `PUT` | `/api/v1/acceleration_limit_pct` | [`ScopeSession.set_acceleration_limit_pct`](#ScopeSession.set_acceleration_limit_pct) |
 | `POST` | `/api/v1/add_step` | [`ScopeSession.add_step`](#ScopeSession.add_step) |
 | `GET` | `/api/v1/app_runtime` | [`ScopeSession.app_runtime`](#ScopeSession.app_runtime) |
 | `GET` | `/api/v1/app_version` | [`ScopeSession.app_version`](#ScopeSession.app_version) |
@@ -18669,12 +18669,10 @@ reads what the person was shown.
 | `POST` | `/api/v1/create_empty_protocol` | [`ScopeSession.create_empty_protocol`](#ScopeSession.create_empty_protocol) |
 | `GET` | `/api/v1/current_slot_objective_question` | [`ScopeSession.current_slot_objective_question`](#ScopeSession.current_slot_objective_question) |
 | `POST` | `/api/v1/delete_step` | [`ScopeSession.delete_step`](#ScopeSession.delete_step) |
-| `POST` | `/api/v1/discard_close_drain` | [`ScopeSession.discard_close_drain`](#ScopeSession.discard_close_drain) |
+| `POST` | `/api/v1/discard_pending_video` | [`ScopeSession.discard_pending_video`](#ScopeSession.discard_pending_video) |
 | `POST` | `/api/v1/end_control` | [`ScopeSession.end_control`](#ScopeSession.end_control) |
 | `GET` | `/api/v1/engineering_mode` | [`ScopeSession.engineering_mode`](#ScopeSession.engineering_mode) |
 | `PUT` | `/api/v1/engineering_mode` | [`ScopeSession.set_engineering_mode`](#ScopeSession.set_engineering_mode) |
-| `GET` | `/api/v1/get_current_plate_position` | [`ScopeSession.get_current_plate_position`](#ScopeSession.get_current_plate_position) |
-| `GET` | `/api/v1/get_setting` | [`ScopeSession.get_setting`](#ScopeSession.get_setting) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_prefix` | [`Protocol.capture_prefix`](#Protocol.capture_prefix) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_root` | [`Protocol.capture_root`](#Protocol.capture_root) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/channel_settings` | [`Protocol.channel_settings`](#Protocol.channel_settings) |
@@ -18713,12 +18711,11 @@ reads what the person was shown.
 | `GET` | `/api/v1/manual_recording/save_folder` | [`ManualRecordingController.save_folder`](#ManualRecordingController.save_folder) |
 | `POST` | `/api/v1/manual_recording/start` | [`ManualRecordingController.start`](#ManualRecordingController.start) |
 | `POST` | `/api/v1/manual_recording/stop` | [`ManualRecordingController.stop`](#ManualRecordingController.stop) |
-| `GET` | `/api/v1/model` | [`ScopeSession.model`](#ScopeSession.model) |
-| `PUT` | `/api/v1/model` | [`ScopeSession.select_model`](#ScopeSession.select_model) |
 | `GET` | `/api/v1/model_at_next_start` | [`ScopeSession.model_at_next_start`](#ScopeSession.model_at_next_start) |
 | `POST` | `/api/v1/new_protocol` | [`ScopeSession.new_protocol`](#ScopeSession.new_protocol) |
 | `GET` | `/api/v1/objective_id` | [`ScopeSession.objective_id`](#ScopeSession.objective_id) |
 | `GET` | `/api/v1/objective_question` | [`ScopeSession.objective_question`](#ScopeSession.objective_question) |
+| `GET` | `/api/v1/plate_position` | [`ScopeSession.plate_position`](#ScopeSession.plate_position) |
 | `GET` | `/api/v1/plugin_api_level` | [`ScopeSession.plugin_api_level`](#ScopeSession.plugin_api_level) |
 | `GET` | `/api/v1/plugin_health` | [`ScopeSession.plugin_health`](#ScopeSession.plugin_health) |
 | `POST` | `/api/v1/point_steps_at_turret_slot` | [`ScopeSession.point_steps_at_turret_slot`](#ScopeSession.point_steps_at_turret_slot) |
@@ -18745,7 +18742,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/save_focus` | [`ScopeSession.save_focus`](#ScopeSession.save_focus) |
 | `POST` | `/api/v1/save_protocol` | [`ScopeSession.save_protocol`](#ScopeSession.save_protocol) |
 | `GET` | `/api/v1/scale_bar_enabled` | [`ScopeSession.scale_bar_enabled`](#ScopeSession.scale_bar_enabled) |
-| `PUT` | `/api/v1/scale_bar_enabled` | [`ScopeSession.set_scale_bar`](#ScopeSession.set_scale_bar) |
+| `PUT` | `/api/v1/scale_bar_enabled` | [`ScopeSession.set_scale_bar_enabled`](#ScopeSession.set_scale_bar_enabled) |
 | `GET` | `/api/v1/scope/all_labware` | [`Lumascope.all_labware`](#Lumascope.all_labware) |
 | `GET` | `/api/v1/scope/all_objectives` | [`Lumascope.all_objectives`](#Lumascope.all_objectives) |
 | `GET` | `/api/v1/scope/camera/applied_auto_gain_for` | [`CameraAPI.applied_auto_gain_for`](#CameraAPI.applied_auto_gain_for) |
@@ -18766,8 +18763,6 @@ reads what the person was shown.
 | `PUT` | `/api/v1/scope/camera/frame_size` | [`CameraAPI.set_frame_size`](#CameraAPI.set_frame_size) |
 | `GET` | `/api/v1/scope/camera/gain_db` | [`CameraAPI.gain_db`](#CameraAPI.gain_db) |
 | `PUT` | `/api/v1/scope/camera/gain_db` | [`CameraAPI.set_gain_db`](#CameraAPI.set_gain_db) |
-| `GET` | `/api/v1/scope/camera/get_black_level_range` | [`CameraAPI.get_black_level_range`](#CameraAPI.get_black_level_range) |
-| `GET` | `/api/v1/scope/camera/get_pixel_alignment` | [`CameraAPI.get_pixel_alignment`](#CameraAPI.get_pixel_alignment) |
 | `GET` | `/api/v1/scope/camera/high_conversion_gain` | [`CameraAPI.high_conversion_gain`](#CameraAPI.high_conversion_gain) |
 | `PUT` | `/api/v1/scope/camera/high_conversion_gain` | [`CameraAPI.set_high_conversion_gain`](#CameraAPI.set_high_conversion_gain) |
 | `GET` | `/api/v1/scope/camera/image_mode` | [`CameraAPI.image_mode`](#CameraAPI.image_mode) |
@@ -18776,11 +18771,13 @@ reads what the person was shown.
 | `PUT` | `/api/v1/scope/camera/line_noise_reduction` | [`CameraAPI.set_line_noise_reduction`](#CameraAPI.set_line_noise_reduction) |
 | `POST` | `/api/v1/scope/camera/lock_auto_gain` | [`CameraAPI.lock_auto_gain`](#CameraAPI.lock_auto_gain) |
 | `GET` | `/api/v1/scope/camera/longest_exposure_ms` | [`CameraAPI.longest_exposure_ms`](#CameraAPI.longest_exposure_ms) |
+| `GET` | `/api/v1/scope/camera/pixel_alignment` | [`CameraAPI.pixel_alignment`](#CameraAPI.pixel_alignment) |
 | `GET` | `/api/v1/scope/camera/pixel_format` | [`CameraAPI.pixel_format`](#CameraAPI.pixel_format) |
 | `GET` | `/api/v1/scope/camera/read_auto_exposure` | [`CameraAPI.read_auto_exposure`](#CameraAPI.read_auto_exposure) |
 | `GET` | `/api/v1/scope/camera/read_auto_gain` | [`CameraAPI.read_auto_gain`](#CameraAPI.read_auto_gain) |
 | `GET` | `/api/v1/scope/camera/read_binning` | [`CameraAPI.read_binning`](#CameraAPI.read_binning) |
 | `GET` | `/api/v1/scope/camera/read_black_level` | [`CameraAPI.read_black_level`](#CameraAPI.read_black_level) |
+| `GET` | `/api/v1/scope/camera/read_black_level_range` | [`CameraAPI.read_black_level_range`](#CameraAPI.read_black_level_range) |
 | `GET` | `/api/v1/scope/camera/read_exposure_ms` | [`CameraAPI.read_exposure_ms`](#CameraAPI.read_exposure_ms) |
 | `GET` | `/api/v1/scope/camera/read_frame_rate_fps` | [`CameraAPI.read_frame_rate_fps`](#CameraAPI.read_frame_rate_fps) |
 | `GET` | `/api/v1/scope/camera/read_frame_size` | [`CameraAPI.read_frame_size`](#CameraAPI.read_frame_size) |
@@ -18790,27 +18787,26 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/camera/setting_limits` | [`CameraAPI.setting_limits`](#CameraAPI.setting_limits) |
 | `GET` | `/api/v1/scope/capabilities` | [`Lumascope.capabilities`](#Lumascope.capabilities) |
 | `GET` | `/api/v1/scope/channel_identity` | [`Lumascope.channel_identity`](#Lumascope.channel_identity) |
-| `GET` | `/api/v1/scope/diagnostics/get_camera_link_info` | [`DiagnosticsAPI.get_camera_link_info`](#DiagnosticsAPI.get_camera_link_info) |
-| `GET` | `/api/v1/scope/diagnostics/get_camera_temperatures_degc` | [`DiagnosticsAPI.get_camera_temperatures_degc`](#DiagnosticsAPI.get_camera_temperatures_degc) |
-| `GET` | `/api/v1/scope/diagnostics/get_camera_usb_bindings` | [`DiagnosticsAPI.get_camera_usb_bindings`](#DiagnosticsAPI.get_camera_usb_bindings) |
-| `GET` | `/api/v1/scope/diagnostics/get_led_info` | [`DiagnosticsAPI.get_led_info`](#DiagnosticsAPI.get_led_info) |
-| `GET` | `/api/v1/scope/diagnostics/get_motor_info` | [`DiagnosticsAPI.get_motor_info`](#DiagnosticsAPI.get_motor_info) |
-| `GET` | `/api/v1/scope/diagnostics/get_usb_census` | [`DiagnosticsAPI.get_usb_census`](#DiagnosticsAPI.get_usb_census) |
-| `GET` | `/api/v1/scope/illumination/get_led_states` | [`IlluminationAPI.get_led_states`](#IlluminationAPI.get_led_states) |
+| `GET` | `/api/v1/scope/diagnostics/led_info` | [`DiagnosticsAPI.led_info`](#DiagnosticsAPI.led_info) |
+| `GET` | `/api/v1/scope/diagnostics/motor_info` | [`DiagnosticsAPI.motor_info`](#DiagnosticsAPI.motor_info) |
+| `GET` | `/api/v1/scope/diagnostics/read_camera_link` | [`DiagnosticsAPI.read_camera_link`](#DiagnosticsAPI.read_camera_link) |
+| `GET` | `/api/v1/scope/diagnostics/read_camera_temperatures_degc` | [`DiagnosticsAPI.read_camera_temperatures_degc`](#DiagnosticsAPI.read_camera_temperatures_degc) |
+| `GET` | `/api/v1/scope/diagnostics/read_camera_usb_bindings` | [`DiagnosticsAPI.read_camera_usb_bindings`](#DiagnosticsAPI.read_camera_usb_bindings) |
+| `GET` | `/api/v1/scope/diagnostics/read_usb_census` | [`DiagnosticsAPI.read_usb_census`](#DiagnosticsAPI.read_usb_census) |
 | `POST` | `/api/v1/scope/illumination/led_off` | [`IlluminationAPI.led_off`](#IlluminationAPI.led_off) |
 | `POST` | `/api/v1/scope/illumination/led_on` | [`IlluminationAPI.led_on`](#IlluminationAPI.led_on) |
+| `GET` | `/api/v1/scope/illumination/led_states` | [`IlluminationAPI.led_states`](#IlluminationAPI.led_states) |
 | `POST` | `/api/v1/scope/illumination/leds_off` | [`IlluminationAPI.leds_off`](#IlluminationAPI.leds_off) |
 | `POST` | `/api/v1/scope/illumination/restore_led_state` | [`IlluminationAPI.restore_led_state`](#IlluminationAPI.restore_led_state) |
 | `GET` | `/api/v1/scope/imaging/changes_in_force` | [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force) |
+| `GET` | `/api/v1/scope/imaging/delivered_rate` | [`ImagingAPI.delivered_rate`](#ImagingAPI.delivered_rate) |
 | `POST` | `/api/v1/scope/imaging/disable_streaming` | [`ImagingAPI.disable_streaming`](#ImagingAPI.disable_streaming) |
 | `POST` | `/api/v1/scope/imaging/enable_streaming` | [`ImagingAPI.enable_streaming`](#ImagingAPI.enable_streaming) |
-| `GET` | `/api/v1/scope/imaging/get_delivered_rate` | [`ImagingAPI.get_delivered_rate`](#ImagingAPI.get_delivered_rate) |
 | `GET` | `/api/v1/scope/imaging/is_streaming` | [`ImagingAPI.is_streaming`](#ImagingAPI.is_streaming) |
 | `GET` | `/api/v1/scope/imaging/significant_bits` | [`ImagingAPI.significant_bits`](#ImagingAPI.significant_bits) |
 | `GET` | `/api/v1/scope/motion/axes_without_position` | [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position) |
+| `GET` | `/api/v1/scope/motion/axis_limits` | [`MotionAPI.axis_limits`](#MotionAPI.axis_limits) |
 | `GET` | `/api/v1/scope/motion/axis_positions` | [`MotionAPI.axis_positions`](#MotionAPI.axis_positions) |
-| `GET` | `/api/v1/scope/motion/get_axis_limits` | [`MotionAPI.get_axis_limits`](#MotionAPI.get_axis_limits) |
-| `GET` | `/api/v1/scope/motion/get_target_positions` | [`MotionAPI.get_target_positions`](#MotionAPI.get_target_positions) |
 | `GET` | `/api/v1/scope/motion/interlocks` | [`MotionAPI.interlocks`](#MotionAPI.interlocks) |
 | `GET` | `/api/v1/scope/motion/jog_step_um` | [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um) |
 | `GET` | `/api/v1/scope/motion/positions_to_keep` | [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep) |
@@ -18827,20 +18823,21 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/motion/start_move_z` | [`MotionAPI.start_move_z`](#MotionAPI.start_move_z) |
 | `POST` | `/api/v1/scope/motion/start_move_z_by` | [`MotionAPI.start_move_z_by`](#MotionAPI.start_move_z_by) |
 | `POST` | `/api/v1/scope/motion/stop_motion` | [`MotionAPI.stop_motion`](#MotionAPI.stop_motion) |
+| `GET` | `/api/v1/scope/motion/target_positions` | [`MotionAPI.target_positions`](#MotionAPI.target_positions) |
 | `GET` | `/api/v1/scope/motion/turret_status` | [`MotionAPI.turret_status`](#MotionAPI.turret_status) |
 | `GET` | `/api/v1/scope/motion_expected` | [`Lumascope.motion_expected`](#Lumascope.motion_expected) |
 | `GET` | `/api/v1/scope/objective` | [`Lumascope.objective`](#Lumascope.objective) |
 | `GET` | `/api/v1/scope/plate` | [`Lumascope.plate`](#Lumascope.plate) |
+| `GET` | `/api/v1/scope/runtime_state/field_of_view` | [`RuntimeState.field_of_view`](#RuntimeState.field_of_view) |
 | `GET` | `/api/v1/scope/runtime_state/frame_point_distance` | [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance) |
 | `GET` | `/api/v1/scope/runtime_state/frame_point_plate` | [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate) |
-| `GET` | `/api/v1/scope/runtime_state/get_field_of_view` | [`RuntimeState.get_field_of_view`](#RuntimeState.get_field_of_view) |
-| `GET` | `/api/v1/scope/runtime_state/get_pixel_size_um` | [`RuntimeState.get_pixel_size_um`](#RuntimeState.get_pixel_size_um) |
-| `GET` | `/api/v1/scope/runtime_state/get_stage_offset` | [`RuntimeState.get_stage_offset`](#RuntimeState.get_stage_offset) |
-| `GET` | `/api/v1/scope/runtime_state/get_turret_config` | [`RuntimeState.get_turret_config`](#RuntimeState.get_turret_config) |
-| `GET` | `/api/v1/scope/runtime_state/get_well_label` | [`RuntimeState.get_well_label`](#RuntimeState.get_well_label) |
 | `GET` | `/api/v1/scope/runtime_state/optics_status` | [`RuntimeState.optics_status`](#RuntimeState.optics_status) |
+| `GET` | `/api/v1/scope/runtime_state/pixel_size_um` | [`RuntimeState.pixel_size_um`](#RuntimeState.pixel_size_um) |
 | `GET` | `/api/v1/scope/runtime_state/plate_to_stage` | [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage) |
+| `GET` | `/api/v1/scope/runtime_state/stage_offset` | [`RuntimeState.stage_offset`](#RuntimeState.stage_offset) |
 | `GET` | `/api/v1/scope/runtime_state/stage_to_plate` | [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate) |
+| `GET` | `/api/v1/scope/runtime_state/turret_config` | [`RuntimeState.turret_config`](#RuntimeState.turret_config) |
+| `GET` | `/api/v1/scope/runtime_state/well_label` | [`RuntimeState.well_label`](#RuntimeState.well_label) |
 | `GET` | `/api/v1/scope/scope_models` | [`Lumascope.scope_models`](#Lumascope.scope_models) |
 | `GET` | `/api/v1/scope/settings_template` | [`Lumascope.settings_template`](#Lumascope.settings_template) |
 | `POST` | `/api/v1/scope/simulation/answer_model` | [`SimulationAPI.answer_model`](#SimulationAPI.answer_model) |
@@ -18867,10 +18864,13 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/simulation/unsilence` | [`SimulationAPI.unsilence`](#SimulationAPI.unsilence) |
 | `POST` | `/api/v1/scope/simulation/withhold_chunk` | [`SimulationAPI.withhold_chunk`](#SimulationAPI.withhold_chunk) |
 | `GET` | `/api/v1/scope/unconnected_parts` | [`Lumascope.unconnected_parts`](#Lumascope.unconnected_parts) |
+| `GET` | `/api/v1/selected_model` | [`ScopeSession.selected_model`](#ScopeSession.selected_model) |
+| `PUT` | `/api/v1/selected_model` | [`ScopeSession.select_model`](#ScopeSession.select_model) |
 | `POST` | `/api/v1/set_protocol_capture_root` | [`ScopeSession.set_protocol_capture_root`](#ScopeSession.set_protocol_capture_root) |
 | `POST` | `/api/v1/set_protocol_labware` | [`ScopeSession.set_protocol_labware`](#ScopeSession.set_protocol_labware) |
 | `POST` | `/api/v1/set_protocol_schedule` | [`ScopeSession.set_protocol_schedule`](#ScopeSession.set_protocol_schedule) |
 | `POST` | `/api/v1/set_step_autofocus` | [`ScopeSession.set_step_autofocus`](#ScopeSession.set_step_autofocus) |
+| `GET` | `/api/v1/setting` | [`ScopeSession.setting`](#ScopeSession.setting) |
 | `GET` | `/api/v1/settings_are_provisional` | [`ScopeSession.settings_are_provisional`](#ScopeSession.settings_are_provisional) |
 | `POST` | `/api/v1/show_channel` | [`ScopeSession.show_channel`](#ScopeSession.show_channel) |
 | `GET` | `/api/v1/shown_channel` | [`ScopeSession.shown_channel`](#ScopeSession.shown_channel) |

@@ -2062,7 +2062,7 @@ class Camera(ABC):
         """
         return None
 
-    def get_black_level_range(self) -> tuple[float, float] | None:
+    def read_black_level_range(self) -> tuple[float, float] | None:
         """Read the settable black level range, live: it can change with the
         pixel format.
 
@@ -2079,7 +2079,7 @@ class Camera(ABC):
         """Set the black level, and report the value now in effect.
 
         Called only when ``supports_black_level`` is True and ``value`` is
-        inside ``get_black_level_range``. Returns as ``gain`` does: ``False``
+        inside ``read_black_level_range``. Returns as ``gain`` does: ``False``
         is the camera's refusal, or the camera lost.
 
         Raises:

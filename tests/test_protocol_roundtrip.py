@@ -1963,13 +1963,13 @@ class TestLumascapeAPILed:
         scope.illumination.led_on(channel='BF', illumination_ma=50)
         scope.illumination.led_on(channel=LED2, illumination_ma=100)
         scope.illumination.leds_off()
-        not_dark = [r for r in scope.illumination.get_led_states() if r.state is not LedState.DARK]
+        not_dark = [r for r in scope.illumination.led_states() if r.state is not LedState.DARK]
         assert not_dark == [], f'LEDs not dark after leds_off: {not_dark}'
 
     def test_led_states_snapshot(self, scope):
         scope.illumination.led_on(channel=LED1, illumination_ma=200)
         scope.illumination.led_on(channel=LED2, illumination_ma=150)
-        states = {r.name: r for r in scope.illumination.get_led_states()}
+        states = {r.name: r for r in scope.illumination.led_states()}
         assert (states[LED1].state, states[LED1].illumination_ma) == (LedState.LIT, 200)
         assert states[LED2].state is LedState.LIT
         assert states['BF'].state is LedState.DARK
@@ -1981,13 +1981,13 @@ class TestLumascapeAPIMotor:
     def test_move_z(self, scope):
         scope.motion.move_z(3000.0)
         # Simulated motor moves instantly in fast mode
-        pos = scope.motion.get_target_positions()['Z']
+        pos = scope.motion.target_positions()['Z']
         assert pos == pytest.approx(3000.0, abs=1.0)
 
     def test_get_target_positions_from_cache(self, scope):
-        """get_target_positions uses cache -- zero serial I/O."""
+        """target_positions uses cache -- zero serial I/O."""
         scope.motion.move_z(5000.0)
-        pos = scope.motion.get_target_positions()['Z']
+        pos = scope.motion.target_positions()['Z']
         assert pos == pytest.approx(5000.0, abs=1.0)
 
 
@@ -2000,8 +2000,8 @@ class TestLumascapeAPICamera:
     def test_get_image_returns_array(self, scope):
         import numpy as np
 
-        img = scope.imaging.get_image()
-        assert isinstance(img, np.ndarray), f'get_image returned {type(img)}'
+        img = scope.imaging.capture_image()
+        assert isinstance(img, np.ndarray), f'capture_image returned {type(img)}'
         assert img.ndim == 2  # grayscale
 
     def test_set_gain(self, scope):

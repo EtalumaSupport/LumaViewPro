@@ -39,7 +39,7 @@ from tests.settings_fixtures import complete_settings
 # member: the support report and the logs zip (a whole bundle), the camera
 # bandwidth test, the close's drain (a step of a session ending), and the
 # engineering members (raw board commands).
-_NOT_WALKED = re.compile(r'discard_close_drain|bandwidth|support_report|logs_zip|engineering')
+_NOT_WALKED = re.compile(r'discard_pending_video|bandwidth|support_report|logs_zip|engineering')
 
 _FAULTS = '/api/v1/scope/simulation/'
 

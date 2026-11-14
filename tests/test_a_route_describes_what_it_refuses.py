@@ -65,7 +65,7 @@ def test_each_reason_an_entry_quotes_is_described_under_the_status_it_answers(de
 
 def test_a_bench_read_has_no_route(described):
     """The limit switches are read on the bench, not by a client: a home holds the read for minutes."""
-    assert not [p for p in described['paths'] if 'get_limit_switch_status' in p]
+    assert not [p for p in described['paths'] if 'read_limit_switches' in p]
 
 
 def test_an_entry_that_quotes_no_reason_is_described_with_every_reason_of_its_class(described):
@@ -80,10 +80,10 @@ def test_an_entry_that_quotes_no_reason_is_described_with_every_reason_of_its_cl
 
 
 def test_a_read_that_enters_a_lane_names_the_lanes_refusals_and_no_other(described):
-    """``get_camera_temperatures_degc`` reads through the CAMERA lane, admitted whatever holds
+    """``read_camera_temperatures_degc`` reads through the CAMERA lane, admitted whatever holds
     the scope; its route names the lane's answers and no holder's refusal."""
     refusals = _refusals(
-        described, '/api/v1/scope/diagnostics/get_camera_temperatures_degc', method='get'
+        described, '/api/v1/scope/diagnostics/read_camera_temperatures_degc', method='get'
     )
 
     assert refusals['503']['HardwareCommandRefusedError'] == ['scope_disconnected']
@@ -114,9 +114,9 @@ def test_the_remedy_door_is_the_one_route_to_a_remedy_and_names_the_held_session
 
 def test_a_stage_position_is_read_over_the_wire_through_axis_positions_alone(described):
     """``axis_positions`` is the position read a client has; the board's own read,
-    ``get_actual_position``, is the bench's and has no route."""
+    ``read_actual_position``, is the bench's and has no route."""
     assert '/api/v1/scope/motion/axis_positions' in described['paths']
-    assert '/api/v1/scope/motion/get_actual_position' not in described['paths']
+    assert '/api/v1/scope/motion/read_actual_position' not in described['paths']
 
 
 def test_a_protocol_is_sized_over_the_wire_through_the_session_alone(described):

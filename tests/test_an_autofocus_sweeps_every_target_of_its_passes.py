@@ -174,7 +174,7 @@ def test_a_first_pass_that_is_no_whole_number_of_steps_stays_in_its_window(sim_s
     # 750 above the start's window bottom. Started 1000 below the top of
     # travel, a 7th target would be asked past it.
     runner = af_runner_on(sim_scope, pattern='white')
-    top = sim_scope.motion.get_axis_limits('Z').max_um
+    top = sim_scope.motion.axis_limits('Z').max_um
     start = top - 1000.0
     scored = []
 

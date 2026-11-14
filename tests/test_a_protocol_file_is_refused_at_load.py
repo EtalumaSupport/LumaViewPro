@@ -42,7 +42,7 @@ def _turret(scope, monkeypatch, *, has_turret=True, carries=(ON_TURRET,)):
         scope, 'capabilities', dataclasses.replace(scope.capabilities, has_turret=has_turret)
     )
     monkeypatch.setattr(
-        scope.runtime_state, 'get_turret_config', lambda: dict(enumerate(carries, start=1))
+        scope.runtime_state, 'turret_config', lambda: dict(enumerate(carries, start=1))
     )
 
 

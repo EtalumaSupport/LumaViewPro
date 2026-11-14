@@ -82,7 +82,7 @@ def test_a_rest_api_the_server_cannot_use_is_refused_by_the_builder_and_nothing_
         # The load leaves the section as handed: the session comes up on it.
         session = _session_with(tmp_path, section)
         try:
-            assert session.get_setting('rest_api') == section
+            assert session.setting('rest_api') == section
             threads_before = set(threading.enumerate())
             try:
                 build_server(session, shut_down=_never_shut_down)

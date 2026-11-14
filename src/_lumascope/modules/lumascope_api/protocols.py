@@ -325,7 +325,7 @@ class ProtocolsAPI:
                 binning_size=input_config['binning_size'],
                 axis_limits=self._travel_limits(),
                 labware=self._scope.wellplate_loader.get_plate(labware_id=protocol.labware_id()),
-                stage_offset=self._scope.runtime_state.get_stage_offset(),
+                stage_offset=self._scope.runtime_state.stage_offset(),
                 overlap_percent=input_config.get('tiling_overlap_percent', 0.0),
                 capabilities=self._scope.capabilities,
                 objective_helper=self._scope.objective_helper,
@@ -624,7 +624,7 @@ class ProtocolsAPI:
         self._refuse_no_focus_axis(then)
         refuse_unless_finite_number(z_um, 'z_um')
         z = float(z_um)
-        limits = self._scope.motion.get_axis_limits('Z')
+        limits = self._scope.motion.axis_limits('Z')
         low, high = (-math.inf, math.inf) if limits is None else (limits.min_um, limits.max_um)
         if not low <= z <= high:
             raise PositionOutOfRangeError('Z', z, low, high)
@@ -759,7 +759,7 @@ class ProtocolsAPI:
             binning_size=binning_size,
             axis_limits=self._travel_limits(),
             labware=self._scope.wellplate_loader.get_plate(labware_id=protocol.labware_id()),
-            stage_offset=self._scope.runtime_state.get_stage_offset(),
+            stage_offset=self._scope.runtime_state.stage_offset(),
             overlap_percent=overlap_percent,
             capabilities=self._scope.capabilities,
             objective_helper=self._scope.objective_helper,
@@ -877,7 +877,7 @@ class ProtocolsAPI:
             turret_slot = self._slot_meant(
                 step['Objective'],
                 step['Turret Slot'],
-                self._scope.runtime_state.get_turret_config(),
+                self._scope.runtime_state.turret_config(),
             )
             if turret_slot is None:
                 self.refuse_unchosen_turret_slots(protocol, step_indexes=[step_index])
@@ -895,14 +895,14 @@ class ProtocolsAPI:
 
         The one read the run gate and the tile and z-stack builds judge
         positions against. Only the axes in ``capabilities.axes``: an axis the
-        scope lacks has no travel, and ``get_axis_limits`` refuses it. An
+        scope lacks has no travel, and ``axis_limits`` refuses it. An
         axis without software-enforced bounds (the turret's T) answers None
         and is left out.
         """
         return {
             axis: limits
             for axis in self._scope.capabilities.axes
-            if (limits := self._scope.motion.get_axis_limits(axis)) is not None
+            if (limits := self._scope.motion.axis_limits(axis)) is not None
         }
 
     def _recordable_objective(self, *, verb: str) -> str:
@@ -1262,7 +1262,7 @@ class ProtocolsAPI:
         if {'X', 'Y'} & set(axis_limits):
             plate = {
                 'labware': self._scope.wellplate_loader.get_plate(labware_id=labware_key),
-                'stage_offset': self._scope.runtime_state.get_stage_offset(),
+                'stage_offset': self._scope.runtime_state.stage_offset(),
             }
         outside = []
         for idx, step in zip(steps.index, rows_by_column(steps), strict=True):
@@ -1383,7 +1383,7 @@ class ProtocolsAPI:
         """
         if not self._scope.capabilities.has_turret:
             return
-        turret_config = self._scope.runtime_state.get_turret_config()
+        turret_config = self._scope.runtime_state.turret_config()
         steps = protocol.steps()
         by_slot: dict[int, list[int]] = {}
         for idx, (objective_id, slot) in enumerate(
@@ -1412,7 +1412,7 @@ class ProtocolsAPI:
         if not self._scope.capabilities.has_turret:
             return
         live = self._scope.motion.turret_status().slot
-        turret_config = self._scope.runtime_state.get_turret_config()
+        turret_config = self._scope.runtime_state.turret_config()
         by_slot: dict[int, list[int]] = {}
         for idx, objective_id in enumerate(protocol.steps()['Objective']):
             if live is not None and turret_config.get(live) == objective_id:
@@ -1441,7 +1441,7 @@ class ProtocolsAPI:
         """
         if not self._scope.capabilities.has_turret:
             return []
-        turret_config = self._scope.runtime_state.get_turret_config()
+        turret_config = self._scope.runtime_state.turret_config()
         steps = protocol.steps()
         asked: dict[object, tuple[list[int], list[int]]] = {}
         for idx, (objective_id, slot) in enumerate(
@@ -1480,7 +1480,7 @@ class ProtocolsAPI:
                 does not hold ``objective_id`` now (``offered``: the slots
                 that do). Nothing is changed.
         """
-        holding = slots_holding(objective_id, self._scope.runtime_state.get_turret_config())
+        holding = slots_holding(objective_id, self._scope.runtime_state.turret_config())
         if slot not in holding:
             raise ArgumentRefusedError(
                 'slot_not_holding_objective', argument='slot', value=slot, offered=holding
@@ -1540,7 +1540,7 @@ class ProtocolsAPI:
         """The objectives a turret slot is assigned, read from the turret configuration."""
         return {
             objective
-            for objective in self._scope.runtime_state.get_turret_config().values()
+            for objective in self._scope.runtime_state.turret_config().values()
             if objective is not None
         }
 

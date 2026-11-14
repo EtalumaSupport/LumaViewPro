@@ -245,7 +245,7 @@ def build_server(session: ScopeSession, *, shut_down: Callable[[], None]) -> Ser
             port, or an address that is not this computer's (a network
             cable not yet plugged in withdraws its address).
     """
-    served = judged(session.get_setting('rest_api'))
+    served = judged(session.setting('rest_api'))
     try:
         sock = socket.create_server((str(served.address), served.port), family=served.family)
     except OSError as e:

@@ -118,11 +118,11 @@ MOTION_ONLY_METHODS = MemberNames(
     'src/_lumascope/modules/lumascope_api/motion.py',
     {
         'add_position_listener',
-        'get_actual_position',
-        'get_axis_limits',
+        'read_actual_position',
+        'axis_limits',
         'get_axis_state',
         'get_current_position',
-        'get_limit_switch_status',
+        'read_limit_switches',
         'get_limit_switch_status_all_axes',
         'get_target_status',
         'home',
@@ -135,7 +135,7 @@ MOTION_ONLY_METHODS = MemberNames(
         '_refresh_position_cache',
         'remove_position_listener',
         '_safe_turret_move',
-        'set_acceleration_limit',
+        'set_acceleration_limit_pct',
         'set_precision_mode',
         'stop_motion',
         'move_turret',
@@ -194,7 +194,7 @@ ILLUMINATION_ONLY_METHODS = MemberNames(
     'src/_lumascope/modules/lumascope_api/illumination.py',
     {
         'add_led_listener',
-        'get_led_states',
+        'led_states',
         'led_off',
         'led_on',
         'leds_off',
@@ -313,8 +313,8 @@ IMAGING_ONLY_METHODS = MemberNames(
     {
         'add_frame_listener',
         'capture_still',
-        'get_image',
-        'get_image_from_buffer',
+        'capture_image',
+        'buffered_image',
         'is_focusing',
         '_log_camera_temps',
         'remove_frame_listener',
@@ -426,7 +426,7 @@ def test_no_self_imaging_calls_in_lumascope():
 DIAGNOSTICS_ONLY_METHODS = MemberNames(
     'src/_lumascope/modules/lumascope_api/diagnostics.py',
     {
-        'get_camera_temperatures_degc',
+        'read_camera_temperatures_degc',
         'run_camera_bandwidth_test',
         'run_grab_lifecycle_benchmark',
         'run_pylon_diagnostic_probe',
@@ -659,8 +659,8 @@ def test_no_self_image_save_calls_in_lumascope():
 DIAGNOSTIC_FACADE_GETTERS = MemberNames(
     'src/_lumascope/modules/lumascope_api/diagnostics.py',
     {
-        'get_motor_info',
-        'get_led_info',
+        'motor_info',
+        'led_info',
     },
 )
 
@@ -790,9 +790,9 @@ RUNTIME_STATE_ONLY_METHODS = MemberNames(
         'get_labware',
         'get_current_objective_id',
         'get_current_objective',
-        'get_turret_config',
-        'get_stage_offset',
-        'get_well_label',
+        'turret_config',
+        'stage_offset',
+        'well_label',
     },
 )
 

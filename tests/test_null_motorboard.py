@@ -117,7 +117,7 @@ class TestNullMotionBoardInfo:
         assert board.get_microscope_model() is None
 
     def test_get_axis_limits(self, board):
-        assert board.get_axis_limits('Z') is None
+        assert board.axis_limits('Z') is None
 
     def test_is_connected_false(self, board):
         assert board.is_connected() is False
@@ -160,7 +160,7 @@ class TestNullMotionBoardNoOps:
         board.set_precision_mode('Z', True)
 
     def test_set_acceleration(self, board):
-        board.set_acceleration_limit('Z', 'acceleration', 50)
+        board.set_acceleration_limit_pct('Z', 'acceleration', 50)
 
     def test_spi_read(self, board):
         result = board.spi_read('Z', 0x4B)

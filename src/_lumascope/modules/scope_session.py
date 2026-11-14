@@ -803,7 +803,7 @@ class ScopeSession:
             lane=executor_bundle.post_processing_executor,
             tiling_grids=scope.protocols.tiling_grids(),
             has_turret=lambda: scope.capabilities.has_turret,
-            settings_snapshot=self.get_settings_snapshot,
+            settings_snapshot=self.settings_snapshot,
             channel_colors=self.channel_colors,
             # Read as each build starts; the claim is made further down.
             scope_holder=lambda: self._activity_claim.holder,
@@ -882,14 +882,14 @@ class ScopeSession:
         self.metrics_logger = MetricsLogger(
             scope=scope,
             executor_bundle=executor_bundle,
-            settings_snapshot=self.get_settings_snapshot,
+            settings_snapshot=self.settings_snapshot,
         )
         # Manual video recording, composed with the session claim so a
         # recording and a protocol run are mutually exclusive for every
         # caller tier (GUI, L2, REST).
         self.manual_recording = ManualRecordingController(
             scope=scope,
-            settings_snapshot=self.get_settings_snapshot,
+            settings_snapshot=self.settings_snapshot,
             shown_channel=lambda: self._shown_channel,
             channel_colors=self.channel_colors,
             activity_claim=self._activity_claim,
@@ -902,7 +902,7 @@ class ScopeSession:
         # still must not refuse Record, a run or a reconnect.
         self.manual_capture = ManualCaptureController(
             scope=scope,
-            settings_snapshot=self.get_settings_snapshot,
+            settings_snapshot=self.settings_snapshot,
             shown_channel=lambda: self._shown_channel,
             engineering_mode=lambda: self.engineering_mode,
             channel_colors=self.channel_colors,
@@ -1491,7 +1491,7 @@ class ScopeSession:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def discard_close_drain(self) -> None:
+    def discard_pending_video(self) -> None:
         """Drop every video frame still queued in either drain, loudly.
 
         The one escape from waiting on the video frames ``live_work`` lists
@@ -2105,7 +2105,7 @@ class ScopeSession:
             source_path: The installation folder whose settings are read:
                 its ``current.json`` first, else its shipped ``settings.json``.
                 Each call prepares them afresh, so the dict is the caller's;
-                a running session's values are its ``get_setting``'s.
+                a running session's values are its ``setting``'s.
 
         Raises:
             ArgumentRefusedError: ``'not_an_installation'``, ``source_path``
@@ -2277,7 +2277,7 @@ class ScopeSession:
         # would be pulled from under whatever is using it; a binding taken
         # from it since is taken back at the next start, when the connect
         # refuses it and offers Repair.
-        bindings = self.scope.diagnostics.get_camera_usb_bindings()
+        bindings = self.scope.diagnostics.read_camera_usb_bindings()
         if bindings is None:
             raise CameraDriverRepairRefusedError('no_classic_bindings')
         if self.scope.camera_connected or all(identity.usable for identity in bindings):
@@ -2300,7 +2300,7 @@ class ScopeSession:
             raise CameraDriverRepairFailedError(
                 f'the driver step ended with exit code {exit_code}', logs
             )
-        after = self.scope.diagnostics.get_camera_usb_bindings()
+        after = self.scope.diagnostics.read_camera_usb_bindings()
         if not all(identity.usable for identity in after):
             raise CameraDriverRepairFailedError(
                 "the driver step finished and a device is still not on LumaViewPro's driver, "
@@ -2337,7 +2337,7 @@ class ScopeSession:
             The remedy's own answer: ``recover_file_writer`` answers how many
             of the run's images it gave up on, ``repair_camera_driver`` the
             bindings read after the repair, as
-            ``scope.diagnostics.get_camera_usb_bindings``.
+            ``scope.diagnostics.read_camera_usb_bindings``.
 
         Raises:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``, the
@@ -2500,7 +2500,7 @@ class ScopeSession:
             ProtocolScheduleRefusedError: the stored period or duration is one
                 no protocol can run.
             AxisStateUnknownError: a scope with no Z motor, and an axis it has
-                does not know its position (as ``get_current_plate_position``).
+                does not know its position (as ``plate_position``).
             AxisMovingError: ``'axis_moving'``, Z is moving, or, on a scope
                 with no Z motor, an axis the plate read reads.
             HardwareCommandRefusedError: ``'not_connected'``, the model's
@@ -2510,7 +2510,7 @@ class ScopeSession:
 
         z = self.scope.motion.axis_positions().get('Z')
         if z is None:
-            current_z = self.get_current_plate_position().z_um
+            current_z = self.plate_position().z_um
         elif z.position_um is None:
             current_z = None
         else:
@@ -3187,7 +3187,7 @@ class ScopeSession:
 
         return self.scope.protocols.create_protocol(
             empty_config=config_helpers.get_empty_protocol_config_from_settings(
-                self.get_settings_snapshot(), self.scope.wellplate_loader
+                self.settings_snapshot(), self.scope.wellplate_loader
             )
         )
 
@@ -4267,7 +4267,7 @@ class ScopeSession:
         address = self.scope.illumination.led_address_of(channel)
         if address is None or not self.scope.led_connected:
             return False
-        readings = self.scope.illumination.get_led_states()
+        readings = self.scope.illumination.led_states()
         return any(r.address == address and r.state == LedState.LIT for r in readings)
 
     def _show_channel(self, channel: str, *, was_lit: bool | None = None) -> None:
@@ -4603,7 +4603,7 @@ class ScopeSession:
             video_as_frames=run_settings['video_as_frames'],
             video_fps=video_sizing_fps(
                 run_settings['video_max_fps'],
-                self.scope.imaging.get_delivered_rate().frame_rate_fps,
+                self.scope.imaging.delivered_rate().frame_rate_fps,
             ),
         )
 
@@ -4618,15 +4618,15 @@ class ScopeSession:
         return _ReadOnlySettings(self._settings)
 
     @api(in_process=True, reads=True)
-    def get_settings_snapshot(self) -> dict:
+    def settings_snapshot(self) -> dict:
         """A deep copy of the settings dict, taken under the lock.
 
         A worker thread takes one of these at task entry and reads from it
         for the rest of the task, rather than reading a dict another
         thread may be part-way through rewriting. In-process: a wire client
-        reads a setting by its path, through ``get_setting``.
+        reads a setting by its path, through ``setting``.
 
-        ``objective_id`` is the active objective, as ``get_setting`` answers
+        ``objective_id`` is the active objective, as ``setting`` answers
         it: on a turret scope, the slot's in the light path, or None while
         that is unknown.
 
@@ -4645,7 +4645,7 @@ class ScopeSession:
             return copy.deepcopy(self._settings)
 
     @api(reads=True)
-    def get_setting(self, path: str) -> 'SettingValue':
+    def setting(self, path: str) -> 'SettingValue':
         """A copy of one setting, named by its dotted path: ``'stage_offset'``, ``'video.max_fps'``.
 
         Taken under the lock, so it is never a value part-way through a
@@ -4653,10 +4653,10 @@ class ScopeSession:
         and the Session's members do).
 
         A setting with a read of its own is read there, so one setting has
-        one read: ``get_setting('binning')`` is refused for
-        ``scope.camera.binning``, ``get_setting('objective_id')`` for
-        ``objective_id``, ``get_setting('bookmark')`` for ``bookmark``,
-        ``get_setting('BF.gain_db')`` for ``channel_settings``. The
+        one read: ``setting('binning')`` is refused for
+        ``scope.camera.binning``, ``setting('objective_id')`` for
+        ``objective_id``, ``setting('bookmark')`` for ``bookmark``,
+        ``setting('BF.gain_db')`` for ``channel_settings``. The
         live folder and the protocol file, which only the host moves, are
         read here.
 
@@ -4695,7 +4695,7 @@ class ScopeSession:
         """Write one setting, named by its dotted path: ``'video.max_fps'``, ``'zstack.range'``.
 
         The one write to the live settings for any caller, on any thread.
-        Reads take ``get_settings_snapshot``; a write that skips this can
+        Reads take ``settings_snapshot``; a write that skips this can
         tear a snapshot being taken concurrently, and takes none of the
         checks below.
 
@@ -5014,7 +5014,7 @@ class ScopeSession:
                 folder is missing or is not a folder.
         """
         try:
-            root = path_utils.require_capture_location(self.get_setting('live_folder'))
+            root = path_utils.require_capture_location(self.setting('live_folder'))
         except path_utils.CaptureLocationError as e:
             raise LiveFolderPathRefusedError('capture_location_unusable', name, str(e)) from e
         root = root.resolve()
@@ -5321,7 +5321,7 @@ class ScopeSession:
         if dt > 0.1:
             logger.warning(f'[Session  ] saving the settings to {file} took {dt * 1000:.0f}ms')
 
-    @api(sets='model', admitted_by=(Admission.GUARDED_WRITE,))
+    @api(sets='selected_model', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def select_model(self, model: str) -> None:
         """Save the operator's scope model, for a scope that does not report its own.
@@ -5372,7 +5372,7 @@ class ScopeSession:
 
     @api
     @property
-    def model(self) -> str:
+    def selected_model(self) -> str:
         """The saved scope model: the one ``select_model`` saved.
 
         A scope that does not report its own model is brought up as it at
@@ -5534,7 +5534,7 @@ class ScopeSession:
         # start on one that does would lose it for the next unit connected.
         # The motor driver caches its identity at connect, so the read is
         # synchronous; no board (or a board with no model) reports None.
-        detected = self.scope.diagnostics.get_motor_info().model
+        detected = self.scope.diagnostics.motor_info().model
         stored = self._settings.get('microscope')
         if detected is None:
             if stored not in scope_models:
@@ -6050,7 +6050,7 @@ class ScopeSession:
     def capture_settings_snapshot(self) -> dict:
         """A settings snapshot for composing a capture or a run.
 
-        ``get_settings_snapshot``, refused while the active objective
+        ``settings_snapshot``, refused while the active objective
         (``objective_id``) is unknown: a capture
         stamps its scale, so it is never composed without one.
 
@@ -6061,7 +6061,7 @@ class ScopeSession:
                 with no turret, no person has confirmed the objective.
         """
         objective_id, _ = self.scope.runtime_state.resolve_current_objective()
-        snapshot = self.get_settings_snapshot()
+        snapshot = self.settings_snapshot()
         snapshot['objective_id'] = objective_id
         self._read_autofocus_as_off_without_z(
             snapshot[channel] for channel in common_utils.get_channels()
@@ -6387,7 +6387,7 @@ class ScopeSession:
             self._store_setting('objective_confirmed', objective_id)
 
     def _the_slot_holding(self, objective_id: str) -> int:
-        slots = self.scope.runtime_state.get_turret_config()
+        slots = self.scope.runtime_state.turret_config()
         holding = slots_holding(objective_id, slots)
         if len(holding) > 1:
             raise ArgumentRefusedError(
@@ -6625,7 +6625,7 @@ class ScopeSession:
             raise HardwareCommandRefusedError('exclusive_activity_running', member, holder)
 
     @api(reads=True)
-    def get_current_plate_position(self) -> PlateLocation:
+    def plate_position(self) -> PlateLocation:
         """The stage's position in plate coordinates, on the session's labware.
 
         Returns:
@@ -6678,7 +6678,7 @@ class ScopeSession:
 
     @api(sets='scale_bar_enabled', admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def set_scale_bar(self, enabled: bool) -> None:
+    def set_scale_bar_enabled(self, enabled: bool) -> None:
         """Draw the scale bar on captured images, or stop, and store it.
 
         The one writer of ``scale_bar.enabled``, which the imaging API reads
@@ -6698,14 +6698,14 @@ class ScopeSession:
             # The objective's and the plate's rule: a write that changes
             # nothing is admitted under any hold.
             return
-        self._refuse_configuration_change_while_held('set_scale_bar')
+        self._refuse_configuration_change_while_held('set_scale_bar_enabled')
         with self.settings_lock:
             self._store_setting('scale_bar.enabled', enabled)
 
     @api
     @property
     def scale_bar_enabled(self) -> bool:
-        """Whether captured images are drawn with the scale bar, as ``set_scale_bar`` set it.
+        """Whether captured images are drawn with the scale bar, as ``set_scale_bar_enabled`` set it.
 
         Raises:
             Nothing.
@@ -6717,7 +6717,7 @@ class ScopeSession:
     def acceleration_limit_pct(self) -> int:
         """The motors' acceleration limit, as a percent of the firmware's maximum.
 
-        The one ``set_acceleration_limit`` stored, which bring-up gives the
+        The one ``set_acceleration_limit_pct`` stored, which bring-up gives the
         motor controller.
 
         Raises:
@@ -6727,7 +6727,7 @@ class ScopeSession:
 
     @api(sets='acceleration_limit_pct', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
-    def set_acceleration_limit(self, limit_pct: int) -> None:
+    def set_acceleration_limit_pct(self, limit_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
 
         The member that sets ``motion.acceleration_max_pct``. The motion API
@@ -6745,7 +6745,7 @@ class ScopeSession:
             AccelerationLimitRefusedError: ``limit_pct`` is outside the range
                 the motion API accepts (a ValueError). Nothing is stored.
         """
-        self.scope.motion.set_acceleration_limit(limit_pct=limit_pct)
+        self.scope.motion.set_acceleration_limit_pct(limit_pct=limit_pct)
 
     # --- Hardware commands: NOT forwarded ---
     # The Session surface deliberately carries no hardware-command
@@ -6878,7 +6878,7 @@ class ScopeSession:
         is stopped. Then it waits, without a time limit, until
         ``live_work`` lists nothing: the run's writes and post-run builds,
         the recording's file, post-processing builds running or queued, a
-        support report, a still. ``discard_close_drain`` is the escape from
+        support report, a still. ``discard_pending_video`` is the escape from
         waiting on video frames, and any client may call it meanwhile. A
         finished run's file writer judged stuck (``protocol_files_stalled``)
         is recovered by the close itself, its unwritten images given up on,
@@ -7032,7 +7032,7 @@ class ScopeSession:
                         # channel state answers that question directly.
                         lit = [
                             r.name or f'address {r.address}'
-                            for r in self.scope.illumination.get_led_states() or ()
+                            for r in self.scope.illumination.led_states() or ()
                             if r.state == LedState.LIT
                         ]
                         state_text = (

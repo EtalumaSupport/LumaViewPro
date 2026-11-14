@@ -114,7 +114,7 @@ def test_a_model_chosen_on_a_scope_that_names_its_own_is_saved_for_another_scope
 
     session.select_model('LS560')
 
-    assert session.model == 'LS560'
+    assert session.selected_model == 'LS560'
     assert session.model_at_next_start is None
     saved = [n for n in heard if getattr(n, 'reason', None) in _SAVED_REASONS]
     assert [n.reason for n in saved] == ['scope_model_for_another_scope']

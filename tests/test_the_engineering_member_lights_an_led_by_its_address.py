@@ -42,14 +42,14 @@ def test_an_address_lights_and_reports_as_its_channels_name_does(scope):
     illumination = scope.illumination
     heard = _heard(scope)
     by_name = illumination.led_on('BF', 50.0)
-    named = (illumination.get_led_states(), list(heard))
+    named = (illumination.led_states(), list(heard))
     illumination.led_off('BF')
     heard.clear()
 
     by_address = illumination.led_on_by_address(3, 50.0)
 
     assert by_address == by_name
-    assert (illumination.get_led_states(), heard) == named
+    assert (illumination.led_states(), heard) == named
     assert led_reading(scope, 3) == LedReading(3, 'BF', LedState.LIT, by_address)
     illumination.led_off_by_address(3)
     assert led_reading(scope, 3).state == LedState.DARK

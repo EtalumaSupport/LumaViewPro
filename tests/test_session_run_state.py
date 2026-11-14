@@ -106,7 +106,7 @@ class TestDerivations:
         monkeypatch.setattr(session.manual_recording, '_engine', recording_engine)
         monkeypatch.setattr(session, '_sequenced_capture_runner', MagicMock())
 
-        session.discard_close_drain()
+        session.discard_pending_video()
 
         recording_engine.discard_pending.assert_called_once_with()
         session._sequenced_capture_runner.discard_video_pending.assert_called_once_with()

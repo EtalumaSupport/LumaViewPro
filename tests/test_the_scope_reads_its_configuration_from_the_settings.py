@@ -40,7 +40,7 @@ class TestAWriteIsWhatTheScopeActsOn:
 
     def test_the_stage_offset(self, session):
         session.update_settings('stage_offset.x', 11000.0)
-        assert session.scope.runtime_state.get_stage_offset().x_um == 11000.0
+        assert session.scope.runtime_state.stage_offset().x_um == 11000.0
 
     def test_the_turret_map(self, tmp_path):
         session = ScopeSession.create(
@@ -49,9 +49,9 @@ class TestAWriteIsWhatTheScopeActsOn:
         try:
             objective = session.scope.objective_helper.get_objectives_list()[0]
             session.assign_turret_objective(2, objective)
-            assert session.scope.runtime_state.get_turret_config()[2] == objective
+            assert session.scope.runtime_state.turret_config()[2] == objective
             session.clear_turret_objective(2)
-            assert session.scope.runtime_state.get_turret_config()[2] is None
+            assert session.scope.runtime_state.turret_config()[2] is None
         finally:
             session.shutdown()
 
@@ -67,7 +67,7 @@ class TestAWriteIsWhatTheScopeActsOn:
 
     def test_the_scale_bar(self, session):
         for enabled in (True, False):
-            session.set_scale_bar(enabled)
+            session.set_scale_bar_enabled(enabled)
             assert session.scale_bar_enabled is enabled
 
 
@@ -79,9 +79,9 @@ def test_changing_what_a_getter_returned_changes_no_setting(tmp_path):
     )
     try:
         state = session.scope.runtime_state
-        state.get_turret_config()[1] = 'NOT_IN_CATALOGUE'
+        state.turret_config()[1] = 'NOT_IN_CATALOGUE'
         with pytest.raises(dataclasses.FrozenInstanceError):
-            state.get_stage_offset().x_um = 0.0
+            state.stage_offset().x_um = 0.0
         assert session.settings['turret_objectives'][1] != 'NOT_IN_CATALOGUE'
         assert session.settings['stage_offset']['x'] != 0.0
     finally:
@@ -100,7 +100,7 @@ def test_a_scope_no_session_bound_refuses_each_read_by_name():
     scope = construct_scope(simulate=True, warn_pre_release=False, register_atexit=False)
     try:
         state = scope.runtime_state
-        for read in (state.get_labware, state.get_stage_offset, state.get_turret_config):
+        for read in (state.get_labware, state.stage_offset, state.turret_config):
             with pytest.raises(ConfigError, match='ScopeSession'):
                 read()
     finally:

@@ -1477,7 +1477,7 @@ class SequencedCaptureRunner:
         self._scope.protocols.refuse_positions_outside_travel(
             protocol.steps(), protocol.labware_id()
         )
-        stage_offset = self._scope.runtime_state.get_stage_offset()
+        stage_offset = self._scope.runtime_state.stage_offset()
         ag_ae_max_exposure_ms = self._scope.read_setting('ag_ae_max_exposure_ms')
 
         # The last gate, and the only one about where the run SAVES rather
@@ -1674,7 +1674,7 @@ class SequencedCaptureRunner:
                 raise
             logger.error(f'[{self.LOGGER_NAME} ] The camera snapshot was refused: {refused}')
             return hardware_disconnected_at_start_ending((Board.CAMERA,))
-        self._original_led_states = self._scope.illumination.get_led_states()
+        self._original_led_states = self._scope.illumination.led_states()
         # No target brightness is written here: every step that arms
         # auto-gain, and every one-shot, hands the camera its target in the
         # same write.

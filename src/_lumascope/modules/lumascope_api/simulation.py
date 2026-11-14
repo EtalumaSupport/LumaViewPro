@@ -815,7 +815,7 @@ class SimulationAPI:
         """The motor board names ``model`` as its own, until ``clear``.
 
         Its axes stay the ones it was built with, as a board whose firmware
-        names a model its motors are not: ``diagnostics.get_motor_info``
+        names a model its motors are not: ``diagnostics.motor_info``
         reports the answer, and bring-up reads it to decide the scope's
         model.
 
@@ -1114,7 +1114,7 @@ class SimulationAPI:
         any other driver stands for another package, as LumaView's libusbK
         package binds both identities. The camera already up
         keeps running: the binding is read by
-        ``diagnostics.get_camera_usb_bindings`` and checked at the next
+        ``diagnostics.read_camera_usb_bindings`` and checked at the next
         connect.
 
         Args:

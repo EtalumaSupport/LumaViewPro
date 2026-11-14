@@ -69,7 +69,7 @@ def test_every_member_that_keeps_the_live_position_refuses_while_z_moves(session
         'steps': protocol.steps().to_dict('records'),
     }
     keepers = {
-        'get_current_plate_position': session.get_current_plate_position,
+        'plate_position': session.plate_position,
         'save_bookmark': lambda: session.save_bookmark(('Z',)),
         'save_all_bookmarks': session.save_all_bookmarks,
         'save_focus': lambda: session.save_focus(protocol, 'BF'),
@@ -128,7 +128,7 @@ def test_once_the_move_has_ended_each_save_keeps_where_the_axis_stopped(session)
     assert at_rest.state == AxisState.IDLE
 
     assert session.save_bookmark(('Z',)).z_um == pytest.approx(at_rest.position_um, abs=0.01)
-    assert session.get_current_plate_position().z_um == pytest.approx(at_rest.position_um, abs=0.01)
+    assert session.plate_position().z_um == pytest.approx(at_rest.position_um, abs=0.01)
     assert session.scope.protocols.focus_z_um(then='save the focus') == pytest.approx(
         at_rest.position_um, abs=0.01
     )

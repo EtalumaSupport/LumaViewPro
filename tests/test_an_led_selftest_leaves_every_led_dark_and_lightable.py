@@ -21,7 +21,7 @@ from tests.settings_fixtures import complete_settings
 
 
 def _lit(illumination) -> list[int]:
-    return [r.address for r in illumination.get_led_states() if r.state is not LedState.DARK]
+    return [r.address for r in illumination.led_states() if r.state is not LedState.DARK]
 
 
 def test_the_support_reports_selftest_leaves_no_led_believed_lit(tmp_path):

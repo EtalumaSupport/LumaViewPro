@@ -181,7 +181,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         RestServerNotStartedError: A ``rest_api`` setting cannot be used, so
             the application would not know whom to admit.
     """
-    rest_api = judged(session.get_setting('rest_api'))
+    rest_api = judged(session.setting('rest_api'))
     # The session's one protocol runner is every client's: its id is kept.
     registry = HandleRegistry(kept=lambda obj: isinstance(obj, ProtocolRunner))
     handed_out = wire_encoding.handed_out(
@@ -273,7 +273,7 @@ def _encoded_event(session: ScopeSession, registry: HandleRegistry, value: objec
         raise wire_encoding.NoWireFormError(type(future).__name__)
 
     return wire_encoding.encode(
-        value, live_folder=session.get_setting('live_folder'), handle=registry.mint, job=no_job
+        value, live_folder=session.setting('live_folder'), handle=registry.mint, job=no_job
     )
 
 
@@ -337,7 +337,7 @@ def _add_upload_route(
                 path = session.put_live_folder_file(name, data)
             return wire_encoding.encode(
                 path,
-                live_folder=session.get_setting('live_folder'),
+                live_folder=session.setting('live_folder'),
                 handle=_no_handle,
                 job=_no_handle,
             )
@@ -430,7 +430,7 @@ def _add_still_route(
             taken.append(captured)
             return wire_encoding.encode(
                 captured.record,
-                live_folder=session.get_setting('live_folder'),
+                live_folder=session.setting('live_folder'),
                 handle=_no_handle,
                 job=_no_handle,
             )
@@ -1000,7 +1000,7 @@ def _add(
         def encoded(value: object) -> object:
             return wire_encoding.encode(
                 value,
-                live_folder=session.get_setting('live_folder'),
+                live_folder=session.setting('live_folder'),
                 handle=registry.mint,
                 job=job_of,
             )

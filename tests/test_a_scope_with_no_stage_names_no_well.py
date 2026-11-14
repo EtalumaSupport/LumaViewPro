@@ -42,7 +42,7 @@ class TestAZOnlyScope:
     def test_the_well_label_is_none(self, tmp_path):
         with _session(tmp_path, 'LS820') as session:
             assert not session.scope.capabilities.has_xy_stage
-            assert session.scope.runtime_state.get_well_label() is None
+            assert session.scope.runtime_state.well_label() is None
 
     def test_a_still_is_saved_without_a_well_and_says_nothing(self, tmp_path, centre_posts):
         with _session(tmp_path, 'LS820') as session:

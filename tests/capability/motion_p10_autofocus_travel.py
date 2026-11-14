@@ -40,7 +40,7 @@ def _autofocus_from(session, runner, z, heard):
 def body(session, runner):
     heard = []
     session.add_outcome_listener(heard.append)
-    limits = session.scope.motion.get_axis_limits('Z')
+    limits = session.scope.motion.axis_limits('Z')
     objective = session.scope.runtime_state.get_current_objective()
     half_range = objective.autofocus_half_range_um
     figure('Z travel', limits)

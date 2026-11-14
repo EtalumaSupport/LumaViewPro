@@ -57,9 +57,9 @@ def test_a_number_reaches_the_member_as_the_python_number_it_means(session):
 
 def test_a_setting_written_as_a_numpy_number_is_stored_as_the_python_one(session):
     session.update_settings('video.max_fps', np.int64(25))
-    assert type(session.get_setting('video.max_fps')) is int
+    assert type(session.setting('video.max_fps')) is int
     session.update_settings('video.max_fps', np.float64(30.0))
-    assert type(session.get_setting('video.max_fps')) is float
+    assert type(session.setting('video.max_fps')) is float
 
 
 def test_a_numpy_index_reaches_a_protocol_step_as_an_int():

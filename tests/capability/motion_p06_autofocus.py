@@ -43,7 +43,7 @@ def body(s):
     )
 
     # the run saves the Z it chose as the channel's focus, as the button's did
-    focus_after = s.get_settings_snapshot()['BF']['focus']
+    focus_after = s.settings_snapshot()['BF']['focus']
     check(
         "start_autofocus saved the Z it chose as settings['BF']['focus']",
         focus_after is not None

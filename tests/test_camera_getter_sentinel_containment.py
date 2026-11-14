@@ -374,7 +374,7 @@ def test_temp_logger_survives_transient_disconnect_and_resumes():
     probes = []
     # The read answers None while no camera is active, as the API does.
     imaging._scope.diagnostics = SimpleNamespace(
-        get_camera_temperatures_degc=lambda: (
+        read_camera_temperatures_degc=lambda: (
             (probes.append(1) or {'coreboard': 42.0}) if connected['value'] else None
         )
     )

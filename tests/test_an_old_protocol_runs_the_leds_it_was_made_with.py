@@ -111,7 +111,7 @@ def _lit_by_going_to_each_step(session, protocol) -> list[int]:
     for index in range(protocol.num_steps()):
         session.go_to_step(protocol, index)
         lit.extend(
-            r.address for r in session.scope.illumination.get_led_states() if r.state.name == 'LIT'
+            r.address for r in session.scope.illumination.led_states() if r.state.name == 'LIT'
         )
     return lit
 

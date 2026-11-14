@@ -65,7 +65,7 @@ def _stored(session, layer):
 )
 def test_turning_off_stores_what_the_lock_reached(sim_session, exposure_ms, state):
     if exposure_ms is None:
-        exposure_ms = sim_session.get_setting('ag_ae_max_exposure_ms.transmitted')
+        exposure_ms = sim_session.setting('ag_ae_max_exposure_ms.transmitted')
     _armed(sim_session, exposure_ms=exposure_ms)
 
     sim_session.set_channel_settings('BF', auto_gain=False)
@@ -182,13 +182,13 @@ def test_turning_off_a_hidden_layer_stores_only_its_preference_and_locks_nothing
     indirect=['sim_session'],
 )
 def test_a_refused_request_changes_nothing(sim_session, layer, enabled, refused, reason):
-    before = sim_session.get_settings_snapshot()
+    before = sim_session.settings_snapshot()
 
     with pytest.raises(refused) as raised:
         sim_session.set_channel_settings(layer, auto_gain=enabled)
     assert getattr(raised.value, 'reason', None) == reason
 
-    assert sim_session.get_settings_snapshot() == before
+    assert sim_session.settings_snapshot() == before
 
 
 @pytest.mark.parametrize('sim_session', [{'microscope': 'Lumi'}], indirect=True)

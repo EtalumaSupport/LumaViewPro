@@ -78,13 +78,13 @@ class Labware:
             for i in range(self.columns):
                 if j % 2 == 1:
                     i = self.columns - i - 1
-                x, y = self.get_well_position(i, j)
+                x, y = self.well_position(i, j)
                 positions.append((x, y, self.get_well_label(x=x, y=y)))
         return positions
 
     # Get center position of well on plate in mm given its index (i, j)
     @api(in_process=True, reads=True)
-    def get_well_position(self, i: int, j: int) -> tuple[float, float]:
+    def well_position(self, i: int, j: int) -> tuple[float, float]:
         """The centre of the well in column ``i`` and row ``j``, in mm from the plate's top-left.
 
         Args:
@@ -99,7 +99,7 @@ class Labware:
         return x, y
 
     @api(in_process=True, reads=True)
-    def get_well_index(self, x_mm: float, y_mm: float) -> tuple[int, int] | None:
+    def well_index(self, x_mm: float, y_mm: float) -> tuple[int, int] | None:
         """The (column, row) of the well centre nearest a plate position, each counted from 0.
 
         None when that centre is outside the grid: the position is more
@@ -133,7 +133,7 @@ class Labware:
         return i, j
 
     def get_well_label(self, x: float, y: float) -> str:
-        index = self.get_well_index(x_mm=x, y_mm=y)
+        index = self.well_index(x_mm=x, y_mm=y)
         if index is None:
             # Off the grid or a plate with none: empty, not a fabricated
             # token, so filename builders and metadata writers omit the well

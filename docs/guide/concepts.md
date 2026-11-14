@@ -103,7 +103,7 @@ scope.motion.move_z('5000')                 # a str where a float is declared
 from lumascope import ArgumentRefusedError
 
 try:
-    scope.motion.get_axis_limits('W')       # no axis W
+    scope.motion.axis_limits('W')       # no axis W
 except ArgumentRefusedError as refused:
     assert (refused.reason, refused.offered) == ('not_offered', ('X', 'Y', 'Z', 'T'))
 ```
@@ -177,7 +177,7 @@ running model never changes. A scope whose board names its model
 start and keeps the stored one for the next such scope. The notice says which
 (`'scope_model_deferred'`, it waits for the next start;
 `'scope_model_for_another_scope'`, this scope names its own).
-`session.model` is the stored model, `scope.channel_identity.model` the
+`session.selected_model` is the stored model, `scope.channel_identity.model` the
 running one, and `session.model_at_next_start` the model the next start runs
 as while it differs from the running one, else None.
 
@@ -188,7 +188,7 @@ print(session.select_labware('384 well microplate'))    # True: the plate change
 question = session.objective_question()
 if question is not None:                                # which objective is in slot 1?
     session.confirm_objective(question.proposed, slot=question.turret_slot)
-print(session.objective_id, scope.runtime_state.get_pixel_size_um())
+print(session.objective_id, scope.runtime_state.pixel_size_um())
 ```
 
 **One session per scope.** A real scope is opened by one session at a time:
@@ -308,8 +308,8 @@ refused, never clamped, and the refusal names the path and the range.
 
 ```python
 session.update_settings('video.max_fps', 30)
-assert session.get_setting('video.max_fps') == 30
-print(session.get_setting('video'))         # a whole block, as a dict
+assert session.setting('video.max_fps') == 30
+print(session.setting('video'))         # a whole block, as a dict
 ```
 
 **A channel's settings.** A channel's settings are one record,
@@ -379,7 +379,7 @@ applied = scope.camera.applied_gain_db_for(999.0)
 assert applied.capped and applied.applied_db == scope.camera.setting_limits.gain_max_db
 ```
 
-**What the settings hold, and what they do not.** `get_settings_snapshot()`
+**What the settings hold, and what they do not.** `settings_snapshot()`
 answers a copy of every setting, for work that must not see a write made while
 it runs (in-process; a REST client reads a setting by its path). Positions, the lit LED and the camera's live values are not settings:
 each is read from its owner.
@@ -400,7 +400,7 @@ stage.
 
 ```python
 print(session.labware_id)                                   # the plate selected
-print(scope.runtime_state.get_stage_offset())               # where it sits on the stage
+print(scope.runtime_state.stage_offset())               # where it sits on the stage
 plate = scope.runtime_state.stage_to_plate(60000.0, 40000.0)   # stage um -> plate mm
 stage = scope.runtime_state.plate_to_stage(plate.x_mm, plate.y_mm)
 assert round(stage.x_um) == 60000 and round(stage.y_um) == 40000
@@ -421,7 +421,7 @@ from lumascope import PlateLocation
 
 scope.motion.move_to_well('B2')
 scope.motion.move_to_plate(PlateLocation(x_mm=23.38, y_mm=20.24, z_um=None))
-print(session.get_current_plate_position())                 # X, Y in plate mm; Z in um
+print(session.plate_position())                 # X, Y in plate mm; Z in um
 ```
 
 A plate is wider than the stage reaches, so `move_to_plate` refuses a point

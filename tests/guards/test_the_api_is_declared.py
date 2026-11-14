@@ -835,7 +835,7 @@ OPEN_STRINGS: dict[str, str] = {
     'ControlsLock.run_named field': _PROSE,
     'DegradedOutput.fallback_reason field': _REASON,
     'DisconnectFailure.reason field': _REASON,
-    'DiagnosticsAPI.get_camera_temperatures_degc return': _CAMERA,
+    'DiagnosticsAPI.read_camera_temperatures_degc return': _CAMERA,
     'DiagnosticsAPI.motor_fan_spin_times return': _RECORD_KEYS,
     'DiagnosticsAPI.read_camera_node parameter name': _CAMERA,
     'DiagnosticsAPI.read_camera_node parameter node_map': _CAMERA,
@@ -966,8 +966,8 @@ OPEN_STRINGS: dict[str, str] = {
     'RunOutcome.message field': _PROSE,
     'RunOutcome.reason field': _REASON,
     'RunOutcome.title field': _PROSE,
-    'RuntimeState.get_turret_config return': _OBJECTIVE,
-    'RuntimeState.get_well_label return': _WELL,
+    'RuntimeState.turret_config return': _OBJECTIVE,
+    'RuntimeState.well_label return': _WELL,
     'RuntimeState.plate_to_stage parameter labware_id': _LABWARE,
     'RuntimeState.plate_transform parameter labware_id': _LABWARE,
     'RuntimeState.stage_to_plate parameter labware_id': _LABWARE,
@@ -999,12 +999,12 @@ OPEN_STRINGS: dict[str, str] = {
     'ScopeSession.channel_slider_maxima parameter channel': _CHANNEL,
     'ScopeSession.confirm_objective parameter objective_id': _OBJECTIVE,
     'ScopeSession.end_control parameter session_id': _CONTROL,
-    'ScopeSession.get_setting parameter path': _SETTING,
+    'ScopeSession.setting parameter path': _SETTING,
     'ScopeSession.go_to_channel_focus parameter channel': _CHANNEL,
     'ScopeSession.labware_id return': _LABWARE,
     'ScopeSession.live_folder_listing parameter name': _PATH,
     'ScopeSession.live_folder_path parameter name': _PATH,
-    'ScopeSession.model return': _MODEL,
+    'ScopeSession.selected_model return': _MODEL,
     'ScopeSession.model_at_next_start return': _MODEL,
     'ScopeSession.new_protocol parameter tiling': _TILING,
     'ScopeSession.objective_id return': _OBJECTIVE,
@@ -1128,7 +1128,7 @@ def test_every_fixed_word_is_a_closed_set(
 # The members outside engineering that take an LED address, each with its reason.
 LED_ADDRESS_TAKERS = {
     'IlluminationAPI.restore_led_state parameter readings': (
-        "the readings are the API's own answer (get_led_states) handed back; restoring them "
+        "the readings are the API's own answer (led_states) handed back; restoring them "
         'by address keeps a lit address the identity cannot name'
     ),
 }

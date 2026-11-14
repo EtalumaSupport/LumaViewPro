@@ -5,7 +5,7 @@ ScopeDisplay -- pull-based image display loop.
 Image Pipeline (sensor -> screen):
   1. Camera SDK callback -> ImageHandler._store_frame()     [1 copy: SDK buffer -> numpy]
   2. grab() -> returns the stored read-only frame           [0 copies]
-  3. get_image_from_buffer():
+  3. buffered_image():
      - scale bar overlay, on its own copy                   [1 copy, bar on]
      - 12->8 bit LUT conversion (if force_to_8bit)           [1 copy: LUT indexing]
   4. Worker thread: contrast stretch / bullseye LUT          [1 copy: LUT indexing]
@@ -753,7 +753,7 @@ class ScopeDisplay(Image):
         # Likely not an IO call as image will be stored in buffer
         t_grab_start = time.monotonic()
         # Reuse one 8-bit LUT buffer across frames so the 12->8 conversion
-        # in get_image_from_buffer does not allocate a fresh ~W*H array
+        # in buffered_image does not allocate a fresh ~W*H array
         # every frame on the 30 fps preview. tobytes() below copies before
         # the next frame overwrites it, so a single slot is safe (same
         # pattern as the bullseye buffer). Only this preview thread owns
@@ -763,7 +763,7 @@ class ScopeDisplay(Image):
         # until the next arrives, and its ordinal names it. Never the wall
         # time, which can repeat between two frames. The read is told the
         # ordinal, so a frame already shown is never converted or drawn.
-        image, frame_seq = ctx.scope.imaging.get_image_from_buffer(
+        image, frame_seq = ctx.scope.imaging.buffered_image(
             force_to_8bit=True,
             out_8bit=self._display_8bit_buf,
             unless_seq=self._last_frame_seq,
@@ -915,7 +915,7 @@ class ScopeDisplay(Image):
                         max_blit_delay = (
                             max(self._perf_blit_delays) if self._perf_blit_delays else 0
                         )
-                        capture_fps = ctx.scope.imaging.get_delivered_rate().frame_rate_fps
+                        capture_fps = ctx.scope.imaging.delivered_rate().frame_rate_fps
                         logger.debug(
                             f'[PERF] capture={capture_fps:.1f} display={display_fps:.1f} '
                             f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '

@@ -4,7 +4,7 @@
 A guard that searches production for the names in a hardcoded table goes
 quiet when one of them is renamed: the search finds no site, and no site
 reads as no offender. ``MOTION_ONLY_METHODS`` and its siblings had a presence
-check of their own; ``_READERS`` did not, and renaming ``get_actual_position``
+check of their own; ``_READERS`` did not, and renaming ``read_actual_position``
 left the position-reader guard green while it stopped looking at every new
 read. ``_DOOR_NAMES`` listed a door no simulator has, ``_CATALOGUES`` a
 loader since deleted, and two scans walked three directories that are gone.

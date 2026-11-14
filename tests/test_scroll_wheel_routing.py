@@ -290,7 +290,7 @@ class TestWheelDirectionIsConsistent:
         # No running app: the controls are not locked, as on a scope nothing holds.
         monkeypatch.setattr(sys.modules['kivy.app'].App, 'get_running_app', lambda: None)
         motion = gui_ctx.scope.motion
-        before = motion.get_target_positions()
+        before = motion.target_positions()
         viewer = self._scroll_live_image(
             monkeypatch, gui_ctx, self.TOKEN_PHYSICAL_UP, ctrl_held=True
         )
@@ -300,7 +300,7 @@ class TestWheelDirectionIsConsistent:
         }
         shader.ShaderViewer._flush_scroll_z(viewer, 0)
         assert gui_ctx.io_executor.call(IOTask(action=lambda: None), 'settle', 30.0) is None
-        assert motion.get_target_positions() == before
+        assert motion.target_positions() == before
         assert [n.title for n in centre_posts] == ['Scope Not Homed']
 
     def test_wheel_up_zooms_in(self, monkeypatch, gui_ctx):

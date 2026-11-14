@@ -117,8 +117,8 @@ _MANUAL_REFUSES = {
     'home_t': lambda m: m.home('T'),
     'stop_motion': lambda m: m.stop_motion(),
     'precision': lambda m: m.set_precision_mode(True),
-    'acceleration': lambda m: m.set_acceleration_limit(limit_pct=50),
-    'limits': lambda m: m.get_axis_limits('Z'),
+    'acceleration': lambda m: m.set_acceleration_limit_pct(limit_pct=50),
+    'limits': lambda m: m.axis_limits('Z'),
 }
 
 # The commands a Z-only scope refuses, each with the part it names.
@@ -127,7 +127,7 @@ _Z_ONLY_REFUSES = {
     'move_y': (lambda m: m.start_move_xy_by(dy_um=10.0), MissingPart(Part.AXIS, axis=StageAxis.Y)),
     'move_turret': (lambda m: m.move_turret(2), MissingPart(Part.TURRET)),
     'home_t': (lambda m: m.home('T'), MissingPart(Part.TURRET)),
-    'limits_x': (lambda m: m.get_axis_limits('X'), MissingPart(Part.AXIS, axis=StageAxis.X)),
+    'limits_x': (lambda m: m.axis_limits('X'), MissingPart(Part.AXIS, axis=StageAxis.X)),
 }
 
 
@@ -188,11 +188,11 @@ def test_the_travel_of_an_axis_the_tmcm_stage_lacks_is_refused_over_the_wire(mak
     now the request's refusal, as every other command for the turret is."""
     session = make_session('LS720', homed=False)
     with pytest.raises(HardwareCommandRefusedError) as python:
-        session.scope.motion.get_axis_limits('T')
+        session.scope.motion.axis_limits('T')
     assert (python.value.reason, python.value.missing) == ('axis_absent', MissingPart(Part.TURRET))
 
     with TestClient(build_app(session)) as client:
-        answer = client.get('/api/v1/scope/motion/get_axis_limits', params={'axis': 'T'})
+        answer = client.get('/api/v1/scope/motion/axis_limits', params={'axis': 'T'})
 
     assert answer.status_code == 422
     assert (answer.json()['reason'], answer.json()['detail']) == ('axis_absent', str(python.value))
@@ -236,7 +236,7 @@ def test_a_name_that_is_no_axis_is_refused_before_the_hardware_is_asked(make_ses
     """A name that is no axis is the request's fault on every model, a manual one included."""
     scope = make_session(model).scope
     with pytest.raises(ArgumentRefusedError) as refused:
-        scope.motion.get_axis_limits('Q')
+        scope.motion.axis_limits('Q')
     assert refused.value.reason == 'not_offered'
 
 
@@ -295,12 +295,12 @@ def test_a_position_read_of_an_absent_axis_answers_none(make_session, model, abs
             assert scope.motion.turret_status() is None
             continue
         assert scope.motion.get_current_position(axis) is None
-        assert scope.motion.get_target_positions().get(axis) is None
-        assert scope.motion.get_actual_position(axis) is None
+        assert scope.motion.target_positions().get(axis) is None
+        assert scope.motion.read_actual_position(axis) is None
     # The turret has a slot, not a position: the stage axes only.
     stage_axes = set(scope.capabilities.axes) - set(absent) - {'T'}
     assert set(scope.motion.get_current_positions()) == stage_axes
-    assert set(scope.motion.get_target_positions()) == stage_axes
+    assert set(scope.motion.target_positions()) == stage_axes
 
 
 def test_after_disconnect_every_read_answers_none(make_session):
@@ -309,9 +309,9 @@ def test_after_disconnect_every_read_answers_none(make_session):
     motion = session.scope.motion
     for axis in 'XYZ':
         assert motion.get_current_position(axis) is None
-        assert motion.get_target_positions().get(axis) is None
+        assert motion.target_positions().get(axis) is None
     assert motion.get_current_positions() == {}
-    assert motion.get_target_positions() == {}
+    assert motion.target_positions() == {}
 
 
 def test_a_present_axis_that_lost_its_reference_keeps_its_number(make_session):

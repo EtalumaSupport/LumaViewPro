@@ -60,7 +60,7 @@ def stage(gui_ctx, monkeypatch):
 def _home(scope):
     home_sim_scope(scope)
     motion = scope.motion
-    landed = [motion.get_target_positions()[a] for a in 'XY']
+    landed = [motion.target_positions()[a] for a in 'XY']
     landed += [motion.get_current_position(a) for a in 'XY']
     home = _where_a_home_lands(scope)
     assert landed == [*home, *home], 'the home lands where the crosshair was last drawn'
@@ -136,7 +136,7 @@ def test_a_homed_stage_whose_position_the_api_no_longer_answers_draws_none(
     # A stand-in by design: the simulator has no fault that lands the close's
     # board swap between two reads of one redraw, so the reads answer as the
     # null board does.
-    monkeypatch.setattr(scope.motion, 'get_target_positions', lambda: {})
+    monkeypatch.setattr(scope.motion, 'target_positions', lambda: {})
     monkeypatch.setattr(
         scope.motion,
         'axis_positions',

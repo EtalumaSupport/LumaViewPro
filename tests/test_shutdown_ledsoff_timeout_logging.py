@@ -61,7 +61,7 @@ def test_shutdown_ledsoff_wait_distinguishes_timeout():
         consults_cache = any(
             isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
-            and n.func.attr == 'get_led_states'
+            and n.func.attr == 'led_states'
             for n in ast.walk(timeout_handler)
         )
         assert consults_cache, (

@@ -79,7 +79,7 @@ def ls620_session(tmp_path):
 class TestTheRunningScopeHasOneModel:
     def test_the_identity_carries_the_selected_model_of_an_fx2_scope(self, ls620_session):
         # The null motor board reports no model; the selection is the identity.
-        assert ls620_session.scope.diagnostics.get_motor_info().model is None
+        assert ls620_session.scope.diagnostics.motor_info().model is None
         assert ls620_session.scope.channel_identity.model == 'LS620'
 
     def test_a_saved_image_records_the_identitys_model(self, ls620_session):
@@ -198,5 +198,5 @@ def test_a_lumi_offers_darkfield_and_lights_its_led(sim_session):
 
     scope.illumination.led_on('DF', 10)
 
-    (df,) = [reading for reading in scope.illumination.get_led_states() if reading.name == 'DF']
+    (df,) = [reading for reading in scope.illumination.led_states() if reading.name == 'DF']
     assert (df.address, df.state) == (5, LedState.LIT)

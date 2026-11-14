@@ -25,7 +25,7 @@ Test approach
 -------------
 AST-based structural lock on the method's body: assert both guards
 exist, both early-return, and both run before any work
-(get_image_from_buffer, np.histogram, mesh build).
+(buffered_image, np.histogram, mesh build).
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def test_histogram_skips_during_protocol():
 
 
 def test_guards_run_before_camera_read():
-    """Both guards must early-return before any get_image_from_buffer."""
+    """Both guards must early-return before any buffered_image."""
     method = _histogram_method()
 
     def first_index_where(predicate) -> int:
@@ -77,7 +77,7 @@ def test_guards_run_before_camera_read():
                 return i
         return -1
 
-    # Find the first statement that calls get_image_from_buffer.
+    # Find the first statement that calls buffered_image.
     body_indices = []
     for i, stmt in enumerate(method.body):
         unparsed = ast.unparse(stmt)
@@ -92,13 +92,13 @@ def test_guards_run_before_camera_read():
             play_guard_idx = i
         if protocol_guard_idx == -1 and 'run_named' in unparsed:
             protocol_guard_idx = i
-        if camera_read_idx == -1 and 'get_image_from_buffer' in unparsed:
+        if camera_read_idx == -1 and 'buffered_image' in unparsed:
             camera_read_idx = i
 
     assert play_guard_idx >= 0, 'scope_display_thread.is_paused guard not found (#534)'
     assert protocol_guard_idx >= 0, 'protocol_running guard not found (#534)'
     assert camera_read_idx >= 0, (
-        'get_image_from_buffer call not found in Histogram.histogram; '
+        'buffered_image call not found in Histogram.histogram; '
         'test needs updating for the new shape.'
     )
     assert play_guard_idx < camera_read_idx, (

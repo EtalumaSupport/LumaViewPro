@@ -394,7 +394,7 @@ class TestFX2LEDThinTranslator:
             'led_on should issue I2C writes through the FX2 connection'
         )
 
-        for name in ('get_led_ma', 'is_led_on', 'get_led_state', 'get_led_states'):
+        for name in ('get_led_ma', 'is_led_on', 'get_led_state', 'led_states'):
             assert not hasattr(led, name), (
                 f'the driver answers {name}; LED state belongs to the API'
             )

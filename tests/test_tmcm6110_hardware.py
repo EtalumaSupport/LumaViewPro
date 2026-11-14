@@ -478,7 +478,7 @@ def test_row5_a_home_from_the_far_corner(board):
         # The far limit is the one away from the index position: X's
         # minimum, Y's and Z's maximum.
         index = board.motorconfig.index_position_um(axis)
-        far = max(board.get_axis_limits(axis).values(), key=lambda limit: abs(limit - index))
+        far = max(board.axis_limits(axis).values(), key=lambda limit: abs(limit - index))
         board.move_abs_pos(axis, index + (far - index) * fraction)
         _wait_arrived(board, axis)
     start = {axis: _registers(board, axis) for axis in MOTORS}

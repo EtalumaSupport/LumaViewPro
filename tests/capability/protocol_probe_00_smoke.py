@@ -11,8 +11,8 @@ try:
 
     banner('video close members')
     print('live_work          :', session.live_work)
-    session.discard_close_drain()
-    print('discard_close_drain -> OK')
+    session.discard_pending_video()
+    print('discard_pending_video -> OK')
 
     banner('engine members (what the session reads)')
     eng = session._sequenced_capture_runner

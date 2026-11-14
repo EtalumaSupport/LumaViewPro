@@ -169,7 +169,7 @@ def test_readings_a_caller_built_with_plain_strings_restore_their_lit_address(se
             'lit' if r.name == LED2 else 'dark',
             10.0 if r.name == LED2 else None,
         )
-        for r in illumination.get_led_states()
+        for r in illumination.led_states()
     )
 
     illumination.restore_led_state(readings)
@@ -195,7 +195,7 @@ def test_over_rest_a_plain_string_is_taken_and_a_non_member_is_a_422_not_offered
 
 
 def test_over_rest_a_records_field_outside_its_set_is_a_422_naming_the_field(client, session):
-    readings = client.get('/api/v1/scope/illumination/get_led_states').json()
+    readings = client.get('/api/v1/scope/illumination/led_states').json()
     readings[0].update(state='glowing', illumination_ma=None)
 
     refused = client.post(

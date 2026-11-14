@@ -140,7 +140,7 @@ class TestManualNavigationWritesNothingInTheGui:
         def _start_go_to_step(self, protocol, step_index):
             op = real_go(self, protocol, step_index)
             order.append('session')
-            after_session.update(self.get_settings_snapshot())
+            after_session.update(self.settings_snapshot())
             return op
 
         monkeypatch.setattr(ScopeSession, 'start_go_to_step', _start_go_to_step)
@@ -148,9 +148,7 @@ class TestManualNavigationWritesNothingInTheGui:
 
         _run_manual_nav(env)
 
-        assert env.session.get_settings_snapshot() == after_session, (
-            'the GUI wrote a setting itself'
-        )
+        assert env.session.settings_snapshot() == after_session, 'the GUI wrote a setting itself'
         assert order == ['session']
 
 

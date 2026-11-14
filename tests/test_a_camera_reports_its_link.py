@@ -21,7 +21,7 @@ from tests.settings_fixtures import complete_settings
 
 
 def test_the_simulated_camera_is_on_usb3_and_reports_nothing_more(sim_scope):
-    assert sim_scope.diagnostics.get_camera_link_info() == CameraLink(
+    assert sim_scope.diagnostics.read_camera_link() == CameraLink(
         transport='USB3',
         link_speed=None,
         link_speed_unit=None,
@@ -40,7 +40,7 @@ def fx2_session():
 
 
 def test_the_fx2_is_usb2_at_the_speed_it_negotiated(fx2_session):
-    assert fx2_session.scope.diagnostics.get_camera_link_info() == CameraLink(
+    assert fx2_session.scope.diagnostics.read_camera_link() == CameraLink(
         transport='USB2',
         link_speed=480.0,
         link_speed_unit='Mbps',
@@ -57,7 +57,7 @@ def test_an_fx2_whose_speed_libusb_does_not_know_reports_no_speed_and_no_unit(
     fx2 = fx2_session.scope._camera_driver._fx2
     monkeypatch.setattr(fx2, 'link_speed_mbps', lambda: None)
 
-    info = fx2_session.scope.diagnostics.get_camera_link_info()
+    info = fx2_session.scope.diagnostics.read_camera_link()
 
     assert (info.link_speed, info.link_speed_unit) == (None, None)
 
@@ -74,7 +74,7 @@ def test_a_defect_in_the_fx2_link_read_is_lumaviewpros_not_the_cameras(fx2_sessi
     monkeypatch.setattr(fx2, 'link_speed_mbps', defect)
 
     with pytest.raises(TypeError, match='a defect in the speed read'):
-        fx2_session.scope.diagnostics.get_camera_link_info()
+        fx2_session.scope.diagnostics.read_camera_link()
 
 
 @pytest.mark.parametrize('libusb_speed, mbps', [(0, None), (2, 12.0), (3, 480.0), (4, 5000.0)])

@@ -57,5 +57,5 @@ def test_a_refused_force_off_answers_false_and_its_lit_led_is_still_believed_lit
     with ls620.diagnostic_claim():
         assert ls620.scope.illumination.force_off() is False
 
-    lit = [r.state for r in ls620.scope.illumination.get_led_states() if r.name == LED0]
+    lit = [r.state for r in ls620.scope.illumination.led_states() if r.name == LED0]
     assert lit == [LedState.LIT]

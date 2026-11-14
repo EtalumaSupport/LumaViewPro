@@ -319,17 +319,15 @@ class TestEveryDoorRefusesAsOneClass:
             sim_session.scope.illumination.led_on(LED1, 10)
         assert refused.value.reason == 'control_session_held'
         assert refused.value.control_session == 'plate reader'
-        lit = [
-            r for r in sim_session.scope.illumination.get_led_states() if r.state == LedState.LIT
-        ]
+        lit = [r for r in sim_session.scope.illumination.led_states() if r.state == LedState.LIT]
         assert lit == []
 
     def test_a_move(self, sim_session, held):
-        before = sim_session.scope.motion.get_target_positions()['Z']
+        before = sim_session.scope.motion.target_positions()['Z']
         with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.scope.motion.move_z(before + 10)
         assert refused.value.reason == 'control_session_held'
-        assert sim_session.scope.motion.get_target_positions()['Z'] == before
+        assert sim_session.scope.motion.target_positions()['Z'] == before
 
     def test_a_camera_command(self, sim_session, held):
         with pytest.raises(ControlSessionRefusedError) as refused:
@@ -459,7 +457,7 @@ class TestTheSessionsWrites:
 
     def test_a_non_holder_cannot_give_up_a_recordings_pending_frames(self, sim_session, held):
         with pytest.raises(ControlSessionRefusedError):
-            sim_session.discard_close_drain()
+            sim_session.discard_pending_video()
 
 
 class TestTheSessionsMembers:

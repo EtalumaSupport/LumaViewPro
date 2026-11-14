@@ -13,7 +13,7 @@ The properties under test:
     ui/scope_display.py:578-580)
   - Lumascope.pixel_format (str; called per-frame from
     ui/scope_display.py:578-580)
-  - Lumascope.get_target_positions()[axis] and get_target_positions() (called at 10Hz
+  - Lumascope.target_positions()[axis] and target_positions() (called at 10Hz
     from ui/motion_settings.py:228 update_gui)
   - Lumascope.get_current_position(axis) and get_current_positions() (called at
     similar cadence)
@@ -108,13 +108,13 @@ class TestCameraPropertiesCacheOnly:
 
 
 class TestPositionAccessorsCacheOnly:
-    """LV-45: get_target_positions and get_current_position are called at
+    """LV-45: target_positions and get_current_position are called at
     ~10Hz from the UI on MainThread; they must be cache reads.
     """
 
     def test_get_target_positions_no_io(self, scope_with_io_traps):
-        """get_target_positions returns a dict snapshot -- cache-only."""
-        result = scope_with_io_traps.motion.get_target_positions()
+        """target_positions returns a dict snapshot -- cache-only."""
+        result = scope_with_io_traps.motion.target_positions()
         assert isinstance(result, dict)
 
     def test_get_current_position_single_axis_no_io(self, scope_with_io_traps):
@@ -130,5 +130,5 @@ class TestPositionAccessorsCacheOnly:
     def test_position_repeated_reads_no_io(self, scope_with_io_traps):
         """10Hz cadence simulation: repeated reads stay cache-only."""
         for _ in range(20):
-            scope_with_io_traps.motion.get_target_positions()['Z']
+            scope_with_io_traps.motion.target_positions()['Z']
             scope_with_io_traps.motion.get_current_position('Z')

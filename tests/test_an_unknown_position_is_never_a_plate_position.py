@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A position the scope does not know is never converted, and never saved by New.
 
-Before a home, ``ScopeSession.get_current_plate_position`` converted the
+Before a home, ``ScopeSession.plate_position`` converted the
 cached numbers of axes with no reference into plate coordinates -- on the
 simulator ``{'x': 122.26, 'y': 81.48, 'z': 0.0}`` -- and ``new_protocol``
 stamped that Z into every acquiring layer with no saved focus: a saved
@@ -42,7 +42,7 @@ def test_before_a_home_the_plate_position_is_refused(make_session):
     session = make_session('LS850', homed=False)
 
     with pytest.raises(AxisStateUnknownError) as exc:
-        session.get_current_plate_position()
+        session.plate_position()
 
     assert set(exc.value.axes_without_position) == {'X', 'Y', 'Z'}
 
@@ -50,7 +50,7 @@ def test_before_a_home_the_plate_position_is_refused(make_session):
 def test_after_a_home_the_plate_position_is_read(make_session):
     session = make_session('LS850')
 
-    position = session.get_current_plate_position()
+    position = session.plate_position()
 
     assert position.z_um == pytest.approx(session.scope.motion.get_current_position('Z'), abs=0.01)
 
@@ -60,7 +60,7 @@ def test_a_pulled_cable_is_the_cable_not_an_unknown_position(make_session, monke
     monkeypatch.setattr(session.scope._motion_driver, 'is_connected', lambda: False)
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
-        session.get_current_plate_position()
+        session.plate_position()
 
     assert exc.value.reason == 'not_connected'
 

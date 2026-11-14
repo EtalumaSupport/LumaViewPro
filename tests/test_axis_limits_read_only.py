@@ -27,14 +27,14 @@ def motion():
 
 
 def test_an_edit_through_the_apis_read_is_refused_and_the_bound_holds(motion):
-    """The API's one door is ``get_axis_limits``; the record it hands out is
+    """The API's one door is ``axis_limits``; the record it hands out is
     frozen, and the move refusal still reads the bound it had."""
-    travel_max = motion.get_axis_limits('Z').max_um
+    travel_max = motion.axis_limits('Z').max_um
 
     with pytest.raises(dataclasses.FrozenInstanceError):
-        motion.get_axis_limits('Z').max_um = 114000.0
+        motion.axis_limits('Z').max_um = 114000.0
 
-    assert motion.get_axis_limits('Z').max_um == travel_max
+    assert motion.axis_limits('Z').max_um == travel_max
     with pytest.raises(PositionOutOfRangeError):
         motion.move_z(travel_max + 10000)
 
@@ -60,12 +60,12 @@ def test_the_simulated_driver_builds_a_read_only_config(edit):
     from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 
     board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
-    travel_max = board.get_axis_limits('Z')['max']
+    travel_max = board.axis_limits('Z')['max']
 
     with pytest.raises(TypeError):
         edit(board)
 
-    assert board.get_axis_limits('Z')['max'] == travel_max
+    assert board.axis_limits('Z')['max'] == travel_max
 
 
 def test_the_hardware_driver_builds_a_read_only_config():
@@ -80,7 +80,7 @@ def test_the_hardware_driver_builds_a_read_only_config():
     board._rebuild_cached_values()
 
     with pytest.raises(TypeError):
-        board.get_axis_limits('Z')['max'] = 114000.0
+        board.axis_limits('Z')['max'] = 114000.0
     with pytest.raises(TypeError):
         board.get_axes_config()['Z'] = {}
 

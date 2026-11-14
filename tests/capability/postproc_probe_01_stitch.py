@@ -21,7 +21,7 @@ def main() -> int:
         session.scope.motion.move_xy(y_um=30000.0)
         session.scope.motion.move_z(1000.0)
         session.scope.motion.wait_until_finished_moving(timeout_s=60)
-        here = session.get_current_plate_position()
+        here = session.plate_position()
         outcome, folder = run_protocol_folder(
             live,
             session,

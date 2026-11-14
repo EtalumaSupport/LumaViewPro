@@ -7,7 +7,7 @@ what bounded it: the camera's maximum rate, the bandwidth limit and the
 component the camera says limits it, the sensor mode. A window is the camera's
 rate only when no frame was lost or short of a buffer in it
 (`observed_fps_is_camera_rate`). Beside it, the rate LumaViewPro received
-(`get_delivered_rate`): the gap between the two is the host's loss.
+(`delivered_rate`): the gap between the two is the host's loss.
 
 Rows, each at a 5 ms exposure so exposure never bounds the rate:
 1900 x 1900 at 8-bit mode (the lowest-bandwidth format) and at 12-bit; 956
@@ -43,7 +43,7 @@ def _row(scope, label):
     row = {
         'observed_fps': derived.get('observed_fps'),
         'is_camera_rate': derived.get('observed_fps_is_camera_rate'),
-        'lvp_fps': scope.imaging.get_delivered_rate().frame_rate_fps,
+        'lvp_fps': scope.imaging.delivered_rate().frame_rate_fps,
         'fps_max': config.get('acquisition_frame_rate_max', config.get('resulting_frame_rate')),
         'limiter': config.get('dltl_component'),
         'dltl_bps': config.get('dltl_value_bps'),

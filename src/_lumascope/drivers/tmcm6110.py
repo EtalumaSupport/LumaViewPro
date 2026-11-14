@@ -877,7 +877,7 @@ class Tmcm6110Board:
             for axis in self._ACCELERATION_AXES
         }
 
-    def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int) -> None:
+    def set_acceleration_limit_pct(self, axis: str, parameter: str, val_pct: int) -> None:
         """Set the axis's acceleration (and so its deceleration) to
         ``val_pct`` of full.
 
@@ -902,7 +902,7 @@ class Tmcm6110Board:
 
     def set_acceleration_limits(self, val_pct: int) -> None:
         for axis in self._ACCELERATION_AXES:
-            self.set_acceleration_limit(axis, 'acceleration', val_pct)
+            self.set_acceleration_limit_pct(axis, 'acceleration', val_pct)
 
     def set_precision_mode(self, axis: str, enabled: bool) -> None:
         """No precision mode on the TMCM-6110: nothing to set."""
@@ -975,7 +975,7 @@ class Tmcm6110Board:
     def get_axes_config(self) -> Mapping:
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
+    def axis_limits(self, axis: str) -> Mapping[str, float] | None:
         if axis not in self.axes_config:
             raise PartAbsentError(f'Unsupported axis ({axis})')
         return self.axes_config[axis]['limits']

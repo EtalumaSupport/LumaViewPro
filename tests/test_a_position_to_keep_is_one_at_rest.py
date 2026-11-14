@@ -168,7 +168,7 @@ class TestTheKeepersReadThroughIt:
         session.scope.motion.move_z(3000.0)
         keepers = {
             'focus_z_um': lambda: session.scope.protocols.focus_z_um(then='save the focus'),
-            'get_current_plate_position': session.get_current_plate_position,
+            'plate_position': session.plate_position,
             'save_bookmark': lambda: session.save_bookmark(('Z',)),
         }
         for name, keep in keepers.items():

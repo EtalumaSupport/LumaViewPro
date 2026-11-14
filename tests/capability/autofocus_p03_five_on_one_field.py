@@ -94,10 +94,10 @@ def main():
         start_z = (
             args.z
             if args.z is not None
-            else (session.get_settings_snapshot()[args.layer]['focus'] if HARDWARE else 3000.0)
+            else (session.settings_snapshot()[args.layer]['focus'] if HARDWARE else 3000.0)
         )
         figure('start_z_um', start_z)
-        figure('objective', session.get_settings_snapshot()['objective_id'])
+        figure('objective', session.settings_snapshot()['objective_id'])
         results = [_one(runner, motion, args.layer, start_z, i + 1) for i in range(_RUNS)]
         foci = [f for f, _ in results]
         steps = {s for _, s in results if s is not None}

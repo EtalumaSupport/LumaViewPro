@@ -722,7 +722,7 @@ def test_the_walk_counts_nothing_marked_or_host_wired():
         def f():
             session = _app_ctx.ctx.session
             session.executor_bundle.diagnostics_executor
-            session.scope.motion.get_axis_limits('Z')
+            session.scope.motion.axis_limits('Z')
             session.capture_still()
         """
         )

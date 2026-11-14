@@ -24,15 +24,13 @@ try:
     )
     # selecting one
     s.select_model(sorted(models)[0])
-    _common.ok(
-        'model selection recorded', s.get_settings_snapshot()['microscope'] == sorted(models)[0]
-    )
+    _common.ok('model selection recorded', s.settings_snapshot()['microscope'] == sorted(models)[0])
     try:
         s.select_model('NotAScope')
         _common.ok(
             'a model outside the catalogue is refused',
             False,
-            f'stored {s.get_settings_snapshot()["microscope"]!r}',
+            f'stored {s.settings_snapshot()["microscope"]!r}',
         )
     except ScopeModelUnknownError as e:
         _common.ok('a model outside the catalogue is refused', True, str(e))

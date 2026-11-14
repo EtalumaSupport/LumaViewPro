@@ -2,7 +2,7 @@
 """Each setting the Session owns has a read of its own, answering what its setter wrote.
 
 A setting changed by its own member (``SETTINGS_WITH_A_MEMBER``) was read
-only by its dotted path through ``get_setting``, or inside a dict on
+only by its dotted path through ``setting``, or inside a dict on
 another object, so a caller wrote it by one name and read it by another.
 Each now has a named read on the Session, beside its setter.
 """
@@ -51,7 +51,11 @@ def test_each_read_answers_what_its_setter_wrote(session):
     session.scope.motion.move_xy(x_um=30000)
     session.scope.motion.move_z(6000)
     writes = {
-        'model': (lambda: session.select_model('LS560'), lambda: session.model, 'LS560'),
+        'selected_model': (
+            lambda: session.select_model('LS560'),
+            lambda: session.selected_model,
+            'LS560',
+        ),
         'objective_id': (
             lambda: session.select_objective('10x Oly'),
             lambda: session.objective_id,
@@ -63,12 +67,12 @@ def test_each_read_answers_what_its_setter_wrote(session):
             '384 well microplate',
         ),
         'scale_bar_enabled': (
-            lambda: session.set_scale_bar(True),
+            lambda: session.set_scale_bar_enabled(True),
             lambda: session.scale_bar_enabled,
             True,
         ),
         'acceleration_limit_pct': (
-            lambda: session.set_acceleration_limit(40),
+            lambda: session.set_acceleration_limit_pct(40),
             lambda: session.acceleration_limit_pct,
             40,
         ),
@@ -143,9 +147,9 @@ def test_the_turret_map_answers_what_each_slot_reads_in_process_and_on_the_wire(
     try:
         turreted.assign_turret_objective(2, '10x Oly')
         expected = {slot: turreted.turret_objective(slot) for slot in range(1, 5)}
-        assert turreted.scope.runtime_state.get_turret_config() == expected
+        assert turreted.scope.runtime_state.turret_config() == expected
         with TestClient(build_app(turreted)) as client:
-            answer = client.get('/api/v1/scope/runtime_state/get_turret_config')
+            answer = client.get('/api/v1/scope/runtime_state/turret_config')
         # The slot keys cross as JSON object keys, strings.
         assert (answer.status_code, answer.json()) == (
             200,
@@ -164,9 +168,9 @@ def test_the_turret_map_is_empty_on_a_scope_with_no_turret_and_the_stored_slots_
     settings['turret_objectives'] = dict.fromkeys(range(1, 5), '10x Oly')
     turretless = ScopeSession.create(settings, simulate=True)
     try:
-        assert turretless.scope.runtime_state.get_turret_config() == {}
+        assert turretless.scope.runtime_state.turret_config() == {}
         with TestClient(build_app(turretless)) as client:
-            answer = client.get('/api/v1/scope/runtime_state/get_turret_config')
+            answer = client.get('/api/v1/scope/runtime_state/turret_config')
         assert (answer.status_code, answer.json()) == (200, {})
         assert turretless.settings['turret_objectives'] == dict.fromkeys(range(1, 5), '10x Oly')
     finally:
@@ -184,7 +188,7 @@ def test_get_setting_refuses_a_setting_with_its_own_read_and_names_it(session):
         owner = ScopeSession if member.owner == 'ScopeSession' else CameraAPI
         writer = getattr(owner, member.name)
         try:
-            session.get_setting(path)
+            session.setting(path)
         except ArgumentRefusedError as refused:
             answered = (refused.reason, refused.member)
         else:
@@ -210,14 +214,14 @@ def test_get_setting_refuses_a_setting_with_its_own_read_and_names_it(session):
         (f'{LED0}.bogus', 'channel_settings'),
     ):
         with pytest.raises(ArgumentRefusedError) as refused:
-            session.get_setting(path)
+            session.setting(path)
         assert (refused.value.reason, refused.value.member) == ('has_member', read), path
 
 
 def test_a_wire_get_setting_of_an_owned_setting_names_its_read(session):
     with TestClient(build_app(session)) as client:
-        refused = client.get('/api/v1/get_setting', params={'path': 'scale_bar.enabled'})
-        answered = client.get('/api/v1/get_setting', params={'path': 'live_folder'})
+        refused = client.get('/api/v1/setting', params={'path': 'scale_bar.enabled'})
+        answered = client.get('/api/v1/setting', params={'path': 'live_folder'})
     assert refused.status_code == 422
     assert (refused.json()['reason'], refused.json()['member']) == (
         'has_member',

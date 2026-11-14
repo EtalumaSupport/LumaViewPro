@@ -167,7 +167,7 @@ def main():
             session.set_channel_settings(channel, exposure_ms=args.exposure_ms)
         if args.gain_db is not None:
             session.set_channel_settings(channel, gain_db=args.gain_db)
-        stored = session.get_settings_snapshot()[channel]
+        stored = session.settings_snapshot()[channel]
         current_ma = stored['illumination_ma']
         figure('illumination_ma', current_ma)
         figure('exposure_ms', stored['exposure_ms'])

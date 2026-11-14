@@ -461,7 +461,7 @@ class MicroscopeSettings(BoxLayout):
         gui_logger.toggle('SCALE_BAR', enabled)
         session = _app_ctx.ctx.session
         run_reported(
-            lambda: session.set_scale_bar(enabled), self.show_capture_settings, 'SCALE_BAR'
+            lambda: session.set_scale_bar_enabled(enabled), self.show_capture_settings, 'SCALE_BAR'
         )
 
     def update_crosshairs_state(self):

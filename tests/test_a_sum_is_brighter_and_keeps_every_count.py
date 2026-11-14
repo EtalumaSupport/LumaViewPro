@@ -116,8 +116,8 @@ def test_an_8bit_cameras_sum_keeps_every_count(sim_camera):
 
 def test_a_12bit_sum_renders_brighter_not_dimmer(sim_camera):
     scope = sim_camera('Mono12')
-    one = scope.imaging.get_image(force_to_8bit=True, sum_count=1)
-    two = scope.imaging.get_image(force_to_8bit=True, sum_count=2)
+    one = scope.imaging.capture_image(force_to_8bit=True, sum_count=1)
+    two = scope.imaging.capture_image(force_to_8bit=True, sum_count=2)
     assert int(one.max()) == 255
     assert int(two.max()) == 255
 
@@ -146,7 +146,7 @@ def test_a_sum_of_fewer_than_one_frame_is_refused(sim_camera):
     """A count is a whole number of at least 1, as a stored sum is; under it,
     both capture members refuse the count by name before the camera is asked."""
     imaging = sim_camera('Mono12').imaging
-    members = {'capture_still': imaging.capture_still, 'get_image': imaging.get_image}
+    members = {'capture_still': imaging.capture_still, 'capture_image': imaging.capture_image}
     taken = {}
     for name, member in members.items():
         for count in (0, -1):

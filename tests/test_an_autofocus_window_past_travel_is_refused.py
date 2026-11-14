@@ -70,7 +70,7 @@ def test_a_first_window_past_travel_is_refused_before_the_stage_moves(scope, mon
     # Started at a travel limit, the first window reaches past it. The
     # bottom used to be clamped to 0 and the top ran on until a sweep
     # move was refused as an unexpected error.
-    limit = getattr(scope.motion.get_axis_limits('Z'), edge)
+    limit = getattr(scope.motion.axis_limits('Z'), edge)
     with pytest.raises(CaptureError) as refused:
         _autofocus_from(scope, limit, monkeypatch, peak=limit)
 
@@ -91,7 +91,7 @@ def test_a_sweep_led_past_travel_is_refused_and_z_goes_back(scope, monkeypatch, 
     # the bottom the refined window opens below it, at the top the
     # extension runs past it. Either is refused before the stage moves
     # there, and Z returns to where the autofocus started.
-    limit = getattr(scope.motion.get_axis_limits('Z'), edge)
+    limit = getattr(scope.motion.axis_limits('Z'), edge)
     af_range = scope.objectives['10x Oly'].autofocus_half_range_um
     start = limit + (af_range + 5.0) * (1 if edge == 'min_um' else -1)
     with pytest.raises(AutofocusFailedError) as refused:
@@ -129,7 +129,7 @@ def test_a_final_approach_past_the_travel_minimum_is_refused(sim_scope, monkeypa
     # travel. Started lower, the final window itself reaches past the floor
     # and is refused before the approach is asked.
     runner = af_runner_on(sim_scope)
-    floor = sim_scope.motion.get_axis_limits('Z').min_um
+    floor = sim_scope.motion.axis_limits('Z').min_um
     peak = floor + 2.0
     monkeypatch.setattr(
         '_lumascope.modules.autofocus_functions.autofocus_score',
@@ -157,7 +157,7 @@ def test_a_refusal_is_reported_once_as_itself(sim_scope, reported):
     """
     runner = af_runner_on(sim_scope)
     # At the floor, the first window (centre +- AF_range) reaches below it.
-    park_z(sim_scope, sim_scope.motion.get_axis_limits('Z').min_um)
+    park_z(sim_scope, sim_scope.motion.axis_limits('Z').min_um)
 
     with pytest.raises(CaptureError) as raised:
         sweep(runner, sim_scope)

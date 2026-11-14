@@ -265,7 +265,7 @@ class CameraLink:
 
 
 class MotorCommandSet(enum.StrEnum):
-    """The motor board's text command set, as ``get_motor_info().command_set`` names it.
+    """The motor board's text command set, as ``motor_info().command_set`` names it.
 
     The EL-0940's (INFO, FULLINFO, ACTUAL_R, SPI and the rest). A board
     with no text command channel (the TMCM-6110, which speaks binary
@@ -276,7 +276,7 @@ class MotorCommandSet(enum.StrEnum):
 
 
 class LedCommandSet(enum.StrEnum):
-    """The LED board's text command set, as ``get_led_info().command_set`` names it.
+    """The LED board's text command set, as ``led_info().command_set`` names it.
 
     INFO predates the v2 firmware; SELFTEST, I2CSCAN and the LEDREAD
     current reads came with it. A board with no text command channel at
@@ -410,7 +410,7 @@ class DiagnosticsAPI:
 
     # --- Camera probes ---
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def get_camera_temperatures_degc(self) -> dict[str, float] | None:
+    def read_camera_temperatures_degc(self) -> dict[str, float] | None:
         """Get all camera temperature sensor readings.
 
         Runs on the camera lane, admitted whatever holds the scope: the read
@@ -435,7 +435,7 @@ class DiagnosticsAPI:
         """
         return self._scope.camera._read_on_lane(
             self._get_camera_temperatures_degc_impl,
-            'get_camera_temperatures_degc',
+            'read_camera_temperatures_degc',
             satisfied_when_absent=None,
         )
 
@@ -446,7 +446,7 @@ class DiagnosticsAPI:
         return driver.get_all_temperatures()
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def get_camera_link_info(self) -> CameraLink | None:
+    def read_camera_link(self) -> CameraLink | None:
         """Read the camera's link, live.
 
         Runs on the camera lane, admitted whatever holds the scope, like the
@@ -465,7 +465,7 @@ class DiagnosticsAPI:
                 camera reports could not be read.
         """
         return self._scope.camera._read_on_lane(
-            self._get_camera_link_info_impl, 'get_camera_link_info', satisfied_when_absent=None
+            self._get_camera_link_info_impl, 'read_camera_link', satisfied_when_absent=None
         )
 
     def _get_camera_link_info_impl(self) -> CameraLink | None:
@@ -496,7 +496,7 @@ class DiagnosticsAPI:
         ``camera.read_pixel_format``, black level
         ``camera.read_black_level``, frame rate
         ``camera.read_frame_rate_fps``, the sensor's temperatures
-        ``diagnostics.get_camera_temperatures_degc``.
+        ``diagnostics.read_camera_temperatures_degc``.
 
         Runs on the camera lane, admitted whatever holds the scope, like the
         temperature read: a node read must not interleave with a camera
@@ -569,7 +569,7 @@ class DiagnosticsAPI:
         return answer
 
     @api(reads=True)
-    def get_camera_usb_bindings(self) -> tuple[UsbIdentityBindings, ...] | None:
+    def read_camera_usb_bindings(self) -> tuple[UsbIdentityBindings, ...] | None:
         """Which driver Windows has bound to each USB identity of a Lumascope Classic.
 
         The FX2 is two USB devices in turn, the bootloader and the running
@@ -611,7 +611,7 @@ class DiagnosticsAPI:
         return tuple(answer)
 
     @api(reads=True)
-    def get_usb_census(self) -> UsbBusCensus:
+    def read_usb_census(self) -> UsbBusCensus:
         """Every device of each vendor a Lumascope is built from, on this host's USB bus, read now.
 
         For each: where it is, the driver Windows bound to it and whether
@@ -659,7 +659,7 @@ class DiagnosticsAPI:
     ) -> dict:
         """Run an N-frame camera throughput test through the production capture path.
 
-        Every frame is grabbed through ``ImagingAPI.get_image``, so the
+        Every frame is grabbed through ``ImagingAPI.capture_image``, so the
         numbers are those of the path a protocol and the live view capture
         through.
 
@@ -724,7 +724,7 @@ class DiagnosticsAPI:
             try:
                 # force_to_8bit=False keeps native depth so frame size
                 # reflects the actual bytes the SDK delivered.
-                frame = self._scope.imaging.get_image(force_to_8bit=False)
+                frame = self._scope.imaging.capture_image(force_to_8bit=False)
             except CaptureFailedError as failed:
                 results['num_frames_failed'] += 1
                 by_reason = results['failed_by_reason']
@@ -1578,7 +1578,7 @@ class DiagnosticsAPI:
     # --- Board identity ---
 
     @api(reads=True)
-    def get_motor_info(self) -> MotorBoardInfo:
+    def motor_info(self) -> MotorBoardInfo:
         """The motor board's identity.
 
         Served from what FULLINFO and INFO cached at connect, never re-queried
@@ -1611,7 +1611,7 @@ class DiagnosticsAPI:
         )
 
     @api(reads=True)
-    def get_led_info(self) -> LedBoardInfo:
+    def led_info(self) -> LedBoardInfo:
         """The LED board's firmware and command set.
 
         Returns:

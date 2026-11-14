@@ -165,7 +165,7 @@ def live_view(realistic_session):
 
     def show():
         while not stop.wait(LIVE_VIEW_PERIOD_S):
-            imaging.get_image_from_buffer()
+            imaging.buffered_image()
 
     viewer = threading.Thread(target=show, name='live view', daemon=True)
     viewer.start()

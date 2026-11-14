@@ -183,7 +183,7 @@ def test_a_position_the_board_does_not_report_is_unread_not_none(homed):
             homed.motion.move_xy_by(dx_um=-100)
         assert refused.value.reason == 'position_unread'
         with pytest.raises(HardwareError, match='no reply from the TMCM-6110'):
-            homed.motion.get_actual_position('X')
+            homed.motion.read_actual_position('X')
     finally:
         homed.simulation.unsilence('motor')
 

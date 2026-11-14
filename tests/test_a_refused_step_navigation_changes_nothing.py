@@ -165,7 +165,7 @@ def _navigate(env, objective: str, *, step_index: int = 1, include_move: bool = 
 
 
 def _targets(env) -> dict:
-    return env.session.scope.motion.get_target_positions()
+    return env.session.scope.motion.target_positions()
 
 
 class TestARefusedNavigationIsANoOp:

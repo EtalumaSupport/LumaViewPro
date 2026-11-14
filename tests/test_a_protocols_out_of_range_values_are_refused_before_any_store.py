@@ -64,7 +64,7 @@ def test_a_file_whose_layer_settings_are_out_of_range_is_refused_at_load_naming_
     monkeypatch.setattr(
         notifications, 'report_outcome', lambda outcome, **kw: heard.append(outcome)
     )
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.load_protocol(str(edited))
@@ -78,21 +78,21 @@ def test_a_file_whose_layer_settings_are_out_of_range_is_refused_at_load_naming_
         assert words in str(refused.value), str(refused.value)
     # Raised, and nothing told beside it: one answer to one load.
     assert heard == []
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 def test_a_protocol_built_in_memory_is_refused_by_the_apply_storing_nothing(session):
     # Built from steps alone, its Layer Settings are inferred from its first
     # BF step, Exposure 0 among them.
     protocol = _make_protocol([_valid_step(channel='BF', Exposure=0)])
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.apply_channel_settings(protocol)
 
     assert refused.value.reason == 'values_out_of_range'
     assert 'BF Exposure:' in str(refused.value), str(refused.value)
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 def test_going_to_a_step_holding_an_out_of_range_value_starts_no_move_and_stores_nothing(
@@ -107,13 +107,13 @@ def test_going_to_a_step_holding_an_out_of_range_value_starts_no_move_and_stores
     protocol = session.load_protocol(str(edited))
     # Away from the step, so going to it would move X.
     session.scope.motion.move_xy_by(dx_um=1000)
-    before = session.get_settings_snapshot()
-    position = session.scope.motion.get_target_positions()['X']
+    before = session.settings_snapshot()
+    position = session.scope.motion.target_positions()['X']
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.start_go_to_step(protocol, 0)
 
     assert refused.value.reason == 'values_out_of_range'
     assert 'Step 1' in str(refused.value) and 'Exposure:' in str(refused.value)
-    assert session.get_settings_snapshot() == before
-    assert session.scope.motion.get_target_positions()['X'] == position
+    assert session.settings_snapshot() == before
+    assert session.scope.motion.target_positions()['X'] == position

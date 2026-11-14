@@ -114,7 +114,7 @@ def test_a_safety_off_not_taken_is_told_once_and_leaves_every_led_unknown(
         assert led.detail.startswith(f'{fault.__name__}: ')
         told = [n for n in centre_posts if n.reason == 'safety_off_failed']
         assert [n.title for n in told] == [LedSafetyOffNotTakenError.title]
-        states = {r.state for r in session.scope.illumination.get_led_states()}
+        states = {r.state for r in session.scope.illumination.led_states()}
         assert states == {LedState.UNKNOWN}
     finally:
         session.shutdown()

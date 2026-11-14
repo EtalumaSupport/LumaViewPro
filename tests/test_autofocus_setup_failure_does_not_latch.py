@@ -72,7 +72,7 @@ def _unknown_objective(scope, sweep_kwargs):
 
 def _z_at_the_floor(scope, sweep_kwargs):
     # The first window, centre +- AF_range, reaches below the floor.
-    park_z(scope, scope.motion.get_axis_limits('Z').min_um)
+    park_z(scope, scope.motion.axis_limits('Z').min_um)
 
 
 def _camera_setting_unreadable(scope, sweep_kwargs):
@@ -83,7 +83,7 @@ def _camera_setting_unreadable(scope, sweep_kwargs):
 # failure of it, the failure it raises, and whether the scan parameters
 # exist by the time it runs. The parameters are what the unwind's Z
 # restore reads, so they decide what the unwind is entitled to do. The LED
-# read raises nothing (``get_led_states``: Raises: Nothing), so it has
+# read raises nothing (``led_states``: Raises: Nothing), so it has
 # no case; the parameter calculation's raise is the first window past travel.
 SETUP_FAILURES = [
     (
@@ -111,7 +111,7 @@ SETUP_CALLS_IN_SOURCE_ORDER = [
     'get_objective_info',
     '_calculate_params',
     'info',
-    'get_led_states',
+    'led_states',
     'save_camera_state',
 ]
 
@@ -573,7 +573,7 @@ def test_a_clean_exit_still_runs_every_restore_step(scope, runner, monkeypatch):
     assert _focused(sweep(runner, scope, keep_led_on=True))
 
     assert precision[-1] is True, f'the precision restore must still run; {precision}'
-    lit = [r.name for r in scope.illumination.get_led_states() if r.state is LedState.LIT]
+    lit = [r.name for r in scope.illumination.led_states() if r.state is LedState.LIT]
     assert lit == ['BF'], f'the AF-end LED transition must still run; lit: {lit}'
     assert scope.camera.auto_gain is CameraAutoMode.CONTINUOUS, 'the camera restore must still run'
 

@@ -164,7 +164,7 @@ def test_a_board_lost_while_every_axis_is_idle_reads_as_lost(model):
             'not_connected',
             MissingPart(Part.MOTOR),
         )
-        assert scope.diagnostics.get_motor_info() == MotorBoardInfo(None, None, None, None, None)
+        assert scope.diagnostics.motor_info() == MotorBoardInfo(None, None, None, None, None)
     finally:
         session.shutdown()
 

@@ -103,14 +103,14 @@ class TestALoadedLayerIsAppliedLikeAnyWrite:
     def test_a_layer_above_the_led_board_is_refused_and_nothing_changes(self, session):
         # OP-62: the board refuses to drive it, and over-driving an LED is a damage mode.
         board_max = session.scope.capabilities.led_max_ma
-        before = session.get_settings_snapshot()
+        before = session.settings_snapshot()
 
         with pytest.raises(ProtocolRunRefusedError) as refused:
             session.apply_channel_settings(_layers(BF=_row(illumination_ma=board_max + 1)))
 
         assert refused.value.reason == 'values_out_of_range'
         assert "LED board's maximum" in str(refused.value)
-        assert session.get_settings_snapshot() == before
+        assert session.settings_snapshot() == before
 
     def test_auto_gain_off_with_its_values_is_those_values_with_the_loop_off(self, session):
         # OP-63: "these values, the loop off" -- no lock takes the loop's values over the row's.
@@ -157,27 +157,27 @@ def test_a_step_above_the_led_board_is_refused_and_nothing_changes(session):
     board_max = session.scope.capabilities.led_max_ma
     step = {**_step(60.0, 40.0, 5000.0, _objective_of(session)), 'Illumination': board_max + 1}
     protocol = _layers(step, BF=_row())
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
 
     with pytest.raises(ProtocolRunRefusedError) as refused:
         session.go_to_step(protocol, 0)
 
     assert refused.value.reason == 'values_out_of_range'
     assert "LED board's maximum" in str(refused.value)
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 def test_set_all_bookmarks_refuses_a_z_outside_travel_and_stores_nothing(session):
     # OP-65: every focus is judged before the bookmark and the foci are stored.
     motion = session.scope.motion
-    beyond = motion.get_axis_limits('Z').max_um + 100.0
+    beyond = motion.axis_limits('Z').max_um + 100.0
     motion.move_z(beyond, ignore_limits=True)
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
 
     with pytest.raises(PositionOutOfRangeError):
         session.save_all_bookmarks()
 
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 class TestAutoGainIsNotStoredOnWithARangeNoArmCanTake:
@@ -198,7 +198,7 @@ class TestAutoGainIsNotStoredOnWithARangeNoArmCanTake:
 
     def test_a_loaded_layer_turning_it_on_is_refused_whole(self, session):
         _invert_the_gain_range(session)
-        before = session.get_settings_snapshot()
+        before = session.settings_snapshot()
 
         with pytest.raises(ArgumentRefusedError) as refused:
             session.apply_channel_settings(
@@ -206,7 +206,7 @@ class TestAutoGainIsNotStoredOnWithARangeNoArmCanTake:
             )
 
         assert refused.value.reason == 'gain_range_inverted'
-        assert session.get_settings_snapshot() == before
+        assert session.settings_snapshot() == before
 
 
 class TestAWriteHeldBackByAnActivityIsAppliedAtItsEnd:
@@ -284,7 +284,7 @@ def test_an_auto_gain_bound_the_shown_camera_takes_during_a_home_is_refused(sess
     # is refused during a home as the channel's own fields are.
     session.show_channel('BF')
     session.set_channel_settings('BF', auto_gain=True)
-    before = session.get_setting('protocol.autogain.max_gain_db')
+    before = session.setting('protocol.autogain.max_gain_db')
     held = _HeldHome(session.scope, monkeypatch)
     home = session.scope.motion.start_home('ALL')
     try:
@@ -296,4 +296,4 @@ def test_an_auto_gain_bound_the_shown_camera_takes_during_a_home_is_refused(sess
         held.release.set()
         home.exception(timeout=HOME_S)
 
-    assert session.get_setting('protocol.autogain.max_gain_db') == before
+    assert session.setting('protocol.autogain.max_gain_db') == before

@@ -94,7 +94,7 @@ def main():
         with session_cm as (session, runner):
             from _lumascope.modules.coord_transformations import PlateLocation
 
-            live = session.get_current_plate_position()
+            live = session.plate_position()
             z = args.z
             if z is None:
                 # The simulated sample is in focus at Z 5000 um (its bring-up

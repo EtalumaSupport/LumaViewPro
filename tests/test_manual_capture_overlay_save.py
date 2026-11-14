@@ -51,12 +51,12 @@ def capture_ctx(tmp_path):
     scope = spec_scope()
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
-    scope.illumination.get_led_states.return_value = {}
+    scope.illumination.led_states.return_value = {}
     # The stage is over A1 of a 96-well plate: the file's well is named from
     # the position it records.
     a1 = plate('96 well microplate')
     scope.runtime_state.get_labware.return_value = a1
-    a1_x_mm, a1_y_mm = a1.get_well_position(0, 0)
+    a1_x_mm, a1_y_mm = a1.well_position(0, 0)
     scope.runtime_state.plate_transform.return_value = lambda x_um, y_um: PlatePosition(
         x_mm=a1_x_mm, y_mm=a1_y_mm
     )

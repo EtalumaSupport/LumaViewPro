@@ -82,7 +82,7 @@ def test_a_fresh_read_waits_for_the_lanes_task_and_is_not_refused_by_a_control_s
 def test_a_camera_read_behind_a_task_longer_than_five_seconds_answers(sim_session):
     gate = _lane_held(sim_session)
     try:
-        reader, out = _reading(sim_session.scope.diagnostics.get_camera_temperatures_degc)
+        reader, out = _reading(sim_session.scope.diagnostics.read_camera_temperatures_degc)
         _until(lambda: sim_session.camera_executor.queue_size() == 1, 'the read queues')
         # Past the 5 s the diagnostics' reads once waited.
         time.sleep(5.5)

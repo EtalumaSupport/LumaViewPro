@@ -9,7 +9,7 @@ s, _live = make_session('probe_motion', microscope='LS850T')
 try:
     m = s.scope.motion
     m.home('ALL')
-    print('T axis limits:', m.get_axis_limits('T'), flush=True)
+    print('T axis limits:', m.axis_limits('T'), flush=True)
     m.move_turret(1)
     # Z sits off its floor so a refusal that parked Z first would show.
     m.move_z(1000.0)

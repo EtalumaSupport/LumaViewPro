@@ -140,12 +140,12 @@ def test_the_classic_camera_has_no_sensor():
 
     scope = build_scope(simulate=True, sim_model='LS620')
     assert scope.capabilities.camera_reports_temperature is False
-    assert scope.diagnostics.get_camera_temperatures_degc() == {}
+    assert scope.diagnostics.read_camera_temperatures_degc() == {}
 
 
 def test_the_simulated_camera_reports_temperature(sim_scope):
     assert sim_scope.capabilities.camera_reports_temperature is True
-    assert sim_scope.diagnostics.get_camera_temperatures_degc()
+    assert sim_scope.diagnostics.read_camera_temperatures_degc()
 
 
 def test_a_failed_read_reaches_the_api_caller(sim_scope):
@@ -157,14 +157,14 @@ def test_a_failed_read_reaches_the_api_caller(sim_scope):
         ),
         pytest.raises(HardwareError, match='temperature read failed'),
     ):
-        sim_scope.diagnostics.get_camera_temperatures_degc()
+        sim_scope.diagnostics.read_camera_temperatures_degc()
 
 
 def test_no_active_camera_answers_none_at_the_api(sim_scope):
     """None is not {}: no camera to ask is not a camera without a sensor."""
     sim_scope._camera_driver.active = False
 
-    assert sim_scope.diagnostics.get_camera_temperatures_degc() is None
+    assert sim_scope.diagnostics.read_camera_temperatures_degc() is None
 
 
 def test_a_failed_read_on_a_tick_reaches_the_scheduler(sim_scope):
@@ -192,7 +192,7 @@ def test_the_startup_sample_is_taken_and_reported_on_the_sessions_timer(sim_sess
     # The thread that asks the API read is the one that waits on the lane; the
     # driver's own read always runs on the lane's thread, so it cannot tell.
     diagnostics = sim_session.scope.diagnostics
-    the_read = diagnostics.get_camera_temperatures_degc
+    the_read = diagnostics.read_camera_temperatures_degc
     asked_on = []
 
     def watched_read():
@@ -213,7 +213,7 @@ def test_the_startup_sample_is_taken_and_reported_on_the_sessions_timer(sim_sess
                 'get_all_temperatures',
                 side_effect=CameraReadFailedError('temperature read failed'),
             ),
-            patch.object(diagnostics, 'get_camera_temperatures_degc', watched_read),
+            patch.object(diagnostics, 'read_camera_temperatures_degc', watched_read),
         ):
             sim_session.enable_metrics()
             assert reported.wait(timeout=10.0), 'the failed first sample was never reported'

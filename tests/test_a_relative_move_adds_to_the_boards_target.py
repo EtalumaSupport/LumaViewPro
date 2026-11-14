@@ -40,7 +40,7 @@ def test_travel_is_checked_against_the_target_that_is_driven(scope):
     origin, a jog past travel is refused; checking the cache let it drive
     beyond travel."""
     motion = scope.motion
-    x_max = motion.get_axis_limits('X').max_um
+    x_max = motion.axis_limits('X').max_um
     motion.move_xy(x_um=x_max - 50.0)
     with motion._pos_cache_lock:
         motion._pos_cache['X'] = 0.0
@@ -49,7 +49,7 @@ def test_travel_is_checked_against_the_target_that_is_driven(scope):
         motion.move_xy_by(dx_um=100.0)
 
     # A refused move writes no target, so the previous one stands.
-    assert motion.get_target_positions()['X'] == x_max - 50.0
+    assert motion.target_positions()['X'] == x_max - 50.0
 
 
 def test_a_jog_during_a_move_adds_to_that_moves_target(scope):

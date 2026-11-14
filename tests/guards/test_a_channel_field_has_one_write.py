@@ -86,7 +86,7 @@ def session():
 
 def test_a_channel_path_stored_past_the_one_write_is_refused(session):
     # Called directly: the store a variable path reaches, as update_settings' does.
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
     with session.settings_lock, pytest.raises(RuntimeError, match='one channel write'):
         session._store_setting('BF.gain_db', 7.5)
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before

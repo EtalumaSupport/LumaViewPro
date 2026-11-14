@@ -98,7 +98,7 @@ def _shown(env) -> str:
 
 
 def _lit(env) -> list:
-    return [r for r in env.session.scope.illumination.get_led_states() if r.state is LedState.LIT]
+    return [r for r in env.session.scope.illumination.led_states() if r.state is LedState.LIT]
 
 
 class TestStepNavPreviewRespectsLedEnable:

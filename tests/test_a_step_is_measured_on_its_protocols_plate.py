@@ -83,6 +83,6 @@ def test_the_scopes_position_is_still_read_on_the_scopes_plate(session):
     _protocol_on_one_plate_scope_on_another(session)
     _move_stage(session, STAGE_UM)
 
-    here = session.get_current_plate_position()
+    here = session.plate_position()
 
     assert (here.x_mm, here.y_mm) == ON_SCOPE_PLATE

@@ -137,7 +137,7 @@ def wait_for_changes_in_force(
             return PreRollEnd.TIMED_OUT, None
         # A grab that got no frame is no arrival, for the stall watch.
         try:
-            imaging.get_image()
+            imaging.capture_image()
         except CaptureFailedError:
             continue
         arrivals += 1

@@ -480,7 +480,7 @@ class TestT10TurretWriters:
         session = sessions(**_turret_settings())
         session.assign_turret_objective(2, '10x Oly')
         assert session.settings['turret_objectives'][2] == '10x Oly'
-        assert session.scope.runtime_state.get_turret_config()[2] == '10x Oly'
+        assert session.scope.runtime_state.turret_config()[2] == '10x Oly'
 
     @pytest.mark.parametrize('position', [5])
     def test_a_bad_position_is_refused_as_out_of_range(self, sessions, position):
@@ -523,7 +523,7 @@ class TestT10TurretWriters:
         session = sessions(**_turret_settings())
         session.clear_turret_objective(1)
         assert session.settings['turret_objectives'][1] is None
-        assert session.scope.runtime_state.get_turret_config()[1] is None
+        assert session.scope.runtime_state.turret_config()[1] is None
 
 
 class TestT10TurretPosition:
@@ -663,7 +663,7 @@ _ALLOWED_WRITERS = {
     # These two write a snapshot copy, not the store; the census matches the
     # subscript shape and cannot tell a copy from the live dict.
     ('src/_lumascope/modules/scope_session.py', 'ScopeSession.capture_settings_snapshot'),
-    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.get_settings_snapshot'),
+    ('src/_lumascope/modules/scope_session.py', 'ScopeSession.settings_snapshot'),
     # A confirmation stored before it recorded its light path, dated at
     # bring-up, the one place the light path is known.
     (

@@ -108,7 +108,7 @@ holds the save drive. On a Classic, `camera_usb_bindings` starts the FX2 on
 another driver, on none, or on LumaViewPro's with a Windows problem code, so
 bring-up refuses its camera as on a PC whose driver went wrong, and tells it
 once, by the camera's notice with Repair's cause. A simulated scope's USB
-census, `scope.diagnostics.get_usb_census()`, is its own parts, never the
+census, `scope.diagnostics.read_usb_census()`, is its own parts, never the
 host's devices, and `unidentified_usb_devices` adds devices whose descriptor
 Windows could not read, as Device Manager lists them. `unit_config` takes a unit's own `motorconfig.json`, an
 OEM unit's included, and brings the scope up as that unit: under the name its

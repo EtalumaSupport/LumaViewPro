@@ -92,7 +92,7 @@ def _bridge(session, drawn):
 def test_a_burst_of_each_state_leaves_one_update_waiting_per_key(session, held):
     drawn = []
     bridge = _bridge(session, drawn)
-    first, second = (r.address for r in session.scope.illumination.get_led_states()[:2])
+    first, second = (r.address for r in session.scope.illumination.led_states()[:2])
     for i in range(_BURST):
         bridge._on_position_change('X', SimpleNamespace(position_um=i))
         bridge._on_position_change('Y', SimpleNamespace(position_um=i))

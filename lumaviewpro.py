@@ -1107,7 +1107,7 @@ class LumaViewProApp(TooltipMixin, App):
         # scratch in the live folder; sweep it before anything records.
         from _lumascope.modules.manual_recording import sweep_recording_scratch
 
-        sweep_recording_scratch(session.get_setting('live_folder'))
+        sweep_recording_scratch(session.setting('live_folder'))
 
         # Create AppContext -- central service registry over the session.
         ctx = AppContext.over_session(
@@ -1551,7 +1551,7 @@ class LumaViewProApp(TooltipMixin, App):
             title='Closing',
             message=self._closing_once_up(),
             action_text='Discard Remaining Video Frames',
-            on_action=lambda: self._bring_up.result().discard_close_drain(),
+            on_action=lambda: self._bring_up.result().discard_pending_video(),
             action_shown=False,
         )
 
@@ -1573,7 +1573,7 @@ class LumaViewProApp(TooltipMixin, App):
             title='Closing',
             message='Closing LumaViewPro...',
             action_text='Discard Remaining Video Frames',
-            on_action=session.discard_close_drain,
+            on_action=session.discard_pending_video,
             action_shown=any(item.discardable for item in session.live_work.work),
         )
         self._run_the_close(session, popup, set_message, set_discard_shown)
@@ -1687,7 +1687,7 @@ class LumaViewProApp(TooltipMixin, App):
         Only false leaves it off: any other value is the server's to judge,
         so a mistyped one is reported rather than read as off.
         """
-        if ctx.session.get_setting('rest_api.enabled') is False:
+        if ctx.session.setting('rest_api.enabled') is False:
             return
         from _lumascope.rest.server import serve_beside
 
@@ -1701,7 +1701,7 @@ class LumaViewProApp(TooltipMixin, App):
         """What the window shows of the REST server: where it serves and whom it admits, or that it does not serve."""
         if self._rest_server is not None:
             return f'Serving {self._rest_server.reach}'
-        if ctx.session.get_setting('rest_api.enabled') is False:
+        if ctx.session.setting('rest_api.enabled') is False:
             return 'Off'
         # Its start was refused, and reported then.
         return 'Not started: see the log'

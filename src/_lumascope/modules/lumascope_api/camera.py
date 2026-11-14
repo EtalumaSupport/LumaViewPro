@@ -2537,7 +2537,7 @@ class CameraAPI:
         # a binning change worked out from it never asks for a frame the
         # sensor does not have. With no maximum known nothing is capped, as
         # nothing is refused (_refuse_frame_out_of_range).
-        target = binning.native_to_displayed(asked, factor, self.get_pixel_alignment())
+        target = binning.native_to_displayed(asked, factor, self.pixel_alignment())
         maximum = self._max_frame_unbinned()
         if maximum is None:
             native = asked
@@ -2615,7 +2615,7 @@ class CameraAPI:
         binning change derives it, so there is no request to refuse. A frame
         a person asks for is refused out of range instead (``set_frame_size``).
         """
-        target = binning.native_to_displayed(native, factor, self.get_pixel_alignment())
+        target = binning.native_to_displayed(native, factor, self.pixel_alignment())
         limits = self._scope.capabilities.camera_limits
         minimum = limits.frame_min if limits else None
         if minimum is not None:
@@ -3108,7 +3108,7 @@ class CameraAPI:
         )
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
-    def get_black_level_range(self) -> tuple[float, float] | None:
+    def read_black_level_range(self) -> tuple[float, float] | None:
         """Read the range ``set_black_level`` accepts, live, in the units of
         ``read_black_level``.
 
@@ -3135,13 +3135,13 @@ class CameraAPI:
             CameraReadFailedError: ``'camera_read_failed'``, the camera has a
                 black level setting and the read failed.
         """
-        return self._read_on_lane(self._get_black_level_range_impl, 'get_black_level_range')
+        return self._read_on_lane(self._read_black_level_range_impl, 'read_black_level_range')
 
-    def _get_black_level_range_impl(self) -> tuple[float, float] | None:
+    def _read_black_level_range_impl(self) -> tuple[float, float] | None:
         return self._read_unheld(
-            'get_black_level_range',
+            'read_black_level_range',
             'black level range',
-            lambda driver: driver.get_black_level_range(),
+            lambda driver: driver.read_black_level_range(),
         )
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
@@ -3156,7 +3156,7 @@ class CameraAPI:
         The camera's own figure: Basler's resulting acquisition frame rate,
         IDS's AcquisitionFrameRate maximum, the simulator's pacing rate. The
         FX2 reports none. It is what the camera says it can do, not what
-        reaches the host; what reaches the host is ``get_delivered_rate``.
+        reaches the host; what reaches the host is ``delivered_rate``.
 
         Returns:
             float | None: Frames per second; None when the camera reports
@@ -3242,7 +3242,7 @@ class CameraAPI:
                 consequence='The black level stays as it is.',
             )
         low, high = self._read_a_write_needs(
-            'set_black_level', 'black_level', value, driver.get_black_level_range
+            'set_black_level', 'black_level', value, driver.read_black_level_range
         )
         self._refuse_out_of_range('black_level', value, low, high, noun='black level', unit='units')
 
@@ -3501,7 +3501,7 @@ class CameraAPI:
         return self._read_on_lane(self._read_fresh, 'read_pixel_format', args=('pixel_format',))
 
     @api(reads=True)
-    def get_pixel_alignment(self) -> dict:
+    def pixel_alignment(self) -> dict:
         """Return the camera's deliverable frame-size granularity.
 
         Every camera delivers the size asked for exactly, by acquiring the next

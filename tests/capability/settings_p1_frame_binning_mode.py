@@ -105,7 +105,7 @@ try:
         _common.ok('bogus image mode refused', True, f'{type(e).__name__}: {e}')
 
     # --- is the image MODE (8/12-bit display mode) an API concept? -------
-    snap = s.get_settings_snapshot()
+    snap = s.settings_snapshot()
     print("settings['image_mode'] :", snap.get('image_mode'))
     print('camera has set_image_mode?', hasattr(im_camera, 'set_image_mode'))
 finally:

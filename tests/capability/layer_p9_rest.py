@@ -48,7 +48,7 @@ try:
     z = sc.motion.get_current_position('Z')
     show('motion.get_current_position(Z)', z)
     s.set_channel_settings(lay, focus_z_um=z)  # == save_focus's layer write
-    show(f'settings[{LED0}][focus]', s.get_settings_snapshot()[lay]['focus'])
+    show(f'settings[{LED0}][focus]', s.settings_snapshot()[lay]['focus'])
     proto = sc.protocols.create_protocol(input_config=s.get_sequenced_capture_config())
     show('protocol.modify_step_z_height', proto.modify_step_z_height(step_index=0, z=z + 5))
     show('step 0 Z after modify', proto.step_row(step_index=0)['Z'])

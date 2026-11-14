@@ -179,7 +179,7 @@ class _FakeMotion:
 
 
 class _FakeIllumination:
-    """Commanded LED state, the shape get_led_states() returns.
+    """Commanded LED state, the shape led_states() returns.
 
     None models a scope with no LED board installed, which is what the
     real accessor returns in that case.
@@ -194,7 +194,7 @@ class _FakeIllumination:
     # named by no layer, as on an EL-0940 board.
     _NAMES = (LED0, LED1, LED2, 'BF', 'PC', 'DF', None, None)
 
-    def get_led_states(self):
+    def led_states(self):
         if not self._board:
             return None
         return tuple(
@@ -247,9 +247,7 @@ class _FakeScope:
         self.objective_helper = SimpleNamespace(
             get_objective_info=lambda objective_id: self.runtime_state.get_current_objective()
         )
-        self.diagnostics = SimpleNamespace(
-            get_motor_info=lambda: SimpleNamespace(serial_number=None)
-        )
+        self.diagnostics = SimpleNamespace(motor_info=lambda: SimpleNamespace(serial_number=None))
         # Every layer a stock model carries: the recording's start asks the
         # scope has the layer it is named for, and these tests name the
         # LS850's layers and Lumi.
@@ -307,7 +305,7 @@ def make_controller(
     controller = ManualRecordingController(
         on_saved=on_saved,
         scope=scope,
-        # A private copy per call, as the session's get_settings_snapshot
+        # A private copy per call, as the session's settings_snapshot
         # answers, so a test writing ``store`` writes the live settings.
         settings_snapshot=lambda: copy.deepcopy(store),
         shown_channel=lambda: shown,
@@ -1230,7 +1228,7 @@ class TestChannelIdentity:
         assert list(captured['df']['channel']) == ['BF', 'BF']
 
     def test_no_led_board_falls_back_to_the_shown_channel(self, tmp_path, monkeypatch):
-        # get_led_states() is None with no board, so the shown channel stands.
+        # led_states() is None with no board, so the shown channel stands.
         captured = _capture_hyperstack_df(monkeypatch)
         scope = _FakeScope(board=False)
         controller, scope, clock = make_controller(
@@ -1316,7 +1314,7 @@ class TestCloseWithProgress:
         # source.
         repo = manual_recording_module.Path(__file__).resolve().parent.parent
         app_src = (repo / 'lumaviewpro.py').read_text()
-        assert 'discard_close_drain' in app_src
+        assert 'discard_pending_video' in app_src
         assert '_close_the_session' in app_src
         assert 'show_blocking_progress_popup' in app_src
         assert 'Discard Remaining Video Frames' in app_src

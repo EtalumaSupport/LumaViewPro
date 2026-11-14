@@ -250,7 +250,7 @@ def test_discard_ends_the_wait_on_a_recordings_frames(sim_session, tmp_path):
     time.sleep(0.5)
     assert not closed.is_set(), 'nothing was left for the close to wait on'
 
-    sim_session.discard_close_drain()
+    sim_session.discard_pending_video()
 
     assert closed.wait(SETTLE_S), 'Discard did not end the wait'
     videos = sorted(tmp_path.rglob('*.mp4'))

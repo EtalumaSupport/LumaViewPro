@@ -224,7 +224,7 @@ def test_a_refusal_carries_the_fields_its_type_publishes(client, session, monkey
 
 def test_a_move_past_the_travel_answers_the_axis_and_its_limits(client, session):
     home_sim_scope(session.scope)
-    travel = session.scope.motion.get_axis_limits('Z')
+    travel = session.scope.motion.axis_limits('Z')
 
     body = _problem(
         client.post('/api/v1/scope/motion/start_move_z', json={'z_um': travel.max_um + 1000}), 422
@@ -239,7 +239,7 @@ def test_a_move_past_the_travel_answers_the_axis_and_its_limits(client, session)
 
 
 def test_a_setting_outside_its_range_answers_the_range(client, session):
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
 
     body = _problem(
         client.post('/api/v1/update_settings', json={'path': 'jpg_quality', 'value': 500}), 422
@@ -250,12 +250,12 @@ def test_a_setting_outside_its_range_answers_the_range(client, session):
         'jpg_quality',
         [1, 100],
     )
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 def test_a_name_that_is_no_axis_answers_with_the_names_the_member_takes(client):
     body = _problem(
-        client.get('/api/v1/scope/motion/get_axis_limits', params={'axis': 'x'}),
+        client.get('/api/v1/scope/motion/axis_limits', params={'axis': 'x'}),
         422,
     )
 
@@ -306,18 +306,18 @@ def test_a_well_the_plate_lacks_answers_with_the_plate_it_was_looked_for_on(clie
 def test_a_session_argument_its_member_refuses_is_422_names_it_and_changes_nothing(
     client, session, method, route, body, reason, published
 ):
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
 
     answer = _problem(client.request(method, f'/api/v1/{route}', json=body), 422)
 
     assert answer['reason'] == reason
     assert {name: answer[name] for name in published} == published
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 def test_a_reads_argument_its_member_refuses_is_422_and_names_it(client):
     """A read's query argument the member refuses is the member's refusal, as a body's is."""
-    answer = _problem(client.get('/api/v1/get_setting', params={'path': 'bogus'}), 422)
+    answer = _problem(client.get('/api/v1/setting', params={'path': 'bogus'}), 422)
 
     assert (answer['reason'], answer['argument']) == ('not_a_setting', 'path')
 
@@ -328,7 +328,7 @@ def test_a_setting_only_the_host_moves_is_refused_as_host_only_not_sent_to_a_mis
     """The live folder confines every path a wire caller sends, so its two
     setters are in-process. A wire write to either setting is refused as the
     host's, never with advice to call a member the wire has no route for."""
-    before = session.get_settings_snapshot()
+    before = session.settings_snapshot()
     for path, member in (
         ('live_folder', 'set_live_folder'),
         ('protocol.filepath', 'set_protocol_filepath'),
@@ -337,7 +337,7 @@ def test_a_setting_only_the_host_moves_is_refused_as_host_only_not_sent_to_a_mis
         answer = _problem(client.post('/api/v1/update_settings', json=body), 422)
         assert (answer['reason'], answer['member']) == ('host_only', member)
         assert client.post(f'/api/v1/{member}', json={}).status_code == 404
-    assert session.get_settings_snapshot() == before
+    assert session.settings_snapshot() == before
 
 
 def test_a_refusals_remedy_is_sent_as_the_record_apply_remedy_takes(client, session, monkeypatch):
@@ -465,7 +465,7 @@ def test_an_invalid_body_names_each_argument_that_does_not_fit(client):
 def test_the_openapi_declares_every_answer_that_is_not_a_result_as_a_problem(client):
     openapi = client.get('/api/v1/openapi.json').json()
     operations = [op for path in openapi['paths'].values() for op in path.values()]
-    refused = client.get('/api/v1/scope/motion/get_axis_limits', params={'axis': 'x'})
+    refused = client.get('/api/v1/scope/motion/axis_limits', params={'axis': 'x'})
 
     # Every route keeps the ranges; a status its member declares (its
     # Raises: section) is a problem too.

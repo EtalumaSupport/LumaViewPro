@@ -400,11 +400,11 @@ class TestCaptureTimeChunkVerification:
         sim_scope.simulation.delay_delivery(3)
         # The first frame stored after the delay says the backlog stands: from
         # here, three frames made before the write are on their way.
-        sim_scope.imaging.get_image()
+        sim_scope.imaging.capture_image()
         new_ms = sim_scope.camera.exposure_ms / 2
         sim_scope.camera.set_exposure_ms(new_ms)
 
-        # The private grab, for the frame it returns: the public get_image
+        # The private grab, for the frame it returns: the public capture_image
         # hands back the pixels alone.
         grabbed = sim_scope.imaging._get_image_impl(
             verify_chunk_targets=True,
@@ -419,7 +419,7 @@ class TestCaptureTimeChunkVerification:
         sim_scope.imaging._frame_validity.set_target('exposure', 3730.0)
 
         with pytest.raises(CaptureFailedError) as refused:
-            sim_scope.imaging.get_image(verify_chunk_targets=True, timeout_s=0.5)
+            sim_scope.imaging.capture_image(verify_chunk_targets=True, timeout_s=0.5)
         assert (refused.value.reason, refused.value.source) == ('chunk_rejected', 'exposure')
 
     def test_no_targets_means_no_verification(self, sim_scope):
@@ -428,7 +428,7 @@ class TestCaptureTimeChunkVerification:
         fv.set_target('gain', None)
         fv.set_target('exposure', None)
 
-        image = sim_scope.imaging.get_image(verify_chunk_targets=True, timeout_s=0.5)
+        image = sim_scope.imaging.capture_image(verify_chunk_targets=True, timeout_s=0.5)
         assert isinstance(image, np.ndarray)
 
     def test_chunkless_camera_skips_verification(self):
@@ -443,7 +443,7 @@ class TestCaptureTimeChunkVerification:
         try:
             session.scope.imaging._frame_validity.set_target('exposure', 3730.0)
 
-            image = session.scope.imaging.get_image(verify_chunk_targets=True, timeout_s=0.5)
+            image = session.scope.imaging.capture_image(verify_chunk_targets=True, timeout_s=0.5)
         finally:
             session.shutdown()
         assert isinstance(image, np.ndarray)
@@ -453,7 +453,7 @@ class TestCaptureTimeChunkVerification:
         assert sim_scope.camera.exposure_ms != 3.73, 'precondition'
         sim_scope.imaging._frame_validity.set_target('exposure', 3730.0)
 
-        image = sim_scope.imaging.get_image(timeout_s=0.5)
+        image = sim_scope.imaging.capture_image(timeout_s=0.5)
         assert isinstance(image, np.ndarray)
 
 

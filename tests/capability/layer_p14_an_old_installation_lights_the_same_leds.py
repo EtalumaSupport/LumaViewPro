@@ -40,7 +40,7 @@ def _fluorescence(scope):
 
 def _stored(session, scope):
     """Per LED address: the channel named for it and its stored settings."""
-    settings = session.get_settings_snapshot()
+    settings = session.settings_snapshot()
     stored = {}
     for channel in _fluorescence(scope):
         block = settings[channel.key_name]
@@ -67,7 +67,7 @@ def _steps(session, scope, protocol):
         session.go_to_step(protocol, index)
         lit = sorted(
             [r.address, r.illumination_ma]
-            for r in illumination.get_led_states()
+            for r in illumination.led_states()
             if r.state.name == 'LIT'
         )
         lit_mean = _mean(scope)

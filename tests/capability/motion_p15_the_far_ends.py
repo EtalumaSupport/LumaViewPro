@@ -2,7 +2,7 @@
 
 The travel margin plan (``EL0940_TRAVEL_MARGIN_PLAN_2026-11-02.md``). On a
 homed scope with no plate and Z at 0, each of X and Y is jogged toward its
-far limit as ``get_axis_limits`` reports it: 1 mm steps from 10 mm short of
+far limit as ``axis_limits`` reports it: 1 mm steps from 10 mm short of
 it, then 0.1 mm steps over its last 2 mm. After each step the probe reads the
 axis's far (right) limit switch and the board's position. Z is then driven to
 its far limit, with X and Y at their middles.
@@ -93,7 +93,7 @@ def _home(m):
 
 def _sweep(m, axis):
     """Jog ``axis`` to its far limit; the record of how it ended."""
-    far_um = m.get_axis_limits(axis).max_um
+    far_um = m.axis_limits(axis).max_um
     steps = []
     record = {'far_limit_um': far_um, 'ended_by': 'none_by_the_limit', 'at_um': None}
     for target in _targets(far_um):
@@ -102,16 +102,16 @@ def _sweep(m, axis):
         except MoveFaultError as e:
             record['ended_by'] = 'stall' if e.reason == 'stalled' else 'fault'
             record['fault_reason'] = e.reason
-            record['at_um'] = m.get_actual_position(axis)
-            record['switches'] = m.get_limit_switch_status(axis)
+            record['at_um'] = m.read_actual_position(axis)
+            record['switches'] = m.read_limit_switches(axis)
             record['target_um'] = target
             print(
                 f'{axis}: {e.reason} at {record["at_um"]} um (target {target}); homing', flush=True
             )
             _home(m)
             break
-        board = m.get_actual_position(axis)
-        left, right = m.get_limit_switch_status(axis)
+        board = m.read_actual_position(axis)
+        left, right = m.read_limit_switches(axis)
         steps.append({'target_um': target, 'board_um': board, 'left': left, 'right': right})
         print(f'{axis} {target:9.1f} um: board {board} um, switches ({left}, {right})', flush=True)
         if right:
@@ -126,7 +126,7 @@ def _sweep(m, axis):
 
 def _measure(session):
     m = session.scope.motion
-    limits = {axis: m.get_axis_limits(axis) for axis in ('X', 'Y', 'Z')}
+    limits = {axis: m.axis_limits(axis) for axis in ('X', 'Y', 'Z')}
     figure('limits (um)', {a: (lim.min_um, lim.max_um) for a, lim in limits.items()})
     if HARDWARE:
         input(
@@ -154,8 +154,8 @@ def _measure(session):
         'Z far end',
         {
             'far_limit_um': z_far,
-            'board_um': m.get_actual_position('Z'),
-            'switches': m.get_limit_switch_status('Z'),
+            'board_um': m.read_actual_position('Z'),
+            'switches': m.read_limit_switches('Z'),
         },
     )
     _move(m, 'Z', 0.0)

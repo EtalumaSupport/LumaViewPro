@@ -409,7 +409,7 @@ def measure_delivery_like_a_session(scope, timeout_s: float = 10.0) -> None:
     """
     from _lumascope.modules.scheduler import ThreadingTimerScheduler
 
-    if scope.imaging.get_delivered_rate().frame_rate_fps > 0:
+    if scope.imaging.delivered_rate().frame_rate_fps > 0:
         return
 
     scheduler = ThreadingTimerScheduler(name_prefix='TestStreamCheck')
@@ -421,7 +421,7 @@ def measure_delivery_like_a_session(scope, timeout_s: float = 10.0) -> None:
 
     _TEARDOWNS.append(stop)
     deadline = time.monotonic() + timeout_s
-    while scope.imaging.get_delivered_rate().frame_rate_fps <= 0:
+    while scope.imaging.delivered_rate().frame_rate_fps <= 0:
         if time.monotonic() > deadline:
             raise AssertionError(
                 f'the simulated camera delivered no measured rate in {timeout_s} s'
@@ -506,22 +506,22 @@ def home_sim_scope(scope):
 
 
 def led_reading(scope, address):
-    """The reading of one LED board address, named or not, from ``get_led_states()``.
+    """The reading of one LED board address, named or not, from ``led_states()``.
 
     A test about an address, or about one the unit's identity does not
     name, reads it here; a test about a layer reads ``channel_reading``.
     """
-    (reading,) = [r for r in scope.illumination.get_led_states() if r.address == address]
+    (reading,) = [r for r in scope.illumination.led_states() if r.address == address]
     return reading
 
 
 def channel_reading(illumination, channel):
-    """The reading of the LED ``channel`` lights, from ``get_led_states()``; None with no LED board.
+    """The reading of the LED ``channel`` lights, from ``led_states()``; None with no LED board.
 
     ``channel`` is a layer name, mapped to its address through the unit's
     identity (``led_address_of``).
     """
-    readings = illumination.get_led_states()
+    readings = illumination.led_states()
     if readings is None:
         return None
     address = illumination.led_address_of(channel)

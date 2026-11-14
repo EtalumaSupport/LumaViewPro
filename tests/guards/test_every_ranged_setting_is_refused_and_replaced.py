@@ -107,7 +107,7 @@ def session(tmp_path_factory):
 
 def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session):
     def check(path, value):
-        before = session.get_settings_snapshot()
+        before = session.settings_snapshot()
         if settings_paths.member_for(path) is not None:
             # A ranged setting with its own member is refused for the member
             # first; its range is the load's half only.
@@ -126,7 +126,7 @@ def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session):
             expected = 'not_offered' if path in _CLOSED_SETS else 'out_of_range'
             assert refused.value.reason == expected
             assert refused.value.path == path
-        assert session.get_settings_snapshot() == before
+        assert session.settings_snapshot() == before
 
     failed = failing_cases(_CASES, check)
     assert not failed, failed

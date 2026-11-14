@@ -25,14 +25,14 @@ try:
     s.set_channel_settings(lay, acquire='image')
     s.set_channel_settings(lay, stim_enabled=True)  # the GUI forbids this pair
     s.set_channel_settings(LED1, acquire='image')
-    snap = s.get_settings_snapshot()[lay]
+    snap = s.settings_snapshot()[lay]
     print(
         f'1: stored pair -> acquire={snap["acquire"]!r} '
         f'stim.enabled={snap["stim_config"]["enabled"]!r}'
     )
     print('2: session.get_channel_configs:', s.get_channel_configs([lay])[lay]['acquire'])
     cfg = config_helpers.get_composite_capture_config_from_settings(
-        s.get_settings_snapshot(), s.scope.objective_helper, position=s.get_current_plate_position()
+        s.settings_snapshot(), s.scope.objective_helper, position=s.plate_position()
     )
     proto = s.scope.protocols.create_protocol(input_config=cfg)
     steps = proto.steps()

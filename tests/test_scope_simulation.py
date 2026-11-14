@@ -92,21 +92,21 @@ def test_a_dropped_position_read_refuses_the_z_move_that_needed_it(scope):
 
 
 def test_a_counted_drop_takes_that_many_replies_and_no_more(scope):
-    before = scope.motion.get_actual_position('Z')
+    before = scope.motion.read_actual_position('Z')
     scope.simulation.drop_replies('motor', count=1, command='ACTUAL_RZ')
     with pytest.raises(HardwareError):
-        scope.motion.get_actual_position('Z')
-    assert scope.motion.get_actual_position('Z') == pytest.approx(before, abs=0.1)
+        scope.motion.read_actual_position('Z')
+    assert scope.motion.read_actual_position('Z') == pytest.approx(before, abs=0.1)
 
 
 def test_an_uncounted_drop_lasts_until_cleared(scope):
-    before = scope.motion.get_actual_position('Z')
+    before = scope.motion.read_actual_position('Z')
     scope.simulation.drop_replies('motor', count=None, command='ACTUAL_RZ')
     for _ in range(3):
         with pytest.raises(HardwareError):
-            scope.motion.get_actual_position('Z')
+            scope.motion.read_actual_position('Z')
     scope.simulation.clear()
-    assert scope.motion.get_actual_position('Z') == pytest.approx(before, abs=0.1)
+    assert scope.motion.read_actual_position('Z') == pytest.approx(before, abs=0.1)
 
 
 def test_a_stop_the_board_does_not_answer_raises(scope):
@@ -128,12 +128,12 @@ def test_an_unplugged_motor_board_refuses_a_z_move_then_reads_not_connected(scop
 
 
 def test_a_silenced_motor_board_answers_nothing_until_unsilenced(scope):
-    before = scope.motion.get_actual_position('X')
+    before = scope.motion.read_actual_position('X')
     scope.simulation.silence('motor')
     with pytest.raises(HardwareError):
-        scope.motion.get_actual_position('X')
+        scope.motion.read_actual_position('X')
     scope.simulation.unsilence('motor')
-    assert scope.motion.get_actual_position('X') == pytest.approx(before, abs=0.1)
+    assert scope.motion.read_actual_position('X') == pytest.approx(before, abs=0.1)
 
 
 def test_a_held_axis_never_arrives_and_its_move_is_not_completed(scope, monkeypatch):
@@ -141,12 +141,12 @@ def test_a_held_axis_never_arrives_and_its_move_is_not_completed(scope, monkeypa
     is first, and both name it ``'stalled'``: a move that did not arrive."""
     # The settle bound is 120 s; the patch stays until it has a seam.
     monkeypatch.setattr(scope.motion, '_MOVE_STALL_WINDOW_S', 0.3)
-    start = scope.motion.get_actual_position('X')
+    start = scope.motion.read_actual_position('X')
     scope.simulation.hold_axis('X')
     with pytest.raises(MoveNotCompletedError) as not_completed:
         scope.motion.move_xy(x_um=20_000.0)
     assert not_completed.value.reason == 'stalled'
-    assert 20_000.0 < scope.motion.get_actual_position('X') < start
+    assert 20_000.0 < scope.motion.read_actual_position('X') < start
 
 
 def test_a_removed_camera_refuses_the_next_write(scope):
@@ -285,7 +285,7 @@ def test_a_camera_fault_on_a_scope_whose_camera_did_not_come_up_names_the_boards
 
 
 def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
-    before = scope.motion.get_actual_position('X')
+    before = scope.motion.read_actual_position('X')
     scope.simulation.silence('motor')
     scope.simulation.refuse_camera_write('gain', 'none')
     scope.simulation.refuse_camera_read('black_level', 'failed')
@@ -298,7 +298,7 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     )
     scope.simulation.clear()
     assert scope.simulation.injected() == ()
-    assert scope.motion.get_actual_position('X') == pytest.approx(before, abs=0.1)
+    assert scope.motion.read_actual_position('X') == pytest.approx(before, abs=0.1)
     scope.camera.set_gain_db(4.0)
     assert scope.imaging._frame_validity.target('gain') == 4.0
     assert scope.camera.read_black_level() is not None
@@ -330,14 +330,14 @@ def test_a_withheld_chunk_is_missing_from_that_many_frames_and_no_more(sim_scope
 
 
 def test_a_held_axis_says_when_it_halted_and_clear_releases_it(scope):
-    start = scope.motion.get_actual_position('X')
+    start = scope.motion.read_actual_position('X')
     halted = scope.simulation.hold_axis('X')
     handle = scope.motion.start_move_xy(x_um=20_000.0)
     halted.result(10.0)
-    assert 20_000.0 < scope.motion.get_actual_position('X') < start
+    assert 20_000.0 < scope.motion.read_actual_position('X') < start
     scope.simulation.clear()
     handle.result()
-    assert scope.motion.get_actual_position('X') == pytest.approx(20_000.0, abs=0.1)
+    assert scope.motion.read_actual_position('X') == pytest.approx(20_000.0, abs=0.1)
 
 
 def test_a_hold_its_move_never_reached_ends_saying_what_ended_it(scope):
@@ -374,12 +374,12 @@ def test_a_hold_its_move_never_reached_ends_saying_what_ended_it(scope):
 
 def test_an_answered_model_is_what_the_board_reports_until_cleared(scope):
     scope.simulation.answer_model('LS999')
-    assert scope.diagnostics.get_motor_info().model == 'LS999'
+    assert scope.diagnostics.motor_info().model == 'LS999'
     assert scope.capabilities.has_turret, 'the board kept the axes it was built with'
     scope.simulation.answer_model(None)
-    assert scope.diagnostics.get_motor_info().model is None
+    assert scope.diagnostics.motor_info().model is None
     scope.simulation.clear()
-    assert scope.diagnostics.get_motor_info().model == 'LS850T'
+    assert scope.diagnostics.motor_info().model == 'LS850T'
 
 
 def test_every_member_refuses_on_a_real_scope(no_hardware_scope):
@@ -417,7 +417,7 @@ def test_a_firmware_board_answers_with_the_model_it_was_built_as(firmware_scope)
 def test_a_rebooting_board_fails_a_read_as_a_dead_port(firmware_scope):
     firmware_scope.simulation.reboot('motor', booting_for_s=2.0)
     with pytest.raises(HardwareError):
-        firmware_scope.motion.get_actual_position('Z')
+        firmware_scope.motion.read_actual_position('Z')
 
 
 # --- the Classic boards -------------------------------------------------------
@@ -460,9 +460,9 @@ def test_the_ls720s_broken_home_switch_fails_the_home_until_cleared(ls720, monke
 def test_a_silenced_ls720_board_answers_nothing_until_unsilenced(ls720):
     ls720.simulation.silence('motor')
     with pytest.raises(HardwareError):
-        ls720.motion.get_actual_position('X')
+        ls720.motion.read_actual_position('X')
     ls720.simulation.unsilence('motor')
-    ls720.motion.get_actual_position('X')
+    ls720.motion.read_actual_position('X')
 
 
 def test_the_fx2_refuses_what_its_device_cannot_show(ls620):

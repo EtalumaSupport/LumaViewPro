@@ -41,7 +41,7 @@ def test_each_axis_reaches_its_limit_with_its_far_switch_clear():
     board.home()
 
     for axis, limit in LIMIT_UM.items():
-        assert board.get_axis_limits(axis) == {'min': 0.0, 'max': limit}
+        assert board.axis_limits(axis) == {'min': 0.0, 'max': limit}
         board.move_abs_pos(axis, limit)
         assert board.wait_for_position(axis)
         assert board.current_pos(axis) == pytest.approx(limit, abs=0.1)
@@ -72,9 +72,9 @@ def test_a_boards_own_travel_and_margin_set_its_limit():
         ),
     )
 
-    assert board.get_axis_limits('X')['max'] == 99000.0
-    assert board.get_axis_limits('Y')['max'] == 78000.0
-    assert board.get_axis_limits('Z')['max'] == LIMIT_UM['Z']
+    assert board.axis_limits('X')['max'] == 99000.0
+    assert board.axis_limits('Y')['max'] == 78000.0
+    assert board.axis_limits('Z')['max'] == LIMIT_UM['Z']
 
 
 def test_a_boards_figures_that_give_no_limit_are_dropped_for_the_defaults(caplog):
@@ -93,7 +93,7 @@ def test_a_boards_figures_that_give_no_limit_are_dropped_for_the_defaults(caplog
             ),
         )
 
-    assert {axis: board.get_axis_limits(axis)['max'] for axis in LIMIT_UM} == LIMIT_UM
+    assert {axis: board.axis_limits(axis)['max'] for axis in LIMIT_UM} == LIMIT_UM
     rejected = {
         r.getMessage().split('=')[0].removeprefix('[MotorConfig] Rejecting ')
         for r in caplog.records
@@ -111,4 +111,4 @@ def test_a_boards_figures_that_give_no_limit_are_dropped_for_the_defaults(caplog
 def test_a_z_only_board_gets_its_z_limit():
     board, _sim = motor_on_the_wire('LS820', 'Z', dialect='3.0')
 
-    assert board.get_axis_limits('Z') == {'min': 0.0, 'max': LIMIT_UM['Z']}
+    assert board.axis_limits('Z') == {'min': 0.0, 'max': LIMIT_UM['Z']}

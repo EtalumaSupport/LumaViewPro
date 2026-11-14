@@ -99,7 +99,7 @@ def _refuse_video_layers(session):
     does not look, so neither the timing nor the build load would be real."""
     import _lumascope.modules.common_utils as common_utils
 
-    settings = session.get_settings_snapshot()
+    settings = session.settings_snapshot()
     video = [
         layer for layer in common_utils.get_channels() if settings[layer].get('acquire') == 'video'
     ]

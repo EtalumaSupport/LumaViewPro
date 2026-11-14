@@ -65,7 +65,7 @@ def test_a_released_position_is_stored_as_that_cap_and_recorded(session, recorde
     for slider_id, path, _limit, name in _SLIDERS:
         panel.ids[slider_id].value = 25
         getattr(panel, slider_id)()
-        assert session.get_setting(path) == 25, slider_id
+        assert session.setting(path) == 25, slider_id
         assert (name, 25) in recorded, slider_id
 
 
@@ -75,7 +75,7 @@ def test_the_top_position_is_no_cap_and_no_cap_is_shown_there(session, recorded)
         session.update_settings(path, 10)
         panel.ids[slider_id].value = limit + 1
         getattr(panel, slider_id)()
-        assert session.get_setting(path) == 0, slider_id
+        assert session.setting(path) == 0, slider_id
         assert (name, 0) in recorded, slider_id
 
         panel.ids[slider_id].value = 1

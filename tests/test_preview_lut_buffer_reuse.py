@@ -4,14 +4,14 @@ a fresh array every frame.
 
 The 30 fps preview path converts each 12-bit frame to 8-bit via a LUT.
 Without a reusable destination it allocated a fresh ~W*H array per frame
-(~108 MB/s allocator churn on the display thread). get_image_from_buffer
+(~108 MB/s allocator churn on the display thread). buffered_image
 now accepts out_8bit and threads it into convert_12bit_to_8bit(out=); the
 preview owns a single buffer (the histogram, on another thread, passes
 none, so there is no cross-thread sharing). tobytes() copies before the
 next frame overwrites the buffer, so a single slot is safe.
 
 Tests cover the convert reuse / fallback semantics directly and the
-get_image_from_buffer wiring on the simulated scope.
+buffered_image wiring on the simulated scope.
 """
 
 from __future__ import annotations
@@ -57,16 +57,16 @@ def test_get_image_from_buffer_reuses_caller_buffer(sim_scope):
     # buffer instead of allocating a fresh array per frame.
     sim_scope.camera.set_image_mode('12bit_scientific')
     imaging = sim_scope.imaging
-    imaging.get_image()
+    imaging.capture_image()
 
-    first, _ts = imaging.get_image_from_buffer(force_to_8bit=False)
+    first, _ts = imaging.buffered_image(force_to_8bit=False)
     assert first is not None and first.dtype == np.uint16, (
         'precondition: the 12-bit sim frame must need conversion'
     )
     out = np.empty(first.shape, dtype=np.uint8)
-    img1, _ = imaging.get_image_from_buffer(force_to_8bit=True, out_8bit=out)
-    img2, _ = imaging.get_image_from_buffer(force_to_8bit=True, out_8bit=out)
+    img1, _ = imaging.buffered_image(force_to_8bit=True, out_8bit=out)
+    img2, _ = imaging.buffered_image(force_to_8bit=True, out_8bit=out)
     assert img1 is out and img2 is out, (
-        'get_image_from_buffer must reuse the caller-owned out_8bit '
+        'buffered_image must reuse the caller-owned out_8bit '
         'buffer on every frame, not allocate fresh arrays'
     )

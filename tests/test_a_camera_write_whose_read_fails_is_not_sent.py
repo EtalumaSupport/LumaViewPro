@@ -161,7 +161,7 @@ def test_a_black_level_write_whose_range_read_fails_is_refused_as_not_sent(sessi
         # a stand-in by design: the simulator has no read fault on the range
         raise CameraReadFailedError('simulated black level range read failed')
 
-    monkeypatch.setattr(SimulatedCamera, 'get_black_level_range', unreadable)
+    monkeypatch.setattr(SimulatedCamera, 'read_black_level_range', unreadable)
     if not session.scope.capabilities.camera_supports_black_level:
         pytest.skip('the simulated camera offers no black level here')
 

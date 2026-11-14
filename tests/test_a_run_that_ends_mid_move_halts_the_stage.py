@@ -50,7 +50,7 @@ def _start_held(session, tmp_path):
         protocol=_build_real_protocol([step]), parent_dir=str(tmp_path)
     )
     held.result(_HOLD_WAIT_S)
-    return run, session.scope.motion.get_target_positions()['X']
+    return run, session.scope.motion.target_positions()['X']
 
 
 def _where_the_board_drives_x(session):
@@ -141,7 +141,7 @@ def test_a_stop_halts_the_move_while_a_video_step_s_frames_still_drain(
         assert recording.wait(_HOLD_WAIT_S), "the video step's frames never reached the disk"
         held = session.scope.simulation.hold_axis('X')
         held.result(_HOLD_WAIT_S * 3)
-        target = session.scope.motion.get_target_positions()['X']
+        target = session.scope.motion.target_positions()['X']
 
         run.stop()
         deadline = time.monotonic() + _HOLD_WAIT_S

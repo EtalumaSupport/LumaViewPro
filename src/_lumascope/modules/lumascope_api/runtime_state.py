@@ -206,7 +206,7 @@ class RuntimeState:
         slot = self._scope.motion.turret_status().slot
         if slot is None:
             return None, None, ObjectiveUnknownError('slot_unknown')
-        objective_id = self.get_turret_config().get(slot)
+        objective_id = self.turret_config().get(slot)
         if objective_id is None:
             return None, None, ObjectiveUnknownError('slot_unassigned', slot)
         if objective_id not in self._scope.objectives:
@@ -252,7 +252,7 @@ class RuntimeState:
         return self._derive_current_objective()[1]
 
     @api(reads=True)
-    def get_pixel_size_um(self) -> float:
+    def pixel_size_um(self) -> float:
         """The effective pixel size: micrometres per pixel at the current
         objective and the camera's binning, the scale a saved image carries.
 
@@ -270,7 +270,7 @@ class RuntimeState:
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
         """
-        scale = self._scale('get_pixel_size_um', self._derive_current_objective())
+        scale = self._scale('pixel_size_um', self._derive_current_objective())
         if not isinstance(scale, tuple):
             raise scale
         objective, binning = scale
@@ -279,7 +279,7 @@ class RuntimeState:
         )
 
     @api(reads=True)
-    def get_field_of_view(self) -> FieldOfView:
+    def field_of_view(self) -> FieldOfView:
         """The area the camera's frame covers on the sample, at the current
         objective and the camera's binning.
 
@@ -291,16 +291,16 @@ class RuntimeState:
         Raises:
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
                 ``'not_in_catalogue'`` or ``'none_selected'``, as
-                ``get_pixel_size_um``.
+                ``pixel_size_um``.
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'scope_disconnected'``, as ``get_pixel_size_um``.
+                ``'scope_disconnected'``, as ``pixel_size_um``.
             PixelSizeUnknownError: ``'optics_undeclared'`` or
-                ``'binning_unread'``, as ``get_pixel_size_um``;
+                ``'binning_unread'``, as ``pixel_size_um``;
                 ``'frame_size_unread'``, the camera has not reported its frame.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
         """
-        return self.resolve_field_of_view('get_field_of_view')
+        return self.resolve_field_of_view('field_of_view')
 
     @api(reads=True)
     def optics_status(self) -> OpticsStatus:
@@ -327,7 +327,7 @@ class RuntimeState:
         )
 
     def resolve_field_of_view(self, member: str) -> FieldOfView:
-        """``get_field_of_view`` for a member that acts on the extent.
+        """``field_of_view`` for a member that acts on the extent.
 
         A seam for the API's own members, not part of the L2 API surface:
         the camera's refusal names ``member``, the one asking.
@@ -338,12 +338,12 @@ class RuntimeState:
         Raises:
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
                 ``'not_in_catalogue'`` or ``'none_selected'``, as
-                ``get_field_of_view``.
+                ``field_of_view``.
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'scope_disconnected'``, as ``get_field_of_view``.
+                ``'scope_disconnected'``, as ``field_of_view``.
             PixelSizeUnknownError: ``'optics_undeclared'``,
                 ``'binning_unread'`` or ``'frame_size_unread'``, as
-                ``get_field_of_view``.
+                ``field_of_view``.
         """
         extent = self._field_of_view(member, self._derive_current_objective())
         if not isinstance(extent, FieldOfView):
@@ -431,12 +431,12 @@ class RuntimeState:
                 a fraction that is not a number from 0 to 1.
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
                 ``'not_in_catalogue'`` or ``'none_selected'``, as
-                ``get_field_of_view``.
+                ``field_of_view``.
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'scope_disconnected'``, as ``get_field_of_view``.
+                ``'scope_disconnected'``, as ``field_of_view``.
             PixelSizeUnknownError: ``'optics_undeclared'``,
                 ``'binning_unread'`` or ``'frame_size_unread'``, as
-                ``get_field_of_view``.
+                ``field_of_view``.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
         """
@@ -525,7 +525,7 @@ class RuntimeState:
         )
 
     @api(reads=True)
-    def get_turret_config(self) -> dict[int, str | None]:
+    def turret_config(self) -> dict[int, str | None]:
         """The turret's objective assignments, from the settings.
 
         The map ``ScopeSession.turret_objective`` reads one slot of: on a
@@ -552,7 +552,7 @@ class RuntimeState:
         return assignments
 
     @api(reads=True)
-    def get_stage_offset(self) -> coord_transformations.StageOffset:
+    def stage_offset(self) -> coord_transformations.StageOffset:
         """The stage offset for coordinate transformations, from the settings.
 
         Returns:
@@ -576,7 +576,7 @@ class RuntimeState:
             if labware_id is None
             else self._scope.wellplate_loader.get_plate(labware_id=labware_id)
         )
-        return labware, self.get_stage_offset() if stage_offset is None else stage_offset
+        return labware, self.stage_offset() if stage_offset is None else stage_offset
 
     @api(reads=True)
     def stage_to_plate(
@@ -701,7 +701,7 @@ class RuntimeState:
         return to_plate
 
     @api(reads=True)
-    def get_well_label(self) -> str | None:
+    def well_label(self) -> str | None:
         """Get the well label for the current stage XY position.
 
         Maps the current target X/Y stage position to a plate-frame
@@ -727,7 +727,7 @@ class RuntimeState:
         # One read: it leaves out an axis the scope lacks and answers None for
         # one whose position is not known, from the same snapshot as the
         # numbers, so a home starting between two reads cannot pass.
-        targets = self._scope.motion.get_target_positions()
+        targets = self._scope.motion.target_positions()
         x_um, y_um = targets.get('X'), targets.get('Y')
         if x_um is None or y_um is None:
             return None

@@ -49,10 +49,10 @@ def test_a_member_put_back_on_the_wire_is_caught(classes, aliases, monkeypatch):
     from _lumascope.modules.lumascope_api.imaging import ImagingAPI
     from _lumascope.modules.scope_session import ScopeSession
 
-    monkeypatch.setattr(ImagingAPI.get_image, MARK_ATTRIBUTE, 'api')
+    monkeypatch.setattr(ImagingAPI.capture_image, MARK_ATTRIBUTE, 'api')
 
     gaps = wire_encoding.wire_gaps(ScopeSession, classes, aliases)
-    assert any(g.startswith('ImagingAPI.get_image') and 'ndarray' in g for g in gaps), gaps
+    assert any(g.startswith('ImagingAPI.capture_image') and 'ndarray' in g for g in gaps), gaps
 
 
 @api_fields('n', record=True)

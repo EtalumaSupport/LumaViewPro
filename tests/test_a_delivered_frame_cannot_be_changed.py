@@ -63,7 +63,7 @@ def test_the_preview_draws_its_scale_bar_on_its_own_copy(sim_scope):
     stored = delivered[-1]
     as_delivered = stored.copy()
 
-    preview, _ = sim_scope.imaging.get_image_from_buffer(force_to_8bit=False)
+    preview, _ = sim_scope.imaging.buffered_image(force_to_8bit=False)
 
     np.testing.assert_array_equal(stored, as_delivered)
     assert np.count_nonzero(preview != as_delivered) > 0, 'the preview drew no bar'

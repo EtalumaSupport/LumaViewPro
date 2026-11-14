@@ -9,7 +9,7 @@ from tests.scope_fakes import channel_reading
 s, live = harness.make_session('p1')
 ill = s.scope.illumination
 try:
-    print('available:', [(r.address, r.name) for r in ill.get_led_states()])
+    print('available:', [(r.address, r.name) for r in ill.led_states()])
     # on at 123 mA
     ill.led_on(LED0, 123.0)
     st = channel_reading(ill, LED0)

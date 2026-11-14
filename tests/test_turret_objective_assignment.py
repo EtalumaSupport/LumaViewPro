@@ -229,7 +229,7 @@ class TestATurretScopeReportsTheSlotsObjective:
         turret_session.scope.motion.move_turret(3)
 
         assert turret_session.objective_id == '4x Oly'
-        assert turret_session.get_settings_snapshot()['objective_id'] == '4x Oly'
+        assert turret_session.settings_snapshot()['objective_id'] == '4x Oly'
 
 
 _REQUIRED_KEYS = {

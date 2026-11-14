@@ -109,7 +109,7 @@ class ProtocolRunner:
                 started.
         """
         return self._run(
-            settings=self.session.get_settings_snapshot(),
+            settings=self.session.settings_snapshot(),
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
             max_scans=1,
@@ -154,7 +154,7 @@ class ProtocolRunner:
                 started.
         """
         return self._run(
-            settings=self.session.get_settings_snapshot(),
+            settings=self.session.settings_snapshot(),
             protocol=protocol,
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
             max_scans=None,
@@ -399,7 +399,7 @@ class ProtocolRunner:
         scan = protocol.copy_for_execution()
         scan.modify_autofocus_all_steps(enabled=True)
         return self._run(
-            settings=self.session.get_settings_snapshot(),
+            settings=self.session.settings_snapshot(),
             protocol=scan,
             run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
             max_scans=1,

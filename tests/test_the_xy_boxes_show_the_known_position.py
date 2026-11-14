@@ -37,7 +37,7 @@ def test_an_unhomed_stage_shows_as_not_known(gui_ctx):
     ``--``, not a plate position."""
     scope = gui_ctx.scope
     assert scope.capabilities.has_xy_stage
-    assert scope.motion.get_target_positions()['X'] is None
+    assert scope.motion.target_positions()['X'] is None
     ctrl = _control()
 
     ctrl.update_gui()

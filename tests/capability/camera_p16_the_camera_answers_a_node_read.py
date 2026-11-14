@@ -97,7 +97,7 @@ def _check_answers(answers, when):
 
 
 def _frames_delivered(imaging):
-    return imaging.get_delivered_rate()
+    return imaging.delivered_rate()
 
 
 def _probe(session):

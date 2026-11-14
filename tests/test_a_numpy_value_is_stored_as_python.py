@@ -81,7 +81,7 @@ class TestTheSettings:
     def test_a_written_numpy_scalar_is_stored_as_python(self, sim_session):
         sim_session.update_settings('video.max_fps', np.int64(25))
 
-        stored = sim_session.get_setting('video.max_fps')
+        stored = sim_session.setting('video.max_fps')
         assert (type(stored), stored) == (int, 25)
 
     def test_a_handed_dicts_numpy_values_are_stored_as_python(self, tmp_path):
@@ -95,8 +95,8 @@ class TestTheSettings:
             handed, simulate=True, settings_file=str(tmp_path / 'saved.json')
         )
         try:
-            assert type(session.get_settings_snapshot()['BF']['gain']) is float
-            assert type(session.get_setting('video.max_fps')) is int
+            assert type(session.settings_snapshot()['BF']['gain']) is float
+            assert type(session.setting('video.max_fps')) is int
         finally:
             session.shutdown()
 

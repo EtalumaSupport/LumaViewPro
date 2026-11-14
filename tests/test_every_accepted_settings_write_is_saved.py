@@ -81,7 +81,7 @@ def saving_session(tmp_path, heard):
 
 
 def _change_the_frame_rate(session) -> int:
-    value = 20 if session.get_setting('video.max_fps') == 30 else 30
+    value = 20 if session.setting('video.max_fps') == 30 else 30
     session.update_settings('video.max_fps', value)
     return value
 
@@ -99,7 +99,7 @@ def test_the_close_saves_with_no_write_so_a_first_run_leaves_its_file(saving_ses
     saving_session.shutdown()
 
     with open(tmp_path / 'current.json', encoding='utf-8') as f:
-        assert json.load(f)['microscope'] == saving_session.model
+        assert json.load(f)['microscope'] == saving_session.selected_model
 
 
 def test_a_save_the_drive_refuses_leaves_the_previous_file_whole_and_is_reported(

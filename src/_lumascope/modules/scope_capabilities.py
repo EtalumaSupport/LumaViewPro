@@ -395,7 +395,7 @@ class ScopeCapabilities:
             with no camera.
         camera_reports_temperature: True when the camera has a temperature
             sensor. Where it is False,
-            ``scope.diagnostics.get_camera_temperatures_degc`` answers
+            ``scope.diagnostics.read_camera_temperatures_degc`` answers
             ``{}``; where it is True an empty answer cannot happen, and a
             read that fails raises. None when the probe failed as the
             camera came up; the read is live, and answers as the camera

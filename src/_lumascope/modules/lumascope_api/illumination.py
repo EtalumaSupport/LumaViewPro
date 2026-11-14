@@ -367,7 +367,7 @@ def _lit_address_pairs(
     illumination_ma) pair, whether or not the identity names it.
 
     Args:
-        readings: The readings, as ``get_led_states`` answers them; None (no
+        readings: The readings, as ``led_states`` answers them; None (no
             LED board installed) is nothing lit.
         drop_nonpositive: When True, an address must also carry a strictly
             positive current to count as lit (an address lit at 0 mA is
@@ -390,7 +390,7 @@ def live_lit_pairs(illumination: IlluminationAPI) -> frozenset[tuple[int, float]
     The live-state counterpart of snapshot_lit_pairs, read from the
     illumination API's own store.
     """
-    return snapshot_lit_pairs(illumination.get_led_states())
+    return snapshot_lit_pairs(illumination.led_states())
 
 
 def snapshot_lit_pairs(readings: tuple[LedReading, ...] | None) -> frozenset[tuple[int, float]]:
@@ -398,7 +398,7 @@ def snapshot_lit_pairs(readings: tuple[LedReading, ...] | None) -> frozenset[tup
 
     Mirrors the filter restore_led_state uses for its restore target: an
     address counts as lit only if it is lit at a positive current. Used to
-    feed readings saved from get_led_states into apply() as snapshot_lit.
+    feed readings saved from led_states into apply() as snapshot_lit.
     """
     return _lit_address_pairs(readings, drop_nonpositive=True)
 
@@ -418,7 +418,7 @@ def lit_other_than(
         lit: The addresses lit, from a frame's record (``FrameRecord.illumination_ma``);
             None reads them from the store now, ``snapshot_lit_pairs``'s meaning.
     """
-    readings = illumination.get_led_states() or ()
+    readings = illumination.led_states() or ()
     if lit is None:
         lit = dict(snapshot_lit_pairs(readings))
     return [
@@ -442,7 +442,7 @@ def resolve_end_state(
 
     Args:
         end_policy: The run's end policy (``SequencedCaptureRunMode.led_end_policy``).
-        original_led_states: The pre-run readings (``get_led_states``).
+        original_led_states: The pre-run readings (``led_states``).
 
     Returns:
         The (address, illumination_ma) set to restore, empty for the OFF policy.
@@ -1415,8 +1415,8 @@ class IlluminationAPI:
         return tuple(self._reading(address) for address in addresses)
 
     @api(reads=True)
-    def get_led_states(self) -> tuple[LedReading, ...] | None:
-        """Read every LED address of the attached board.
+    def led_states(self) -> tuple[LedReading, ...] | None:
+        """Every LED address of the attached board, as the API holds it: no board is asked.
 
         Every address is reported, whether or not the unit's identity
         names it, so a lit address is never hidden by its missing name.
@@ -1443,7 +1443,7 @@ class IlluminationAPI:
         the addresses they have lit at a positive current.
 
         Args:
-            readings: What ``get_led_states`` answered when the state was
+            readings: What ``led_states`` answered when the state was
                 saved.
 
         Raises:

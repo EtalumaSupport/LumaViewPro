@@ -48,14 +48,14 @@ class TestASimulatedScopeReportsItsDeclaredModel:
         # The shipped template declares LS850.
         scope = _sim_scope(configured_model='LS850T')
         try:
-            assert scope.diagnostics.get_motor_info().model == 'LS850T'
+            assert scope.diagnostics.motor_info().model == 'LS850T'
         finally:
             scope.disconnect()
 
     def test_sim_model_still_outranks_configured_model(self):
         scope = _sim_scope(sim_model='LS850T', configured_model='LS850')
         try:
-            assert scope.diagnostics.get_motor_info().model == 'LS850T'
+            assert scope.diagnostics.motor_info().model == 'LS850T'
         finally:
             scope.disconnect()
 
@@ -66,7 +66,7 @@ class TestASimulatedScopeReportsItsDeclaredModel:
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
             assert session.settings['microscope'] == 'LS850'
-            assert session.scope.diagnostics.get_motor_info().model == 'LS850'
+            assert session.scope.diagnostics.motor_info().model == 'LS850'
             assert session.scope.capabilities.has_turret is False
         finally:
             session.shutdown()
@@ -129,7 +129,7 @@ class TestTheBringUpRunsAsTheReportedModel:
             tmp_path, sim_model_answer=SimulatedModelAnswer(None), microscope='LS850T'
         )
         try:
-            assert session.scope.diagnostics.get_motor_info().model is None
+            assert session.scope.diagnostics.motor_info().model is None
             assert session.settings['microscope'] == 'LS850T'
         finally:
             session.shutdown()
@@ -156,7 +156,7 @@ class TestTheBringUpRunsAsTheReportedModel:
             microscope='LS999',
         )
         try:
-            assert session.scope.diagnostics.get_motor_info().model == 'OEM-200'
+            assert session.scope.diagnostics.motor_info().model == 'OEM-200'
             assert session.scope.capabilities.axes == ('X', 'Y', 'Z')
             assert session.settings['microscope'] == 'LS999'
         finally:

@@ -20,7 +20,7 @@ from _lumascope.modules.exceptions import SettingRefusedError
 
 s, live = _common.make_session()
 try:
-    snap = s.get_settings_snapshot()
+    snap = s.settings_snapshot()
     print('image_output_format   :', snap['image_output_format'])
     print('jpg_quality           :', snap.get('jpg_quality'))
     print('video_as_frames       :', snap.get('video_as_frames'))
@@ -32,7 +32,7 @@ try:
     before = dict(snap['image_output_format'])
     s.update_settings('image_output_format.live', 'JPG')
     s.update_settings('image_output_format.sequenced', 'OME-TIFF')
-    back = s.get_settings_snapshot()['image_output_format']
+    back = s.settings_snapshot()['image_output_format']
     _common.ok(
         'live/sequenced format took effect',
         back['live'] == 'JPG' and back['sequenced'] == 'OME-TIFF',
@@ -45,7 +45,7 @@ try:
         _common.ok(
             'bogus live format refused at update_settings',
             False,
-            f'stored as {s.get_settings_snapshot()["image_output_format"]["live"]!r}',
+            f'stored as {s.settings_snapshot()["image_output_format"]["live"]!r}',
         )
     except SettingRefusedError as e:
         _common.ok('bogus live format refused at update_settings', True, f'{e.reason}: {e}')
@@ -68,11 +68,11 @@ try:
 
     # --- jpg quality ------------------------------------------------------
     s.update_settings('jpg_quality', 55)
-    _common.ok('jpg_quality took effect', s.get_settings_snapshot()['jpg_quality'] == 55)
+    _common.ok('jpg_quality took effect', s.settings_snapshot()['jpg_quality'] == 55)
     try:
         s.update_settings('jpg_quality', 500)
         _common.ok(
-            'jpg_quality 500 refused', False, f'stored {s.get_settings_snapshot()["jpg_quality"]}'
+            'jpg_quality 500 refused', False, f'stored {s.settings_snapshot()["jpg_quality"]}'
         )
     except SettingRefusedError as e:
         _common.ok('jpg_quality 500 refused', True, f'{e.reason}: {e}')
@@ -93,23 +93,23 @@ try:
 
     # --- video recording format ------------------------------------------
     s.update_settings('video_as_frames', True)
-    _common.ok('video_as_frames took effect', s.get_settings_snapshot()['video_as_frames'] is True)
+    _common.ok('video_as_frames took effect', s.settings_snapshot()['video_as_frames'] is True)
     try:
         s.update_settings('video_as_frames', 'banana')
         _common.ok(
             "video_as_frames 'banana' refused",
             False,
-            f'stored {s.get_settings_snapshot()["video_as_frames"]!r}',
+            f'stored {s.settings_snapshot()["video_as_frames"]!r}',
         )
     except SettingRefusedError as e:
         _common.ok("video_as_frames 'banana' refused", True, f'{e.reason}: {e}')
     s.update_settings('video_as_frames', False)
 
     # --- scale bar: the Session's setting, which the imaging API reads ----
-    s.set_scale_bar(True)
+    s.set_scale_bar_enabled(True)
     print('scale_bar_enabled     :', s.scale_bar_enabled)
     _common.ok('scale bar on through API', s.scale_bar_enabled is True)
-    s.set_scale_bar(False)
+    s.set_scale_bar_enabled(False)
     _common.ok('scale bar off through API', s.scale_bar_enabled is False)
 
     # --- crosshairs / bullseye / live histogram equalization --------------
@@ -126,7 +126,7 @@ try:
     s.update_settings('show_tooltips', False)
     _common.ok(
         'show_tooltips took effect (store only)',
-        s.get_settings_snapshot()['show_tooltips'] is False,
+        s.settings_snapshot()['show_tooltips'] is False,
     )
 finally:
     s.shutdown()

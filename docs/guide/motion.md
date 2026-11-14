@@ -53,14 +53,14 @@ print(kept['Z'])
 where it is; `move_z(z_um)` moves the focus; `move_xy_by` and `move_z_by` move
 by a distance. Each returns once the move has ended. A target outside an axis's
 limits is refused before anything drives (`PositionOutOfRangeError`); the
-limits are `get_axis_limits(axis)`.
+limits are `axis_limits(axis)`.
 
 ```python
 scope.motion.move_xy(x_um=60000.0, y_um=40000.0)
 scope.motion.move_z(4000.0)
 scope.motion.move_z_by(-50.0)
 print(scope.motion.axis_positions())        # each axis's position and state
-print(scope.motion.get_axis_limits('Z'))
+print(scope.motion.axis_limits('Z'))
 ```
 
 A Z move to a place approaches from below, so the gears' backlash is taken up
@@ -93,7 +93,7 @@ raises `MotorStopFailedError`: the stage may still be moving.
 
 **Motion you did not start.** `wait_until_finished_moving()` returns once every
 axis moving now has stopped, and raises if one did not stop well;
-`get_target_positions()` answers where each axis was last commanded to go, and
+`target_positions()` answers where each axis was last commanded to go, and
 None for an axis whose position is not known. A move you started is judged by
 its own operation's `result()`. The wait is in-process; a REST client reads
 each axis's state in `axis_positions`, or hears it change on the event

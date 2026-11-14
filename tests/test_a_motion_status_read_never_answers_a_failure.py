@@ -2,7 +2,7 @@
 """A motion status read that cannot answer refuses or raises; it never answers a value.
 
 ``get_target_status`` answered False with no motor board and on a failed
-board read, and True for a turret the scope lacks; ``get_limit_switch_status``
+board read, and True for a turret the scope lacks; ``read_limit_switches``
 answered ``(0, 0)`` -- both switches clear -- for an axis or board the scope
 lacks. Over REST each was a 200 a client could not tell from a real answer.
 The motion monitor took the failed read as "not arrived", so a board that
@@ -57,14 +57,14 @@ def _refused(call) -> HardwareCommandRefusedError:
 def _status_reads(motion, axis):
     return {
         'get_target_status': lambda: motion.get_target_status(axis),
-        'get_limit_switch_status': lambda: motion.get_limit_switch_status(axis),
+        'read_limit_switches': lambda: motion.read_limit_switches(axis),
     }
 
 
 # --- Hardware the scope does not have ---------------------------------------------
 
 
-@pytest.mark.parametrize('member', ['get_target_status', 'get_limit_switch_status'])
+@pytest.mark.parametrize('member', ['get_target_status', 'read_limit_switches'])
 def test_a_turret_the_scope_lacks_is_refused(make_session, member):
     scope = make_session('LS850').scope
 
@@ -73,7 +73,7 @@ def test_a_turret_the_scope_lacks_is_refused(make_session, member):
     assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart(Part.TURRET))
 
 
-@pytest.mark.parametrize('member', ['get_target_status', 'get_limit_switch_status'])
+@pytest.mark.parametrize('member', ['get_target_status', 'read_limit_switches'])
 def test_a_manual_scope_has_no_motors_to_read(make_session, member):
     scope = make_session('LS620').scope
 
@@ -82,7 +82,7 @@ def test_a_manual_scope_has_no_motors_to_read(make_session, member):
     assert (refusal.reason, refusal.missing) == ('axis_absent', MissingPart(Part.MOTORS))
 
 
-@pytest.mark.parametrize('member', ['get_target_status', 'get_limit_switch_status'])
+@pytest.mark.parametrize('member', ['get_target_status', 'read_limit_switches'])
 def test_a_pulled_cable_is_refused(make_session, monkeypatch, member):
     scope = make_session('LS850').scope
     monkeypatch.setattr(scope._motion_driver, 'is_connected', lambda: False)
@@ -117,7 +117,7 @@ def test_a_failed_switch_read_raises(make_session):
     scope.simulation.drop_replies('motor', count=None, command='STATUS_RZ')
 
     with pytest.raises(HardwareError):
-        scope.motion.get_limit_switch_status('Z')
+        scope.motion.read_limit_switches('Z')
 
 
 @pytest.mark.slow
@@ -128,14 +128,14 @@ def test_a_firmware_board_that_drops_the_switch_reply_raises_no_reply(make_sessi
     scope.simulation.drop_replies('motor')
 
     with pytest.raises(BoardNoReplyError):
-        scope.motion.get_limit_switch_status('Z')
+        scope.motion.read_limit_switches('Z')
 
 
 def test_a_present_axis_answers_its_read(make_session):
     scope = make_session('LS850').scope
 
     assert scope.motion.get_target_status('Z') is True
-    assert scope.motion.get_limit_switch_status('Z') in {(0, 0), (0, 1), (1, 0), (1, 1)}
+    assert scope.motion.read_limit_switches('Z') in {(0, 0), (0, 1), (1, 0), (1, 1)}
 
 
 # --- The monitor -------------------------------------------------------------------

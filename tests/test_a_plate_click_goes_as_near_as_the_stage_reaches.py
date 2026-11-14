@@ -49,8 +49,8 @@ def test_a_click_past_the_travel_moves_the_stage_to_its_nearest_point(
     [(label, axes, call)] = submitted
     assert (label, axes) == ('STAGE_CLICK', ('X', 'Y'))
     went = call().result()
-    limits = {axis: scope.motion.get_axis_limits(axis).max_um for axis in ('X', 'Y')}
-    targets = scope.motion.get_target_positions()
+    limits = {axis: scope.motion.axis_limits(axis).max_um for axis in ('X', 'Y')}
+    targets = scope.motion.target_positions()
     assert (targets['X'], targets['Y']) == (limits['X'], limits['Y'])
     on_plate = scope.runtime_state.stage_to_plate(limits['X'], limits['Y'])
     assert went == PlateLocation(x_mm=on_plate.x_mm, y_mm=on_plate.y_mm, z_um=None)

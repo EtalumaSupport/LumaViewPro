@@ -309,7 +309,7 @@ def arrival(
     """
     from _lumascope.modules.lumascope_api.illumination import snapshot_lit_pairs
 
-    readings = scope.illumination.get_led_states()
+    readings = scope.illumination.led_states()
     return Arrival(
         fact=frame_fact(scope, to_plate=to_plate),
         light=common_utils.light_of(readings, channel_tiebreak),

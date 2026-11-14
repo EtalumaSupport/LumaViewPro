@@ -53,10 +53,10 @@ try:
         s.confirm_objective(b, slot=3)
         check(
             'confirm_objective assigns the slot, clears the question, and is active',
-            s.get_settings_snapshot()['turret_objectives'][3] == b
+            s.settings_snapshot()['turret_objectives'][3] == b
             and s.objective_question() is None
             and s.scope.runtime_state.resolve_current_objective()[0] == b,
-            str(s.get_settings_snapshot()['turret_objectives']),
+            str(s.settings_snapshot()['turret_objectives']),
         )
 except BaseException:
     traceback.print_exc()

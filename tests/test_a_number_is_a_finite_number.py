@@ -133,9 +133,9 @@ def test_a_camera_diagnostic_refuses_a_time(session, value):
 @pytest.mark.parametrize('value', NOT_FINITE)
 def test_a_capture_refuses_a_time(session, value):
     imaging = session.scope.imaging
-    _refused(lambda: imaging.get_image(timeout_s=value), 'timeout_s')
-    _refused(lambda: imaging.get_image(sum_delay_s=value), 'sum_delay_s')
-    _refused(lambda: imaging.get_image(new_capture_timeout_s=value), 'new_capture_timeout_s')
+    _refused(lambda: imaging.capture_image(timeout_s=value), 'timeout_s')
+    _refused(lambda: imaging.capture_image(sum_delay_s=value), 'sum_delay_s')
+    _refused(lambda: imaging.capture_image(new_capture_timeout_s=value), 'new_capture_timeout_s')
     _refused(lambda: imaging.capture_still(timeout_s=value), 'timeout_s')
     _refused(lambda: imaging.capture_still(sum_delay_s=value), 'sum_delay_s')
 
@@ -147,7 +147,7 @@ def test_plate_coordinates_and_a_well_are_refused(session, value):
 
     _refused(lambda: runtime_state.plate_to_stage(value, 10.0), 'x_mm')
     _refused(lambda: runtime_state.stage_to_plate(10.0, value), 'y_um')
-    _refused(lambda: plate.get_well_index(value, 10.0), 'x_mm')
+    _refused(lambda: plate.well_index(value, 10.0), 'x_mm')
 
 
 @pytest.mark.parametrize('value', NOT_FINITE)

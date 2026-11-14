@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A capture returns a frame or raises why it got none.
 
-The capture and ``get_image`` once answered every failure with
+The capture and ``capture_image`` once answered every failure with
 None and kept the reason in a side record, whose ladder ended in "camera
 inactive or not grabbing" -- the wrong cause for the commonest fault, a
 stalled stream on a grabbing camera. Now a capture that got no frame raises
@@ -85,7 +85,7 @@ class TestAStalledStream:
         sim_scope.simulation.stall_stream(0.0, 30.0)
 
         with pytest.raises(CaptureFailedError) as failed:
-            sim_scope.imaging.get_image(timeout_s=0.5, new_capture_timeout_s=0.5)
+            sim_scope.imaging.capture_image(timeout_s=0.5, new_capture_timeout_s=0.5)
 
         assert failed.value.reason == 'no_frame'
 
@@ -179,7 +179,7 @@ class TestARemovedCamera:
         assert sim_scope._camera_driver.active
 
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            sim_scope.imaging.get_image()
+            sim_scope.imaging.capture_image()
 
         assert refused.value.reason == 'not_connected'
         assert posted == []

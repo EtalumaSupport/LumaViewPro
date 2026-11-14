@@ -620,8 +620,8 @@ def stall_with_a_frame_buffered(
     so a test reading the buffer later can say whether it found that frame,
     an earlier one, or one delivered after the capture.
     """
-    captured = scope.imaging.get_image(force_to_8bit=False)
-    _image, seq = scope.imaging.get_image_from_buffer(force_to_8bit=False)
+    captured = scope.imaging.capture_image(force_to_8bit=False)
+    _image, seq = scope.imaging.buffered_image(force_to_8bit=False)
     at_capture = BufferedAtCapture(captured, seq)
     watcher = _StreamStopped()
     logger = logging.getLogger('LVP')

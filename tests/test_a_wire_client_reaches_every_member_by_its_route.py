@@ -184,10 +184,10 @@ def test_a_wire_client_reads_settings_by_path_and_not_by_document(client, sessio
     paths = client.get('/api/v1/openapi.json').json()['paths']
     assert {path.rsplit('/', 1)[-1] for path in paths} & documents == set()
 
-    assert client.get('/api/v1/get_settings_snapshot').status_code == 404
-    one = client.get('/api/v1/get_setting', params={'path': 'video.max_fps'})
+    assert client.get('/api/v1/settings_snapshot').status_code == 404
+    one = client.get('/api/v1/setting', params={'path': 'video.max_fps'})
     assert one.status_code == 200, one.text
-    assert one.json() == session.get_settings_snapshot()['video']['max_fps']
+    assert one.json() == session.settings_snapshot()['video']['max_fps']
 
 
 def test_the_versions_are_answered_unversioned(client):
@@ -215,11 +215,9 @@ def test_a_read_method_is_a_get_its_arguments_converted_from_the_query(client, s
     text converted to the parameter's type, a list its key repeated, a
     record one key a field; a key it does not take, a value that will not
     convert or half a record is 422 naming the key, and POST is 405."""
-    limits = client.get('/api/v1/scope/motion/get_axis_limits', params={'axis': 'Z'})
-    assert limits.json() == session.scope.motion.get_axis_limits('Z').to_dict()
-    assert (
-        client.post('/api/v1/scope/motion/get_axis_limits', json={'axis': 'Z'}).status_code == 405
-    )
+    limits = client.get('/api/v1/scope/motion/axis_limits', params={'axis': 'Z'})
+    assert limits.json() == session.scope.motion.axis_limits('Z').to_dict()
+    assert client.post('/api/v1/scope/motion/axis_limits', json={'axis': 'Z'}).status_code == 405
 
     frame = client.get('/api/v1/scope/camera/frame_at_binning', params={'size': '2'})
     assert frame.status_code == 200, frame.text
@@ -247,7 +245,7 @@ def test_a_read_method_is_a_get_its_arguments_converted_from_the_query(client, s
             if 'x_mm' in params
             else '/api/v1/scope/camera/frame_at_binning'
             if 'size' in params
-            else '/api/v1/scope/motion/get_axis_limits'
+            else '/api/v1/scope/motion/axis_limits'
         )
         refused = client.get(path, params={k: v for k, v in params.items() if v is not None})
         assert refused.status_code == 422, refused.text
@@ -360,7 +358,7 @@ def test_a_sub_objects_method_is_called_with_its_arguments_by_name(client, sessi
     assert on.json() == 10.0
     assert led_reading(session.scope, 2) == LedReading(2, LED2, LedState.LIT, 10.0)
 
-    states = client.get('/api/v1/scope/illumination/get_led_states')
+    states = client.get('/api/v1/scope/illumination/led_states')
     assert {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0} in states.json()
 
 
@@ -368,7 +366,7 @@ def test_readings_read_over_the_wire_are_taken_back_by_restore(client, session):
     # The readings are records inside an array; the wire answers them as
     # JSON and restore_led_state decodes them back.
     session.scope.illumination.led_on(LED2, 10.0)
-    readings = client.get('/api/v1/scope/illumination/get_led_states')
+    readings = client.get('/api/v1/scope/illumination/led_states')
     assert readings.status_code == 200
     assert {'address': 2, 'name': LED2, 'state': 'lit', 'illumination_ma': 10.0} in readings.json()
     session.scope.illumination.leds_off()
@@ -422,9 +420,7 @@ def test_an_led_is_lit_over_the_wire_by_its_channels_name_and_no_address(client,
     )
 
     assert answer.status_code == 422, answer.text
-    assert [
-        r for r in session.scope.illumination.get_led_states() if r.state != LedState.DARK
-    ] == []
+    assert [r for r in session.scope.illumination.led_states() if r.state != LedState.DARK] == []
     for ask in (client.get, client.post):
         assert ask('/api/v1/scope/illumination/led_address_of').status_code == 404
 
@@ -445,7 +441,7 @@ def test_a_wire_move_that_sends_ignore_limits_is_422_and_drives_nothing(
     motion = session.scope.motion
     # Homed, so the axes know where they are and travel is the only gate left.
     motion.home()
-    limits = {axis: motion.get_axis_limits(axis) for axis in ('Y', 'Z')}
+    limits = {axis: motion.axis_limits(axis) for axis in ('Y', 'Z')}
     before = {axis: motion.get_current_position(axis) for axis in ('Y', 'Z')}
 
     answer = client.post(

@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Every client reads which driver Windows has bound to a Lumascope Classic.
 
-``DiagnosticsAPI.get_camera_usb_bindings`` answers both USB identities, the
+``DiagnosticsAPI.read_camera_usb_bindings`` answers both USB identities, the
 bootloader (8613) and the running firmware (EA17), from the same read the
 camera's connect checks, so REST, the SDK and the support report see what
 the connect saw, also when the camera did not come up. A present device on
@@ -30,7 +30,7 @@ def fx2_session():
 
 
 def test_a_simulated_classic_reports_its_running_firmware_on_winusb(fx2_session):
-    bootloader, firmware = fx2_session.scope.diagnostics.get_camera_usb_bindings()
+    bootloader, firmware = fx2_session.scope.diagnostics.read_camera_usb_bindings()
 
     # Uploaded at bring-up, so only the running firmware is on the bus.
     assert bootloader == UsbIdentityBindings(
@@ -46,7 +46,7 @@ def test_a_simulated_classic_reports_its_running_firmware_on_winusb(fx2_session)
 def test_a_running_firmware_rebound_to_libusbk_reads_unusable(fx2_session):
     fx2_session.scope.simulation.bind_camera_usb_driver(FX2_FIRMWARE, 'libusbK', problem_code=None)
 
-    _, firmware = fx2_session.scope.diagnostics.get_camera_usb_bindings()
+    _, firmware = fx2_session.scope.diagnostics.read_camera_usb_bindings()
 
     assert firmware.usable is False
     assert [d.service for d in firmware.devices] == ['libusbK']
@@ -60,7 +60,7 @@ def test_a_simulated_scope_never_reads_the_hosts_bus(sim_scope, monkeypatch):
     # must never reach; on this Mac it would answer None either way.
     monkeypatch.setattr(fx2driver, 'host_bindings', _read_the_host)
 
-    assert sim_scope.diagnostics.get_camera_usb_bindings() is None
+    assert sim_scope.diagnostics.read_camera_usb_bindings() is None
 
 
 def test_windows_reads_each_device_present_or_past_through_setupapi(monkeypatch):

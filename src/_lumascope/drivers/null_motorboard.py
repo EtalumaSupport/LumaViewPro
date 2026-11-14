@@ -272,7 +272,7 @@ class NullMotionBoard:
         """
         return self.axes_config
 
-    def get_axis_limits(self, axis: str) -> Mapping[str, float] | None:
+    def axis_limits(self, axis: str) -> Mapping[str, float] | None:
         """Return travel limits for an axis, or None if no limits defined.
 
         Args:
@@ -303,7 +303,7 @@ class NullMotionBoard:
         """
         return {}
 
-    def set_acceleration_limit(self, axis, parameter, val_pct) -> None:
+    def set_acceleration_limit_pct(self, axis: str, parameter: str, val_pct: int) -> None:
         """Null implementation: no-op."""
         pass
 
