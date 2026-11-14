@@ -29,9 +29,7 @@ try:
     banner('apply_zstacking')
     zp = config_helpers.get_zstack_params_from_settings(settings)
     print('zstack params:', zp)
-    session.apply_zstacking(
-        p, range_um=zp['range'], step_size_um=zp['step_size'], z_reference=zp['z_reference']
-    )
+    session.apply_zstacking(p)
     print(f'{before} -> {p.num_steps()} steps')
     print('Z-Slice column:', p.steps()['Z-Slice'].tolist())
     print('Z column      :', p.steps()['Z'].tolist())
@@ -39,8 +37,10 @@ try:
 
     banner("the zero-extent refusal is the protocol's")
     p2 = session.scope.protocols.create_protocol(input_config=cfg)
+    session.update_settings('zstack.range', 0.0)
+    session.update_settings('zstack.step_size', 0.0)
     try:
-        session.apply_zstacking(p2, range_um=0.0, step_size_um=0.0, z_reference=zp['z_reference'])
+        session.apply_zstacking(p2)
         print('ASSERT refused: FAIL -- a zero-extent stack was not refused')
     except Exception as e:
         print(f'RAISED {type(e).__name__}: {e}')

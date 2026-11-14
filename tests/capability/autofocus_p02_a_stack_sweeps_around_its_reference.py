@@ -93,7 +93,6 @@ def main():
     try:
         with session_cm as (session, runner):
             from _lumascope.modules.coord_transformations import PlateLocation
-            from _lumascope.modules.zstack_config import ZStackReference
 
             live = session.get_current_plate_position()
             z = args.z
@@ -112,12 +111,10 @@ def main():
 
             protocol = session.create_empty_protocol()
             session.add_step(protocol, channels=[args.layer], at=at)
-            session.apply_zstacking(
-                protocol,
-                range_um=2 * args.step,
-                step_size_um=args.step,
-                z_reference=ZStackReference.CENTER,
-            )
+            session.update_settings('zstack.range', 2 * args.step)
+            session.update_settings('zstack.step_size', args.step)
+            session.update_settings('zstack.position', 'center')
+            session.apply_zstacking(protocol)
             before = _ladder(protocol)
             figure('slices before, um', [z for _, z in before])
             if not check('the stack has 3 slices', len(before) == 3, f'{len(before)}'):

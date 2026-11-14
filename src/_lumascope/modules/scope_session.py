@@ -127,7 +127,6 @@ from _lumascope.modules.protocol import (
 )
 from _lumascope.modules.axes import StageAxis
 from _lumascope.modules.video_cadence import video_sizing_fps
-from _lumascope.modules.zstack_config import ZStackReference
 from _lumascope.modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from _lumascope.modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from _lumascope.modules.python_values import python_values
@@ -3923,35 +3922,35 @@ class ScopeSession:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
-    def apply_zstacking(
-        self,
-        protocol: 'Protocol',
-        *,
-        range_um: float,
-        step_size_um: float,
-        z_reference: ZStackReference,
-    ) -> None:
-        """Expand every step of ``protocol`` not already in a stack into a z-stack.
+    def apply_zstacking(self, protocol: 'Protocol') -> None:
+        """Expand every step of ``protocol`` not already in a stack into the stored z-stack.
+
+        The stack is the stored ``zstack``, as ``new_protocol`` and
+        ``add_step`` stack: its extent ``zstack.range`` and slice spacing
+        ``zstack.step_size`` in micrometres, and ``zstack.position``, where
+        each step's Z sits in its stack. A caller wanting another stack
+        writes those settings first.
 
         Args:
             protocol: The protocol whose steps are stacked.
-            range_um: The stack's extent in Z, in micrometres; greater than
-                zero.
-            step_size_um: The distance between slices, in micrometres;
-                greater than zero.
-            z_reference: Where each step's Z sits in its stack.
 
         Raises:
-            ProtocolRunRefusedError: ``range_um`` or ``step_size_um`` is not
-                greater than zero, the scope has no Z motor, or a slice falls
-                outside the Z travel. Nothing changes.
-            ArgumentRefusedError: ``'not_a_number'``, ``range_um`` or
-                ``step_size_um`` is not a finite number. Nothing changes.
-            ArgumentRefusedError: ``'not_offered'``, ``z_reference`` is not a
-                ``ZStackReference``. Nothing changes.
+            ProtocolRunRefusedError: ``'zstack_not_configured'``, the stored
+                range or step size is not greater than zero (the shipped
+                default); ``'positions_unreachable'``, the scope has no Z
+                motor; ``'step_position_missing'``, a step has no position on
+                an axis this scope moves; ``'zslices_outside_travel'``, a
+                slice falls outside the Z travel. Nothing changes.
         """
+        import _lumascope.modules.config_helpers as config_helpers
+
+        with self.settings_lock:
+            stack = config_helpers.get_zstack_params_from_settings(self._settings)
         self.scope.protocols.apply_zstacking(
-            protocol, range_um=range_um, step_size_um=step_size_um, z_reference=z_reference
+            protocol,
+            range_um=stack['range'],
+            step_size_um=stack['step_size'],
+            z_reference=stack['z_reference'],
         )
 
     @api(in_process=True, admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))

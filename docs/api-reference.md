@@ -602,39 +602,32 @@ overlap, laid out on the protocol's own plate.
 ### `ScopeSession.apply_zstacking`
 
 ```python
-def apply_zstacking(
-    self,
-    protocol: Protocol,
-    *,
-    range_um: float,
-    step_size_um: float,
-    z_reference: ZStackReference,
-) -> None
+def apply_zstacking(self, protocol: Protocol) -> None
 ```
 
 Marks: enters: `guarded_write`.  
 Route: `POST /api/v1/apply_zstacking`.
 
-Expand every step of `protocol` not already in a stack into a z-stack.
+Expand every step of `protocol` not already in a stack into the stored z-stack.
+
+The stack is the stored `zstack`, as `new_protocol` and
+`add_step` stack: its extent `zstack.range` and slice spacing
+`zstack.step_size` in micrometres, and `zstack.position`, where
+each step's Z sits in its stack. A caller wanting another stack
+writes those settings first.
 
 **Args**
 
 - `protocol`: The protocol whose steps are stacked.
-- `range_um`: The stack's extent in Z, in micrometres; greater than zero.
-- `step_size_um`: The distance between slices, in micrometres; greater than zero.
-- `z_reference`: Where each step's Z sits in its stack.
 
 **Raises**
 
-- `ProtocolRunRefusedError`: `range_um` or `step_size_um` is not greater than zero, the scope has no Z motor, or a slice falls outside the Z travel. Nothing changes.
-- `ArgumentRefusedError`: `'not_a_number'`, `range_um` or `step_size_um` is not a finite number. Nothing changes.
-- `ArgumentRefusedError`: `'not_offered'`, `z_reference` is not a `ZStackReference`. Nothing changes.
+- `ProtocolRunRefusedError`: `'zstack_not_configured'`, the stored range or step size is not greater than zero (the shipped default); `'positions_unreachable'`, the scope has no Z motor; `'step_position_missing'`, a step has no position on an axis this scope moves; `'zslices_outside_travel'`, a slice falls outside the Z travel. Nothing changes.
 
 **Refusals by REST status**
 
-- 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `camera_setting_out_of_range`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `not_offered`
-- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`
+- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `zstack_not_configured`, `positions_unreachable`, `step_position_missing`, `zslices_outside_travel`
 
 <a id="ScopeSession.assign_turret_objective"></a>
 ### `ScopeSession.assign_turret_objective`
@@ -14874,19 +14867,6 @@ name and derivation record carry the name lower-cased
 - `Median` (`Median`)
 - `Sum` (`Sum`)
 - `StdDev` (`StdDev`)
-
-<a id="ZStackReference"></a>
-### `lumascope.ZStackReference`
-
-Taken by: [`ScopeSession.apply_zstacking`](#ScopeSession.apply_zstacking).
-
-Where a stack sits against the Z it is built around: its top, its
-centre or its bottom at that Z. The stored `zstack.position` holds the
-value; the GUI shows its own label for each.
-
-- `top`
-- `center`
-- `bottom`
 
 ## Outcomes
 

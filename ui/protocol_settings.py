@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from _lumascope.modules.sequenced_capture_runner import RunProgress
 from ui.step_navigation import go_to_step
 from _lumascope.modules.timedelta_formatter import strfdelta
-from _lumascope.modules.zstack_config import ZStackReference
 from _lumascope.modules import gui_logger, live_work
 from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
@@ -472,7 +471,7 @@ class ProtocolSettings(FloatLayout):
         run_reported(self._apply_zstacking, None, 'APPLY_ZSTACKING')
 
     def _apply_zstacking(self) -> None:
-        """Ask the Session for a z-stack of the panel's values, then show the steps.
+        """Ask the Session for the stored z-stack, then show the steps.
 
         Every refusal (a range or step size not greater than zero, a scope
         with no Z motor, a slice outside the Z travel) is the API's, raised
@@ -483,13 +482,7 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
 
-        stack = ctx.session.get_setting('zstack')
-        ctx.session.apply_zstacking(
-            self._protocol,
-            range_um=stack['range'],
-            step_size_um=stack['step_size'],
-            z_reference=ZStackReference(stack['position']),
-        )
+        ctx.session.apply_zstacking(self._protocol)
 
         ctx.stage.set_protocol_steps(self._protocol)
         self.update_step_ui()

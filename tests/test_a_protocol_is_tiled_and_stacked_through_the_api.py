@@ -20,7 +20,7 @@ import pytest
 
 import _lumascope.modules.config_helpers as config_helpers
 from _lumascope.modules.coord_transformations import PlateLocation
-from _lumascope.modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError
+from _lumascope.modules.exceptions import ProtocolRunRefusedError
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -216,12 +216,20 @@ def _bf_steps_at_center(session):
     return protocol
 
 
+def _store_stack(session, *, range_um, step_size_um, position):
+    """The stored z-stack, written as the GUI's z-stack fields write it."""
+    session.update_settings('zstack.range', range_um)
+    session.update_settings('zstack.step_size', step_size_um)
+    session.update_settings('zstack.position', position)
+
+
 class TestZStacking:
     def test_every_step_becomes_a_stack_in_the_order_a_run_visits(self, session):
         protocol = _bf_steps_at(session, (10000, 20000, 10000))
         places = _rows(protocol)[:2]
+        _store_stack(session, range_um=20.0, step_size_um=5.0, position='center')
 
-        session.apply_zstacking(protocol, range_um=20.0, step_size_um=5.0, z_reference='center')
+        session.apply_zstacking(protocol)
 
         # Each place in the order it first appears; at a place, rising in Z,
         # the first and third steps' slices of one Z together.
@@ -230,46 +238,62 @@ class TestZStacking:
             (1, 0), (1, 1), (1, 2), (1, 3), (1, 4),
         ]  # fmt: skip
 
+    def test_the_stack_is_the_stored_one(self, session):
+        """The slices are the stored range, step and reference around the step's Z."""
+        protocol = _bf_steps_at(session, (10000,))
+        z = _rows(protocol)[0]['Z']
+        _store_stack(session, range_um=10.0, step_size_um=5.0, position='bottom')
+
+        session.apply_zstacking(protocol)
+
+        assert sorted(row['Z'] for row in _rows(protocol)) == pytest.approx([z, z + 5.0, z + 10.0])
+
     @pytest.mark.parametrize(('range_um', 'step_size_um'), [(0.0, 5.0), (20.0, 0.0)])
-    def test_no_extent_is_refused_and_nothing_changes(self, session, range_um, step_size_um):
+    def test_a_stored_stack_with_no_extent_is_refused_and_nothing_changes(
+        self, session, range_um, step_size_um
+    ):
         protocol = _bf_steps_at(session, (10000,))
         before = _rows(protocol)
+        _store_stack(session, range_um=range_um, step_size_um=step_size_um, position='center')
 
         with pytest.raises(ProtocolRunRefusedError) as refused:
-            session.apply_zstacking(
-                protocol, range_um=range_um, step_size_um=step_size_um, z_reference='center'
-            )
+            session.apply_zstacking(protocol)
 
         assert refused.value.reason == 'zstack_not_configured'
-        assert _rows(protocol) == before
-
-    def test_an_unknown_reference_is_refused_and_nothing_changes(self, session):
-        protocol = _bf_steps_at(session, (10000,))
-        before = _rows(protocol)
-
-        with pytest.raises(ArgumentRefusedError) as refused:
-            session.apply_zstacking(protocol, range_um=20.0, step_size_um=5.0, z_reference='middle')
-        assert (refused.value.reason, refused.value.argument) == ('not_offered', 'z_reference')
-        assert refused.value.offered == ('top', 'center', 'bottom')
-
         assert _rows(protocol) == before
 
     def test_a_build_leaving_a_step_the_run_refuses_is_noticed_once(self, session, reported):
         protocol = _bf_steps_at(session, (10000,))
         protocol._config['steps'].at[0, 'Exposure'] = 0.0
+        _store_stack(session, range_um=20.0, step_size_um=5.0, position='center')
 
-        session.apply_zstacking(protocol, range_um=20.0, step_size_um=5.0, z_reference='center')
+        session.apply_zstacking(protocol)
 
         assert reported == [True]
 
     def test_a_z_only_scope_stacks(self, z_only_session):
         protocol = _bf_steps_at_center(z_only_session)
+        _store_stack(z_only_session, range_um=20.0, step_size_um=5.0, position='bottom')
 
-        z_only_session.apply_zstacking(
-            protocol, range_um=20.0, step_size_um=5.0, z_reference='bottom'
-        )
+        z_only_session.apply_zstacking(protocol)
 
         assert protocol.num_steps() == 5
+
+    def test_over_rest_the_stack_is_asked_by_the_protocol_alone(self):
+        """``POST /api/v1/apply_zstacking`` takes the protocol and nothing of the stack."""
+        from _lumascope.modules import wire_encoding
+        from _lumascope.rest import routes as rest_routes
+
+        handed_out = wire_encoding.handed_out(
+            ScopeSession, wire_encoding.project_classes(), wire_encoding.project_aliases()
+        )
+        (route,) = (
+            route
+            for route in rest_routes.routes(ScopeSession, handed_out=handed_out)
+            if route.name == 'apply_zstacking'
+        )
+
+        assert set(route.body.model_fields) == {'protocol'}
 
 
 def _new_bf_and_blue(session, *, bf_focus, blue_focus, range_um=10.0):

@@ -152,17 +152,24 @@ def test_plate_coordinates_and_a_well_are_refused(session, value):
 
 @pytest.mark.parametrize('value', NOT_FINITE)
 def test_a_zstack_extent_is_refused_and_the_protocol_unchanged(session, value):
+    """The protocols API, which takes the stack's numbers, refuses one that is not finite.
+
+    The Session's ``apply_zstacking`` reads the stored stack, whose writer
+    refuses such a number (``wrong_kind``), so the protocols API is where a
+    caller can still hand one in.
+    """
     protocol = session.create_empty_protocol()
     before = protocol.steps().copy()
+    protocols = session.scope.protocols
 
     _refused(
-        lambda: session.apply_zstacking(
+        lambda: protocols.apply_zstacking(
             protocol, range_um=value, step_size_um=5.0, z_reference='center'
         ),
         'z-stack range',
     )
     _refused(
-        lambda: session.apply_zstacking(
+        lambda: protocols.apply_zstacking(
             protocol, range_um=20.0, step_size_um=value, z_reference='center'
         ),
         'z-stack step_size',

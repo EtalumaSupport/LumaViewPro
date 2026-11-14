@@ -504,9 +504,6 @@ from _lumascope.modules.wire_encoding import (
 from _lumascope.modules.zproject_method import (
     ZProjectMethod,
 )
-from _lumascope.modules.zstack_config import (
-    ZStackReference,
-)
 from _lumascope.rest.app import (
     build_app,
 )
@@ -890,7 +887,6 @@ __all__ = [
     'WorkKind',
     'ZProject',
     'ZProjectMethod',
-    'ZStackReference',
     'build_app',
     'build_server',
     'outcome_of',

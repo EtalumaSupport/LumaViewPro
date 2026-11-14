@@ -16,7 +16,6 @@ from __future__ import annotations
 import datetime
 
 from _lumascope.modules.protocol import Protocol
-from _lumascope.modules.zstack_config import ZStackReference
 from tests.guards.test_the_gui_edits_protocols_through_the_api import WRITERS
 from tests.scope_fakes import home_sim_scope
 from tests.test_a_built_protocol_is_ordered_by_place_then_objective_and_slice import _protocol_file
@@ -108,6 +107,16 @@ def _other_turret_slot(session, protocol):
     protocol.set_turret_slot([0], 2 if slot == 1 else 1)
 
 
+def _stack_as_stored(session, protocol):
+    # The stored stack stays written for the edits after this one on the
+    # shared session; of those only ``insert_step`` reads the store, and it
+    # adds without stacking.
+    session.update_settings('zstack.range', 10.0)
+    session.update_settings('zstack.step_size', 5.0)
+    session.update_settings('zstack.position', 'bottom')
+    session.apply_zstacking(protocol)
+
+
 # One edit per writer of the protocol, each one that changes what a save
 # writes: the guard's WRITERS, so a writer added there without a case here
 # fails the walk below. ``record_saved`` records; it is not an edit.
@@ -116,9 +125,7 @@ _EDITS = {
     'apply_focus_all_channel_steps': lambda s, p: p.apply_focus_all_channel_steps('BF', 1234.0),
     'apply_tiling': lambda s, p: s.apply_tiling(p, '2x2'),
     'apply_zstack_group_focus': lambda s, p: p.apply_zstack_group_focus(0, 1234.0),
-    'apply_zstacking': lambda s, p: s.apply_zstacking(
-        p, range_um=10.0, step_size_um=5.0, z_reference=ZStackReference.BOTTOM
-    ),
+    'apply_zstacking': _stack_as_stored,
     'delete_step': lambda s, p: s.delete_step(p, 0),
     'insert_step': lambda s, p: s.add_step(p),
     'modify_autofocus': lambda s, p: p.modify_autofocus(

@@ -36,6 +36,12 @@ plate = session.new_protocol(tiling='2x2', use_zstacking=True)
 print(plate.num_steps(), plate.tiling())
 ```
 
+Every z-stack is the stored one: `new_protocol` and `add_step` with
+`use_zstacking=True`, `apply_zstacking(protocol)` on steps already made, and
+the runner's `start_zstack` all read `zstack.range`, `zstack.step_size` and
+`zstack.position` (top, center or bottom: where each step's Z sits in its
+stack), so a different stack is those settings written first.
+
 A z-stack whose channel autofocuses is focused once, by a sweep fired at its
 first slice and centred on its reference slice, and the found focus lands on
 that reference slice -- the slice built at the channel's focus: the middle
