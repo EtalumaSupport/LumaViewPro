@@ -867,7 +867,6 @@ OPEN_STRINGS: dict[str, str] = {
     'LedBoardInfo.firmware_version field': _BOARD,
     'LedReading.name field': _CHANNEL,
     'LiveFolderEntry.name field': _PATH,
-    'LiveProcessingRegistry.unregister parameter name': _PLUGIN,
     'Lumascope.objective parameter objective_id': _OBJECTIVE,
     'Lumascope.plate parameter labware_id': _LABWARE,
     'Lumascope.scope_models return': _MODEL,

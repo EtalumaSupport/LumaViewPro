@@ -3960,7 +3960,10 @@ def unload_plugins(self) -> None
 
 Marks: in-process.
 
-Call each loaded plugin's `unregister`, last loaded first.
+Unload each loaded plugin, last loaded first.
+
+Its frame listener is removed from the camera, then its
+`unregister` is called for its own cleanup.
 
 A host whose close has to stop plugin work before anything else --
 the GUI's, before it stops runs and saves settings -- calls this
@@ -11258,7 +11261,8 @@ there is a scope to forward to.
 
 Plugin authors call:
     ctx.plugins.live_processing.register(spec, handler)
-    ctx.plugins.live_processing.unregister(spec.name)
+and the host removes the listener when it unloads the plugin, or when
+the plugin's register() raises.
 
 Handler signature is cb(frame), the camera's `Frame` record. It runs
 on the camera SDK thread; see the imaging.add_frame_listener docstring
@@ -11289,25 +11293,6 @@ Add a listener on every frame the camera delivers.
 
 - [`PluginRegistrationError`](#PluginRegistrationError): `name_taken`
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
-
-<a id="LiveProcessingRegistry.unregister"></a>
-### `LiveProcessingRegistry.unregister`
-
-```python
-def unregister(self, name: str) -> None
-```
-
-Marks: in-process.
-
-Remove the listener a plugin registered; nothing when it registered none.
-
-**Args**
-
-- `name`: The plugin's name.
-
-**Raises**
-
-Nothing.
 
 <a id="LiveWork"></a>
 ## `lumascope.LiveWork`

@@ -5919,7 +5919,10 @@ class ScopeSession:
 
     @api(in_process=True)
     def unload_plugins(self) -> None:
-        """Call each loaded plugin's ``unregister``, last loaded first.
+        """Unload each loaded plugin, last loaded first.
+
+        Its frame listener is removed from the camera, then its
+        ``unregister`` is called for its own cleanup.
 
         A host whose close has to stop plugin work before anything else --
         the GUI's, before it stops runs and saves settings -- calls this

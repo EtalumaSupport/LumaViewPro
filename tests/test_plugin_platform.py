@@ -112,7 +112,8 @@ def test_the_retired_record_fields_are_refused_where_the_record_is_built():
 def test_the_plugin_contract_is_declared():
     """What the tutorial teaches is API, in process: the session's ``plugins``
     and each namespace's registration members; ``rest.register``, which takes
-    a framework router, is outside the contract."""
+    a framework router, is outside the contract, and removing a frame listener
+    is the host's, at unload."""
     taught = {
         'ScopeSession.plugins': ScopeSession.__dict__['plugins'].fget,
         'UIRegistry.register': UIRegistry.register,
@@ -120,12 +121,13 @@ def test_the_plugin_contract_is_declared():
         'PostProcessingRegistry.names': PostProcessingRegistry.names,
         'PostProcessingRegistry.get': PostProcessingRegistry.get,
         'LiveProcessingRegistry.register': LiveProcessingRegistry.register,
-        'LiveProcessingRegistry.unregister': LiveProcessingRegistry.unregister,
         'RESTRegistry.enable_stub_mode': RESTRegistry.enable_stub_mode,
     }
     unmarked = sorted(name for name, member in taught.items() if mark_of(member) != IN_PROCESS)
     assert unmarked == [], unmarked
     assert mark_of(RESTRegistry.register) is None
+    # The host removes a plugin's listener at unload; a plugin never does.
+    assert mark_of(LiveProcessingRegistry.unregister) is None
 
 
 # ---------------------------------------------------------------------------
@@ -814,6 +816,25 @@ def test_unload_plugins_swallows_unregister_failure(harness_ctx):
     harness_ctx.plugins.unload(harness_ctx)
     assert len(bad._unregister_calls) == 1
     assert len(good._unregister_calls) == 1
+
+
+def test_unload_removes_a_plugins_frame_listener_without_its_unregister(sim_scope):
+    """The host removes a plugin's frame listener at unload: a plugin's own
+    unregister does not, and the listener is no longer listed."""
+    registry = PluginRegistry(sim_scope)
+    host = types.SimpleNamespace(plugins=registry)
+    mod = types.ModuleType('fake_plugin_live_unload')
+    mod.__version__ = '0.1.0'
+    mod.spec = _make_spec(name='live_unload')
+    mod.register = lambda ctx: ctx.plugins.live_processing.register(mod.spec, lambda frame: None)
+    mod.unregister = lambda ctx: None
+    with patch('importlib.metadata.entry_points', return_value=[_FakeEntryPoint('live', mod)]):
+        registry.load(host, '4.0.0')
+    assert [s.name for s in registry.live_processing.health().loaded] == ['live_unload']
+
+    registry.unload(host)
+
+    assert registry.live_processing.health().loaded == ()
 
 
 class TestAttributeException:

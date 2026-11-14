@@ -75,7 +75,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 111
+PLUGIN_API_LEVEL = 112
 
 
 class UIMountPoint(enum.StrEnum):
@@ -475,7 +475,8 @@ class LiveProcessingRegistry(_BaseNamespace):
 
     Plugin authors call:
         ctx.plugins.live_processing.register(spec, handler)
-        ctx.plugins.live_processing.unregister(spec.name)
+    and the host removes the listener when it unloads the plugin, or when
+    the plugin's register() raises.
 
     Handler signature is cb(frame), the camera's ``Frame`` record. It runs
     on the camera SDK thread; see the imaging.add_frame_listener docstring
@@ -518,15 +519,11 @@ class LiveProcessingRegistry(_BaseNamespace):
             self._scope.imaging.add_frame_listener(frame_handler, name=spec.name)
             self._entries[spec.name] = (spec, frame_handler)
 
-    @api(in_process=True)
     def unregister(self, name: str) -> None:
         """Remove the listener a plugin registered; nothing when it registered none.
 
-        Args:
-            name: The plugin's name.
-
-        Raises:
-            Nothing.
+        The host's, at unload and after a failed register(): a plugin
+        never removes its own listener.
         """
         with self._lock:
             entry = self._entries.pop(name, None)
@@ -934,13 +931,20 @@ class PluginRegistry:
         return 1
 
     def unload(self, host: Any) -> None:
-        """Call unregister(host) on every loaded plugin, last loaded first.
+        """Unload every loaded plugin, last loaded first.
+
+        Each plugin's frame listener is removed from the camera, then its
+        unregister(host) is called for its own cleanup. The listener is the
+        one registration that calls plugin code unbidden: a processor of an
+        unloaded plugin is skipped and reported by the run that reaches it,
+        and the host tears the widgets down at its close.
 
         The list is emptied first, so a second call unregisters nothing.
         A plugin's unregister failure is logged at WARNING and the rest are
         still unloaded: unloading is part of a close, which must finish.
         """
         for name, module in reversed(self._drain()):
+            self.live_processing.unregister(name)
             unregister_fn = getattr(module, 'unregister', None)
             if not callable(unregister_fn):
                 continue

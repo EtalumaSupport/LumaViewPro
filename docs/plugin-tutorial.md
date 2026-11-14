@@ -136,8 +136,10 @@ def unregister(ctx: Any) -> None:
     """Optional. Called at app shutdown in reverse load order.
 
     Nothing to tear down for this plugin. Implementations that opened
-    files, started threads, or registered listeners must release them
-    here so a clean re-load works.
+    files, started threads, or added listeners of their own (a run-state
+    listener, a frame listener added through scope.imaging) must release
+    them here so a clean re-load works; a frame listener registered
+    through ctx.plugins.live_processing the host removes first.
     """
     return None
 ```
@@ -320,7 +322,8 @@ you see that on startup, that's why.
 ### Unload
 
 At app shutdown `session.unload_plugins()` walks the loaded list in
-reverse and calls each plugin's `unregister(ctx)`; a session's
+reverse, removes each plugin's frame listener from the camera, and
+calls its `unregister(ctx)`; a session's
 `shutdown()` does it first for a host that did not. Exceptions are
 caught and logged at WARNING; shutdown is not blocked by a plugin's
 teardown failure. It runs before the hardware is disconnected: a plugin
@@ -380,8 +383,13 @@ run, such as its own Stop, stays live.
 as a listener on every frame the camera delivers, live view and runs
 alike. The registry forwards to `scope.imaging.add_frame_listener`
 under your plugin's name, so the log names your plugin when the
-handler runs over its budget or raises.
-`ctx.plugins.live_processing.unregister(spec.name)` removes it.
+handler runs over its budget or raises. The host removes it when it
+unloads your plugin, before it calls your `unregister(ctx)`, so your
+`unregister` does not remove it. This is the door for a listener that
+lives as long as your plugin; a listener for a single action, one
+characterization or one measurement, is added with
+`scope.imaging.add_frame_listener(handler, name=...)` and removed by
+whoever added it, with `remove_frame_listener` in a `finally`.
 
 ```python
 def register(ctx):
@@ -541,6 +549,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 109 | A z-stack is asked one way: `session.apply_zstacking(protocol)` stacks the stored z-stack, as `new_protocol(use_zstacking=True)`, `add_step(use_zstacking=True)` and `start_zstack` already do. Its `range_um`, `step_size_um` and `z_reference` are gone, with no alias: write `zstack.range`, `zstack.step_size` and `zstack.position` (`'top'`, `'center'` or `'bottom'`) through `update_settings` first, and the write stays in the user's settings. A stored range or step of 0, the shipped default, is refused `'zstack_not_configured'`. `ZStackReference` is no longer published, since no member takes it. On the wire `POST /api/v1/apply_zstacking` takes `protocol` alone. |
 | level 110 | No published read is named `get_`: a fresh read of the hardware or the host is `read_<fact>`, a held or derived answer the bare noun, with no alias for the old names. Held: `session.plate_position()`, `setting(path)`, `settings_snapshot()`; `camera.pixel_alignment()`; `diagnostics.led_info()`, `motor_info()`; `illumination.led_states()`; `imaging.delivered_rate()`; `motion.axis_limits(axis)`, `target_positions()`; `runtime_state.field_of_view()`, `pixel_size_um()`, `stage_offset()`, `turret_config()`, `well_label()`; `Labware.well_index`, `well_position`. Fresh: `camera.read_black_level_range()`; `diagnostics.read_camera_link()`, `read_camera_temperatures_degc()`, `read_camera_usb_bindings()`, `read_usb_census()`; `motion.read_actual_position`, `read_limit_switches`. The engineering grab is `imaging.capture_image()`, the buffered frame `imaging.buffered_image()`. `session.model` is `session.selected_model`, the model `select_model` saved; `discard_close_drain` is `discard_pending_video`; `set_scale_bar` is `set_scale_bar_enabled` and `set_acceleration_limit` is `set_acceleration_limit_pct`, each named for the read it sets. Each route moves with its member: `GET /api/v1/setting`, `GET /api/v1/scope/motion/axis_limits`, `GET /api/v1/scope/illumination/led_states`, `GET`/`PUT /api/v1/selected_model`. |
 | level 111 | Two members are served in-process only, with no route: `session.channel_slider_maxima(channel)`, where a control's manual sliders stop (a display hint, never a bound), and `session.source_path`, the host's data folder, which a client on another machine cannot use. A plugin calls both as before; `GET /api/v1/channel_slider_maxima` and `GET /api/v1/source_path` are gone. |
+| level 112 | The host removes a plugin's frame listener when it unloads the plugin, before calling its `unregister(ctx)`, as it already did after a failed `register(ctx)`; `ctx.plugins.live_processing.unregister` is no longer published, since a plugin never needs it. |
 
 ---
 
