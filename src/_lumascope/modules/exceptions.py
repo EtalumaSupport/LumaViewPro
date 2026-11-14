@@ -5724,6 +5724,36 @@ class OperationSettleRefusedError(Refusal, RuntimeError):
         self.member = member
 
 
+class OperationWaitExpiredError(Quiet, TimeoutError):
+    """A wait on an operation ran out of its ``timeout`` with the operation still going: nothing failed.
+
+    Raised by ``Operation.result`` and ``Operation.exception``. A
+    ``TimeoutError``, as a caller's own wait expiring always is, and quiet:
+    the operation goes on, to be waited on again or stopped. An operation
+    that ended in a ``TimeoutError`` of its own raises that one instead.
+    ``TimeoutError`` is the last base, so its ``OSError`` constructor never
+    reads the words as an errno.
+
+    Attributes:
+        reason: ``'still_running'``.
+        operation: The ``Operation`` waited on, still running when this was raised.
+        timeout_s: The wait that ran out, in seconds.
+    """
+
+    title = 'Still Going'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'still_running': RefusalCause.STATE}
+    same_fact_as = (RunWaitExpiredError,)
+
+    def __init__(self, operation, timeout_s: float):
+        super().__init__(
+            f'the operation was still going when the wait ran out after {timeout_s:g} s; '
+            "it goes on, held by this error's operation"
+        )
+        self.reason = 'still_running'
+        self.operation = operation
+        self.timeout_s = timeout_s
+
+
 class BlockingCallRefusedError(Refusal, RuntimeError):
     """A blocking call was made on a thread it could end up waiting on.
 

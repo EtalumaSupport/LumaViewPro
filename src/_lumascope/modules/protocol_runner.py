@@ -24,7 +24,11 @@ import pathlib
 import typing
 
 from _lumascope.modules.activity_claim import HeldClaim
-from _lumascope.modules.exceptions import CompositeFailedError, RunWaitExpiredError
+from _lumascope.modules.exceptions import (
+    CompositeFailedError,
+    OperationWaitExpiredError,
+    RunWaitExpiredError,
+)
 from _lumascope.modules.finite_number import refuse_unless_wait_s
 from _lumascope.modules.channel_record import refuse_unknown_channel
 from _lumascope.modules.coord_transformations import PlateLocation
@@ -789,9 +793,9 @@ class ProtocolRunner:
         run = start()
         try:
             return run.result(timeout=timeout_s)
-        except TimeoutError:
-            # A run that ended in a TimeoutError of its own is not this wait's.
-            if run.done():
+        except OperationWaitExpiredError as expired:
+            # A run that ended in another operation's expired wait is not this wait's.
+            if expired.operation is not run:
                 raise
             raise RunWaitExpiredError(member, timeout_s, run) from None
 

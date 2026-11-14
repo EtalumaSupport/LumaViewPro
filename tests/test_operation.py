@@ -2,7 +2,10 @@
 """An ``Operation`` is a running Future whose done-callbacks run on the one callback thread.
 
 The clauses of ``src/_lumascope/modules/operation.py``: it is running from construction,
-so ``cancel()`` is False; its done-callbacks run on the callback thread,
+so ``cancel()`` is False; a wait on it that runs out raises
+``OperationWaitExpiredError``, quiet, a ``TimeoutError``, and leaves it
+running, while one that ended in a ``TimeoutError`` of its own raises that;
+its done-callbacks run on the callback thread,
 one at a time in the order their operations settled, never on the thread
 that settled it, so a callback may wait on another operation the same
 thread settles next; ``stop()`` stops the operation's work while it is
@@ -24,8 +27,8 @@ import weakref
 import pytest
 
 from _lumascope.modules import ui_queue
-from _lumascope.modules.exceptions import BlockingCallRefusedError
-from _lumascope.modules.notification_center import notifications
+from _lumascope.modules.exceptions import BlockingCallRefusedError, OperationWaitExpiredError
+from _lumascope.modules.notification_center import OutcomeKind, notifications, outcome_of
 from _lumascope.modules.operation import Operation, settling
 from _lumascope.modules.scope_session import ScopeSession
 from tests.test_a_wait_returns_after_its_own_callbacks import _DeferringDispatcher
@@ -67,11 +70,27 @@ class TestItIsAFuture:
         cf.Future.set_result(other, 'answered')
         assert asyncio.run(_awaited()) == 'answered'
 
-    def test_a_caller_s_expired_wait_leaves_it_running(self):
+    @pytest.mark.parametrize('wait', ['result', 'exception'])
+    def test_a_caller_s_expired_wait_says_so_and_leaves_it_running(self, wait):
+        # parametrize-justified: two members, each its own raise.
         op = Operation()
-        with pytest.raises(cf.TimeoutError):
-            op.result(timeout=0.01)
+        with pytest.raises(OperationWaitExpiredError) as expired:
+            getattr(op, wait)(timeout=0.01)
+        assert isinstance(expired.value, TimeoutError)
+        assert expired.value.reason == 'still_running'
+        assert (expired.value.operation, expired.value.timeout_s) == (op, 0.01)
+        assert outcome_of(expired.value).kind == OutcomeKind.QUIET
         assert op.running()
+
+    def test_an_operation_that_ended_in_a_timeout_raises_its_own(self):
+        """Its own ``TimeoutError`` is what it ended with, never taken for the wait's."""
+        op = Operation()
+        its_own = TimeoutError('the camera did not answer')
+        cf.Future.set_exception(op, its_own)
+        with pytest.raises(TimeoutError) as raised:
+            op.result(timeout=0.01)
+        assert raised.value is its_own
+        assert op.exception(timeout=0.01) is its_own
 
 
 class TestItsDoneCallbacks:

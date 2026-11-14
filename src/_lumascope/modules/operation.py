@@ -41,7 +41,11 @@ from _lumascope.lvp_logger import logger
 from _lumascope.modules import ui_queue
 from _lumascope.modules.activity_claim import started_in_control
 from _lumascope.modules.api_surface import api, api_fields
-from _lumascope.modules.exceptions import BlockingCallRefusedError, OperationSettleRefusedError
+from _lumascope.modules.exceptions import (
+    BlockingCallRefusedError,
+    OperationSettleRefusedError,
+    OperationWaitExpiredError,
+)
 from _lumascope.modules.finite_number import refuse_unless_wait_s
 
 if TYPE_CHECKING:
@@ -335,14 +339,15 @@ class Operation[T](concurrent.futures.Future[T]):
 
         Args:
             timeout: The longest wait for the operation to end, in seconds,
-                0 to 30 days; None waits for as long as it takes. A wait
-                that runs out raises the Future's ``TimeoutError``.
+                0 to 30 days; None waits for as long as it takes.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 ``timeout`` is not a wait from 0 to 30 days.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, this is the UI
                 thread and the operation is not done.
+            OperationWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout`` ran out with the operation still going; it goes on.
         """
         own = self._delivering_here()
         if own is not None:
@@ -351,9 +356,8 @@ class Operation[T](concurrent.futures.Future[T]):
                 raise exception
             return result
         self._refuse_on_ui_thread('Operation.result')
-        if timeout is not None:
-            refuse_unless_wait_s(timeout, 'timeout')
-        return super().result(timeout)
+        self._wait(timeout)
+        return super().result()
 
     @api(in_process=True)
     def exception(self, timeout: float | None = None) -> BaseException | None:
@@ -361,28 +365,37 @@ class Operation[T](concurrent.futures.Future[T]):
 
         Args:
             timeout: The longest wait for the operation to end, in seconds,
-                0 to 30 days; None waits for as long as it takes. A wait
-                that runs out raises the Future's ``TimeoutError``.
+                0 to 30 days; None waits for as long as it takes.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
                 ``timeout`` is not a wait from 0 to 30 days.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, this is the UI
                 thread and the operation is not done.
+            OperationWaitExpiredError: ``'still_running'``, a ``TimeoutError``:
+                ``timeout`` ran out with the operation still going; it goes on.
         """
         own = self._delivering_here()
         if own is not None:
             return own[1]
         self._refuse_on_ui_thread('Operation.exception')
-        if timeout is not None:
-            refuse_unless_wait_s(timeout, 'timeout')
-        return super().exception(timeout)
+        self._wait(timeout)
+        return super().exception()
 
     def _delivering_here(self) -> tuple[object, BaseException | None] | None:
         own = self._own
         if own is None or own[0] is not threading.current_thread():
             return None
         return own[1], own[2]
+
+    def _wait(self, timeout: float | None) -> None:
+        # Asked of the Future's own state, not by catching its TimeoutError,
+        # so an operation that ended in a TimeoutError of its own is never
+        # taken for a wait that ran out.
+        if timeout is not None:
+            refuse_unless_wait_s(timeout, 'timeout')
+        if not concurrent.futures.wait((self,), timeout).done:
+            raise OperationWaitExpiredError(self, timeout)
 
     def _refuse_on_ui_thread(self, member: str) -> None:
         if not super().done():

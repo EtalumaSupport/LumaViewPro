@@ -11552,15 +11552,17 @@ What the operation raised, waiting up to `timeout` for it; None when it ended wi
 
 **Args**
 
-- `timeout`: The longest wait for the operation to end, in seconds, 0 to 30 days; None waits for as long as it takes. A wait that runs out raises the Future's `TimeoutError`.
+- `timeout`: The longest wait for the operation to end, in seconds, 0 to 30 days; None waits for as long as it takes.
 
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `timeout` is not a wait from 0 to 30 days.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, this is the UI thread and the operation is not done.
+- `OperationWaitExpiredError`: `'still_running'`, a `TimeoutError`: `timeout` ran out with the operation still going; it goes on.
 
 **Refusals**
 
+- [`OperationWaitExpiredError`](#OperationWaitExpiredError): `still_running`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
 
@@ -11595,15 +11597,17 @@ member's `Returns:` names.
 
 **Args**
 
-- `timeout`: The longest wait for the operation to end, in seconds, 0 to 30 days; None waits for as long as it takes. A wait that runs out raises the Future's `TimeoutError`.
+- `timeout`: The longest wait for the operation to end, in seconds, 0 to 30 days; None waits for as long as it takes.
 
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `timeout` is not a wait from 0 to 30 days.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, this is the UI thread and the operation is not done.
+- `OperationWaitExpiredError`: `'still_running'`, a `TimeoutError`: `timeout` ran out with the operation still going; it goes on.
 
 **Refusals**
 
+- [`OperationWaitExpiredError`](#OperationWaitExpiredError): `still_running`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
 
@@ -17163,6 +17167,30 @@ refusal of a second settle is.
 | Reason | Cause | REST status |
 |---|---|---|
 | `settled_by_its_producer` | request | 422 |
+
+<a id="OperationWaitExpiredError"></a>
+### `lumascope.OperationWaitExpiredError`
+
+A quiet outcome; bases `Quiet`, `TimeoutError`.
+
+A wait on an operation ran out of its `timeout` with the operation still going: nothing failed.
+
+Raised by `Operation.result` and `Operation.exception`. A
+`TimeoutError`, as a caller's own wait expiring always is, and quiet:
+the operation goes on, to be waited on again or stopped. An operation
+that ended in a `TimeoutError` of its own raises that one instead.
+`TimeoutError` is the last base, so its `OSError` constructor never
+reads the words as an errno.
+
+**Attributes**
+
+- `reason`: `'still_running'`.
+- `operation`: The `Operation` waited on, still running when this was raised.
+- `timeout_s`: The wait that ran out, in seconds.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `still_running` | state | 409 |
 
 <a id="PartAbsentError"></a>
 ### `lumascope.PartAbsentError`
