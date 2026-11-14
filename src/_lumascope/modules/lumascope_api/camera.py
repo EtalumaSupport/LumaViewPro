@@ -3138,8 +3138,11 @@ class CameraAPI:
         return self._read_on_lane(self._get_black_level_range_impl, 'get_black_level_range')
 
     def _get_black_level_range_impl(self) -> tuple[float, float] | None:
-        self.refuse_camera_not_connected('get_black_level_range')
-        return self._driver.get_black_level_range()
+        return self._read_unheld(
+            'get_black_level_range',
+            'black level range',
+            lambda driver: driver.get_black_level_range(),
+        )
 
     @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_frame_rate_fps(self) -> float | None:

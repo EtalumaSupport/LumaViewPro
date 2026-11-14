@@ -928,7 +928,8 @@ class SimulationAPI:
                 size write reads first), ``'binning'``, ``'pixel_format'``,
                 ``'pixel_formats'`` (the formats offered, which a pixel
                 format write reads first), ``'black_level'``,
-                ``'frame_rate'``, ``'minimum_exposure'``
+                ``'black_level_range'`` (the range ``set_black_level``
+                accepts), ``'frame_rate'``, ``'minimum_exposure'``
                 (the exposure floor, read into ``camera.setting_limits``),
                 ``'auto_gain'``,
                 ``'auto_exposure'`` or ``'grabbing'`` (whether the camera is

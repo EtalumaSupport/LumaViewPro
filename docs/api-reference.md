@@ -9627,7 +9627,7 @@ first good read after a connect, since it keeps the format it read.
 
 **Args**
 
-- `node`: The setting read: `'gain'`, `'exposure'`, `'frame_size'` (the window the camera acquires), `'frame_grid'` (the windows it can acquire, which a frame size write reads first), `'binning'`, `'pixel_format'`, `'pixel_formats'` (the formats offered, which a pixel format write reads first), `'black_level'`, `'frame_rate'`, `'minimum_exposure'` (the exposure floor, read into `camera.setting_limits`), `'auto_gain'`, `'auto_exposure'` or `'grabbing'` (whether the camera is acquiring, which every write's config guard reads first).
+- `node`: The setting read: `'gain'`, `'exposure'`, `'frame_size'` (the window the camera acquires), `'frame_grid'` (the windows it can acquire, which a frame size write reads first), `'binning'`, `'pixel_format'`, `'pixel_formats'` (the formats offered, which a pixel format write reads first), `'black_level'`, `'black_level_range'` (the range `set_black_level` accepts), `'frame_rate'`, `'minimum_exposure'` (the exposure floor, read into `camera.setting_limits`), `'auto_gain'`, `'auto_exposure'` or `'grabbing'` (whether the camera is acquiring, which every write's config guard reads first).
 - `answer`: `'failed'`, the read raises; or `'removed'`, the same raise with the camera gone from the bus during the read (it stays removed for the session, as after `remove_camera`).
 - `count`: How many reads in a row meet it, 1 or more.
 
@@ -14190,6 +14190,7 @@ A camera setting whose read a simulated fault can fail.
 - `pixel_format`
 - `pixel_formats`
 - `black_level`
+- `black_level_range`
 - `frame_rate`
 - `minimum_exposure`
 - `auto_gain`
