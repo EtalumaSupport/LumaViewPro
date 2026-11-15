@@ -51,7 +51,7 @@ SCOPE_HOLDERS = frozenset(
 )
 
 
-@api_fields('kind', 'name', 'left', 'progress_pct', 'discardable')
+@api_fields('kind', 'name', 'left', 'progress_pct', 'discardable', 'stuck_write')
 @dataclasses.dataclass(frozen=True)
 class WorkItem:
     """One piece of work the session is still doing.
@@ -66,6 +66,10 @@ class WorkItem:
         discardable: True when ``ScopeSession.discard_pending_video`` drops
             what this work has left; a host offers that discard only while
             some item says so.
+        stuck_write: The write in flight once it has run past the stall
+            threshold a new run's refusal uses, named for a person: stuck,
+            not slow. Only a run's images (``RUN_FILES``) are ever stuck;
+            None while their writes make progress, and for all other work.
     """
 
     kind: WorkKind
@@ -73,6 +77,7 @@ class WorkItem:
     left: int | None = None
     progress_pct: float | None = None
     discardable: bool = False
+    stuck_write: str | None = None
 
 
 @api_fields('work', 'closing', 'closed')

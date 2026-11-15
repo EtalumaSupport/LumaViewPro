@@ -162,10 +162,6 @@ def test_new_protocol_goes_ahead_while_a_finished_run_s_files_drain(monkeypatch)
         new_protocol=MagicMock(
             side_effect=ProtocolRunRefusedError(reason='files_writing', message='m')
         ),
-        protocol_files_draining=True,
-        protocol_files_stalled=False,
-        protocol_files_pending=3,
-        protocol_files_stuck_write='',
     )
     monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(session=session))
 

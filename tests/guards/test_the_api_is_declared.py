@@ -1008,7 +1008,6 @@ OPEN_STRINGS: dict[str, str] = {
     'ScopeSession.new_protocol parameter tiling': _TILING,
     'ScopeSession.objective_id return': _OBJECTIVE,
     'ScopeSession.point_steps_at_turret_slot parameter objective_id': _OBJECTIVE,
-    'ScopeSession.protocol_files_stuck_write return': _PROSE,
     'ScopeSession.put_live_folder_file parameter name': _PATH,
     'ScopeSession.remove_settings_listener parameter listener': _SETTING,
     'ScopeSession.remove_shown_channel_listener parameter listener': _CHANNEL,
@@ -1090,6 +1089,7 @@ OPEN_STRINGS: dict[str, str] = {
     'UsbIdentityBindings.name field': _OS,
     'Video.frame_rate_fps field': _NUMBER_TEXT,
     'WorkItem.name field': _PROSE,
+    'WorkItem.stuck_write field': _PROSE,
 }
 # A string whose absence from the walk would mean it lost its way.
 KNOWN_OPEN = 'Notification.category field'

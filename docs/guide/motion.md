@@ -95,9 +95,11 @@ raises `MotorStopFailedError`: the stage may still be moving.
 axis moving now has stopped, and raises if one did not stop well;
 `target_positions()` answers where each axis was last commanded to go, and
 None for an axis whose position is not known. A move you started is judged by
-its own operation's `result()`. The wait is in-process; a REST client reads
-each axis's state in `axis_positions`, or hears it change on the event
-stream's `position` events.
+its own operation's `result()`. Whether anything moves now is one read,
+`session.status` (`GET /api/v1/status`): an axis in `axes`, or the turret in
+`turret`, whose `state` is `moving` or `homing` is moving. The wait is
+in-process; a REST client polls `status`, or hears each axis's state change on
+the event stream's `position` events.
 
 **Interlocks.** The LS720's stage refuses to move with its lid open or its
 stage unpowered (`'lid_open_before_motion'`, `'stage_unpowered_before_motion'`);

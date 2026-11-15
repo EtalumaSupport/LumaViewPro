@@ -479,9 +479,11 @@ class Status:
             camera feed and the interlocks are judged when the run is asked.
         axes: Each stage axis's state and position, None where the
             position is not known (``MotionAPI.axis_positions``): X, Y and
-            Z, in um.
+            Z, in um. An axis whose state is ``moving`` or ``homing`` is
+            moving now; with ``turret``, the read of whether anything moves.
         turret: The turret's state and slot (``MotionAPI.turret_status``),
-            None on a scope with no turret.
+            None on a scope with no turret; ``moving`` or ``homing`` while
+            it turns.
         parts: Which parts came up at bring-up, and why each that did not
             (``ScopeSession.bring_up_record``).
         camera_streaming: Whether the camera is grabbing frames, asked of
@@ -1330,8 +1332,9 @@ class ScopeSession:
         video steps, a finished run's images and its post-run builds;
         post-processing builds running and queued; a support report or logs
         zip; a plugin's run, from its press to its end; a still
-        being saved. Each item says how much it has left, and
-        a build how far it has got. Read lock-free, owner by owner, from any
+        being saved. Each item says how much it has left,
+        a build how far it has got, and a run's images the write that is
+        stuck, once one is. Read lock-free, owner by owner, from any
         thread; ``closing`` while the close runs, ``closed`` once the
         session has shut down. A wire client reads it in ``status``.
 
@@ -1391,8 +1394,17 @@ class ScopeSession:
             )
         files = self._draining_batch()
         if files is not None:
+            from _lumascope.modules.protocol_image_writer import WRITE_STALL_FATAL_S
+
             work.append(
-                WorkItem(live_work.WorkKind.RUN_FILES, "A run's images", left=files.pending)
+                WorkItem(
+                    live_work.WorkKind.RUN_FILES,
+                    "A run's images",
+                    left=files.pending,
+                    stuck_write=(
+                        files.describe_stuck_write() if files.stalled(WRITE_STALL_FATAL_S) else None
+                    ),
+                )
             )
         return work
 
@@ -1513,32 +1525,6 @@ class ScopeSession:
         """
         batch = self._sequenced_capture_runner.write_batch()
         return batch if batch is not None and batch.draining else None
-
-    @api
-    @property
-    def protocol_files_stalled(self) -> bool:
-        """True while a run's files are draining and the write in flight has
-        stopped making progress -- by the same stall threshold the run
-        refusal uses, so what a display says of a stuck writer and what a
-        new run is refused for cannot disagree.
-
-        Raises:
-            Nothing.
-        """
-        from _lumascope.modules.protocol_image_writer import WRITE_STALL_FATAL_S
-
-        batch = self._draining_batch()
-        return batch is not None and batch.stalled(WRITE_STALL_FATAL_S)
-
-    @api
-    @property
-    def protocol_files_stuck_write(self) -> str:
-        """The write in flight on the file lane, named for a stall report.
-
-        Raises:
-            Nothing.
-        """
-        return self.file_io_executor.describe_running_task()
 
     @api(in_process=True)
     @property
@@ -6883,9 +6869,10 @@ class ScopeSession:
         the recording's file, post-processing builds running or queued, a
         support report, a still. ``discard_pending_video`` is the escape from
         waiting on video frames, and any client may call it meanwhile. A
-        finished run's file writer judged stuck (``protocol_files_stalled``)
-        is recovered by the close itself, its unwritten images given up on,
-        counted and reported. While it waits the close logs what it waits for.
+        finished run's file writer judged stuck (its ``live_work`` item's
+        ``stuck_write``) is recovered by the close itself, its unwritten
+        images given up on, counted and reported. While it waits the close
+        logs what it waits for.
 
         Then the teardown. The bundle the session holds always stops: its long-lived consumer
         threads first, then the FILE lane and the worker pool. The hardware
@@ -6948,9 +6935,8 @@ class ScopeSession:
             work = self.live_work.work
             if not work:
                 break
-            if (
-                self._activity_claim.owner not in SCOPE_HOLDING_KINDS
-                and self.protocol_files_stalled
+            if self._activity_claim.owner not in SCOPE_HOLDING_KINDS and any(
+                item.stuck_write is not None for item in work
             ):
                 try:
                     given_up = self._recover_file_writer()

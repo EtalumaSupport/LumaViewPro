@@ -1735,8 +1735,9 @@ then what finishes after it lets go: a recording's file, a run's
 video steps, a finished run's images and its post-run builds;
 post-processing builds running and queued; a support report or logs
 zip; a plugin's run, from its press to its end; a still
-being saved. Each item says how much it has left, and
-a build how far it has got. Read lock-free, owner by owner, from any
+being saved. Each item says how much it has left,
+a build how far it has got, and a run's images the write that is
+stuck, once one is. Read lock-free, owner by owner, from any
 thread; `closing` while the close runs, `closed` once the
 session has shut down. A wire client reads it in `status`.
 
@@ -2213,39 +2214,6 @@ the indexes of the steps pointed, which are empty when no question names it.
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`; [`ArgumentRefusedError`](#ArgumentRefusedError): `slot_not_holding_objective`
-
-<a id="ScopeSession.protocol_files_stalled"></a>
-### `ScopeSession.protocol_files_stalled`
-
-```python
-protocol_files_stalled: bool  # property
-```
-
-Route: `GET /api/v1/protocol_files_stalled`.
-
-True while a run's files are draining and the write in flight has
-stopped making progress -- by the same stall threshold the run
-refusal uses, so what a display says of a stuck writer and what a
-new run is refused for cannot disagree.
-
-**Raises**
-
-Nothing.
-
-<a id="ScopeSession.protocol_files_stuck_write"></a>
-### `ScopeSession.protocol_files_stuck_write`
-
-```python
-protocol_files_stuck_write: str  # property
-```
-
-Route: `GET /api/v1/protocol_files_stuck_write`.
-
-The write in flight on the file lane, named for a stall report.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.protocol_runner"></a>
 ### `ScopeSession.protocol_runner`
@@ -3388,9 +3356,10 @@ is stopped. Then it waits, without a time limit, until
 the recording's file, post-processing builds running or queued, a
 support report, a still. `discard_pending_video` is the escape from
 waiting on video frames, and any client may call it meanwhile. A
-finished run's file writer judged stuck (`protocol_files_stalled`)
-is recovered by the close itself, its unwritten images given up on,
-counted and reported. While it waits the close logs what it waits for.
+finished run's file writer judged stuck (its `live_work` item's
+`stuck_write`) is recovered by the close itself, its unwritten
+images given up on, counted and reported. While it waits the close
+logs what it waits for.
 
 Then the teardown. The bundle the session holds always stops: its long-lived consumer
 threads first, then the FILE lane and the worker pool. The hardware
@@ -13463,14 +13432,14 @@ axis can read HOMING in `axes` a moment before the home appears in
 
 **Fields**
 
-- <a id="Status.axes"></a>`axes`: `dict[StageAxis, AxisPosition]` -- Each stage axis's state and position, None where the position is not known (`MotionAPI.axis_positions`): X, Y and Z, in um.
+- <a id="Status.axes"></a>`axes`: `dict[StageAxis, AxisPosition]` -- Each stage axis's state and position, None where the position is not known (`MotionAPI.axis_positions`): X, Y and Z, in um. An axis whose state is `moving` or `homing` is moving now; with `turret`, the read of whether anything moves.
 - <a id="Status.camera_streaming"></a>`camera_streaming`: `bool | None` -- Whether the camera is grabbing frames, asked of the camera itself (`ImagingAPI.is_streaming`); None when the camera did not answer, the failure reported in the log at each ask.
 - <a id="Status.control"></a>`control`: `ControlSession | None` -- The control session held, None when none is (`ScopeSession.control`).
 - <a id="Status.live_work"></a>`live_work`: `LiveWork` -- Everything the session is still doing (`ScopeSession.live_work`).
 - <a id="Status.lock"></a>`lock`: `ControlsLock` -- Which of a person's controls the Session locks, and why (`ScopeSession.controls_lock`): its editing policy, not a refusal.
 - <a id="Status.parts"></a>`parts`: `tuple[PartStatus, ...]` -- Which parts came up at bring-up, and why each that did not (`ScopeSession.bring_up_record`).
 - <a id="Status.run_refused"></a>`run_refused`: `ProtocolRunRefusedError | None` -- The refusal a run would get now for the scope's state alone, None when the state refuses none (`SequencedCaptureRunner.state_refusal`). None does not promise a run starts: the protocol, an axis's position, the camera feed and the interlocks are judged when the run is asked.
-- <a id="Status.turret"></a>`turret`: `TurretStatus | None` -- The turret's state and slot (`MotionAPI.turret_status`), None on a scope with no turret.
+- <a id="Status.turret"></a>`turret`: `TurretStatus | None` -- The turret's state and slot (`MotionAPI.turret_status`), None on a scope with no turret; `moving` or `homing` while it turns.
 
 <a id="StepFrames"></a>
 ## `lumascope.StepFrames`
@@ -13874,6 +13843,7 @@ One piece of work the session is still doing.
 - <a id="WorkItem.left"></a>`left`: `int | None` -- How many frames, images or builds it still has to finish, when it counts them; None when it does not.
 - <a id="WorkItem.name"></a>`name`: `str` -- What it is, in words a person reads.
 - <a id="WorkItem.progress_pct"></a>`progress_pct`: `float | None` -- How far a build has got, as its own progress last said; None before it has said, or for work that reports none.
+- <a id="WorkItem.stuck_write"></a>`stuck_write`: `str | None` -- The write in flight once it has run past the stall threshold a new run's refusal uses, named for a person: stuck, not slow. Only a run's images (`RUN_FILES`) are ever stuck; None while their writes make progress, and for all other work.
 
 <a id="ZProject"></a>
 ## `lumascope.ZProject`
@@ -18713,8 +18683,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/post_processing/start_count_cells` | [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells) |
 | `POST` | `/api/v1/post_processing/start_enhance` | [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance) |
 | `GET` | `/api/v1/post_processing/stitch_modes` | [`PostProcessingAPI.stitch_modes`](#PostProcessingAPI.stitch_modes) |
-| `GET` | `/api/v1/protocol_files_stalled` | [`ScopeSession.protocol_files_stalled`](#ScopeSession.protocol_files_stalled) |
-| `GET` | `/api/v1/protocol_files_stuck_write` | [`ScopeSession.protocol_files_stuck_write`](#ScopeSession.protocol_files_stuck_write) |
 | `POST` | `/api/v1/protocol_runner` | [`ScopeSession.protocol_runner`](#ScopeSession.protocol_runner) |
 | `GET` | `/api/v1/protocol_size_advisory` | [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory) |
 | `POST` | `/api/v1/rename_step` | [`ScopeSession.rename_step`](#ScopeSession.rename_step) |

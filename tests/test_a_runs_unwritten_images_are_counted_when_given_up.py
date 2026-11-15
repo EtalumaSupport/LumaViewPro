@@ -80,7 +80,8 @@ class TestRecoveringAStuckWriter:
             )
             assert started.acquire(timeout=WAIT_S)
             time.sleep(0.5)
-            assert session.protocol_files_stalled
+            (images,) = session.live_work.work
+            assert images.kind == live_work.WorkKind.RUN_FILES and images.stuck_write is not None
 
             abandoned = session.apply_remedy(FileWriterStalledError.recovery(1))
 

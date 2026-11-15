@@ -1161,7 +1161,7 @@ class ProtocolSettings(FloatLayout):
             else:
                 button.state = 'normal'
                 if files is not None and run is not None and run.progress().is_last_run:
-                    stalled = session.protocol_files_stalled
+                    stalled = files.stuck_write is not None
                     button.text = (
                         'File writer stalled' if stalled else f'Writing Files... ({files.left})'
                     )

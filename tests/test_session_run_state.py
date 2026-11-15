@@ -87,17 +87,35 @@ class TestDerivations:
         batch.close()
 
     @pytest.mark.slow
-    def test_a_stalled_drain_is_judged_by_the_run_refusals_threshold(self):
-        # One threshold for "stuck": the display of a stalled writer and
-        # the refusal of a new run over it must not disagree.
+    def test_a_stalled_drain_names_its_stuck_write_by_the_run_refusals_threshold(self):
+        """The run's-images item names the write in flight once it is stuck,
+        judged by the threshold a new run's refusal uses, so what a client
+        reads of a stuck writer and what a new run is refused for cannot
+        disagree."""
         from _lumascope.modules.protocol_image_writer import WRITE_STALL_FATAL_S
 
         session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
         batch = _draining_run(session)
         executor = session.file_io_executor
         executor.in_flight_task_stalled.return_value = True
-        assert session.protocol_files_stalled is True
+        executor.describe_running_task.return_value = "write_capture 'A1_BF' 45s in flight"
+        (files,) = session.live_work.work
+        assert files.kind == live_work.WorkKind.RUN_FILES
+        assert files.stuck_write == "write_capture 'A1_BF' 45s in flight"
         executor.in_flight_task_stalled.assert_called_once_with(WRITE_STALL_FATAL_S)
+        batch.abandon('the test is over')
+
+    @pytest.mark.slow
+    def test_a_drain_whose_write_makes_progress_names_no_stuck_write(self):
+        """Slow is not stuck: below the threshold the item names no write."""
+        session = session_on_a_simulated_scope(file_io_executor=_held_file_lane())
+        batch = _draining_run(session)
+        executor = session.file_io_executor
+        executor.in_flight_task_stalled.return_value = False
+        executor.describe_running_task.return_value = "write_capture 'A1_BF' 2s in flight"
+        (files,) = session.live_work.work
+        assert files.kind == live_work.WorkKind.RUN_FILES
+        assert files.stuck_write is None
         batch.abandon('the test is over')
 
     def test_the_close_discard_drops_both_video_drain_sources(self, monkeypatch):

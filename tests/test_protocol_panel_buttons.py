@@ -121,7 +121,7 @@ class _Session(SimpleNamespace):
     def __init__(self, member):
         super().__init__(
             files_draining=False,
-            protocol_files_stalled=False,
+            files_stuck_write=None,
             files_left=0,
             # Nothing holds the scope.
             held_by_other=lambda run: False,
@@ -131,7 +131,14 @@ class _Session(SimpleNamespace):
     @property
     def live_work(self):
         files = (
-            (WorkItem(live_work.WorkKind.RUN_FILES, "A run's images", left=self.files_left),)
+            (
+                WorkItem(
+                    live_work.WorkKind.RUN_FILES,
+                    "A run's images",
+                    left=self.files_left,
+                    stuck_write=self.files_stuck_write,
+                ),
+            )
             if self.files_draining
             else ()
         )
@@ -383,12 +390,12 @@ def test_a_finished_runs_drain_shows_its_count(app_ctx, engine, session):
     assert panel.ids['run_scan_btn'].text == 'Run One Scan'
     panel._drain_tick_trigger.assert_called_once()
 
-    session.protocol_files_stalled = True
+    session.files_stuck_write = "write_capture 'A1_BF' 45s in flight"
     panel.draw_protocol_buttons()
     assert panel.ids['run_protocol_btn'].text == 'File writer stalled'
 
     session.files_draining = False
-    session.protocol_files_stalled = False
+    session.files_stuck_write = None
     panel.draw_protocol_buttons()
     assert panel.ids['run_protocol_btn'].text == 'Run Full Protocol'
 
@@ -448,7 +455,7 @@ def test_a_stalled_drain_opens_no_offer_of_its_own(app_ctx, session, monkeypatch
     )
     panel = _Panel()
     session.files_draining = True
-    session.protocol_files_stalled = True
+    session.files_stuck_write = "write_capture 'A1_BF' 45s in flight"
 
     panel._drain_tick(0)
     panel._drain_tick(0)
