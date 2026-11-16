@@ -11,8 +11,6 @@ motor configuration, and the model's own catalogue optics answer.
 
 from __future__ import annotations
 
-import logging
-from types import SimpleNamespace
 
 import pytest
 
@@ -74,31 +72,3 @@ class TestTheNullBoardDescribesNoMotors:
     def test_it_converts_nothing(self, conversion):
         with pytest.raises(RuntimeError, match='no motor board'):
             getattr(NullMotionBoard(), conversion)(1)
-
-
-def test_a_logs_only_report_reads_the_serial_without_a_motor_configuration(
-    tmp_path, caplog, monkeypatch
-):
-    # The report's first serial source is the motor configuration; with no
-    # motor board there is none, and asking it anyway logged an exception
-    # on every report from such a scope before FULLINFO answered.
-    from _lumascope.modules.tech_support_report import TechSupportReport
-
-    report = TechSupportReport.__new__(TechSupportReport)
-    report._meta = {}
-    for step in (
-        '_step_logs',
-        '_step_data_folder',
-        '_step_live_settings',
-        '_step_protocols',
-        '_step_video_receipts',
-    ):
-        monkeypatch.setattr(report, step, lambda tmp: None)
-    monkeypatch.setattr(report, '_run_hardware_free_steps', lambda *args: None)
-    report.diag = SimpleNamespace(motor_board=NullMotionBoard(), get_serial_number=lambda: '12062')
-
-    with caplog.at_level(logging.ERROR):
-        zip_path = report.generate_logs_only(output_dir=tmp_path)
-
-    assert zip_path.name.startswith('SN12062-')
-    assert 'SN lookup via motorconfig failed' not in caplog.text

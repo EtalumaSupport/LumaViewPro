@@ -145,6 +145,15 @@ TMC5072_DIAG_REGISTERS = {
 # up to its delimiter. Bytes, not text: a rejected file may not decode.
 _API_KEY_VALUE = re.compile(rb'("api_key"\s*:\s*)("(?:[^"\\]|\\.)*(?:"|\\?\Z)|[^,}\]\s]+)', re.S)
 
+# Each ZIP's name: the token after the serial number, and the word in the
+# serial's place when the motor board stated none at connect. A full report
+# carries "TSR" so support can tell it at a glance from the logs-only zip a
+# user sends with an error report (`SNlogs-<ts>.zip`, `SN<sn>-<ts>.zip`).
+_ZIP_NAMES = {
+    'tsr': ('-TSR-', 'UNKNOWN'),
+    'logs_only': ('-', 'logs'),
+}
+
 
 def _without_api_keys(data: bytes) -> bytes:
     """*data* with every ``"api_key"`` member's value blanked, and every byte outside a value kept.
@@ -842,6 +851,13 @@ NO_MOTOR_TEXT = 'Not supported on this motor board (no text command channel)'
 NOT_OFFERED = 'not offered by this motor firmware'
 
 
+def _serial_line(serial: str | None) -> str:
+    """The motor file's serial number line: the one the board stated at connect, or that it stated none."""
+    if serial is None:
+        return 'Serial Number: not stated at connect\n'
+    return f'Serial Number: {serial}\n'
+
+
 def _write_axis_section(f, heading: str, entries: dict, show=str) -> None:
     """Write one per-axis section, or the one statement standing for it."""
     f.write(f'{heading}:\n')
@@ -1142,59 +1158,15 @@ class FirmwareDiagnostics:
         return self._cmd(self.motor_board, 'INFO')
 
     def get_motor_fullinfo(self) -> str:
-        """Fetch motor-board FULLINFO with per-instance cache.
+        """The motor board's FULLINFO, asked now, for the report's motor section.
 
-        FULLINFO is a static, multi-line dump of model/serial/firmware/
-        homing status -- it doesn't change during a tech-support run.
-        Pre-cache fix, the first sim run at 2026-05-03 showed FULLINFO
-        firing twice ~2 ms apart during a single report generation:
-        once via ``get_serial_number()`` (called for the report
-        filename) and once via ``_step_motor_diagnostics()`` (called
-        for the report body). Caching avoids the duplicate serial round
-        trip and slightly speeds up tech-support runs.
+        The report's name does not come from here: the serial number is the
+        one the board stated at connect, ``motor_info().serial_number``.
         """
         no_text = self._no_motor_text()
         if no_text is not None:
             return no_text
-        if not hasattr(self, '_cached_motor_fullinfo'):
-            self._cached_motor_fullinfo = self._cmd(self.motor_board, 'FULLINFO')
-        return self._cached_motor_fullinfo
-
-    def get_serial_number(self) -> str:
-        """Extract serial number from FULLINFO.
-
-        Old firmware returns everything on one line:
-          Etaluma Motor Controller Board EL-0923 Firmware: 2023-05-30 Model: LS850 Serial: 12006 X homed: True ...
-        New firmware uses multi-line with 'Serial Number = ...'
-
-        A board without text gives the serial number its driver read at
-        connect, or ``'UNKNOWN'``.
-        """
-        if self._no_motor_text() is not None:
-            return self._scope.diagnostics.motor_info().serial_number or 'UNKNOWN'
-        fullinfo = self.get_motor_fullinfo()
-        if isinstance(fullinfo, _NotRead):
-            return 'UNKNOWN'
-        text = str(fullinfo)
-
-        # Try "Serial Number = <value>" (new firmware, multi-line)
-        m = re.search(r'Serial\s*Number\s*[=:]\s*(\S+)', text)
-        if m:
-            return m.group(1)
-
-        # Try "Serial: <value>" or "Serial = <value>" (old firmware, one-line)
-        m = re.search(r'Serial\s*[=:]\s*(\S+)', text, re.IGNORECASE)
-        if m:
-            return m.group(1)
-
-        # Try "SN: <value>" or "SN = <value>"
-        m = re.search(r'\bSN\s*[=:]\s*(\S+)', text, re.IGNORECASE)
-        if m:
-            return m.group(1)
-
-        # Fallback: return cleaned first chunk
-        clean = text.strip().split('\n')[0][:30]
-        return clean if clean else 'UNKNOWN'
+        return self._cmd(self.motor_board, 'FULLINFO')
 
     def run_led_selftest(self) -> str | list[str]:
         """Run SELFTEST on LED board (v2.0+). Returns full output."""
@@ -1778,20 +1750,21 @@ class TechSupportReport:
 
         if self._no_motor_board_on_this_model():
             motor_info = fan = MotorBoardPresence.NOT_ON_THIS_MODEL.value
-            sn = 'UNKNOWN'
-            self._write_no_motor_board(d, sn)
+            sn = None
+            self._write_no_motor_board(d)
         else:
             motor_info = self.diag.get_motor_info()
             fullinfo = self.diag.get_motor_fullinfo()
-            sn = self.diag.get_serial_number()
             # Read at connect, so a board with no text channel, which INFO
-            # and FULLINFO cannot ask, still states its firmware.
-            version = self.scope.diagnostics.motor_info().firmware_version
+            # and FULLINFO cannot ask, still states its firmware and serial.
+            identity = self.scope.diagnostics.motor_info()
+            sn = identity.serial_number
+            version = identity.firmware_version
             with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
                 f.write(f'{Board.MOTOR.label} INFO:\n{motor_info}\n\n')
                 f.write(f'{Board.MOTOR.label} FULLINFO:\n{fullinfo}\n\n')
                 f.write(f'Firmware version (read at connect): {version or "not known"}\n')
-                f.write(f'Serial Number: {sn}\n')
+                f.write(_serial_line(sn))
 
             positions = self.diag.get_motor_positions_all()
             drvstat = self.diag.get_driver_status_all()
@@ -1833,14 +1806,14 @@ class TechSupportReport:
             f.write(f'{Board.LED.label} (cached at connect):\n{led_info}\n\n{skipped}')
         if self._no_motor_board_on_this_model():
             motor_info = fan = MotorBoardPresence.NOT_ON_THIS_MODEL.value
-            sn = 'UNKNOWN'
-            self._write_no_motor_board(d, sn)
+            sn = None
+            self._write_no_motor_board(d)
         else:
             motor_info = self.scope.diagnostics.motor_info().to_dict()
-            sn = motor_info['serial_number'] or 'UNKNOWN'
+            sn = motor_info['serial_number']
             with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
                 f.write(f'{Board.MOTOR.label} (cached at connect):\n{motor_info}\n\n')
-                f.write(f'Serial Number: {sn}\n\n{skipped}')
+                f.write(f'{_serial_line(sn)}\n{skipped}')
             drvstat = self.diag.get_driver_status_all()
             with open(d / 'motor_status.txt', 'w', encoding='utf-8') as f:
                 f.write('Motor Positions: not read.\n')
@@ -2046,11 +2019,11 @@ class TechSupportReport:
         return self.diag.motor_board_presence() is MotorBoardPresence.NOT_ON_THIS_MODEL
 
     @staticmethod
-    def _write_no_motor_board(directory, sn):
+    def _write_no_motor_board(directory):
         """The motor files of a scope built without a motor board: one statement each."""
         absent = f'{MotorBoardPresence.NOT_ON_THIS_MODEL.value}.\n'
         with open(directory / 'motor_info.txt', 'w', encoding='utf-8') as f:
-            f.write(f'{absent}\nSerial Number: {sn}\n')
+            f.write(absent)
         with open(directory / 'motor_status.txt', 'w', encoding='utf-8') as f:
             f.write(absent)
 
@@ -2914,51 +2887,10 @@ class TechSupportReport:
                 self._run_hardware_free_steps(tmp, cb, 80)
 
                 cb(85, 'Writing metadata...')
-                # SN lookup chain:
-                # 1. motorconfig cache (populated at boot; no wire I/O).
-                # 2. FULLINFO via diag.get_serial_number() (one wire round
-                #    trip on first call per session; cached after). Same
-                #    path the full TSR uses, so an SN reachable via
-                #    FULLINFO surfaces here too.
-                # 3. 'logs' fallback only when both are unavailable
-                #    (motor not connected).
-                sn_tag = None
-                try:
-                    mb = self.diag.motor_board
-                    # A scope with no motor board has no motor configuration.
-                    motorconfig = getattr(mb, 'motorconfig', None)
-                    if motorconfig is not None:
-                        sn = motorconfig.serial_number()
-                        if sn and sn != 'Unknown':
-                            sn_tag = sn
-                except Exception:
-                    # Log + continue. Silent swallow here masked the
-                    # 2026-05-22 SNlogs regression for two days (TypeError
-                    # from timeout=/timeout_s= kwarg drift propagated up
-                    # via mb.motorconfig.serial_number's wire I/O caller
-                    # and was lost). logger.exception preserves the
-                    # traceback in the main log so future debuggers see
-                    # WHY the SN couldn't be read instead of just the
-                    # SNlogs- filename symptom.
-                    logger.exception(
-                        '[Report   ] SN lookup via motorconfig failed; '
-                        'falling through to FULLINFO path'
-                    )
-                if not sn_tag:
-                    try:
-                        sn = self.diag.get_serial_number()
-                        if sn and sn != 'UNKNOWN':
-                            sn_tag = sn
-                    except Exception:
-                        # Same reasoning as above. If BOTH paths fail
-                        # the bundle still ships under SNlogs-, but
-                        # the cause is now visible in the log.
-                        logger.exception(
-                            '[Report   ] SN lookup via FULLINFO failed; '
-                            "falling through to 'logs' last-resort"
-                        )
-                if not sn_tag:
-                    sn_tag = 'logs'
+                # The serial the board stated at connect: asking the board now
+                # is refused while a run or a control session holds the scope.
+                sn = self.scope.diagnostics.motor_info().serial_number
+                self._meta['serial_number'] = sn
                 self._meta['report_type'] = 'logs_only'
                 self._meta['report_generated_at'] = wall_time.now().isoformat(timespec='seconds')
                 (tmp / 'metadata.json').write_text(json.dumps(self._meta, indent=2))
@@ -2966,7 +2898,7 @@ class TechSupportReport:
                 cb(95, 'Creating ZIP file...')
                 zip_path = self._create_zip(
                     tmp,
-                    sn_tag,
+                    sn,
                     output_dir,
                     report_type='logs_only',
                 )
@@ -2975,19 +2907,14 @@ class TechSupportReport:
         except Exception as e:
             raise SupportReportNotSavedError(SupportReportKind.LOGS_ZIP, e) from e
 
-    def _create_zip(self, tmp, sn, output_dir, report_type='tsr'):
+    def _create_zip(self, tmp, sn: str | None, output_dir, report_type='tsr'):
         output_dir = pathlib.Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        clean_sn = ''.join(c for c in str(sn) if c.isalnum() or c in '-_') or 'UNKNOWN'
+        token, no_serial = _ZIP_NAMES[report_type]
+        clean_sn = ''.join(c for c in sn if c.isalnum() or c in '-_') if sn is not None else ''
         ts = wall_time.now().strftime('%Y-%m-%d-%H%M%S')
-        # Full tech-support reports carry a "TSR" token so support
-        # engineers can visually distinguish them from logs-only user
-        # dumps (`SNlogs-<ts>.zip`) that ship with manual error reports.
-        # Logs-only bundles keep the plain shape -- they ARE the
-        # SNlogs/SN<sn>-<ts>.zip dumps.
-        token = '-TSR-' if report_type == 'tsr' else '-'
-        zip_path = output_dir / f'SN{clean_sn}{token}{ts}.zip'
+        zip_path = output_dir / f'SN{clean_sn or no_serial}{token}{ts}.zip'
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             # Include a privacy notice describing what data is collected

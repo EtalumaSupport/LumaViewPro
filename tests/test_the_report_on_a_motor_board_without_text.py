@@ -121,15 +121,6 @@ def test_the_typed_reads_a_board_without_text_lacks_say_not_applicable(
     assert peripherals.startswith('Fan: Not applicable: this motor board reports no fan speed')
 
 
-def test_the_serial_number_is_the_drivers_or_unknown(session, monkeypatch, tmp_path):
-    _without_text(monkeypatch, session)
-    monkeypatch.setattr(session.scope._motion_driver, 'get_serial_number', lambda: None)
-
-    report = TechSupportReport(session=session)
-
-    assert report.diag.get_serial_number() == 'UNKNOWN'
-
-
 def test_a_text_board_is_still_asked(session, tmp_path):
     out = _report(session, tmp_path)
 

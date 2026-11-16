@@ -278,15 +278,6 @@ class TestBundleFilenameByReportType:
         )
         assert zip_path.name.startswith('SN12062-')
 
-    def test_logs_only_with_sn_fallback_has_no_tsr_token(self, tmp_path):
-        """When no SN is available, logs-only uses sn='logs'. Resulting
-        filename must be `SNlogs-<ts>.zip`, NOT `SNlogs-TSR-<ts>.zip`."""
-        zip_path = self._build_report(tmp_path, report_type='logs_only', sn='logs')
-        assert '-TSR-' not in zip_path.name, (
-            f"SNlogs fallback must NOT contain '-TSR-'; got {zip_path.name!r}"
-        )
-        assert zip_path.name.startswith('SNlogs-')
-
 
 class TestLedExitEngineeringRecoversFromWedge:
     """The EL-0925 Gen3 firmware (2024-06-05ESWEA) `factory()` function

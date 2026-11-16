@@ -166,11 +166,6 @@ def test_a_board_that_does_not_answer_is_not_timed(session):
     assert latency == {'error': 'All 3 calls failed', 'errors': 3}
 
 
-def test_a_fullinfo_that_timed_out_is_not_a_serial_number(session):
-    session.scope.simulation.drop_replies('motor', command='FULLINFO')
-    assert FirmwareDiagnostics(scope=session.scope).get_serial_number() == 'UNKNOWN'
-
-
 def test_a_lost_motor_board_is_written_in_the_refusals_words_and_the_report_goes_on(tmp_path):
     # Each motor read is refused once the loss is found; the report writes
     # the refusal where the reading would have gone, never a stand-in. The
