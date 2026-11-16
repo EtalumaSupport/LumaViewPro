@@ -145,6 +145,32 @@ def test_a_header_naming_an_allowed_client_does_not_admit_a_refused_peer(tmp_pat
     assert answer.json()['type'] == _REFUSED
 
 
+def test_a_refused_client_s_connection_is_closed_with_its_answer(tmp_path):
+    """A peer the list refuses keeps no connection, so it cannot hold one by asking again and again."""
+    here = _this_computers_address()
+    port = _free_port(here, socket.AF_INET)
+    session = _session(
+        tmp_path, {'address': here, 'port': port, 'allowed_clients': ['10.255.255.1']}
+    )
+    server, thread = _serving(session)
+    try:
+        with socket.create_connection((here, port), timeout=10) as connection:
+            connection.sendall(
+                b'GET /api HTTP/1.1\r\nHost: x\r\n\r\nGET /api HTTP/1.1\r\nHost: x\r\n\r\n'
+            )
+            received = b''
+            while chunk := connection.recv(65536):
+                received += chunk
+    finally:
+        server.close()
+        thread.join()
+    head = received.partition(b'\r\n\r\n')[0].lower()
+    assert head.startswith(b'http/1.1 403')
+    assert b'connection: close' in head
+    # The second request, sent on the same connection, was never answered.
+    assert received.count(b'HTTP/1.1 ') == 1
+
+
 def test_a_client_at_the_one_allowed_address_is_served_and_the_reach_says_so(tmp_path):
     here = _this_computers_address()
     port = _free_port(here, socket.AF_INET)

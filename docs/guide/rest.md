@@ -55,7 +55,9 @@ elif server.close_failed is not None:    # what the session's shutdown raised
 ```
 
 A program that mounts the API in an ASGI application of its own takes it from
-`build_app(session)`; its `allowed_clients` hold whoever serves it.
+`build_app(session)`; its `allowed_clients` and its body deadline hold whoever
+serves it, while the header deadline is `build_server`'s, so that program sets
+its own server's.
 
 **The settings.** The server reads `rest_api` from the session's settings. It
 is installation-only: no call changes it, from any caller
@@ -184,7 +186,11 @@ A still has no stop, and its job ends as it would have; a call held as a job
 only because it outlived its wait holds no operation, and is refused `409`
 (`'not_cancellable'`). Finished jobs are kept up to 1000 and 24 hours; at most
 256 calls run at once, past which a call is refused `503` (`'overloaded'`). A
-call's JSON body is at most 64 KiB, refused `413` (`'body_too_large'`) past it.
+call's JSON body is at most 64 KiB, refused `413` (`'body_too_large'`) past it,
+and arrives within 20 s plus its length at 64 KiB a second, else refused `408`
+(`'body_too_slow'`) and its connection closed. A connection has 20 s for each
+request's headers, from its opening and from each answer, or is closed; a
+request that has arrived is never ended by it, however long its answer takes.
 Take a job's id from the answer that made it, never count it: every call held
 as a job takes the next id.
 
@@ -237,10 +243,10 @@ refusal's; every reason and its status is in the reference's
 |---|---|
 | `409` | A refusal the scope's state gave: the same request may succeed later. Also a move or home a stop ended (`kind` `notice`), and `'not_cancellable'`. |
 | `422` | A refusal of the request as sent: change it. Also `'invalid_request'`, `'handle_shared'` and `'idempotency_key_reused'`. |
-| `403` | `'client_not_allowed'`: a client [`allowed_clients`](#serving-another-computer) does not list. |
+| `403` | `'client_not_allowed'`: a client [`allowed_clients`](#serving-another-computer) does not list; its connection is closed. |
 | `500` | A fault: the call failed. |
 | `404` | No such route, handle, job or file. |
-| `405` / `413` / `415` | The wrong method; a body larger than its route takes (`'body_too_large'`: 64 KiB of JSON, 64 MiB for an upload); a body that is not JSON. |
+| `405` / `408` / `413` / `415` | The wrong method; a body that did not arrive in time (`'body_too_slow'`: 20 s plus its length at 64 KiB a second; the connection is closed); a body larger than its route takes (`'body_too_large'`: 64 KiB of JSON, 64 MiB for an upload); a body that is not JSON. |
 | `503` | With `Retry-After`, try again later (`'overloaded'`, `'no_frame_yet'`). Without it, nothing succeeds until the application restarts (`'not_connected'`, `'session_closing'`, `'server_closing'`, and every other restart cause). |
 
 ## The event stream
@@ -289,7 +295,9 @@ the top of the picture, as LumaViewPro's window and its saved files have it.
   body to its end. Four uploads are read at once, each counted among the 256
   calls while its body arrives: a fifth, or one past the 256, is refused `503`
   (`'overloaded'`, `Retry-After`) before its body is read, whichever clients
-  hold the four.
+  hold the four. A body that stops arriving -- its client's link dropped -- is
+  refused `408` (`'body_too_slow'`) at 20 s plus its length at 64 KiB a second,
+  and its place given back.
 - `GET /api/v1/previews/<name>` -- a saved image downscaled to a JPEG for
   display (`max_width` as for `/live`).
 - `POST /api/v1/still` -- a still at the camera's own depth, saved nowhere
@@ -399,7 +407,10 @@ lab trusts, name the scope PC's address on that link:
 This is plain HTTP with no credential: anyone who can reach the address drives
 the scope, and the control session's id travels unencrypted. The allowlist
 guards against a client on the wrong network, not an attacker on the same one;
-use it on a cable or a network you trust.
+use it on a cable or a network you trust. Nor does it bound connections: a
+machine that can reach the address can open them faster than their header
+deadline closes them, until the server, and LumaViewPro with it, has no more
+files it can open.
 
 On the scope PC:
 

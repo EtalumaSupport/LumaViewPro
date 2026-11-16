@@ -64,15 +64,21 @@ _SCHEMA = {
 }
 
 
-def openapi_responses(json_ceiling_bytes: int, upload_ceiling_bytes: int) -> dict[int | str, dict]:
-    """The problem ranges every route declares, naming the body ceilings a server refuses past."""
+def openapi_responses(
+    json_ceiling_bytes: int,
+    upload_ceiling_bytes: int,
+    body_floor_s: float,
+    body_floor_bytes_per_s: int,
+) -> dict[int | str, dict]:
+    """The problem ranges every route declares, naming the body ceilings and the body deadline a server refuses past."""
     return {
         code: {'description': words, 'content': {MEDIA_TYPE: {'schema': _SCHEMA}}}
         for code, words in (
             (
                 '4XX',
-                "Refused: 409 when the same request can succeed later (the scope's state refused it, or a stop ended it), 422 when the request must change; 404, 405, 413, 415 for the request itself "
-                f'(413: a body larger than its route takes, {json_ceiling_bytes} bytes for JSON, {upload_ceiling_bytes} for a file upload). '
+                "Refused: 409 when the same request can succeed later (the scope's state refused it, or a stop ended it), 422 when the request must change; 404, 405, 408, 413, 415 for the request itself "
+                f'(413: a body larger than its route takes, {json_ceiling_bytes} bytes for JSON, {upload_ceiling_bytes} for a file upload; '
+                f'408: a body that did not arrive within {body_floor_s:g} s plus its length at {body_floor_bytes_per_s} bytes a second, its connection closed). '
                 'Beside the members above, a problem carries the fields its type publishes, such as `argument`, and `errors` for a body that does not fit.',
             ),
             (
@@ -114,6 +120,7 @@ _SERVER_STATUS = {
     'method_not_allowed': 405,
     'unsupported_media_type': 415,
     'body_too_large': 413,
+    'body_too_slow': 408,
     'handle_shared': 422,
     'overloaded': 503,
     'server_closing': 503,
@@ -122,6 +129,11 @@ _SERVER_STATUS = {
     'idempotency_key_reused': 422,
     'client_not_allowed': 403,
 }
+# The server's own refusals whose answer ends its connection: a body the
+# server stopped reading, and a client it does not serve, which has no use
+# for a connection. ``Connection`` is the connection's, not the answer's:
+# neither reason is ever a job's stored answer.
+_ENDS_CONNECTION = frozenset({'body_too_slow', 'client_not_allowed'})
 
 
 def outcome_classes() -> dict[str, type[LumascopeError]]:
@@ -261,6 +273,14 @@ def body_too_large(ceiling_bytes: int) -> ServerRefusedError:
     )
 
 
+def body_too_slow(deadline_s: float, arrived_bytes: int) -> ServerRefusedError:
+    """A body that did not arrive within its deadline: the server stopped reading it, and closes its connection."""
+    return ServerRefusedError(
+        'body_too_slow',
+        f'The body did not arrive within {deadline_s:g} s; {arrived_bytes} bytes of it had.',
+    )
+
+
 def overloaded(detail: str, retry_after_s: float) -> ServerRefusedError:
     """More is held than the server keeps -- calls, jobs, handles or uploads; asking again later may succeed."""
     return ServerRefusedError('overloaded', detail, retry_after_s=retry_after_s)
@@ -296,7 +316,8 @@ def refused_by_server(refusal: ServerRefusedError, request_id: str) -> Answer:
     """The problem for a request the server answered itself.
 
     Its wait, when it has one, is sent as ``Retry-After`` in whole seconds
-    (RFC 9110's form), rounded up so a client never asks before it.
+    (RFC 9110's form), rounded up so a client never asks before it; a
+    reason that ends its connection is sent with ``Connection: close``.
     """
     status = _SERVER_STATUS[refusal.reason]
     body = {
@@ -308,6 +329,8 @@ def refused_by_server(refusal: ServerRefusedError, request_id: str) -> Answer:
     headers = {}
     if refusal.retry_after_s is not None:
         headers['Retry-After'] = str(math.ceil(refusal.retry_after_s))
+    if refusal.reason in _ENDS_CONNECTION:
+        headers['Connection'] = 'close'
     return Answer(status, body, headers)
 
 

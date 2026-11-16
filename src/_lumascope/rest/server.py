@@ -35,6 +35,7 @@ from collections.abc import Callable
 from types import FrameType
 
 import uvicorn
+from uvicorn.protocols.http.h11_impl import H11Protocol
 
 from _lumascope.modules.api_surface import api
 from _lumascope.modules.exceptions import RestServerNotStartedError
@@ -47,6 +48,68 @@ _log = logging.getLogger('LVP.rest')
 # Seconds the close waits for the calls' threads once the session has shut
 # down; a call still running then is logged by name and the server stops.
 JOIN_S = 10.0
+
+# Seconds a connection has for a request's headers: from its opening, and
+# from each answer to the next request's.
+HEADER_DEADLINE_S = 20.0
+
+
+class _HeadersInTime(H11Protocol):
+    """uvicorn's HTTP/1.1 connection, closed when its next request's headers do not arrive in time.
+
+    uvicorn waits for headers without end, and any byte cancels its
+    keep-alive, so a client gone silent -- its link dropped -- or one
+    sending slowly would hold its connection for ever. The deadline runs
+    from the connection's opening, and from each answer when no next
+    request has begun, until a new request's headers arrive: so it runs on
+    over what is left of a body its answer did not read, and never ends a
+    request that has arrived, however long its answer takes. A body the
+    application reads has its own deadline, the body reader's.
+    """
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self._headers_due: asyncio.TimerHandle | None = None
+        # The request answered when the deadline was set: a cycle other than
+        # it is a new request whose headers have arrived.
+        self._waiting_after: object = None
+
+    def connection_made(self, transport: asyncio.Transport) -> None:  # type: ignore[override]
+        super().connection_made(transport)
+        self._set_deadline(None)
+
+    def connection_lost(self, exc: Exception | None) -> None:
+        self._clear_deadline()
+        super().connection_lost(exc)
+
+    def data_received(self, data: bytes) -> None:
+        super().data_received(data)
+        if self.cycle is not self._waiting_after:
+            self._clear_deadline()
+
+    def on_response_complete(self) -> None:
+        answered = self.cycle
+        super().on_response_complete()
+        # uvicorn starts a pipelined request already received inside its own
+        # completion: one has begun, and is not waited for again.
+        if not self.transport.is_closing() and self.cycle is answered:
+            self._set_deadline(answered)
+
+    def _set_deadline(self, answered: object) -> None:
+        self._clear_deadline()
+        self._waiting_after = answered
+        self._headers_due = self.loop.call_later(HEADER_DEADLINE_S, self._headers_late)
+
+    def _clear_deadline(self) -> None:
+        if self._headers_due is not None:
+            self._headers_due.cancel()
+            self._headers_due = None
+
+    def _headers_late(self) -> None:
+        self._headers_due = None
+        # uvicorn's own close of a connection left idle. Nothing is logged:
+        # no request has an id yet, and how often it fires is the peer's.
+        self.timeout_keep_alive_handler()
 
 
 class _Serving(enum.Enum):
@@ -262,6 +325,11 @@ def build_server(session: ScopeSession, *, shut_down: Callable[[], None]) -> Ser
             log_config=None,
             # The peer is the client: no header names another.
             proxy_headers=False,
+            # Each connection's headers arrive in time, or it is closed. Named,
+            # it is also the one HTTP implementation, whatever else is installed.
+            http=_HeadersInTime,
+            # No connection upgrades past that deadline's protocol.
+            ws='none',
         )
         config.load()
     except BaseException:

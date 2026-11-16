@@ -1368,7 +1368,9 @@ class ServerRefusedError(Refusal, Exception):
             method it was asked with. ``'unsupported_media_type'`` -- the
             request's body is not JSON. ``'body_too_large'`` -- the
             request's body is larger than its route takes; nothing past the
-            ceiling was held, and nothing ran. ``'handle_shared'`` -- the handle
+            ceiling was held, and nothing ran. ``'body_too_slow'`` -- the
+            request's body did not arrive within its deadline; nothing ran,
+            and the connection is closed. ``'handle_shared'`` -- the handle
             asked to be forgotten is one every client shares, and it is kept.
             ``'overloaded'`` -- the server holds as many handles, jobs or
             uploads as it keeps; asking again later may succeed. ``'server_closing'`` --
@@ -1400,6 +1402,8 @@ class ServerRefusedError(Refusal, Exception):
         'method_not_allowed': RefusalCause.REQUEST,
         'unsupported_media_type': RefusalCause.REQUEST,
         'body_too_large': RefusalCause.REQUEST,
+        # The same request sent whole in time may succeed.
+        'body_too_slow': RefusalCause.STATE,
         'handle_shared': RefusalCause.REQUEST,
         'overloaded': RefusalCause.STATE,
         'server_closing': RefusalCause.RESTART,
@@ -1415,6 +1419,7 @@ class ServerRefusedError(Refusal, Exception):
         'method_not_allowed': 'Method Not Allowed',
         'unsupported_media_type': 'Unsupported Media Type',
         'body_too_large': 'Body Too Large',
+        'body_too_slow': 'Body Too Slow',
         'handle_shared': 'Handle Shared',
         'overloaded': 'Overloaded',
         'server_closing': 'Server Closing',

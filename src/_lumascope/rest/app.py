@@ -210,7 +210,12 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         docs_url='/docs',
         redoc_url=None,
         lifespan=served,
-        responses=problems.openapi_responses(JSON_BODY_CEILING_BYTES, UPLOAD_CEILING_BYTES),
+        responses=problems.openapi_responses(
+            JSON_BODY_CEILING_BYTES,
+            UPLOAD_CEILING_BYTES,
+            BODY_DEADLINE_FLOOR_S,
+            BODY_FLOOR_BYTES_PER_S,
+        ),
     )
     # Before any route is added: every route is built of this class.
     app.router.route_class = _JsonBodyRoute
@@ -753,6 +758,12 @@ JSON_BODY_CEILING_BYTES = 64 * 1024
 # The most a file upload carries: four times the largest protocol a load
 # takes, so a new protocol ceiling moves it.
 UPLOAD_CEILING_BYTES = 4 * PROTOCOL_FILE_CEILING_BYTES
+# How long a body has to arrive: this floor, plus its length at the floor
+# rate (a chunked body's, its ceiling). A client gone silent mid-body -- its
+# link dropped -- would otherwise hold what the request took for ever: an
+# upload's place and live call.
+BODY_DEADLINE_FLOOR_S = 20.0
+BODY_FLOOR_BYTES_PER_S = 64 * 1024
 
 
 class _ClientGone(Quiet, Exception):  # noqa: N818 -- a quiet outcome, not an error
@@ -776,16 +787,19 @@ class _ClientGone(Quiet, Exception):  # noqa: N818 -- a quiet outcome, not an er
 
 
 async def _body_of(request: fastapi.Request, ceiling_bytes: int) -> bytes:
-    """The request's body, refused once it is larger than *ceiling_bytes*: the one read of a body.
+    """The request's body, refused once it is larger than *ceiling_bytes* or slower than its deadline: the one read of a body.
 
     A ``Content-Length`` over the ceiling is refused before a byte is read;
     a request with neither ``Content-Length`` nor ``Transfer-Encoding`` has
     an empty body; any other is counted as it arrives, a chunked one
     included, and refused at the first byte past the ceiling, so no more
-    than the ceiling is held.
+    than the ceiling is held. The whole body arrives within
+    ``BODY_DEADLINE_FLOOR_S`` plus its length (a chunked body's, the
+    ceiling) at ``BODY_FLOOR_BYTES_PER_S``, or is refused, its connection
+    closed.
 
     Raises:
-        ServerRefusedError: ``body_too_large``.
+        ServerRefusedError: ``body_too_large``; ``body_too_slow``.
         _ClientGone: The client went away mid-body.
     """
     length = request.headers.get('content-length')
@@ -793,16 +807,24 @@ async def _body_of(request: fastapi.Request, ceiling_bytes: int) -> bytes:
         raise problems.body_too_large(ceiling_bytes)
     if length is None and 'transfer-encoding' not in request.headers:
         return b''
+    expected = int(length) if length is not None else ceiling_bytes
+    deadline_s = BODY_DEADLINE_FLOOR_S + expected / BODY_FLOOR_BYTES_PER_S
     chunks: list[bytes] = []
     arrived = 0
+    deadline = asyncio.timeout(deadline_s)
     try:
-        async for chunk in request.stream():
-            arrived += len(chunk)
-            if arrived > ceiling_bytes:
-                raise problems.body_too_large(ceiling_bytes)
-            chunks.append(chunk)
+        async with deadline:
+            async for chunk in request.stream():
+                arrived += len(chunk)
+                if arrived > ceiling_bytes:
+                    raise problems.body_too_large(ceiling_bytes)
+                chunks.append(chunk)
     except ClientDisconnect:
         raise _ClientGone(arrived) from None
+    except TimeoutError:
+        if not deadline.expired():
+            raise
+        raise problems.body_too_slow(deadline_s, arrived) from None
     return b''.join(chunks)
 
 

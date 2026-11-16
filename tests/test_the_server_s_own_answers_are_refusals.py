@@ -25,6 +25,7 @@ REQUEST, STATE, RESTART = RefusalCause.REQUEST, RefusalCause.STATE, RefusalCause
         (problems.method_not_allowed('x'), 405, REQUEST),
         (problems.unsupported_media_type('x'), 415, REQUEST),
         (problems.body_too_large(1), 413, REQUEST),
+        (problems.body_too_slow(1, 0), 408, STATE),
         (problems.overloaded('x', 1), 503, STATE),
         (problems.server_closing(), 503, RESTART),
         (problems.no_frame_yet(1), 503, STATE),
@@ -49,6 +50,7 @@ def test_each_reason_s_status_and_title_are_the_type_s():
         'method_not_allowed': (405, 'Method Not Allowed'),
         'unsupported_media_type': (415, 'Unsupported Media Type'),
         'body_too_large': (413, 'Body Too Large'),
+        'body_too_slow': (408, 'Body Too Slow'),
         'handle_shared': (422, 'Handle Shared'),
         'overloaded': (503, 'Overloaded'),
         'server_closing': (503, 'Server Closing'),
@@ -78,3 +80,11 @@ def test_a_wait_travels_on_the_refusal_and_is_sent_as_retry_after():
     closing = problems.server_closing()
     assert closing.retry_after_s is None
     assert problems.refused_by_server(closing, 'id').headers == {}
+
+
+def test_a_refusal_that_ends_its_connection_is_sent_with_connection_close():
+    """A body the server stopped reading, and a client it does not serve: no connection is kept for either."""
+    for refusal in (problems.body_too_slow(1, 0), problems.client_not_allowed('10.0.0.9')):
+        assert problems.refused_by_server(refusal, 'id').headers == {'Connection': 'close'}
+    for refusal in (problems.body_too_large(1), problems.not_found('x')):
+        assert 'Connection' not in problems.refused_by_server(refusal, 'id').headers
