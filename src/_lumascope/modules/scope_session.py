@@ -4680,10 +4680,10 @@ class ScopeSession:
     def update_settings(self, path: str, value: 'SettingValue') -> None:
         """Write one setting, named by its dotted path: ``'video.max_fps'``, ``'zstack.range'``.
 
-        The one write to the live settings for any caller, on any thread.
-        Reads take ``settings_snapshot``; a write that skips this can
-        tear a snapshot being taken concurrently, and takes none of the
-        checks below.
+        The one write to the live settings for any caller, on any thread;
+        a setting is read by ``setting``, or by its own member where it has
+        one. A write that skips this can tear a read taken concurrently,
+        and takes none of the checks below.
 
         A setting that has its own member -- the objective, the plate, the
         image mode, every setting of a channel (``set_channel_settings``),

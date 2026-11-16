@@ -87,9 +87,8 @@ window sees the engine's geometry, and the next session opens with it.
 
 ```python
 scope.simulation.clear()
-before = session.settings_snapshot()['binning']
 scope.camera.set_binning(2)
-assert session.settings_snapshot()['binning'] != before   # saved, as the window's own
+assert scope.camera.binning == 2    # taken, and saved as the window's own
 scope.camera.set_binning(1)
 ```
 
