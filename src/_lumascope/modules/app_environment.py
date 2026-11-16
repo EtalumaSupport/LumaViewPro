@@ -102,25 +102,14 @@ def camera_sdk_probe() -> list[str]:
     lines = []
 
     try:
-        from pypylon import pylon
+        from _lumascope.drivers.pyloncamera import pylon_versions
     except Exception as e:
         lines.append(f'pypylon: not importable ({type(e).__name__}: {e})')
     else:
-        import pypylon
-
-        binding = (
-            getattr(pypylon, '__version__', None)
-            or _dist_version('pypylon')
-            or 'importable (version unknown)'
+        versions = pylon_versions()
+        lines.append(
+            f'pypylon binding: {versions["pypylon_version"]} / Pylon SDK: {versions["version"]}'
         )
-        try:
-            sdk = pylon.GetPylonVersionString()
-        except Exception:
-            try:
-                sdk = '.'.join(str(x) for x in pylon.GetPylonVersion())
-            except Exception:
-                sdk = 'unknown'
-        lines.append(f'pypylon binding: {binding} / Pylon SDK: {sdk}')
 
     try:
         from ids_peak import ids_peak as ids_binding

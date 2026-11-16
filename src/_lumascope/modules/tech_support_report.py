@@ -595,9 +595,9 @@ def _collect_system_info():
     # Camera SDK versions (separate from Python bindings)
     # Basler Pylon
     try:
-        import pypylon.pylon as pylon
+        from _lumascope.drivers.pyloncamera import pylon_versions
 
-        info['pylon_version'] = pylon.GetPylonVersion()
+        info['pylon_version'] = pylon_versions()['version']
     except Exception as e:
         # The import failure text is the diagnostic (a bundling gap in a
         # frozen build names its missing module/DLL here); the registry

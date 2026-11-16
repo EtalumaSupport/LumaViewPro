@@ -294,6 +294,12 @@ _PYLON_MEMBERS = {
     'RegistrationMode_Append': 3,
     'RegistrationMode_ReplaceAll': 4,
     'Cleanup_Delete': 5,
+    # The version accessors, answering as pypylon 26.10 does (checked
+    # in-process): the session's environment probe reads them at every
+    # bring-up, and the fallback's MagicMock has no dunder.
+    'GetPylonVersion': lambda: [12, 5, 2, 1565],
+    'GetPylonVersionString': lambda: '12.5.2.1565',
+    '__version__': '26.10',
 }
 
 _GENICAM_MEMBERS = {

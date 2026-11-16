@@ -88,6 +88,21 @@ def _log_cam(level: str, message: str) -> None:
     log_to(logger, _cam_log, level=level, message=message)
 
 
+def pylon_versions() -> dict:
+    """The Basler pylon SDK's version and the pypylon binding's, as dotted strings.
+
+    The one reader of both: the driver's ``get_sdk_info``, its connect log,
+    the environment banner and the support report all state these. Read
+    from ``pylon``, not the ``pypylon`` package, which carries no
+    ``__version__``; ``GetPylonVersion()`` answers a list, its string form
+    ``GetPylonVersionString()`` the dotted version.
+
+    Returns:
+        dict: ``{'version': '12.5.2.1565', 'pypylon_version': '26.10'}``.
+    """
+    return {'version': pylon.GetPylonVersionString(), 'pypylon_version': pylon.__version__}
+
+
 def describe_device_info(dev_info: Any) -> str:
     """Render every property the SDK reports for an enumerated device.
 
@@ -1372,18 +1387,9 @@ class PylonCamera(Camera):
                 try:
                     nm = camera.GetNodeMap()
 
-                    try:
-                        # Prefer dotted-string form (GetPylonVersionString)
-                        # over the raw list GetPylonVersion returns --
-                        # see lumaviewpro.py for the same rationale.
-                        try:
-                            _ver_str = pylon.GetPylonVersionString()
-                        except Exception:
-                            _v = pylon.GetPylonVersion()
-                            _ver_str = '.'.join(str(x) for x in _v)
-                        _log_cam('info', f'[CAM Class ] Pylon SDK version: {_ver_str}')
-                    except Exception as e:
-                        _log_cam('warning', f'[CAM Class ] Could not read Pylon SDK version: {e}')
+                    _log_cam(
+                        'info', f'[CAM Class ] Pylon SDK version: {pylon_versions()["version"]}'
+                    )
 
                     # Transport + device class identify the kernel
                     # driver stack Pylon is routing through -- useful
@@ -1608,31 +1614,11 @@ class PylonCamera(Camera):
     def get_sdk_info(self) -> dict:
         """Basler pylon SDK provenance (name + versions) for diagnostics.
 
-        Both reads are best-effort: pypylon may be absent and the SDK version
-        helper has been renamed across releases.
+        Returns:
+            dict: ``{'name': 'Basler pylon', 'version': <dotted SDK version>,
+            'pypylon_version': <binding version>}``, from ``pylon_versions``.
         """
-        version = None
-        try:
-            from pypylon import pylon as _pylon
-
-            for fn_name in ('GetPylonVersion', 'GetVersionString'):
-                fn = getattr(_pylon, fn_name, None)
-                if callable(fn):
-                    try:
-                        version = str(fn())
-                        break
-                    except Exception:
-                        continue
-        except Exception as e:
-            _cam_log.info(f'[CAM Class ] pylon SDK version unavailable: {e}')
-        pypylon_version = None
-        try:
-            import pypylon as _pyp
-
-            pypylon_version = getattr(_pyp, '__version__', None)
-        except Exception as e:
-            _cam_log.info(f'[CAM Class ] pypylon module version unavailable: {e}')
-        return {'name': 'Basler pylon', 'version': version, 'pypylon_version': pypylon_version}
+        return {'name': 'Basler pylon', **pylon_versions()}
 
     def init_camera_config(self) -> None:
         """Apply Etaluma's canonical camera configuration once on connect.
