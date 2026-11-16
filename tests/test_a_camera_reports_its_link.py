@@ -17,6 +17,7 @@ from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.modules.lumascope_api.diagnostics import CameraLink
 from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
+from tests.pypylon_stub import PlaceholderParameter
 from tests.settings_fixtures import complete_settings
 
 
@@ -102,7 +103,7 @@ def _pylon(values, device_class='BaslerUsb', speed_unit='bps'):
 
     def get_node(name):
         if name not in values:
-            raise genicam.LogicalErrorException('Node not existing')
+            return PlaceholderParameter(name)
         return MagicMock()
 
     cam.active.GetNodeMap.return_value.GetNode.side_effect = get_node

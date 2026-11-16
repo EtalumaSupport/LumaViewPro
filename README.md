@@ -78,7 +78,7 @@ To report bugs or request features, please open an issue on [GitHub Issues](http
 - **Camera SDK**: [Basler pylon](https://docs.baslerweb.com/pylon-software-suite) for a Basler camera, [IDS peak](https://en.ids-imaging.com/ids-peak.html) for an IDS camera (included in the Windows installer, must be installed separately when running from source)
 - **OS**: Windows 10/11, macOS, Linux (see note below)
 
-**macOS note:** the pypylon 26.4.1 wheels LumaViewPro pins need macOS 14 (Sonoma) or later, on Apple Silicon or Intel. IDS cameras are not supported on macOS: the IDS peak Python packages are pinned for Windows and Linux only. Check the [Basler pylon page](https://www.baslerweb.com/en-us/software/pylon/) for the latest compatibility information.
+**macOS note:** the pypylon 26.10 wheels LumaViewPro pins need macOS 14 (Sonoma) or later, on Apple Silicon or Intel. IDS cameras are not supported on macOS: the IDS peak Python packages are pinned for Windows and Linux only. Check the [Basler pylon page](https://www.baslerweb.com/en-us/software/pylon/) for the latest compatibility information.
 
 ## Installation from Source
 

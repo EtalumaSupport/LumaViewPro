@@ -25,6 +25,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.scope_session import ScopeSession
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera, grab_a_frame_made_after_now
+from tests.pypylon_stub import PlaceholderParameter
 from tests.settings_fixtures import complete_settings
 
 
@@ -145,7 +146,7 @@ def _pylon(nodes=('BlackLevel', 'BlackLevelSelector')):
 
     def get_node(name):
         if name not in nodes:
-            raise genicam.LogicalErrorException('Node not existing')
+            return PlaceholderParameter(name)
         return MagicMock()
 
     cam.active.GetNodeMap.return_value.GetNode.side_effect = get_node

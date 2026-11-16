@@ -29,18 +29,7 @@ from _lumascope.drivers.camera import CameraNodeHasNoValue, CameraNodeValue
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from tests import ids_peak_stub as ids_peak
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
-
-
-class _PylonNodeMap:
-    """GetNode as pypylon's: a name the map lacks raises LogicalErrorException."""
-
-    def __init__(self, nodes):
-        self._nodes = nodes
-
-    def GetNode(self, name):
-        if name not in self._nodes:
-            raise genicam.LogicalErrorException(f'Node not existing: {name}')
-        return self._nodes[name]
+from tests.pypylon_stub import NodeMap
 
 
 class _IdsNodeMap:
@@ -60,7 +49,7 @@ class _IdsNodeMap:
 
 def _pylon(nodes, node_map='device'):
     cam = bare_pylon_camera()
-    getattr(cam.active, PYLON_GETTERS[node_map]).return_value = _PylonNodeMap(nodes)
+    getattr(cam.active, PYLON_GETTERS[node_map]).return_value = NodeMap(nodes)
     return cam
 
 

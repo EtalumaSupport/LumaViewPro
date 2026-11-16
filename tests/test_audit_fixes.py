@@ -5482,19 +5482,13 @@ class TestPylonAcquisitionIdleWait:
             def GetValue(self):
                 return self._value
 
-        class _FakeNodeMap:
-            def __init__(self):
-                self._nodes = {
-                    'AcquisitionActive': _FakeNode(False),
-                    'ExposureActive': _FakeNode(False),
-                }
-
-            def GetNode(self, name):
-                return self._nodes.get(name)
+        from tests.pypylon_stub import NodeMap
 
         class _FakeCamera:
             def GetNodeMap(self):
-                return _FakeNodeMap()
+                return NodeMap(
+                    {'AcquisitionActive': _FakeNode(False), 'ExposureActive': _FakeNode(False)}
+                )
 
         camera = PylonCamera.__new__(PylonCamera)
         import threading as _threading
@@ -5526,15 +5520,11 @@ class TestPylonAcquisitionIdleWait:
             def GetValue(self):
                 return True  # Always active
 
-        class _FakeNodeMap:
-            def GetNode(self, name):
-                if name in ('AcquisitionActive', 'ExposureActive'):
-                    return _FakeNode()
-                return None
+        from tests.pypylon_stub import NodeMap
 
         class _FakeCamera:
             def GetNodeMap(self):
-                return _FakeNodeMap()
+                return NodeMap({'AcquisitionActive': _FakeNode(), 'ExposureActive': _FakeNode()})
 
         camera = PylonCamera.__new__(PylonCamera)
         import threading as _threading

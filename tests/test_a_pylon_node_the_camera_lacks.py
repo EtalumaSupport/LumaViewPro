@@ -1,10 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A Pylon node the camera lacks is told as absent where it is asked for.
 
-pypylon raises ``genicam.LogicalErrorException`` for a node the map does not
-hold, on ``GetNode`` and on the instant camera's attribute alike; it never
-answers ``None``. ``PylonCamera._find_node`` is the one lookup that answers
-absence as absence (guard ``tests/guards/test_a_pylon_node_is_found_one_way``).
+pypylon answers a placeholder for a node the map does not hold, on
+``GetNode`` and on the instant camera's attribute alike, which raises
+``genicam.LogicalErrorException`` at its first read or write; the map's
+``Contains`` says whether it holds the node. ``PylonCamera._find_node`` is the
+one lookup that answers absence as absence (guard
+``tests/guards/test_a_pylon_node_is_found_one_way``).
 Each site that asks then does what its contract says for a camera without the
 node, and a read or write that fails is a failure, not an absence:
 
@@ -44,33 +46,21 @@ from pypylon import genicam
 from _lumascope.drivers.exceptions import CameraNoAnswerError, CameraWriteFailedError
 from _lumascope.drivers.pyloncamera import PylonCamera
 from tests.camera_fakes import bare_pylon_camera
-
-
-class _NodeMap:
-    """A nodemap holding ``nodes``; any other name raises, as pypylon's does."""
-
-    def __init__(self, nodes=None):
-        self.nodes = dict(nodes or {})
-
-    def GetNode(self, name):
-        try:
-            return self.nodes[name]
-        except KeyError:
-            raise genicam.LogicalErrorException(f'Node not existing: {name}') from None
+from tests.pypylon_stub import NodeMap
 
 
 class _InstantCamera:
     """The instant camera's surface the lookups reach: its device and stream
     grabber nodemaps, and its attributes, which name the device map's nodes
-    and raise for a node the map lacks, as pypylon's do.
+    and answer a placeholder for a node the map lacks, as pypylon's do.
 
     a stand-in by design: the subject is the driver's answer to what the SDK
     hands it, and no simulated camera runs pyloncamera.py.
     """
 
     def __init__(self, device=None, stream=None):
-        self._device = _NodeMap(device)
-        self._stream = _NodeMap(stream)
+        self._device = NodeMap(device)
+        self._stream = NodeMap(stream)
 
     def GetNodeMap(self):
         return self._device

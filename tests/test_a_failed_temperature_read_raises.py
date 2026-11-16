@@ -20,6 +20,7 @@ from pypylon import genicam
 
 from _lumascope.drivers.exceptions import CameraReadFailedError, HardwareError
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
+from tests.pypylon_stub import PlaceholderParameter
 from tests.test_ids_diagnostics import _Nodemap, _temp_nodemap, _TempNode, _TempSelector
 
 
@@ -41,9 +42,7 @@ def test_a_pylon_read_that_fails_raises_and_keeps_the_camera():
 
 def test_a_pylon_camera_with_no_temperature_node_has_no_sensor():
     cam = bare_pylon_camera()
-    cam.active.GetNodeMap.return_value.GetNode.side_effect = genicam.LogicalErrorException(
-        'node not in map'
-    )
+    cam.active.GetNodeMap.return_value.GetNode.side_effect = PlaceholderParameter
 
     assert cam.supports_temperature() is False
     assert cam.get_all_temperatures() == {}

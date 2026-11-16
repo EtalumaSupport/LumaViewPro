@@ -172,6 +172,63 @@ class IEnumEntry(_Node):
     pass
 
 
+class PlaceholderParameter:
+    """pypylon 26.10's answer for a name a node map lacks.
+
+    From 26.6 ``GetNode`` and the instant camera's attribute answer this for
+    an absent name instead of raising. Every member LVP reaches raises
+    ``LogicalErrorException`` -- the bounds and ``Value`` at access, the
+    methods at their call, an assignment to ``Value`` -- except
+    ``GetCurrentEntry``, which it does not have (``AttributeError``); it is
+    neither readable nor writable. Measured on Basler's emulator and a
+    daA3840 body on 26.10 (Firmware
+    ``reference/bench/camera/2026-11-15_pypylon_26_10_daa3840_body.md``).
+    """
+
+    readable = False
+    writable = False
+    _PROPERTIES = frozenset({'Value', 'Min', 'Max', 'Inc'})
+
+    def __init__(self, name: str):
+        object.__setattr__(self, '_name', name)
+
+    def _absent(self) -> LogicalErrorException:
+        return LogicalErrorException(
+            f"Cannot get value of 'Camera/{self._name}': node not existing"
+        )
+
+    def __getattr__(self, attr):
+        if attr.startswith('__') or attr == 'GetCurrentEntry':
+            raise AttributeError(attr)
+        if attr in self._PROPERTIES:
+            raise self._absent()
+
+        def _member(*_args, **_kwargs):
+            raise self._absent()
+
+        return _member
+
+    def __setattr__(self, attr, value):
+        raise self._absent()
+
+
+class NodeMap:
+    """A node map holding ``nodes``, as pypylon 26.10's answers it: ``Contains``
+    is whether it holds the name, and ``GetNode`` of a name it lacks answers a
+    ``PlaceholderParameter``."""
+
+    def __init__(self, nodes=None):
+        self.nodes = dict(nodes or {})
+
+    def Contains(self, name: str) -> bool:
+        return name in self.nodes
+
+    def GetNode(self, name: str):
+        if name in self.nodes:
+            return self.nodes[name]
+        return PlaceholderParameter(name)
+
+
 def IsReadable(node) -> bool:
     """genicam.IsReadable stand-in: a None node is unreadable, as is one a
     test built unreadable; anything else a test supplies (MagicMock or fake

@@ -4172,14 +4172,14 @@ class PylonCamera(Camera):
     def _find_node(nodemap, name: str):
         """The node of this name on ``nodemap``, or None when the map has none.
 
-        pypylon's GetNode RAISES ``genicam.LogicalErrorException`` for a node
-        that is not in the map -- it never returns None. Any other error is
-        the camera's or the SDK's failure and propagates.
+        pypylon's GetNode answers a placeholder for a name the map lacks,
+        which fails only at its first read or write, so whether the map
+        holds the node is ``Contains``'s answer, never GetNode's. Any error
+        is the camera's or the SDK's failure and propagates.
         """
-        try:
-            return nodemap.GetNode(name)
-        except genicam.LogicalErrorException:
+        if not nodemap.Contains(name):
             return None
+        return nodemap.GetNode(name)
 
     # Node types that hold no value, by what they are. Every other node is
     # one of genicam's value types (IInteger, IFloat, IBoolean, IString,
@@ -4558,7 +4558,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
     base surface is present here. ``Camera`` reads its handler through that
     surface, and a hand-maintained subset of it went stale every time the
     base grew. The two bases coexist: the SWIG proxy's metaclass is ``type``
-    and it defines none of the base's names (verified on pypylon 26.4.1).
+    and it defines none of the base's names (verified on pypylon 26.10).
     The SDK ``__init__`` does not forward along the MRO, so both bases are
     initialised explicitly.
     """

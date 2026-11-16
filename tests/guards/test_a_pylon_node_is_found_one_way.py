@@ -1,13 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A Pylon node is found one way: ``PylonCamera._find_node``.
 
-pypylon's ``GetNode(name)`` raises ``genicam.LogicalErrorException`` for a
-node the map does not hold; it never returns ``None``. A lookup that tests
-the answer for ``None`` therefore takes an absent node for a failure: a
-WARNING on every GigE connect for a USB-only node, a drain error on every
-camera without Basler's error nodes, a traceback at ERROR from a bench knob
-a USB3 camera does not offer. ``_find_node`` answers absence as ``None``
-and lets every other error through. This walk over LVP's production tree
+pypylon's ``GetNode(name)`` answers a placeholder for a node the map does
+not hold, which raises ``genicam.LogicalErrorException`` at its first read
+or write; it never returns ``None``, and only the map's ``Contains`` says
+whether the node is there. A lookup that takes ``GetNode``'s answer as the
+node therefore takes an absent node for a present one that failed: a body's
+exposure read raising where it falls back to ``ExposureTime``, the idle wait
+at disconnect giving up, a WARNING for a pixel pitch the camera does not
+state. ``_find_node`` answers absence as ``None`` and lets every other error
+through. This walk over LVP's production tree
 (``src/``, ``ui/``, ``tools/``, the root's modules) refuses a ``GetNode``
 call with an argument anywhere else; the no-argument ``GetNode()`` that
 turns a node handle into its node is not a lookup and passes.
@@ -58,7 +60,7 @@ def test_no_pylon_node_is_looked_up_but_through_find_node():
         for line in _lookups_outside_the_owner(rel_path, tree)
     ]
     assert not found, (
-        'GetNode(<name>) outside PylonCamera._find_node; an absent node raises there, '
+        'GetNode(<name>) outside PylonCamera._find_node; an absent node answers a placeholder there, '
         'so find it with _find_node (or read it with read_node):\n' + '\n'.join(found)
     )
 

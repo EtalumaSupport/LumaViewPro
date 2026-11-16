@@ -21,6 +21,7 @@ from unittest.mock import DEFAULT, MagicMock
 
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Camera, Frame, ImageHandlerBase
+from tests.pypylon_stub import PlaceholderParameter
 
 
 def _base_state(cam):
@@ -74,7 +75,7 @@ def bare_pylon_camera():
     from pypylon import genicam
 
     # The body's reverse nodes, typed; a name removed is a node it lacks,
-    # which pypylon's GetNode raises for.
+    # for which pypylon's GetNode answers a placeholder.
     cam.reverse_nodes = _reverse_nodes(genicam.IBoolean)
     reverses = tuple(cam.reverse_nodes)
 
@@ -88,13 +89,43 @@ def bare_pylon_camera():
 
     def get_node(name):
         if name in reverses and name not in cam.reverse_nodes:
-            raise genicam.LogicalErrorException(f'Node not existing: {name}')
+            return PlaceholderParameter(name)
         if name in cam.range_nodes:
             return cam.range_nodes[name]
         return cam.reverse_nodes.get(name, DEFAULT)
 
     cam.active.GetNodeMap.return_value.GetNode.side_effect = get_node
+    for getter in _NODE_MAP_GETTERS:
+        contains_what_get_node_answers(getattr(cam.active, getter).return_value)
     return cam
+
+
+# The instant camera's node maps, each a MagicMock on the fake handle.
+_NODE_MAP_GETTERS = (
+    'GetNodeMap',
+    'GetTLNodeMap',
+    'GetStreamGrabberNodeMap',
+    'GetInstantCameraNodeMap',
+)
+
+
+def contains_what_get_node_answers(nodemap: MagicMock) -> None:
+    """Make a MagicMock node map's ``Contains`` answer as pypylon's does: True
+    unless its ``GetNode`` answers a placeholder for the name.
+
+    It follows whatever ``GetNode`` answers at the time, so a test that sets
+    a new ``side_effect`` keeps the map's ``Contains`` in step; a ``GetNode``
+    with no function behind it (a fixed node, or a raise) is a map holding
+    every name, and its ``GetNode`` answers the lookup.
+    """
+
+    def contains(name):
+        answer = nodemap.GetNode.side_effect
+        if not callable(answer):
+            return True
+        return not isinstance(answer(name), PlaceholderParameter)
+
+    nodemap.Contains.side_effect = contains
 
 
 def _float_node(genicam, low: float, high: float) -> MagicMock:
@@ -179,23 +210,25 @@ class FakeDiagNode:
 class RecordingNodeMap:
     """GetNode-style nodemap that records every requested node name.
 
-    A missing name raises ``genicam.LogicalErrorException``, as pypylon's
-    GetNode does for a node not in the map; present names return a
-    FakeDiagNode. Pass FakeDiagNode instances as values for multi-read
-    sequences (e.g. pre/post counter reads).
+    A missing name is one ``Contains`` answers False for and ``GetNode`` a
+    placeholder for, as pypylon's map does; present names return a
+    FakeDiagNode. A name is recorded when the map is asked whether it holds
+    it. Pass FakeDiagNode instances as values for multi-read sequences
+    (e.g. pre/post counter reads).
     """
 
     def __init__(self, values=None):
         self.requested = []
         self._values = dict(values or {})
 
-    def GetNode(self, name):
-        from pypylon import genicam
-
+    def Contains(self, name):
         self.requested.append(name)
+        return self._values.get(name) is not None
+
+    def GetNode(self, name):
         value = self._values.get(name)
         if value is None:
-            raise genicam.LogicalErrorException(f'Node not existing: {name}')
+            return PlaceholderParameter(name)
         return value if isinstance(value, FakeDiagNode) else FakeDiagNode(value)
 
 

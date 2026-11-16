@@ -17,6 +17,7 @@ from pypylon import genicam
 
 from _lumascope.drivers.exceptions import CameraReadFailedError
 from tests.camera_fakes import bare_pylon_camera
+from tests.pypylon_stub import PlaceholderParameter
 
 
 def _boom(*_args, **_kwargs):
@@ -48,7 +49,7 @@ def _induce_gain(cam):
 
 
 def _absent(name):
-    raise genicam.LogicalErrorException(f'Node not existing: {name}')
+    return PlaceholderParameter(name)
 
 
 def _induce_exposure_nodes_absent(cam):

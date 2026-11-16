@@ -39,6 +39,7 @@ from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.notification_center import Severity
 from tests.camera_fakes import bare_pylon_camera
+from tests.pypylon_stub import PlaceholderParameter
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
 # Every GenICam class a refused SetValue can arrive as that is NOT a
@@ -426,7 +427,7 @@ class TestAnArmWhoseTargetOrLimitsWereNotTakenIsRefused:
     def test_a_sensor_without_exposure_bounds_still_arms(self):
         cam = bare_pylon_camera()
         nodemap = cam.active.GetNodeMap.return_value
-        nodemap.GetNode.side_effect = genicam.LogicalErrorException('no such node')
+        nodemap.GetNode.side_effect = PlaceholderParameter
 
         assert cam.auto_gain(state=True) is True
         cam.active.AutoExposureTimeUpperLimit.SetValue.assert_not_called()

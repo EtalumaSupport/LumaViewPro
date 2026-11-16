@@ -26,9 +26,9 @@ import subprocess
 import sys
 
 import pytest
-from pypylon import genicam
 
 from tests.camera_fakes import init_configurable_pylon_camera
+from tests.pypylon_stub import PlaceholderParameter
 
 
 class _StopModeNode:
@@ -53,7 +53,7 @@ class _StopModeNode:
 
 def _configured(stop_mode):
     """A Basler camera, configured, whose ``BslAcquisitionStopMode`` is
-    ``stop_mode`` (absent when None, raising as pypylon's ``GetNode`` does);
+    ``stop_mode`` (absent when None, a placeholder as pypylon's ``GetNode`` answers);
     every other node is the fake body's, as the rest of the configuration
     expects."""
     # a stand-in by design: no simulated camera runs pyloncamera.py, and the
@@ -66,7 +66,7 @@ def _configured(stop_mode):
         if name != 'BslAcquisitionStopMode':
             return body(name)
         if stop_mode is None:
-            raise genicam.LogicalErrorException(f'Node not existing: {name}')
+            return PlaceholderParameter(name)
         return stop_mode
 
     get_node.side_effect = with_the_stop_mode

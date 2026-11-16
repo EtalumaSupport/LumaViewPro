@@ -26,7 +26,7 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 | pyserial | 3.5 | BSD-3-Clause | https://github.com/pyserial/pyserial |
 | psutil | 7.2.2 | BSD-3-Clause | https://github.com/giampaolo/psutil |
 | platformdirs | 4.9.6 | MIT | https://github.com/platformdirs/platformdirs |
-| pypylon | 26.4.1 | BSD-3-Clause (the wrapper; the wheel's metadata declares Other/Proprietary). It carries the Basler pylon runtime, below. | https://github.com/basler/pypylon |
+| pypylon | 26.10 | BSD-3-Clause (the wrapper; the wheel's metadata declares Other/Proprietary). It carries the Basler pylon runtime, below. | https://github.com/basler/pypylon |
 | ids-peak | 1.15.0.0.8 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak/ |
 | ids-peak-ipl | 1.17.2.0.7 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak-ipl/ |
 | ids-peak-icv | 1.3.0.9744 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak-icv/ |

@@ -14,6 +14,7 @@ nodemap here, as the snapshot's camera and stream-grabber nodemaps are in
 """
 
 from tests.camera_fakes import FakeDiagNode, diag_snapshot_pylon_camera
+from tests.pypylon_stub import NodeMap
 
 
 class _NamedNode(FakeDiagNode):
@@ -38,15 +39,14 @@ class _Unreadable:
         raise RuntimeError('not a value node')
 
 
-class _ListingNodeMap:
+class _ListingNodeMap(NodeMap):
+    """A transport layer's map that lists the nodes it holds, as pypylon's ``GetNodes``."""
+
     def __init__(self, nodes):
-        self._nodes = {node.GetName(): node for node in nodes}
+        super().__init__({node.GetName(): node for node in nodes})
 
     def GetNodes(self):
-        return list(self._nodes.values())
-
-    def GetNode(self, name):
-        return self._nodes.get(name)
+        return list(self.nodes.values())
 
 
 def test_every_transport_layer_node_is_listed_with_its_value():

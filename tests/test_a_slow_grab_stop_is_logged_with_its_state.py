@@ -16,11 +16,10 @@ import time
 import types
 from unittest import mock
 
-from pypylon import genicam
-
 from _lumascope.drivers.camera import ImageHandlerBase
 from tests.camera_fakes import bare_pylon_camera
 from tests.log_capture import records_of
+from tests.pypylon_stub import PlaceholderParameter
 
 
 def _stop_with_log(caplog, cam, stop_takes_s, during_stop=None):
@@ -104,9 +103,7 @@ def test_a_fast_stop_logs_its_elapsed_time_and_no_warning(caplog):
 
 def test_a_node_the_camera_lacks_is_named_and_the_stop_still_runs(caplog):
     cam = bare_pylon_camera()
-    cam.active.GetNodeMap.return_value.GetNode.side_effect = genicam.LogicalErrorException(
-        'Node not existing'
-    )
+    cam.active.GetNodeMap.return_value.GetNode.side_effect = PlaceholderParameter
 
     records = _stop_with_log(caplog, cam, stop_takes_s=0.02)
 

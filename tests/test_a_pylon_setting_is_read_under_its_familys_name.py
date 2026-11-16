@@ -38,6 +38,7 @@ from tests.camera_fakes import (
     stats_poll_pylon_camera,
 )
 from tests.log_capture import records_of
+from tests.pypylon_stub import PlaceholderParameter
 
 
 def _without(cam, *names):
@@ -46,7 +47,7 @@ def _without(cam, *names):
 
     def get_node(name):
         if name in names:
-            raise genicam.LogicalErrorException(f'Node not existing: {name}')
+            return PlaceholderParameter(name)
         return present(name)
 
     cam.active.GetNodeMap.return_value.GetNode.side_effect = get_node
