@@ -553,9 +553,9 @@ class ImagingAPI:
     # --- SDK-perf knobs (write-only by design) ---
     #
     # Considered get_X companions for the cluster below
-    # (set_bandwidth_reserve_mode, set_device_link_throughput_limit, set_max_transfer_size,
+    # (set_bandwidth_reserve_mode, set_device_link_throughput_limit,
     #  set_num_max_queued_urbs, set_gev_packet_size,
-    #  set_gev_inter_packet_delay, set_max_acquisition_frame_rate).
+    #  set_gev_inter_packet_delay).
     # Rejected because: these are Pylon / GEV / USB SDK perf knobs
     # the customer typically configures once at startup; the SDK
     # exposes them as nodemap writes and readback either returns a
@@ -654,36 +654,6 @@ class ImagingAPI:
             )
         )
 
-    def _set_max_transfer_size(self, value_bytes: int) -> bool:
-        """Set Pylon StreamGrabber MaxTransferSize (USB3 only).
-
-        Bytes-per-USB-transfer the SDK requests from the kernel. Per
-        Basler `stream-grabber-parameters.html` this is the named lever
-        for the symptom "fails to receive image stream" -- decreasing
-        the value works around kernel / driver USB-transfer-size
-        constraints on some Windows hosts.
-
-        USB3-only. The node is absent on GigE cameras and on the IDS
-        SDK; returns False so the bench-probe sweep can call this
-        method unconditionally per cell.
-
-        Args:
-            value_bytes: New MaxTransferSize in bytes.
-
-        Returns:
-            bool: True on success. False if the camera is absent /
-                inactive, the driver doesn't implement the setter, or
-                the node is not exposed.
-
-        Raises:
-            HardwareError: Underlying SDK call failed in the driver.
-        """
-        if not self._driver or not self._driver.active:
-            return False
-        if not hasattr(self._driver, 'set_max_transfer_size'):
-            return False
-        return bool(self._driver.set_max_transfer_size(value_bytes=value_bytes))
-
     def _set_num_max_queued_urbs(self, value: int) -> bool:
         """Set Pylon StreamGrabber NumMaxQueuedUrbs (USB3 only).
 
@@ -713,39 +683,6 @@ class ImagingAPI:
         if not hasattr(self._driver, 'set_num_max_queued_urbs'):
             return False
         return bool(self._driver.set_num_max_queued_urbs(value=value))
-
-    def _set_max_num_buffer(self, value: int) -> bool:
-        """Set Pylon InstantCamera MaxNumBuffer.
-
-        Per Basler `instant-camera-parameters.html`: count of buffers the
-        SDK allocates for grabbing. Default 10; Etaluma production caps
-        to 3 (Windows non-paged-pool bound). Bench characterization
-        uses 10 to match Pylon Viewer.
-
-        Pylon-only. The driver stores the value on `_max_num_buffer` so
-        the connect() lifecycle applies it post-Open() before the node
-        locks. An immediate SetValue is also attempted; pypylon 26.4.x
-        makes the node read-only once AcquireContinuousConfiguration
-        auto-starts grabbing inside Open(), so a live override needs
-        StopGrabbing first.
-
-        Args:
-            value: New MaxNumBuffer (positive int).
-
-        Returns:
-            bool: True on immediate SetValue success. False if camera is
-                absent / inactive, the driver doesn't implement the
-                setter, or the node is currently locked (the value is
-                still stored for the next connect).
-
-        Raises:
-            HardwareError: Underlying SDK call failed in the driver.
-        """
-        if not self._driver or not self._driver.active:
-            return False
-        if not hasattr(self._driver, 'set_max_num_buffer'):
-            return False
-        return bool(self._driver.set_max_num_buffer(value=int(value)))
 
     def _set_grab_strategy(self, name: str) -> bool:
         """Set the Pylon GrabStrategy used by the next start_grabbing().

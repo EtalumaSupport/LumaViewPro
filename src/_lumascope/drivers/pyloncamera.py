@@ -258,10 +258,9 @@ _PYLON_DEFENSE_BUILD = 'pylon-defense-3'
 # camera discarded payloads ("bandwidth insufficient") and, once the
 # matching grab-result pool filled, dropped the connection entirely. More
 # buffers absorb the host stall for a few MB of RAM; revisit under a RAM /
-# buffer-reuse audit. Override via imaging._set_max_num_buffer() (the
-# InstantCamera node goes read-only once grabbing has begun; set it before
-# the implicit AcquireContinuousConfiguration auto-start, or stop/restart
-# grabbing around the change).
+# buffer-reuse audit. connect() is the node's one writer: the InstantCamera
+# node goes read-only once grabbing has begun, so it is set before the
+# implicit AcquireContinuousConfiguration auto-start.
 _DEFAULT_MAX_NUM_BUFFER = 10
 
 # MaxTransferSize applied post-Open() in connect(), pinned regardless of
@@ -294,12 +293,10 @@ class PylonCamera(Camera):
         else:
             self._use_camera_emulation = False
 
-        # StreamGrabber-tuning state -- written by imaging sub-API levers,
-        # read by connect() / start_grabbing(). MaxNumBuffer, MaxTransferSize,
-        # and grab strategy have explicit defaults applied at every connect();
-        # NumMaxQueuedUrbs stays at the SDK default (set only via the lever).
-        self._max_num_buffer = _DEFAULT_MAX_NUM_BUFFER
-        self._max_transfer_size = _DEFAULT_MAX_TRANSFER_SIZE
+        # The grab strategy start_grabbing() uses, written by the imaging
+        # sub-API's lever. connect() writes MaxNumBuffer and MaxTransferSize
+        # from their constants; NumMaxQueuedUrbs stays at the SDK default
+        # (set only via its lever).
         self._grab_strategy_name = _DEFAULT_GRAB_STRATEGY
 
         # Cache of the active PixelFormat. PixelFormat only changes through
@@ -1112,9 +1109,9 @@ class PylonCamera(Camera):
 
         Grab strategy is read from ``self._grab_strategy_name`` (default
         ``LatestImageOnly``; bench overrides via
-        ``imaging._set_grab_strategy``). MaxNumBuffer / MaxTransferSize /
-        NumMaxQueuedUrbs overrides go through ``imaging._set_*`` levers
-        (no env-var path).
+        ``imaging._set_grab_strategy``). connect() writes MaxNumBuffer and
+        MaxTransferSize; NumMaxQueuedUrbs goes through
+        ``imaging._set_num_max_queued_urbs`` (no env-var path).
         """
         camera = self.active
         if camera is None:
@@ -1325,16 +1322,14 @@ class PylonCamera(Camera):
             # 2026-05-08 (Windows dart M, sensor-max Mono8): cap=3 and
             # SDK-default both run at 0% fail rate / 0 resyncs/sec, so
             # the cap restores the original Windows non-paged-pool bound
-            # at zero observed perf cost. Override via the
-            # imaging._set_max_num_buffer lever (sets self._max_num_buffer
-            # before reconnect).
+            # at zero observed perf cost.
             try:
-                camera.MaxNumBuffer.SetValue(int(self._max_num_buffer))
+                camera.MaxNumBuffer.SetValue(_DEFAULT_MAX_NUM_BUFFER)
                 actual = camera.MaxNumBuffer.GetValue()
                 _log_cam(
                     'info',
                     f'[CAM Class ] MaxNumBuffer cap applied post-Open: '
-                    f'requested={self._max_num_buffer} actual={actual}',
+                    f'requested={_DEFAULT_MAX_NUM_BUFFER} actual={actual}',
                 )
             except Exception as e:
                 _log_cam(
@@ -1376,12 +1371,12 @@ class PylonCamera(Camera):
                         '(non-USB transport or grabber not open); left at default',
                     )
                 else:
-                    _mts_node.SetValue(int(self._max_transfer_size))
+                    _mts_node.SetValue(_DEFAULT_MAX_TRANSFER_SIZE)
                     _mts_actual = _mts_node.GetValue()
                     _log_cam(
                         'info',
                         f'[CAM Class ] MaxTransferSize applied post-Open: '
-                        f'requested={self._max_transfer_size} actual={_mts_actual}',
+                        f'requested={_DEFAULT_MAX_TRANSFER_SIZE} actual={_mts_actual}',
                     )
             except Exception as e:
                 _log_cam(
@@ -2020,8 +2015,7 @@ class PylonCamera(Camera):
     def _probe_advertised_chunks(camera) -> set | None:
         """Return the set of ChunkSelector entry names advertised by
         the camera, or None if the ChunkSelector node is missing /
-        unreadable. Shared by _enable_validity_chunks and
-        probe_chunk_capabilities.
+        unreadable. Read by _enable_validity_chunks.
         """
         try:
             nm = camera.GetNodeMap()
@@ -2045,33 +2039,6 @@ class PylonCamera(Camera):
                 f'frame_validity will fall back to skip_frames calibration'
             )
             return None
-
-    def set_max_acquisition_frame_rate(
-        self,
-        enabled: bool,
-        fps: float = 1.0,
-    ) -> None:
-        """Enable or disable the camera's `AcquisitionFrameRateEnable` cap.
-
-        When enabled, the camera will not produce frames faster than
-        `fps` regardless of sensor-readout capability. Used by IDS char-
-        tool crash protection (also relevant to Pylon for stability
-        soaks). Setting `enabled=False` returns the camera to its
-        sensor-readout-rate ceiling.
-
-        Args:
-            enabled: True to cap frame rate, False to remove the cap.
-            fps: Target frame rate in fps when ``enabled=True``.
-                Ignored when ``enabled=False``.
-        """
-        try:
-            self.active.AcquisitionFrameRateEnable.Value = enabled
-            if enabled:
-                self.active.AcquisitionFrameRate.Value = fps
-        except Exception as e:
-            _cam_log.exception(
-                f'[CAM Class ] Unexpected error in set_max_acquisition_frame_rate: {e}'
-            )
 
     def set_device_link_throughput_limit(
         self,
@@ -2189,21 +2156,6 @@ class PylonCamera(Camera):
             return hi
         return value_bps
 
-    def set_max_transfer_size(self, value_bytes: int) -> bool:
-        """Set StreamGrabber MaxTransferSize (USB3-only bench knob).
-
-        Per Basler `stream-grabber-parameters.html`: bytes-per-USB-transfer
-        the SDK requests. Doc's named lever for "fails to receive image
-        stream"; decreasing works around kernel USB-transfer-size limits
-        on some Windows hosts. SDK clamps to node range. Returns False if
-        camera inactive; raises HardwareError on SDK failure.
-        """
-        return self._set_stream_grabber_int_node(
-            node_name='MaxTransferSize',
-            value=int(value_bytes),
-            method_label='set_max_transfer_size',
-        )
-
     def set_num_max_queued_urbs(self, value: int) -> bool:
         """Set StreamGrabber NumMaxQueuedUrbs (USB3-only bench knob).
 
@@ -2219,36 +2171,6 @@ class PylonCamera(Camera):
             value=int(value),
             method_label='set_num_max_queued_urbs',
         )
-
-    def set_max_num_buffer(self, value: int) -> bool:
-        """Set InstantCamera.MaxNumBuffer.
-
-        Stores the value on `self._max_num_buffer` so subsequent
-        connect() calls apply it post-Open() before the auto-start
-        locks the node. Also attempts an immediate SetValue against
-        the active camera; pypylon 26.4.x makes the node read-only
-        once AcquireContinuousConfiguration auto-starts grabbing
-        inside Open(), so a live override requires StopGrabbing first.
-
-        Returns True on successful immediate SetValue, False if the
-        camera is inactive or the node is currently locked (the value
-        is still stored for the next connect()).
-        """
-        self._max_num_buffer = int(value)
-        if not self.active:
-            return False
-        try:
-            self.active.MaxNumBuffer.SetValue(int(value))
-            actual = self.active.MaxNumBuffer.GetValue()
-            _cam_log.info(f'pylon MaxNumBuffer.SetValue({value}) actual={actual}')
-            return True
-        except Exception as e:
-            _cam_log.warning(
-                f'pylon set_max_num_buffer({value}) FAILED '
-                f'(node may be locked, value stored for next '
-                f'connect): {e}'
-            )
-            return False
 
     _GRAB_STRATEGY_NAMES = ('LatestImageOnly', 'OneByOne')
 
@@ -2279,8 +2201,8 @@ class PylonCamera(Camera):
     ) -> bool:
         """Shared helper for StreamGrabber integer-node setters.
 
-        Used by ``set_max_transfer_size`` and ``set_num_max_queued_urbs``
-        (USB3-only knobs), answered as ``_write_bench_knob`` answers.
+        Used by ``set_num_max_queued_urbs`` (a USB3-only knob), answered as
+        ``_write_bench_knob`` answers.
         """
         if not self.active:
             return False
@@ -3997,120 +3919,6 @@ class PylonCamera(Camera):
             self.active.TestPattern.SetValue(pattern)
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_test_pattern: {e}')
-
-    # Chunks consumed by chunk-driven validity in _lumascope.modules.frame_validity.
-    # LED has no chunk equivalent; motion is firmware-gated; these three
-    # cover gain / exposure / per-frame identity.
-    _CHUNK_TARGETS_FOR_VALIDITY = ('ExposureTime', 'Gain', 'FrameID')
-
-    def probe_chunk_capabilities(self) -> dict:
-        """Probe per-frame chunk support via activation-acceptance.
-
-        For each ChunkSelector entry, sets ChunkEnable=True and reads back
-        to confirm support. ChunkModeActive is locked while grabbing, so
-        the probe stops grabbing if needed and restores prior config.
-
-        Returns dict with keys: 'model', 'firmware', 'serial', 'advertised'
-        (sorted list of selector symbols), 'enabled' (selector -> bool),
-        'errors' (list).
-        """
-        result = {
-            'model': getattr(self, 'model_name', None),
-            'firmware': None,
-            'serial': None,
-            'advertised': [],
-            'enabled': {},
-            'errors': [],
-        }
-        camera = self.active
-        if camera is None:
-            result['errors'].append('camera not connected')
-            return result
-
-        for genicam_attr, key in (
-            ('DeviceFirmwareVersion', 'firmware'),
-            ('DeviceSerialNumber', 'serial'),
-        ):
-            try:
-                node = self._find_node(camera.GetNodeMap(), genicam_attr)
-                if node is not None:
-                    result[key] = node.GetValue()
-            except Exception as e:
-                logger.debug(f'[CAM Class ] chunk_data_probe could not read {genicam_attr}: {e}')
-
-        was_grabbing = False
-        try:
-            was_grabbing = bool(camera.IsGrabbing())
-        except Exception as e:
-            logger.debug(f'[CAM Class ] chunk_data_probe IsGrabbing() check failed: {e}')
-        if was_grabbing:
-            self.stop_grabbing()
-
-        prior_chunk_mode = None
-        prior_per_chunk: dict = {}
-        try:
-            try:
-                nm = camera.GetNodeMap()
-                selector_node = self._find_node(nm, 'ChunkSelector')
-                if selector_node is None:
-                    result['errors'].append('ChunkSelector node missing')
-                    return result
-                for entry in selector_node.GetEntries():
-                    try:
-                        result['advertised'].append(entry.GetSymbolic())
-                    except Exception as e:
-                        logger.debug(
-                            f'[CAM Class ] chunk_data_probe entry GetSymbolic() failed: {e}'
-                        )
-                result['advertised'].sort()
-            except Exception as e:
-                result['errors'].append(f'introspection failed: {e}')
-                return result
-
-            try:
-                prior_chunk_mode = camera.ChunkModeActive.Value
-                camera.ChunkModeActive.Value = True
-            except Exception as e:
-                result['errors'].append(f'could not enable ChunkModeActive: {e}')
-                return result
-
-            for sel in self._CHUNK_TARGETS_FOR_VALIDITY:
-                if sel not in result['advertised']:
-                    result['enabled'][sel] = False
-                    continue
-                try:
-                    camera.ChunkSelector.Value = sel
-                    prior_per_chunk[sel] = camera.ChunkEnable.Value
-                    camera.ChunkEnable.Value = True
-                    result['enabled'][sel] = bool(camera.ChunkEnable.Value)
-                except Exception as e:
-                    result['enabled'][sel] = False
-                    result['errors'].append(f'could not enable Chunk{sel}: {e}')
-        finally:
-            for sel, prior in prior_per_chunk.items():
-                try:
-                    camera.ChunkSelector.Value = sel
-                    camera.ChunkEnable.Value = prior
-                except Exception as e:
-                    _cam_log.warning(
-                        f'[CAM Class ] chunk_data_probe could not restore '
-                        f'Chunk{sel} prior state ({prior}): {e}'
-                    )
-            if prior_chunk_mode is not None:
-                try:
-                    camera.ChunkModeActive.Value = prior_chunk_mode
-                except Exception as e:
-                    _cam_log.warning(
-                        f'[CAM Class ] chunk_data_probe could not restore '
-                        f'ChunkModeActive prior state ({prior_chunk_mode}): {e}'
-                    )
-            if was_grabbing:
-                try:
-                    self.start_grabbing()
-                except Exception as e:
-                    result['errors'].append(f'could not restart streaming: {e}')
-
-        return result
 
     # Stream-grabber stat node names probed in read_diagnostic_snapshot.
     # All read defensively via _safe_node so missing nodes record

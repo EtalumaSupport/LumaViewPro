@@ -1730,16 +1730,6 @@ class Camera(ABC):
             return None
         return link_info()
 
-    @abstractmethod
-    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0) -> None:
-        """Enable or disable the SDK's frame-rate cap.
-
-        Args:
-            enabled: True to enforce ``fps`` as the upper bound.
-            fps: Cap value in frames per second.
-        """
-        pass
-
     def set_binning_size(self, size: int) -> bool:
         """Set hardware binning factor.
 

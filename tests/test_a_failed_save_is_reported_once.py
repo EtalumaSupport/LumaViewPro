@@ -91,9 +91,7 @@ class TestSaveImage:
 SDK_SETTERS = [
     ('_set_bandwidth_reserve_mode', 'set_bandwidth_reserve_mode', ('Performance',)),
     ('_set_device_link_throughput_limit', 'set_device_link_throughput_limit', ('Off',)),
-    ('_set_max_transfer_size', 'set_max_transfer_size', (1048576,)),
     ('_set_num_max_queued_urbs', 'set_num_max_queued_urbs', (64,)),
-    ('_set_max_num_buffer', 'set_max_num_buffer', (10,)),
     ('_set_gev_packet_size', 'set_gev_packet_size', (8192,)),
     ('_set_gev_inter_packet_delay', 'set_gev_inter_packet_delay', (1000,)),
 ]

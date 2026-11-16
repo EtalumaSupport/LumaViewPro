@@ -82,16 +82,11 @@ def _camera():
 # each answer 'not_applied', named in config_not_applied
 # (test_a_camera_config_step_not_taken_is_reported); with every write
 # failing, its orientation write fails too, and a camera whose orientation is
-# not taken raises. 'none' is the two writers with no caller, which answer
-# None for every failure.
+# not taken raises. 'none' is set_test_pattern, which answers None for every
+# failure.
 _CASES = [
     ('init_camera_config', lambda c: c.init_camera_config(), 'raises'),
     ('_write_reverse', lambda c: c._write_reverse('ReverseY', True), 'raises'),
-    (
-        'set_max_acquisition_frame_rate',
-        lambda c: c.set_max_acquisition_frame_rate(True, 5.0),
-        'none',
-    ),
     # The bench knobs' one writer; each knob's answer is
     # test_a_pylon_node_the_camera_lacks.
     ('_write_bench_knob', lambda c: c.set_gev_packet_size(1500), 'raises'),
@@ -115,20 +110,18 @@ _CASES = [
     ('auto_exposure_t', lambda c: c.auto_exposure_t(True), 'false'),
     ('set_test_pattern', lambda c: c.set_test_pattern(pattern='White'), 'none'),
     ('_set_auto_exposure_time_bounds', lambda c: c._set_auto_exposure_time_bounds(50.0), 'false'),
-    ('set_max_num_buffer', lambda c: c.set_max_num_buffer(16), 'false'),
     ('latch_clock', lambda c: c.latch_clock(), 'read_failed'),
 ]
 
 # Methods the source rule finds whose answer is pinned where they are owned:
 # connect answers a bring-up that failed; the reads write only a selector
-# before reading (test_a_failed_temperature_read_raises, the chunk and
-# diagnostic probes' tests); _enable_validity_chunks logs each chunk it could
+# before reading (test_a_failed_temperature_read_raises, the diagnostic
+# probe's tests); _enable_validity_chunks logs each chunk it could
 # not enable by design and is a step of init_camera_config, in the table.
 _ANSWERED_ELSEWHERE = frozenset(
     {
         'connect',
         'get_all_temperatures',
-        'probe_chunk_capabilities',
         'read_diagnostic_snapshot',
         '_enable_validity_chunks',
     }

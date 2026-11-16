@@ -217,35 +217,6 @@ class TestPylon(unittest.TestCase):
             'exposure sweep produced no data -- chunks flow broken or all exposure sets failed',
         )
 
-    def test_probe_chunk_capabilities(self):
-        """T1 (FRAME_VALIDITY_PLAN.md sec.3): static introspection probe
-        for chunk-data support. Answers whether ExposureTime / Gain /
-        FrameID are supported on the connected camera. Print-heavy
-        rather than strict-assert because the answer drives architecture
-        decisions (Path A vs Path C) and we want raw data on the bench.
-        """
-        result = self.camera.probe_chunk_capabilities()
-        print('\n=== probe_chunk_capabilities ===')
-        print(f'  model:      {result["model"]}')
-        print(f'  firmware:   {result["firmware"]}')
-        print(f'  serial:     {result["serial"]}')
-        print(f'  advertised: {result["advertised"]}')
-        print(f'  enabled:    {result["enabled"]}')
-        print(f'  errors:     {result["errors"]}')
-        print('================================\n')
-
-        # Hard assertions: probe ran without per-step explosion.
-        self.assertIsInstance(result, dict)
-        self.assertIn('advertised', result)
-        self.assertIn('enabled', result)
-        # ChunkSelector node should exist on any modern Basler USB3 cam.
-        self.assertGreater(
-            len(result['advertised']),
-            0,
-            f'Camera advertised no ChunkSelector entries -- chunks unsupported. '
-            f'Errors: {result["errors"]}',
-        )
-
     def test_the_clock_latch_counts_the_host_s_time_at_the_stated_rate(self):
         """Two latches of the camera's clock, while it grabs, are as far
         apart in its ticks as the host's steady clock says, at the tick

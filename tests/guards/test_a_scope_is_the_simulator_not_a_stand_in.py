@@ -202,7 +202,7 @@ ALLOWED = frozenset(
         'tests/test_audit_fixes.py::TestPylonStreamGrabberStatusLog.test_log_helper_no_op_when_active_none',
         'tests/test_audit_fixes.py::TestSequencedCaptureRunnerRunDirCollision._make_executor',
         'tests/test_audit_fixes.py::TestStreamGrabberSetters._make_scope_with_fake_camera',
-        'tests/test_audit_fixes.py::TestStreamGrabberSetters.test_no_camera_returns_false_for_both',
+        'tests/test_audit_fixes.py::TestStreamGrabberSetters.test_no_camera_returns_false',
         'tests/test_audit_fixes.py::_sim_backed_imaging',
         'tests/test_auto_gain_lock.py::_build',
         'tests/test_auto_gain_lock.py::_build_inert',

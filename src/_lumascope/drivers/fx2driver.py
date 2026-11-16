@@ -3163,9 +3163,6 @@ class FX2Camera(Camera):
     def get_all_temperatures(self) -> dict:
         return {}  # MT9P031 has no temperature sensor
 
-    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
-        pass  # Frame rate is determined by PLL / exposure, not a software cap
-
     def _set_hardware_binning(self, size: int) -> bool:
         return size == 1  # only 1x1 supported in this port
 

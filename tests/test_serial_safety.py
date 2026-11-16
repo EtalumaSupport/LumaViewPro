@@ -885,9 +885,6 @@ class TestCameraStateLock:
             def get_all_temperatures(self):
                 return {}
 
-            def set_max_acquisition_frame_rate(self, enabled, fps=1.0):
-                pass
-
             def _set_hardware_binning(self, size):
                 return True
 
@@ -996,9 +993,6 @@ class TestCameraStateLock:
             def get_all_temperatures(self):
                 return {}
 
-            def set_max_acquisition_frame_rate(self, enabled, fps=1.0):
-                pass
-
             def _set_hardware_binning(self, size):
                 return True
 
@@ -1101,9 +1095,6 @@ class TestCameraStateLock:
 
             def get_all_temperatures(self):
                 return {}
-
-            def set_max_acquisition_frame_rate(self, enabled, fps=1.0):
-                pass
 
             def _set_hardware_binning(self, size):
                 return True

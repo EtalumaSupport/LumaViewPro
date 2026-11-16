@@ -3163,9 +3163,10 @@ class TestPylonDiagnosticProbe:
 
 class TestDeviceLinkThroughputLimitSetter:
     """ImagingAPI.set_device_link_throughput_limit and the underlying
-    PylonCamera / IDSCamera implementations exist so the bench-probe
-    sweep can vary DLTL across cells without dropping below the API
-    layer (Rule 1) or writing /tmp/probe.py (Rule 22).
+    PylonCamera implementation exist so the bench-probe sweep can vary
+    DLTL across cells without dropping below the API layer (Rule 1) or
+    writing /tmp/probe.py (Rule 22); a driver without the setter (IDS,
+    whose connect writes the limit) answers False.
 
     DLTL is documented live-writable; no StopGrabbing/StartGrabbing
     wrap is required. The Pylon driver raises HardwareError on SDK
@@ -3284,17 +3285,6 @@ class TestDeviceLinkThroughputLimitSetter:
             'PylonCamera.set_device_link_throughput_limit must NOT wrap '
             'the writes in update_camera_config (DLTL is live-writable; '
             'wrapping would impose the STALL-1 over-stop pattern).'
-        )
-
-    def test_ids_driver_stub_present(self):
-        from tests.ast_seams import assert_def
-
-        assert_def(
-            'src/_lumascope/drivers/idscamera.py',
-            'set_device_link_throughput_limit',
-            msg='IDSCamera must have a set_device_link_throughput_limit '
-            'stub so the API method does not need to know which driver '
-            'is connected when called by the sweep tool.',
         )
 
 
@@ -5271,9 +5261,9 @@ class TestPylonCameraNoSilentExcept:
 
 
 class TestStreamGrabberSetters:
-    """ImagingAPI.set_max_transfer_size + set_num_max_queued_urbs and the
-    underlying PylonCamera / IDSCamera implementations exist so the
-    bench-probe sweep can vary the StreamGrabber USB3 knobs across cells
+    """ImagingAPI._set_num_max_queued_urbs and the underlying PylonCamera /
+    IDSCamera implementations exist so the bench-probe sweep can vary the
+    StreamGrabber USB3 knob across cells
     without dropping below the API layer (Rule 1) or writing /tmp/probe.py
     (Rule 22).
 
@@ -5305,13 +5295,11 @@ class TestStreamGrabberSetters:
         scope._camera_driver = fake_camera
         return scope
 
-    def test_lumascope_methods_exist(self):
-        # Phase 4 relocation: methods now live on ImagingAPI.
-        for name in ('_set_max_transfer_size', '_set_num_max_queued_urbs'):
-            assert hasattr(ImagingAPI, name), name
-            assert callable(getattr(ImagingAPI, name))
+    def test_lumascope_method_exists(self):
+        # Phase 4 relocation: the method now lives on ImagingAPI.
+        assert callable(ImagingAPI._set_num_max_queued_urbs)
 
-    def test_no_camera_returns_false_for_both(self):
+    def test_no_camera_returns_false(self):
         from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
@@ -5319,25 +5307,20 @@ class TestStreamGrabberSetters:
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         give_camera_and_imaging(scope)
-        assert scope.imaging._set_max_transfer_size(262144) is False
         assert scope.imaging._set_num_max_queued_urbs(64) is False
 
-    def test_inactive_camera_returns_false_for_both(self):
+    def test_inactive_camera_returns_false(self):
         class _Fake:
             active = None
-
-            def set_max_transfer_size(self, **k):
-                raise AssertionError('driver should not be reached')
 
             def set_num_max_queued_urbs(self, **k):
                 raise AssertionError('driver should not be reached')
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_max_transfer_size(262144) is False
         assert scope.imaging._set_num_max_queued_urbs(64) is False
 
     def test_unsupported_driver_returns_false(self):
-        """Camera class without the setters (e.g. SimulatedCamera) -> False."""
+        """Camera class without the setter (e.g. SimulatedCamera) -> False."""
 
         class _NoSetter:
             active = True
@@ -5346,25 +5329,7 @@ class TestStreamGrabberSetters:
                 return True
 
         scope = self._make_scope_with_fake_camera(_NoSetter())
-        assert scope.imaging._set_max_transfer_size(262144) is False
         assert scope.imaging._set_num_max_queued_urbs(64) is False
-
-    def test_max_transfer_size_routes_to_driver(self):
-        called_with = {}
-
-        class _Fake:
-            active = True
-
-            def is_connected(self):
-                return True
-
-            def set_max_transfer_size(self, value_bytes):
-                called_with['value_bytes'] = value_bytes
-                return True
-
-        scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_max_transfer_size(value_bytes=131072) is True
-        assert called_with == {'value_bytes': 131072}
 
     def test_num_max_queued_urbs_routes_to_driver(self):
         called_with = {}
@@ -5383,10 +5348,9 @@ class TestStreamGrabberSetters:
         assert scope.imaging._set_num_max_queued_urbs(value=32) is True
         assert called_with == {'value': 32}
 
-    def test_pylon_driver_methods_present(self):
+    def test_pylon_driver_method_present(self):
         from tests.ast_seams import assert_def
 
-        assert_def('src/_lumascope/drivers/pyloncamera.py', 'set_max_transfer_size')
         assert_def('src/_lumascope/drivers/pyloncamera.py', 'set_num_max_queued_urbs')
 
     def test_ids_driver_setters_return_false_when_inactive(self):
@@ -5413,7 +5377,6 @@ class TestStreamGrabberSetters:
             Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
         ).read_text()
         for name in (
-            'set_max_transfer_size',
             'set_num_max_queued_urbs',
             '_set_stream_grabber_int_node',
         ):
@@ -7432,7 +7395,6 @@ class TestImagingPylonSdkPerfSettersPrivatized:
     PRIVATIZED = (
         'set_bandwidth_reserve_mode',
         'set_device_link_throughput_limit',
-        'set_max_transfer_size',
         'set_num_max_queued_urbs',
         'set_gev_packet_size',
         'set_gev_inter_packet_delay',
@@ -8059,9 +8021,9 @@ class TestPylonEnvVarsAreNotUsed:
     """No LVP_PYLON_* environment variable may gate driver behavior.
 
     Per the options-menu rule, runtime toggles live in settings.json or
-    on the imaging sub-API (_set_max_num_buffer / _set_max_transfer_size
-    / _set_num_max_queued_urbs / _set_grab_strategy) or as a constructor
-    kwarg (_PylonImageGrabWorker(queue_depth=...)). The earlier
+    on the imaging sub-API (_set_num_max_queued_urbs / _set_grab_strategy),
+    as connect()'s constants (MaxNumBuffer, MaxTransferSize) or as a
+    constructor kwarg (_PylonImageGrabWorker(queue_depth=...)). The earlier
     LVP_PYLON_MAX_NUM_BUFFER / LVP_PYLON_MAX_TRANSFER_SIZE /
     LVP_PYLON_NUM_QUEUED_URBS / LVP_PYLON_GRAB_STRATEGY /
     LVP_PYLON_WORKER_QUEUE_DEPTH env vars duplicated those production
@@ -8094,10 +8056,9 @@ class TestPylonEnvVarsAreNotUsed:
         assert not hits, (
             'src/_lumascope/drivers/pyloncamera.py must not reference any LVP_PYLON_* '
             'string literal -- the env-var gates are retired in favor '
-            'of imaging sub-API levers (_set_max_num_buffer / '
-            '_set_max_transfer_size / _set_num_max_queued_urbs / '
-            '_set_grab_strategy) and the _PylonImageGrabWorker '
-            f'queue_depth kwarg. Hits: {hits}'
+            'of imaging sub-API levers (_set_num_max_queued_urbs / '
+            "_set_grab_strategy), connect()'s constants and the "
+            f'_PylonImageGrabWorker queue_depth kwarg. Hits: {hits}'
         )
 
 

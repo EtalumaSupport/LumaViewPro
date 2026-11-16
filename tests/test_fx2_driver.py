@@ -586,7 +586,6 @@ class TestFX2CameraProfile:
     def test_features_without_hardware_are_noops(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
         cam.set_test_pattern(True, 'Black')
-        cam.set_max_acquisition_frame_rate(True, 4.5)
         assert cam.get_all_temperatures() == {}
 
 

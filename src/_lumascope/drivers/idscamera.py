@@ -3006,43 +3006,6 @@ class IDSCamera(Camera):
         except Exception as e:
             raise CameraReadFailedError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
 
-    def set_device_link_throughput_limit(
-        self,
-        mode: str,
-        value_bps: int | None = None,
-    ) -> bool:
-        """IDS Peak SDK exposes only DeviceLinkThroughputLimit (no
-        DeviceLinkThroughputLimitMode) per the per-IDS-camera nodemap.
-        Setting the value to its Maximum() at init disables effective
-        throttling -- which is what init_camera_config already does.
-        Mode='Off' here maps to "set to Maximum()"; Mode='On' with
-        value_bps maps to "set to value_bps".
-
-        Returns True on success, False if camera inactive or the node
-        is not present on this IDS body. Does not raise.
-        """
-        if not self.active or self.remote_nodemap is None:
-            return False
-        try:
-            node = self.remote_nodemap.FindNode('DeviceLinkThroughputLimit')
-            if node is None:
-                return False
-            if mode == 'Off':
-                node.SetValue(node.Maximum())
-            elif mode == 'On':
-                if value_bps is not None:
-                    node.SetValue(int(value_bps))
-                # if value_bps is None we leave the existing value alone
-            else:
-                return False
-            return True
-        except Exception as e:
-            _cam_log.warning(
-                f'[CAM Class ] IDS set_device_link_throughput_limit('
-                f'{mode}, {value_bps}) failed: {e}'
-            )
-            return False
-
     def set_bandwidth_reserve_mode(self, mode: str) -> bool:
         """IDS does not expose Pylon BandwidthReserveMode. Stub False."""
         return False

@@ -488,8 +488,6 @@ class SimulatedCamera(Camera):
         self._auto_gain_min = 0.0
         self._auto_gain_max = 20.0
         self._auto_exposure_enabled = False
-        self._frame_rate_limit_enabled = False
-        self._frame_rate_target = 30.0
 
         # The camera's clock: its own epoch, unrelated to the host's, so a
         # mapping between the two has to be measured, as on a real body.
@@ -1379,22 +1377,6 @@ class SimulatedCamera(Camera):
     def latched_clock_ticks(self) -> int:
         with self._lock:
             return self._latched_ticks
-
-    # ------------------------------------------------------------------
-    # Frame rate
-    # ------------------------------------------------------------------
-    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0) -> None:
-        """Enable or disable the simulated frame-rate cap.
-
-        Args:
-            enabled: True to enforce ``fps`` as the upper bound.
-            fps: Cap value in frames per second.
-        """
-        with self._lock:
-            self._frame_rate_limit_enabled = enabled
-            if enabled:
-                self._frame_rate_target = fps
-            _cam_log.info(f'sim set_max_acquisition_frame_rate(enabled={enabled}, fps={fps})')
 
     # ------------------------------------------------------------------
     # Binning
