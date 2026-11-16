@@ -346,6 +346,83 @@ def test_a_still_is_held_the_users_time_from_its_draw(gui_ctx, display, held, mo
     assert _held_for(gui_ctx, clock, seconds=5) == (True, False)
 
 
+def test_a_merged_composite_is_held_the_users_time_in_its_own_colours(
+    gui_ctx, display, held, monkeypatch, tmp_path
+):
+    # Two fluorescence channels, one dark: the merge populates one plane, and
+    # the composite is still shown as the colour image its file holds.
+    import concurrent.futures
+
+    import pandas as pd
+    import tifffile as tf
+
+    import ui.image_utils_kivy as image_utils_kivy
+    from _lumascope.modules import image_utils
+    from _lumascope.modules.channel_record import release_colors
+    from _lumascope.modules.composite_generation import CompositeGeneration
+    from _lumascope.modules.operation import Operation
+    from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
+    from tests.stock_channels import LED1, LED2
+    from ui.composite_capture import show_merged_composite
+
+    rows = []
+    for channel, value in ((LED2, 120), (LED1, 0)):
+        tf.imwrite(str(tmp_path / f'{channel}.tiff'), np.full((8, 8), value, dtype=np.uint8))
+        rows.append({'channel': channel, 'Filepath': f'{channel}.tiff'})
+    merged = tmp_path / 'composite.tiff'
+    built = CompositeGeneration._create_composite_image(
+        path=tmp_path,
+        df=pd.DataFrame(rows),
+        brightness_thresholds_percent={},
+        output_file_loc=merged,
+        channel_colors=release_colors(),
+    )
+    assert built['status'] is True, built.get('error')
+    pending = PendingRunOutcome()
+    token = pending.arm(RunEnding('completed', 'completed', 'The run finished.'))
+    pending.resolve(token, merged=True, artifact_path=merged, merge_reason='')
+    run = Operation()
+    concurrent.futures.Future.set_result(run, pending.wait(timeout_s=0))
+
+    gui_ctx.scope_display = display
+    gui_ctx.session.update_settings('capture_shown_s', 4)
+    drawn = []
+    # a stand-in by design: the draw is Kivy's texture upload; the subject is
+    # what the display hands it.
+    monkeypatch.setattr(
+        image_utils_kivy, 'image_to_texture', lambda image, existing=None: drawn.append(image)
+    )
+    clock = _hold_clock(monkeypatch)
+    show_merged_composite(run)
+    held.run()
+
+    rgb, _bits, _white = image_utils.load_pixels(merged, collapse_legacy_false_color=False)
+    ((image,),) = [drawn]
+    assert image.shape == (8, 8, 3)
+    assert (image == rgb[..., ::-1]).all(), 'the composite drawn is not its file'
+    assert gui_ctx.viewer.show_drawn.call_args.args == ('bgr',)
+    assert _held_for(gui_ctx, clock, seconds=4) == (True, False)
+
+
+def test_a_composite_run_that_merged_nothing_shows_nothing(gui_ctx, display, held):
+    import concurrent.futures
+
+    from _lumascope.modules.operation import Operation
+    from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
+    from ui.composite_capture import show_merged_composite
+
+    pending = PendingRunOutcome()
+    token = pending.arm(RunEnding('aborted', 'stopped', 'The run was stopped.'))
+    pending.resolve(token, merged=False, artifact_path=None, merge_reason='stopped')
+    run = Operation()
+    concurrent.futures.Future.set_result(run, pending.wait(timeout_s=0))
+    gui_ctx.scope_display = display
+
+    show_merged_composite(run)
+
+    assert ui_backlog() == 0, 'a run that merged nothing posted a held frame'
+
+
 def test_enhances_preview_is_held_a_second_from_its_draw(gui_ctx, display, held, monkeypatch):
     import ui.post_processing as post_processing
 

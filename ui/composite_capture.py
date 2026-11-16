@@ -11,15 +11,17 @@ from kivy.properties import BooleanProperty
 from kivy.uix.floatlayout import FloatLayout
 
 import _lumascope.modules.app_context as _app_ctx
-from _lumascope.modules import gui_logger
+from _lumascope.modules import gui_logger, image_utils
 from _lumascope.modules.ui_queue import schedule_ui
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from _lumascope.modules.operation import Operation
+    from _lumascope.modules.run_outcome import RunOutcome
 from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     run_reported,
+    run_unasked,
     set_title_event_text,
     show_captured_frame,
     show_captured_still,
@@ -86,7 +88,8 @@ class CompositeCapture(FloatLayout):
         Whether the press means Stop is the engine's answer -- is the run
         this button started still live -- never the toggle's, which Kivy
         has already flipped. The button changes nothing ahead of the
-        engine's answer; draw_composite_button shows it.
+        engine's answer; draw_composite_button shows it. The merged
+        composite is shown for the user's time once the run has ended.
         """
         gui_logger.button('COMPOSITE_CAPTURE')
         ctx = _app_ctx.ctx
@@ -113,6 +116,7 @@ class CompositeCapture(FloatLayout):
                 events=events,
             )
             self._composite_run = started
+            started.add_done_callback(show_merged_composite)
 
         submit_reported(_start, self._composite_request_done, 'COMPOSITE_CAPTURE')
 
@@ -145,3 +149,31 @@ class CompositeCapture(FloatLayout):
 def _still_settled(done) -> None:
     """Read the settled still on the Kivy thread: its failure goes to the reporter."""
     run_reported(done.result, None, 'LIVE_CAPTURE')
+
+
+def show_merged_composite(run: 'Operation[RunOutcome]') -> None:
+    """Hold the composite a run merged on screen, for the user's ``capture_shown_s``.
+
+    The composite button's done callback, on the operations' callback thread,
+    where the merged file is read, so the Kivy thread only draws it; then live
+    view comes back by itself. A run that merged nothing shows nothing here:
+    its outcome is the engine's to report. The merge is a lossless 8-bit RGB
+    TIFF, so the file is the image, read as the colour image it is: a
+    composite whose other channels were dark is not collapsed to its one
+    populated plane.
+    """
+    outcome = run.result()
+    if not outcome.merged:
+        return
+    image, significant_bits, _white = image_utils.load_pixels(
+        outcome.artifact_path, collapse_legacy_false_color=False
+    )
+    ctx = _app_ctx.ctx
+    held_s = ctx.session.setting('capture_shown_s')
+    display = ctx.scope_display
+    display.post_held_frame(
+        lambda: run_unasked(
+            lambda: display.hold_derived_image(image, significant_bits, held_s=held_s),
+            'COMPOSITE_SHOWN',
+        )
+    )

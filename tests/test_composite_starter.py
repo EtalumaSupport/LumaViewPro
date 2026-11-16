@@ -275,3 +275,40 @@ def test_the_button_greys_while_anything_else_holds_the_scope(homed):
     _click_held(homed, starter)
     cc.CompositeCapture.draw_composite_button(starter)
     assert starter.composite_held is False, 'its own run is not another holder'
+
+
+def test_the_composite_the_button_started_is_shown_once_merged(homed, gui_ctx):
+    # The run's outcome names the merged file; the button's done callback
+    # reads it and hands it to the display's hold for the user's time.
+    import threading
+
+    from _lumascope.modules import image_utils
+
+    shown = []
+    # a stand-in by design: the display is a Kivy widget; the subject is what
+    # the button hands it.
+    gui_ctx.scope_display = SimpleNamespace(
+        hold_protocol_saved_image=lambda *frame, held: None,
+        post_held_frame=lambda show: show(),
+        hold_derived_image=lambda image, bits, held_s: shown.append((image, bits, held_s)),
+    )
+    gui_ctx.session.update_settings('capture_shown_s', 3)
+    starter = _Starter()
+
+    _click(starter)
+    run = starter._composite_run
+    outcome = run.result(timeout=_END_WAIT_S)
+    # One callback thread runs a run's callbacks in the order they were
+    # added, so this one runs after the button's.
+    after = threading.Event()
+    run.add_done_callback(lambda _run: after.set())
+    assert after.wait(_END_WAIT_S), "the run's done callbacks never ran"
+
+    assert outcome.merged, outcome.merge_reason
+    merged, _bits, _white = image_utils.load_pixels(
+        outcome.artifact_path, collapse_legacy_false_color=False
+    )
+    ((image, bits, held_s),) = shown
+    assert image.shape == merged.shape and image.ndim == 3
+    assert (image == merged).all(), 'the image held is not the merged file'
+    assert (bits, held_s) == (8, 3)
