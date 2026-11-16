@@ -553,6 +553,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 112 | The host removes a plugin's frame listener when it unloads the plugin, before calling its `unregister(ctx)`, as it already did after a failed `register(ctx)`; `ctx.plugins.live_processing.unregister` is no longer published, since a plugin never needs it. |
 | level 113 | A run's stuck file writer is read on its `live_work` item: the run's-images item's `stuck_write` names the write past the stall threshold, None while the writes progress; `protocol_files_stalled` and `protocol_files_stuck_write` are gone. |
 | level 114 | A record's `to_dict()` is published, in-process: every record the API answers has it, its fields as plain Python, as it already did. |
+| level 115 | A still's depth is published: `CapturedStill.significant_bits`, the depth of its `image` (8 for an 8-bit array, else the bits its sum can reach), as `SavedStill.significant_bits` is a saved still's and `X-Significant-Bits` the REST still's. |
 
 ---
 

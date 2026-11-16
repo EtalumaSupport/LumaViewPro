@@ -10176,6 +10176,27 @@ frozen dataclass's own would compare the arrays elementwise and raise.
 - <a id="CapturedStill.image"></a>`image`: `ndarray` -- The captured array, read-only: the frame, a sum, or its 8-bit rendering.
 - <a id="CapturedStill.record"></a>`record`: `FrameRecord` -- The instrument's account of the frame (`FrameRecord`).
 
+<a id="CapturedStill.significant_bits"></a>
+### `CapturedStill.significant_bits`
+
+```python
+significant_bits: int  # property
+```
+
+Marks: in-process; reads (changes nothing).
+
+The depth of `image`: 8 for an 8-bit array, else the bits its sum
+can reach; a single frame is its own depth.
+
+The one depth rule every save, evidence and display consumer
+shares, from the frame's own record: a depth read later from the
+camera describes the camera then, not this frame. A saved still
+records the same depth (`SavedStill.significant_bits`).
+
+**Raises**
+
+Nothing.
+
 <a id="CellCountFilters"></a>
 ## `lumascope.CellCountFilters`
 

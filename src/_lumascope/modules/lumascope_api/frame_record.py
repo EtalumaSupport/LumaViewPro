@@ -21,7 +21,7 @@ import numpy as np
 
 from _lumascope.drivers.camera import Frame
 from _lumascope.modules import image_utils, wall_time
-from _lumascope.modules.api_surface import api_fields
+from _lumascope.modules.api_surface import api, api_fields
 from _lumascope.modules.frame_validity import Judgment
 from _lumascope.modules.lumascope_api.camera import AutoGainConvergence
 
@@ -463,13 +463,20 @@ class CapturedStill:
     image: np.ndarray
     record: FrameRecord
 
+    @api(in_process=True, reads=True)
     @property
     def significant_bits(self) -> int:
         """The depth of ``image``: 8 for an 8-bit array, else the bits its sum
-        can reach (``image_utils.summed_significant_bits``); a single frame
-        is its own depth. The one depth rule every save, evidence and display
-        consumer shares, from the frame's own record: a depth read later from
-        the camera describes the camera then, not this frame."""
+        can reach; a single frame is its own depth.
+
+        The one depth rule every save, evidence and display consumer
+        shares, from the frame's own record: a depth read later from the
+        camera describes the camera then, not this frame. A saved still
+        records the same depth (``SavedStill.significant_bits``).
+
+        Raises:
+            Nothing.
+        """
         if self.image.dtype == np.uint8:
             return 8
         return image_utils.summed_significant_bits(
