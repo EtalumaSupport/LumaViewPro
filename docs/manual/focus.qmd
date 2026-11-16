@@ -58,7 +58,8 @@ down, away from it:
 
 - The arrow buttons: the double arrows move a coarse step, the single
   arrows a fine step. The step size depends on the objective.
-- The slider: drag the objective icon to move the focus.
+- The slider: drag the objective icon, or click the slider above or below
+  it, to move the focus.
 - [Z-Position (um)]{.guilabel}: shows the focus position, in micrometers.
   Type a position and press Enter to move there.
 - Over the live image, hold Ctrl and scroll the mouse wheel to move a fine
