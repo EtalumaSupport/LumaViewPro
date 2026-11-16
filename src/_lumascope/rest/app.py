@@ -61,6 +61,7 @@ from _lumascope.rest import events as event_stream
 from _lumascope.rest.events import EventStream
 from _lumascope.rest.handles import HandleRegistry
 from _lumascope.rest.jobs import RETRY_AFTER_S as JOB_RETRY_AFTER_S
+from _lumascope.rest.jobs import Job as HeldJob
 from _lumascope.rest.jobs import JobRegistry, Progress, Wait
 from _lumascope.rest.problems import Answer
 from _lumascope.rest.routes import (
@@ -254,7 +255,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.state.closing = closing
     app.state.live = live
     _add_handle_routes(app, session, registry, handed_out)
-    _add_job_routes(app, jobs, closing)
+    _add_job_routes(app, session, jobs, closing)
     _add_event_route(app, stream, event_stream.published(session, handed_out))
     _add_live_routes(app, live, closing)
     _add_file_route(app, session)
@@ -1299,7 +1300,9 @@ def _answered(work: Callable[[], object], request_id: str) -> Answer:
         return problems.answered_by_member(e, request_id)
 
 
-def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry, closing: Closing) -> None:
+def _add_job_routes(
+    app: fastapi.FastAPI, session: ScopeSession, jobs: JobRegistry, closing: Closing
+) -> None:
     async def listing() -> list[dict[str, object]]:
         """Every job held, newest first."""
         # Off the loop: a run's progress is read under the run's lock.
@@ -1346,11 +1349,19 @@ def _add_job_routes(app: fastapi.FastAPI, jobs: JobRegistry, closing: Closing) -
         stop leaves it: a stopped run ``aborted``, while a still, which has
         no stop, ends as it would have. A stop the scope refuses is the
         answer, as its member's refusal. A call held as a job when it
-        outlived its wait holds no operation: 409 ``not_cancellable``.
+        outlived its wait holds no operation: 409 ``not_cancellable``. The
+        forget is a write, in the control session the request names, and
+        refused while another holds one: 409 ``control_session_held``.
         """
+        control_id = request.headers.get(CONTROL_SESSION_HEADER)
+
+        def work() -> HeldJob | None:
+            with _acting_in(session, control_id):
+                return jobs.delete(job_id, as_a_write=session.as_a_guarded_write)
+
         try:
             # Off the loop: a stop is sent to the scope.
-            job = await asyncio.to_thread(jobs.delete, job_id)
+            job = await asyncio.to_thread(work)
         except ServerRefusedError:
             raise
         except Exception as e:

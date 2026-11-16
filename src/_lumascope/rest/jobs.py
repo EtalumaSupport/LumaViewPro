@@ -468,7 +468,9 @@ class JobRegistry:
             )
         return job.operation
 
-    def delete(self, job_id: str) -> Job | None:
+    def delete(
+        self, job_id: str, *, as_a_write: Callable[[Callable[[], None]], None]
+    ) -> Job | None:
         """Forget a finished job, or ask a running one's operation to stop.
 
         Blocks while the stop is sent. Returns None when the job was
@@ -477,17 +479,29 @@ class JobRegistry:
         the next ``delete``. A stop asked once its operation's work has
         ended, or of an operation with no stop (a still), does nothing.
 
+        Args:
+            job_id: The job's id.
+            as_a_write: Runs the forget as the server's writes run, so a
+                client outside a held control session cannot take another's
+                result; a stop is not a write and passes it by.
+
         Raises:
             ServerRefusedError: ``not_found``; ``not_cancellable`` (409), the
                 job is a call adopted as one, which holds no operation to
                 stop.
-            Exception: what the operation's stop raised -- a refusal of the
-                stop (a home on a board that cannot stop one).
+            Exception: what ``as_a_write`` raised, the job kept -- a
+                ``ControlSessionRefusedError``; what the operation's stop
+                raised -- a refusal of the stop (a home on a board that
+                cannot stop one).
         """
         job = self.get(job_id)
         if job.finished:
-            with self._lock:
-                self._jobs.pop(job_id, None)
+
+            def forget() -> None:
+                with self._lock:
+                    self._jobs.pop(job_id, None)
+
+            as_a_write(forget)
             return None
         if job.operation is None:
             raise ServerRefusedError(

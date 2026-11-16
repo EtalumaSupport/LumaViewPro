@@ -181,7 +181,8 @@ refused `'files_writing'` until then. `GET /api/v1/jobs` lists every job held,
 newest first.
 
 `DELETE /api/v1/jobs/<id>` stops a running operation (`202`, the job) or
-forgets a finished job (`204`). It is a stop, so no control session refuses it.
+forgets a finished job (`204`). A stop passes any control session; a forget is
+a write: under another's control session it is refused, and the job is kept.
 A still has no stop, and its job ends as it would have; a call held as a job
 only because it outlived its wait holds no operation, and is refused `409`
 (`'not_cancellable'`). Finished jobs are kept up to 1000 and 24 hours; at most

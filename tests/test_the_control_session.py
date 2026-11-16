@@ -900,6 +900,52 @@ class TestTheRestDoor:
             assert written.status_code == 200, (path, written.text)
         assert client.delete(forget, headers=holder).status_code == 204
 
+    def test_the_holders_finished_job_is_forgotten_by_the_holder_alone_and_any_client_stops_it(
+        self, sim_session, client, monkeypatch
+    ):
+        """A finished job's forget is a write; a running job's DELETE is its stop, and a stop passes.
+
+        Without the guard a client outside the session learns the holder's job
+        from the listing and forgets it, and the holder's next poll is 404.
+        """
+        from tests.test_anything_slow_is_a_job import _scans_held_at_their_first_step
+
+        sim_session.set_channel_settings('BF', acquire='image')
+        reached, release = _scans_held_at_their_first_step(sim_session, monkeypatch)
+        protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
+        assert client.post('/api/v1/add_step', json={'protocol': protocol}).status_code == 200
+        runner = client.post('/api/v1/protocol_runner').json()['handle']
+        holder = {
+            'Control-Session': client.post(
+                '/api/v1/take_control', json={'name': 'plate reader'}
+            ).json()
+        }
+        try:
+            started = client.post(
+                f'/api/v1/handles/ProtocolRunner/{runner}/start_single_scan',
+                json={'protocol': protocol, 'enable_image_saving': False},
+                headers=holder,
+            )
+            assert started.status_code == 202, started.text
+            assert reached.wait(30)
+            location = f'/api/v1/jobs/{started.json()["id"]}'
+
+            stopping = client.delete(location)
+
+            assert stopping.status_code == 202, stopping.text
+            assert stopping.json()['progress']['is_stopping'] is True
+        finally:
+            release.set()
+        assert client.get(location, headers={'Prefer': 'wait=30'}).json()['status'] == 'completed'
+
+        refused = client.delete(location)
+
+        assert refused.status_code == 409, refused.text
+        assert refused.json()['reason'] == 'control_session_held'
+        assert client.get(location).status_code == 200, 'a refused forget keeps the job'
+        assert client.delete(location, headers=holder).status_code == 204
+        assert client.get(location).status_code == 404
+
     def test_with_no_session_held_anyone_edits_a_protocol_and_forgets_its_handle(self, client):
         protocol = client.post('/api/v1/create_empty_protocol').json()['handle']
 
