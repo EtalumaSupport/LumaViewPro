@@ -7,8 +7,8 @@ each name the run by its job, its first ones included, which can come
 before the call that started it returns; every job's end is ``job_ended``,
 with the job, a run's after its ``run_ended``; a field that can hold a live
 object is left out whatever it holds, as the stream's description says;
-an outcome is on the stream only
-when nobody asked for it, once per ``outcome_id``; a reconnect with
+a notice and an outcome nobody asked for are on the stream, once per
+``outcome_id``, and a refusal or fault that answered a call is not; a reconnect with
 ``Last-Event-ID`` is sent what it missed, or ``reset`` and ``status`` once
 that is no longer held; a quiet stream carries a comment; a stream that
 has closed hears nothing more; ``closing`` is the last event of every
@@ -37,7 +37,7 @@ import _lumascope.rest.events
 from _lumascope.modules import wire_encoding
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.api_surface import api_fields
-from _lumascope.modules.exceptions import LiveFolderPathRefusedError
+from _lumascope.modules.exceptions import LiveFolderPathRefusedError, ScopeModelDeferredNotice
 from _lumascope.modules.notification_center import notifications
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.scope_session import ScopeSession
@@ -355,12 +355,21 @@ def test_a_field_that_can_hold_a_live_object_is_left_out_while_it_holds_none(ses
     assert json.loads(frame.split('data: ', 1)[1]) == {'outcome': 'completed'}
 
 
-def test_an_outcome_nobody_asked_for_is_sent_once_and_an_answered_one_never(client):
+def test_a_notice_and_an_outcome_nobody_asked_for_are_sent_once_and_an_answered_fault_never(
+    client,
+):
+    """A fault that answered a call is its asker's and is not sent; a notice
+    is sent though it answered a call, and an unasked outcome once."""
     unasked = RuntimeError('unasked outcome')
     with _reading(client) as stream:
         stream.until('status')
         notifications.report_outcome(
             RuntimeError('answered outcome'), solicited=True, category='Answered'
+        )
+        notifications.report_outcome(
+            ScopeModelDeferredNotice('scope_model_deferred', 'LS560', running='LS620'),
+            solicited=True,
+            category='Noticed',
         )
         notifications.report_outcome(unasked, solicited=False, category='Unasked')
         notifications.report_outcome(unasked, solicited=False, category='Unasked')
@@ -370,8 +379,35 @@ def test_an_outcome_nobody_asked_for_is_sent_once_and_an_answered_one_never(clie
         events = stream.until('led')
 
     outcomes = [e['data'] for e in events if e['event'] == 'outcome']
-    assert [o['category'] for o in outcomes] == ['Unasked']
-    assert outcomes[0]['solicited'] is False
+    assert [(o['category'], o['kind'], o['solicited']) for o in outcomes] == [
+        ('Noticed', 'notice', True),
+        ('Unasked', 'fault', False),
+    ]
+
+
+@pytest.fixture
+def ls620_session(tmp_path):
+    """A simulated LS620, a scope whose model is the saved selection."""
+    s = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path / 'live'), microscope='LS620'), simulate=True
+    )
+    yield s
+    s.shutdown()
+
+
+def test_a_model_set_for_the_next_start_is_sent_to_the_client_that_set_it(ls620_session):
+    with _serving(ls620_session) as client, _reading(client) as stream:
+        stream.until('status')
+        answer = client.put('/api/v1/selected_model', json={'model': 'LS560'})
+        assert answer.status_code == 200
+        assert answer.json() == 'LS560'
+        client.post(
+            '/api/v1/scope/illumination/led_on', json={'channel': LED0, 'illumination_ma': 10.0}
+        )
+        events = stream.until('led')
+
+    outcomes = [(e['data']['kind'], e['data']['reason']) for e in events if e['event'] == 'outcome']
+    assert outcomes == [('notice', 'scope_model_deferred')]
 
 
 def test_an_outcomes_event_carries_its_cause_and_a_plain_post_none(client):

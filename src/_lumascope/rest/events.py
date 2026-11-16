@@ -38,7 +38,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 import pydantic
 
 from _lumascope.modules import api_surface, wire_encoding
-from _lumascope.modules.notification_center import Notification
+from _lumascope.modules.notification_center import Notification, OutcomeKind
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_session import ScopeSession, Status
 from _lumascope.modules.sequential_io_executor import IOTask, SequentialIOExecutor
@@ -168,7 +168,11 @@ class EventStream:
         if record is Notification:
 
             def heard_outcome(notification: Notification) -> None:
-                if notification.solicited or not self._first(notification.outcome_id):
+                # A refusal or fault that answered a call is its asker's, who
+                # had it as the call's answer; a notice is a fact about the
+                # scope that no answer carries, so every client hears it.
+                answered = notification.solicited and notification.kind != OutcomeKind.NOTICE
+                if answered or not self._first(notification.outcome_id):
                     return
                 self.send(name, notification)
 

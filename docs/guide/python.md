@@ -171,9 +171,10 @@ def on_outcome(note):
 session.add_outcome_listener(on_outcome)
 ```
 
-Over REST an outcome nobody asked for is an `outcome` event on the event
-stream, sent once, at its first delivery: a muted one shown later is not sent
-again, and a solicited notice is not sent ([REST](rest.md)).
+Over REST every notice, and every outcome nobody asked for, is an `outcome`
+event on the event stream, sent once, at its first delivery: a muted one shown
+later is not sent again. A refusal or fault that answered a call is not sent,
+its asker having had it as the call's answer ([REST](rest.md)).
 
 ## Live frames
 

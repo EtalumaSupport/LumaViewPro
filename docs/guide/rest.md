@@ -252,7 +252,9 @@ quiet stream sends a keep-alive comment every 15 s and asks a client to
 reconnect after 1 s (`retry: 1000`). A run's events carry `run`, `{"job": "<id>"}`, the job of
 the run that sent them, and every job's end is a `job_ended` event, its data
 the job: a run's `files` job ends with its own, so match a `job_ended` by its
-`id`. An outcome nobody asked for is an `outcome` event.
+`id`. Every notice, and every outcome nobody asked for, is an `outcome` event
+(a model set for the next start among them); a refusal or fault that answered
+a call is not, its asker having had it.
 
 A client that reconnects with `Last-Event-ID` is sent what it missed; when the
 server no longer holds it (more than 1024 events ago, or a restarted server),
