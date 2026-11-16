@@ -104,7 +104,11 @@ what a test sees. The simulated scope is one record,
 scope as another model than the settings declare, `camera_present=False` brings
 it up with no camera, `slide` puts a Ronchi ruling on the stage in place of the
 cells, `camera_stall` stops the camera's frames for a while, and `file_stall`
-holds the save drive. On a Classic, `camera_usb_bindings` starts the FX2 on
+holds the save drive. `refused_camera_writes` and `refused_camera_reads` have
+the camera refuse a setting's writes or fail its reads from bring-up on, so
+bring-up meets them; LumaViewPro takes them as
+`--sim-refused-camera-write=NODE,ANSWER[,COUNT]` and
+`--sim-refused-camera-read=NODE,ANSWER[,COUNT]`. On a Classic, `camera_usb_bindings` starts the FX2 on
 another driver, on none, or on LumaViewPro's with a Windows problem code, so
 bring-up refuses its camera as on a PC whose driver went wrong, and tells it
 once, by the camera's notice with Repair's cause. A simulated scope's USB

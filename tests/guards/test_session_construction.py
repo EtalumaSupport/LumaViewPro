@@ -207,6 +207,7 @@ class TestCreateTakesTheHostInjections:
         # included, since only a simulated session is built from it.
         from _lumascope.drivers.simulated_specimen import Slide
         from _lumascope.modules.lumascope_api.simulation import (
+            SimulatedCameraReadRefusal,
             SimulatedCameraWriteRefusal,
             SimulatedModelAnswer,
             SimulatedScope,
@@ -222,6 +223,7 @@ class TestCreateTakesTheHostInjections:
                     model_answer=SimulatedModelAnswer('LS850T'),
                     refused_stream_starts=1,
                     refused_camera_writes=(SimulatedCameraWriteRefusal('gain', 'raise'),),
+                    refused_camera_reads=(SimulatedCameraReadRefusal('gain', 'failed'),),
                     camera_present=False,
                     slide=Slide.RONCHI,
                 ),

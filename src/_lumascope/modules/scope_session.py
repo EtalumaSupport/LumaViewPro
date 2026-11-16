@@ -1818,12 +1818,12 @@ class ScopeSession:
                 scope's ``sim_camera_stall``, ``sim_focal_spread_um`` or
                 ``sim_conversion_gain_mode``).
                 ``'not_injectable_on_board'``, its ``model_answer``,
-                ``refused_stream_starts``, ``refused_camera_writes`` or
-                ``camera_usb_bindings`` for a scope whose board or camera
-                cannot show it;
-                ``'fault_unknown'``, its ``refused_stream_starts`` or
-                ``refused_camera_writes`` with ``camera_present`` False, a
-                camera the scope does not have;
+                ``refused_stream_starts``, ``refused_camera_writes``,
+                ``refused_camera_reads`` or ``camera_usb_bindings`` for a
+                scope whose board or camera cannot show it;
+                ``'fault_unknown'``, its ``refused_stream_starts``,
+                ``refused_camera_writes`` or ``refused_camera_reads`` with
+                ``camera_present`` False, a camera the scope does not have;
                 ``'fault_bound'``, a negative ``refused_stream_starts`` or a
                 refusal's count below 1; ``'not_offered'``, a node or an
                 answer the camera's write does not give. ``'wrong_kind'``, a block of
@@ -1966,6 +1966,8 @@ class ScopeSession:
                 scope.simulation.refuse_stream_start(simulated.refused_stream_starts)
             for refusal in simulated.refused_camera_writes:
                 scope.simulation.refuse_camera_write(refusal.node, refusal.answer, refusal.count)
+            for failure in simulated.refused_camera_reads:
+                scope.simulation.refuse_camera_read(failure.node, failure.answer, failure.count)
 
             from _lumascope.modules.executor_registry import create_default
 

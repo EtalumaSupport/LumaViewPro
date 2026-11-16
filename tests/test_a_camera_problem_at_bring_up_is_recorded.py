@@ -34,6 +34,8 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.lumascope_api import camera as camera_api
+from _lumascope.modules.lumascope_api.simulation import InjectedFault
+from _lumascope.modules.lumascope_api.simulation import SimulatedCameraReadRefusal as ReadFailure
 from _lumascope.modules.lumascope_api.simulation import SimulatedCameraWriteRefusal as Refusal
 from _lumascope.modules.lumascope_api.simulation import SimulatedScope
 from _lumascope.modules.notification_center import Severity
@@ -46,7 +48,13 @@ _BF = {'gain_db': 7.0, 'exposure_ms': 33.0}
 
 
 def _create(
-    heard, *refusals, microscope='LS850', bf=None, refused_stream_starts=0, camera_present=True
+    heard,
+    *refusals,
+    microscope='LS850',
+    bf=None,
+    refused_stream_starts=0,
+    camera_present=True,
+    read_failures=(),
 ):
     return ScopeSession.create(
         complete_settings(microscope=microscope, BF={**_BF, **(bf or {})}),
@@ -54,6 +62,7 @@ def _create(
         warn_pre_release=False,
         simulated=SimulatedScope(
             refused_camera_writes=refusals,
+            refused_camera_reads=read_failures,
             refused_stream_starts=refused_stream_starts,
             camera_present=camera_present,
         ),
@@ -195,6 +204,40 @@ def test_the_seam_is_refused_on_the_fx2_camera():
     with pytest.raises(ArgumentRefusedError) as refused:
         _create([], Refusal('gain', 'raise'), microscope='LS620')
     assert refused.value.reason == 'not_injectable_on_board'
+
+
+def test_a_read_failure_declared_on_the_record_is_armed_by_create():
+    failure = ReadFailure('minimum_exposure', 'failed')
+    session = _create([], read_failures=(failure,))
+    try:
+        assert (
+            InjectedFault(
+                'refuse_camera_read', {'node': 'minimum_exposure', 'answer': 'failed', 'count': 1}
+            )
+            in session.scope.simulation.injected()
+        )
+    finally:
+        session.shutdown()
+
+
+@pytest.mark.parametrize(
+    ('microscope', 'camera_present', 'reason'),
+    [('LS620', True, 'not_injectable_on_board'), ('LS850', False, 'fault_unknown')],
+    ids=['fx2_camera', 'no_camera'],
+)
+def test_a_read_failure_is_refused_where_the_scope_cannot_show_it(
+    microscope, camera_present, reason
+):
+    # parametrize-justified: the FX2 and a scope with no camera are each
+    # their own simulated scope, refused for its own reason
+    with pytest.raises(ArgumentRefusedError) as refused:
+        _create(
+            [],
+            microscope=microscope,
+            camera_present=camera_present,
+            read_failures=(ReadFailure('gain', 'failed'),),
+        )
+    assert refused.value.reason == reason
 
 
 @pytest.mark.parametrize('microscope', ['LS850', 'LS820'])

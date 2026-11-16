@@ -100,34 +100,51 @@ if __name__ == '__main__':
                 raise ValueError(f'{_spread!r} is not a distance above 0')
     except ValueError as _spread_error:
         sys.exit(f'--sim-focal-spread=UM: {_spread_error}')
+
+    def _take_camera_refusal(flag, record, node_kind, answer_kind):
+        try:
+            value = take_sim_launch_value(sys.argv, flag, simulate=simulate_mode)
+            if value is None:
+                return ()
+            _node, _answer, *_count = value.split(',')
+            if len(_count) > 1:
+                raise ValueError(f'{value!r} is not NODE,ANSWER[,COUNT]')
+            return (
+                record(node_kind(_node), answer_kind(_answer), int(_count[0]) if _count else 1),
+            )
+        except ValueError as _refused_error:
+            sys.exit(f'--{flag}=NODE,ANSWER[,COUNT]: {_refused_error}')
+
+    from _lumascope.modules.lumascope_api.simulation import (
+        CameraReadAnswer,
+        CameraReadNode,
+        CameraWriteAnswer,
+        CameraWriteNode,
+        SimulatedCameraReadRefusal,
+        SimulatedCameraWriteRefusal,
+    )
+
     # --sim-refused-camera-write=NODE,ANSWER[,COUNT] has the simulated camera
     # refuse its next COUNT writes of NODE (1 when not given) from bring-up
     # on, so a camera that does not take a setting at bring-up is shown
     # without hardware. The simulated camera's alone: an FX2 refuses it.
-    sim_refused_camera_writes = ()
-    try:
-        _refused = take_sim_launch_value(
-            sys.argv, 'sim-refused-camera-write', simulate=simulate_mode
-        )
-        if _refused is not None:
-            from _lumascope.modules.lumascope_api.simulation import (
-                CameraWriteAnswer,
-                CameraWriteNode,
-                SimulatedCameraWriteRefusal,
-            )
-
-            _node, _answer, *_count = _refused.split(',')
-            if len(_count) > 1:
-                raise ValueError(f'{_refused!r} is not NODE,ANSWER[,COUNT]')
-            sim_refused_camera_writes = (
-                SimulatedCameraWriteRefusal(
-                    CameraWriteNode(_node),
-                    CameraWriteAnswer(_answer),
-                    int(_count[0]) if _count else 1,
-                ),
-            )
-    except ValueError as _refused_error:
-        sys.exit(f'--sim-refused-camera-write=NODE,ANSWER[,COUNT]: {_refused_error}')
+    sim_refused_camera_writes = _take_camera_refusal(
+        'sim-refused-camera-write',
+        SimulatedCameraWriteRefusal,
+        CameraWriteNode,
+        CameraWriteAnswer,
+    )
+    # --sim-refused-camera-read=NODE,ANSWER[,COUNT] has the simulated camera
+    # fail its next COUNT reads of NODE from bring-up on, so a camera whose
+    # read fails at bring-up is shown without hardware: minimum_exposure,
+    # failed,3 fails the gain and exposure range bring-up reads after each
+    # readout write. The simulated camera's alone: an FX2 refuses it.
+    sim_refused_camera_reads = _take_camera_refusal(
+        'sim-refused-camera-read',
+        SimulatedCameraReadRefusal,
+        CameraReadNode,
+        CameraReadAnswer,
+    )
     # --sim-camera=absent brings the simulated scope up with its camera
     # unplugged, so a launch with no camera is shown without hardware;
     # --sim-camera=hcg with a camera that has a switchable conversion gain,
@@ -186,6 +203,7 @@ if __name__ == '__main__':
         try:
             simulated_scope = SimulatedScope(
                 refused_camera_writes=sim_refused_camera_writes,
+                refused_camera_reads=sim_refused_camera_reads,
                 camera_stall=sim_camera_stall,
                 focal_spread_um=sim_focal_spread_um,
                 file_stall=sim_file_stall,

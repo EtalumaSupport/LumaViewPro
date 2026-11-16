@@ -140,6 +140,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`SettingsChanged`](#SettingsChanged)
 - [`SettingsSetAside`](#SettingsSetAside)
 - [`ShownChannel`](#ShownChannel)
+- [`SimulatedCameraReadRefusal`](#SimulatedCameraReadRefusal)
 - [`SimulatedCameraWriteRefusal`](#SimulatedCameraWriteRefusal)
 - [`SimulatedModelAnswer`](#SimulatedModelAnswer)
 - [`SimulatedScope`](#SimulatedScope)
@@ -1121,7 +1122,7 @@ settings, then the camera start gate released) and is torn down by
 
 **Raises**
 
-- `ArgumentRefusedError`: `'not_an_installation'`, a `source_path` that holds no `data/settings.json` template. `'needs_simulated_scope'`, `simulated` without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, the record's `camera_stall`, `focal_spread_um` or `conversion_gain_mode` for a model simulated with an FX2 or with `camera_present` False (`argument` names the scope's `sim_camera_stall`, `sim_focal_spread_um` or `sim_conversion_gain_mode`). `'not_injectable_on_board'`, its `model_answer`, `refused_stream_starts`, `refused_camera_writes` or `camera_usb_bindings` for a scope whose board or camera cannot show it; `'fault_unknown'`, its `refused_stream_starts` or `refused_camera_writes` with `camera_present` False, a camera the scope does not have; `'fault_bound'`, a negative `refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it). `'needs_simulated_firmware'`, the record's `unit_config` for a scope whose motor board is not the simulated motor firmware: the `fast` simulator tier (chosen, or run where this machine has no MicroPython runtime, which the words then say), or a model with no EL-0940 motor board; `'missing_key'` or `'wrong_kind'`, a `unit_config` without the `Microscope`, `Axis Present` or `IniFiles` the simulator boots it by, or one marking no axis present; `'not_offered'`, a register table its `IniFiles` names that the simulated firmware does not carry (`argument` names the scope's `sim_unit_config` throughout).
+- `ArgumentRefusedError`: `'not_an_installation'`, a `source_path` that holds no `data/settings.json` template. `'needs_simulated_scope'`, `simulated` without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, the record's `camera_stall`, `focal_spread_um` or `conversion_gain_mode` for a model simulated with an FX2 or with `camera_present` False (`argument` names the scope's `sim_camera_stall`, `sim_focal_spread_um` or `sim_conversion_gain_mode`). `'not_injectable_on_board'`, its `model_answer`, `refused_stream_starts`, `refused_camera_writes`, `refused_camera_reads` or `camera_usb_bindings` for a scope whose board or camera cannot show it; `'fault_unknown'`, its `refused_stream_starts`, `refused_camera_writes` or `refused_camera_reads` with `camera_present` False, a camera the scope does not have; `'fault_bound'`, a negative `refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it). `'needs_simulated_firmware'`, the record's `unit_config` for a scope whose motor board is not the simulated motor firmware: the `fast` simulator tier (chosen, or run where this machine has no MicroPython runtime, which the words then say), or a model with no EL-0940 motor board; `'missing_key'` or `'wrong_kind'`, a `unit_config` without the `Microscope`, `Axis Present` or `IniFiles` the simulator boots it by, or one marking no axis present; `'not_offered'`, a register table its `IniFiles` names that the simulated firmware does not carry (`argument` names the scope's `sim_unit_config` throughout).
 - `SettingRefusedError`: `'wrong_kind'` or `'out_of_range'`, a value in `settings` the writer refuses: a dict handed to a session is a write of every key at once, held to the same ranges.
 - `ScopeInUseError`: `'scope_in_use'`, a session with `simulate=False` asked for while another LumaViewPro, REST server or script drives the microscope, or while another real scope in this process is open. Nothing was opened.
 - `ScopeModelUnknownError`: the stored `microscope` is a model the catalogue does not list, and no motor board reports a model to stand in its place (a simulated scope is built as the stored model unless `simulated.model` names another). Nothing it started is left running.
@@ -13248,6 +13249,20 @@ the camera, and whether its LED is lit with every other one dark.
 - <a id="ShownChannel.channel"></a>`channel`: `str` -- The channel's key name.
 - <a id="ShownChannel.lit"></a>`lit`: `bool` -- Whether its LED reads lit in the LED store, whoever lit it. An LED whose last write went unanswered reads unknown there, and is not lit here; the `led` event carries its unknown state.
 
+<a id="SimulatedCameraReadRefusal"></a>
+## `lumascope.SimulatedCameraReadRefusal`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Held in: [`SimulatedScope.refused_camera_reads`](#SimulatedScope.refused_camera_reads).
+
+Camera reads of one setting that a simulated camera fails (`refuse_camera_read`).
+
+**Fields**
+
+- <a id="SimulatedCameraReadRefusal.answer"></a>`answer`: `CameraReadAnswer` -- How each failed read fails.
+- <a id="SimulatedCameraReadRefusal.count"></a>`count`: `int` -- How many reads in a row meet it, 1 or more.
+- <a id="SimulatedCameraReadRefusal.node"></a>`node`: `CameraReadNode` -- The setting read.
+
 <a id="SimulatedCameraWriteRefusal"></a>
 ## `lumascope.SimulatedCameraWriteRefusal`
 
@@ -13302,6 +13317,7 @@ is the declared scope with no fault. A fault is refused where the
 - <a id="SimulatedScope.focal_spread_um"></a>`focal_spread_um`: `float` -- How far the simulated sample's focus may lie from where bring-up places the stage, drawn once per session, so every session needs a real autofocus; the simulated camera's alone. 0 puts the sample in focus there.
 - <a id="SimulatedScope.model"></a>`model`: `str | None` -- The model the simulated scope is, when it is not the one the settings declare: a stored file that disagrees with the scope attached, which bring-up settles by the scope's answer. None is the declared model. With a `unit_config` it picks the LED board and the camera only; the motor board is the unit's.
 - <a id="SimulatedScope.model_answer"></a>`model_answer`: `SimulatedModelAnswer | None` -- The model the simulated motor board names as its own at bring-up, whatever it was built as (`answer_model`), until the scope's faults are cleared; the fast motor board's alone. None arms no answer.
+- <a id="SimulatedScope.refused_camera_reads"></a>`refused_camera_reads`: `tuple[SimulatedCameraReadRefusal, ...]` -- Camera reads the simulated camera fails from bring-up on (`refuse_camera_read`, each in turn), so bring-up's own reads meet them; not on the FX2. Empty fails none.
 - <a id="SimulatedScope.refused_camera_writes"></a>`refused_camera_writes`: `tuple[SimulatedCameraWriteRefusal, ...]` -- Camera writes the simulated camera refuses from bring-up on (`refuse_camera_write`, each in turn), so bring-up's own writes meet them; not on the FX2. Empty refuses none.
 - <a id="SimulatedScope.refused_stream_starts"></a>`refused_stream_starts`: `int` -- How many of the camera's stream starts it refuses from bring-up on (`refuse_stream_start`), so bring-up's own start is refused; the simulated FX2's alone. 0 refuses none.
 - <a id="SimulatedScope.ronchi_lines_per_mm"></a>`ronchi_lines_per_mm`: `float | None` -- The Ronchi ruling's pitch, in lines per mm, given only with `slide` `Slide.RONCHI`. None is the bench's 40. A pitch the objective cannot resolve is drawn, not refused: its bars blur together, as on the bench. Given with the cells, or not a positive finite number, the record is not built: `ArgumentRefusedError` `'fault_bound'` or `'not_a_number'`, naming `ronchi_lines_per_mm`.
@@ -14156,6 +14172,7 @@ ONCE: a one-shot the camera is still running; it turns itself Off when
 <a id="CameraReadAnswer"></a>
 ### `lumascope.CameraReadAnswer`
 
+Held in: [`SimulatedCameraReadRefusal.answer`](#SimulatedCameraReadRefusal.answer).  
 Taken by: [`SimulationAPI.refuse_camera_read`](#SimulationAPI.refuse_camera_read).
 
 How a failed camera read fails.
@@ -14166,6 +14183,7 @@ How a failed camera read fails.
 <a id="CameraReadNode"></a>
 ### `lumascope.CameraReadNode`
 
+Held in: [`SimulatedCameraReadRefusal.node`](#SimulatedCameraReadRefusal.node).  
 Taken by: [`SimulationAPI.refuse_camera_read`](#SimulationAPI.refuse_camera_read).
 
 A camera setting whose read a simulated fault can fail.

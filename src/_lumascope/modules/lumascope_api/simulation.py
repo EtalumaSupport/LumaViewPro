@@ -194,6 +194,22 @@ class SimulatedCameraWriteRefusal:
     count: int = 1
 
 
+@api_fields('node', 'answer', 'count')
+@dataclasses.dataclass(frozen=True)
+class SimulatedCameraReadRefusal:
+    """Camera reads of one setting that a simulated camera fails (``refuse_camera_read``).
+
+    Attributes:
+        node: The setting read.
+        answer: How each failed read fails.
+        count: How many reads in a row meet it, 1 or more.
+    """
+
+    node: CameraReadNode
+    answer: CameraReadAnswer
+    count: int = 1
+
+
 # A value in a unit's motorconfig.json, as its board's CONFIG answers it.
 type BoardConfigValue = str | int | float | bool | list | dict | None
 
@@ -203,6 +219,7 @@ type BoardConfigValue = str | int | float | bool | list | dict | None
     'model_answer',
     'refused_stream_starts',
     'refused_camera_writes',
+    'refused_camera_reads',
     'camera_stall',
     'focal_spread_um',
     'file_stall',
@@ -242,6 +259,10 @@ class SimulatedScope:
         refused_camera_writes: Camera writes the simulated camera refuses
             from bring-up on (``refuse_camera_write``, each in turn), so
             bring-up's own writes meet them; not on the FX2. Empty refuses
+            none.
+        refused_camera_reads: Camera reads the simulated camera fails
+            from bring-up on (``refuse_camera_read``, each in turn), so
+            bring-up's own reads meet them; not on the FX2. Empty fails
             none.
         camera_stall: A stall for the simulated camera's stream, so the
             scope shows a stream that stops delivering; the simulated
@@ -310,6 +331,7 @@ class SimulatedScope:
     model_answer: SimulatedModelAnswer | None = None
     refused_stream_starts: int = 0
     refused_camera_writes: tuple[SimulatedCameraWriteRefusal, ...] = ()
+    refused_camera_reads: tuple[SimulatedCameraReadRefusal, ...] = ()
     camera_stall: SimulatedStall | None = None
     focal_spread_um: float = 0.0
     file_stall: SimulatedStall | None = None
