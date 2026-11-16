@@ -94,6 +94,7 @@ class AdvancedSettings(Popup):
         video_settings = settings['video']
         for slider_id in self._FPS_LIMITS:
             self._show_fps_limit(slider_id)
+        self._show_capture_shown()
         self.ids['video_max_duration_input'].text = str(get_manual_video_max_duration(settings))
         self.ids['video_timestamp_overlay_id'].active = video_settings['timestamp_overlay']
         self.ids['restore_after_home_id'].active = settings['motion']['restore_after_home']
@@ -212,6 +213,22 @@ class AdvancedSettings(Popup):
         path, limit = self._FPS_LIMITS[slider_id]
         stored = _app_ctx.ctx.session.setting(path)
         show_on_slider(self.ids[slider_id], limit + 1 if stored == 0 else stored)
+
+    def capture_shown_slider(self):
+        # How long a still or a composite stays on screen once taken, before
+        # live view comes back by itself.
+        ctx = _app_ctx.ctx
+        value = int(self.ids['capture_shown_slider'].value)
+        gui_logger.slider('CAPTURE_SHOWN_S', value)
+        run_reported(
+            lambda: ctx.update_settings('capture_shown_s', value),
+            self._show_capture_shown,
+            'CAPTURE_SHOWN_S',
+        )
+
+    def _show_capture_shown(self) -> None:
+        stored = _app_ctx.ctx.session.setting('capture_shown_s')
+        show_on_slider(self.ids['capture_shown_slider'], stored)
 
     def update_video_max_duration(self):
         # Bounds the recording's frame budget (fps * duration); the
@@ -426,6 +443,7 @@ kv = Builder.load_string(
     """
 #:import build_file _lumascope.lib.build_files.build_file
 #:import LIVE_VIEW_FPS_LIMIT _lumascope.modules.settings_paths.LIVE_VIEW_FPS_LIMIT
+#:import CAPTURE_SHOWN_S_RANGE _lumascope.modules.settings_paths.CAPTURE_SHOWN_S_RANGE
 #:import VIDEO_MAX_FPS_LIMIT _lumascope.modules.settings_paths.VIDEO_MAX_FPS_LIMIT
 
 <SectionHeader@Label>:
@@ -739,6 +757,39 @@ kv = Builder.load_string(
                         padding: ['4dp', (self.height-self.line_height)/2]
                         halign: 'right'
                         text: 'Max' if display_max_fps_slider.value > LIVE_VIEW_FPS_LIMIT else format(int(display_max_fps_slider.value))
+                        readonly: True
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp'
+                    Label:
+                        text: 'Capture shown (s)'
+                        tooltip_text: 'Seconds a captured still or composite stays on screen\\nbefore live view comes back.'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        font_size: '12sp'
+                    ModSlider:
+                        id: capture_shown_slider
+                        disabled: app.lock.run_lockout
+                        min: CAPTURE_SHOWN_S_RANGE[0]
+                        max: CAPTURE_SHOWN_S_RANGE[1]
+                        value: 2
+                        step: 1
+                        cursor_size: '20dp','20dp'
+                        cursor_image: build_file('data/icons/slider_cursor.png')
+                        value_track: True
+                        value_track_width: dp(5)
+                        on_release: root.capture_shown_slider()
+                    TextInput:
+                        size_hint_x: None
+                        width: '40dp'
+                        multiline: False
+                        font_size: '12sp'
+                        padding: ['4dp', (self.height-self.line_height)/2]
+                        halign: 'right'
+                        text: format(int(capture_shown_slider.value))
                         readonly: True
 
                 BoxLayout:

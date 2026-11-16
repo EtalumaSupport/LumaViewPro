@@ -76,6 +76,12 @@ def test_a_leaf_with_no_shipped_value_takes_the_kind_it_holds_when_set(session):
         ('zstack.range', math.inf, 'wrong_kind'),
         ('video.max_fps', 201, 'out_of_range'),
         ('live_view_fps', 61, 'out_of_range'),
+        # Whole seconds, 1 to 10: none, a fraction, and a whole number held
+        # as a float are each refused.
+        ('capture_shown_s', 0, 'out_of_range'),
+        ('capture_shown_s', 11, 'out_of_range'),
+        ('capture_shown_s', 2.5, 'out_of_range'),
+        ('capture_shown_s', 2.0, 'out_of_range'),
         ('video.max_duration_s', 0, 'out_of_range'),
         ('tiling_overlap_percent', 75.0, 'out_of_range'),
         ('image_output_format.live', 'BMP', 'not_offered'),
@@ -92,6 +98,14 @@ def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reas
     assert refused.value.reason == reason
     assert refused.value.path == path
     assert session.settings_snapshot() == before
+
+
+def test_how_long_a_capture_is_shown_is_stored_at_each_end_of_its_range(session):
+    stored = []
+    for seconds in (1, 10):
+        session.update_settings('capture_shown_s', seconds)
+        stored.append(session.setting('capture_shown_s'))
+    assert stored == [1, 10]
 
 
 # A session member is named by its name, and its words say ``ScopeSession.``;

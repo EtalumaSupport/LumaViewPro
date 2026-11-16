@@ -146,6 +146,7 @@ PREFERENCES: typing.Final[frozenset[str]] = frozenset(
         'show_tooltips',
         'show_step_locations',
         'live_view_fps',
+        'capture_shown_s',
         'stimulation_enabled',
         'focus_score_enabled',
     }
@@ -206,6 +207,9 @@ VIDEO_MAX_DURATION_S_RANGE: typing.Final = (1, 3600)
 
 JPG_QUALITY_RANGE: typing.Final = (1, 100)
 """The JPG encoder's quality, inclusive."""
+
+CAPTURE_SHOWN_S_RANGE: typing.Final = (1, 10)
+"""How long a still or a composite is shown once taken, in whole seconds, inclusive."""
 
 VIDEO_STEP_DURATION_S_MAX: typing.Final = 3600
 """The longest video a protocol step records, in seconds."""
@@ -343,12 +347,22 @@ def _video_max_duration(path: str, value: float) -> None:
     _refuse_outside(path, value, *VIDEO_MAX_DURATION_S_RANGE)
 
 
-def _jpg_quality(path: str, value: float) -> None:
-    # The encoder takes a whole quality; a fraction would be truncated.
+def _refuse_unless_int(path: str, value: float) -> None:
     # bool is excluded by name: True is an int.
     if isinstance(value, bool) or not isinstance(value, int):
         raise SettingRefusedError('out_of_range', path, f'it must be a whole number, not {value!r}')
+
+
+def _jpg_quality(path: str, value: float) -> None:
+    # The encoder takes a whole quality; a fraction would be truncated.
+    _refuse_unless_int(path, value)
     _refuse_outside(path, value, *JPG_QUALITY_RANGE)
+
+
+def _capture_shown(path: str, value: float) -> None:
+    # Whole seconds: a half second's difference is not a preference anyone states.
+    _refuse_unless_int(path, value)
+    _refuse_outside(path, value, *CAPTURE_SHOWN_S_RANGE)
 
 
 def _non_negative(path: str, value: float) -> None:
@@ -440,6 +454,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'video.max_duration_s': _video_max_duration,
     'jpg_quality': _jpg_quality,
     'live_view_fps': _live_view_fps,
+    'capture_shown_s': _capture_shown,
     'zstack.step_size': _non_negative,
     'zstack.range': _non_negative,
     'protocol.autogain.target_brightness': _fraction,

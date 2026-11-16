@@ -70,6 +70,7 @@ _ROSTER = {
     'AdvancedSettings.keep_led_between_steps_btn': ('KEEP_LED_BETWEEN_STEPS',),
     'AdvancedSettings.line_noise_reduction': ('LINE_NOISE_REDUCTION',),
     'AdvancedSettings.display_max_fps_slider': ('DISPLAY_MAX_FPS',),
+    'AdvancedSettings.capture_shown_slider': ('CAPTURE_SHOWN_S',),
     'AdvancedSettings.protocol_led_on_btn': ('PROTOCOL_LED_ON',),
     'AdvancedSettings.recording_max_fps_slider': ('RECORDING_MAX_FPS',),
     'AdvancedSettings.restore_after_home_id': ('RESTORE_AFTER_HOME',),

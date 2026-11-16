@@ -184,6 +184,7 @@
 
     "show_tooltips": false,
     "live_view_fps": 30,
+    "capture_shown_s": 2,
     "ag_ae_max_exposure_ms": {
         "transmitted": 50.0,
         "fluorescence": 200.0,

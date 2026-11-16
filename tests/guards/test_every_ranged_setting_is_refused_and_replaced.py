@@ -48,6 +48,7 @@ _OUT_OF_RANGE = {
     'video.max_duration_s': 0,
     'jpg_quality': settings_paths.JPG_QUALITY_RANGE[1] + 1,
     'live_view_fps': -3,
+    'capture_shown_s': settings_paths.CAPTURE_SHOWN_S_RANGE[1] + 1,
     'zstack.step_size': -1,
     'zstack.range': -0.5,
     'protocol.autogain.target_brightness': 1.5,
@@ -83,6 +84,7 @@ _CLOSED_SETS = frozenset(
 _A_FRACTION = {
     'motion.acceleration_max_pct': 62.5,
     'jpg_quality': 85.5,
+    'capture_shown_s': 2.5,
 }
 
 _CASES = sorted(

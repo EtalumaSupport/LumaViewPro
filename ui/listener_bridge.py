@@ -144,6 +144,7 @@ SHOWN_SETTINGS: tuple[tuple[str, Callable[[object, str], None]], ...] = (
     ('show_step_locations', _redraw_advanced),
     ('live_view_fps', _apply_live_view_fps),
     ('live_view_fps', _redraw_advanced),
+    ('capture_shown_s', _redraw_advanced),
     ('motion', _redraw_advanced),
     ('video', _redraw_advanced),
     ('separate_folder_per_channel', _redraw_advanced),

@@ -259,6 +259,7 @@ def test_advanced_settings_offers_a_toggle_unless_the_camera_lacks_it(monkeypatc
             _FPS_LIMITS=(),
             _show_camera_modes=lambda: None,
             _show_fps_limit=lambda _slider_id: None,
+            _show_capture_shown=lambda: None,
             load_scopes=lambda: None,
         )
         AdvancedSettings.show_settings(panel)
