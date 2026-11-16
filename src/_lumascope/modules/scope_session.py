@@ -1742,9 +1742,9 @@ class ScopeSession:
 
         The executor bundle is always built, around the scope's own IO and
         CAMERA lanes, via executor_registry.create_default, so every caller
-        gets the topology the GUI runs: FILE + WORKER_POOL executors plus
-        protocol_thread (started) and scope_display_thread (constructed,
-        not started).
+        gets the topology the GUI runs: the executors the bundle declares
+        as its own, started, plus protocol_thread (started) and
+        scope_display_thread (constructed, not started).
 
         A process that has not started its logging starts the log folder
         here, as ``load_user_settings`` does; ``lumascope.start_logging``

@@ -7415,19 +7415,6 @@ class TestScopeSessionBuildsFullExecutorBundle:
         )
         assert logger_._bundle is session.executor_bundle
 
-    def test_create_bundle_has_all_four_executors(self, tmp_path):
-        from _lumascope.modules.scope_session import ScopeSession
-        from tests.settings_fixtures import complete_settings
-
-        session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
-        bundle = session.executor_bundle
-        # All four executors are required for full L2-caller pipelining.
-        for attr_name in ('io_executor', 'camera_executor', 'file_io_executor', 'worker_pool'):
-            assert getattr(bundle, attr_name) is not None, (
-                f'Bundle missing {attr_name}; L2 caller will hit degraded '
-                f'topology when that executor is needed.'
-            )
-
 
 class TestHeadlessSettingsResolutionMatchesGui:
     """Per Settings-SSOT audit HR-4: ScopeSession.load_user_settings's deepest

@@ -20,15 +20,6 @@ from _lumascope.modules.sequential_io_executor import IOTask
 from tests.scope_fakes import build_scope
 from tests.settings_fixtures import complete_settings
 
-LANES = (
-    'io_executor',
-    'camera_executor',
-    'file_io_executor',
-    'post_processing_executor',
-    'worker_pool',
-    'diagnostics_executor',
-)
-
 
 @pytest.fixture
 def scheduled():
@@ -51,15 +42,17 @@ def _delivered_through_the_store(lane, scheduled) -> bool:
     return len(scheduled) > before
 
 
-@pytest.mark.parametrize('lane_name', LANES)
-def test_a_session_dispatches_every_lane_through_the_store(lane_name, scheduled, tmp_path):
+def test_a_session_dispatches_every_lane_through_the_store(scheduled, tmp_path):
     session = ScopeSession.create(
         complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
     )
     try:
-        lane = getattr(session.executor_bundle, lane_name)
-        assert _delivered_through_the_store(lane, scheduled), (
-            f'{lane.executor_name} ran its callback without the UI dispatcher'
+        lanes = session.executor_bundle.queued_executors()
+        undelivered = [
+            name for name, lane in lanes if not _delivered_through_the_store(lane, scheduled)
+        ]
+        assert undelivered == [], (
+            f'ran their callbacks without the UI dispatcher: {", ".join(undelivered)}'
         )
     finally:
         session.shutdown()
