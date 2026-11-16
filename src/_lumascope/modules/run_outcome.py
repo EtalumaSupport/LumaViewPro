@@ -561,54 +561,6 @@ class RunOutcome:
     focus_failures: tuple[FocusFailure, ...]
     video_save_wait_s: float | None
 
-    @classmethod
-    def from_ending(
-        cls,
-        ending: RunEnding,
-        *,
-        merged: bool,
-        artifact_path: pathlib.Path | None,
-        merge_reason: str,
-        captures: CaptureTally | None,
-        cleanup_failures: tuple[str, ...] | None,
-        af_data_path: pathlib.Path | None = None,
-        af_focus_z_um: float | None = None,
-        focus_written: bool | None = None,
-        focus_failures: tuple[FocusFailure, ...] = (),
-        video_save_wait_s: float | None = None,
-    ) -> RunOutcome:
-        """Compose the caller's answer from the run's recorded ending.
-
-        The only constructor the settle paths use: the run's status and
-        reason are never restated at a settle site, so the word a caller
-        reads is always the one the thing that ended the run recorded.
-
-        Takes the autofocus path rather than the pair, and derives the
-        flag from it: "data was saved" and "here is the file" are one
-        fact, and a constructor that accepted both could be handed a
-        saved=True carrying nowhere to look -- the shape a remote caller
-        cannot tell from a real delivery.
-        """
-        return cls(
-            status=ending.status,
-            reason=ending.reason,
-            title=ending.title,
-            message=ending.message,
-            unconnected_parts=ending.unconnected_parts,
-            axes_without_position=ending.axes_without_position,
-            merged=merged,
-            artifact_path=artifact_path,
-            merge_reason=merge_reason,
-            af_data_saved=af_data_path is not None,
-            af_data_path=af_data_path,
-            af_focus_z_um=af_focus_z_um,
-            captures=captures,
-            cleanup_failures=cleanup_failures,
-            focus_written=focus_written,
-            focus_failures=focus_failures,
-            video_save_wait_s=video_save_wait_s,
-        )
-
 
 PENDING = 'pending'
 ARMED = 'armed'
@@ -747,24 +699,11 @@ class PendingRunOutcome:
         with self._lock:
             if self._state != PENDING:
                 return False
-            self._state = RESOLVED
-            self._outcome = RunOutcome.from_ending(
-                ending,
-                merged=False,
-                artifact_path=None,
-                merge_reason=merge_reason,
-                af_data_path=self._af_data_path,
-                af_focus_z_um=self._af_focus_z_um,
-                captures=self._captures,
-                cleanup_failures=self._cleanup_failures,
-                focus_written=self._focus_written,
-                focus_failures=self._focus_failures,
-                video_save_wait_s=self._video_save_wait_s,
+            outcome, told = self._settle(
+                ending, merged=False, artifact_path=None, merge_reason=merge_reason
             )
-            self._settled.set()
-            told, self._on_settled = self._on_settled, []
         for tell in told:
-            tell(self._outcome)
+            tell(outcome)
         return True
 
     def force_resolve(self, merge_reason: str, *, fallback: RunEnding) -> bool:
@@ -786,24 +725,11 @@ class PendingRunOutcome:
             if self._state == RESOLVED:
                 return False
             ending = self._ending if self._ending is not None else fallback
-            self._state = RESOLVED
-            self._outcome = RunOutcome.from_ending(
-                ending,
-                merged=False,
-                artifact_path=None,
-                merge_reason=merge_reason,
-                af_data_path=self._af_data_path,
-                af_focus_z_um=self._af_focus_z_um,
-                captures=self._captures,
-                cleanup_failures=self._cleanup_failures,
-                focus_written=self._focus_written,
-                focus_failures=self._focus_failures,
-                video_save_wait_s=self._video_save_wait_s,
+            outcome, told = self._settle(
+                ending, merged=False, artifact_path=None, merge_reason=merge_reason
             )
-            self._settled.set()
-            told, self._on_settled = self._on_settled, []
         for tell in told:
-            tell(self._outcome)
+            tell(outcome)
         return True
 
     def resolve(
@@ -826,25 +752,68 @@ class PendingRunOutcome:
             if self._state != ARMED or token != self._token:
                 return False
             assert self._ending is not None, 'ARMED without the ending arm() stores'
-            self._state = RESOLVED
-            self._outcome = RunOutcome.from_ending(
+            outcome, told = self._settle(
                 self._ending,
                 merged=merged,
                 artifact_path=artifact_path,
                 merge_reason=merge_reason,
-                af_data_path=self._af_data_path,
-                af_focus_z_um=self._af_focus_z_um,
-                captures=self._captures,
-                cleanup_failures=self._cleanup_failures,
-                focus_written=self._focus_written,
-                focus_failures=self._focus_failures,
-                video_save_wait_s=self._video_save_wait_s,
             )
-            self._settled.set()
-            told, self._on_settled = self._on_settled, []
         for tell in told:
-            tell(self._outcome)
+            tell(outcome)
         return True
+
+    def _settle(
+        self,
+        ending: RunEnding,
+        *,
+        merged: bool,
+        artifact_path: pathlib.Path | None,
+        merge_reason: str,
+    ) -> tuple[RunOutcome, list[Callable[[RunOutcome], None]]]:
+        """Compose the outcome, mark it settled, and hand back who to tell.
+
+        The one routine every settle path calls, with the lock held, so
+        each fact the run recorded is named once, here, and no path can
+        report one as its "nothing recorded" value while another reports
+        what was recorded. The listeners are returned, to be told outside
+        the lock.
+
+        The run's status and reason are copied from the ending, never
+        restated at a settle site, so the word a caller reads is always the
+        one the thing that ended the run recorded. The autofocus saved flag
+        is derived from the path: "data was saved" and "here is the file"
+        are one fact, and an outcome given both could carry saved=True with
+        nowhere to look -- the shape a remote caller cannot tell from a real
+        delivery.
+
+        Composed before the state is marked: a raise while composing leaves
+        the outcome unsettled, where ``force_resolve`` can still settle it
+        and a ``wait`` is not blocked for ever.
+        """
+        outcome = RunOutcome(
+            status=ending.status,
+            reason=ending.reason,
+            title=ending.title,
+            message=ending.message,
+            unconnected_parts=ending.unconnected_parts,
+            axes_without_position=ending.axes_without_position,
+            merged=merged,
+            artifact_path=artifact_path,
+            merge_reason=merge_reason,
+            af_data_saved=self._af_data_path is not None,
+            af_data_path=self._af_data_path,
+            af_focus_z_um=self._af_focus_z_um,
+            captures=self._captures,
+            cleanup_failures=self._cleanup_failures,
+            focus_written=self._focus_written,
+            focus_failures=self._focus_failures,
+            video_save_wait_s=self._video_save_wait_s,
+        )
+        self._state = RESOLVED
+        self._outcome = outcome
+        self._settled.set()
+        told, self._on_settled = self._on_settled, []
+        return outcome, told
 
     def when_settled(self, tell: Callable[[RunOutcome], None]) -> None:
         """Call ``tell(outcome)`` once the outcome settles: now, when it has.

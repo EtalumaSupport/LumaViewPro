@@ -34,9 +34,14 @@ from _lumascope.modules.run_outcome import (
     ARMED,
     PENDING,
     RESOLVED,
+    CaptureTally,
+    FailedCapture,
+    FocusFailure,
     PendingRunOutcome,
     RunEnding,
+    RunOutcome,
     RunStatus,
+    StepFrames,
 )
 
 _COMPLETED = RunEnding('completed', 'completed', 'The run finished.')
@@ -249,6 +254,92 @@ class TestTeardownResolver:
         _record_merge(outcome, token, '/done.tiff')
         assert outcome.force_resolve('shutdown', fallback=_SHUTDOWN) is False
         assert outcome.wait(timeout_s=0.1).artifact_path == pathlib.Path('/done.tiff')
+
+
+# Each fact a run records: its setter, a value no "nothing recorded" default
+# equals, and the outcome field it reaches.
+_RECORDED_FACTS = (
+    ('record_autofocus_data', pathlib.Path('/runs/1/af.csv'), 'af_data_path'),
+    ('record_autofocus_focus', 1234.5, 'af_focus_z_um'),
+    (
+        'record_captures',
+        CaptureTally(
+            asked=4,
+            captured=3,
+            failed=(FailedCapture(scan_index=0, step_index=2, step_name='C1', cause='timeout'),),
+            saturated=(StepFrames(step_index=1, step_name='B1', count=1, first_scan_index=0),),
+            dark=(),
+        ),
+        'captures',
+    ),
+    ('record_cleanup_failures', ('Return to position',), 'cleanup_failures'),
+    ('record_video_save_wait', 2.5, 'video_save_wait_s'),
+    ('record_focus_written', True, 'focus_written'),
+    (
+        'record_focus_failures',
+        (FocusFailure(step_index=0, step_name='A1', count=1, first_scan_index=0, cause='flat'),),
+        'focus_failures',
+    ),
+)
+
+# The outcome's fields that are not a recorded fact: the ending's, the
+# merge's, and the saved flag derived from the autofocus path.
+_NOT_RECORDED = {
+    'status',
+    'reason',
+    'title',
+    'message',
+    'unconnected_parts',
+    'axes_without_position',
+    'merged',
+    'artifact_path',
+    'merge_reason',
+    'af_data_saved',
+}
+
+
+def _settle_by_cleanup(pending):
+    pending.resolve_if_pending(_COMPLETED)
+
+
+def _settle_by_teardown(pending):
+    pending.force_resolve('shutdown', fallback=_SHUTDOWN)
+
+
+def _settle_by_merge(pending):
+    _record_merge(pending, pending.arm(_COMPLETED))
+
+
+def test_every_recorded_fact_reaches_the_outcome_whichever_path_settles_it():
+    """A run settles down cleanup's path, a teardown's or the merge thread's,
+    and every fact it recorded reaches its outcome on each: a fact missed on
+    one path would read there as its "nothing recorded" value, with nothing
+    raised, for a run that recorded it.
+
+    The table is checked against the outcome's fields first, so a fact added
+    to the outcome fails here until it joins the table.
+    """
+    fields = {f.name for f in dataclasses.fields(RunOutcome)} - _NOT_RECORDED
+    tabled = {field for _, _, field in _RECORDED_FACTS}
+    assert tabled == fields, (
+        f'outcome fields with no row: {sorted(fields - tabled)}; '
+        f'rows with no field: {sorted(tabled - fields)}'
+    )
+
+    dropped = []
+    for settle in (_settle_by_cleanup, _settle_by_teardown, _settle_by_merge):
+        pending = PendingRunOutcome()
+        for setter, value, _ in _RECORDED_FACTS:
+            getattr(pending, setter)(value)
+        settle(pending)
+        settled = pending.wait(timeout_s=1.0)
+        assert settled is not None, f'{settle.__name__} did not settle the run'
+        dropped += [
+            f'{settle.__name__}: {field}'
+            for _, value, field in _RECORDED_FACTS
+            if getattr(settled, field) != value
+        ]
+    assert dropped == [], f'recorded facts the outcome did not carry: {dropped}'
 
 
 class TestWaiting:

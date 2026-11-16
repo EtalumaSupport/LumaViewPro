@@ -300,27 +300,18 @@ class TestTheTwoFieldsCannotDisagree:
     is unconstructible rather than merely undocumented."""
 
     def test_a_path_makes_it_saved(self):
-        outcome = RunOutcome.from_ending(
-            _ending(),
-            merged=False,
-            artifact_path=None,
-            merge_reason='',
-            captures=None,
-            cleanup_failures=None,
-            af_data_path=pathlib.Path('/tmp/a.csv'),
-        )
+        pending = PendingRunOutcome()
+        pending.record_autofocus_data(pathlib.Path('/tmp/a.csv'))
+        pending.resolve_if_pending(_ending())
+        outcome = pending.wait(timeout_s=1.0)
         assert outcome.af_data_saved is True
         assert outcome.af_data_path == pathlib.Path('/tmp/a.csv')
 
     def test_no_path_makes_it_unsaved(self):
-        outcome = RunOutcome.from_ending(
-            _ending(),
-            merged=False,
-            artifact_path=None,
-            merge_reason='',
-            captures=None,
-            cleanup_failures=None,
-        )
+        pending = PendingRunOutcome()
+        pending.record_autofocus_data(None)
+        pending.resolve_if_pending(_ending())
+        outcome = pending.wait(timeout_s=1.0)
         assert outcome.af_data_saved is False
         assert outcome.af_data_path is None
 
