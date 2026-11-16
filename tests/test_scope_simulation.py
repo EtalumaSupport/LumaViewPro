@@ -162,7 +162,7 @@ def test_a_refused_gain_write_is_rejected_and_records_no_target(scope):
     with pytest.raises(CameraSettingRejected) as rejected:
         scope.camera.set_gain_db(9.0)
     assert rejected.value.setting == 'gain_db'
-    assert scope.imaging._frame_validity.target('gain') == 3.0
+    assert scope.imaging._frame_validity.target('gain') is None
 
 
 def test_a_raising_binning_write_is_a_chained_rejection(scope):

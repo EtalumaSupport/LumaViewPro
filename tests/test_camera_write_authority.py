@@ -349,8 +349,9 @@ class TestSdkPerfSetterSequences:
     def test_a_driver_raise_is_a_chained_rejection(
         self, camera_capable, monkeypatch, member, driver_member, value
     ):
-        """A toggle whose write raised invalidates nothing. Pins today's
-        applied-only invalidation; flips with ruling K12's build."""
+        """A toggle whose write raised invalidates its source (ruling K12):
+        the refusal may have landed part of the write, so a capture waits for
+        a frame taken after it."""
         before = camera_capable._frame_validity.invalidation_counts
         fault = CameraWriteFailedError('node write failed')
 
@@ -362,7 +363,11 @@ class TestSdkPerfSetterSequences:
         with pytest.raises(CameraSettingRejected) as caught:
             getattr(camera_capable, member)(value)
         assert caught.value.__cause__ is fault
-        assert camera_capable._frame_validity.invalidation_counts == before
+        source = {
+            'set_high_conversion_gain': 'conversion_gain_mode',
+            'set_line_noise_reduction': 'line_noise_reduction',
+        }[member]
+        assert camera_capable._frame_validity.invalidation_counts == _grown_by_one(before, source)
 
 
 class TestTheImplsAbsentAnswerIsRefused:
@@ -415,8 +420,9 @@ class TestCameraWriteAuthority:
     a driver that cannot confirm (``None``) counts as having taken it."""
 
     def test_force_invalidate_fires_even_on_rejection(self, plain_scope):
-        """A refused gain still holds readiness for 'gain', and records no
-        target: the prior one stands."""
+        """A refused gain still holds readiness for 'gain', and clears its
+        target: the refusal may have landed part of the write, so the next
+        capture settles by frame count."""
         camera = plain_scope.camera
         fv = camera._frame_validity
         camera.set_gain_db(3.0)
@@ -426,7 +432,7 @@ class TestCameraWriteAuthority:
             camera.set_gain_db(9.0)
         assert caught.value.setting == 'gain_db'
         assert fv.invalidation_counts == _grown_by_one(before, 'gain')
-        assert fv.target('gain') == 3.0
+        assert fv.target('gain') is None
 
     def test_applied_block_runs_when_not_rejected(self, camera_plain, monkeypatch):
         """A driver that cannot confirm answers None, which is not a refusal:

@@ -45,6 +45,8 @@ class _FakeIdsAoiNodemap:
         self.off_step_x, self.off_step_y = offset_step
         self.width, self.height = sensor
         self.off_x = self.off_y = 0
+        # Each axis's binning: a binned axis's sensor extent is divided by it.
+        self.bin_h = self.bin_v = 1
         self.writes: list[tuple[str, int]] = []
         # Node names whose SetValue raises, to exercise mid-call failure paths.
         self.fail_on = set(fail_on)
@@ -70,9 +72,14 @@ class _FakeIdsAoiNode:
 
     def Value(self):
         nm = self._nm
-        return {'Width': nm.width, 'Height': nm.height, 'OffsetX': nm.off_x, 'OffsetY': nm.off_y}[
-            self._name
-        ]
+        return {
+            'Width': nm.width,
+            'Height': nm.height,
+            'OffsetX': nm.off_x,
+            'OffsetY': nm.off_y,
+            'BinningHorizontal': nm.bin_h,
+            'BinningVertical': nm.bin_v,
+        }[self._name]
 
     def Minimum(self):
         return self._nm.minimums[self._name]
@@ -80,8 +87,8 @@ class _FakeIdsAoiNode:
     def Maximum(self):
         nm = self._nm
         raw = {
-            'Width': nm.sensor_w - nm.off_x,
-            'Height': nm.sensor_h - nm.off_y,
+            'Width': nm.sensor_w // nm.bin_h - nm.off_x,
+            'Height': nm.sensor_h // nm.bin_v - nm.off_y,
             'OffsetX': nm.sensor_w - nm.width,
             'OffsetY': nm.sensor_h - nm.height,
         }[self._name]
@@ -102,6 +109,10 @@ class _FakeIdsAoiNode:
         nm = self._nm
         if self._name in nm.fail_on:
             raise ids_peak.Exception(f'simulated SDK failure on {self._name}.SetValue({value})')
+        if self._name in ('BinningHorizontal', 'BinningVertical'):
+            nm.writes.append((self._name, value))
+            setattr(nm, 'bin_h' if self._name == 'BinningHorizontal' else 'bin_v', value)
+            return
         # Mirror GenICam: the legal set is Minimum + k*Increment, and an off-grid
         # write raises OUT_OF_RANGE (the exact bench failure on a 2x-binned
         # Height, Min=418 Inc=4). A phase-0 fixture can't surface a phased-grid
@@ -260,6 +271,23 @@ def test_set_binning_size_clears_the_window():
 
     cam.set_binning_size(2)
     assert cam._frame_window is None
+
+
+def test_a_binning_refused_after_one_axis_landed_leaves_the_grid_read_from_the_camera():
+    """A binning write is two nodes: one may land before the other is refused.
+    The offsets are zeroed and the sensor maximum forgotten before either, so
+    the next frame grid reads the maximum the camera now has, from zero
+    offsets, not the maximum cached before the write."""
+    cam = _ids_camera_with_aoi(fail_on=('BinningHorizontal',))
+    cam._max_binning = 2
+    cam.set_frame_size(1900, 1900)
+    assert cam.remote_nodemap.off_x > 0, 'precondition: a centred window'
+
+    with pytest.raises(CameraWriteFailedError, match='BinningHorizontal'):
+        cam.set_binning_size(2)
+
+    # BinningVertical landed: the sensor is half as tall, as wide as it was.
+    assert cam._frame_grid().max_size == (SENSOR_W, SENSOR_H // 2)
 
 
 def test_set_frame_size_failure_clears_the_stale_window():

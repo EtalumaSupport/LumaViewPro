@@ -51,10 +51,13 @@ class TestAConfirmedRejectionReachesTheCaller:
 
         assert excinfo.value.setting == 'gain_db'
         assert excinfo.value.requested == 7.0
-        # What the camera holds, not what happens next: true for a live view
-        # and for a protocol step, which then does not capture.
+        # What the camera holds, read after the refusal, not what happens
+        # next: true for a live view and for a protocol step, which then does
+        # not capture.
+        held = camera.gain_db
+        assert excinfo.value.in_effect == held
         assert str(excinfo.value) == (
-            'The camera rejected the gain change to 7.0 dB. It is still at its previous gain.'
+            f'The camera rejected the gain change to 7.0 dB. It is at {held:.1f} dB.'
         )
 
     def test_a_refused_exposure_raises_by_name(self, sim_scope):
@@ -66,9 +69,10 @@ class TestAConfirmedRejectionReachesTheCaller:
 
         assert excinfo.value.setting == 'exposure_ms'
         assert excinfo.value.requested == 25.0
+        held = camera.exposure_ms
+        assert excinfo.value.in_effect == held
         assert str(excinfo.value) == (
-            'The camera rejected the exposure change to 25 ms. It is still at its previous '
-            'exposure.'
+            f'The camera rejected the exposure change to 25 ms. It is at {held:g} ms.'
         )
 
     def test_the_api_shows_nothing_itself(self, sim_scope, centre_posts):
@@ -127,7 +131,10 @@ class TestARefusalIsNotRecordedAsTruth:
     is ``tests/test_pylon_gain_reports_its_rejection.py``.
     """
 
-    def test_a_refused_gain_moves_neither_the_cache_nor_the_target(self, sim_scope):
+    def test_a_refused_gain_holds_what_the_camera_reads_and_records_no_target(self, sim_scope):
+        """A refused write may have landed part of itself, so the gain held is
+        read from the camera, and the chunk target is cleared: the next capture
+        settles by frame count, and no target the frames cannot carry stands."""
         camera = sim_scope.camera
         camera.set_gain_db(3.0)
         sim_scope.simulation.refuse_camera_write('gain', 'raise')
@@ -136,7 +143,7 @@ class TestARefusalIsNotRecordedAsTruth:
             camera.set_gain_db(9.0)
 
         assert camera.gain_db == 3.0
-        assert camera._frame_validity.target('gain') == 3.0
+        assert camera._frame_validity.target('gain') is None
 
     def test_an_applied_gain_moves_both(self, sim_scope):
         camera = sim_scope.camera
@@ -147,10 +154,9 @@ class TestARefusalIsNotRecordedAsTruth:
         assert camera.gain_db == 9.0
         assert camera._frame_validity.target('gain') == 9.0
 
-    def test_a_write_whose_value_was_not_reported_is_believed(self, sim_scope):
-        """A write that took and answers nothing is not a refusal, so the
-        request IS recorded -- that is the deliberate rule, and it is why a
-        driver that CAN report the value in effect must."""
+    def test_a_write_whose_value_was_not_reported_is_read_from_the_camera(self, sim_scope):
+        """A write that took and answers nothing is not a refusal: the gain
+        held is what the camera reads after it, not the request."""
         camera = sim_scope.camera
         sim_scope.simulation.refuse_camera_write('gain', 'unreported')
 

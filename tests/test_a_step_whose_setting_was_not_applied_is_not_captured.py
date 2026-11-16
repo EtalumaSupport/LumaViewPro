@@ -97,7 +97,7 @@ def test_an_auto_gain_step_whose_arm_was_refused_is_not_captured(tmp_path):
     [failed] = outcome.captures.failed
     assert (failed.step_index, failed.cause) == (
         0,
-        'The camera did not take the auto-gain change. It is still as it was.',
+        'The camera did not take the auto-gain change. Its auto-gain is Off.',
     )
     assert outcome.captures.captured == 1
 
@@ -119,7 +119,7 @@ def test_a_video_step_whose_one_shot_was_refused_is_not_captured(tmp_path):
 
     [failed] = outcome.captures.failed
     assert failed.cause == (
-        'The camera did not take the one-shot auto-gain change. It is still as it was.'
+        'The camera did not take the one-shot auto-gain change. Its auto-gain is Off.'
     )
     assert outcome.captures.captured == 0
 

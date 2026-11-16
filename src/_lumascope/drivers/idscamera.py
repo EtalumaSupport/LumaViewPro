@@ -3089,17 +3089,20 @@ class IDSCamera(Camera):
             )
         logger.debug(f'[CAM Class ] Binning -> {size}')
         with self.update_camera_config():
-            self.write_node('BinningVertical', size)
-            self.write_node('BinningHorizontal', size)
-            # Zero the offsets: frames pass at the full binned AOI until
+            # Zero the offsets first: frames pass at the full binned AOI until
             # set_frame_size re-centers, and a leftover centering offset
             # would make the next live read of Width.Maximum() = sensor -
-            # offset, i.e. under-report the binned sensor max.
+            # offset, i.e. under-report the binned sensor max. First, so a
+            # binning write refused after them leaves the frame grid read
+            # from zero offsets whichever binning the camera holds.
             self.write_node('OffsetX', 0)
             self.write_node('OffsetY', 0)
             # A binning change halves the sensor max; the next frame grid
-            # reads it again.
+            # reads it again. Cleared before the binning writes, so one that
+            # lands before another is refused leaves no stale maximum.
             self._sensor_max = None
+            self.write_node('BinningVertical', size)
+            self.write_node('BinningHorizontal', size)
         logger.debug(f'[CAM Class ] Binning set to {size}')
 
     def get_binning_size(self) -> int:

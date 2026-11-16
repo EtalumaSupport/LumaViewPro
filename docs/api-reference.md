@@ -5406,7 +5406,7 @@ is raised once all have run. The range refusals are `set_gain_db`'s and
 
 **Returns**
 
-dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effect, which differs from the request when the camera snapped it. `None` when no camera is active.
+dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effect, which differs from the request when the camera snapped it, None for one not known (`set_gain_db`). `None` when no camera is active.
 
 **Raises**
 
@@ -6277,7 +6277,7 @@ until the next connect, when the camera reloads its default user set.
 
 **Returns**
 
-float | None: The black level now in effect, which differs from the request when the camera snapped it.
+float | None: The black level now in effect, which differs from the request when the camera snapped it. `None` when the camera took the write and its black level could not be read back, or when it reports none.
 
 **Raises**
 
@@ -6319,7 +6319,7 @@ stored setting (`ScopeSession.set_channel_settings(channel, exposure_ms=...)`).
 
 **Returns**
 
-float | None: The exposure in milliseconds now in effect, which differs from the request when the camera quantized it. `None` when the camera's teardown landed after the lane asked for it.
+float | None: The exposure in milliseconds now in effect, which differs from the request when the camera quantized it. `None` when the camera's teardown landed after the lane asked for it, or when the camera took the write and its exposure could not be read back.
 
 **Raises**
 
@@ -6403,7 +6403,7 @@ of that channel uses, is its stored setting
 
 **Returns**
 
-float | None: The gain in dB now in effect, which differs from the request when the camera snapped it. `None` when the camera's teardown landed after the lane asked for it.
+float | None: The gain in dB now in effect, which differs from the request when the camera snapped it. `None` when the camera's teardown landed after the lane asked for it, or when the camera took the write and its gain could not be read back.
 
 **Raises**
 
@@ -15633,6 +15633,18 @@ notifies it.
 - `reason`: `'camera_rejected'` -- the camera refused the write, or its driver raised from it. `'camera_no_answer'` -- the camera did not answer the write, sent twice, so whether it took it is not known. `'camera_read_failed'` -- a read the write needs failed, so the setting was not written and the camera keeps its previous value of it. The setting is in `setting` and in the words.
 - `setting`: Machine-readable setting name (e.g. 'frame_size').
 - `requested`: The value the caller asked for.
+- `in_effect`: For `'camera_rejected'`, the value the camera holds for the setting, read from it after the refusal (a write of several nodes may have landed some); None when that read failed, for a setting no driver reads back, and for the other reasons. A tuple, in `requested`'s order, on a combined refusal.
+
+`setting`, `requested` and `in_effect` are published, so a REST
+problem carries them. A value is a number, a frame size's
+`{'width', 'height'}`, a pixel format or a mode's name, or a toggle's
+flag.
+
+**Fields**
+
+- <a id="CameraSettingRejected.in_effect"></a>`in_effect`: `float | int | str | bool | dict[str, int] | tuple[float | int | str | bool | dict[str, int] | None, ...] | None` -- For `'camera_rejected'`, the value the camera holds for the setting, read from it after the refusal (a write of several nodes may have landed some); None when that read failed, for a setting no driver reads back, and for the other reasons. A tuple, in `requested`'s order, on a combined refusal.
+- <a id="CameraSettingRejected.requested"></a>`requested`: `float | int | str | bool | dict[str, int] | tuple[float | int | str | bool | dict[str, int] | None, ...] | None` -- The value the caller asked for.
+- <a id="CameraSettingRejected.setting"></a>`setting`: `str` -- Machine-readable setting name (e.g. 'frame_size').
 
 | Reason | Cause | REST status |
 |---|---|---|

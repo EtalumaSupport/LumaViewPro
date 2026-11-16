@@ -651,6 +651,8 @@ UNITLESS: dict[str, str] = {
     'Operation.result parameter timeout': "the Future's name for a wait in seconds",
     'ArgumentRefusedError.limits field': "the refused argument's bounds, in that argument's unit",
     'CameraSettingOutOfRangeError.limits field': "the camera's bounds, in the setting's unit",
+    'CameraSettingRejected.requested field': "a camera setting's value, in the unit its setting names",
+    'CameraSettingRejected.in_effect field': "a camera setting's value, in the unit its setting names",
     'PositionOutOfRangeError.limits field': "the bound's ends, in the refused quantity's unit",
     'SettingRefusedError.limits field': "the setting's range, in the setting's unit",
     'CameraNodeValue.value field': "the camera's value, in the unit its node states beside it",
@@ -814,6 +816,11 @@ OPEN_STRINGS: dict[str, str] = {
     'CameraLink.transport field': _CAMERA,
     'CameraNodeValue.unit field': _CAMERA,
     'CameraNodeValue.value field': _CAMERA,
+    'CameraSettingRejected.setting field': (
+        "a held camera setting's name; a combined refusal's names, comma-separated"
+    ),
+    'CameraSettingRejected.requested field': "a pixel format's or a mode's name, the camera's",
+    'CameraSettingRejected.in_effect field': "a pixel format's or a mode's name, the camera's",
     'CatalogueNameRefusedError.argument field': _MEMBER,
     'CatalogueNameRefusedError.offered field': _OFFERED,
     'CellCountResult.message field': _PROSE,

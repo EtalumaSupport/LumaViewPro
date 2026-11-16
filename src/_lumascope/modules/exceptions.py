@@ -5395,6 +5395,12 @@ class AutofocusLedsHeldError(Refusal, AutofocusAborted):
         self.holder = holder
 
 
+# A camera setting's value as a refusal states it: a number, a frame size, a
+# pixel format or mode name (an auto mode is a str), or a toggle.
+_CameraSettingValue = float | int | str | bool | dict[str, int]
+
+
+@api_fields('setting', 'requested', 'in_effect')
 class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the event it signals; one type covers the defect class
     """The camera driver rejected a state-changing setting apply.
 
@@ -5419,8 +5425,21 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
             previous value of it. The setting is in ``setting`` and in the words.
         setting: Machine-readable setting name (e.g. 'frame_size').
         requested: The value the caller asked for.
+        in_effect: For ``'camera_rejected'``, the value the camera holds
+            for the setting, read from it after the refusal (a write of
+            several nodes may have landed some); None when that read failed,
+            for a setting no driver reads back, and for the other reasons.
+            A tuple, in ``requested``'s order, on a combined refusal.
+
+    ``setting``, ``requested`` and ``in_effect`` are published, so a REST
+    problem carries them. A value is a number, a frame size's
+    ``{'width', 'height'}``, a pixel format or a mode's name, or a toggle's
+    flag.
     """
 
+    setting: str
+    requested: _CameraSettingValue | tuple[_CameraSettingValue | None, ...] | None
+    in_effect: _CameraSettingValue | tuple[_CameraSettingValue | None, ...] | None
     words_for_person = True
     titles: ClassVar[dict[str, str]] = {
         'camera_rejected': 'Camera Setting Not Applied',
@@ -5430,11 +5449,20 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
     same_fact_as = (CameraNoAnswerError, CameraReadFailedError)
 
-    def __init__(self, setting: str, requested, *, message: str, reason: str = 'camera_rejected'):
+    def __init__(
+        self,
+        setting: str,
+        requested,
+        *,
+        message: str,
+        reason: str = 'camera_rejected',
+        in_effect=None,
+    ):
         super().__init__(message)
         self.reason = reason
         self.setting = setting
         self.requested = requested
+        self.in_effect = in_effect
 
 
 class CameraSettingUnsupportedError(Refusal, ValueError):

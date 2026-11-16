@@ -55,7 +55,8 @@ def test_clamped_write_targets_the_applied_value_not_the_request(sim_camera, mon
 
 
 def test_refused_write_records_no_target(sim_camera, monkeypatch):
-    """A driver that refused did not move the hardware: the prior target stands."""
+    """A refusal may have landed part of the write, so it claims no target:
+    the next capture settles by frame count."""
     camera, _cam, simulation = sim_camera
     camera.set_exposure_ms(2.5)
     simulation.refuse_camera_write('exposure', 'raise')
@@ -64,8 +65,8 @@ def test_refused_write_records_no_target(sim_camera, monkeypatch):
         camera.set_exposure_ms(REQUEST_MS)
 
     assert caught.value.setting == 'exposure_ms'
-    assert camera._frame_validity.target('exposure') == 2500.0, (
-        'a refused write must not claim a target the camera never took'
+    assert camera._frame_validity.target('exposure') is None, (
+        'a refused write must not claim a target the camera may not hold'
     )
 
 

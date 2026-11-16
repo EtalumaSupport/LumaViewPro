@@ -78,8 +78,12 @@ camera (`CameraSettingOutOfRangeError`, its `limits` the range: for gain and
 exposure, `scope.camera.setting_limits`, read again after each change of the
 camera's readout, since a pixel format or a binning moves it), and a value
 the camera refused or did not answer is the fault `CameraSettingRejected`
-(`'camera_rejected'`, `'camera_no_answer'`). Each setter answers what the camera
-now runs, which may differ from what was asked.
+(`'camera_rejected'`, `'camera_no_answer'`). A setting can be several node
+writes, some of which the camera may take before it refuses one, so a refusal's
+`in_effect` is what the camera holds for the setting, read after it (None when
+that read fails), and its words say it. Each setter answers what the camera
+now runs, which may differ from what was asked; None when the camera took the
+write and its value could not be read back.
 
 ```python
 gain = scope.camera.set_gain_db(3.3)

@@ -181,7 +181,7 @@ class TestARefusalIsNotRecordedAsTruth:
         assert excinfo.value.setting == 'gain_db'
         assert excinfo.value.requested == 30.0
 
-    def test_the_cache_and_the_chunk_target_stay_where_the_camera_is(self, pylon_camera):
+    def test_the_cache_stays_where_the_camera_is_and_the_chunk_target_clears(self, pylon_camera):
         camera, cam = pylon_camera
         camera.set_gain_db(3.0)
         assert camera.gain_db == 3.0, 'precondition: the applied write was recorded'
@@ -192,8 +192,9 @@ class TestARefusalIsNotRecordedAsTruth:
             camera.set_gain_db(30.0)
 
         assert camera.gain_db == 3.0, 'a refused gain must not be cached as truth'
-        assert camera._frame_validity.target('gain') == 3.0, (
-            'a chunk target no frame can carry rejects every frame the camera produces'
+        assert camera._frame_validity.target('gain') is None, (
+            'a refused write may have landed part of itself: the next capture '
+            'settles by frame count, never on a target no frame may carry'
         )
 
     def test_the_api_shows_nothing_itself(self, pylon_camera, centre_posts):
