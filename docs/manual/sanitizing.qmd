@@ -24,15 +24,15 @@ mix it fresh and use it the day it's made.
 
 ## Hydrogen peroxide vapor {#sec-hpv}
 
-Hydrogen peroxide vapor removes biological agents from equipment surfaces,
-including ones hard to sterilize otherwise. Because a vapor reaches every
-surface, it is used for pass-through chambers and for devices in hospitals
-and manufacturing.
+Hydrogen peroxide vapor kills microbes on contact, mainly by damaging their
+DNA and also by oxidizing their proteins and lipids. Given time, the vapor
+reaches places that are hard or impossible to clean any other way, so it
+decontaminates surfaces very efficiently.
 
-HPV decontaminates a CO~2~ incubator without heat, which spares a research
-lab costly down time. A seven-minute HPV fog circulated by the incubator's
-blower, followed by narrow-band ultraviolet light, disinfects effectively.
-It reaches every wall, shelf, reservoir, air plenum, sensor and other
-interior part, and leaves only a little sterile water behind.
+Etaluma recommends MycoFog for decontaminating a CO~2~ incubator this way,
+without heat. The Lumascope can stay in the incubator while it's fogged
+(@fig-mycofog).
+
+![A MycoFog unit fogging a CO~2~ incubator with an LS820 inside](images/mycofog-incubator-ls820.jpg){#fig-mycofog width=60%}
 
 For questions, contact Etaluma Technical Support at support@etaluma.com.
