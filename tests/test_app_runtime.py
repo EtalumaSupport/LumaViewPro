@@ -292,6 +292,11 @@ if reads:
     root = str(path_utils.get_source_root())
     settings, _rejected = prepare_settings(logger, root, fall_back_to_template=False)
     answer['motion'] = sorted(settings['motion'])
+    # The headless server's read of the same folder, which holds no template
+    # of its own: an installation all the same.
+    from _lumascope.modules.scope_session import ScopeSession
+
+    answer['served_motion'] = sorted(ScopeSession.load_user_settings(root)['motion'])
     answer['objectives'] = sorted(ObjectiveLoader(source_path=root).objectives)
     answer['plates'] = sorted(WellPlateLoader(source_path=root).plates)
 print(json.dumps(answer))
@@ -445,5 +450,6 @@ def test_a_later_build_of_the_version_reads_its_own_template_and_catalogues_and_
 
     assert answer['started'] is True, answer
     assert 'restore_after_home' in answer['motion']
+    assert answer['served_motion'] == answer['motion']
     assert added_objective in answer['objectives']
     assert 'My plate' in answer['plates']

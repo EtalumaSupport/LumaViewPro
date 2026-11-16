@@ -102,6 +102,31 @@ class TestSettingsHandedToAFactory:
             )
         assert (refused.value.reason, refused.value.value) == ('not_an_installation', str(tmp_path))
 
+    def test_a_handed_root_without_a_template_is_the_callers_from_create_too(self, tmp_path):
+        """A folder the caller names that holds no template is not an installation.
+
+        The caller named the wrong folder: refused as theirs, from ``create``
+        as from ``load_user_settings``, never as an installation file to
+        reinstall."""
+        with pytest.raises(ArgumentRefusedError) as refused:
+            ScopeSession.create(
+                complete_settings(live_folder=str(tmp_path)),
+                source_path=str(tmp_path),
+                simulate=True,
+            )
+        assert (refused.value.reason, refused.value.value) == ('not_an_installation', str(tmp_path))
+
+    def test_a_root_holding_settings_but_no_template_is_not_an_installation(self, tmp_path):
+        # A user's current.json alone (a folder copied by hand, say) does not
+        # make an installation: the template is what every key is merged from.
+        (tmp_path / 'data').mkdir()
+        (tmp_path / 'data' / 'current.json').write_text('{}', encoding='utf-8')
+
+        with pytest.raises(ArgumentRefusedError) as refused:
+            ScopeSession.load_user_settings(str(tmp_path))
+
+        assert (refused.value.reason, refused.value.value) == ('not_an_installation', str(tmp_path))
+
 
 class TestARefusingFactoryLeavesNothingBehind:
     def test_thread_count_returns_to_baseline(self):

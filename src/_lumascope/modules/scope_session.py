@@ -1806,7 +1806,9 @@ class ScopeSession:
                 None (the default) reports the steps to the log only.
 
         Raises:
-            ArgumentRefusedError: ``'needs_simulated_scope'``, ``simulated``
+            ArgumentRefusedError: ``'not_an_installation'``, a ``source_path``
+                that holds no ``data/settings.json`` template.
+                ``'needs_simulated_scope'``, ``simulated``
                 without ``simulate``: a real scope's file lane writes to a
                 real drive, and only a simulated scope's boards and camera
                 take a fault. ``'needs_simulated_camera'``, the record's
@@ -1895,7 +1897,9 @@ class ScopeSession:
         # session's alone, so a write into the caller's dict reaches no
         # setting past update_settings' checks.
         root = get_source_root(source_path)
-        template = settings_init.load_template(logger, settings_init.template_path_for(root))
+        template = settings_init.load_template(
+            logger, settings_init.handed_installation_template(source_path)
+        )
         settings = settings_init.prepare_loaded(
             logger, copy.deepcopy(settings), template, str(root), source='settings', handed=True
         )
@@ -2094,7 +2098,7 @@ class ScopeSession:
 
         Raises:
             ArgumentRefusedError: ``'not_an_installation'``, ``source_path``
-                holds neither settings file.
+                holds no ``settings.json`` template, whatever else it holds.
             SettingsFileError: the user's ``current.json`` is unusable.
             InstallationFileError: the installation's own ``scopes.json``,
                 whose channel vocabulary the settings are checked against, or
@@ -2118,14 +2122,10 @@ class ScopeSession:
         # and no objective, so it refuses here, naming the root. An
         # unusable current.json surfaces the same way: the GUI answers
         # that by asking the user, and there is nobody to ask here.
-        try:
-            settings, _rejected = settings_init.prepare_settings(
-                logger, source_path, fall_back_to_template=False
-            )
-        except FileNotFoundError as e:
-            raise ArgumentRefusedError(
-                'not_an_installation', argument='source_path', value=source_path
-            ) from e
+        settings_init.handed_installation_template(source_path)
+        settings, _rejected = settings_init.prepare_settings(
+            logger, source_path, fall_back_to_template=False
+        )
         return settings
 
     @api(in_process=True)

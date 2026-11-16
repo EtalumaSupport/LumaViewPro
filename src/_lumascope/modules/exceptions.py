@@ -4344,8 +4344,9 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'exposure_not_recorded'`` -- a frame the simulated camera
               holds no exposure record for: one it did not deliver, or one
               older than the records it keeps.
-            - ``'not_an_installation'`` -- a folder that holds neither
-              settings file, so it is not an LVP installation root.
+            - ``'not_an_installation'`` -- a folder the caller named that
+              holds no settings template, so it is not an LVP installation
+              root.
             - ``'binning_size_invalid'`` -- a binning label that is not a
               positive square ``NxN``.
             - ``'fault_unknown'`` -- a simulated fault's board, or a
@@ -4491,8 +4492,8 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
         'not_an_installation': (
             'Not an Installation',
-            '{argument} is not an LVP installation root: {value!r} holds neither '
-            'data/current.json nor data/settings.json.',
+            '{argument} is not an LVP installation root: {value!r} holds no '
+            'data/settings.json template.',
         ),
         'fault_unknown': (
             'Not a Simulated Fault',

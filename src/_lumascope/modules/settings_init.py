@@ -1149,6 +1149,28 @@ def template_path_for(directory: str | os.PathLike | None) -> str:
     return str(resolve_data_file('settings.json', source_path=directory))
 
 
+def handed_installation_template(source_path: str | os.PathLike | None) -> str:
+    """``template_path_for(source_path)``, refusing a ``source_path`` that is no installation.
+
+    The template is what makes a folder an installation: every key a
+    session's settings lack is merged from it. A folder the caller names
+    without one is the caller's mistake, so it is refused as theirs, not
+    told to reinstall. With no ``source_path`` the folder is the process's
+    own, and a template missing there is the installation's
+    (``load_template``'s ``InstallationFileError``). Asked of the resolver,
+    so an installed build's data folder, whose template is the build's, is
+    an installation.
+
+    Raises:
+        ArgumentRefusedError: ``'not_an_installation'``, ``source_path``
+            holds no template.
+    """
+    path = template_path_for(source_path)
+    if source_path is not None and not os.path.isfile(path):
+        raise ArgumentRefusedError('not_an_installation', argument='source_path', value=source_path)
+    return path
+
+
 def read_before_preparation(directory: str, key: str) -> tuple[object, str]:
     """One installation-only setting, read before the settings are prepared.
 
