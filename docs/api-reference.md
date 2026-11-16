@@ -7225,9 +7225,9 @@ Route: `GET /api/v1/scope/imaging/is_streaming`.
 Whether the camera is currently acquiring frames.
 
 Queries the driver directly, unlike the scope's connected parts
-(`unconnected_parts`), which read the state the scope holds. False
-when no camera is attached,
-or one its driver declared removed.
+(`unconnected_parts`), which read each driver's connection flag
+and ask the camera nothing. False when no camera is attached, or
+one its driver declared removed.
 
 **Raises**
 

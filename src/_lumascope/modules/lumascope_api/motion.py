@@ -856,7 +856,7 @@ class MotionAPI:
         A consult seam, not part of the L2 API surface: an L2 caller's motion
         command asks it itself.
 
-        After the scope's shutdown the scope's lanes are shut and it answers as
+        After the scope's shutdown its lanes are shut and it answers as
         every command does then, ``scope_disconnected``, on every model: a
         caller asking off the lane (Go To Step, the plate position read)
         hears what a command on the lane would.
