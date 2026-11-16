@@ -472,11 +472,11 @@ def test_the_simulated_switches_sit_at_the_sections_measured_ends(homing_board):
         far_um = board.motorconfig.travel_limit_um(
             axis
         ) - board.motorconfig.zero_above_reference_um(axis)
-        board.move(axis, board._um2ustep(axis, index_um + away * (far_um + 5_000)))
+        board.move(axis, board.position_to_steps(axis, index_um + away * (far_um + 5_000)))
         _wait_switch(board, axis)
         assert board.limit_switch_status(axis) == (1, 0), axis
         assert board.current_pos(axis) == pytest.approx(index_um + away * far_um, abs=1), axis
-    board.move('X', board._um2ustep('X', 117_690 + 1_000))
+    board.move('X', board.position_to_steps('X', 117_690 + 1_000))
     _wait_switch(board, 'X')
     assert board.limit_switch_status('X') == (0, 1)
     assert board.current_pos('X') == pytest.approx(117_690 + 250, abs=1)

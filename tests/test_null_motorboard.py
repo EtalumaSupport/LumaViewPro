@@ -5,7 +5,7 @@
 
 import pytest
 
-from _lumascope.drivers.exceptions import HardwareError
+from _lumascope.drivers.exceptions import HardwareError, PartAbsentError
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 
 
@@ -123,24 +123,15 @@ class TestNullMotionBoardInfo:
         assert board.is_connected() is False
 
 
-class TestNullMotionBoardCoordinateTransforms:
-    """No axes, so no coordinate transforms: each refuses loudly."""
-
-    @pytest.fixture
-    def board(self):
-        return NullMotionBoard()
-
-    def test_z_roundtrip(self, board):
-        with pytest.raises(RuntimeError, match='no motor board'):
-            board.z_um2ustep(5000.0)
-        with pytest.raises(RuntimeError, match='no motor board'):
-            board.z_ustep2um(1)
-
-    def test_xy_roundtrip(self, board):
-        with pytest.raises(RuntimeError, match='no motor board'):
-            board.xy_um2ustep(10000.0)
-        with pytest.raises(RuntimeError, match='no motor board'):
-            board.xy_ustep2um(1)
+def test_no_board_converts_no_position_either_way():
+    """No axes, so nothing to convert: both conversions refuse as the
+    position reads do, with the part absent."""
+    board = NullMotionBoard()
+    for axis in ('X', 'Y', 'Z', 'T'):
+        with pytest.raises(PartAbsentError, match='no motor board'):
+            board.position_to_steps(axis, 1)
+        with pytest.raises(PartAbsentError, match='no motor board'):
+            board.steps_to_position(axis, 1)
 
 
 class TestNullMotionBoardNoOps:

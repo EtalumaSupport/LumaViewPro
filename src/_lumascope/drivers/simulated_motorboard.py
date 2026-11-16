@@ -15,7 +15,6 @@ Failure injection (for testing error recovery):
   drop_replies(command, count)   -- no reply to a command, by its first word
 """
 
-import math
 import logging
 import threading
 import time
@@ -30,7 +29,7 @@ from _lumascope.drivers.exceptions import (
     BoardReportedError,
     PartAbsentError,
 )
-from _lumascope.drivers import host_clock
+from _lumascope.drivers import host_clock, motion_units
 from _lumascope.drivers.motorconfig import MotorConfig, read_only_axes_config
 from _lumascope.drivers.registry import motor_registry
 
@@ -212,19 +211,10 @@ class SimulatedMotorBoard:
 
         self.axes_config = read_only_axes_config(
             {
-                'Z': {
-                    'limits': self.motorconfig.limits_um('Z'),
-                    'move_func': self.z_um2ustep,
-                },
-                'X': {
-                    'limits': self.motorconfig.limits_um('X'),
-                    'move_func': self.xy_um2ustep,
-                },
-                'Y': {
-                    'limits': self.motorconfig.limits_um('Y'),
-                    'move_func': self.xy_um2ustep,
-                },
-                'T': {'move_func': self.t_pos2ustep},
+                'Z': {'limits': self.motorconfig.limits_um('Z')},
+                'X': {'limits': self.motorconfig.limits_um('X')},
+                'Y': {'limits': self.motorconfig.limits_um('Y')},
+                'T': {},
             }
         )
 
@@ -902,103 +892,6 @@ class SimulatedMotorBoard:
         return self._fullinfo['serial_number']
 
     # ------------------------------------------------------------------
-    # Conversion functions (identical to real MotorBoard)
-    # ------------------------------------------------------------------
-    def z_ustep2um(self, ustep: int) -> float:
-        """Convert Z-axis microsteps to micrometers.
-
-        Args:
-            ustep: Microstep count.
-
-        Returns:
-            float: Position in micrometers.
-        """
-        return ustep * 1000 / self.motorconfig.usteps_per_mm('Z')
-
-    def z_um2ustep(self, um: float) -> int:
-        """Convert Z-axis micrometers to microsteps.
-
-        Args:
-            um: Position in micrometers.
-
-        Returns:
-            int: Microstep count, rounded to the nearest microstep.
-        """
-        return math.floor(self.motorconfig.usteps_per_mm('Z') * um / 1000 + 0.5)
-
-    def xy_ustep2um(self, ustep: int) -> float:
-        """Convert XY microsteps to micrometers.
-
-        Args:
-            ustep: Microstep count.
-
-        Returns:
-            float: Position in micrometers.
-        """
-        return ustep * 1000 / self.motorconfig.usteps_per_mm('X')
-
-    def xy_um2ustep(self, um: float) -> int:
-        """Convert XY micrometers to microsteps.
-
-        Args:
-            um: Position in micrometers.
-
-        Returns:
-            int: Microstep count, rounded to the nearest microstep.
-        """
-        return math.floor(self.motorconfig.usteps_per_mm('X') * um / 1000 + 0.5)
-
-    def t_ustep2deg(self, ustep: int) -> float:
-        """Convert turret microsteps to degrees.
-
-        Args:
-            ustep: Microstep count.
-
-        Returns:
-            float: Rotation in degrees.
-        """
-        usteps_per_90deg = self.motorconfig.usteps_per_mm('T')
-        return 90.0 / usteps_per_90deg * ustep
-
-    def t_ustep2pos(self, ustep: int) -> int:
-        """Convert turret microsteps to a 1-based position number.
-
-        Args:
-            ustep: Microstep count.
-
-        Returns:
-            int: Turret position (1, 2, 3, 4 ...).
-        """
-        return int(self.t_ustep2deg(ustep) / 90) + 1
-
-    def t_deg2ustep(self, degrees: float) -> int:
-        """Convert turret degrees to microsteps.
-
-        Args:
-            degrees: Rotation in degrees.
-
-        Returns:
-            int: Microstep count (truncated toward zero).
-        """
-        usteps_per_90deg = self.motorconfig.usteps_per_mm('T')
-        return int(degrees * usteps_per_90deg / 90.0)
-
-    def t_pos2ustep(self, position: int) -> int:
-        """Convert turret position (1-based) to microsteps.
-
-        Args:
-            position: Turret position (1-based).
-
-        Returns:
-            int: Microstep count for that position. Falls back to
-                90-degree spacing when motorconfig has no entry.
-        """
-        usteps = self.motorconfig.turret_position_usteps(position)
-        if usteps == 0 and position > 1:
-            return self.t_deg2ustep(90 * (position - 1))
-        return usteps
-
-    # ------------------------------------------------------------------
     # Homing
     # ------------------------------------------------------------------
     def zhome(self) -> None:
@@ -1152,7 +1045,7 @@ class SimulatedMotorBoard:
         """
         if axis not in self.axes_config:
             raise PartAbsentError(f'Unsupported axis ({axis})')
-        self.move(axis, self.axes_config[axis]['move_func'](pos))
+        self.move(axis, self.position_to_steps(axis, pos))
 
     # ------------------------------------------------------------------
     # Status
@@ -1461,12 +1354,21 @@ class SimulatedMotorBoard:
             ) from e
 
     def steps_to_position(self, axis: str, steps: int) -> float | int:
-        """Microsteps to microns for X/Y/Z, to the 1-based position for T."""
-        if axis == 'Z':
-            return self.z_ustep2um(steps)
-        if axis in ('X', 'Y'):
-            return self.xy_ustep2um(steps)
-        return self.t_ustep2pos(steps)
+        """Microsteps to microns for X/Y/Z, to the 1-based position for T.
+
+        Raises:
+            HardwareError: ``axis`` is no axis of a motor board.
+        """
+        return motion_units.steps_to_position(self.motorconfig, axis, steps)
+
+    def position_to_steps(self, axis: str, position: float) -> int:
+        """Microns for X/Y/Z, the 1-based position for T, to microsteps.
+
+        Raises:
+            HardwareError: ``axis`` is no axis of a motor board, or the
+                config lists no such turret slot.
+        """
+        return motion_units.position_to_steps(self.motorconfig, axis, position)
 
     # ------------------------------------------------------------------
     # Diagnostic commands (match MotorBoard API surface)

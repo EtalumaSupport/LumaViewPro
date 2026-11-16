@@ -147,7 +147,7 @@ def test_a_z_move_to_the_microstep_z_holds_takes_no_backlash_leg(scope):
     # A float just below the position Z reads back, inside its microstep:
     # the read-back is above it, so a leg decided in um fires.
     nearby = driver.current_pos('Z') - 0.001
-    assert driver.z_um2ustep(nearby) == held_steps
+    assert driver.position_to_steps('Z', nearby) == held_steps
     sent = _wire(driver)
 
     motion.move_z(nearby)
@@ -167,8 +167,8 @@ def test_a_z_move_down_from_an_arrival_takes_its_leg_without_reading_z(scope):
 
     assert 'ACTUAL_RZ' not in sent
     assert _targets(sent, 'Z') == [
-        f'TARGET_WZ{driver.z_um2ustep(_Z_UM - backlash)}',
-        f'TARGET_WZ{driver.z_um2ustep(_Z_UM)}',
+        f'TARGET_WZ{driver.position_to_steps("Z", _Z_UM - backlash)}',
+        f'TARGET_WZ{driver.position_to_steps("Z", _Z_UM)}',
     ]
 
 
@@ -184,4 +184,4 @@ def test_a_z_move_whose_leg_cannot_fire_reads_no_z_position(scope):
     motion.move_z(near_the_bottom, overshoot_enabled=True)
 
     assert 'ACTUAL_RZ' not in sent
-    assert _targets(sent, 'Z') == [f'TARGET_WZ{driver.z_um2ustep(near_the_bottom)}']
+    assert _targets(sent, 'Z') == [f'TARGET_WZ{driver.position_to_steps("Z", near_the_bottom)}']

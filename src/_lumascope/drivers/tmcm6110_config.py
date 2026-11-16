@@ -17,6 +17,8 @@ import types
 from collections.abc import Mapping
 from typing import ClassVar
 
+from _lumascope.drivers import motion_units
+
 SECTION = 'TMCM-6110'
 AXES = ('X', 'Y', 'Z')
 
@@ -279,7 +281,7 @@ class Tmcm6110Config:
         search = self.homing(axis).get('Switch Search')
         if search is None:
             return 0.0
-        return search['Back-off Microsteps'] * 1000.0 / self.usteps_per_mm(axis)
+        return motion_units.steps_to_position(self, axis, search['Back-off Microsteps'])
 
     def travel_margin_um(self) -> float:
         """How far inside each far switch the travel limit sits."""

@@ -36,7 +36,6 @@ import struct
 import threading
 import time
 from collections.abc import Mapping
-from functools import partial
 from typing import ClassVar, NamedTuple, NoReturn
 
 import serial
@@ -51,6 +50,7 @@ from _lumascope.drivers.exceptions import (
     MotionNotCompletedError,
     PartAbsentError,
 )
+from _lumascope.drivers import motion_units
 from _lumascope.drivers.motorconfig import read_only_axes_config
 from _lumascope.drivers.registry import motor_registry
 from _lumascope.drivers.serial_backend import PYSERIAL, SerialBackend
@@ -298,13 +298,7 @@ class Tmcm6110Board:
             self.disconnect()
             raise
         self.axes_config = read_only_axes_config(
-            {
-                axis: {
-                    'limits': self.motorconfig.limits_um(axis),
-                    'move_func': partial(self._um2ustep, axis),
-                }
-                for axis in MOTORS
-            }
+            {axis: {'limits': self.motorconfig.limits_um(axis)} for axis in MOTORS}
         )
         logger.info(f'[TMCM-6110 ] Found {self.firmware_version} on {self.port}')
 
@@ -520,7 +514,7 @@ class Tmcm6110Board:
         return MOTORS[axis]
 
     def _index_usteps(self, axis: str) -> int:
-        return self._um2ustep(axis, self.motorconfig.index_position_um(axis))
+        return self.position_to_steps(axis, self.motorconfig.index_position_um(axis))
 
     def _to_board(self, axis: str, usteps: int) -> int:
         """An API position in microsteps as the board's position."""
@@ -552,8 +546,7 @@ class Tmcm6110Board:
         Travel is not checked here: the motion API refuses a target
         outside travel before it calls this.
         """
-        self._motor(axis)
-        self.move(axis, self.axes_config[axis]['move_func'](pos))
+        self.move(axis, self.position_to_steps(axis, pos))
 
     def _read_usteps(self, axis: str, parameter: int) -> int:
         return self._from_board(axis, self._exchange(GAP, parameter, self._motor(axis)))
@@ -575,8 +568,22 @@ class Tmcm6110Board:
         return self._read_usteps(axis, AP_ACTUAL_POSITION)
 
     def steps_to_position(self, axis: str, steps: int) -> float:
-        """The micrometres ``current_pos`` answers for ``steps`` API microsteps."""
-        return self._ustep2um(axis, steps)
+        """The micrometres ``current_pos`` answers for ``steps`` API microsteps.
+
+        Raises:
+            HardwareError: ``axis`` is not X, Y or Z: the stage has no turret.
+        """
+        self._motor(axis)
+        return motion_units.steps_to_position(self.motorconfig, axis, steps)
+
+    def position_to_steps(self, axis: str, position: float) -> int:
+        """The API microsteps of ``position`` micrometres.
+
+        Raises:
+            HardwareError: ``axis`` is not X, Y or Z: the stage has no turret.
+        """
+        self._motor(axis)
+        return motion_units.position_to_steps(self.motorconfig, axis, position)
 
     def target_pos(self, axis: str) -> float:
         """The board's target in micrometres.
@@ -906,40 +913,6 @@ class Tmcm6110Board:
 
     def set_precision_mode(self, axis: str, enabled: bool) -> None:
         """No precision mode on the TMCM-6110: nothing to set."""
-
-    # ------------------------------------------------------------------
-    # Unit conversion
-    # ------------------------------------------------------------------
-
-    def _ustep2um(self, axis: str, ustep: int) -> float:
-        return ustep * 1000 / self.motorconfig.usteps_per_mm(axis)
-
-    def _um2ustep(self, axis: str, um: float) -> int:
-        return round(self.motorconfig.usteps_per_mm(axis) * um / 1000)
-
-    def z_ustep2um(self, ustep: int) -> float:
-        return self._ustep2um('Z', ustep)
-
-    def z_um2ustep(self, um: float) -> int:
-        return self._um2ustep('Z', um)
-
-    def xy_ustep2um(self, ustep: int) -> float:
-        return self._ustep2um('X', ustep)
-
-    def xy_um2ustep(self, um: float) -> int:
-        return self._um2ustep('X', um)
-
-    def t_ustep2deg(self, ustep: int) -> float:
-        raise RuntimeError('the TMCM-6110 stage has no turret to convert for')
-
-    def t_ustep2pos(self, ustep: int) -> int:
-        raise RuntimeError('the TMCM-6110 stage has no turret to convert for')
-
-    def t_deg2ustep(self, degrees: float) -> int:
-        raise RuntimeError('the TMCM-6110 stage has no turret to convert for')
-
-    def t_pos2ustep(self, position: int) -> int:
-        raise RuntimeError('the TMCM-6110 stage has no turret to convert for')
 
     # ------------------------------------------------------------------
     # Info

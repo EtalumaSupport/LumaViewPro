@@ -116,7 +116,7 @@ def test_a_stop_during_the_backlash_leg_ends_the_move_there(session):
     motion.move_z(3000.0)
     driver.set_timing_mode('realistic')
     sent = _wire(driver)
-    final = f'TARGET_WZ{driver.z_um2ustep(1000.0)}'
+    final = f'TARGET_WZ{driver.position_to_steps("Z", 1000.0)}'
     # The move's first Z target is its backlash leg's.
     held = session.scope.simulation.hold_axis('Z')
 

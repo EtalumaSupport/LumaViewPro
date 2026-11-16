@@ -13,7 +13,7 @@ import types
 from collections.abc import Mapping
 from typing import ClassVar
 
-from _lumascope.drivers.exceptions import ConfigReadError
+from _lumascope.drivers.exceptions import ConfigReadError, PartAbsentError
 from _lumascope.lib.log_helpers import logger
 
 
@@ -382,15 +382,15 @@ class MotorConfig:
     # --- Turret ---
 
     def turret_position_usteps(self, position: int) -> int:
-        """Get microstep position for turret slot (1-based)."""
+        """The microstep position of turret slot ``position`` (1-based).
+
+        Raises:
+            HardwareError: the config lists no such slot.
+        """
         section = self._config.get('TurretPosition')
-        if section is None:
-            return 0
-        val = section.get(str(position))
-        if val is None:
-            logger.warning(f'[MotorConfig] Turret position {position} not found')
-            return 0
-        return int(val)
+        if section is None or str(position) not in section:
+            raise PartAbsentError(f'turret slot {position}: not in the motor config')
+        return int(section[str(position)])
 
     # --- Optics ---
 

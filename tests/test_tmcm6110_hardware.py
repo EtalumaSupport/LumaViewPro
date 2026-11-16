@@ -389,7 +389,7 @@ def _drive_to_switch(board, axis, toward_reference):
     # The board's positive direction drives toward the reference, on every axis.
     sense = 1 if toward_reference else -1
     distance_um = board.motorconfig.travel_limit_um(axis) + PAST_TRAVEL_UM[axis]
-    steps = sense * board._um2ustep(axis, distance_um)
+    steps = sense * board.position_to_steps(axis, distance_um)
     started = time.monotonic()
     try:
         with board._lock:

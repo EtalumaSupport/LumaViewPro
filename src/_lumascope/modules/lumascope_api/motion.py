@@ -4427,13 +4427,13 @@ class MotionAPI:
         if backlash <= 0 or position <= backlash + 50:
             return None
         if arrived_at is not None:
-            current_steps = self._driver.z_um2ustep(arrived_at)
+            current_steps = self._driver.position_to_steps('Z', arrived_at)
         else:
             try:
                 current_steps = self._driver.current_pos_steps('Z')
             except HardwareError as e:
                 raise self._position_unread(member) from e
-        if current_steps > self._driver.z_um2ustep(position):
+        if current_steps > self._driver.position_to_steps('Z', position):
             return position - backlash
         return None
 

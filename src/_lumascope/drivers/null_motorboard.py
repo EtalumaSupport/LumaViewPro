@@ -145,6 +145,14 @@ class NullMotionBoard:
         """
         raise PartAbsentError(f'steps_to_position({axis}): no motor board')
 
+    def position_to_steps(self, axis: str, position: float) -> int:
+        """Null implementation: raises, as its position reads do.
+
+        Raises:
+            HardwareError: there is no motor board.
+        """
+        raise PartAbsentError(f'position_to_steps({axis}): no motor board')
+
     # ------------------------------------------------------------------
     # Status
     # ------------------------------------------------------------------
@@ -336,73 +344,6 @@ class NullMotionBoard:
             str: Always empty string.
         """
         return ''
-
-    # ------------------------------------------------------------------
-    # Coordinate transforms (no axes, so none)
-    # ------------------------------------------------------------------
-    def z_ustep2um(self, ustep: int) -> float:
-        """No board, so no Z axis to convert for.
-
-        Raises:
-            RuntimeError: Always.
-        """
-        raise RuntimeError('no motor board: no Z axis to convert for')
-
-    def z_um2ustep(self, um: float) -> int:
-        """No board, so no Z axis to convert for.
-
-        Raises:
-            RuntimeError: Always.
-        """
-        raise RuntimeError('no motor board: no Z axis to convert for')
-
-    def xy_ustep2um(self, ustep: int) -> float:
-        """No board, so no XY axis to convert for.
-
-        Raises:
-            RuntimeError: Always.
-        """
-        raise RuntimeError('no motor board: no XY axis to convert for')
-
-    def xy_um2ustep(self, um: float) -> int:
-        """No board, so no XY axis to convert for.
-
-        Raises:
-            RuntimeError: Always.
-        """
-        raise RuntimeError('no motor board: no XY axis to convert for')
-
-    def t_ustep2deg(self, ustep: int) -> float:
-        """No board, so no turret to convert for.
-
-        Raises:
-            RuntimeError: Always.
-        """
-        raise RuntimeError('no motor board: no turret to convert for')
-
-    def t_ustep2pos(self, ustep: int) -> int:
-        """No board, so no turret to convert for.
-
-        Raises:
-            RuntimeError: Always.
-        """
-        raise RuntimeError('no motor board: no turret to convert for')
-
-    def t_deg2ustep(self, degrees: float) -> int:
-        """No board, so no turret to convert for.
-
-        Raises:
-            RuntimeError: Always.
-        """
-        raise RuntimeError('no motor board: no turret to convert for')
-
-    def t_pos2ustep(self, position: int) -> int:
-        """No board, so no turret to convert for.
-
-        Raises:
-            RuntimeError: Always.
-        """
-        raise RuntimeError('no motor board: no turret to convert for')
 
     # ------------------------------------------------------------------
     # Firmware / serial (no-ops)

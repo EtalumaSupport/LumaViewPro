@@ -49,10 +49,10 @@ class TestMotorBoardReturnsSentinelForNoLimits:
         with patch.object(MotorBoard, '__init__', lambda self, *a, **kw: None):
             mb = MotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
             mb.axes_config = {
-                'X': {'limits': {'min': 0, 'max': 100000}, 'move_func': lambda x: x},
-                'Y': {'limits': {'min': 0, 'max': 100000}, 'move_func': lambda x: x},
-                'Z': {'limits': {'min': 0, 'max': 14000}, 'move_func': lambda x: x},
-                'T': {'move_func': lambda x: x},  # no 'limits' key
+                'X': {'limits': {'min': 0, 'max': 100000}},
+                'Y': {'limits': {'min': 0, 'max': 100000}},
+                'Z': {'limits': {'min': 0, 'max': 14000}},
+                'T': {},  # no 'limits' key
             }
             return mb
 

@@ -308,13 +308,13 @@ class TestTheMotorWrites:
         board, sim = motor
         sim.take_writes()
         board.move_abs_pos('Z', 99999)
-        assert _writes_to(sim, 'Z', XTARGET) == [board.z_um2ustep(99999)]
+        assert _writes_to(sim, 'Z', XTARGET) == [board.position_to_steps('Z', 99999)]
 
     def test_a_target_below_travel_is_driven_not_clamped(self, motor):
         board, sim = motor
         sim.take_writes()
         board.move_abs_pos('Z', -100)
-        assert _writes_to(sim, 'Z', XTARGET) == [board.z_um2ustep(-100) + 0x100000000]
+        assert _writes_to(sim, 'Z', XTARGET) == [board.position_to_steps('Z', -100) + 0x100000000]
 
     def test_a_move_on_an_axis_the_board_lacks_is_refused(self, motor):
         board, _sim = motor
@@ -378,35 +378,53 @@ class TestMotorBoardConversions:
     def test_z_roundtrip(self, motor):
         board, _sim = motor
         for um in (0, 100, 5000, 14000):
-            um_back = board.z_ustep2um(board.z_um2ustep(um))
+            um_back = board.steps_to_position('Z', board.position_to_steps('Z', um))
             assert abs(um - um_back) < 0.01, f'Z roundtrip failed for {um}: got {um_back}'
 
     def test_xy_roundtrip(self, motor):
         board, _sim = motor
-        for um in (0, 1000, 60000, 120000):
-            um_back = board.xy_ustep2um(board.xy_um2ustep(um))
-            assert abs(um - um_back) < 0.1, f'XY roundtrip failed for {um}: got {um_back}'
+        for axis in ('X', 'Y'):
+            for um in (0, 1000, 60000, 120000):
+                um_back = board.steps_to_position(axis, board.position_to_steps(axis, um))
+                assert abs(um - um_back) < 0.1, f'{axis} roundtrip failed for {um}: got {um_back}'
 
     def test_turret_roundtrip(self, motor):
         board, _sim = motor
         for pos in (1, 2, 3, 4):
-            pos_back = board.t_ustep2pos(board.t_pos2ustep(pos))
+            pos_back = board.steps_to_position('T', board.position_to_steps('T', pos))
             assert pos == pos_back, f'Turret roundtrip failed for pos {pos}: got {pos_back}'
 
     def test_z_known_values(self, motor):
         board, _sim = motor
-        assert board.z_um2ustep(1000) == 170666
-        assert abs(board.z_ustep2um(170666) - 1000) < 0.01
+        assert board.position_to_steps('Z', 1000) == 170666
+        assert abs(board.steps_to_position('Z', 170666) - 1000) < 0.01
 
     def test_xy_known_values(self, motor):
         board, _sim = motor
-        assert board.xy_um2ustep(1000) == 20157
+        assert board.position_to_steps('X', 1000) == 20157
+        assert board.position_to_steps('Y', 1000) == 20157
 
-    def test_turret_degrees(self, motor):
-        """Position 1 = 0 deg, position 2 = 90 deg."""
+    def test_a_turret_slot_is_its_row_of_the_slot_table(self, motor):
+        """Slot 1 at 0, slot 2 at 80000 microsteps: the config's TurretPosition."""
         board, _sim = motor
-        assert board.t_pos2ustep(1) == 0
-        assert board.t_pos2ustep(2) == 80000
+        assert board.position_to_steps('T', 1) == 0
+        assert board.position_to_steps('T', 2) == 80000
+
+    def test_a_turret_slot_the_table_lacks_is_refused(self, motor):
+        """A slot with no row is the part absent, never a slot computed
+        from an assumed spacing."""
+        board, _sim = motor
+        with pytest.raises(PartAbsentError, match='turret slot 5'):
+            board.position_to_steps('T', 5)
+
+    def test_an_axis_no_board_has_converts_nothing(self, motor):
+        """An axis letter outside X, Y, Z and T is refused both ways, never
+        read as the turret."""
+        board, _sim = motor
+        with pytest.raises(PartAbsentError, match=r'Unsupported axis \(Q\)'):
+            board.steps_to_position('Q', 80000)
+        with pytest.raises(PartAbsentError, match=r'Unsupported axis \(Q\)'):
+            board.position_to_steps('Q', 1000)
 
 
 @pytest.mark.firmware_tier

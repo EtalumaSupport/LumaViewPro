@@ -65,10 +65,3 @@ class TestTheNullBoardDescribesNoMotors:
         assert dict(board.get_axes_config()) == {}
         for axis in ('X', 'Y', 'Z', 'T'):
             assert board.axis_limits(axis) is None
-
-    @pytest.mark.parametrize(
-        'conversion', ['z_um2ustep', 'z_ustep2um', 'xy_um2ustep', 'xy_ustep2um', 't_pos2ustep']
-    )
-    def test_it_converts_nothing(self, conversion):
-        with pytest.raises(RuntimeError, match='no motor board'):
-            getattr(NullMotionBoard(), conversion)(1)

@@ -235,22 +235,22 @@ class TestSimulatedMotorBoard:
     def test_conversion_z(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         um = 5000
-        ustep = board.z_um2ustep(um)
-        um_back = board.z_ustep2um(ustep)
+        ustep = board.position_to_steps('Z', um)
+        um_back = board.steps_to_position('Z', ustep)
         assert abs(um - um_back) < 0.01
 
     def test_conversion_xy(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         um = 60000
-        ustep = board.xy_um2ustep(um)
-        um_back = board.xy_ustep2um(ustep)
-        assert abs(um - um_back) < 0.1
+        for axis in ('X', 'Y'):
+            um_back = board.steps_to_position(axis, board.position_to_steps(axis, um))
+            assert abs(um - um_back) < 0.1, axis
 
     def test_conversion_turret(self):
         board = SimulatedMotorBoard(motorconfig_defaults=SHIPPED_MOTOR_DEFAULTS)
         pos = 3
-        ustep = board.t_pos2ustep(pos)
-        pos_back = board.t_ustep2pos(ustep)
+        ustep = board.position_to_steps('T', pos)
+        pos_back = board.steps_to_position('T', ustep)
         assert pos == pos_back
 
     def test_fullinfo(self):
@@ -356,7 +356,7 @@ class TestSimulatedMotorBoard:
         board.move_abs_pos('Z', target_um)
         steps = board.current_pos_steps('Z')
         assert isinstance(steps, int)
-        expected_steps = board.z_um2ustep(target_um)
+        expected_steps = board.position_to_steps('Z', target_um)
         assert steps == expected_steps
 
     def test_target_pos_steps(self):
@@ -366,7 +366,7 @@ class TestSimulatedMotorBoard:
         board.move_abs_pos('Z', target_um)
         steps = board.target_pos_steps('Z')
         assert isinstance(steps, int)
-        expected_steps = board.z_um2ustep(target_um)
+        expected_steps = board.position_to_steps('Z', target_um)
         assert steps == expected_steps
 
     # --- homing returns tests ---
