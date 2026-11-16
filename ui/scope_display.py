@@ -35,6 +35,7 @@ import time
 import numpy as np
 
 from kivy.clock import Clock
+from kivy.core.window import Window
 from kivy.graphics import InstructionGroup, Color, Line, Ellipse
 from kivy.graphics.texture import Texture
 from kivy.metrics import dp
@@ -249,6 +250,11 @@ class ScopeDisplay(Image):
         # last; the display thread's alone. None until the first frame and
         # after the camera goes, whose handler counts again from one.
         self._last_pickup = None
+        # Whether the window is minimized, asked on the UI thread when a slow
+        # frame is written. The host that owns the window hands its own
+        # answer in when it wires the display; a display with no window of
+        # its own is never minimized.
+        self.window_minimized = lambda: False
 
         # Engineering stats timing (2x per second)
         self._eng_stats_last_time = 0.0
@@ -258,7 +264,9 @@ class ScopeDisplay(Image):
         self._perf_log_last_time = 0.0
         self._perf_grab_times = []
         self._perf_process_times = []
-        self._perf_blit_delays = []
+        # Each live draw's ui_wait (_judge_live_draw), the same measure the
+        # slow-frame line states, kept for the [PERF] summary.
+        self._perf_ui_waits = []
 
         # Bullseye frame rate cap (15 FPS -- CPU-intensive LUT rendering)
         self._bullseye_min_interval = 1.0 / BULLSEYE_FPS_CAP
@@ -558,12 +566,29 @@ class ScopeDisplay(Image):
             self._since_draw.posted_at = None
 
     def _judge_live_draw(self, drawn_at):
-        """Take the record at a live frame drawn and judge the interval; on the UI thread."""
+        """Take the record at a live frame drawn and judge the interval; on the UI thread.
+
+        The frame's ``ui_wait`` -- how long the oldest live frame waiting
+        when it was drawn had waited for the UI thread -- is measured at
+        every draw: the slow-frame line states it, and the ``[PERF]`` summary
+        reads the same measure.
+        """
         with self._since_draw_lock:
             since, self._since_draw = self._since_draw, _SinceDraw()
-        self._check_slow_frame(drawn_at, since)
+        ui_wait_ms = (drawn_at - since.posted_at) * 1000.0 if since.posted_at is not None else 0.0
+        # Kept under the summary's own condition: it is written, and its
+        # waits cleared, only in the mono view.
+        if not self.use_bullseye and self._debug_perf_enabled(_app_ctx.ctx):
+            self._perf_ui_waits.append(ui_wait_ms)
+        self._check_slow_frame(drawn_at, since, ui_wait_ms)
 
-    def _check_slow_frame(self, drawn_at, since):
+    def _window_state(self):
+        """The window's state as a slow-frame line names it; on the UI thread."""
+        if self.window_minimized():
+            return 'minimized'
+        return 'focused' if Window.focus else 'unfocused'
+
+    def _check_slow_frame(self, drawn_at, since, ui_wait_ms):
         """Emit one WARN when the gap to the previous live frame drawn spikes.
 
         The "uneven video" instrument. Called at each live frame drawn, on the
@@ -602,6 +627,14 @@ class ScopeDisplay(Image):
         it -- a move does not change the frame cadence, and a stutter while the
         stage jogs is exactly what a viewer sees.
 
+        Who was late: ``camera=`` is the longest gap between the arrivals of
+        two frames picked up in a row, and ``skipped=`` the frames the camera
+        stored between them that the display never picked up -- a long gap
+        with nothing skipped is the camera; one with frames skipped is the
+        display thread or the process. ``ui_wait=`` is how long the oldest
+        waiting live frame waited for the UI thread. ``window=`` is the
+        window's state at the draw: focused, unfocused or minimized.
+
         Attribution: the grab/proc/eng reported are the display thread's work
         on the frames it picked up since the last draw, the display-path work
         that ran during this interval. gap = interval - that work = the
@@ -636,6 +669,8 @@ class ScopeDisplay(Image):
         stopped_note = f' stopped={stopped_ms:.0f}ms' if stopped_ms > 0 else ''
         logger.warning(
             f'[SLOW FRAME] interval={interval_ms:.0f}ms (median={median_ms:.0f}ms) | '
+            f'camera={since.camera_ms:.0f}ms skipped={since.skipped} '
+            f'ui_wait={ui_wait_ms:.0f}ms window={self._window_state()} | '
             f'display grab={since.grab_ms:.1f}ms proc={since.proc_ms:.1f}ms '
             f'eng={since.eng_ms:.1f}ms (={compute_ms:.1f}ms) '
             f'gap={interval_ms - compute_ms:.0f}ms{held_note}{stopped_note}'
@@ -970,11 +1005,10 @@ class ScopeDisplay(Image):
             t_process_end = time.monotonic()
             proc_ms = (t_process_end - t_process_start) * 1000.0
             image_shape = display_image.shape
-            t_blit_scheduled = time.monotonic()
             g = generation
 
-            def live_post(dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g):
-                self.create_and_set_texture(b, s, ts, gen, held=None)
+            def live_post(dt, b=image_bytes, s=image_shape, gen=g):
+                self.create_and_set_texture(b, s, gen, held=None)
 
         # Add this frame to the record the next live draw is judged by before
         # its draw is posted, so the UI thread never draws a frame the record
@@ -1016,23 +1050,20 @@ class ScopeDisplay(Image):
                     kivy_fps = Clock.get_fps()
                     kivy_rfps = Clock.get_rfps()
                     display_fps = self.display_fps()
-                    avg_blit_delay = (
-                        sum(self._perf_blit_delays) / max(1, len(self._perf_blit_delays)) * 1
-                        if self._perf_blit_delays
-                        else 0
-                    )
-                    max_blit_delay = max(self._perf_blit_delays) if self._perf_blit_delays else 0
+                    waits = list(self._perf_ui_waits)
+                    avg_ui_wait = sum(waits) / len(waits) if waits else 0
+                    max_ui_wait = max(waits) if waits else 0
                     capture_fps = ctx.scope.imaging.delivered_rate().frame_rate_fps
                     logger.debug(
                         f'[PERF] capture={capture_fps:.1f} display={display_fps:.1f} '
                         f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '
                         f'grab={avg_grab:.1f}ms(max {max_grab:.1f}) '
                         f'proc={avg_proc:.1f}ms(max {max_proc:.1f}) '
-                        f'blit_delay={avg_blit_delay:.1f}ms(max {max_blit_delay:.0f}) eng={t_eng_stats * 1000:.1f}ms'
+                        f'ui_wait={avg_ui_wait:.1f}ms(max {max_ui_wait:.0f}) eng={t_eng_stats * 1000:.1f}ms'
                     )
                 self._perf_grab_times.clear()
                 self._perf_process_times.clear()
-                self._perf_blit_delays.clear()
+                self._perf_ui_waits.clear()
 
         return STATUS_OK
 
@@ -1172,7 +1203,7 @@ class ScopeDisplay(Image):
         thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
         return thread is not None and thread.protocol_hold_in_force
 
-    def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0, *, held):
+    def create_and_set_texture(self, image_bytes, shape, generation=0, *, held):
         """Put a mono frame on the screen. ``held`` is None for a live-view
         frame, which the display rate counts and a hold keeps off the screen,
         and a held frame's ``HeldFrame`` (a saved image), which it does not
@@ -1187,13 +1218,6 @@ class ScopeDisplay(Image):
             # Its time on screen is counted from here: the wait for a slow
             # UI thread does not come out of it.
             self._hold_from_now(held.seconds)
-        if scheduled_time and self._debug_perf_enabled(_app_ctx.ctx):
-            blit_delay = (time.monotonic() - scheduled_time) * 1000
-            self._perf_blit_delays.append(blit_delay)
-            if blit_delay > 100:
-                logger.debug(
-                    f'[PERF] Blit callback delayed {blit_delay:.0f}ms (main thread congested)'
-                )
         size = (shape[1], shape[0])
         if (
             not hasattr(self, '_mono_texture')

@@ -928,6 +928,10 @@ class LumaViewProApp(TooltipMixin, App):
         # log silent and post-mortem cannot name the trigger.
         Window.bind(on_close=self._on_window_close)
         Window.bind(on_keyboard=self._on_window_keyboard)
+        # Whether the window is minimized: the window's own events are its
+        # one writer, from before the display exists, which reads it when it
+        # writes a slow frame (handed to it in the fit step).
+        self._window_minimized = False
         # SDL2-only events: minimize / maximize / restore. Bind under
         # try/except so non-SDL2 window providers (rare) don't crash.
         # Handler names are constructed dynamically here, so
@@ -1146,6 +1150,7 @@ class LumaViewProApp(TooltipMixin, App):
         # Wire UI components now that widget tree exists
         ctx.viewer = lumaview.ids['viewer_id']
         ctx.scope_display = ctx.viewer.ids['scope_display_id']
+        ctx.scope_display.window_minimized = lambda: self._window_minimized
         # A zoom, a pan, Fit and 1:1 all change the viewer's transform; a
         # frame of another shape changes the image's place inside the view.
         ctx.viewer.bind(transform=self._geometry_changed)
@@ -1459,12 +1464,15 @@ class LumaViewProApp(TooltipMixin, App):
         return False
 
     def _on_window_minimize(self, *args) -> None:
+        self._window_minimized = True
         gui_logger.window_event('minimize')
 
     def _on_window_maximize(self, *args) -> None:
+        self._window_minimized = False
         gui_logger.window_event('maximize')
 
     def _on_window_restore(self, *args) -> None:
+        self._window_minimized = False
         gui_logger.window_event('restore')
 
     def _on_window_focus(self, window, focused: bool) -> None:

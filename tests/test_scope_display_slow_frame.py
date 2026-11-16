@@ -26,6 +26,7 @@ lock:
 """
 
 from collections import deque
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -198,6 +199,74 @@ def test_no_hold_line_has_no_held_note():
     assert 'held=' not in lines[0]
 
 
+# --- The line names who was late ---------------------------------------------
+#
+# camera= is the longest gap between the arrivals of two frames the display
+# picked up in a row, and skipped= the frames the camera stored between them
+# that it never picked up: a long gap with nothing skipped is the camera; one
+# with frames skipped is the display thread or the process. ui_wait= is how
+# long the oldest waiting live frame waited for the UI thread to draw it.
+
+
+def test_a_ui_thread_stall_is_named_by_its_wait():
+    # The camera steady at 33 ms, every frame picked up; the UI thread draws
+    # nothing for 330 ms. The first frame posted after the last draw waited
+    # 297 ms of it.
+    view = _settled_at(33.0)
+    with SlowFrameLines() as lines:
+        for _ in range(10):
+            view.pick_up(after_ms=33.0)
+        view.draw()
+    assert len(lines.lines) == 1
+    assert 'camera=33ms skipped=0 ui_wait=297ms' in lines.lines[0]
+
+
+def test_a_camera_that_delivered_late_is_named_by_its_gap():
+    lines = _next(_settled_at(33.0), 330.0)
+    assert len(lines) == 1
+    assert 'camera=330ms skipped=0 ui_wait=0ms' in lines[0]
+
+
+def test_a_display_thread_stall_is_named_by_the_frames_it_skipped():
+    # The camera steady at 33 ms, the display thread held 330 ms: the frames
+    # stored meanwhile were never picked up.
+    view = _settled_at(33.0)
+    with SlowFrameLines() as lines:
+        view.pick_up(after_ms=330.0, skipped=9)
+        view.draw()
+    assert len(lines.lines) == 1
+    assert 'camera=330ms skipped=9 ui_wait=0ms' in lines.lines[0]
+
+
+def test_a_live_frame_a_hold_kept_off_the_screen_did_not_wait_for_the_ui_thread():
+    view = _settled_at(33.0)
+    with SlowFrameLines() as lines:
+        view.pick_up(after_ms=33.0)
+        view.widget._drop_waiting_post()
+        view.pick_up(after_ms=300.0)
+        view.draw(after_ms=20.0)
+    assert len(lines.lines) == 1
+    assert 'ui_wait=20ms' in lines.lines[0]
+
+
+@pytest.mark.parametrize(
+    ('minimized', 'focused', 'shown'),
+    [(False, True, 'focused'), (False, False, 'unfocused'), (True, False, 'minimized')],
+)
+def test_the_line_states_the_windows_state_when_drawn(monkeypatch, minimized, focused, shown):
+    # parametrize-justified: three window states, each its own word on the line.
+    import ui.scope_display as scope_display_module
+
+    # a stand-in by design: Kivy's window never runs here; the display reads
+    # only its focus.
+    monkeypatch.setattr(scope_display_module, 'Window', SimpleNamespace(focus=focused))
+    view = _settled_at(33.0)
+    view.widget.window_minimized = lambda: minimized
+    lines = _next(view, 250.0)
+    assert len(lines) == 1
+    assert f'window={shown} ' in lines[0]
+
+
 class _Stand:
     """Carries only the frame-interval history and the real method under test."""
 
@@ -326,3 +395,23 @@ def test_record_frame_interval_excludes_a_stop(stopped_10_s):
     record(stand, 1010.038, 0.0)
     (interval,) = stand._frame_interval_history
     assert abs(interval - 38.0) < 0.001
+
+
+def test_the_bullseye_shown_with_debug_on_keeps_no_waits_for_the_summary(monkeypatch):
+    # The [PERF] summary is written, and the waits it reads cleared, only
+    # in the mono view; a bullseye shown for an hour with debug on kept one
+    # per draw. The kept waits are the summary's only input and the summary
+    # a debug line, so the list is read here.
+    from _lumascope.modules import app_context
+
+    # a stand-in by design: only debug_mode is read, and no session runs.
+    monkeypatch.setattr(
+        app_context, 'ctx', SimpleNamespace(settings={'debug_mode': True}, session=None)
+    )
+    view = LiveView(live_view_widget())
+    view.widget.use_bullseye = True
+    view.frames(50, 66.0)
+    assert view.widget._perf_ui_waits == []
+    view.widget.use_bullseye = False
+    view.frames(1, 33.0)
+    assert len(view.widget._perf_ui_waits) == 1
