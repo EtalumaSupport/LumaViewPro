@@ -295,16 +295,17 @@ def _init_sets_reason(cls):
 
 
 def test_every_raisable_outcome_has_a_title_on_its_type():
-    """A title is the class's, or its table's by reason: never chosen where it is raised."""
+    """A title is the class's, or its table's by reason: never chosen where it is raised.
+
+    The root's own ``title`` reads ``titles``; a class that reaches it with
+    no ``titles`` has no title at all."""
     untitled = [
         cls
         for cls in RAISABLE
-        if not isinstance(getattr(cls, 'title', None), str)
-        # A _WORDS table holds each reason's title beside its words.
-        and not any(hasattr(cls, table) for table in ('_TITLES', '_WORDS'))
+        if _owner(cls, 'title') in (None, LumascopeError) and getattr(cls, 'titles', None) is None
     ]
     assert untitled == [], (
-        f'state a title in the class body, or a _TITLES table keyed by reason: {_named(untitled)}'
+        f'state a title in the class body, or titles keyed by reason: {_named(untitled)}'
     )
 
 
@@ -325,22 +326,23 @@ def test_every_title_is_the_class_s_own():
     """A title a class only inherits passes the title guard above on its
     parent's value, so a class that lost its own declaration answered with
     its parent's heading and every guard stayed green. Each is declared in
-    the class's own body, or read from the class's own reason-keyed table; a
+    the class's own body, or read by the root from the class's ``titles``; a
     class that shares its parent's says so in one line (``title =
     Parent.title``). Its reasons are held the same way by
     ``test_every_refusal_states_its_reason.py``."""
     inherited = [
         f'{cls.__qualname__}.title <- {_owner(cls, "title").__qualname__}'
         for cls in RAISABLE
-        if _owner(cls, 'title') not in (None, cls)
-        and not any(table in vars(cls) for table in ('_TITLES', '_WORDS'))
+        if _owner(cls, 'title') not in (None, cls, LumascopeError)
     ]
     assert inherited == [], f'declare it in the class, or read it from its own table: {inherited}'
 
 
 def test_no_outcome_sets_a_title_per_instance():
-    """``self.title`` is assigned only from a table, so a title cannot be chosen per raise."""
-    from_a_table = ('self._TITLES[', 'self._WORDS[', 'ENDING_TITLES[', 'type(self)._TITLES[')
+    """No outcome's constructor assigns ``self.title``, so a title cannot be chosen per raise.
+
+    The root refuses the write on a class with ``titles``; on a class with a
+    title in its body the write would land, so this is what holds it there."""
     per_instance = []
 
     def names_self_title(target):
@@ -358,13 +360,13 @@ def test_no_outcome_sets_a_title_per_instance():
             continue
         tree = ast.parse(textwrap.dedent(inspect.getsource(init)))
         for node in ast.walk(tree):
-            # A tuple target too: ``self.title, message = self._WORDS[reason]``.
+            # A tuple target too: ``self.title, message = ...``.
             sets_title = isinstance(node, ast.Assign) and any(
                 names_self_title(t) for t in node.targets
             )
-            if sets_title and not ast.unparse(node.value).startswith(from_a_table):
+            if sets_title:
                 per_instance.append(f'{cls.__qualname__}: {ast.unparse(node)}')
-    assert per_instance == [], f'a title set per instance, not read from a table: {per_instance}'
+    assert per_instance == [], f'a title set per instance: {per_instance}'
 
 
 def test_no_production_call_passes_a_title_to_an_outcome():
@@ -384,7 +386,7 @@ def test_no_production_call_passes_a_title_to_an_outcome():
 
 _REASON_TABLES = MemberNames(
     ('src/_lumascope/modules/exceptions.py', 'src/_lumascope/drivers/exceptions.py'),
-    {'_TITLES', '_WORDS', '_SENTENCES', '_ADVICE', '_WHY'},
+    {'titles', '_TITLES', '_WORDS', '_SENTENCES', '_ADVICE', '_WHY'},
 )
 
 

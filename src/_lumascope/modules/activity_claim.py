@@ -60,7 +60,7 @@ class FalsifyingChangeInFlightError(Refusal, Exception):
         reason: ``'falsifying_change_in_flight'``.
     """
 
-    title = RecordingRefusedError._TITLES['falsifying_change_in_flight']
+    title = RecordingRefusedError.titles['falsifying_change_in_flight']
     causes: ClassVar[dict[str, RefusalCause | None]] = {
         'falsifying_change_in_flight': RefusalCause.STATE
     }

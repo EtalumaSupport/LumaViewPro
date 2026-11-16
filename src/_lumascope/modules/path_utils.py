@@ -41,7 +41,7 @@ class CaptureLocationError(Refusal, Exception):
             are taken.
     """
 
-    title = ProtocolRunRefusedError._TITLES['capture_location_unusable']
+    title = ProtocolRunRefusedError.titles['capture_location_unusable']
     causes: ClassVar[dict[str, RefusalCause | None]] = {
         'capture_location_unusable': RefusalCause.STATE,
         'names_exhausted': RefusalCause.STATE,

@@ -83,6 +83,27 @@ class _Cause:
         raise AttributeError("an outcome's cause is its reason's, declared in its class's causes")
 
 
+class _Title:
+    """An outcome's title: its reason's row in its class's ``titles``, never set at the raise.
+
+    A class with one title states it in its body, which stands in front of
+    this. A reason with no row raises ``KeyError``, never ``AttributeError``,
+    so a reader's ``getattr(outcome, 'title', None)`` cannot read a missing
+    row as an outcome with no title.
+    """
+
+    def __get__(self, instance, owner):
+        titles = getattr(owner, 'titles', None)
+        if titles is None:
+            raise AttributeError(f'{owner.__name__} declares no title')
+        return titles[(owner if instance is None else instance).reason]
+
+    def __set__(self, instance, value):
+        raise AttributeError(
+            "an outcome's title is its type's: declare title or titles in the class"
+        )
+
+
 class LumascopeError(BaseException):
     """The root of every exception the scope raises: catch it to catch them all.
 
@@ -113,11 +134,18 @@ class LumascopeError(BaseException):
             ``RefusalCause``, or to None where the kind has no cause.
         same_fact_as: The classes whose reasons this class carries as the
             same fact.
+        title: The heading a person reads: the class's one ``title``, stated
+            in its body, or its reason's row in ``titles``.
+        titles: Each reason's title, on a class whose title differs by
+            reason; it may hold more reasons than the class carries, where
+            it is a store several classes share.
     """
 
     reason = _Reason()
     cause = _Cause()
+    title = _Title()
     causes: ClassVar[Mapping[str, RefusalCause | None]]
+    titles: ClassVar[Mapping[str, str]]
     same_fact_as: ClassVar[tuple[type['LumascopeError'], ...]] = ()
     # Whether a kind's reasons map to a cause: True for every reason, False
     # for none, None for either; read from the outcome's kind mixin.
@@ -150,9 +178,11 @@ def _check_the_declaration(cls: type[LumascopeError]) -> None:
         TypeError: the class has no kind, or two; is a subject that declares
             ``causes``; states ``reason`` or ``cause`` in its body; declares
             no ``causes``; maps a reason to a cause its kind does not take;
-            restates a parent's reason with another cause; or carries a
+            restates a parent's reason with another cause; carries a
             string another outcome class carries with another kind or cause,
-            or without naming one of its carriers in ``same_fact_as``.
+            or without naming one of its carriers in ``same_fact_as``; or,
+            as a subject, states a title; or declares ``titles`` that miss a
+            reason or stand behind another title (``_check_the_titles``).
     """
     kinds = _kinds_of(cls)
     if kinds == [cls]:
@@ -160,10 +190,12 @@ def _check_the_declaration(cls: type[LumascopeError]) -> None:
     if not kinds:
         if not issubclass(cls, _Umbrella):
             raise TypeError(f'{cls.__name__} has no kind: mix in Refusal, Notice, Quiet or Fault')
-        if 'causes' in vars(cls):
+        stated = [name for name in ('causes', 'title', 'titles') if name in vars(cls)]
+        if stated:
             raise TypeError(
-                f'{cls.__name__} is a subject and is never raised: its children declare the '
-                'reasons, each under its kind'
+                f'{cls.__name__} is a subject and is never raised, yet states '
+                f'{" and ".join(stated)}: its children declare the reasons and titles, each '
+                'under its kind'
             )
         return
     if len(kinds) > 1:
@@ -198,6 +230,7 @@ def _check_the_declaration(cls: type[LumascopeError]) -> None:
                 f'{cls.__name__} maps {reason!r} to {cause!r}, which a {kind.__name__} '
                 'does not take'
             )
+    _check_the_titles(cls, causes)
     own = vars(cls).get('causes', {})
     for reason in own:
         parent = next((a for a in cls.__mro__[1:] if reason in vars(a).get('causes', {})), None)
@@ -225,6 +258,28 @@ def _check_the_declaration(cls: type[LumascopeError]) -> None:
                 f'{", ".join(sorted(c.__name__ for c in carriers))} carries: name one in '
                 'same_fact_as if it is the same fact, or name the fact apart'
             )
+
+
+def _check_the_titles(cls: type[LumascopeError], causes: Mapping[str, object]) -> None:
+    """Refuse a class with ``titles`` that lacks a title for one of its reasons, or reads its title elsewhere.
+
+    Raises:
+        TypeError: a reason in ``causes`` has no row in ``titles``; or a
+            ``title`` stated in the class or inherited from a parent stands
+            in front of the root's read of ``titles``.
+    """
+    titles = getattr(cls, 'titles', None)
+    if titles is None:
+        return
+    untitled = sorted(reason for reason in causes if reason not in titles)
+    if untitled:
+        raise TypeError(f'{cls.__name__} declares titles with no row for {", ".join(untitled)}')
+    owner = next(a for a in cls.__mro__ if 'title' in vars(a))
+    if owner is not LumascopeError:
+        raise TypeError(
+            f'{cls.__name__} declares titles, but its title is {owner.__name__}.title: '
+            'a class with titles states no title, and inherits none'
+        )
 
 
 def defined_classes() -> list[type[LumascopeError]]:

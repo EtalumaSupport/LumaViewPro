@@ -928,7 +928,7 @@ class ConfigurationDefectError(Fault, ConfigError):
             the REST server's own routes, so a client could not reach it.
     """
 
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'settings_not_prepared': 'Configuration Fault',
         'composite_thresholds_missing': 'Configuration Fault',
         'composite_threshold_out_of_range': 'Configuration Fault',
@@ -940,15 +940,12 @@ class ConfigurationDefectError(Fault, ConfigError):
         'zstack_reference_unchecked': 'Configuration Fault',
         'route_shadowed': 'Configuration Fault',
     }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
     _FOR_PERSON: ClassVar[frozenset[str]] = frozenset({'channels_unresolved'})
 
     def __init__(self, reason: str, message: str):
-        if reason not in self._TITLES:
-            raise TypeError(f'ConfigurationDefectError has no reason {reason!r}')
         super().__init__(message)
         self.reason = reason
-        self.title = self._TITLES[reason]
 
     @property
     def words_for_person(self) -> bool:
@@ -1077,7 +1074,6 @@ class BringUpError(_Umbrella, Exception):
     """
 
     words_for_person = True
-    title = 'Hardware Unavailable'
 
     def __init__(self, message: str, reason: str):
         super().__init__(message)
@@ -1142,6 +1138,7 @@ class CameraNotAvailableError(Fault, BringUpError):
             'restart LumaViewPro, and send a support report if it happens again.',
         ),
     }
+    titles: ClassVar[dict[str, str]] = {reason: title for reason, (title, _) in _WORDS.items()}
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
     same_fact_as = (CameraFirmwareMissingError,)
 
@@ -1167,9 +1164,10 @@ class CameraNotAvailableError(Fault, BringUpError):
             repairable: Offer Repair (``repair()``) as the answer; only for
                 ``'camera_driver_unusable'``.
         """
+        self.reason = reason
         if repairable and reason != 'camera_driver_unusable':
             raise TypeError(f'Repair answers camera_driver_unusable, not {reason!r}')
-        self.title, message = self._WORDS[reason]
+        _, message = self._WORDS[reason]
         if reason == 'camera_driver_unusable':
             message += self._UNUSABLE_ANSWER[repairable]
         super().__init__(message, reason)
@@ -1413,7 +1411,7 @@ class ServerRefusedError(Refusal, Exception):
         'client_not_allowed': RefusalCause.REQUEST,
     }
 
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'not_found': 'Not Found',
         'invalid_request': 'Invalid Request',
         'method_not_allowed': 'Method Not Allowed',
@@ -1439,7 +1437,6 @@ class ServerRefusedError(Refusal, Exception):
     ) -> None:
         super().__init__(detail)
         self.reason = reason
-        self.title = self._TITLES[reason]
         self.errors = errors
         self.retry_after_s = retry_after_s
 
@@ -1750,16 +1747,15 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
             '{value!r} is not one.',
         ),
     }
+    titles: ClassVar[dict[str, str]] = {reason: title for reason, (title, _) in _WORDS.items()}
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS, RefusalCause.REQUEST)
 
     def __init__(self, reason: str, *, argument: str, value: object, offered: tuple[str, ...]):
-        if reason not in self._WORDS:
-            raise TypeError(f'CatalogueNameRefusedError has no words for the reason {reason!r}')
-        self.title, words = self._WORDS[reason]
+        self.reason = reason
+        _, words = self._WORDS[reason]
         super().__init__(
             words.format(argument=argument, value=value, offered=_offered_words(offered))
         )
-        self.reason = reason
         self.argument = argument
         self.value = value
         self.offered = offered
@@ -2041,6 +2037,7 @@ class CaptureFailedError(Fault, CaptureError):
             'writer knows, so it was not saved.',
         ),
     }
+    titles: ClassVar[dict[str, str]] = {reason: title for reason, (title, _) in _WORDS.items()}
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
 
     def __init__(
@@ -2050,8 +2047,7 @@ class CaptureFailedError(Fault, CaptureError):
         source: 'FrameValiditySource | None' = None,
         encoding: str | None = None,
     ):
-        if reason not in self._WORDS:
-            raise TypeError(f'CaptureFailedError has no reason {reason!r}')
+        self.reason = reason
         if (source is None) == (reason in ('chunk_rejected', 'no_fresh_frame')):
             raise TypeError(
                 f'a {reason!r} capture failure takes source= exactly when '
@@ -2063,7 +2059,7 @@ class CaptureFailedError(Fault, CaptureError):
             raise TypeError(
                 f'a {reason!r} capture failure takes encoding= exactly when unknown_save_encoding'
             )
-        self.title, words = self._WORDS[reason]
+        _, words = self._WORDS[reason]
         change = self._CHANGE_WORDS.get(source)
         super().__init__(words.format(source=source, change=change, encoding=encoding), reason)
         self.source = source
@@ -2289,7 +2285,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
 
     # Keyed as ``causes`` is. The three step refusals share one heading: the
     # step was not saved, whether it was being added or updated.
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'already_running': 'Already Running',
         'exclusive_activity_running': 'Another Activity Running',
         'recording_active': 'Recording Active',
@@ -2351,7 +2347,6 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
     ):
         super().__init__(message)
         self.reason = reason
-        self.title = self._TITLES[reason]
         self.message = message
         self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
@@ -2395,18 +2390,15 @@ class RunCheckFailedError(Fault, ProtocolError):
             exception's message.
     """
 
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'validation_crashed': 'Cannot validate protocol',
         'hardware_state_unknown': 'Cannot verify hardware state',
     }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
 
     def __init__(self, reason: str, message: str):
-        if reason not in self._TITLES:
-            raise TypeError(f'RunCheckFailedError has no reason {reason!r}')
         super().__init__(message)
         self.reason = reason
-        self.title = self._TITLES[reason]
         self.message = message
 
 
@@ -2428,16 +2420,13 @@ class RunStartError(Fault, ProtocolError):
             string; those belong in the log.
     """
 
-    _TITLES: ClassVar[dict[str, str]] = ENDING_TITLES
+    titles: ClassVar[dict[str, str]] = ENDING_TITLES
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(FAILURE_REASONS)
     same_fact_as = (CameraReadFailedError,)
 
     def __init__(self, reason: str, message: str):
-        if reason not in self._TITLES:
-            raise TypeError(f'RunStartError has no reason {reason!r}')
         super().__init__(f'{reason}: {message}')
         self.reason = reason
-        self.title = self._TITLES[reason]
         self.message = message
 
 
@@ -2490,9 +2479,9 @@ class RecordingRefusedError(Refusal, CaptureError):
     holder: Holder | None
     holder_trigger: Caller | None
 
-    _TITLES: ClassVar[dict[str, str]] = {
-        'recording_active': ProtocolRunRefusedError._TITLES['recording_active'],
-        'exclusive_activity_running': ProtocolRunRefusedError._TITLES['exclusive_activity_running'],
+    titles: ClassVar[dict[str, str]] = {
+        'recording_active': ProtocolRunRefusedError.titles['recording_active'],
+        'exclusive_activity_running': ProtocolRunRefusedError.titles['exclusive_activity_running'],
         'post_processing_running': POST_PROCESSING_RUNNING_TITLE,
         'camera_exposure_unknown': 'Camera Exposure Unavailable',
         'capture_location_unusable': 'Cannot Save Recording',
@@ -2503,7 +2492,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         'camera_holds_another_channel': 'Camera On Another Channel',
         'changes_not_in_force': 'Microscope Not Settled',
     }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES, RefusalCause.STATE)
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles, RefusalCause.STATE)
     same_fact_as = (ProtocolRunRefusedError,)
 
     def __init__(
@@ -2514,10 +2503,7 @@ class RecordingRefusedError(Refusal, CaptureError):
         holder: 'Holder | None' = None,
         holder_trigger: Caller | None = None,
     ):
-        if reason not in self._TITLES:
-            raise TypeError(f'RecordingRefusedError has no reason {reason!r}')
         super().__init__(message, reason)
-        self.title = self._TITLES[reason]
         self.message = message
         self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
@@ -2571,18 +2557,15 @@ class InputFramesUnusableError(Refusal, CaptureError, ValueError):
             one output.
     """
 
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'unreadable': 'Image Not Readable',
         'geometry': 'Images Not One Size',
         'mixed_pixel_types': 'Images Not One Pixel Type',
     }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES, RefusalCause.REQUEST)
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles, RefusalCause.REQUEST)
 
     def __init__(self, message: str, reason: str):
-        if reason not in self._TITLES:
-            raise TypeError(f'InputFramesUnusableError has no reason {reason!r}')
         super().__init__(message, reason)
-        self.title = self._TITLES[reason]
 
 
 class PostProcessingOperation(StrEnum):
@@ -2713,11 +2696,19 @@ class PostProcessingRefusedError(Refusal, CaptureError):
 
     def __init__(self, *, operation: str, reason: str, message: str):
         self.reason = reason
-        operation = PostProcessingOperation(operation)
-        key = (operation, reason) if (operation, reason) in self._WORDS else operation
-        self.title, advice = self._WORDS[key]
+        self.operation = PostProcessingOperation(operation)
+        _, advice = self._row()
         super().__init__(f'{message}{advice}', reason)
-        self.operation = operation
+
+    @property
+    def title(self) -> str:
+        """The operation's heading, or the one its reason names for itself."""
+        return self._row()[0]
+
+    def _row(self) -> tuple[str, str]:
+        """This refusal's heading and advice: its operation and reason's row, else its operation's."""
+        key = (self.operation, self.reason)
+        return self._WORDS[key if key in self._WORDS else self.operation]
 
 
 @api_fields('kind', 'count')
@@ -2817,7 +2808,11 @@ class PostProcessingFailedError(Fault, CaptureError):
         self.output_root = output_root
         self.errors = tuple(errors)
         self.excluded_inputs = tuple(excluded_inputs)
-        self.title = self._TITLES[(operation, reason)]
+
+    @property
+    def title(self) -> str:
+        """The operation's heading for what the build produced."""
+        return self._TITLES[(self.operation, self.reason)]
 
 
 class RecordingStoppedError(Fault, CaptureError):
@@ -2835,12 +2830,12 @@ class RecordingStoppedError(Fault, CaptureError):
             ``'disk_floor'`` -- free disk fell below the safety floor.
     """
 
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'camera_disconnected': 'Recording Stopped',
         'camera_stalled': 'Recording Stopped',
         'disk_floor': 'Recording Stopped -- Disk Almost Full',
     }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
     _WORDS: ClassVar[dict[str, str]] = {
         'camera_disconnected': (
             'The camera stopped delivering frames, so the recording was stopped. '
@@ -2857,7 +2852,6 @@ class RecordingStoppedError(Fault, CaptureError):
 
     def __init__(self, reason: str):
         super().__init__(self._WORDS[reason], reason)
-        self.title = self._TITLES[reason]
 
 
 class RecordingFinalizeError(Fault, CaptureError):
@@ -2876,11 +2870,11 @@ class RecordingFinalizeError(Fault, CaptureError):
             recording; each is named in its own words.
     """
 
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'video_step_finalize_failed': 'Video Finalize Failed',
         'recording_finalize_failed': 'Recording Finalize Failed',
     }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
 
     def __init__(self, *, protocol_step: bool):
         if protocol_step:
@@ -2896,7 +2890,6 @@ class RecordingFinalizeError(Fault, CaptureError):
             )
             reason = 'recording_finalize_failed'
         super().__init__(message, reason)
-        self.title = self._TITLES[reason]
         self.protocol_step = protocol_step
 
 
@@ -3311,13 +3304,12 @@ class RunFailedError(Fault, CaptureError):
 
     fatal = True
 
-    _TITLES: ClassVar[dict[str, str]] = ENDING_TITLES
+    titles: ClassVar[dict[str, str]] = ENDING_TITLES
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(FAILURE_REASONS)
     same_fact_as = (RunStartError,)
 
     def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
-        self.title = self._TITLES[reason]
 
 
 class RunFailedToStartError(Fault, CaptureError):
@@ -3332,13 +3324,12 @@ class RunFailedToStartError(Fault, CaptureError):
             explains it.
     """
 
-    _TITLES: ClassVar[dict[str, str]] = ENDING_TITLES
+    titles: ClassVar[dict[str, str]] = ENDING_TITLES
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(FAILURE_REASONS)
     same_fact_as = (RunStartError,)
 
     def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
-        self.title = self._TITLES[reason]
 
 
 @api_fields('run_ending', 'merge_failure')
@@ -3887,7 +3878,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
 
     # Keyed as ``causes`` is: a refusal for who holds the scope reads as the
     # microscope being busy; one for the hardware's state names that state.
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'activity_ended': 'Microscope Busy',
         'not_the_activity': 'Microscope Busy',
         'capture_in_flight': 'Microscope Busy',
@@ -3903,7 +3894,7 @@ class HardwareCommandRefusedError(Refusal, Exception):
         'position_unread': 'Motor Controller Not Responding',
         'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
         'stage_unpowered_before_motion': INTERLOCK_TITLES['stage_unpowered'],
-        'other_led_lit': RecordingRefusedError._TITLES['other_led_lit'],
+        'other_led_lit': RecordingRefusedError.titles['other_led_lit'],
         'channel_not_shown': 'Another Channel Is Shown',
     }
 
@@ -3930,7 +3921,6 @@ class HardwareCommandRefusedError(Refusal, Exception):
         self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.missing = missing
-        self.title = self._TITLES[reason]
 
 
 # The refusals a stage's own interlock raises: the hardware is in a state
@@ -4105,10 +4095,10 @@ class DiagnosticRefusedError(Refusal, Exception):
     holder: Holder | None
     holder_trigger: Caller | None
 
-    _TITLES: ClassVar[dict[str, str]] = {
-        'exclusive_activity_running': ProtocolRunRefusedError._TITLES['exclusive_activity_running'],
+    titles: ClassVar[dict[str, str]] = {
+        'exclusive_activity_running': ProtocolRunRefusedError.titles['exclusive_activity_running'],
     }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES, RefusalCause.STATE)
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles, RefusalCause.STATE)
     same_fact_as = (HardwareCommandRefusedError,)
 
     def __init__(
@@ -4119,11 +4109,8 @@ class DiagnosticRefusedError(Refusal, Exception):
         holder: 'Holder | None' = None,
         holder_trigger: Caller | None = None,
     ):
-        if reason not in self._TITLES:
-            raise TypeError(f'DiagnosticRefusedError has no reason {reason!r}')
         super().__init__(f'{reason}: {message}')
         self.reason = reason
-        self.title = self._TITLES[reason]
         self.message = message
         self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
@@ -4228,7 +4215,7 @@ class ControlSessionRefusedError(Refusal, Exception):
     }
     same_fact_as = (HardwareCommandRefusedError,)
 
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'control_session_held': UNDER_CONTROL_TITLE,
         'exclusive_activity_running': 'Microscope Busy',
         'write_in_flight': 'Microscope Busy',
@@ -4246,7 +4233,6 @@ class ControlSessionRefusedError(Refusal, Exception):
     ):
         self.reason = reason
         super().__init__(_control_refused_sentence(reason, holder, holder_trigger, control_session))
-        self.title = self._TITLES[reason]
         self.holder = _holder(holder)
         self.holder_trigger = holder_trigger
         self.control_session = control_session
@@ -4538,6 +4524,7 @@ class ArgumentRefusedError(Refusal, ValueError):
             'objective in a slot.',
         ),
     }
+    titles: ClassVar[dict[str, str]] = {reason: title for reason, (title, _) in _WORDS.items()}
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS, RefusalCause.REQUEST)
     same_fact_as = (
         SettingRefusedError,
@@ -4557,9 +4544,8 @@ class ArgumentRefusedError(Refusal, ValueError):
         plate: str | None = None,
         member: str | None = None,
     ):
-        if reason not in self._WORDS:
-            raise TypeError(f'ArgumentRefusedError has no words for the reason {reason!r}')
-        self.title, words = self._WORDS[reason]
+        self.reason = reason
+        _, words = self._WORDS[reason]
         if ('{offered}' in words) != (offered is not None):
             raise TypeError(
                 f'ArgumentRefusedError({reason!r}) takes offered values exactly when its words name them'
@@ -4593,7 +4579,6 @@ class ArgumentRefusedError(Refusal, ValueError):
                 member=member,
             )
         )
-        self.reason = reason
         self.argument = argument
         self.value = value
         self.offered = offered
@@ -4856,7 +4841,7 @@ class AxisStateUnknownError(Refusal, Exception):
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {'position_unknown': RefusalCause.STATE}
     same_fact_as = (ProtocolRunRefusedError,)
-    title = ProtocolRunRefusedError._TITLES['position_unknown']
+    title = ProtocolRunRefusedError.titles['position_unknown']
 
     axes_without_position: dict[Axis, AxisState]
 
@@ -5003,7 +4988,7 @@ class MoveFaultError(Fault, MoveNotCompletedError):
         ),
     }
 
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'driver_failed': 'Move Did Not Complete',
         'faulted': 'Move Did Not Complete',
         'stalled': 'Motor Axis Stalled',
@@ -5012,11 +4997,10 @@ class MoveFaultError(Fault, MoveNotCompletedError):
         'position_unread_after_move': 'Motor Position Unknown',
         'status_unread': 'Motor Position Unknown',
     }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
 
     def __init__(self, axis: str, reason: str):
         super().__init__(axis, reason)
-        self.title = self._TITLES[reason]
 
 
 class MoveStoppedError(Notice, MoveNotCompletedError):
@@ -5438,20 +5422,17 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
     """
 
     words_for_person = True
-    _TITLES: ClassVar[dict[str, str]] = {
+    titles: ClassVar[dict[str, str]] = {
         'camera_rejected': 'Camera Setting Not Applied',
         'camera_no_answer': 'Camera Did Not Answer',
         'camera_read_failed': CameraReadFailedError.title,
     }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_TITLES)
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
     same_fact_as = (CameraNoAnswerError, CameraReadFailedError)
 
     def __init__(self, setting: str, requested, *, message: str, reason: str = 'camera_rejected'):
-        if reason not in self._TITLES:
-            raise TypeError(f'CameraSettingRejected has no reason {reason!r}')
         super().__init__(message)
         self.reason = reason
-        self.title = self._TITLES[reason]
         self.setting = setting
         self.requested = requested
 
@@ -5587,7 +5568,7 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
 
     # The range is the attached camera's, fixed for its life, so a value
     # outside it is refused every time it is sent.
-    title = ProtocolRunRefusedError._TITLES['camera_setting_out_of_range']
+    title = ProtocolRunRefusedError.titles['camera_setting_out_of_range']
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
         (
             'gain_db_out_of_range',

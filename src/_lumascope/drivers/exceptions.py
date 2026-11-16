@@ -55,7 +55,7 @@ class MotionInterlockError(Fault, HardwareError):
             without power. The API counts a sent stop as a Stop.
     """
 
-    _TITLES: ClassVar[Mapping[str, str]] = INTERLOCK_TITLES
+    titles: ClassVar[Mapping[str, str]] = INTERLOCK_TITLES
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(INTERLOCK_TITLES)
 
     # Its words are the driver's record of the refusal; the person reads the
@@ -65,7 +65,6 @@ class MotionInterlockError(Fault, HardwareError):
     def __init__(self, reason: str, *, moved: bool, stopped: bool):
         super().__init__(f'motion interlock open: {reason} (moved={moved}, stopped={stopped})')
         self.reason = reason
-        self.title = self._TITLES[reason]
         self.moved = moved
         self.stopped = stopped
 

@@ -181,6 +181,10 @@ def test_a_subclass_extends_its_parents_reasons_whoever_else_carries_them():
             **ProtocolRunRefusedError.causes,
             'zz_extended': RefusalCause.STATE,
         }
+        titles: ClassVar[dict[str, str]] = {
+            **ProtocolRunRefusedError.titles,
+            'zz_extended': 'Extended',
+        }
 
     assert _ExtendedRunRefusedError.causes['exclusive_activity_running'] == RefusalCause.STATE
 
@@ -204,6 +208,69 @@ def test_a_subject_carries_no_reasons():
 
         class _SubjectWithReasonsError(_Umbrella, Exception):
             causes: ClassVar[dict[str, RefusalCause | None]] = {'zz_subject': None}
+
+
+def test_a_subject_states_no_title():
+    """A subject is never raised, so a title on it is read only by a child
+    that lost its own, in front of the child's ``titles``."""
+    with pytest.raises(TypeError, match='states title'):
+
+        class _TitledSubjectError(_Umbrella, Exception):
+            title = 'Subject'
+
+
+def test_a_title_comes_from_the_class_s_own_titles_for_every_reason():
+    class _TitledError(Refusal, Exception):
+        causes: ClassVar[dict[str, RefusalCause | None]] = {
+            'zz_titled_a': RefusalCause.STATE,
+            'zz_titled_b': RefusalCause.REQUEST,
+        }
+        titles: ClassVar[dict[str, str]] = {'zz_titled_a': 'A', 'zz_titled_b': 'B'}
+
+        def __init__(self, reason):
+            super().__init__()
+            self.reason = reason
+
+    assert (_TitledError('zz_titled_a').title, _TitledError('zz_titled_b').title) == ('A', 'B')
+
+
+def test_titles_that_miss_a_reason_are_refused_where_the_class_is_defined():
+    with pytest.raises(TypeError, match='no row for zz_untitled'):
+
+        class _ShortTitlesError(Refusal, Exception):
+            causes: ClassVar[dict[str, RefusalCause | None]] = {
+                'zz_titled_c': RefusalCause.STATE,
+                'zz_untitled': RefusalCause.STATE,
+            }
+            titles: ClassVar[dict[str, str]] = {'zz_titled_c': 'C'}
+
+
+def test_a_class_with_titles_reads_no_other_title():
+    """A body title, or one inherited from a parent, stands in front of the
+    root's read of ``titles``, and every reason would show it."""
+    with pytest.raises(TypeError, match=r'its title is _BodyTitleError\.title'):
+
+        class _BodyTitleError(Fault, Exception):
+            causes: ClassVar[dict[str, RefusalCause | None]] = {'zz_body_title': None}
+            titles: ClassVar[dict[str, str]] = {'zz_body_title': 'Row'}
+            title = 'Body'
+
+    class _HeadedError(Fault, Exception):
+        causes: ClassVar[dict[str, RefusalCause | None]] = {'zz_headed': None}
+        title = 'Parent'
+
+    with pytest.raises(TypeError, match=r'its title is _HeadedError\.title'):
+
+        class _HeadedChildError(_HeadedError):
+            titles: ClassVar[dict[str, str]] = {'zz_headed': 'Row'}
+
+
+def test_a_title_is_never_set_on_an_outcome():
+    """The title is the type's, so the place that raises cannot choose another."""
+    refusal = ProtocolRunRefusedError('already_running', 'A run is live.')
+    with pytest.raises(AttributeError, match="title is its type's"):
+        refusal.title = 'Chosen at the raise'
+    assert refusal.title == ProtocolRunRefusedError.titles['already_running']
 
 
 def test_a_class_nothing_holds_leaves_no_trace_once_collected():

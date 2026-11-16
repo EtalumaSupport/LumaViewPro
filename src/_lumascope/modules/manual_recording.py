@@ -1167,7 +1167,7 @@ _HYPERSTACK_REASON_OF = {
     'mixed_pixel_types': 'mixed_input_pixel_types',
     'geometry': 'hyperstack_refused',
 }
-if set(_HYPERSTACK_REASON_OF) != set(InputFramesUnusableError._TITLES):
+if set(_HYPERSTACK_REASON_OF) != set(InputFramesUnusableError.titles):
     raise ImportError('every InputFramesUnusableError reason needs a hyperstack refusal reason')
 
 
