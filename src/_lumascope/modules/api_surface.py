@@ -303,8 +303,10 @@ def api_fields[C: type](*names: str, record: bool = False) -> Callable[[C], C]:
 
     A record gains ``to_dict()``, its data as plain Python
     (``wire_encoding.plain``), for a caller that needs a dict: MATLAB's
-    ``struct()`` takes a dict and not a dataclass. So it is above the
-    ``@dataclass`` it marks, which must have run first.
+    ``struct()`` takes a dict and not a dataclass; it is API in-process,
+    the one member every record shares, which the reference states once.
+    So this decorator is above the ``@dataclass`` it marks, which must
+    have run first.
 
     A dataclass's closed-set fields are judged as it is built (the module
     docstring), before its own ``__post_init__`` reads them.
@@ -481,11 +483,16 @@ def _judge_closed_fields(cls: type) -> None:
         cls.__init__ = judged_init
 
 
+@api(in_process=True)
 def _to_dict(self: object) -> dict:
     """This record's fields as a dict of plain Python data: a nested record a dict, an enum its string, a sequence a list.
 
     A path, a handle and a running call stay the live objects they are, a
-    NaN stays a NaN, and a key keeps its type (``wire_encoding.plain``).
+    NaN stays a NaN, and a key keeps its type.
+
+    Raises:
+        NoWireFormError: a field holds a ``timedelta``, or a record that
+            publishes no field; neither has a plain form.
     """
     # Imported here: wire_encoding reads this module's marks.
     from _lumascope.modules.wire_encoding import plain

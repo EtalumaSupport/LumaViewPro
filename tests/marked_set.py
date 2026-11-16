@@ -25,7 +25,7 @@ import types
 from functools import cache
 
 from _lumascope.modules import wire_encoding
-from _lumascope.modules.api_surface import API, IN_PROCESS, fields_of, mark_of
+from _lumascope.modules.api_surface import API, IN_PROCESS, _to_dict, fields_of, mark_of
 
 MARKS = frozenset({API, IN_PROCESS})
 
@@ -92,7 +92,7 @@ def marked_functions(modules: tuple[types.ModuleType, ...] | None = None) -> dic
             if not inspect.isfunction(value) or value.__module__ != module.__name__:
                 continue
             tag = mark_of(value)
-            if tag in MARKS:
+            if tag in MARKS and value is not _to_dict:
                 found[f'{module.__name__}.{name}'] = Marked(module, module.__name__, name, tag)
     return found
 
@@ -103,7 +103,10 @@ def marked_members(universe: dict[str, type]) -> dict[str, Marked]:
     for cname, cls in universe.items():
         for member, value in vars(cls).items():
             tag = mark_of(value)
-            if tag in MARKS:
+            # Every record's ``to_dict`` is the one marked function the
+            # records share: the reference states it once, so the set holds
+            # it under no record, nor as ``api_surface``'s own function.
+            if tag in MARKS and value is not _to_dict:
                 found[f'{cname}.{member}'] = Marked(cls, cname, member, tag)
         for name in fields_of(cls):
             found[f'{cname}.{name}'] = Marked(cls, cname, name, API, field=True)

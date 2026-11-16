@@ -36,6 +36,7 @@ from _lumascope.lib.lumascope_error import Fault, LumascopeError, defined_classe
 from _lumascope.modules import wire_encoding
 from _lumascope.modules.api_surface import (
     IN_PROCESS,
+    _to_dict,
     admitted_by_of,
     event_of,
     field_descriptions,
@@ -80,6 +81,10 @@ Every member and field of the API, rendered from the source: a member is API whe
 Every name with a section of its own is imported from `lumascope`, as its heading says: `from lumascope import ScopeSession`.
 
 A member's **Raises** is its contract: each outcome class it raises, with the reasons it quotes. **Refusals** adds the refusals of the doors the member enters (a hardware lane, a guarded write, a post-processing build's admission); for a member on the wire they are **Refusals by REST status**, under the HTTP status each answers. Every outcome class, with each reason's cause and status, is under [Outcomes](#outcomes).
+
+<a id="to_dict"></a>A **record** crosses the wire as its data. In the same process every record also answers `to_dict()`, *in-process*, for a caller that takes a dict and not a record, such as MATLAB's `struct()`:
+
+{markdown_of(inspect.getdoc(_to_dict))}
 """
 
 
@@ -495,7 +500,9 @@ def _class(owner: _Owner, index: _Index, *, outcome: bool = False) -> str:
         kind = _kind(cls)
         facts.append(f'{kind[0].upper()}{kind[1:]}; bases {bases}.')
     elif is_record(cls):
-        facts.append('A record: it crosses the wire as its data.')
+        facts.append(
+            'A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.'
+        )
     facts += _reached(cls, index)
     if facts:
         parts.append('  \n'.join(facts))

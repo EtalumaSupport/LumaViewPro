@@ -551,6 +551,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 111 | Two members are served in-process only, with no route: `session.channel_slider_maxima(channel)`, where a control's manual sliders stop (a display hint, never a bound), and `session.source_path`, the host's data folder, which a client on another machine cannot use. A plugin calls both as before; `GET /api/v1/channel_slider_maxima` and `GET /api/v1/source_path` are gone. |
 | level 112 | The host removes a plugin's frame listener when it unloads the plugin, before calling its `unregister(ctx)`, as it already did after a failed `register(ctx)`; `ctx.plugins.live_processing.unregister` is no longer published, since a plugin never needs it. |
 | level 113 | A run's stuck file writer is read on its `live_work` item: the run's-images item's `stuck_write` names the write past the stall threshold, None while the writes progress; `protocol_files_stalled` and `protocol_files_stuck_write` are gone. |
+| level 114 | A record's `to_dict()` is published, in-process: every record the API answers has it, its fields as plain Python, as it already did. |
 
 ---
 

@@ -109,6 +109,17 @@ for part in record.parts:
 assert record.missing == ()                # the simulator has every part
 ```
 
+**A record as a dict.** Every record the API answers -- the bring-up record,
+`status()`, a still's record -- has `to_dict()`: its fields as plain Python, a
+nested record a dict, an enum its string, a sequence a list. It is for a caller
+that takes a dict and not a record, such as MATLAB's `struct()`:
+
+```python
+facts = record.to_dict()
+assert facts['missing'] == []
+print([part['part'] for part in facts['parts']])
+```
+
 **Hearing it come up.** Bring-up takes a few seconds on hardware. To say what
 it is doing while it runs -- a progress bar, a status line -- pass
 `on_progress=`, the same callback the support report takes: it is called
