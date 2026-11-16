@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import datetime
 import pathlib
+import tracemalloc
 
 import numpy as np
 import pandas as pd
@@ -131,6 +132,23 @@ def test_the_depth_of_a_sum_needs_no_count(sim_camera):
     assert still.significant_bits == 14
     # The depth answered is one the frame honours: no value lies past it.
     assert int(still.image.max()) <= (1 << still.significant_bits) - 1
+
+
+def test_a_sum_holds_its_total_not_every_frame(sim_camera):
+    """A sum adds each frame as it is kept, so the capture's memory does not
+    grow with the count: a 30-frame sum peaks near one frame's total and two
+    frames, not 30 frames held until the last."""
+    imaging = sim_camera('Mono12').imaging
+    frame_bytes = imaging.capture_image(force_to_8bit=False, sum_count=1).nbytes
+    tracemalloc.start()
+    try:
+        imaging.capture_image(force_to_8bit=False, sum_count=30)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    # A uint32 total is two frames' bytes; with the first, the current and
+    # the uint16 result, about five. Thirty frames held would be thirty.
+    assert peak < 10 * frame_bytes, (peak, frame_bytes)
 
 
 def test_the_record_carries_the_count_and_each_frames_depth(sim_camera):

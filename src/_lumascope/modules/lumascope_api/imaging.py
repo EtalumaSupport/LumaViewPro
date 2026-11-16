@@ -1825,7 +1825,13 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             return _NoFrame('removed', 'entry')
 
-        frames: list[Frame] = []
+        # The first and last frames kept, for the capture's record, and a
+        # sum's running total: each frame is added as it is kept, so a sum
+        # holds one total and two frames whatever its count, never every
+        # frame until the last.
+        first: Frame | None = None
+        last: Frame | None = None
+        combined: np.ndarray | None = None
         # What the kept frames were found to be, for the capture's record:
         # the most saturated of them, and whether any was kept dark. None
         # where the check was not asked.
@@ -2007,7 +2013,13 @@ class ImagingAPI:
                 # until it times out, losing the capture. The first frame of a
                 # sum has nothing to be newer than.
                 if earliest_seq is None or frame.seq > earliest_seq:
-                    frames.append(frame)
+                    if first is None:
+                        first = frame
+                    last = frame
+                    if sum_count > 1:
+                        if combined is None:
+                            combined = np.zeros_like(frame.image, dtype=np.uint32)
+                        combined += frame.image
                     if frame_saturation is not None:
                         kept_saturation = max(kept_saturation, frame_saturation)
                     if frame_dark:
@@ -2045,22 +2057,17 @@ class ImagingAPI:
         # writes from different threads could still interleave).
         # The depth the frames were delivered at, carried by the frames
         # themselves: with the count, it is the sum's whole account.
-        frame_bits = frames[0].significant_bits
+        frame_bits = first.significant_bits
         with self._state_lock:
             self._last_frame_summing = (sum_count, frame_bits)
 
         if sum_count == 1:
-            image = frames[0].image
+            image = first.image
         else:
             # A sum is stored in a 16-bit container on every camera, an 8-bit
             # one included: its counts pass any one frame's range, and the
             # container is where they saturate.
             container_max = np.iinfo(np.uint16).max
-
-            combined = np.zeros_like(frames[0].image, dtype=np.uint32)
-            for summed in frames:
-                combined += summed.image
-
             image = np.minimum(combined, container_max).astype(np.uint16)
 
         objective = self._scope.runtime_state.get_current_objective()
@@ -2094,8 +2101,8 @@ class ImagingAPI:
         image.flags.writeable = False
         return _Grabbed(
             image=image,
-            frame=frames[-1],
-            earliest=frames[0],
+            frame=last,
+            earliest=first,
             saturated_fraction=kept_saturation,
             dark=kept_dark,
         )
