@@ -4,18 +4,18 @@
 The actual probe requires a connected Pylon camera and is exercised by the
 sweep tool itself on the bench. These tests cover the CLI argument
 resolution + cell-product construction so a future refactor can't
-silently drop a sweep dimension, the transport detection's answers, and
-a cell's record of a knob the camera refuses.
+silently drop a sweep dimension, the transport detection's answers, a
+cell's writes through the simulated scope's own setters, and a cell's
+record of a setting the camera refuses.
 """
 
 import argparse
-from contextlib import nullcontext
 from types import SimpleNamespace
 
 import pytest
 
-from _lumascope.drivers.camera import CameraNodeHasNoValue, CameraNodeValue
-from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
+from _lumascope.drivers.camera import CameraNodeValue
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from tools.pylon_probe_sweep import (
     _apply_cell,
     _build_gige_cells,
@@ -23,34 +23,27 @@ from tools.pylon_probe_sweep import (
     _detect_transport,
     _format_cell_id,
     _resolve_resolutions,
+    _sweep,
 )
 
 
-class _FakeCamera:
-    """A connected camera whose transport node answers ``transport_node``.
+class _NodeScope:
+    """A scope whose camera answers ``nodes`` by name, None for any other.
 
-    a stand-in by design: the subject is the tool's reading of the driver's
-    ``read_node`` answer, and no simulated camera is a Pylon camera. By
-    default the camera does not offer DeviceTransportLayerType (``None``),
-    the model-name fallback's case; an exception is raised by the read.
+    a stand-in by design: no simulated camera is a Pylon camera (the
+    simulated one has no named settings), so the GigE and USB3 answers
+    are a simulator gap; the subject is the tool's reading of them.
     """
 
-    def __init__(self, model_name: str, transport_node=None):
-        self.active = object()
-        self.model_name = model_name
-        self._transport_node = transport_node
-
-    def read_node(self, name, node_map):
-        assert (name, node_map) == ('DeviceTransportLayerType', 'transport')
-        if isinstance(self._transport_node, BaseException):
-            raise self._transport_node
-        return self._transport_node
+    def __init__(self, nodes):
+        self.capabilities = SimpleNamespace(camera_node_maps=('device', 'stream'))
+        self.diagnostics = SimpleNamespace(read_camera_node=lambda name: nodes.get(name))
 
 
 def _make_args(**overrides):
     """Minimal argparse.Namespace mirroring the tool's CLI defaults."""
     base = {
-        'pixel_formats': ['Mono8'],
+        'image_modes': ['8bit'],
         'resolution_tuples': [(2100, 2100)],
         'dltl_modes': ['On'],
         'dltl_values_mb': [],
@@ -64,16 +57,16 @@ def _make_args(**overrides):
 
 class TestResolveResolutions:
     def test_integer_token_expands_to_square(self):
-        assert _resolve_resolutions(['2100'], 4000, 3000) == [(2100, 2100)]
+        assert _resolve_resolutions(['2100'], (4000, 3000)) == [(2100, 2100)]
 
     def test_wxh_token(self):
-        assert _resolve_resolutions(['1920x1080'], 4000, 3000) == [(1920, 1080)]
+        assert _resolve_resolutions(['1920x1080'], (4000, 3000)) == [(1920, 1080)]
 
     def test_sensor_max_token(self):
-        assert _resolve_resolutions(['sensor-max'], 4096, 3000) == [(4096, 3000)]
+        assert _resolve_resolutions(['sensor-max'], (4096, 3000)) == [(4096, 3000)]
 
     def test_mixed_tokens_keep_order(self):
-        result = _resolve_resolutions(['1900', '2100', 'sensor-max'], 4096, 3000)
+        result = _resolve_resolutions(['1900', '2100', 'sensor-max'], (4096, 3000))
         assert result == [(1900, 1900), (2100, 2100), (4096, 3000)]
 
     def test_non_numeric_token_exits_cleanly_not_traceback(self, capsys):
@@ -86,7 +79,7 @@ class TestResolveResolutions:
         import pytest as _pytest
 
         with _pytest.raises(SystemExit) as excinfo:
-            _resolve_resolutions(['2100', 'dltl-modes'], 4000, 3000)
+            _resolve_resolutions(['2100', 'dltl-modes'], (4000, 3000))
         assert excinfo.value.code == 2
         captured = capsys.readouterr()
         assert 'dltl-modes' in captured.err
@@ -98,7 +91,7 @@ class TestUsb3CellMatrix:
         cells = _build_usb3_cells(_make_args())
         assert cells == [
             {
-                'pixel_format': 'Mono8',
+                'image_mode': '8bit',
                 'resolution': (2100, 2100),
                 'dltl_mode': 'On',
                 'dltl_value': None,
@@ -121,13 +114,13 @@ class TestUsb3CellMatrix:
     def test_full_cartesian(self):
         cells = _build_usb3_cells(
             _make_args(
-                pixel_formats=['Mono8', 'Mono12'],
+                image_modes=['8bit', '12bit_scientific'],
                 resolution_tuples=[(1900, 1900), (2100, 2100)],
                 dltl_modes=['Off', 'On'],
                 dltl_values_mb=[160, 360],
             )
         )
-        # 2 pf x 2 res x (1 Off + 2 On values) = 12
+        # 2 modes x 2 res x (1 Off + 2 On values) = 12
         assert len(cells) == 12
 
 
@@ -136,7 +129,7 @@ class TestGigeCellMatrix:
         cells = _build_gige_cells(_make_args())
         assert cells == [
             {
-                'pixel_format': 'Mono8',
+                'image_mode': '8bit',
                 'resolution': (2100, 2100),
                 'bw_mode': 'Performance',
                 'packet_size': 1500,
@@ -147,14 +140,14 @@ class TestGigeCellMatrix:
     def test_full_cartesian(self):
         cells = _build_gige_cells(
             _make_args(
-                pixel_formats=['Mono8'],
+                image_modes=['8bit'],
                 resolution_tuples=[(2100, 2100)],
                 gige_bw_modes=['Default', 'Performance'],
                 gige_packet_sizes=[1500, 9000],
                 gige_delays=[0, 100],
             )
         )
-        # 1 pf x 1 res x 2 bw x 2 pkt x 2 delay = 8
+        # 1 mode x 1 res x 2 bw x 2 pkt x 2 delay = 8
         assert len(cells) == 8
 
     def test_packet_sizes_coerced_to_int(self):
@@ -165,19 +158,19 @@ class TestGigeCellMatrix:
 class TestFormatCellId:
     def test_usb3_dltl_off(self):
         cell = {
-            'pixel_format': 'Mono8',
+            'image_mode': '8bit',
             'resolution': (2100, 2100),
             'dltl_mode': 'Off',
             'dltl_value': None,
         }
         out = _format_cell_id('usb3', cell)
-        assert 'Mono8' in out
+        assert '8bit' in out
         assert '2100x2100' in out
         assert 'dltl=Off' in out
 
     def test_usb3_dltl_on_with_value(self):
         cell = {
-            'pixel_format': 'Mono8',
+            'image_mode': '8bit',
             'resolution': (1900, 1900),
             'dltl_mode': 'On',
             'dltl_value': 160_000_000,
@@ -187,7 +180,7 @@ class TestFormatCellId:
 
     def test_gige(self):
         cell = {
-            'pixel_format': 'Mono8',
+            'image_mode': '8bit',
             'resolution': (2100, 2100),
             'bw_mode': 'Performance',
             'packet_size': 9000,
@@ -199,57 +192,87 @@ class TestFormatCellId:
         assert 'spcd=50' in out
 
 
-class TestDetectTransportModelFallback:
-    """Model-name fallback must classify Basler ACE + ACE 2 + GigE families."""
-
-    def test_basler_ace_usb_mono(self):
-        assert _detect_transport(_FakeCamera('daA3840-45um')) == 'usb3'
-
-    def test_basler_ace_usb_color(self):
-        assert _detect_transport(_FakeCamera('daA3840-45uc')) == 'usb3'
-
-    def test_basler_ace_gige_mono(self):
-        assert _detect_transport(_FakeCamera('dmA3536-9gm')) == 'gige'
-
-    def test_basler_ace_gige_color(self):
-        assert _detect_transport(_FakeCamera('dmA3536-9gc')) == 'gige'
-
-    def test_basler_ace2_usb_mono_with_bas_series(self):
-        # Lumi-board camera; earlier 4-char tail check missed this and
-        # produced "ERROR: unknown transport 'unknown'" at bench launch.
-        assert _detect_transport(_FakeCamera('a2A3536-31umBAS')) == 'usb3'
-
-    def test_basler_ace2_usb_color_with_bas_series(self):
-        assert _detect_transport(_FakeCamera('a2A3840-45ucBAS')) == 'usb3'
-
-    def test_unknown_model_returns_unknown(self):
-        assert _detect_transport(_FakeCamera('foobar-vendor')) == 'unknown'
-
-    def test_empty_model_returns_unknown(self):
-        assert _detect_transport(_FakeCamera('')) == 'unknown'
+def test_sensor_max_on_a_scope_that_knows_no_largest_frame_exits_cleanly(capsys):
+    """No frame stands in for the largest one the scope does not know."""
+    with pytest.raises(SystemExit) as excinfo:
+        _resolve_resolutions(['sensor-max'], None)
+    assert excinfo.value.code == 2
+    assert 'frame_max is None' in capsys.readouterr().err
 
 
-def test_the_transport_node_is_read_before_the_model_name():
-    camera = _FakeCamera('daA3840-45um', CameraNodeValue('GigEVision', ''))
-    assert _detect_transport(camera) == 'gige'
+class TestDetectTransport:
+    """The camera's own nodes say its transport."""
+
+    def test_a_body_with_a_gev_packet_size_is_gige(self):
+        # A GigE body has a throughput limit too: the GEV node decides.
+        scope = _NodeScope(
+            {
+                'GevSCPSPacketSize': CameraNodeValue(1500, 'B'),
+                'DeviceLinkThroughputLimitMode': CameraNodeValue('On', ''),
+            }
+        )
+        assert _detect_transport(scope) == 'gige'
+
+    def test_a_body_with_a_throughput_limit_and_no_gev_node_is_usb3(self):
+        scope = _NodeScope({'DeviceLinkThroughputLimitMode': CameraNodeValue('On', '')})
+        assert _detect_transport(scope) == 'usb3'
+
+    def test_a_body_with_neither_node_is_unknown(self):
+        assert _detect_transport(_NodeScope({})) == 'unknown'
+
+    def test_a_camera_with_no_named_settings_is_unknown(self, sim_scope):
+        assert _detect_transport(sim_scope) == 'unknown'
 
 
-def test_a_transport_the_camera_cannot_state_ends_the_sweep():
-    """A failed read, or a transport node that holds no name, raises: the
-    sweep cannot pick its cells for a transport it does not know, and the
-    model name is the answer only for a camera that lacks the node."""
-    failed = _FakeCamera('daA3840-45um', CameraReadFailedError('usb gone'))
-    with pytest.raises(CameraReadFailedError, match='usb gone'):
-        _detect_transport(failed)
+def test_a_cell_sets_the_image_mode_and_frame_as_lvp_does(sim_scope):
+    """The image mode reaches the camera as the pixel format LVP captures it
+    in, and the frame as LVP frames it; a knob this camera has no setter for
+    is the cell's record (False), not an abort."""
+    largest = sim_scope.capabilities.camera_limits.frame_max
+    cell = {
+        'image_mode': '12bit_scientific',
+        'resolution': (largest.width, largest.height),
+        'dltl_mode': 'On',
+        'dltl_value': 160_000_000,
+    }
 
-    no_value = _FakeCamera('daA3840-45um', CameraNodeHasNoValue.NOT_READABLE_NOW)
-    with pytest.raises(CameraReadFailedError, match='holds no transport name'):
-        _detect_transport(no_value)
+    log = _apply_cell(sim_scope, 'usb3', cell)
+
+    assert log == [
+        ('image_mode', 'Mono12'),
+        ('frame', f'{largest.width}x{largest.height}'),
+        ('dltl', False),
+    ]
+    assert sim_scope.camera.read_frame_size() == largest
+
+
+def test_a_frame_the_scope_refuses_is_the_cells_record_and_the_cell_goes_on(sim_scope):
+    largest = sim_scope.capabilities.camera_limits.frame_max
+    cell = {'image_mode': '8bit', 'resolution': (largest.width + 2, largest.height)}
+
+    log = _apply_cell(sim_scope, 'unknown', cell)
+
+    assert log[0] == ('image_mode', 'Mono8')
+    assert log[1][0] == 'frame'
+    assert log[1][1].startswith('REJECTED: ')
+    # The record is the refusal's own words: the width asked and the camera's range.
+    assert f'Frame width {largest.width + 2} px is outside' in log[1][1]
+    assert sim_scope.camera.read_frame_size().width <= largest.width
+
+
+def test_a_sweep_on_a_camera_whose_transport_is_unknown_stops_before_any_cell(sim_scope, capsys):
+    args = argparse.Namespace(resolutions=['sensor-max'], host_load_workers=0, **vars(_make_args()))
+    with pytest.raises(SystemExit) as excinfo:
+        _sweep(sim_scope, args)
+    assert excinfo.value.code == 2
+    out = capsys.readouterr().out
+    assert "unknown transport 'unknown'" in out
+    assert '[1/' not in out
 
 
 def test_a_knob_the_camera_refuses_is_the_cells_record_and_the_cell_goes_on():
     """A GEV write the camera refuses is recorded as that knob's FAILED
-    entry, as a refused pixel format is, and the knobs after it are set."""
+    entry, as a refused image mode is, and the knobs after it are set."""
     calls = []
 
     def refused(name):
@@ -269,27 +292,31 @@ def test_a_knob_the_camera_refuses_is_the_cells_record_and_the_cell_goes_on():
     # The API's bench-knob setters answer for a Pylon camera only.
     # a stand-in by design: the subject is the tool's catch around those setters.
     scope = SimpleNamespace(
-        camera=SimpleNamespace(update_camera_config=nullcontext),
+        camera=SimpleNamespace(
+            set_image_mode=lambda mode: None,
+            read_pixel_format=lambda: 'Mono8',
+            set_frame_size=lambda w, h: SimpleNamespace(width=w, height=h),
+        ),
         imaging=SimpleNamespace(
-            set_pixel_format=lambda pf: None,
             _set_bandwidth_reserve_mode=taken('bw_mode'),
             _set_gev_packet_size=refused('packet_size'),
             _set_gev_inter_packet_delay=taken('delay_ticks'),
         ),
     )
     cell = {
-        'pixel_format': 'Mono8',
-        'resolution': (0, 0),
+        'image_mode': '8bit',
+        'resolution': (2100, 2100),
         'bw_mode': 'Performance',
         'packet_size': 9000,
         'delay_ticks': 0,
     }
 
-    log = _apply_cell(scope, 'gige', cell, 0, 0)
+    log = _apply_cell(scope, 'gige', cell)
 
     assert calls == ['bw_mode', 'packet_size', 'delay_ticks']
     assert log == [
-        ('pixel_format', 'Mono8'),
+        ('image_mode', 'Mono8'),
+        ('frame', '2100x2100'),
         ('bw_mode', True),
         ('packet_size', 'FAILED: packet_size not writable now'),
         ('delay_ticks', True),

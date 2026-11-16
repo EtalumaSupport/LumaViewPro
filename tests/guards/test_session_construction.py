@@ -40,13 +40,9 @@ class TestNoHostCopyOfTheBringUp:
 # constructs a Lumascope
 # ===========================================================================
 
-# The one file that constructs a scope, and the one exception with its
-# retire-by gate (Rule 35 exception 3). The Pylon probe tool does not run
-# (its ImagingAPI call predates the frame_validity argument) and is rebuilt
-# on ScopeSession.create with #727; its entry goes then.
+# The one file that constructs a scope.
 _SCOPE_BUILDERS = {
     'src/_lumascope/modules/scope_session.py': 'ScopeSession.create, the one bring-up',
-    'tools/pylon_probe_sweep.py': '#727 rebuilds it on ScopeSession.create',
 }
 
 

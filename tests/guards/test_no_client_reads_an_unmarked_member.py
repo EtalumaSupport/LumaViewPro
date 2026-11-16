@@ -66,12 +66,6 @@ _FORWARDERS = (app_context.AppContext,)
 _PINNED: dict[str, int] = {
     'CameraAPI.active': 1,
     'DeliveredRate.megabytes_per_s': 1,
-    # tools/pylon_probe_sweep.py, which does not run (fw TODO
-    # "tools/pylon_probe_sweep.py does not run"); its rebuild reads the API.
-    'ImagingAPI._set_grab_strategy': 1,
-    'ImagingAPI._set_max_num_buffer': 1,
-    'ImagingAPI._set_max_transfer_size': 1,
-    'ImagingAPI._set_num_max_queued_urbs': 1,
     'Labware.get_well_label': 1,
     'LiveWork.has': 2,
     'Lumascope.camera_connected': 2,

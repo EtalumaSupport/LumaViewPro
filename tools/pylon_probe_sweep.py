@@ -2,7 +2,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Bench-probe sweep orchestration for Pylon (Basler) cameras.
 
-Iterates a configurable sweep matrix (pixel format x resolution x
+Iterates a configurable sweep matrix (image mode x frame size x
 transport-specific knobs) and writes a per-cell JSON snapshot via
 ``scope.diagnostics.run_pylon_diagnostic_probe()`` -- the canonical
 production probe API.
@@ -10,34 +10,30 @@ production probe API.
 USB3 cells vary DeviceLinkThroughputLimit (DLTL).
 GigE cells vary BandwidthReserveMode + GevSCPSPacketSize + GevSCPD.
 
-Transport detection: ``DeviceTransportLayerType`` from the camera's
-TL nodemap (USB3 -> ``BaslerUsb3Vision``, GigE -> ``BaslerGigE``).
-Falls back to model substring (``gm`` -> GigE; otherwise USB3) if
-the node is not exposed.
+The scope is the one connected to this machine, brought up the way every
+host brings it up (``ScopeSession.create`` on the installation's own
+``current.json``, then ``run_application_session``); nothing the sweep
+sets is saved. Close LumaViewPro first: it holds the camera.
+
+Transport: the camera's own nodes say it -- a GigE body has
+``GevSCPSPacketSize``, a USB3 body ``DeviceLinkThroughputLimitMode``.
 
 Usage:
     python -m tools.pylon_probe_sweep
     python -m tools.pylon_probe_sweep --duration 5.0
-    python -m tools.pylon_probe_sweep --pixel-formats Mono8 Mono12
+    python -m tools.pylon_probe_sweep --image-modes 8bit 12bit_scientific
     python -m tools.pylon_probe_sweep --resolutions 2100 sensor-max
     python -m tools.pylon_probe_sweep --dltl-modes Off On --dltl-values-mb 160 250 360
     python -m tools.pylon_probe_sweep --gige-bw-modes Default Performance \\
         --gige-packet-sizes 1500 9000
 
-Outputs land in ``data/pylon_probe/`` with per-cell filenames keyed
-on model + serial + firmware + host + dltl-token + timestamp. Sweep
-runs print progress to stdout; one line per cell.
-
-Production-aligned: imports the canonical ``PylonCamera`` driver
-and ``scope.diagnostics.run_pylon_diagnostic_probe()``
-API method. Transport-specific setters
-(``set_device_link_throughput_limit``,
-``set_bandwidth_reserve_mode``, ``set_gev_packet_size``,
-``set_gev_inter_packet_delay``) are called per cell. No /tmp scripts;
-no ad-hoc subprocess invocations.
+Outputs land in the log folder's ``camera_probe/``, one file per cell,
+named for model + serial + firmware + host + dltl-token + timestamp.
+Sweep runs print progress to stdout; one line per cell.
 """
 
 import argparse
+import contextlib
 import logging
 import platform
 import sys
@@ -52,16 +48,12 @@ import numpy as np
 _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT / 'src'))
 
-from _lumascope.drivers.camera import CameraNodeHasNoValue
-from _lumascope.drivers.exceptions import (
-    CameraReadFailedError,
-    CameraUsbOpenFailedError,
-    CameraWriteFailedError,
-)
-from _lumascope.drivers.pyloncamera import PylonCamera
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.lvp_logger import logger
-from _lumascope.modules.exceptions import CameraSettingRejected
-from _lumascope.modules.lumascope_api import Lumascope
+from _lumascope.modules.exceptions import CameraSettingOutOfRangeError, CameraSettingRejected
+from _lumascope.modules.image_mode import ImageMode
+from _lumascope.modules.path_utils import get_source_root
+from _lumascope.modules.scope_session import ScopeSession
 
 
 def _print_environment_header() -> None:
@@ -122,53 +114,25 @@ def _route_lvp_logging_to_stdout() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _detect_transport(camera) -> str:
-    """Return 'usb3', 'gige', or 'unknown' for a connected PylonCamera.
+def _detect_transport(scope) -> str:
+    """Return 'usb3', 'gige', or 'unknown' for the scope's camera.
 
-    Reads DeviceTransportLayerType from the camera's TL nodemap. Falls
-    back to model substring detection if the node is not exposed.
+    The camera's own nodes say it: a GigE body has ``GevSCPSPacketSize``
+    (a GigE body has a throughput limit too, so that node is asked first),
+    a USB3 body ``DeviceLinkThroughputLimitMode``. A camera with no named
+    settings (not a Pylon camera) is 'unknown'.
 
     Raises:
-        CameraReadFailedError: The read failed, or the node holds no
-            transport name; a sweep that cannot tell its transport cannot
-            pick its cells.
+        CameraReadFailedError: A read failed; a sweep that cannot tell its
+            transport cannot pick its cells.
     """
-    if not camera.active:
+    if 'device' not in scope.capabilities.camera_node_maps:
         return 'unknown'
-    tl_type = camera.read_node('DeviceTransportLayerType', 'transport')
-    if isinstance(tl_type, CameraNodeHasNoValue):
-        raise CameraReadFailedError(f'DeviceTransportLayerType holds no transport name ({tl_type})')
-    if tl_type is not None:
-        v = str(tl_type.value)
-        if 'Usb' in v or 'USB' in v or 'usb' in v:
-            return 'usb3'
-        if 'GigE' in v or 'Gige' in v or 'GIGE' in v:
-            return 'gige'
-
-    # Fallback: model-string substring match.
-    model = (getattr(camera, 'model_name', None) or '').lower()
-    # Basler model format: <prefix>-<rate><family-suffix><series?>
-    # family-suffix is 'um' (mono USB), 'uc' (color USB), 'gm' (mono GigE),
-    # 'gc' (color GigE). Optional trailing series tag e.g. 'BAS' for ACE 2.
-    # Match against the post-'-' segment so a substring search can't false-
-    # positive on prefix text and a trailing series tag doesn't push the
-    # family-suffix out of a fixed-width tail window.
-    segment = model.rsplit('-', 1)[-1] if '-' in model else model
-    if 'gm' in segment or 'gc' in segment:
+    if scope.diagnostics.read_camera_node('GevSCPSPacketSize') is not None:
         return 'gige'
-    if 'um' in segment or 'uc' in segment:
+    if scope.diagnostics.read_camera_node('DeviceLinkThroughputLimitMode') is not None:
         return 'usb3'
     return 'unknown'
-
-
-def _sensor_max_resolution(camera) -> tuple[int, int]:
-    """Read sensor-native (Width.Max, Height.Max) from the camera."""
-    try:
-        w = int(camera.active.Width.GetMax())
-        h = int(camera.active.Height.GetMax())
-        return (w, h)
-    except Exception:
-        return (0, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -176,11 +140,12 @@ def _sensor_max_resolution(camera) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_resolutions(spec: list[str], sensor_w: int, sensor_h: int):
+def _resolve_resolutions(spec: list[str], largest: tuple[int, int] | None):
     """Resolve --resolutions tokens to (w, h) tuples.
 
     Tokens:
-      - 'sensor-max'   -> (sensor_w, sensor_h)
+      - 'sensor-max'   -> ``largest``, the largest frame the scope delivers
+                          (``capabilities.camera_limits.frame_max``)
       - integer N      -> (N, N)
       - WxH            -> (W, H)
 
@@ -188,12 +153,21 @@ def _resolve_resolutions(spec: list[str], sensor_w: int, sensor_h: int):
     the operator typed a sibling flag name (e.g. 'dltl-modes') without the
     leading '--', so argparse's nargs='+' for --resolutions greedily consumed
     it. Print a clear error naming the bad token and exit cleanly rather than
-    leave the operator a bare int() ValueError traceback.
+    leave the operator a bare int() ValueError traceback. 'sensor-max' on a
+    scope that knows no largest frame exits the same way: no frame stands in
+    for it.
     """
     out = []
     for tok in spec:
         if tok == 'sensor-max':
-            out.append((sensor_w, sensor_h))
+            if largest is None:
+                print(
+                    'ERROR: --resolutions sensor-max, but this scope knows no largest frame '
+                    '(capabilities.camera_limits.frame_max is None). Name the frame as WxH.',
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            out.append(largest)
             continue
         try:
             if 'x' in tok:
@@ -218,13 +192,13 @@ def _resolve_resolutions(spec: list[str], sensor_w: int, sensor_h: int):
 def _build_usb3_cells(args):
     """Cartesian product of USB3 sweep dimensions."""
     cells = []
-    for pf in args.pixel_formats:
+    for image_mode in args.image_modes:
         for res in args.resolution_tuples:
             for mode in args.dltl_modes:
                 if mode == 'Off':
                     cells.append(
                         {
-                            'pixel_format': pf,
+                            'image_mode': image_mode,
                             'resolution': res,
                             'dltl_mode': 'Off',
                             'dltl_value': None,
@@ -234,7 +208,7 @@ def _build_usb3_cells(args):
                     if not args.dltl_values_mb:
                         cells.append(
                             {
-                                'pixel_format': pf,
+                                'image_mode': image_mode,
                                 'resolution': res,
                                 'dltl_mode': 'On',
                                 'dltl_value': None,
@@ -244,7 +218,7 @@ def _build_usb3_cells(args):
                         for v_mb in args.dltl_values_mb:
                             cells.append(
                                 {
-                                    'pixel_format': pf,
+                                    'image_mode': image_mode,
                                     'resolution': res,
                                     'dltl_mode': 'On',
                                     'dltl_value': int(v_mb) * 1_000_000,
@@ -256,14 +230,14 @@ def _build_usb3_cells(args):
 def _build_gige_cells(args):
     """Cartesian product of GigE sweep dimensions."""
     cells = []
-    for pf in args.pixel_formats:
+    for image_mode in args.image_modes:
         for res in args.resolution_tuples:
             for bw_mode in args.gige_bw_modes:
                 for pkt in args.gige_packet_sizes:
                     for delay in args.gige_delays:
                         cells.append(
                             {
-                                'pixel_format': pf,
+                                'image_mode': image_mode,
                                 'resolution': res,
                                 'bw_mode': bw_mode,
                                 'packet_size': int(pkt),
@@ -278,82 +252,63 @@ def _build_gige_cells(args):
 # ---------------------------------------------------------------------------
 
 
-def _apply_cell(scope, transport: str, cell: dict, sensor_w: int, sensor_h: int):
-    """Apply per-cell config via the production setters. Returns a list
-    of (knob, ok) tuples for logging.
+def _apply_cell(scope, transport: str, cell: dict):
+    """Apply one cell through the production setters. Returns a list of
+    (knob, result) tuples for logging.
 
-    All writes happen inside ``camera.update_camera_config()`` so the grab
-    loop is stopped before geometry / ROI / transport knobs are written.
-    pypylon 26.4.1 enforces RO on Width / Height / OffsetX / OffsetY /
-    MaxNumBuffer while grabbing; without this wrapping the writes raise
-    ``AccessException: Node is not writable`` and the cell runs against
-    the camera's previous-cell config.
+    The image mode and the frame are set as every host sets them
+    (``camera.set_image_mode``, ``camera.set_frame_size``), each stopping
+    and restarting the camera's grab around its write, so a cell measures
+    the frames LVP itself takes.
     """
     log = []
-    with scope.camera.update_camera_config():
-        # Pixel format. A rejected format is one cell's data point, not a
-        # sweep abort: record it and keep sweeping (set_pixel_format raises
-        # the typed rejection; the sweep's whole job is probing formats the
-        # camera may lack).
-        pf = cell['pixel_format']
-        try:
-            scope.imaging.set_pixel_format(pf)
-            log.append(('pixel_format', pf))
-        except CameraSettingRejected as e:
-            log.append(('pixel_format', f'REJECTED: {e}'))
+    # A setting the camera refuses is one cell's data point, not a sweep
+    # abort: record it and keep sweeping.
+    image_mode = cell['image_mode']
+    try:
+        scope.camera.set_image_mode(ImageMode(image_mode))
+        log.append(('image_mode', scope.camera.read_pixel_format()))
+    except CameraSettingRejected as e:
+        log.append(('image_mode', f'REJECTED: {e}'))
 
-        # Resolution + centered ROI
-        w, h = cell['resolution']
-        if w > 0 and h > 0:
-            # Use direct camera Width/Height/OffsetX/OffsetY for the
-            # centered ROI -- set_frame_size does not support centering.
-            try:
-                cam = scope.camera.active
-                cam.OffsetX.SetValue(0)
-                cam.OffsetY.SetValue(0)
-                cam.Width.SetValue(w)
-                cam.Height.SetValue(h)
-                ox = max(0, (sensor_w - w) // 2) if sensor_w >= w else 0
-                oy = max(0, (sensor_h - h) // 2) if sensor_h >= h else 0
-                ox -= ox % int(cam.OffsetX.GetInc()) if cam.OffsetX.GetInc() else 0
-                oy -= oy % int(cam.OffsetY.GetInc()) if cam.OffsetY.GetInc() else 0
-                cam.OffsetX.SetValue(ox)
-                cam.OffsetY.SetValue(oy)
-                log.append(('resolution', True))
-            except Exception as e:
-                log.append(('resolution', f'FAILED: {e}'))
+    w, h = cell['resolution']
+    try:
+        delivered = scope.camera.set_frame_size(w, h)
+        log.append(('frame', f'{delivered.width}x{delivered.height}'))
+    except (CameraSettingOutOfRangeError, CameraSettingRejected) as e:
+        log.append(('frame', f'REJECTED: {e}'))
 
-        # Transport-specific knobs.
-        # These setters are private (underscore-prefixed) on ImagingAPI
-        # because they are bench-tooling artifacts, not part of the L2
-        # contract. This tool is internal bench tooling; the underscore
-        # access is intentional. A knob the camera refuses is one cell's
-        # data point, recorded as the pixel format's is.
-        if transport == 'usb3':
-            knobs = [
-                (
-                    'dltl',
-                    lambda: scope.imaging._set_device_link_throughput_limit(
-                        mode=cell['dltl_mode'], value_bps=cell['dltl_value']
-                    ),
-                )
-            ]
-        elif transport == 'gige':
-            knobs = [
-                ('bw_mode', lambda: scope.imaging._set_bandwidth_reserve_mode(cell['bw_mode'])),
-                ('packet_size', lambda: scope.imaging._set_gev_packet_size(cell['packet_size'])),
-                (
-                    'delay_ticks',
-                    lambda: scope.imaging._set_gev_inter_packet_delay(cell['delay_ticks']),
+    # Transport-specific knobs.
+    # These setters are private (underscore-prefixed) on ImagingAPI
+    # because they are bench-tooling artifacts, not part of the L2
+    # contract. This tool is internal bench tooling; the underscore
+    # access is intentional. A knob the camera refuses is one cell's
+    # data point, recorded as the image mode's is.
+    if transport == 'usb3':
+        knobs = [
+            (
+                'dltl',
+                lambda: scope.imaging._set_device_link_throughput_limit(
+                    mode=cell['dltl_mode'], value_bps=cell['dltl_value']
                 ),
-            ]
-        else:
-            knobs = []
-        for name, set_knob in knobs:
-            try:
-                log.append((name, set_knob()))
-            except CameraWriteFailedError as e:
-                log.append((name, f'FAILED: {e}'))
+            )
+        ]
+    elif transport == 'gige':
+        knobs = [
+            ('bw_mode', lambda: scope.imaging._set_bandwidth_reserve_mode(cell['bw_mode'])),
+            ('packet_size', lambda: scope.imaging._set_gev_packet_size(cell['packet_size'])),
+            (
+                'delay_ticks',
+                lambda: scope.imaging._set_gev_inter_packet_delay(cell['delay_ticks']),
+            ),
+        ]
+    else:
+        knobs = []
+    for name, set_knob in knobs:
+        try:
+            log.append((name, set_knob()))
+        except CameraWriteFailedError as e:
+            log.append((name, f'FAILED: {e}'))
 
     return log
 
@@ -362,7 +317,7 @@ def _format_cell_id(transport: str, cell: dict) -> str:
     """Short human-readable cell identifier for stdout progress."""
     res = cell['resolution']
     parts = [
-        cell['pixel_format'],
+        cell['image_mode'],
         f'{res[0]}x{res[1]}',
     ]
     if transport == 'usb3':
@@ -384,57 +339,41 @@ def _format_cell_id(transport: str, cell: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _connect_camera(serial_filter: str | None) -> PylonCamera:
-    """Return a connected PylonCamera; abort on failure with a diagnostic message.
+@contextlib.contextmanager
+def _session_on_this_scope(serial_filter: str | None):
+    """The scope connected to this machine, brought up as every host brings it up.
 
-    ``Camera.__init__`` auto-connects per the driver-registry contract, so
-    constructing the PylonCamera IS the connect. ``cam.found`` is the
-    base-class success signal. Calling ``cam.connect()`` again would
-    re-Open the same device and hit "Device is exclusively opened".
+    The settings are the installation's own ``current.json``; a root
+    without one is refused, because the shipped template would configure a
+    scope that is not the one on the bench. Nothing the sweep sets is
+    saved (no settings file is given). A scope with no motor board comes
+    straight up. The session is shut down on leaving, however the sweep
+    ends.
     """
+    root = get_source_root()
+    if not (root / 'data' / 'current.json').is_file():
+        print(
+            f'ERROR: no {root / "data" / "current.json"} -- the session would come up on the '
+            'shipped template, not this installation. Start LumaViewPro once here first.'
+        )
+        sys.exit(2)
+    session = ScopeSession.create(
+        ScopeSession.load_user_settings(str(root)),
+        source_path=str(root),
+        warn_pre_release=False,
+    )
     try:
-        cam = PylonCamera()
-    except CameraUsbOpenFailedError as e:
-        print(f'ERROR: PylonCamera connect failed: {e}')
-        sys.exit(1)
-    if not getattr(cam, 'found', False):
-        print('ERROR: PylonCamera connect failed: no Basler camera found.')
-        sys.exit(1)
-    if serial_filter:
-        try:
-            actual = cam.active.GetDeviceInfo().GetSerialNumber()
-        except Exception:
-            actual = None
-        if actual != serial_filter:
+        session.run_application_session()
+        serial = session.scope.capabilities.camera_serial_number
+        if serial_filter and serial != serial_filter:
             print(
-                f'ERROR: Connected camera serial {actual!r} does not '
+                f'ERROR: Connected camera serial {serial!r} does not '
                 f'match --camera-serial {serial_filter!r}'
             )
-            cam.disconnect()
             sys.exit(1)
-    return cam
-
-
-def _make_minimal_scope(camera: PylonCamera) -> Lumascope:
-    """Construct a minimal Lumascope shell with the camera + sub-APIs attached.
-
-    Bypasses the full Lumascope.__init__ (which expects scope / board /
-    settings). The setters this tool calls route through
-    ``scope.imaging.<setter>`` and ``scope.diagnostics.<probe>`` -- both
-    sub-APIs resolve ``self._scope._camera_driver`` via @property, so the
-    canonical driver slot must be set in addition to the legacy
-    ``scope.camera`` alias used at the ``update_camera_config()`` +
-    ``active`` callsites in this tool.
-    """
-    from _lumascope.modules.lumascope_api.imaging import ImagingAPI
-    from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
-
-    scope = Lumascope.__new__(Lumascope)
-    scope.camera = camera
-    scope._camera_driver = camera
-    scope.imaging = ImagingAPI(scope, camera)
-    scope.diagnostics = DiagnosticsAPI(scope)
-    return scope
+        yield session
+    finally:
+        session.shutdown()
 
 
 def _host_load_loop(stop_event: threading.Event) -> None:
@@ -499,18 +438,20 @@ def main():
         help='If set, abort unless the connected camera has this serial number.',
     )
     parser.add_argument(
-        '--pixel-formats',
+        '--image-modes',
         nargs='+',
-        default=['Mono8'],
-        help='Pixel formats to sweep (Mono8, Mono12, ...).',
+        default=[ImageMode.EIGHT_BIT.value],
+        choices=[m.value for m in ImageMode],
+        help='Image modes to sweep; each sets the pixel format LVP captures it in '
+        '(8bit -> Mono8, the 12-bit modes -> Mono12).',
     )
     parser.add_argument(
         '--resolutions',
         nargs='+',
         default=['2100'],
-        help='Resolutions to sweep. Tokens: integer N -> '
-        '(N,N); WxH -> (W,H); sensor-max -> camera '
-        'sensor maximum.',
+        help='Frame sizes to sweep, as LVP frames them. Tokens: integer N -> '
+        '(N,N); WxH -> (W,H); sensor-max -> the largest frame the scope '
+        'delivers.',
     )
     # USB3 sweep
     parser.add_argument(
@@ -545,25 +486,6 @@ def main():
         help='GevSCPSPacketSize values (GigE cells).',
     )
     parser.add_argument(
-        '--max-num-buffer',
-        type=int,
-        default=None,
-        help='Override LVP MaxNumBuffer cap (default 3). '
-        'Bench characterization: Pylon Viewer uses '
-        '10. Applied via '
-        'scope.imaging._set_max_num_buffer().',
-    )
-    parser.add_argument(
-        '--grab-strategy',
-        choices=['LatestImageOnly', 'OneByOne'],
-        default=None,
-        help='Override LVP grab strategy (default '
-        'LatestImageOnly). OneByOne delivers every '
-        'frame for apples-to-apples vs Pylon Viewer. '
-        'Applied via '
-        'scope.imaging._set_grab_strategy().',
-    )
-    parser.add_argument(
         '--host-load-workers',
         type=int,
         default=0,
@@ -571,27 +493,8 @@ def main():
         'during the sweep, simulating the slow-host per-frame load that '
         'starves the Pylon grab worker and overflows the camera FIFO. '
         '0 = none (transport-only baseline, like the Pylon Viewer bandwidth '
-        'test). Pair with --max-num-buffer to test whether more buffers '
-        'absorb the stall. To test the camera-reset hypothesis, power-cycle '
+        'test). To test the camera-reset hypothesis, power-cycle '
         'the mainboard between runs and compare the failed-buffer delta.',
-    )
-    parser.add_argument(
-        '--max-transfer-size',
-        type=int,
-        default=None,
-        help='Override MaxTransferSize in bytes (default '
-        '262144 = 256 KB; max 4194304 = 4 MB). Larger '
-        'values reduce kernel-transition overhead at '
-        'high throughput. Applied via '
-        'scope.imaging._set_max_transfer_size().',
-    )
-    parser.add_argument(
-        '--num-queued-urbs',
-        type=int,
-        default=None,
-        help='Override NumMaxQueuedUrbs (default 64; max '
-        '256). Applied via '
-        'scope.imaging._set_num_max_queued_urbs().',
     )
     parser.add_argument(
         '--gige-delays',
@@ -610,54 +513,34 @@ def main():
     # support bundle therefore cannot tell which command produced a run, and
     # several runs append to the same log file. This line anchors each run and
     # captures the knobs that are not otherwise logged (host_load_workers,
-    # duration, grab_strategy) -- MaxNumBuffer is the only knob the driver
-    # already logs at connect.
+    # duration).
     logger.info(f'[PROBE Sweep] run start: {" ".join(sys.argv)}')
     logger.info(
         f'[PROBE Sweep] params: duration={args.duration}s settle={args.settle}s '
-        f'pixel_formats={args.pixel_formats} resolutions={args.resolutions} '
-        f'max_num_buffer={args.max_num_buffer} grab_strategy={args.grab_strategy} '
+        f'image_modes={args.image_modes} resolutions={args.resolutions} '
         f'host_load_workers={args.host_load_workers} '
-        f'max_transfer_size={args.max_transfer_size} num_queued_urbs={args.num_queued_urbs} '
         f'camera_serial={args.camera_serial}'
     )
 
-    camera = _connect_camera(args.camera_serial)
-    scope = _make_minimal_scope(camera)
+    with _session_on_this_scope(args.camera_serial) as session:
+        _sweep(session.scope, args)
 
-    # Apply Pylon tuning overrides via the imaging sub-API levers.
-    # MaxNumBuffer is special: it is the connect-time cap (applied post-Open
-    # in connect()), and the InstantCamera node goes read-only once the
-    # implicit AcquireContinuous auto-start begins grabbing -- so the live
-    # SetValue fails and the lever only STORES the value. Reconnect here so
-    # the stored cap is actually applied before the probe; without this the
-    # probe runs at the default cap and the buffer sweep silently does
-    # nothing (the "MaxNumBuffer cap applied post-Open: requested=N actual=N"
-    # line is the tell -- it must read the requested value, not the default).
-    # MaxTransferSize / NumMaxQueuedUrbs / grab strategy are accepted live,
-    # so set them AFTER the reconnect, on the fresh connection.
-    if args.max_num_buffer is not None:
-        scope.imaging._set_max_num_buffer(args.max_num_buffer)
-        camera.disconnect()
-        if not camera.connect():
-            print('ERROR: reconnect to apply the MaxNumBuffer override failed')
-            sys.exit(1)
-    if args.grab_strategy is not None:
-        scope.imaging._set_grab_strategy(args.grab_strategy)
-    if args.max_transfer_size is not None:
-        scope.imaging._set_max_transfer_size(args.max_transfer_size)
-    if args.num_queued_urbs is not None:
-        scope.imaging._set_num_max_queued_urbs(args.num_queued_urbs)
 
-    transport = _detect_transport(camera)
-    sensor_w, sensor_h = _sensor_max_resolution(camera)
+def _sweep(scope, args) -> None:
+    """Build the cells for the scope's transport and probe each in turn."""
+    transport = _detect_transport(scope)
+    limits = scope.capabilities.camera_limits
+    largest = None
+    if limits is not None and limits.frame_max is not None:
+        largest = (limits.frame_max.width, limits.frame_max.height)
 
     print(
-        f'Camera: model={camera.model_name!r} transport={transport!r} sensor={sensor_w}x{sensor_h}'
+        f'Camera: model={scope.capabilities.camera_model!r} '
+        f'serial={scope.capabilities.camera_serial_number!r} transport={transport!r} '
+        f'largest frame={largest}'
     )
 
-    # Resolve resolution tokens against actual sensor size
-    args.resolution_tuples = _resolve_resolutions(args.resolutions, sensor_w, sensor_h)
+    args.resolution_tuples = _resolve_resolutions(args.resolutions, largest)
 
     if transport == 'usb3':
         cells = _build_usb3_cells(args)
@@ -665,7 +548,6 @@ def main():
         cells = _build_gige_cells(args)
     else:
         print(f'ERROR: unknown transport {transport!r} -- cannot build sweep')
-        camera.disconnect()
         sys.exit(2)
 
     print(f'Sweep: {len(cells)} cells ({transport.upper()})')
@@ -679,13 +561,13 @@ def main():
         )
         host_load.start()
 
-    # Camera must be grabbing for stats counters to advance.
-    camera.start_grabbing()
+    # The session's camera is grabbing once it is up, so the stats counters
+    # advance through each probe's window.
     try:
         for i, cell in enumerate(cells, 1):
             cell_id = _format_cell_id(transport, cell)
             print(f'[{i}/{len(cells)}] {cell_id}')
-            apply_log = _apply_cell(scope, transport, cell, sensor_w, sensor_h)
+            apply_log = _apply_cell(scope, transport, cell)
             for knob, status in apply_log:
                 if status is not True:
                     print(f'    apply {knob}: {status}')
@@ -704,15 +586,12 @@ def main():
             print(f'    deltas: {delta_summary}')
             print(f'    -> {out_path}' + (f' (errors: {errors})' if errors else ''))
             # Also log the result so the failed-buffer count is in the bundle,
-            # keyed to the cell + the buffer / load knobs for this run.
+            # keyed to the cell + the load knob for this run.
             logger.info(
                 f'[PROBE Sweep] cell {i}/{len(cells)} {cell_id} '
-                f'max_num_buffer={args.max_num_buffer} '
                 f'host_load_workers={args.host_load_workers}: {delta_summary}'
             )
     finally:
-        camera.stop_grabbing()
-        camera.disconnect()
         host_load.stop()
 
 
