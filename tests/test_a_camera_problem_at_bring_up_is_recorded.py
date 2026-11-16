@@ -29,6 +29,7 @@ import pytest
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
+    CameraSettingRejected,
     HardwareCommandRefusedError,
     MissingPart,
 )
@@ -216,6 +217,50 @@ def test_a_read_failure_declared_on_the_record_is_armed_by_create():
             )
             in session.scope.simulation.injected()
         )
+    finally:
+        session.shutdown()
+
+
+def test_a_camera_range_unread_at_bring_up_is_told_once_and_the_scope_comes_up():
+    """Bring-up's last readout write leaves the range unread (its three
+    re-reads fail). The scope comes up; the shown channel's apply is kept on
+    the camera's part as a setting not applied and told once; every display
+    reads the range as not known; every write checked against it is
+    refused until a readout change reads it again."""
+    heard = []
+    session = _create(
+        heard,
+        bf={'gain_db': 60.0},
+        read_failures=(ReadFailure('minimum_exposure', 'failed', count=3),),
+    )
+    try:
+        camera = session.scope.camera
+        assert camera.known_setting_limits is None, 'the fault was armed before bring-up'
+        assert (_camera_part(session).up, _camera_part(session).cause) == (
+            True,
+            'settings_not_applied',
+        )
+        told = [n for n in heard if n.severity.level >= logging.WARNING]
+        assert [(n.category, n.reason) for n in told] == [('Camera', 'camera_read_failed')]
+        assert 'gain and exposure range could not be read' in told[0].message
+
+        maxima = session.channel_slider_maxima('BF')
+        assert (maxima.slider_max_exposure_ms, maxima.slider_max_gain_db) == (None, None)
+        assert maxima.slider_max_illumination_ma == 50
+        assert session.capped_channels() == ()
+        with pytest.raises(CameraSettingRejected) as refused:
+            session.show_channel('BF')
+        assert refused.value.reason == 'camera_read_failed'
+        with pytest.raises(CameraSettingRejected) as refused:
+            session.capture_still('BF')
+        assert refused.value.reason == 'camera_read_failed'
+
+        camera.set_binning(2)
+
+        assert camera.known_setting_limits is not None
+        assert session.channel_slider_maxima('BF').slider_max_gain_db == 48.0
+        assert 'BF' in session.capped_channels()
+        session.show_channel('BF')
     finally:
         session.shutdown()
 

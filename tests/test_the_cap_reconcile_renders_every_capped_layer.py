@@ -17,41 +17,25 @@ from unittest.mock import MagicMock
 
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules.channel_record import release_catalogue
-from _lumascope.modules.lumascope_api.camera import AppliedExposure, AppliedGain, cap_stored_value
 from _lumascope.modules.scope_session import ShownChannel
 from tests.stock_channels import LED0, LED1, LED2
-
-_CAP_DB = 24.0
-
-
-def _applied_gain(stored):
-    # The API's own cap rule over a camera whose gain ceiling is _CAP_DB.
-    stored_db, applied_db = cap_stored_value(stored, None, _CAP_DB)
-    return AppliedGain(stored_db=stored_db, applied_db=applied_db, capped=applied_db != stored_db)
-
-
-def _applied_exposure(stored):
-    # No exposure limits: nothing is capped.
-    stored_ms, applied_ms = cap_stored_value(stored, None, None)
-    return AppliedExposure(stored_ms=stored_ms, applied_ms=applied_ms, capped=False)
 
 
 def _reconcile(monkeypatch, *, shown, capped):
     import ui.image_settings as image_settings
 
-    settings = {
-        layer: {'gain_db': 48.0 if layer in capped else 1.0, 'exposure_ms': 10.0}
-        for layer in release_catalogue()
-    }
+    # a stand-in by design: the subject is the GUI's reconcile, which Kivy
+    # keeps out of the test process; the Session's answer of which channels
+    # are capped (capped_channels) is pinned at the API, in
+    # test_a_capped_layer_setting_is_told_once_at_bring_up.
     context = MagicMock()
-    context.settings = settings
     context.session.shown_channel = ShownChannel(shown, lit=False)
-    imaging = context.lumaview.scope.imaging
-    imaging.applied_gain_db_for.side_effect = _applied_gain
-    imaging.applied_exposure_ms_for.side_effect = _applied_exposure
+    context.session.capped_channels.return_value = tuple(
+        layer for layer in release_catalogue() if layer in capped
+    )
     monkeypatch.setattr(_app_ctx, 'ctx', context)
 
-    channel_controls = {layer: MagicMock(name=layer) for layer in settings}
+    channel_controls = {layer: MagicMock(name=layer) for layer in release_catalogue()}
     stand_in = SimpleNamespace(channel_control_lookup=lambda channel: channel_controls[channel])
     image_settings.ImageSettings.reconcile_channels_to_camera_caps(stand_in)
     return channel_controls
@@ -62,6 +46,7 @@ def test_every_capped_layer_is_rendered_and_none_applied(monkeypatch):
 
     for layer in (LED0, LED2):
         channel_controls[layer].render_channel_values_from_settings.assert_called_once_with()
+    channel_controls[LED1].render_channel_values_from_settings.assert_not_called()
     for channel_control in channel_controls.values():
         channel_control.apply_settings.assert_not_called()
 

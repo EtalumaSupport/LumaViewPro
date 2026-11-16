@@ -21,7 +21,7 @@ already declares for gain rather than at a second number chosen locally.
 from types import SimpleNamespace
 
 from _lumascope.modules import common_utils
-from _lumascope.modules.config_helpers import DEFAULT_MAX_GAIN_DB, camera_max_gain_for_ui
+from _lumascope.modules.config_helpers import camera_max_gain_for_ui
 
 # The value a real Basler daA3840-45um published for a 48 dB gain node.
 REPORTED_TAIL_CAP = 48.00000004350822
@@ -50,10 +50,8 @@ class TestTheGainCapCarriesNoFloatTail:
 
         assert camera_max_gain_for_ui(imaging) == 24.0
 
-    def test_the_no_camera_default_still_applies_and_is_clean(self):
-        imaging = None
-
-        assert camera_max_gain_for_ui(imaging) == DEFAULT_MAX_GAIN_DB
+    def test_with_no_camera_there_is_no_cap(self):
+        assert camera_max_gain_for_ui(None) is None
 
     def test_the_precision_comes_from_the_existing_owner(self):
         """Not a second constant. If the owner's precision for gain changes,

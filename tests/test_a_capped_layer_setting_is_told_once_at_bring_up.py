@@ -48,6 +48,8 @@ def test_every_capped_layer_value_is_one_notice_and_the_saved_values_are_kept(tm
                 ]
             )
         )
+        # The display's answer is the notice's: the same channels, in order.
+        assert session.capped_channels() == ('BF', LED0)
         assert session.settings['BF']['gain_db'] == 1000.0, 'the saved value is the intent'
         assert session.settings['BF']['exposure_ms'] == 100000.0
         assert session.settings[LED0]['exposure_ms'] == 100000.0
@@ -91,5 +93,6 @@ def test_a_camera_that_reaches_every_saved_value_is_told_nothing(tmp_path):
     session = _session(tmp_path, heard, BF={'gain_db': 2.0, 'exposure_ms': 20.0})
     try:
         assert _notices(heard) == []
+        assert session.capped_channels() == ()
     finally:
         session.shutdown()

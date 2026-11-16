@@ -224,18 +224,19 @@ class ChannelSliderMaxima:
 
     Attributes:
         slider_max_exposure_ms: The exposure slider's maximum, in
-            milliseconds; None with no camera connected.
+            milliseconds; None with no camera connected, or while its range
+            is not known (``CameraAPI.known_setting_limits``).
         slider_max_illumination_ma: The illumination slider's maximum, in
             mA; None with no LED board, or for a channel with no LED on this
             scope (luminescence).
         slider_max_gain_db: The gain slider's maximum, in dB: the camera's
-            gain maximum now (``CameraAPI.setting_limits``), or 48 dB with no
-            camera connected.
+            gain maximum now (``CameraAPI.known_setting_limits``); None with
+            no camera connected, or while its range is not known.
     """
 
     slider_max_exposure_ms: float | None
     slider_max_illumination_ma: int | None
-    slider_max_gain_db: float
+    slider_max_gain_db: float | None
 
 
 class IdentitySource(enum.StrEnum):

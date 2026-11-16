@@ -3624,6 +3624,31 @@ class CameraAPI:
             raise CameraReadFailedError(_RANGE_UNREAD) from held
         return held
 
+    @api
+    @property
+    def known_setting_limits(self) -> CameraSettingLimits | None:
+        """The camera's gain and exposure range when it is known; no camera read.
+
+        ``setting_limits`` for a display or a wait's bound: a slider's stop,
+        whether a stored value is capped, how long a frame may take. A range
+        whose last read failed is not known, and this answers None for it
+        where ``setting_limits`` raises. Never a write's bound: a write
+        checked against the range reads ``setting_limits``, and is refused
+        while the range is unread.
+
+        Returns:
+            CameraSettingLimits | None: The range; None with no camera, or
+                while the last read of the range failed.
+
+        Raises:
+            Nothing.
+        """
+        if self._driver is None:
+            return None
+        with self._camera_cache_lock:
+            held = self._setting_limits
+        return held if isinstance(held, CameraSettingLimits) else None
+
     @property
     def active(self) -> bool:
         """Whether the camera is connected and active; no camera read.
@@ -3806,9 +3831,8 @@ class CameraAPI:
             # A bound for a wait, which has a floor of its own: a range whose
             # read failed is no maximum known, the failure raised by
             # setting_limits to every caller that checks a value against it.
-            with self._camera_cache_lock:
-                limits = self._setting_limits
-            bound = limits.exposure_max_ms if isinstance(limits, CameraSettingLimits) else None
+            limits = self.known_setting_limits
+            bound = None if limits is None else limits.exposure_max_ms
         if bound is not None and outgoing is not None:
             return max(bound, outgoing[0])
         return bound

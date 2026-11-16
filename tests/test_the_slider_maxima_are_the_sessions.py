@@ -41,11 +41,10 @@ def test_each_maximum_is_the_parts_cap_narrowed_to_the_layers_ceiling(make_sessi
     assert session.channel_slider_maxima('Lumi') == ChannelSliderMaxima(camera_ms, None, gain_db)
 
 
-def test_with_no_camera_the_exposure_maximum_is_none(make_session, monkeypatch):
+def test_with_no_camera_the_camera_maxima_are_none(make_session, monkeypatch):
     session = _camera_less(make_session, 'LS850')
 
-    # With no camera the gain slider keeps the documented 48 dB.
-    assert session.channel_slider_maxima('BF') == ChannelSliderMaxima(None, 50, 48.0)
+    assert session.channel_slider_maxima('BF') == ChannelSliderMaxima(None, 50, None)
 
 
 def test_with_no_led_board_every_illumination_maximum_is_none(make_session, monkeypatch):

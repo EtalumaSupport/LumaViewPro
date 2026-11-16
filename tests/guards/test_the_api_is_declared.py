@@ -995,6 +995,7 @@ OPEN_STRINGS: dict[str, str] = {
     'ScopeSession.assign_turret_objective parameter objective_id': _OBJECTIVE,
     'ScopeSession.capture_still parameter channel': _CHANNEL,
     'ScopeSession.channel_auto_gain_lock parameter channel': _CHANNEL,
+    'ScopeSession.capped_channels return': _CHANNEL,
     'ScopeSession.channel_colors return': _CHANNEL,
     'ScopeSession.channel_settings parameter channel': _CHANNEL,
     'ScopeSession.channel_slider_maxima parameter channel': _CHANNEL,

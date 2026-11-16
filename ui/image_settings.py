@@ -239,14 +239,15 @@ class ImageSettings(BoxLayout):
         was hardcoded 0-48 dB in the kv regardless of camera -- that
         let LS620 users drag past the usable range and black out the
         image. The cap is the session's answer
-        (``channel_slider_maxima``), the camera's gain maximum now.
+        (``channel_slider_maxima``), the camera's gain maximum now. With no
+        maximum known (no camera, or its range unread) the slider keeps its
+        own.
         """
         session = _app_ctx.ctx.session
         for channel in common_utils.get_channels():
-            channel_control = self.channel_control_lookup(channel=channel)
-            channel_control.ids['gain_slider'].max = session.channel_slider_maxima(
-                channel
-            ).slider_max_gain_db
+            maximum = session.channel_slider_maxima(channel).slider_max_gain_db
+            if maximum is not None:
+                self.channel_control_lookup(channel=channel).ids['gain_slider'].max = maximum
 
     def set_channel_illumination_ranges(self):
         """Size each channel's illumination slider to the session's answer
@@ -343,7 +344,7 @@ class ImageSettings(BoxLayout):
                 channel_control._initializing = False
         shown = channel_controls[0]
         ctx = _app_ctx.ctx
-        limits = ctx.scope.camera.setting_limits
+        limits = ctx.scope.camera.known_setting_limits
         exposure_max = None if limits is None else limits.exposure_max_ms
         gui_logger.display(
             'CAMERA_CONTROLS',
@@ -378,13 +379,9 @@ class ImageSettings(BoxLayout):
         writing the slider -- the channel's handler re-committed the value
         (crediting the user with a drag it never made).
         """
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        camera = ctx.lumaview.scope.camera
+        capped = _app_ctx.ctx.session.capped_channels()
         for channel in common_utils.get_channels():
-            gain = camera.applied_gain_db_for(settings[channel]['gain_db'])
-            exposure = camera.applied_exposure_ms_for(settings[channel]['exposure_ms'])
-            if gain.capped or exposure.capped:
+            if channel in capped:
                 self.channel_control_lookup(channel=channel).render_channel_values_from_settings()
 
     # Hide (and unhide) main settings

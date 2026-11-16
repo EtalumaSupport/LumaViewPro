@@ -2430,21 +2430,21 @@ class ScopeSession:
         Display hints for a control, never a bound: a typed value may exceed
         either, up to what the camera or the LED board can be asked for,
         which their writers refuse past. The illumination maximum is None for
-        a channel with no LED on this scope.
+        a channel with no LED on this scope; the camera's maxima are None
+        while its range is not known (``CameraAPI.known_setting_limits``),
+        and the illumination maximum is answered whatever the camera's.
 
         Args:
             channel: The channel read.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a channel.
-            CameraReadFailedError: ``'camera_read_failed'``, the camera's
-                range could not be read after its last readout change.
         """
         import _lumascope.modules.config_helpers as config_helpers
 
         refuse_unknown_channel(channel)
         capabilities = self.scope.capabilities
-        limits = self.scope.camera.setting_limits
+        limits = self.scope.camera.known_setting_limits
         record = self.scope.channel_identity.find(channel)
         lit = record is not None and bool(record.led_addresses)
         return config_helpers.channel_slider_maxima(
@@ -5582,27 +5582,57 @@ class ScopeSession:
         self._apply_bring_up_channel()
         self.scope.end_bring_up()
 
-    def _tell_capped_channels(self) -> None:
-        """Tell, as one notice, every saved channel gain or exposure the attached camera cannot reach.
+    @api(in_process=True, reads=True)
+    def capped_channels(self) -> tuple[str, ...]:
+        """This scope's channels whose stored gain or exposure the attached camera cannot reach.
 
-        A saved channel value outside the camera's range is kept as saved and
-        applied at the camera's limit (``CameraAPI.applied_gain_db_for``
-        and kin); each apply logs it, and this is where the person is told,
-        once per bring-up for every capped channel at once. With no camera
-        the cache declares no limit, so nothing is capped and nothing is
-        told.
+        A stored value outside the camera's range is kept as stored and
+        applied at the camera's limit (``CameraAPI.applied_gain_db_for`` and
+        kin), so a display shows the stored value beside the one in force.
+        In the scope's channel order. Empty with no camera, and while the
+        camera's range is not known (``CameraAPI.known_setting_limits``): no
+        limit is known to cap against.
+
+        Raises:
+            Nothing.
         """
-        camera = self.scope.camera
+        return tuple(dict.fromkeys(channel for channel, *_ in self._capped_channel_settings()))
+
+    def _capped_channel_settings(self) -> tuple[tuple[str, str, float, float], ...]:
+        """Each stored channel gain or exposure the camera cannot reach: ``(channel, setting, stored, applied)``.
+
+        ``setting`` is ``'gain_db'`` or ``'exposure_ms'``; ``applied`` the
+        camera's limit, by the rule every apply follows (``cap_stored_value``).
+        Empty while the range is not known, as ``capped_channels`` says.
+        """
+        from _lumascope.modules.lumascope_api.camera import cap_stored_value
+
+        limits = self.scope.camera.known_setting_limits
+        if limits is None:
+            return ()
+        bounds = (
+            ('gain_db', limits.gain_min_db, limits.gain_max_db),
+            ('exposure_ms', limits.exposure_min_ms, limits.exposure_max_ms),
+        )
         capped: list[tuple[str, str, float, float]] = []
         with self.settings_lock:
             for record in self.scope.channel_identity.channels:
                 channel = record.key_name
-                gain = camera.applied_gain_db_for(self._settings[channel]['gain_db'])
-                if gain.capped:
-                    capped.append((channel, 'gain_db', gain.stored_db, gain.applied_db))
-                exposure = camera.applied_exposure_ms_for(self._settings[channel]['exposure_ms'])
-                if exposure.capped:
-                    capped.append((channel, 'exposure_ms', exposure.stored_ms, exposure.applied_ms))
+                for setting, floor, cap in bounds:
+                    stored, applied = cap_stored_value(self._settings[channel][setting], floor, cap)
+                    if applied != stored:
+                        capped.append((channel, setting, stored, applied))
+        return tuple(capped)
+
+    def _tell_capped_channels(self) -> None:
+        """Tell, as one notice, every saved channel gain or exposure the attached camera cannot reach.
+
+        Each is applied at the camera's limit, and each apply logs it; this
+        is where the person is told, once per bring-up for every capped
+        channel at once (``capped_channels``). With no camera, or its range
+        not known, nothing is capped and nothing is told.
+        """
+        capped = list(self._capped_channel_settings())
         if not capped:
             return
         from _lumascope.modules.exceptions import ChannelSettingCappedNotice

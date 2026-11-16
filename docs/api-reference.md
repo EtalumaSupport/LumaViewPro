@@ -717,6 +717,28 @@ store, for one that connects afterwards.
 
 Nothing.
 
+<a id="ScopeSession.capped_channels"></a>
+### `ScopeSession.capped_channels`
+
+```python
+def capped_channels(self) -> tuple[str, ...]
+```
+
+Marks: in-process; reads (changes nothing).
+
+This scope's channels whose stored gain or exposure the attached camera cannot reach.
+
+A stored value outside the camera's range is kept as stored and
+applied at the camera's limit (`CameraAPI.applied_gain_db_for` and
+kin), so a display shows the stored value beside the one in force.
+In the scope's channel order. Empty with no camera, and while the
+camera's range is not known (`CameraAPI.known_setting_limits`): no
+limit is known to cap against.
+
+**Raises**
+
+Nothing.
+
 <a id="ScopeSession.capture_settings_snapshot"></a>
 ### `ScopeSession.capture_settings_snapshot`
 
@@ -909,7 +931,9 @@ Where `channel`'s manual exposure and illumination sliders stop.
 Display hints for a control, never a bound: a typed value may exceed
 either, up to what the camera or the LED board can be asked for,
 which their writers refuse past. The illumination maximum is None for
-a channel with no LED on this scope.
+a channel with no LED on this scope; the camera's maxima are None
+while its range is not known (`CameraAPI.known_setting_limits`),
+and the illumination maximum is answered whatever the camera's.
 
 **Args**
 
@@ -918,12 +942,10 @@ a channel with no LED on this scope.
 **Raises**
 
 - `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel.
-- `CameraReadFailedError`: `'camera_read_failed'`, the camera's range could not be read after its last readout change.
 
 **Refusals**
 
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
-- [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
 
 <a id="ScopeSession.clear_current_turret_objective"></a>
 ### `ScopeSession.clear_current_turret_objective`
@@ -5588,6 +5610,32 @@ the pixel format the mode chose (`pixel_format`).
 
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
+<a id="CameraAPI.known_setting_limits"></a>
+### `CameraAPI.known_setting_limits`
+
+```python
+known_setting_limits: CameraSettingLimits | None  # property
+```
+
+Route: `GET /api/v1/scope/camera/known_setting_limits`.
+
+The camera's gain and exposure range when it is known; no camera read.
+
+`setting_limits` for a display or a wait's bound: a slider's stop,
+whether a stored value is capped, how long a frame may take. A range
+whose last read failed is not known, and this answers None for it
+where `setting_limits` raises. Never a write's bound: a write
+checked against the range reads `setting_limits`, and is refused
+while the range is unread.
+
+**Returns**
+
+CameraSettingLimits | None: The range; None with no camera, or while the last read of the range failed.
+
+**Raises**
+
+Nothing.
+
 <a id="CameraAPI.line_noise_reduction"></a>
 ### `CameraAPI.line_noise_reduction`
 
@@ -10105,7 +10153,7 @@ One of the camera's named settings, as the camera answered a read of it.
 ## `lumascope.CameraSettingLimits`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`CameraAPI.setting_limits`](#CameraAPI.setting_limits).
+Returned by: [`CameraAPI.known_setting_limits`](#CameraAPI.known_setting_limits), [`CameraAPI.setting_limits`](#CameraAPI.setting_limits).
 
 The gain and exposure the attached camera takes now (`CameraAPI.setting_limits`).
 
@@ -10473,8 +10521,8 @@ never by this record.
 
 **Fields**
 
-- <a id="ChannelSliderMaxima.slider_max_exposure_ms"></a>`slider_max_exposure_ms`: `float | None` -- The exposure slider's maximum, in milliseconds; None with no camera connected.
-- <a id="ChannelSliderMaxima.slider_max_gain_db"></a>`slider_max_gain_db`: `float` -- The gain slider's maximum, in dB: the camera's gain maximum now (`CameraAPI.setting_limits`), or 48 dB with no camera connected.
+- <a id="ChannelSliderMaxima.slider_max_exposure_ms"></a>`slider_max_exposure_ms`: `float | None` -- The exposure slider's maximum, in milliseconds; None with no camera connected, or while its range is not known (`CameraAPI.known_setting_limits`).
+- <a id="ChannelSliderMaxima.slider_max_gain_db"></a>`slider_max_gain_db`: `float | None` -- The gain slider's maximum, in dB: the camera's gain maximum now (`CameraAPI.known_setting_limits`); None with no camera connected, or while its range is not known.
 - <a id="ChannelSliderMaxima.slider_max_illumination_ma"></a>`slider_max_illumination_ma`: `int | None` -- The illumination slider's maximum, in mA; None with no LED board, or for a channel with no LED on this scope (luminescence).
 
 <a id="ClockMapping"></a>
@@ -18769,6 +18817,7 @@ reads what the person was shown.
 | `PUT` | `/api/v1/scope/camera/high_conversion_gain` | [`CameraAPI.set_high_conversion_gain`](#CameraAPI.set_high_conversion_gain) |
 | `GET` | `/api/v1/scope/camera/image_mode` | [`CameraAPI.image_mode`](#CameraAPI.image_mode) |
 | `PUT` | `/api/v1/scope/camera/image_mode` | [`CameraAPI.set_image_mode`](#CameraAPI.set_image_mode) |
+| `GET` | `/api/v1/scope/camera/known_setting_limits` | [`CameraAPI.known_setting_limits`](#CameraAPI.known_setting_limits) |
 | `GET` | `/api/v1/scope/camera/line_noise_reduction` | [`CameraAPI.line_noise_reduction`](#CameraAPI.line_noise_reduction) |
 | `PUT` | `/api/v1/scope/camera/line_noise_reduction` | [`CameraAPI.set_line_noise_reduction`](#CameraAPI.set_line_noise_reduction) |
 | `POST` | `/api/v1/scope/camera/lock_auto_gain` | [`CameraAPI.lock_auto_gain`](#CameraAPI.lock_auto_gain) |

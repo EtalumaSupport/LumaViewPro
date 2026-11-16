@@ -14,8 +14,8 @@ a drifting subset. Two confirmed gaps this pins:
 The fix:
   - The gain and exposure sliders' maxima are the session's answer
     (ScopeSession.channel_slider_maxima, its gain maximum resolved by
-    config_helpers.camera_max_gain_for_ui: the camera's cap, or the
-    documented no-camera default), which load_settings and the resync both
+    config_helpers.camera_max_gain_for_ui: the camera's cap, or None with
+    none known, where the slider keeps its own), which load_settings and the resync both
     read through set_channel_gain_ranges and set_channel_exposure_ranges, so
     the two paths cannot size them two ways.
   - ImageSettings.sync_camera_capability_ranges groups the per-layer setters
@@ -39,7 +39,6 @@ import pathlib
 from types import SimpleNamespace
 
 from _lumascope.modules.config_helpers import (
-    DEFAULT_MAX_GAIN_DB,
     camera_max_gain_for_ui,
     channel_slider_maxima,
 )
@@ -77,15 +76,15 @@ def _attr_calls(method: ast.FunctionDef, attr: str):
 
 
 class TestCapResolvers:
-    """The single UI-facing gain cap resolver applies the documented fallback."""
+    """The single UI-facing gain cap resolver answers the camera's cap, or none."""
 
     def test_gain_returns_live_cap_when_present(self):
         imaging = SimpleNamespace(gain_max_db=24.0)
         assert camera_max_gain_for_ui(imaging) == 24.0
 
-    def test_gain_falls_back_when_no_camera(self):
-        imaging = None
-        assert camera_max_gain_for_ui(imaging) == DEFAULT_MAX_GAIN_DB
+    def test_with_no_camera_there_is_no_gain_maximum(self):
+        # No stand-in: the slider keeps its own (set_channel_gain_ranges).
+        assert camera_max_gain_for_ui(None) is None
 
 
 class TestSyncGrouping:

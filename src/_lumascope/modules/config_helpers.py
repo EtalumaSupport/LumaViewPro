@@ -833,16 +833,11 @@ DEFAULT_AG_AE_MIN_EXPOSURE_MS = {
     Modality.LUMINESCENCE: 1.0,
 }
 
-# Fallback gain slider upper bound used when no camera is connected.
-# Matches the legacy kv default (48 dB); the actual per-camera cap is the
-# camera's own, read into scope.camera.setting_limits.
-DEFAULT_MAX_GAIN_DB = 48.0
 
-
-def camera_max_gain_for_ui(limits: 'CameraSettingLimits | None') -> float:
-    """The gain-slider upper bound from the camera's limits, or the no-camera
-    default (``DEFAULT_MAX_GAIN_DB``; the limits are None by design when no
-    camera is connected, so a caller can tell "missing" from a real value).
+def camera_max_gain_for_ui(limits: 'CameraSettingLimits | None') -> float | None:
+    """The gain-slider upper bound from the camera's limits; None with no
+    maximum known (no camera, its range unread, or none declared), where a
+    slider keeps its own.
 
     Normalised to the same precision every other gain number in the app
     carries. A GenICam float node reports its maximum in continuous units and
@@ -862,12 +857,9 @@ def camera_max_gain_for_ui(limits: 'CameraSettingLimits | None') -> float:
     driver's own short-circuit tolerance, so it cannot produce a request the
     camera treats as a change.
     """
-    cap = (
-        limits.gain_max_db
-        if limits is not None and limits.gain_max_db is not None
-        else DEFAULT_MAX_GAIN_DB
-    )
-    return round(cap, common_utils.max_decimal_precision('gain'))
+    if limits is None or limits.gain_max_db is None:
+        return None
+    return round(limits.gain_max_db, common_utils.max_decimal_precision('gain'))
 
 
 # The manual ceilings are each channel's catalogue record's
@@ -910,9 +902,9 @@ def channel_slider_maxima(
 ) -> ChannelSliderMaxima:
     """One channel's manual slider maxima: the connected camera's exposure cap
     and the current cap of the channel's LED, each narrowed to the channel's
-    manual ceiling where it has one; None where there is no cap (no camera;
-    no LED board, or no LED for the channel). The gain slider's is the
-    camera's gain maximum (``camera_max_gain_for_ui``).
+    manual ceiling where it has one; None where there is no cap (no camera,
+    or its range not known; no LED board, or no LED for the channel). The
+    gain slider's is the camera's gain maximum (``camera_max_gain_for_ui``).
 
     Raises:
         ArgumentRefusedError: ``channel`` is not a channel of this release.
