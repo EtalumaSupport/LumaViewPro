@@ -1333,7 +1333,7 @@ server host -- and a script that only drives the scope need not.
 
 **Raises**
 
-- `AlreadyStartedError`: `'metrics_running'`, metrics are already running; `disable_metrics` lets them start again. A second `MetricsLogger.start` would silently overwrite its schedule handles and orphan the first set as untracked, forever-ticking events. Still a `RuntimeError`.
+- `AlreadyStartedError`: `'metrics_running'`, metrics are already running; `disable_metrics` lets them start again. A second start would silently overwrite the first's schedule and orphan its events, ticking untracked forever. Still a `RuntimeError`.
 
 **Refusals**
 
@@ -1815,9 +1815,9 @@ The protocol comes back with no unsaved changes, its file this one
 **Raises**
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at `file_path`; `'not_a_file'`, a folder is.
-- `ProtocolNotLoadedError`: As `ProtocolsAPI.load_protocol`.
-- `ProtocolFormatError`: As `ProtocolsAPI.load_protocol`.
-- `ProtocolRunRefusedError`: `'objective_not_mounted'`, `'objectives_require_turret'`, `'turret_objectives_unassigned'` or `'channel_not_on_scope'`: the file holds a step this scope cannot perform; `'channel_unknown'`, a step names a channel no release has; `'values_out_of_range'`, its Layer Settings hold a value no channel setting takes; each as `ProtocolsAPI.load_protocol`.
+- `ProtocolNotLoadedError`: The file is there and cannot be read.
+- `ProtocolFormatError`: The file is not a protocol LumaViewPro can take, or names a plate this installation's labware catalogue does not have; refused before any protocol exists.
+- `ProtocolRunRefusedError`: `'objective_not_mounted'`, `'objectives_require_turret'`, `'turret_objectives_unassigned'` or `'channel_not_on_scope'`: the file holds a step this scope cannot perform; `'channel_unknown'`, a step names a channel no release has; `'values_out_of_range'`, its Layer Settings hold a value no channel setting takes; each the reason a run would give for the same file.
 - `HardwareCommandRefusedError`: `'exclusive_activity_running'`, as `select_labware`; the scope stays on the plate it had.
 
 **Refusals by REST status**
@@ -3516,7 +3516,7 @@ the axes given on one lane task), Z in um (`start_move_z`).
 
 **Returns**
 
-One `Operation` for the moves started, done once every one is (`Operation.all_of`).
+One `Operation` for the moves started, done once every one is.
 
 **Raises**
 
@@ -3589,8 +3589,8 @@ Start going to step `step_index` of `protocol`, as a click on a step does.
 One task on the scope's IO lane: the axes are asked once whether
 they know their position; the turret turns to the step's objective
 and X, Y and Z are started towards the step together, on the
-protocol's own plate (`ProtocolsAPI.step_targets`, the targets a
-run computes); the step's values go into its channel's live settings
+protocol's own plate, at the targets a run computes for the step;
+the step's values go into its channel's live settings
 as any channel write puts them, the channel acquiring as the step
 does, so the channel and the step agree; its saved focus is left as
 it is, where New starts the next protocol; and the step's LED preview is
@@ -4333,7 +4333,7 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 **Raises**
 
 - `RecordingRefusedError`: The start cannot proceed, and nothing is committed: `'recording_active'`, a previous recording is still recording, draining or finishing; `'exclusive_activity_running'`, another exclusive activity is running; `'post_processing_running'`, a build is on the post-processing lane; `'falsifying_change_in_flight'`, a turret, frame or light change is under way; `'other_led_lit'`, an LED other than the shown channel's is lit; `'camera_holds_another_channel'`, the camera holds another channel's settings than the shown one's; `'camera_exposure_unknown'`, the camera has no known exposure; `'changes_not_in_force'`, a change the scope recorded did not come into force within a capture's limit, whether the feed is dead or the change never settles; `'capture_location_unusable'`, the save location cannot be used; `'names_exhausted'`, the recording's name and every numbered variant are taken there; `'insufficient_disk'`, free disk is below the floor.
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`. Nothing is committed.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown. Nothing is committed.
 - `ControlSessionRefusedError`: `'control_session_held'`, someone else holds the control session. Nothing is committed.
 - `ObjectiveUnknownError`: No one can say which objective is in the light path, so the recording's frames would carry no scale. Nothing is committed.
 - `CameraReadFailedError`: The camera did not answer the read of its frame size, or the latch of its clock the recording maps every frame through. Nothing is committed.
@@ -5731,7 +5731,7 @@ CameraAutoMode: The mode.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: The camera did not answer the read.
 
 **Refusals by REST status**
@@ -5764,7 +5764,7 @@ CameraAutoMode: The mode.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: The camera did not answer the read.
 
 **Refusals by REST status**
@@ -5795,7 +5795,7 @@ int: The factor, 1 or more.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: The camera did not answer the read.
 
 **Refusals by REST status**
@@ -5833,7 +5833,7 @@ float | None: The black level; None when the camera reports none.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: The camera did not answer the read.
 
 **Refusals by REST status**
@@ -5871,7 +5871,7 @@ tuple[float, float] | None: `(minimum, maximum)`; None when the camera has no bl
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: `'camera_read_failed'`, the camera has a black level setting and the read failed.
 
 **Refusals by REST status**
@@ -5902,7 +5902,7 @@ float: The exposure.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: The camera did not answer the read.
 
 **Refusals by REST status**
@@ -5939,7 +5939,7 @@ float | None: Frames per second; None when the camera reports none.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: The camera did not answer the read.
 
 **Refusals by REST status**
@@ -5970,7 +5970,7 @@ FrameSize: The delivered size, in pixels after binning.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: The camera did not answer the read.
 
 **Refusals by REST status**
@@ -6001,7 +6001,7 @@ float: The gain.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: The camera did not answer the read.
 
 **Refusals by REST status**
@@ -6034,7 +6034,7 @@ str: The format.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: The camera did not answer the read.
 
 **Refusals by REST status**
@@ -6585,7 +6585,7 @@ engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
-CameraLink | None: The link, each field None where the camera does not report it. None when no camera is connected, after `disconnect()` too.
+CameraLink | None: The link, each field None where the camera does not report it. None when no camera is connected, after the scope's shutdown too.
 
 **Raises**
 
@@ -6617,7 +6617,7 @@ or an engineering diagnostic ahead of it can outlast.
 
 **Returns**
 
-dict[str, float] | None: Each sensor's temperature in degC, by the sensor's name, which is the camera's own (a Basler body's `'FpgaCore'`; `'Device'` on an IDS body with one sensor). Empty only for a camera with no temperature sensor (`capabilities.camera_reports_temperature` False). None when no camera is connected, after `disconnect()` too: a read with no camera to describe. A temperature probe that failed as the camera came up does not stop the read, which is live.
+dict[str, float] | None: Each sensor's temperature in degC, by the sensor's name, which is the camera's own (a Basler body's `'FpgaCore'`; `'Device'` on an IDS body with one sensor). Empty only for a camera with no temperature sensor (`capabilities.camera_reports_temperature` False). None when no camera is connected, after the scope's shutdown too: a read with no camera to describe. A temperature probe that failed as the camera came up does not stop the read, which is live.
 
 **Raises**
 
@@ -6710,8 +6710,8 @@ Register a callback for LED state changes.
 The listener is called with the changed address's reading,
 `(address, name, state, illumination_ma)` as `LedReading`
 holds them, whenever any LED address changes state. It fires from
-the thread that caused the change, so listeners **must** schedule
-UI work via `Clock.schedule_once`.
+the thread that caused the change, so listeners **must** hand any
+UI work to their own UI thread.
 
 **Args**
 
@@ -6817,7 +6817,7 @@ names it, so a lit address is never hidden by its missing name.
 
 **Returns**
 
-One reading per address, in address order, each named through the unit's identity. None when no LED board is installed (none came up, or after `disconnect()`).
+One reading per address, in address order, each named through the unit's identity. None when no LED board is installed (none came up, or after the scope's shutdown).
 
 **Raises**
 
@@ -7038,7 +7038,7 @@ Whether every change recorded is in force, so a frame arriving now counts.
 The one answer to whether a frame would count: a capture's drain
 ends on it, a recording waits on it before its first frame, and the
 live view, a REST client and a plugin ask it, so none waits on
-anything else: no frame is owed (`FrameValidity.owed`). It is
+anything else: no frame is owed. It is
 never a camera command.
 
 **Args**
@@ -7152,8 +7152,8 @@ Route: `POST /api/v1/scope/imaging/enable_streaming`.
 Begin camera streaming -- the public way to start the live feed, and wait.
 
 After `connect()` the camera is configured but NOT grabbing (the
-camera-lifecycle split); `Lumascope.initialize` makes the one-time
-bring-up start. This restarts a feed that was deliberately stopped,
+camera-lifecycle split); the scope's bring-up makes the one-time
+start. This restarts a feed that was deliberately stopped,
 and is idempotent on a feed already running. Refused, naming the camera,
 when none is connected, or when the start finds it removed. A start
 the FX2 does not take with the device still present raises its fault
@@ -7200,7 +7200,7 @@ installation's.
 
 **Args**
 
-- `record`: A camera timing record, schema 3, checked as a file is (`FrameValidity.check_timing_record`).
+- `record`: A camera timing record, schema 3, checked as a timing file is when the scope comes up.
 
 **Raises**
 
@@ -7224,8 +7224,9 @@ Route: `GET /api/v1/scope/imaging/is_streaming`.
 
 Whether the camera is currently acquiring frames.
 
-Queries the driver directly (unlike `scope.camera.active`, which
-reads the held connected-state). False when no camera is attached,
+Queries the driver directly, unlike the scope's connected parts
+(`unconnected_parts`), which read the state the scope holds. False
+when no camera is attached,
 or one its driver declared removed.
 
 **Raises**
@@ -7247,7 +7248,7 @@ Marks: in-process.
 
 Whether `frame` counts for each source's last change, as a capture waits on it.
 
-The one decision (`FrameValidity.judge`), asked of every change
+The one decision, asked of every change
 recorded so far (gain, exposure, black level, LED, a move, ...), by
 each change's source's count (`capabilities.frame_rules`): a
 capture's record carries it for the frame it returns, and a frame
@@ -7287,7 +7288,7 @@ ClockMapping | None: The mapping; None for a camera without a latch (`capabiliti
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
 - `CameraReadFailedError`: The latch or the read of what it latched failed.
 
 **Refusals**
@@ -7439,7 +7440,7 @@ same snapshot -- not the target, and no position (None) while the
 axis is HOMING or UNKNOWN. The turret's changes go to
 `add_turret_listener`. It fires from the thread that caused the
 change (IO executor, motion monitor, etc.), so listeners **must**
-schedule any UI work via `Clock.schedule_once`.
+hand any UI work to their own UI thread.
 
 **Args**
 
@@ -7466,7 +7467,7 @@ The listener is called with the `TurretStatus` that
 makes of it while it turns, and once the slot a turret command
 reached is recorded, which is after the turret says idle. It fires
 from the thread that caused the change, so listeners **must**
-schedule any UI work via `Clock.schedule_once`. Never called on a
+hand any UI work to their own UI thread. Never called on a
 scope with no turret.
 
 **Args**
@@ -7667,7 +7668,7 @@ frozenset[Interlock]: The open interlocks.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'scope_disconnected'` after `disconnect()`; `'not_connected'`, naming the motor controller. Nothing was asked.
+- `HardwareCommandRefusedError`: `'scope_disconnected'` after the scope's shutdown; `'not_connected'`, naming the motor controller. Nothing was asked.
 - `BoardNoReplyError`: `'board_no_reply'`, the board did not answer the read; the stage's state is unknown, which is not the same answer as none open.
 - `BoardPortFailedError`: `'board_port_failed'`, the port to the board failed or is not open; the state is unknown.
 - `BoardReplyUnreadableError`: `'board_reply_unreadable'`, the board's answer could not be read; the state is unknown.
@@ -8080,7 +8081,7 @@ dict[StageAxis, float]: Axis to its position, in the order asked.
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, a name in *axes* is not 'X', 'Y' or 'Z'.
-- `HardwareCommandRefusedError`: `'scope_disconnected'` after `disconnect()`; `'not_connected'` or `'axis_absent'`, an asked axis has no motor behind it (see `refuse_absent`).
+- `HardwareCommandRefusedError`: `'scope_disconnected'` after the scope's shutdown; `'not_connected'` or `'axis_absent'`, an asked axis has no motor behind it (see `refuse_absent`).
 - `AxisMovingError`: `'axis_moving'`, naming every asked axis that is moving.
 - `AxisStateUnknownError`: `'position_unknown'`, naming every asked axis that is UNKNOWN or HOMING.
 
@@ -8330,7 +8331,7 @@ this stage can reach, and refused in mm, before either moves.
 
 **Returns**
 
-One `Operation` for the moves started, done once every one is (`Operation.all_of`); its `result()` raises the first move's raise, as `start_move_xy`'s does. With no axis given nothing moves and it is done at once.
+One `Operation` for the moves started, done once every one is; its `result()` raises the first move's raise, as `start_move_xy`'s does. With no axis given nothing moves and it is done at once.
 
 **Raises**
 
@@ -8490,7 +8491,7 @@ given nothing moves and the move is done at once.
 
 **Returns**
 
-One `Operation` for the axes given, done once every one is (`Operation.all_of`); its `result()` raises the first axis's raise, as `start_move_z`'s does for Z. Its `stop()` is `stop_motion` while a move still has its axis.
+One `Operation` for the axes given, done once every one is; its `result()` raises the first axis's raise, as `start_move_z`'s does for Z. Its `stop()` is `stop_motion` while a move still has its axis.
 
 **Raises**
 
@@ -8959,7 +8960,7 @@ A display reads it as a state through `optics_status`.
 **Raises**
 
 - `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, no objective is known, as `ScopeSession.objective_id`.
-- `HardwareCommandRefusedError`: `'not_connected'`, no camera is connected; `'scope_disconnected'`, after `disconnect()`.
+- `HardwareCommandRefusedError`: `'not_connected'`, no camera is connected; `'scope_disconnected'`, after the scope's shutdown.
 - `PixelSizeUnknownError`: `'optics_undeclared'`, the scope cannot report its optics; `'binning_unread'`, the camera has not reported its binning.
 - `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
 
@@ -10315,10 +10316,10 @@ long after the change its frame came.
 
 **Fields**
 
-- <a id="Change.at_seq"></a>`at_seq`: `int` -- The last frame the camera's driver had been handed when the change was recorded, a frame still in a host queue included; for a move, once in force, when its stop was stamped (`FrameValidity.motion_settled`). A frame already in the camera's pipeline when the register was written cannot show the new state, so crediting it would retire the skip count against frames that predate the change -- and the capture then returns a frame from before the write. An ordinal rather than a clock reading, because the comparison has to survive the clock moving: wall time runs backwards across a DST fall-back, an NTP correction or a host resume, and a settle count measured against a timestamp that jumped forward never completes. Frame numbers only go up.
+- <a id="Change.at_seq"></a>`at_seq`: `int` -- The last frame the camera's driver had been handed when the change was recorded, a frame still in a host queue included; for a move, once in force, when its stop was stamped. A frame already in the camera's pipeline when the register was written cannot show the new state, so crediting it would retire the skip count against frames that predate the change -- and the capture then returns a frame from before the write. An ordinal rather than a clock reading, because the comparison has to survive the clock moving: wall time runs backwards across a DST fall-back, an NTP correction or a host resume, and a settle count measured against a timestamp that jumped forward never completes. Frame numbers only go up.
 - <a id="Change.credits"></a>`credits`: `tuple[Credit, ...]` -- The frames counted toward it, in the order counted, until `skip` was met.
 - <a id="Change.earliest_ns"></a>`earliest_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) of the earliest moment the change could have reached the hardware: a write's start, as its writer stamped it, since the register may change anywhere inside the write; for a move, once in force, the start of the last read that saw its axis still moving, else `written_ns`. A lag measured from here is never short.
-- <a id="Change.in_force_ns"></a>`in_force_ns`: `int | None` -- The scope's steady clock (`host_clock.steady_ns`) when the axis state the settle check reads became settled, stamped by the motion API (`FrameValidity.motion_settled`); None until then, and for a change that does not wait on an axis.
+- <a id="Change.in_force_ns"></a>`in_force_ns`: `int | None` -- The scope's steady clock (`host_clock.steady_ns`) when the axis state the settle check reads became settled, stamped by the motion API; None until then, and for a change that does not wait on an axis.
 - <a id="Change.needs_in_force"></a>`needs_in_force`: `bool` -- A motion source the axis must also settle for: the frame count alone does not end its wait.
 - <a id="Change.rule"></a>`rule`: `FrameRule` -- Its source's count and where it came from, as they stood when the change was recorded.
 - <a id="Change.skip"></a>`skip`: `int` -- The frames the change needed, its rule's count when it was recorded.
@@ -10908,10 +10909,10 @@ Built only by this module's two entries: `grab_record` for a still,
 - <a id="FrameRecord.frames_summed"></a>`frames_summed`: `int` -- Number of frames summed into the image.
 - <a id="FrameRecord.gain_db"></a>`gain_db`: `float | None` -- Gain the frame was taken at; None as `exposure_ms` is.
 - <a id="FrameRecord.gain_source"></a>`gain_source`: `SettingSource | None` -- Whether `gain_db` is the frame's own or the setting read beside the grab; None exactly when `gain_db` is.
-- <a id="FrameRecord.held_channel"></a>`held_channel`: `str | None` -- The channel whose stored settings the camera held for the grab (`CameraAPI.get_held_channel`); None when it held no channel's, after a raw camera write or with the settings a run's step wrote. The frame's own exposure and gain are the fields above either way.
+- <a id="FrameRecord.held_channel"></a>`held_channel`: `str | None` -- The channel whose stored settings the camera held for the grab; None when it held no channel's, after a raw camera write or with the settings a run's step wrote. The frame's own exposure and gain are the fields above either way.
 - <a id="FrameRecord.illumination_ma"></a>`illumination_ma`: `Mapping[int, float]` -- Drive current of each LED address lit for the frame, by address. An address that was off is absent.
 - <a id="FrameRecord.illumination_timing"></a>`illumination_timing`: `LightTiming` -- When those currents were read (`LightTiming`).
-- <a id="FrameRecord.judgments"></a>`judgments`: `tuple[Judgment, ...] | None` -- The frame judged against each source's last change (`FrameValidity.judgments`): for a summed capture, the first frame summed. Empty when no change has been recorded; None for a recorded frame, which is never judged.
+- <a id="FrameRecord.judgments"></a>`judgments`: `tuple[Judgment, ...] | None` -- The frame judged against each source's last change, as `ImagingAPI.judge_frame` judges one: for a summed capture, the first frame summed. Empty when no change has been recorded; None for a recorded frame, which is never judged.
 - <a id="FrameRecord.saturated_fraction"></a>`saturated_fraction`: `float | None` -- The fraction of the frame's pixels at or near full scale, measured when the capture asked for the check (`all_ones_check`); for a summed capture, its most saturated frame. None when it did not ask.
 
 <a id="FrameRule"></a>
@@ -11015,8 +11016,8 @@ The claim as held by the one caller that took it.
 A fresh object per taking, so it identifies that taking and no
 other: the next run's HeldClaim is a different object even when its
 holder description is equal. Only it releases the claim. Nothing
-else hands it out -- `ActivityClaim.holder` describes the holder,
-it does not return this.
+else hands it out -- a refusal's `holder` describes the holder, it
+does not return this.
 
 <a id="HeldClaim.holds"></a>
 ### `HeldClaim.holds`
@@ -11435,7 +11436,7 @@ One objective of the installation's catalogue, read once at bring-up.
 - <a id="Objective.jog_z_coarse_um"></a>`jog_z_coarse_um`: `float` -- The distance, in um, a coarse Z jog moves.
 - <a id="Objective.jog_z_fine_um"></a>`jog_z_fine_um`: `float` -- The distance, in um, a fine Z jog moves.
 - <a id="Objective.magnification"></a>`magnification`: `float` -- The objective's nominal magnification (`10` for a 10x objective).
-- <a id="Objective.manufacturer"></a>`manufacturer`: `str` -- Who makes the glass; the catalogue lists each maker's objectives together (`ObjectiveLoader.objectives`).
+- <a id="Objective.manufacturer"></a>`manufacturer`: `str` -- Who makes the glass; the catalogue lists each maker's objectives together (`Lumascope.all_objectives`).
 - <a id="Objective.numerical_aperture"></a>`numerical_aperture`: `float` -- The objective's numerical aperture, written into a saved file's metadata.
 - <a id="Objective.short_name"></a>`short_name`: `str` -- The token step and file names carry, derived from the id alone (`objective_short_name`).
 - <a id="Objective.working_distance_mm"></a>`working_distance_mm`: `float` -- The objective's working distance, in mm, written into a saved file's metadata.
@@ -11629,7 +11630,7 @@ both be held.
 
 **Fields**
 
-- <a id="OpticsStatus.field_of_view"></a>`field_of_view`: `FieldOfView | ObjectiveUnknownError | HardwareCommandRefusedError | PixelSizeUnknownError` -- The frame's extent on the sample, or the first reason it is unknown, in this order: the objective's `ObjectiveUnknownError`; `HardwareCommandRefusedError`, `'not_connected'` naming the camera, or `'scope_disconnected'` after `disconnect()`; `PixelSizeUnknownError`, `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`.
+- <a id="OpticsStatus.field_of_view"></a>`field_of_view`: `FieldOfView | ObjectiveUnknownError | HardwareCommandRefusedError | PixelSizeUnknownError` -- The frame's extent on the sample, or the first reason it is unknown, in this order: the objective's `ObjectiveUnknownError`; `HardwareCommandRefusedError`, `'not_connected'` naming the camera, or `'scope_disconnected'` after the scope's shutdown; `PixelSizeUnknownError`, `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`.
 - <a id="OpticsStatus.objective"></a>`objective`: `str | ObjectiveUnknownError` -- The active objective's id, or `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`.
 
 <a id="Outcome"></a>
@@ -11807,7 +11808,7 @@ Declarative metadata a plugin presents at registration time.
 **Fields**
 
 - <a id="PluginSpec.author"></a>`author`: `str` -- Its author.
-- <a id="PluginSpec.auto_run_on_protocol_complete"></a>`auto_run_on_protocol_complete`: `bool` -- For a post-processing plugin, True hands its processor the folder of every Full Protocol run, whoever started it, once its files are on disk and its hyperstack build has ended (`PluginRegistry.run_protocol_complete_processors`).
+- <a id="PluginSpec.auto_run_on_protocol_complete"></a>`auto_run_on_protocol_complete`: `bool` -- For a post-processing plugin, True hands its processor the folder of every Full Protocol run, whoever started it, once its files are on disk and its hyperstack build has ended.
 - <a id="PluginSpec.capabilities"></a>`capabilities`: `tuple[str, ...]` -- The API surfaces it uses, as dotted paths (`'scope.imaging'`). A declaration, not a sandbox: the tech-support report and diagnostic probes record it.
 - <a id="PluginSpec.description"></a>`description`: `str` -- One sentence saying what the plugin does.
 - <a id="PluginSpec.name"></a>`name`: `str` -- The plugin's name, unique within a namespace.
@@ -11852,8 +11853,7 @@ Operate on saved files. Intern's primary surface.
 register(spec, processor):
     processor: callable
         processor(input_dir, manifest, output_dir) -> ProcessorResult
-    Invoked from PluginRegistry.run_protocol_complete_processors() at
-    the end of every Full Protocol run when
+    Invoked at the end of every Full Protocol run when
     spec.auto_run_on_protocol_complete=True.
     Ad-hoc invocation: callers fetch via .get(name) and call directly.
 
@@ -13472,7 +13472,7 @@ axis can read HOMING in `axes` a moment before the home appears in
 - <a id="Status.live_work"></a>`live_work`: `LiveWork` -- Everything the session is still doing (`ScopeSession.live_work`).
 - <a id="Status.lock"></a>`lock`: `ControlsLock` -- Which of a person's controls the Session locks, and why (`ScopeSession.controls_lock`): its editing policy, not a refusal.
 - <a id="Status.parts"></a>`parts`: `tuple[PartStatus, ...]` -- Which parts came up at bring-up, and why each that did not (`ScopeSession.bring_up_record`).
-- <a id="Status.run_refused"></a>`run_refused`: `ProtocolRunRefusedError | None` -- The refusal a run would get now for the scope's state alone, None when the state refuses none (`SequencedCaptureRunner.state_refusal`). None does not promise a run starts: the protocol, an axis's position, the camera feed and the interlocks are judged when the run is asked.
+- <a id="Status.run_refused"></a>`run_refused`: `ProtocolRunRefusedError | None` -- The refusal a run's start would give now for the scope's state alone, None when the state refuses none. None does not promise a run starts: the protocol, an axis's position, the camera feed and the interlocks are judged when the run is asked.
 - <a id="Status.turret"></a>`turret`: `TurretStatus | None` -- The turret's state and slot (`MotionAPI.turret_status`), None on a scope with no turret; `moving` or `homing` while it turns.
 
 <a id="StepFrames"></a>
@@ -13620,7 +13620,7 @@ The tiling grids an installation offers.
 
 **Fields**
 
-- <a id="TilingConfig.available"></a>`available`: `tuple[str, ...]` -- Each grid's label, as `create_protocol` and `Protocol.apply_tiling` accept it.
+- <a id="TilingConfig.available"></a>`available`: `tuple[str, ...]` -- Each grid's label, as `create_protocol` and `ScopeSession.apply_tiling` accept it.
 - <a id="TilingConfig.default"></a>`default`: `str` -- The grid to preselect, one of `available`.
 
 <a id="TurretChanged"></a>
@@ -14249,7 +14249,7 @@ record of a wait names who counted each frame.
 
 Held in: [`DisconnectFailure.step`](#DisconnectFailure.step).
 
-What `Lumascope.disconnect` does to a board: the LEDs' off, the motor STOP, the board's own disconnect.
+What the scope's shutdown does to a board: the LEDs' off, the motor STOP, the board's own disconnect.
 
 - `leds_off`
 - `motor_stop`
@@ -14298,7 +14298,7 @@ Returned by: [`ImagingAPI.recorded_changes`](#ImagingAPI.recorded_changes).
 Held in: [`CaptureFailedError.source`](#CaptureFailedError.source), [`Change.source`](#Change.source), [`ScopeCapabilities.frame_rules`](#ScopeCapabilities.frame_rules).  
 Taken by: [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force), [`ImagingAPI.changes_in_force_limit_s`](#ImagingAPI.changes_in_force_limit_s), [`ScopeSession.capture_still`](#ScopeSession.capture_still).
 
-What changed, for a capture to wait out: each a key of `FrameValidity.SKIP_FRAMES`.
+What changed, for a capture to wait out.
 
 - `led`
 - `gain`
@@ -15803,8 +15803,8 @@ A refusal; bases `Refusal`, `ConfigError`.
 
 A labware or objective name the installation's catalogue does not hold.
 
-Raised by the catalogue's owner -- `WellPlateLoader.resolve_plate_key`
-for a plate, `ObjectiveLoader.get_objective_info` for an objective --
+Raised by the catalogue's lookup -- `Lumascope.plate` for a plate,
+`Lumascope.objective` for an objective --
 before anything is stored, so every door that names one is refused
 alike. A `ConfigError`, because the same check reads a stored setting
 at bring-up and the callers that recover from a bad stored name catch
@@ -16275,9 +16275,10 @@ A refusal; bases `Refusal`, `ProtocolError`.
 
 The focus a scan found was not written, because the protocol's steps changed under it.
 
-Raised by `Protocol.adopt_focus_from` when the protocol no longer has
-the steps the scan focused: a different number of them, or a step at a
-different position, channel or objective. Each focused Z belongs to the
+Reported when an autofocus scan of a protocol's steps ends and the
+protocol it writes its focus into no longer has the steps the scan
+focused: a different number of them, or a step at a different position,
+channel or objective. Each focused Z belongs to the
 step it was found at, so writing it into a different step would give that
 step a focus nobody measured. The protocol is left unchanged; scanning
 again focuses the steps it has now.
@@ -17492,7 +17493,7 @@ A fault; bases `Fault`, `ProtocolError`.
 
 A protocol file could not be read.
 
-Raised by `Protocol.from_file`, chained from the `OSError` of the
+Raised by `ScopeSession.load_protocol`, chained from the `OSError` of the
 read, so the words name the file and the operating system's own reason
 -- a missing file, a denied permission, a drive that went away. A file
 that was read but is not a protocol LumaViewPro can take is
@@ -17513,7 +17514,7 @@ A fault; bases `Fault`, `ProtocolError`.
 
 A protocol could not be written to its file.
 
-Raised by `Protocol.to_file`, chained from the `OSError` of the write,
+Raised by `ScopeSession.save_protocol`, chained from the `OSError` of the write,
 so the words name the file and the operating system's own reason -- a
 missing or read-only folder, a full disk, a file another program holds --
 rather than guessing one. The write goes to a file beside the target
@@ -18145,7 +18146,7 @@ A quiet outcome; bases `ProtocolError`, `Quiet`, `TimeoutError`.
 
 A run's waiting form ran out of its `timeout_s` with the run still going: nothing failed.
 
-Raised by `ProtocolRunner.run_X`. A `TimeoutError`, as a caller's own
+Raised by a `ProtocolRunner` `run_*` member. A `TimeoutError`, as a caller's own
 wait expiring always is, and quiet: the run goes on, and `operation`
 is the caller's hold on it, to wait on again or to stop. `TimeoutError`
 is the last base, so its `OSError` constructor never reads the words
@@ -18192,7 +18193,7 @@ A fault; bases `Fault`, `Exception`.
 
 One or more parts of the microscope did not shut down cleanly.
 
-Raised by `Lumascope.disconnect` only after every teardown step has
+Raised by the scope's shutdown (`ScopeSession.shutdown`) only after every teardown step has
 run, so one part's failure never leaves the others connected. Names
 each step that failed, on its board, in the order the teardown reached
 it, and is chained from the first one's error. Each step's error is

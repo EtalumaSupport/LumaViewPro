@@ -367,7 +367,7 @@ class ManualRecordingController:
                 below the floor.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``. Nothing is committed.
+                the scope's shutdown. Nothing is committed.
             ControlSessionRefusedError: ``'control_session_held'``, someone
                 else holds the control session. Nothing is committed.
             ObjectiveUnknownError: No one can say which objective is in the

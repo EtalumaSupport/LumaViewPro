@@ -78,7 +78,7 @@ def _is_amount(value) -> bool:
 
 
 class FrameValiditySource(enum.StrEnum):
-    """What changed, for a capture to wait out: each a key of ``FrameValidity.SKIP_FRAMES``."""
+    """What changed, for a capture to wait out."""
 
     LED = 'led'
     GAIN = 'gain'
@@ -180,8 +180,7 @@ class Change:
         source: What changed.
         at_seq: The last frame the camera's driver had been handed when the
             change was recorded, a frame still in a host queue included; for
-            a move, once in force, when its stop was stamped
-            (``FrameValidity.motion_settled``). A frame already in
+            a move, once in force, when its stop was stamped. A frame already in
             the camera's pipeline when the
             register was written cannot show the new state, so crediting it
             would retire the skip count against frames that predate the
@@ -210,7 +209,7 @@ class Change:
             frame count alone does not end its wait.
         in_force_ns: The scope's steady clock (``host_clock.steady_ns``) when
             the axis state the settle check reads became settled, stamped by
-            the motion API (``FrameValidity.motion_settled``); None until then,
+            the motion API; None until then,
             and for a change that does not wait on an axis.
     """
 

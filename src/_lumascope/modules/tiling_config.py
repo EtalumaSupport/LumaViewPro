@@ -74,7 +74,7 @@ class TilingConfig:
 
     Attributes:
         available: Each grid's label, as ``create_protocol`` and
-            ``Protocol.apply_tiling`` accept it.
+            ``ScopeSession.apply_tiling`` accept it.
         default: The grid to preselect, one of ``available``.
     """
 

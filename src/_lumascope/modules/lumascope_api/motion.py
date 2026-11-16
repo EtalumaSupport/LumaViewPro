@@ -782,7 +782,7 @@ class MotionAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'scope_disconnected'`` after
-                ``disconnect()``; ``'not_connected'``, naming the motor
+                the scope's shutdown; ``'not_connected'``, naming the motor
                 controller. Nothing was asked.
             BoardNoReplyError: ``'board_no_reply'``, the board did not answer
                 the read; the stage's state is unknown, which is not the same
@@ -817,7 +817,7 @@ class MotionAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'scope_disconnected'`` after
-                ``disconnect()``; ``'not_connected'`` or ``'axis_absent'``,
+                the scope's shutdown; ``'not_connected'`` or ``'axis_absent'``,
                 naming the missing part. Nothing was sent.
         """
         refused = self.absent_refusal(member, axis)
@@ -856,14 +856,14 @@ class MotionAPI:
         A consult seam, not part of the L2 API surface: an L2 caller's motion
         command asks it itself.
 
-        After ``disconnect()`` the scope's lanes are shut and it answers as
+        After the scope's shutdown the scope's lanes are shut and it answers as
         every command does then, ``scope_disconnected``, on every model: a
         caller asking off the lane (Go To Step, the plate position read)
         hears what a command on the lane would.
 
         Raises:
             HardwareCommandRefusedError: ``'scope_disconnected'`` after
-                ``disconnect()``; ``'not_connected'``, naming the motor
+                the scope's shutdown; ``'not_connected'``, naming the motor
                 controller. Nothing was sent.
         """
         refused = self._controller_refusal(member)
@@ -901,7 +901,7 @@ class MotionAPI:
         """Whether a position read of ``axis`` has hardware behind it.
 
         Not with the null board installed -- a manual model, a board that
-        never came up, or after ``disconnect()`` -- and not for an axis
+        never came up, or after the scope's shutdown -- and not for an axis
         the scope does not have. A board whose cable was pulled is still
         installed: its axes keep the last number they reported.
         """
@@ -2027,7 +2027,7 @@ class MotionAPI:
         axis is HOMING or UNKNOWN. The turret's changes go to
         ``add_turret_listener``. It fires from the thread that caused the
         change (IO executor, motion monitor, etc.), so listeners **must**
-        schedule any UI work via ``Clock.schedule_once``.
+        hand any UI work to their own UI thread.
 
         Args:
             listener: ``callable(axis: StageAxis, at: AxisPosition)``
@@ -2066,7 +2066,7 @@ class MotionAPI:
         makes of it while it turns, and once the slot a turret command
         reached is recorded, which is after the turret says idle. It fires
         from the thread that caused the change, so listeners **must**
-        schedule any UI work via ``Clock.schedule_once``. Never called on a
+        hand any UI work to their own UI thread. Never called on a
         scope with no turret.
 
         Args:
@@ -2355,7 +2355,7 @@ class MotionAPI:
             ArgumentRefusedError: ``'not_offered'``, a name in *axes* is not
                 'X', 'Y' or 'Z'.
             HardwareCommandRefusedError: ``'scope_disconnected'`` after
-                ``disconnect()``; ``'not_connected'`` or ``'axis_absent'``,
+                the scope's shutdown; ``'not_connected'`` or ``'axis_absent'``,
                 an asked axis has no motor behind it (see
                 ``refuse_absent``).
             AxisMovingError: ``'axis_moving'``, naming every asked axis
@@ -3080,8 +3080,8 @@ class MotionAPI:
                 left where it is.
 
         Returns:
-            One ``Operation`` for the moves started, done once every one is
-            (``Operation.all_of``); its ``result()`` raises the first move's
+            One ``Operation`` for the moves started, done once every one
+            is; its ``result()`` raises the first move's
             raise, as ``start_move_xy``'s does. With no axis given
             nothing moves and it is done at once.
 
@@ -3358,8 +3358,8 @@ class MotionAPI:
                 request that sends it is refused as ``invalid_request``.
 
         Returns:
-            One ``Operation`` for the axes given, done once every one is
-            (``Operation.all_of``); its ``result()`` raises the first
+            One ``Operation`` for the axes given, done once every one is;
+            its ``result()`` raises the first
             axis's raise, as ``start_move_z``'s does for Z. Its ``stop()``
             is ``stop_motion`` while a move still has its axis.
 

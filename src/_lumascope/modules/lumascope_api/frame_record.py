@@ -240,8 +240,8 @@ class FrameRecord:
             before its drain (``ClockMapping``); None on a
             camera without a latch (``capabilities.camera_has_clock_latch``),
             and when the latch probe failed as the camera came up.
-        judgments: The frame judged against each source's last change
-            (``FrameValidity.judgments``): for a summed capture, the first
+        judgments: The frame judged against each source's last change, as
+            ``ImagingAPI.judge_frame`` judges one: for a summed capture, the first
             frame summed. Empty when no change has been recorded; None for
             a recorded frame, which is never judged.
         saturated_fraction: The fraction of the frame's pixels at or near
@@ -254,7 +254,7 @@ class FrameRecord:
             any frame was. None when the capture did not judge it (no LED
             on, or ``accept_dark``).
         held_channel: The channel whose stored settings the camera held for the
-            grab (``CameraAPI.get_held_channel``); None when it held no
+            grab; None when it held no
             channel's, after a raw camera write or with the settings a run's
             step wrote. The frame's own exposure and gain are the fields
             above either way.

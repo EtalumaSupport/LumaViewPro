@@ -76,8 +76,7 @@ README, the manual and the generated reference teach the API too, so a
 member or a route each names is held to the guide's rules, and no line of
 them or of the guide names the internal package but the one sentence that
 says it is internal (polarity 7). There, and in the guide, a member marked
-engineering is off the surface. What they teach today off it is the seed,
-which only shrinks.
+engineering is off the surface.
 """
 
 import ast
@@ -1607,40 +1606,6 @@ _SAYS_IT_IS_INTERNAL = (
     'under `_lumascope` is internal and may change in any release.',
 )
 
-# The rows the docs teach today, by (file, the name that is not on the
-# surface): each leaves in the commit that rewrites its line, and none is
-# added. Drained to empty before 4.0.
-_TAUGHT_SEED: dict[tuple[str, str], int] = {
-    ('docs/api-reference.md', 'ActivityClaim.holder'): 1,
-    ('docs/api-reference.md', 'CameraAPI.active'): 1,
-    ('docs/api-reference.md', 'CameraAPI.get_held_channel'): 1,
-    ('docs/api-reference.md', 'Clock.schedule_once'): 3,
-    ('docs/api-reference.md', 'FrameValidity.SKIP_FRAMES'): 1,
-    ('docs/api-reference.md', 'FrameValidity.check_timing_record'): 1,
-    ('docs/api-reference.md', 'FrameValidity.judge'): 1,
-    ('docs/api-reference.md', 'FrameValidity.judgments'): 1,
-    ('docs/api-reference.md', 'FrameValidity.motion_settled'): 2,
-    ('docs/api-reference.md', 'FrameValidity.owed'): 1,
-    ('docs/api-reference.md', 'Lumascope.disconnect'): 2,
-    ('docs/api-reference.md', 'Lumascope.initialize'): 1,
-    ('docs/api-reference.md', 'MetricsLogger.start'): 1,
-    ('docs/api-reference.md', 'ObjectiveLoader.get_objective_info'): 1,
-    ('docs/api-reference.md', 'ObjectiveLoader.objectives'): 1,
-    ('docs/api-reference.md', 'Operation.all_of'): 3,
-    ('docs/api-reference.md', 'PluginRegistry.run_protocol_complete_processors'): 1,
-    ('docs/api-reference.md', 'Protocol.adopt_focus_from'): 1,
-    ('docs/api-reference.md', 'Protocol.apply_tiling'): 1,
-    ('docs/api-reference.md', 'Protocol.from_file'): 1,
-    ('docs/api-reference.md', 'Protocol.to_file'): 1,
-    ('docs/api-reference.md', 'ProtocolRunner.run_X'): 1,
-    ('docs/api-reference.md', 'ProtocolsAPI.load_protocol'): 3,
-    ('docs/api-reference.md', 'ProtocolsAPI.step_targets'): 1,
-    ('docs/api-reference.md', 'SequencedCaptureRunner.state_refusal'): 1,
-    ('docs/api-reference.md', 'WellPlateLoader.resolve_plate_key'): 1,
-    ('docs/plugin-tutorial.md', 'PluginSpec.subscribes_to'): 1,
-    ('docs/plugin-tutorial.md', 'RESTRegistry.register'): 2,
-}
-
 
 def _without_level_table(text):
     """The tutorial with its level table's rows blanked, every line kept in place."""
@@ -1729,19 +1694,12 @@ class TestTheDocsTeachOnlyTheSurface:
                 lines[label, name].append(
                     f'  {label}:{lineno}  {name}  -> names the internal package'
                 )
-        seed = collections.Counter(_TAUGHT_SEED)
-        new, gone = found - seed, seed - found
-        assert not new, (
+        assert not found, (
             'A published doc teaches a name that is not on the surface: a member not '
             'marked @api (or marked engineering), a name that does not resolve, a route '
             'no route answers, or the internal package. Teach the marked member, or say in '
             'words what the API does.\n'
-            + '\n'.join(line for key in sorted(new) for line in lines[key])
-        )
-        assert not gone, (
-            'A row of the seed is no longer taught: lower its count in _TAUGHT_SEED in '
-            'this commit.\n'
-            + '\n'.join(f'  {key}: {seed[key]} -> {found[key]}' for key in sorted(gone))
+            + '\n'.join(line for key in sorted(found) for line in lines[key])
         )
 
     def test_the_walk_judges_names_in_each_kind_of_doc(self, prose_owners):

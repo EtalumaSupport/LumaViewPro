@@ -83,7 +83,7 @@ class OpticsStatus:
             it is unknown, in this order: the objective's
             ``ObjectiveUnknownError``; ``HardwareCommandRefusedError``,
             ``'not_connected'`` naming the camera, or ``'scope_disconnected'``
-            after ``disconnect()``; ``PixelSizeUnknownError``,
+            after the scope's shutdown; ``PixelSizeUnknownError``,
             ``'optics_undeclared'``, ``'binning_unread'`` or
             ``'frame_size_unread'``.
     """
@@ -263,7 +263,7 @@ class RuntimeState:
                 ``'not_in_catalogue'`` or ``'none_selected'``, no objective is
                 known, as ``ScopeSession.objective_id``.
             HardwareCommandRefusedError: ``'not_connected'``, no camera is
-                connected; ``'scope_disconnected'``, after ``disconnect()``.
+                connected; ``'scope_disconnected'``, after the scope's shutdown.
             PixelSizeUnknownError: ``'optics_undeclared'``, the scope cannot
                 report its optics; ``'binning_unread'``, the camera has not
                 reported its binning.

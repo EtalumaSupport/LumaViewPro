@@ -1362,7 +1362,7 @@ class ImagingAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The latch or the read of what it latched
                 failed.
         """
@@ -1454,7 +1454,7 @@ class ImagingAPI:
         The one answer to whether a frame would count: a capture's drain
         ends on it, a recording waits on it before its first frame, and the
         live view, a REST client and a plugin ask it, so none waits on
-        anything else: no frame is owed (``FrameValidity.owed``). It is
+        anything else: no frame is owed. It is
         never a camera command.
 
         Args:
@@ -2096,7 +2096,7 @@ class ImagingAPI:
     def judge_frame(self, frame: Frame) -> tuple[Judgment, ...]:
         """Whether ``frame`` counts for each source's last change, as a capture waits on it.
 
-        The one decision (``FrameValidity.judge``), asked of every change
+        The one decision, asked of every change
         recorded so far (gain, exposure, black level, LED, a move, ...), by
         each change's source's count (``capabilities.frame_rules``): a
         capture's record carries it for the frame it returns, and a frame
@@ -2146,8 +2146,8 @@ class ImagingAPI:
         installation's.
 
         Args:
-            record: A camera timing record, schema 3, checked as a file is
-                (``FrameValidity.check_timing_record``).
+            record: A camera timing record, schema 3, checked as a timing
+                file is when the scope comes up.
 
         Raises:
             ArgumentRefusedError: ``'wrong_kind'``, a record this release
@@ -2405,8 +2405,8 @@ class ImagingAPI:
         """Begin camera streaming -- the public way to start the live feed, and wait.
 
         After ``connect()`` the camera is configured but NOT grabbing (the
-        camera-lifecycle split); ``Lumascope.initialize`` makes the one-time
-        bring-up start. This restarts a feed that was deliberately stopped,
+        camera-lifecycle split); the scope's bring-up makes the one-time
+        start. This restarts a feed that was deliberately stopped,
         and is idempotent on a feed already running. Refused, naming the camera,
         when none is connected, or when the start finds it removed. A start
         the FX2 does not take with the device still present raises its fault
@@ -2471,8 +2471,9 @@ class ImagingAPI:
     def is_streaming(self) -> bool:
         """Whether the camera is currently acquiring frames.
 
-        Queries the driver directly (unlike ``scope.camera.active``, which
-        reads the held connected-state). False when no camera is attached,
+        Queries the driver directly, unlike the scope's connected parts
+        (``unconnected_parts``), which read the state the scope holds. False
+        when no camera is attached,
         or one its driver declared removed.
 
         Raises:

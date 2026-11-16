@@ -59,7 +59,7 @@ class Objective:
         description: The objective's full name, for a person to read
             (``'1.25x Plan Apochromat Olympus'``).
         manufacturer: Who makes the glass; the catalogue lists each maker's
-            objectives together (``ObjectiveLoader.objectives``).
+            objectives together (``Lumascope.all_objectives``).
         short_name: The token step and file names carry, derived from the
             id alone (``objective_short_name``).
         magnification: The objective's nominal magnification (``10`` for a

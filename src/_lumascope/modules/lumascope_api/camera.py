@@ -1504,10 +1504,10 @@ class CameraAPI:
         likeliest to be reading; a long summed capture or an engineering
         diagnostic ahead of it can outlast that.
 
-        The camera is asked for before dispatch, so after ``disconnect()``,
+        The camera is asked for before dispatch, so after the scope's shutdown,
         when the lane would refuse, the read still answers as it does with
         no camera: refused naming the camera (``scope_disconnected`` after
-        ``disconnect()``), or ``satisfied_when_absent``. A camera that leaves
+        the scope's shutdown), or ``satisfied_when_absent``. A camera that leaves
         while the read is queued is answered the same way at the lane.
         """
         if not self._scope.camera_connected:
@@ -1596,7 +1596,7 @@ class CameraAPI:
         Asked by every outside camera command on the camera lane before it
         writes. Offered alone to a caller that must refuse before work of its
         own starts: Go To Step asks it before moving, and a frame listener
-        before it is registered. Off the lane after ``disconnect()`` it
+        before it is registered. Off the lane after the scope's shutdown it
         answers as a command on the lane would, ``scope_disconnected``.
 
         A consult seam, not part of the L2 API surface: an L2 caller's camera
@@ -1604,7 +1604,7 @@ class CameraAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'scope_disconnected'`` after
-                ``disconnect()``; ``'not_connected'``, naming the camera.
+                the scope's shutdown; ``'not_connected'``, naming the camera.
                 Nothing was sent.
         """
         refused = self.camera_not_connected_refusal(member)
@@ -2631,7 +2631,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraSettingOutOfRangeError: A width or height below the
                 camera's minimum frame, or above the scope's maximum at the
                 current binning.
@@ -3093,7 +3093,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_on_lane(self._read_black_level_impl, 'read_black_level')
@@ -3131,7 +3131,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: ``'camera_read_failed'``, the camera has a
                 black level setting and the read failed.
         """
@@ -3165,7 +3165,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_on_lane(
@@ -3271,7 +3271,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The driver raised a hardware fault, or
                 answered a value out of the setting's range; the value held
                 is left as it was.
@@ -3333,7 +3333,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected (``member`` refused);
-                ``'scope_disconnected'`` after ``disconnect()``.
+                ``'scope_disconnected'`` after the scope's shutdown.
             CameraReadFailedError: The driver raised a hardware fault.
         """
         self.refuse_camera_not_connected(member)
@@ -3374,7 +3374,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_on_lane(self._read_fresh, 'read_gain_db', args=('gain_db',))
@@ -3393,7 +3393,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_on_lane(self._read_fresh, 'read_exposure_ms', args=('exposure_ms',))
@@ -3414,7 +3414,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_on_lane(self._read_fresh, 'read_auto_gain', args=('auto_gain',))
@@ -3435,7 +3435,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_on_lane(self._read_fresh, 'read_auto_exposure', args=('auto_exposure',))
@@ -3454,7 +3454,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_on_lane(self._read_fresh, 'read_binning', args=('binning',))
@@ -3473,7 +3473,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The camera did not answer the read.
         """
         size = self._read_on_lane(self._read_fresh, 'read_frame_size', args=('frame_size',))
@@ -3495,7 +3495,7 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraReadFailedError: The camera did not answer the read.
         """
         return self._read_on_lane(self._read_fresh, 'read_pixel_format', args=('pixel_format',))

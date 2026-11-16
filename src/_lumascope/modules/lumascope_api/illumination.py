@@ -612,7 +612,7 @@ class IlluminationAPI:
         """Whether an LED board is installed: not the null board.
 
         The null board stands in when none came up at bring-up and after
-        ``disconnect()``; with it the state reads have no board to describe
+        the scope's shutdown; with it the state reads have no board to describe
         and answer None. A board whose cable was pulled stays installed
         until the scope is disconnected.
         """
@@ -1426,7 +1426,7 @@ class IlluminationAPI:
         Returns:
             One reading per address, in address order, each named through
             the unit's identity. None when no LED board is installed (none
-            came up, or after ``disconnect()``).
+            came up, or after the scope's shutdown).
 
         Raises:
             Nothing.
@@ -1904,8 +1904,8 @@ class IlluminationAPI:
         The listener is called with the changed address's reading,
         ``(address, name, state, illumination_ma)`` as ``LedReading``
         holds them, whenever any LED address changes state. It fires from
-        the thread that caused the change, so listeners **must** schedule
-        UI work via ``Clock.schedule_once``.
+        the thread that caused the change, so listeners **must** hand any
+        UI work to their own UI thread.
 
         Args:
             listener: ``callable(address: int, name: str | None, state:

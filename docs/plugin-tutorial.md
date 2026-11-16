@@ -8,9 +8,9 @@ ships, and may change without a deprecation cycle until then.
 `ctx.plugins.post_processing` operates on saved files. `ctx.plugins.ui`
 has one mount point, `left_sidebar.accordion`.
 `ctx.plugins.live_processing` is a per-frame listener on the live camera
-stream. `ctx.plugins.rest` is name-reserved and raises on registration;
-`ctx.plugins.rest.register` is outside the freeze -- read **Lifecycle
-and namespaces** below before designing around it.
+stream. `ctx.plugins.rest` is name-reserved: registering in it raises,
+and it is outside the freeze -- read **Lifecycle and namespaces** below
+before designing around it.
 
 If you are shipping a plugin against this contract before `4.0.0`,
 contact Etaluma support so we can consult you before structural
@@ -339,9 +339,7 @@ and depends on resources A exposes -- B comes down first.
 No plugin is told of a settings change (plugin API level 9): the session
 saves every accepted write itself, and `on_settings_changed` is not
 called. A plugin that needs a setting reads it when it needs it
-(`ctx.setting('video.max_fps')`). `PluginSpec.subscribes_to` is gone
-(plugin API level 59): a spec that passes it raises `TypeError` where it
-is built.
+(`ctx.setting('video.max_fps')`).
 
 ### After a protocol (optional)
 
@@ -411,11 +409,11 @@ camera connected, registration raises and nothing is registered.
 ### The reserved namespace
 
 `ctx.plugins.rest` is reserved, and a plugin cannot add REST routes in
-this release, so a shipped plugin registers none:
-`ctx.plugins.rest.register(...)` raises `PluginRegistrationError`
-(`rest_namespace_reserved`), and is outside the 4.0 freeze: it takes a
-framework router, which has no published type, and what a plugin route
-looks like is not settled. Don't catch and ignore the raise; let your
+this release, so a shipped plugin registers none: registering a route
+there raises `PluginRegistrationError` (`rest_namespace_reserved`), and
+the namespace is outside the 4.0 freeze: a route would take a framework
+router, which has no published type, and what a plugin route looks like
+is not settled. Don't catch and ignore the raise; let your
 plugin fail to load, and serve what it needs through `post_processing`,
 `live_processing` or `ui`. While a plugin is being developed,
 `ctx.plugins.rest.enable_stub_mode()` records a registration and serves

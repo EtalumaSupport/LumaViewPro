@@ -231,8 +231,8 @@ class HeldClaim:
     A fresh object per taking, so it identifies that taking and no
     other: the next run's HeldClaim is a different object even when its
     holder description is equal. Only it releases the claim. Nothing
-    else hands it out -- ``ActivityClaim.holder`` describes the holder,
-    it does not return this.
+    else hands it out -- a refusal's ``holder`` describes the holder, it
+    does not return this.
     """
 
     __slots__ = ('_claim', '_control', '_in_block')

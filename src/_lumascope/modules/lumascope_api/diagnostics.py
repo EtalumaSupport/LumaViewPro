@@ -425,7 +425,7 @@ class DiagnosticsAPI:
             ``'FpgaCore'``; ``'Device'`` on an IDS body with one sensor). Empty
             only for a camera with no temperature sensor
             (``capabilities.camera_reports_temperature`` False). None when no
-            camera is connected, after ``disconnect()`` too: a read with no
+            camera is connected, after the scope's shutdown too: a read with no
             camera to describe. A temperature probe that failed as the
             camera came up does not stop the read, which is live.
 
@@ -458,7 +458,7 @@ class DiagnosticsAPI:
         Returns:
             CameraLink | None: The link, each field None where the camera
                 does not report it. None when no camera is connected, after
-                ``disconnect()`` too.
+                the scope's shutdown too.
 
         Raises:
             CameraReadFailedError: ``'camera_read_failed'``, a field the
@@ -527,7 +527,7 @@ class DiagnosticsAPI:
                 ``name`` is not a node name. Nothing reaches the camera.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; ``'scope_disconnected'`` after
-                ``disconnect()``.
+                the scope's shutdown.
             CameraNodeNotReadableError: The node holds no value to read, the
                 reason its kind: ``'command'``, ``'category'``,
                 ``'register'``, ``'port'``, ``'enum_entry'``; or

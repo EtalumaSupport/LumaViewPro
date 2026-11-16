@@ -813,7 +813,7 @@ class ProtocolError(_Umbrella, Exception):
 class ProtocolNotLoadedError(Fault, ProtocolError):
     """A protocol file could not be read.
 
-    Raised by ``Protocol.from_file``, chained from the ``OSError`` of the
+    Raised by ``ScopeSession.load_protocol``, chained from the ``OSError`` of the
     read, so the words name the file and the operating system's own reason
     -- a missing file, a denied permission, a drive that went away. A file
     that was read but is not a protocol LumaViewPro can take is
@@ -836,7 +836,7 @@ class ProtocolNotLoadedError(Fault, ProtocolError):
 class ProtocolNotSavedError(Fault, ProtocolError):
     """A protocol could not be written to its file.
 
-    Raised by ``Protocol.to_file``, chained from the ``OSError`` of the write,
+    Raised by ``ScopeSession.save_protocol``, chained from the ``OSError`` of the write,
     so the words name the file and the operating system's own reason -- a
     missing or read-only folder, a full disk, a file another program holds --
     rather than guessing one. The write goes to a file beside the target
@@ -861,9 +861,10 @@ class ProtocolNotSavedError(Fault, ProtocolError):
 class FocusNotWrittenError(Refusal, ProtocolError):
     """The focus a scan found was not written, because the protocol's steps changed under it.
 
-    Raised by ``Protocol.adopt_focus_from`` when the protocol no longer has
-    the steps the scan focused: a different number of them, or a step at a
-    different position, channel or objective. Each focused Z belongs to the
+    Reported when an autofocus scan of a protocol's steps ends and the
+    protocol it writes its focus into no longer has the steps the scan
+    focused: a different number of them, or a step at a different position,
+    channel or objective. Each focused Z belongs to the
     step it was found at, so writing it into a different step would give that
     step a focus nobody measured. The protocol is left unchanged; scanning
     again focuses the steps it has now.
@@ -1703,8 +1704,8 @@ def _offered_words(offered: Iterable[object]) -> str:
 class CatalogueNameRefusedError(Refusal, ConfigError):
     """A labware or objective name the installation's catalogue does not hold.
 
-    Raised by the catalogue's owner -- ``WellPlateLoader.resolve_plate_key``
-    for a plate, ``ObjectiveLoader.get_objective_info`` for an objective --
+    Raised by the catalogue's lookup -- ``Lumascope.plate`` for a plate,
+    ``Lumascope.objective`` for an objective --
     before anything is stored, so every door that names one is refused
     alike. A ``ConfigError``, because the same check reads a stored setting
     at bring-up and the callers that recover from a bad stored name catch
@@ -2066,7 +2067,7 @@ class CaptureFailedError(Fault, CaptureError):
 class RunWaitExpiredError(ProtocolError, Quiet, TimeoutError):
     """A run's waiting form ran out of its ``timeout_s`` with the run still going: nothing failed.
 
-    Raised by ``ProtocolRunner.run_X``. A ``TimeoutError``, as a caller's own
+    Raised by a ``ProtocolRunner`` ``run_*`` member. A ``TimeoutError``, as a caller's own
     wait expiring always is, and quiet: the run goes on, and ``operation``
     is the caller's hold on it, to wait on again or to stop. ``TimeoutError``
     is the last base, so its ``OSError`` constructor never reads the words
@@ -5146,7 +5147,7 @@ class MotorStopFailedError(Fault, Exception):
 
 
 class DisconnectStep(StrEnum):
-    """What ``Lumascope.disconnect`` does to a board: the LEDs' off, the motor STOP, the board's own disconnect."""
+    """What the scope's shutdown does to a board: the LEDs' off, the motor STOP, the board's own disconnect."""
 
     LEDS_OFF = 'leds_off'
     MOTOR_STOP = 'motor_stop'
@@ -5217,7 +5218,7 @@ class DisconnectFailure:
 class ScopeDisconnectError(Fault, Exception):
     """One or more parts of the microscope did not shut down cleanly.
 
-    Raised by ``Lumascope.disconnect`` only after every teardown step has
+    Raised by the scope's shutdown (``ScopeSession.shutdown``) only after every teardown step has
     run, so one part's failure never leaves the others connected. Names
     each step that failed, on its board, in the order the teardown reached
     it, and is chained from the first one's error. Each step's error is

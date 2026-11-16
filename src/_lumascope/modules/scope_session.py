@@ -472,9 +472,8 @@ class Status:
             refusal.
         control: The control session held, None when none is
             (``ScopeSession.control``).
-        run_refused: The refusal a run would get now for the scope's state
-            alone, None when the state refuses none
-            (``SequencedCaptureRunner.state_refusal``). None does not
+        run_refused: The refusal a run's start would give now for the
+            scope's state alone, None when the state refuses none. None does not
             promise a run starts: the protocol, an axis's position, the
             camera feed and the interlocks are judged when the run is asked.
         axes: Each stage axis's state and position, None where the
@@ -2534,16 +2533,18 @@ class ScopeSession:
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at
                 ``file_path``; ``'not_a_file'``, a folder is.
-            ProtocolNotLoadedError: As ``ProtocolsAPI.load_protocol``.
-            ProtocolFormatError: As ``ProtocolsAPI.load_protocol``.
+            ProtocolNotLoadedError: The file is there and cannot be read.
+            ProtocolFormatError: The file is not a protocol LumaViewPro can
+                take, or names a plate this installation's labware catalogue
+                does not have; refused before any protocol exists.
             ProtocolRunRefusedError: ``'objective_not_mounted'``,
                 ``'objectives_require_turret'``,
                 ``'turret_objectives_unassigned'`` or
                 ``'channel_not_on_scope'``: the file holds a step this scope
                 cannot perform; ``'channel_unknown'``, a step names a
                 channel no release has; ``'values_out_of_range'``, its Layer
-                Settings hold a value no channel setting takes; each as
-                ``ProtocolsAPI.load_protocol``.
+                Settings hold a value no channel setting takes; each the
+                reason a run would give for the same file.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 as ``select_labware``; the scope stays on the plate it had.
         """
@@ -3477,8 +3478,7 @@ class ScopeSession:
                 not named is left where it is.
 
         Returns:
-            One ``Operation`` for the moves started, done once every one is
-            (``Operation.all_of``).
+            One ``Operation`` for the moves started, done once every one is.
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, a name in ``axes`` that
@@ -3995,8 +3995,8 @@ class ScopeSession:
         One task on the scope's IO lane: the axes are asked once whether
         they know their position; the turret turns to the step's objective
         and X, Y and Z are started towards the step together, on the
-        protocol's own plate (``ProtocolsAPI.step_targets``, the targets a
-        run computes); the step's values go into its channel's live settings
+        protocol's own plate, at the targets a run computes for the step;
+        the step's values go into its channel's live settings
         as any channel write puts them, the channel acquiring as the step
         does, so the channel and the step agree; its saved focus is left as
         it is, where New starts the next protocol; and the step's LED preview is
@@ -6798,9 +6798,9 @@ class ScopeSession:
         Raises:
             AlreadyStartedError: ``'metrics_running'``, metrics are already
                 running; ``disable_metrics`` lets them start again. A second
-                ``MetricsLogger.start`` would silently overwrite its
-                schedule handles and orphan the first set as untracked,
-                forever-ticking events. Still a ``RuntimeError``.
+                start would silently overwrite the first's schedule and
+                orphan its events, ticking untracked forever. Still a
+                ``RuntimeError``.
         """
         if self._metrics_started:
             raise AlreadyStartedError(

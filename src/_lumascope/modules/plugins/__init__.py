@@ -153,8 +153,7 @@ class PluginSpec:
         auto_run_on_protocol_complete: For a post-processing plugin, True
             hands its processor the folder of every Full Protocol run,
             whoever started it, once its files are on disk and its
-            hyperstack build has ended
-            (``PluginRegistry.run_protocol_complete_processors``).
+            hyperstack build has ended.
     """
 
     name: str
@@ -390,8 +389,7 @@ class PostProcessingRegistry(_BaseNamespace):
     register(spec, processor):
         processor: callable
             processor(input_dir, manifest, output_dir) -> ProcessorResult
-        Invoked from PluginRegistry.run_protocol_complete_processors() at
-        the end of every Full Protocol run when
+        Invoked at the end of every Full Protocol run when
         spec.auto_run_on_protocol_complete=True.
         Ad-hoc invocation: callers fetch via .get(name) and call directly.
     """
