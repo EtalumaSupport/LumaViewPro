@@ -285,7 +285,6 @@ class ScopeDisplayThread:
             try:
                 status = widget._render_one_frame(
                     open_channel=open_channel,
-                    dispatch_time=cycle_start,
                     generation=self._generation,
                     intentional_wait_ms=intentional_wait_ms,
                 )

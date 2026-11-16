@@ -8,7 +8,6 @@ these tests drive the production code path directly.
 
 import threading
 import time
-from collections import deque
 
 from _lumascope.modules import app_context as _app_ctx
 from _lumascope.modules.scope_display_thread import (
@@ -34,22 +33,19 @@ class _FakeWidget:
 
     def __init__(self, status_sequence=None):
         self.status_sequence = status_sequence or [STATUS_OK]
-        self.calls = []  # (cycle_start, generation)
+        self.calls = []
         self._status_index = 0
-        self._frame_interval_history = deque(maxlen=200)
 
     def _render_one_frame(
         self,
         *,
         open_channel,
-        dispatch_time,
         generation,
         intentional_wait_ms=0.0,
     ):
         self.calls.append(
             {
                 'open_channel': open_channel,
-                'dispatch_time': dispatch_time,
                 'generation': generation,
                 'intentional_wait_ms': intentional_wait_ms,
             }

@@ -219,12 +219,12 @@ class ScopeDisplay(Image):
 
         self._display_draw_times = deque()
 
-        # Frame-interval rolling histogram for P50/P95/P99. Sized to ~60 s
-        # at typical 15-30 fps. Worker thread appends; metrics-log thread
-        # reads via `frame_interval_percentiles_ms()`. deque.append is
-        # atomic in CPython so no lock needed for occasional snapshot reads.
+        # The intervals between live frames drawn, for P50/P95/P99. Sized to
+        # ~60 s at typical 15-30 fps. The UI thread appends at each live draw;
+        # the metrics-log thread reads via `frame_interval_percentiles_ms()`.
+        # deque.append is atomic in CPython so no lock needed for occasional
+        # snapshot reads.
         self._frame_interval_history = deque(maxlen=2000)
-        self._last_frame_pull_time = None
 
         # Per-spike frame-drop attribution ("uneven video" instrument), judged
         # on the UI thread at each live frame drawn, so it measures the gaps a
@@ -490,28 +490,14 @@ class ScopeDisplay(Image):
         )
         return self._bullseye_rgb_buf
 
-    def _record_frame_interval(self, cycle_start, intentional_wait_ms):
-        """Append one loop-iteration interval to the rolling histogram.
-
-        Time the loop deliberately spent not rendering (holds, pause) is
-        excluded so p50/p95/p99/max read as delivery latency -- a frame held
-        on screen on purpose is not a consumer stall. So is a stretch the
-        process did not run (``_stopped_ms``).
-        """
-        if self._last_frame_pull_time is not None:
-            interval_ms = (
-                (cycle_start - self._last_frame_pull_time) * 1000.0
-                - intentional_wait_ms
-                - _stopped_ms(self._last_frame_pull_time, cycle_start)
-            )
-            self._frame_interval_history.append(interval_ms)
-        self._last_frame_pull_time = cycle_start
-
     def frame_interval_percentiles_ms(self):
-        """Return P50/P95/P99 frame interval in ms over the rolling history.
+        """``p50``, ``p95``, ``p99`` and ``max`` intervals between live frames drawn, in ms, and ``n`` the samples.
 
-        Used by log_system_metrics() to detect consumer stalls. Returns dict
-        with keys p50/p95/p99/n; empty dict if no samples yet.
+        The intervals the slow-frame judge measures at each live draw, with
+        the time the display deliberately drew nothing (holds, pause) and a
+        stretch the process did not run (``_stopped_ms``) taken out: what the
+        viewer saw, not how often the display loop polled. Empty before the
+        first. Read by ``log_system_metrics`` for ``[FRAME INTERVAL]``.
         """
         history = list(self._frame_interval_history)
         n = len(history)
@@ -643,6 +629,11 @@ class ScopeDisplay(Image):
         """
         prev_time = self._last_live_draw
         self._last_live_draw = drawn_at
+        if prev_time is not None:
+            held_ms = since.held_ms
+            stopped_ms = _stopped_ms(prev_time, drawn_at)
+            interval_ms = (drawn_at - prev_time) * 1000.0 - held_ms - stopped_ms
+            self._frame_interval_history.append(interval_ms)
         window = self._spike_interval_window
         if not since.settled:
             window.clear()
@@ -651,9 +642,6 @@ class ScopeDisplay(Image):
             return
         if prev_time is None:
             return
-        held_ms = since.held_ms
-        stopped_ms = _stopped_ms(prev_time, drawn_at)
-        interval_ms = (drawn_at - prev_time) * 1000.0 - held_ms - stopped_ms
         window.append(interval_ms)
         if len(window) < self._spike_min_samples:
             return
@@ -812,7 +800,6 @@ class ScopeDisplay(Image):
         self,
         *,
         open_channel,
-        dispatch_time=0,
         generation=0,
         intentional_wait_ms=0.0,
     ):
@@ -848,10 +835,6 @@ class ScopeDisplay(Image):
         # scope.camera_connected.
         if ctx is None or ctx.scope is None:
             return STATUS_NOT_READY
-
-        # Frame-interval recording (was on _pull_next_frame; now per-iteration here).
-        cycle_start = dispatch_time or time.monotonic()
-        self._record_frame_interval(cycle_start, intentional_wait_ms)
 
         camera_present = ctx.scope.camera_connected
         if camera_present != self._camera_presence_posted:

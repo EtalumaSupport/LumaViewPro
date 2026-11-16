@@ -25,7 +25,6 @@ lock:
     held= reported on the line.
 """
 
-from collections import deque
 from types import SimpleNamespace
 
 import numpy as np
@@ -267,24 +266,27 @@ def test_the_line_states_the_windows_state_when_drawn(monkeypatch, minimized, fo
     assert f'window={shown} ' in lines[0]
 
 
-class _Stand:
-    """Carries only the frame-interval history and the real method under test."""
+# --- [FRAME INTERVAL] states the intervals between live frames drawn ---------
+#
+# The metrics line's percentiles were taken over the display loop's passes,
+# so a loop polling every few milliseconds read its own cadence, not what the
+# viewer saw. They are the intervals the slow-frame judge measures at each
+# live draw, holds and stops taken out.
 
 
-def test_record_frame_interval_excludes_intentional_wait():
-    # The rolling p50/p95/p99 histogram is the other consumer of iteration
-    # intervals; a hold must not inflate its max either.
-    stand = _Stand()
-    stand._frame_interval_history = deque(maxlen=10)
-    stand._last_frame_pull_time = None
-    record = ScopeDisplay._record_frame_interval
-    record(stand, 1000.0, 0.0)  # seeds; no interval yet
-    assert list(stand._frame_interval_history) == []
-    record(stand, 1000.038, 0.0)  # normal 38ms iteration
-    record(stand, 1000.576, 500.0)  # 538ms span, 500ms of it a hold
-    intervals = list(stand._frame_interval_history)
-    assert abs(intervals[0] - 38.0) < 0.001
-    assert abs(intervals[1] - 38.0) < 0.001
+def test_the_frame_interval_is_the_interval_between_live_frames_drawn():
+    view = LiveView(live_view_widget())
+    view.frames(41, 33.0)
+    percentiles = view.widget.frame_interval_percentiles_ms()
+    assert (percentiles['n'], round(percentiles['p50'])) == (40, 33)
+
+
+def test_the_frame_interval_takes_a_hold_out():
+    view = LiveView(live_view_widget())
+    view.frames(5, 38.0)
+    view.held(500.0)
+    view.frames(1, 38.0)
+    assert round(view.widget.frame_interval_percentiles_ms()['max']) == 38
 
 
 # --- The floor is a perceptible stutter, not the display quantum ---------------
@@ -386,15 +388,10 @@ def test_a_stutter_beside_a_stop_fires_and_reports_the_stop(stopped_10_s):
     assert 'interval=250ms' in lines[0] and 'stopped=10000ms' in lines[0], lines
 
 
-def test_record_frame_interval_excludes_a_stop(stopped_10_s):
-    stand = _Stand()
-    stand._frame_interval_history = deque(maxlen=10)
-    stand._last_frame_pull_time = None
-    record = ScopeDisplay._record_frame_interval
-    record(stand, 1000.0, 0.0)
-    record(stand, 1010.038, 0.0)
-    (interval,) = stand._frame_interval_history
-    assert abs(interval - 38.0) < 0.001
+def test_the_frame_interval_takes_a_stop_out(stopped_10_s):
+    view = _settled_before_the_stop()
+    _next(view, 10038.0)
+    assert round(view.widget.frame_interval_percentiles_ms()['max']) == 38
 
 
 def test_the_bullseye_shown_with_debug_on_keeps_no_waits_for_the_summary(monkeypatch):
