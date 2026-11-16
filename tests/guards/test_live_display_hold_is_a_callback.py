@@ -5,7 +5,7 @@ moment, so the user sees what was saved before the live preview overwrites
 it. The writer used to find the display by reading the GUI's application
 context from inside the engine; then it called a hold hook the GUI handed in
 by name. Now the run publishes ``frame_captured(image, frames_summed,
-frame_significant_bits)`` once the frame's write is the batch's, and every GUI
+frame_significant_bits, channel)`` once the frame's write is the batch's, and every GUI
 run starter subscribes ``show_captured_frame``, which hands the frame to the
 display to render on its own thread and hold. The engine names no display. The dead ``update_scope_display``
 field, which nothing read, stays gone.
@@ -28,6 +28,7 @@ from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules.protocol_image_writer import ProtocolImageWriter
 from _lumascope.modules.run_events import RunEvents
 from tests.ast_seams import iter_package_modules, parse_module
+from tests.stock_channels import LED0
 from tests.scope_fakes import spec_scope
 
 # ui.ui_helpers imports Kivy's clock and a widget; conftest mocks ``kivy`` but
@@ -82,7 +83,7 @@ def _writer(events):
     return writer
 
 
-def _capture_one_still(writer):
+def _capture_one_still(writer, channel='BF'):
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
     writer.capture(
@@ -94,7 +95,7 @@ def _capture_one_still(writer):
             'Label': '',
             'Acquire': 'image',
             'Auto_Gain': False,
-            'channel': 'BF',
+            'channel': channel,
             'Gain': 2.0,
             'Exposure': 10.0,
             'Objective': '4x',
@@ -117,23 +118,25 @@ def no_context(monkeypatch):
 
 class TestFrameCapturedCarriesTheSavedFrame:
     def test_a_saved_frame_reaches_the_event_with_no_context_in_the_process(self, no_context):
-        """The writer hands the frame, its sum count and its depth to the
-        event, after the frame's write was submitted, with nothing in the
-        process for it to read a display from."""
+        """The writer hands the frame, its sum count, its depth and the
+        step's channel to the event, after the frame's write was submitted,
+        with nothing in the process for it to read a display from."""
         seen = []
         writer = _writer(None)
 
-        def _captured(image, frames_summed, bits):
-            seen.append((image, frames_summed, bits, writer._write_batch._executor.put.called))
+        def _captured(image, frames_summed, bits, channel):
+            seen.append(
+                (image, frames_summed, bits, channel, writer._write_batch._executor.put.called)
+            )
 
         writer._events = RunEvents(frame_captured=_captured)
 
-        _capture_one_still(writer)
+        _capture_one_still(writer, channel=LED0)
 
         assert len(seen) == 1, seen
-        image, frames_summed, bits, submitted = seen[0]
+        image, frames_summed, bits, channel, submitted = seen[0]
         assert image.shape == (4, 4)
-        assert (frames_summed, bits) == (1, 8)
+        assert (frames_summed, bits, channel) == (1, 8, LED0)
         assert submitted, 'frame_captured must follow the write being handed to the batch'
 
     def test_the_handler_holds_the_captures_own_read_only_frame(self, no_context):
@@ -172,7 +175,7 @@ class TestFrameCapturedCarriesTheSavedFrame:
         monkeypatch.setattr(notifications, 'report_outcome', lambda e, **k: reported.append((e, k)))
         failure = FrameDepthError(4095, 8)
 
-        def _captured(image, frames_summed, bits):
+        def _captured(image, frames_summed, bits, channel):
             raise failure
 
         writer = _writer(RunEvents(frame_captured=_captured))
@@ -210,11 +213,12 @@ class TestTheGuiHandlerLooksTheDisplayUpLate:
         monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(scope_display=display))
         image = np.full((2, 2), 200, dtype=np.uint8)
 
-        show_captured_frame(image, 1, 8)
+        show_captured_frame(image, 1, 8, LED0)
 
-        ((held, frames_summed, bits), _kw) = display.hold_protocol_saved_image.call_args
+        ((held, frames_summed, bits), kw) = display.hold_protocol_saved_image.call_args
         assert held is image, 'the frame is handed over as saved, unrendered'
         assert (frames_summed, bits) == (1, 8)
+        assert kw['held'].channel == LED0, 'the frame is drawn in its own channel colour'
 
 
 def _subscribes_the_handler(call: ast.Call) -> bool:

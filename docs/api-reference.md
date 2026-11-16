@@ -10861,6 +10861,7 @@ A `frame_captured` event, sent for each frame whose write the run's writer has t
 
 **Fields**
 
+- <a id="FrameCaptured.channel"></a>`channel`: `str` -- The key name of the channel the frame was taken for, the step's; a display shows the frame in that channel's colour.
 - <a id="FrameCaptured.frame_significant_bits"></a>`frame_significant_bits`: `int` -- The depth each summed frame was delivered at; with `frames_summed` it gives the sum's depth and full scale.
 - <a id="FrameCaptured.frames_summed"></a>`frames_summed`: `int` -- How many frames are summed into `image`; 1 for a single frame.
 - <a id="FrameCaptured.image"></a>`image`: `np.ndarray` -- The frame as its file gets it, a sum when summing; read-only.
@@ -12948,7 +12949,7 @@ event elsewhere builds the record from them.
 **Fields**
 
 - <a id="RunEvents.files_written"></a>`files_written`: `Callable[[pathlib.Path | None, FilesOutcome], object] | None` -- `(run_dir, files)` once the run's last image write has landed: `files` is `FilesOutcome.WRITTEN`, or `INCOMPLETE` when some of its images are not on disk.
-- <a id="RunEvents.frame_captured"></a>`frame_captured`: `Callable[[np.ndarray, int, int], object] | None` -- `(image, frames_summed, frame_significant_bits)` for each captured frame whose write was handed to the run's writer, once it was: the frame as the file gets it (a sum when summing), read-only. Delivered on the run's own thread, which waits for it, so it must not block; a GUI renders and shows it.
+- <a id="RunEvents.frame_captured"></a>`frame_captured`: `Callable[[np.ndarray, int, int, str], object] | None` -- `(image, frames_summed, frame_significant_bits, channel)` for each captured frame whose write was handed to the run's writer, once it was: the frame as the file gets it (a sum when summing), read-only, and the channel it was taken for. Delivered on the run's own thread, which waits for it, so it must not block; a GUI renders and shows it.
 - <a id="RunEvents.on_ui_thread"></a>`on_ui_thread`: `bool` -- Whether the handlers above but `frame_captured` run on the UI dispatcher's thread. A GUI sets it for handlers that draw; the default runs each on the sending thread.
 - <a id="RunEvents.run_ended"></a>`run_ended`: `Callable[[RunOutcome, pathlib.Path | None, Protocol], object] | None` -- `(outcome, run_dir, protocol)` once the run has let go of the scope and its outcome has settled: for every run at the release, for a composite once its merge settles, which may be before or after its `files_written`. `run_dir` is None for a run that saved nothing.
 - <a id="RunEvents.scan_ended"></a>`scan_ended`: `Callable[[int, int, float | None], object] | None` -- `(scan_index, scans_remaining, period_s)` as a scan ends, a stopped one included: how many remain after it.

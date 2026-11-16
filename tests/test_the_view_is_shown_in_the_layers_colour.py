@@ -1,12 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The live view is shown in a colour, not a layer key.
+"""The view is shown in the colour of what is drawn, not a layer key.
 
-``ShaderViewer.update_shader`` takes a colour: each plane's white point is
+``ShaderViewer`` shows the view in a colour: each plane's white point is
 the view's white times the colour's weight on that plane, so a colour that
 is not a primary shows as itself, and the record of the view's colour is
-the colour's ``'#rrggbb'`` text. A layer's drawer passes its layer's shown
-colour (``channel_record.shown_color``): its display colour with false colour
-on, grey with it off; the bullseye shows grey.
+the colour's ``'#rrggbb'`` text. The colour is decided at each draw from
+what was drawn (``ShaderViewer.show_drawn``): an RGB image (the bullseye, a
+derived image, a composite) untinted, so its own colours show; a held mono
+frame in its own channel's shown colour; a live frame in the live colour,
+which a layer's drawer sets (``ChannelControl.update_shader``) to its
+layer's shown colour, its display colour with false colour on, grey with it
+off. A run shows each step in its channel's colour as the step lights it,
+and before this a held run frame was drawn in the next step's.
 """
 
 from __future__ import annotations
@@ -19,30 +24,41 @@ import pytest
 
 import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.channel_record as channel_record
-from _lumascope.modules.scope_session import ShownChannel
 from ui.channel_control import ChannelControl
 from ui.microscope_settings import MicroscopeSettings
 from ui.shader import ShaderViewer
 from tests.stock_channels import LED0, LED2
 
+_BLUE = channel_record.parse_display_color('#0000ff')
+_RED = channel_record.parse_display_color('#ff0000')
+
 
 def _view():
-    # a stand-in by design: Kivy is stubbed in the test process; the subject
-    # is what update_shader writes into the canvas
-    return SimpleNamespace(canvas={}, size=(10, 10), black=0.0, white=1.0)
+    # The stub base has no canvas or Kivy properties; the instance gets them,
+    # and the subject is what the viewer writes into its canvas.
+    view = ShaderViewer.__new__(ShaderViewer)
+    view.canvas = {}
+    view.size = (10, 10)
+    view.black = 0.0
+    view.white = 1.0
+    return view
+
+
+def _white(view):
+    return view.canvas['white_point'][:3]
 
 
 def test_each_plane_is_the_views_white_times_the_colours_weight(caplog):
     shown = []
     with caplog.at_level(logging.DEBUG, logger='LVP.gui_interactions'):
         for color in (
-            channel_record.parse_display_color('#0000ff'),
+            _BLUE,
             channel_record.GREY,
             channel_record.parse_display_color('#ff00ff'),
             channel_record.parse_display_color('#ff8000'),
         ):
             view = _view()
-            ShaderViewer.update_shader(view, color)
+            view.set_live_color(color)
             shown.append(view.canvas['white_point'])
 
     assert shown == [
@@ -56,16 +72,50 @@ def test_each_plane_is_the_views_white_times_the_colours_weight(caplog):
 
 
 @pytest.fixture
-def viewer(monkeypatch):
-    viewer = MagicMock()
+def channels(monkeypatch):
+    """The layer panel's channels, each answering its shown colour: LED2 red."""
+    # a stand-in by design: the layer panel is a Kivy widget tree, which
+    # never runs here; the subject is the viewer, which asks it.
+    controls = {LED2: SimpleNamespace(shown_color=lambda: _RED)}
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
         SimpleNamespace(
-            viewer=viewer, session=SimpleNamespace(channel_colors=channel_record.release_colors)
+            image_settings=SimpleNamespace(channel_control_lookup=lambda channel: controls[channel])
         ),
     )
-    return viewer
+
+
+@pytest.mark.parametrize('colorfmt', ['rgb', 'bgr'])
+def test_an_rgb_image_is_drawn_untinted_whatever_the_live_colour(channels, colorfmt):
+    # parametrize-justified: the bullseye's texture and a derived image's
+    view = _view()
+    view.set_live_color(_BLUE)
+    view.show_drawn(colorfmt)
+    assert _white(view) == (1.0, 1.0, 1.0)
+
+
+def test_a_held_frame_keeps_its_channels_colour_until_a_live_frame_is_drawn(channels):
+    view = _view()
+    view.set_live_color(_BLUE)
+    view.show_drawn('luminance')
+    assert _white(view) == (0.0, 0.0, 1.0)
+
+    view.show_drawn('luminance', LED2)
+    assert _white(view) == (1.0, 0.0, 0.0)
+    # The run's next step shows its channel while the frame is held.
+    view.set_live_color(channel_record.GREY)
+    assert _white(view) == (1.0, 0.0, 0.0)
+
+    view.show_drawn('luminance')
+    assert _white(view) == (1.0, 1.0, 1.0)
+
+
+def test_a_new_live_colour_shows_at_once_over_a_live_frame(channels):
+    view = _view()
+    view.show_drawn('luminance')
+    view.set_live_color(_BLUE)
+    assert _white(view) == (0.0, 0.0, 1.0)
 
 
 @pytest.mark.parametrize(
@@ -76,42 +126,43 @@ def viewer(monkeypatch):
         ('BF', True, channel_record.GREY),
     ],
 )
-def test_a_drawer_shows_its_layers_colour_with_false_colour_on_and_grey_off(
-    viewer, layer, false_color, shown
+def test_a_layers_shown_colour_is_its_colour_with_false_colour_on_and_grey_off(
+    monkeypatch, layer, false_color, shown
 ):
     # parametrize-justified: false colour on, off, and a layer whose colour is grey
+    monkeypatch.setattr(
+        _app_ctx,
+        'ctx',
+        SimpleNamespace(session=SimpleNamespace(channel_colors=channel_record.release_colors)),
+    )
     drawer = SimpleNamespace(
         channel=layer, ids={'false_color': SimpleNamespace(active=false_color)}
     )
 
+    assert ChannelControl.shown_color(drawer) == shown
+
+
+def test_a_drawer_sets_the_live_colour_to_its_layers(monkeypatch):
+    viewer = MagicMock()
+    monkeypatch.setattr(_app_ctx, 'ctx', SimpleNamespace(viewer=viewer))
+    drawer = SimpleNamespace(shown_color=lambda: _BLUE)
+
     ChannelControl.update_shader(drawer, dt=0)
 
-    viewer.update_shader.assert_called_once_with(shown)
+    viewer.set_live_color.assert_called_once_with(_BLUE)
 
 
-def test_the_bullseye_shows_grey_and_leaving_it_redraws_the_shown_layer(monkeypatch):
-    shown_channel = MagicMock()
+def test_the_bullseye_toggle_sets_the_display_and_leaves_the_colour_to_the_draw(monkeypatch):
     viewer = MagicMock()
-    ctx = SimpleNamespace(
-        viewer=viewer,
-        scope_display=SimpleNamespace(use_bullseye=False),
-        session=SimpleNamespace(
-            shown_channel=ShownChannel(LED2, lit=False),
-            channel_colors=channel_record.release_colors,
-        ),
-        image_settings=SimpleNamespace(
-            channel_control_lookup=lambda channel: {LED2: shown_channel}[channel]
-        ),
-    )
+    ctx = SimpleNamespace(viewer=viewer, scope_display=SimpleNamespace(use_bullseye=False))
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     button = SimpleNamespace(state='down')
     panel = SimpleNamespace(ids={'enable_bullseye_btn_id': button})
 
     MicroscopeSettings.update_bullseye_state(panel)
-    assert viewer.update_shader.call_args_list == [((channel_record.GREY,),)]
     assert ctx.scope_display.use_bullseye is True
 
     button.state = 'normal'
     MicroscopeSettings.update_bullseye_state(panel)
-    shown_channel.update_shader.assert_called_once_with(dt=0)
     assert ctx.scope_display.use_bullseye is False
+    assert viewer.mock_calls == []

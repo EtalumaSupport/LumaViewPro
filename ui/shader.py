@@ -13,7 +13,7 @@ import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules import gui_logger
 from _lumascope.modules.coord_transformations import PlatePosition
 from _lumascope.modules.exceptions import Refusal
-from _lumascope.modules.channel_record import Color, format_display_color
+from _lumascope.modules.channel_record import GREY, Color, format_display_color
 from ui.ui_helpers import fixed_number, run_unasked
 
 logger = logging.getLogger('LVP.ui.shader')
@@ -352,7 +352,51 @@ void main (void) {
                 title += f' -- {event_text}'
             Window.set_title(title)
 
-    def update_shader(self, color: Color):
+    # The colour a live mono frame is shown in, the colour of what is drawn
+    # now (None: a live mono frame, so the live colour) and the colour the
+    # canvas was last given.
+    _live_color: Color = GREY
+    _drawn_color: Color | None = None
+    _shown_color: Color | None = None
+
+    def set_live_color(self, color: Color):
+        """Show live mono frames in ``color``: at once while one is on
+        screen; a held frame or an RGB image keeps its own until the next
+        live frame is drawn."""
+        self._live_color = color
+        self._show_what_is_drawn()
+
+    def show_drawn(self, colorfmt: str, held_channel: str | None = None):
+        """Show the view in the colour of what was just drawn into the display.
+
+        A texture whose pixels carry their colour (``'rgb'``, ``'bgr'``: the
+        bullseye, a derived image, a composite) is shown untinted; a held
+        mono frame in its own channel's shown colour, so a run's frame is
+        not drawn in the step that followed it; a live mono frame in the
+        live colour.
+
+        Args:
+            colorfmt: The drawn texture's format.
+            held_channel: The channel a held mono frame was taken for; None
+                for a live frame.
+        """
+        if colorfmt in ('rgb', 'bgr'):
+            self._drawn_color = GREY
+        elif held_channel is not None:
+            self._drawn_color = _app_ctx.ctx.image_settings.channel_control_lookup(
+                channel=held_channel
+            ).shown_color()
+        else:
+            self._drawn_color = None
+        self._show_what_is_drawn()
+
+    def _show_what_is_drawn(self):
+        color = self._live_color if self._drawn_color is None else self._drawn_color
+        if color != self._shown_color:
+            self._shown_color = color
+            self._show_in(color)
+
+    def _show_in(self, color: Color):
         """Show the view in ``color``: each plane's white point is the view's
         white times the colour's weight on that plane (``GREY`` shows mono)."""
         c = self.canvas

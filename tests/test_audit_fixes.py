@@ -2091,8 +2091,8 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
     run-end restore.
 
     Bug shape (sim repro 2026-05-23): protocol step on the LED 2 layer calls
-    its ChannelControl.apply_settings() which calls
-    ShaderViewer.update_shader(LED2), writing
+    its ChannelControl.apply_settings(), which sets the shader's live
+    colour to LED2's, writing
     `white_point = (white, 0.0, 0.0, 1.0)` to the canvas shader.
     Subsequent rendered frames are red-tinted via this multiplier.
     When the protocol stops, the run restores LEDs, AF, camera state,
@@ -2129,7 +2129,7 @@ class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
         ctx.image_settings.channel_control_lookup.return_value.update_shader.assert_called_once_with(
             dt=0
         )
-        ctx.viewer.update_shader.assert_not_called()
+        ctx.viewer.set_live_color.assert_not_called()
         synced.assert_called_once_with()
 
     def test_the_cleanup_names_no_shader(self):

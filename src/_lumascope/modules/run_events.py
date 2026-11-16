@@ -109,7 +109,7 @@ class StepStarted:
     step_index: int
 
 
-@api_fields('image', 'frames_summed', 'frame_significant_bits')
+@api_fields('image', 'frames_summed', 'frame_significant_bits', 'channel')
 @dataclasses.dataclass(frozen=True)
 class FrameCaptured:
     """A ``frame_captured`` event, sent for each frame whose write the run's writer has taken.
@@ -120,11 +120,14 @@ class FrameCaptured:
             single frame.
         frame_significant_bits: The depth each summed frame was delivered
             at; with ``frames_summed`` it gives the sum's depth and full scale.
+        channel: The key name of the channel the frame was taken for, the
+            step's; a display shows the frame in that channel's colour.
     """
 
     image: np.ndarray
     frames_summed: int
     frame_significant_bits: int
+    channel: str
 
 
 @api_fields('outcome', 'run_dir', 'protocol')
@@ -193,11 +196,12 @@ class RunEvents:
             ends, a stopped one included: how many remain after it.
         step_started: ``(step_index)`` as each step begins, step 0 included,
             the index read at the step.
-        frame_captured: ``(image, frames_summed, frame_significant_bits)``
-            for each captured frame whose write was handed to the run's
-            writer, once it was: the frame as the file gets it (a sum when
-            summing), read-only. Delivered on the run's own thread, which
-            waits for it, so it must not block; a GUI renders and shows it.
+        frame_captured: ``(image, frames_summed, frame_significant_bits,
+            channel)`` for each captured frame whose write was handed to the
+            run's writer, once it was: the frame as the file gets it (a sum
+            when summing), read-only, and the channel it was taken for.
+            Delivered on the run's own thread, which waits for it, so it
+            must not block; a GUI renders and shows it.
         video_progress: ``(progress)``, a ``VideoProgress``, as a video step
             records and writes.
         run_ended: ``(outcome, run_dir, protocol)`` once the run has let go
@@ -226,7 +230,7 @@ class RunEvents:
     step_started: Callable[[int], object] | None = dataclasses.field(
         default=None, metadata=event_metadata(StepStarted)
     )
-    frame_captured: Callable[[np.ndarray, int, int], object] | None = dataclasses.field(
+    frame_captured: Callable[[np.ndarray, int, int, str], object] | None = dataclasses.field(
         default=None, metadata=event_metadata(FrameCaptured)
     )
     video_progress: Callable[[VideoProgress], object] | None = dataclasses.field(

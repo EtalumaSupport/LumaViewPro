@@ -9,7 +9,6 @@ from kivy.uix.boxlayout import BoxLayout
 import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.binning as binning
 import _lumascope.modules.common_utils as common_utils
-import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules import gui_logger, path_utils
 from _lumascope.modules.ui_queue import schedule_ui_latest
 from _lumascope.modules.notification_center import notifications
@@ -303,13 +302,10 @@ class MicroscopeSettings(BoxLayout):
 
     def update_bullseye_state(self):
         gui_logger.toggle('BULLSEYE', self.ids['enable_bullseye_btn_id'].state == 'down')
-        if self.ids['enable_bullseye_btn_id'].state == 'down':
-            _app_ctx.ctx.viewer.update_shader(channel_record.GREY)
-            _app_ctx.ctx.scope_display.use_bullseye = True
-        else:
-            channel = _app_ctx.ctx.session.shown_channel.channel
-            _app_ctx.ctx.image_settings.channel_control_lookup(channel=channel).update_shader(dt=0)
-            _app_ctx.ctx.scope_display.use_bullseye = False
+        # The bullseye's frames are RGB, which the view draws untinted
+        # (ShaderViewer.show_drawn); the next live frame after it is drawn
+        # in the live colour again.
+        _app_ctx.ctx.scope_display.use_bullseye = self.ids['enable_bullseye_btn_id'].state == 'down'
 
     def load_image_modes(self):
         """Populate the image-mode spinner: every mode, on every camera."""

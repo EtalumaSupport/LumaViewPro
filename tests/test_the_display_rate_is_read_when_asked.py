@@ -50,7 +50,7 @@ _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 import ui.scope_display as scope_display_module
 from _lumascope.modules import app_context
-from ui.scope_display import ScopeDisplay
+from ui.scope_display import HeldFrame, ScopeDisplay
 
 
 class _Clock:
@@ -74,7 +74,11 @@ def clock(monkeypatch):
 
 @pytest.fixture
 def display(monkeypatch, clock):
-    monkeypatch.setattr(app_context, 'ctx', None)
+    # a stand-in by design: the viewer is a Kivy widget; the subject is the
+    # display's rate, not the colour it tells the viewer.
+    monkeypatch.setattr(
+        app_context, 'ctx', SimpleNamespace(viewer=MagicMock(), settings={'debug_mode': False})
+    )
     # The constructor draws its overlays on the canvas and binds Kivy
     # properties; the stub base has neither, so the instance gets them first.
     widget = ScopeDisplay.__new__(ScopeDisplay)
@@ -88,7 +92,7 @@ def _draw_live(display, n, clock, spacing_s):
     frame = np.zeros((4, 4), dtype=np.uint8)
     for _ in range(n):
         clock.now += spacing_s
-        display.create_and_set_texture(frame.tobytes(), frame.shape, generation=0, held_s=None)
+        display.create_and_set_texture(frame.tobytes(), frame.shape, generation=0, held=None)
 
 
 class TestTheRateIsTheLastSecondsDraws:
@@ -105,6 +109,8 @@ class TestTheRateIsTheLastSecondsDraws:
 
     def test_a_saved_image_put_on_the_screen_is_not_a_live_frame(self, display, clock):
         image = np.zeros((4, 4), dtype=np.uint8)
-        display.create_and_set_texture(image.tobytes(), image.shape, generation=0, held_s=1.0)
+        display.create_and_set_texture(
+            image.tobytes(), image.shape, generation=0, held=HeldFrame(1.0, 'BF')
+        )
         assert display.frames_shown == 1, 'the held image was not put on the screen'
         assert display.display_fps() == 0

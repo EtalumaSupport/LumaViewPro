@@ -26,6 +26,7 @@ Threading model (Stage B1):
   - FPS pacing lives on the thread (Event.wait(timeout=...) per iteration).
 """
 
+import dataclasses
 import logging
 import statistics
 import time
@@ -53,6 +54,21 @@ from _lumascope.modules.frame_validity import FrameValidity
 from _lumascope.modules.ui_queue import schedule_ui_latest
 
 logger = logging.getLogger('LVP.ui.scope_display')
+
+
+@dataclasses.dataclass(frozen=True)
+class HeldFrame:
+    """A saved frame held on screen: for how long, and the channel it was taken for.
+
+    Attributes:
+        seconds: Its time on screen, counted again from its draw.
+        channel: The key name of the channel the frame was taken for; it is
+            drawn in that channel's shown colour.
+    """
+
+    seconds: float
+    channel: str
+
 
 # --- Display constants ---
 BULLSEYE_FPS_CAP = 15  # Max FPS for CPU-intensive bullseye LUT rendering
@@ -883,7 +899,7 @@ class ScopeDisplay(Image):
             schedule_ui_latest(
                 (self, 'live_frame'),
                 lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: (
-                    self.create_and_set_texture(b, s, ts, gen, held_s=None)
+                    self.create_and_set_texture(b, s, ts, gen, held=None)
                 ),
             )
             # Performance instrumentation gated on settings.debug_mode, which
@@ -1047,6 +1063,7 @@ class ScopeDisplay(Image):
             self._bullseye_texture.mag_filter = 'nearest'
         self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
+        _app_ctx.ctx.viewer.show_drawn('rgb')
         self.frames_shown += 1
         self.canvas.ask_update()
         self._count_display_fps()
@@ -1074,12 +1091,12 @@ class ScopeDisplay(Image):
         thread = getattr(ctx, 'scope_display_thread', None) if ctx else None
         return thread is not None and thread.protocol_hold_in_force
 
-    def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0, *, held_s):
-        """Put a frame on the screen. ``held_s`` is None for a live-view
+    def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0, *, held):
+        """Put a mono frame on the screen. ``held`` is None for a live-view
         frame, which the display rate counts and a hold keeps off the screen,
-        and a held frame's seconds on screen (a saved image), which it does
-        not count."""
-        live = held_s is None
+        and a held frame's ``HeldFrame`` (a saved image), which it does not
+        count."""
+        live = held is None
         if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
         if live and self._protocol_hold_in_force():
@@ -1087,7 +1104,7 @@ class ScopeDisplay(Image):
         if not live:
             # Its time on screen is counted from here: the wait for a slow
             # UI thread does not come out of it.
-            self._hold_from_now(held_s)
+            self._hold_from_now(held.seconds)
         if scheduled_time and self._debug_perf_enabled(_app_ctx.ctx):
             blit_delay = (time.monotonic() - scheduled_time) * 1000
             self._perf_blit_delays.append(blit_delay)
@@ -1110,18 +1127,19 @@ class ScopeDisplay(Image):
             self._mono_texture.flip_vertical()
         self._mono_texture.blit_buffer(image_bytes, colorfmt='luminance', bufferfmt='ubyte')
         self.texture = self._mono_texture
+        _app_ctx.ctx.viewer.show_drawn('luminance', None if live else held.channel)
         self.frames_shown += 1
         self.canvas.ask_update()
         if live:
             self._count_display_fps()
         # _schedule_next retired; ScopeDisplayThread loop owns pacing.
 
-    def hold_protocol_saved_image(self, image, frames_summed, frame_significant_bits, *, held_s):
+    def hold_protocol_saved_image(self, image, frames_summed, frame_significant_bits, *, held):
         """Show the most-recent protocol-saved image and hold it; on the run's thread, which goes on.
 
         Called by the GUI's ``frame_captured`` handler on the run's thread,
         once a captured frame's write has been handed to the run's writer.
-        Bumps the hold deadline to ``now + held_s`` so the live
+        Bumps the hold deadline to ``now + held.seconds`` so the live
         preview's pull loop pauses long enough for the save to be visible,
         and hands the render to the display thread, so the run does not
         wait for it: there the frame is rendered to 8 bits as a JPG save
@@ -1137,23 +1155,21 @@ class ScopeDisplay(Image):
             frames_summed: How many frames ``image`` holds; a sum is shown
                 against one frame's white, brighter.
             frame_significant_bits: The depth of each frame, as delivered.
-            held_s: Seconds the frame stays on screen, counted again from
-                its draw; the caller's, which knows what the frame is.
+            held: The frame's ``HeldFrame``, its seconds on screen and its
+                channel; the caller's, which knows what the frame is.
         """
         if image is None or getattr(image, 'size', 0) == 0:
             return
         # Held from the post as well as the draw: a live frame already
         # rendering when the hold began is posted after this one, and the
         # live blit draws nothing while the hold is in force.
-        self._hold_from_now(held_s)
+        self._hold_from_now(held.seconds)
         _app_ctx.ctx.scope_display_thread.render_held(
-            lambda: self._show_saved_frame(
-                image, frames_summed, frame_significant_bits, held_s=held_s
-            ),
+            lambda: self._show_saved_frame(image, frames_summed, frame_significant_bits, held=held),
             category='frame_captured',
         )
 
-    def _show_saved_frame(self, image, frames_summed, frame_significant_bits, *, held_s):
+    def _show_saved_frame(self, image, frames_summed, frame_significant_bits, *, held):
         """Render a run's saved frame as a JPG save renders it and post it; on the display thread."""
         arr = image_utils.convert_sum_to_8bit(image, frames_summed, frame_significant_bits)
         shape = arr.shape
@@ -1161,7 +1177,7 @@ class ScopeDisplay(Image):
         gen = self._current_generation()
         self.post_held_frame(
             lambda b=data, s=shape, g=gen: self.create_and_set_texture(
-                b, s, generation=g, held_s=held_s
+                b, s, generation=g, held=held
             )
         )
 
@@ -1197,6 +1213,7 @@ class ScopeDisplay(Image):
             display = display[..., :3][..., ::-1].copy()
         self._hold_from_now(held_s)
         self.texture = image_to_texture(display)
+        _app_ctx.ctx.viewer.show_drawn('bgr')
         self.canvas.ask_update()
 
     def _count_display_fps(self):

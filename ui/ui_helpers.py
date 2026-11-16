@@ -22,6 +22,7 @@ from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.caller import Caller, calling
 from _lumascope.modules.ui_queue import schedule_ui as _schedule_ui
 from _lumascope.modules.run_events import VideoPhase
+from ui.scope_display import HeldFrame
 
 import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.common_utils as common_utils
@@ -420,15 +421,18 @@ def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited:
 BRIEF_HOLD_S = 1.0
 
 
-def show_captured_frame(image, frames_summed: int, frame_significant_bits: int) -> None:
+def show_captured_frame(
+    image, frames_summed: int, frame_significant_bits: int, channel: str
+) -> None:
     """Every GUI run's ``frame_captured``: hold the frame a run just captured on screen.
 
     On the run's thread, where the engine delivers the event; the display
-    renders the frame on its own thread, so the run does not wait for it.
-    The display is looked up when the frame arrives, not when the run starts.
+    renders the frame on its own thread, so the run does not wait for it,
+    and draws it in its own channel's colour. The display is looked up when
+    the frame arrives, not when the run starts.
     """
     _app_ctx.ctx.scope_display.hold_protocol_saved_image(
-        image, frames_summed, frame_significant_bits, held_s=BRIEF_HOLD_S
+        image, frames_summed, frame_significant_bits, held=HeldFrame(BRIEF_HOLD_S, channel)
     )
 
 

@@ -1794,6 +1794,7 @@ class ProtocolImageWriter:
                         still.image,
                         frame_record.frames_summed,
                         frame_record.frame_significant_bits,
+                        step['channel'],
                     )
 
             else:

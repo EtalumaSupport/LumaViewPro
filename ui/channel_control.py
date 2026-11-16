@@ -968,12 +968,17 @@ class ChannelControl(BoxLayout):
         self.ids['auto_gain'].active = self.effective_auto_gain()
 
         thread = getattr(ctx, 'scope_display_thread', None)
-        if thread is not None and not thread.is_paused and ctx.scope_display.use_bullseye is False:
+        if thread is not None and not thread.is_paused:
             self.update_shader(dt=0)
 
     def update_shader(self, dt):
-        _app_ctx.ctx.viewer.update_shader(
-            channel_record.shown_color(
-                self.channel, self.ids['false_color'].active, _app_ctx.ctx.session.channel_colors()
-            )
+        """Show live frames in this channel's shown colour."""
+        _app_ctx.ctx.viewer.set_live_color(self.shown_color())
+
+    def shown_color(self):
+        """This channel's colour on screen: its display colour with its
+        false colour box ticked, grey without; during a run, the box the
+        run's step set."""
+        return channel_record.shown_color(
+            self.channel, self.ids['false_color'].active, _app_ctx.ctx.session.channel_colors()
         )
