@@ -12,10 +12,11 @@ field uncommitted.
 
 A control is named by its place on screen, not by a kv rule: one rule can be
 instantiated many times (a ``ChannelControl`` per channel), so the first segment
-of a path names a live widget class that must have exactly one instance, and
-each later segment walks ``.ids`` from there (``ImageSettings/BF/acquire_image``),
+of a path names a live widget class, narrowed by ``[attr=value]`` when the class
+has many instances, that must match exactly one live widget, and each later
+segment walks ``.ids`` from there (``ChannelDrawer[channel=BF]/control/acquire_image``),
 or, for a control with no id, ``Class[attr=value]`` among the descendants
-(``ProtocolSettings/FileChooseBTN[context=load_protocol]``). A name that
+(``ProtocolSettings/FileChooseBTN[text=Load]``). A name that
 matches nothing, or more than one live widget, stops the walk.
 
 A step that cannot be performed, or whose touch did not reach its control,
