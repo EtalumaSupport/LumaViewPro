@@ -38,16 +38,20 @@ import pydantic
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import ClientDisconnect
 
 from _lumascope.modules import image_utils, wall_time, wire_encoding
 from _lumascope.modules.api_surface import api, markdown_of
 from _lumascope.modules.exceptions import (
     ConfigurationDefectError,
+    Quiet,
+    RefusalCause,
     ServerRefusedError,
     UnfitArgument,
 )
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from _lumascope.modules.operation import Operation
+from _lumascope.modules.protocol import PROTOCOL_FILE_CEILING_BYTES
 from _lumascope.modules.protocol_runner import ProtocolRunner
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest import idempotency
@@ -206,7 +210,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
         docs_url='/docs',
         redoc_url=None,
         lifespan=served,
-        responses=problems.OPENAPI_RESPONSES,
+        responses=problems.openapi_responses(JSON_BODY_CEILING_BYTES, UPLOAD_CEILING_BYTES),
     )
     # Before any route is added: every route is built of this class.
     app.router.route_class = _JsonBodyRoute
@@ -231,6 +235,7 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.middleware('http')(_admitted_by(rest_api))
     app.middleware('http')(_identify_and_log)
     app.add_exception_handler(ServerRefusedError, _refused)
+    app.add_exception_handler(_ClientGone, _client_gone)
     app.add_exception_handler(RequestValidationError, _body_does_not_fit)
     app.add_exception_handler(StarletteHTTPException, _routing_refused)
     app.add_exception_handler(Exception, _failed)
@@ -327,35 +332,42 @@ def _add_upload_route(
         _refuse_query(request)
         if closing.begun:
             raise problems.server_closing()
-        jobs.admit(returns_job=False)
-        data = await request.body()
-        request_id = request.state.request_id
-        control_id = request.headers.get(CONTROL_SESSION_HEADER)
+        place = jobs.take_upload()
+        try:
+            data = await _body_of(request, UPLOAD_CEILING_BYTES)
+            request_id = request.state.request_id
+            control_id = request.headers.get(CONTROL_SESSION_HEADER)
 
-        def work() -> object:
-            with _acting_in(session, control_id):
-                path = session.put_live_folder_file(name, data)
-            return wire_encoding.encode(
-                path,
-                live_folder=session.setting('live_folder'),
-                handle=_no_handle,
-                job=_no_handle,
-            )
+            def work() -> object:
+                with _acting_in(session, control_id):
+                    path = session.put_live_folder_file(name, data)
+                return wire_encoding.encode(
+                    path,
+                    live_folder=session.setting('live_folder'),
+                    handle=_no_handle,
+                    job=_no_handle,
+                )
 
-        async def put() -> fastapi.Response:
-            reply = await jobs.run(
-                lambda: _answered(work, request_id), 'put_live_folder_file', request_id
-            )
-            if not reply.is_problem:
-                reply = dataclasses.replace(reply, status=201)
-            return reply.response()
+            async def put() -> fastapi.Response:
+                reply = await jobs.run(
+                    lambda: _answered(work, request_id),
+                    'put_live_folder_file',
+                    request_id,
+                    place=place,
+                )
+                if not reply.is_problem:
+                    reply = dataclasses.replace(reply, status=201)
+                return reply.response()
 
-        key = request.headers.get('idempotency-key')
-        if key is None:
-            return await put()
-        # The body is held as its hash: a retry sends the same bytes.
-        sent = {'sha256': hashlib.sha256(data).hexdigest()}
-        return await keys.answer(key, idempotency.digest(request.url.path, sent), put)
+            key = request.headers.get('idempotency-key')
+            if key is None:
+                return await put()
+            # The body is held as its hash: a retry sends the same bytes.
+            sent = {'sha256': hashlib.sha256(data).hexdigest()}
+            return await keys.answer(key, idempotency.digest(request.url.path, sent), put)
+        finally:
+            # Nothing once the write has started: its thread gives the place back.
+            place.give_back()
 
     app.add_api_route(
         f'{PREFIX}/files/{{name:path}}',
@@ -734,13 +746,91 @@ def _add_handle_routes(
         )
 
 
+# The most a JSON body carries: a call's body is far smaller (the whole
+# settings tree is about 4 KiB), and no route takes a protocol as JSON. Each
+# admitted call holds its body as its parse, several times its bytes.
+JSON_BODY_CEILING_BYTES = 64 * 1024
+# The most a file upload carries: four times the largest protocol a load
+# takes, so a new protocol ceiling moves it.
+UPLOAD_CEILING_BYTES = 4 * PROTOCOL_FILE_CEILING_BYTES
+
+
+class _ClientGone(Quiet, Exception):  # noqa: N818 -- a quiet outcome, not an error
+    """The client went away before its body had arrived: nobody is answered, and its log line says how much came.
+
+    Quiet: nothing failed and nothing was declined, and the request's own
+    REST-log line is its one record. The same request sent whole may succeed.
+
+    Attributes:
+        reason: ``'client_gone'``.
+        arrived_bytes: How much of the body arrived before the client went.
+    """
+
+    title = 'Client Gone'
+    causes: typing.ClassVar[dict[str, RefusalCause | None]] = {'client_gone': RefusalCause.STATE}
+
+    def __init__(self, arrived_bytes: int) -> None:
+        super().__init__(f'The client went away after {arrived_bytes} bytes of its body.')
+        self.reason = 'client_gone'
+        self.arrived_bytes = arrived_bytes
+
+
+async def _body_of(request: fastapi.Request, ceiling_bytes: int) -> bytes:
+    """The request's body, refused once it is larger than *ceiling_bytes*: the one read of a body.
+
+    A ``Content-Length`` over the ceiling is refused before a byte is read;
+    a request with neither ``Content-Length`` nor ``Transfer-Encoding`` has
+    an empty body; any other is counted as it arrives, a chunked one
+    included, and refused at the first byte past the ceiling, so no more
+    than the ceiling is held.
+
+    Raises:
+        ServerRefusedError: ``body_too_large``.
+        _ClientGone: The client went away mid-body.
+    """
+    length = request.headers.get('content-length')
+    if length is not None and int(length) > ceiling_bytes:
+        raise problems.body_too_large(ceiling_bytes)
+    if length is None and 'transfer-encoding' not in request.headers:
+        return b''
+    chunks: list[bytes] = []
+    arrived = 0
+    try:
+        async for chunk in request.stream():
+            arrived += len(chunk)
+            if arrived > ceiling_bytes:
+                raise problems.body_too_large(ceiling_bytes)
+            chunks.append(chunk)
+    except ClientDisconnect:
+        raise _ClientGone(arrived) from None
+    return b''.join(chunks)
+
+
+def _replaying(request: fastapi.Request, body: bytes) -> fastapi.Request:
+    """*request* again, its body the bytes already read, so the framework reads them as it would the client's."""
+    replayed = False
+
+    async def receive() -> dict[str, object]:
+        nonlocal replayed
+        if replayed:
+            # What follows the body: the client's disconnect, when it goes.
+            return await request.receive()
+        replayed = True
+        return {'type': 'http.request', 'body': body, 'more_body': False}
+
+    return fastapi.Request(request.scope, receive)
+
+
 class _JsonBodyRoute(fastapi.routing.APIRoute):
-    """A route that reads a JSON body refuses a body of another type.
+    """A route that reads a JSON body refuses a body of another type, and one past the JSON ceiling.
 
     Keyed on the route reading a body parameter, so every JSON route carries
     the rule as it is built, and a route that takes its body as bytes (the
-    file upload) does not. Refused before the body is read, so it answers
-    ahead of the body's own ``invalid_request``.
+    file upload) does not. The media type is refused before the body is
+    read, so it answers ahead of the body's size and the body's own
+    ``invalid_request``. The body is read here, ahead of the framework,
+    since a refusal raised from inside the framework's own read is answered
+    as an unreadable body.
     """
 
     def get_route_handler(self) -> Callable[[fastapi.Request], Awaitable[fastapi.Response]]:
@@ -757,7 +847,8 @@ class _JsonBodyRoute(fastapi.routing.APIRoute):
                 raise problems.unsupported_media_type(
                     f'A body is JSON (application/json), not {media}.'
                 )
-            return await handle(request)
+            body = await _body_of(request, JSON_BODY_CEILING_BYTES)
+            return await handle(_replaying(request, body))
 
         return json_only
 
@@ -769,16 +860,21 @@ async def _identify_and_log(
 
     Every answer carries the id as ``X-Request-ID`` (a problem also as its
     ``instance``), and the REST log has one line per request under it. A
-    stream's line is written when its headers are sent.
+    stream's line is written when its headers are sent. A client that went
+    away mid-body is answered nothing, and its line says how much arrived.
     """
     request_id = str(uuid.uuid4())
     request.state.request_id = request_id
     request.state.requested = wall_time.now()
+    # Set by ``_client_gone`` when the client leaves before its body has arrived.
+    request.state.gone_after_bytes = None
     started = time.perf_counter()
     response = await call_next(request)
     response.headers['X-Request-ID'] = request_id
+    gone = request.state.gone_after_bytes
+    ended = response.status_code if gone is None else f'the client went away after {gone} bytes'
     _request_log.info(
-        f'[{request_id}] {request.method} {request.url.path} -> {response.status_code} '
+        f'[{request_id}] {request.method} {request.url.path} -> {ended} '
         f'in {(time.perf_counter() - started) * 1000:.1f} ms',
         extra={'api_request': True, 'request_id': request_id},
     )
@@ -834,6 +930,14 @@ def _renewing(
 
 async def _refused(request: fastapi.Request, refusal: ServerRefusedError) -> JSONResponse:
     return problems.refused_by_server(refusal, request.state.request_id).response()
+
+
+async def _client_gone(request: fastapi.Request, gone: _ClientGone) -> fastapi.Response:
+    """End a request whose client went away mid-body: its log line says so, and nothing reaches the client."""
+    request.state.gone_after_bytes = gone.arrived_bytes
+    # Never sent, the client having gone: a handler answers a response, and
+    # this one is a request not read whole.
+    return fastapi.Response(status_code=400)
 
 
 async def _body_does_not_fit(

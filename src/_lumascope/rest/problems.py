@@ -62,19 +62,27 @@ _SCHEMA = {
     },
     'additionalProperties': True,
 }
-OPENAPI_RESPONSES: dict[int | str, dict] = {
-    code: {'description': words, 'content': {MEDIA_TYPE: {'schema': _SCHEMA}}}
-    for code, words in (
-        (
-            '4XX',
-            "Refused: 409 when the same request can succeed later (the scope's state refused it, or a stop ended it), 422 when the request must change; 404, 405, 415 for the request itself. Beside the members above, a problem carries the fields its type publishes, such as `argument`, and `errors` for a body that does not fit.",
-        ),
-        (
-            '5XX',
-            'A fault (500); or 503: with `Retry-After` when asking again later may succeed (the server overloaded, no frame yet), without it when this server cannot do it again until the application restarts (the scope disconnected, the motion monitor ended, the session or the server closing).',
-        ),
-    )
-}
+
+
+def openapi_responses(json_ceiling_bytes: int, upload_ceiling_bytes: int) -> dict[int | str, dict]:
+    """The problem ranges every route declares, naming the body ceilings a server refuses past."""
+    return {
+        code: {'description': words, 'content': {MEDIA_TYPE: {'schema': _SCHEMA}}}
+        for code, words in (
+            (
+                '4XX',
+                "Refused: 409 when the same request can succeed later (the scope's state refused it, or a stop ended it), 422 when the request must change; 404, 405, 413, 415 for the request itself "
+                f'(413: a body larger than its route takes, {json_ceiling_bytes} bytes for JSON, {upload_ceiling_bytes} for a file upload). '
+                'Beside the members above, a problem carries the fields its type publishes, such as `argument`, and `errors` for a body that does not fit.',
+            ),
+            (
+                '5XX',
+                'A fault (500); or 503: with `Retry-After` when asking again later may succeed (the server overloaded, no frame yet, every upload place held), without it when this server cannot do it again until the application restarts (the scope disconnected, the motion monitor ended, the session or the server closing).',
+            ),
+        )
+    }
+
+
 TYPE_PREFIX = 'urn:lumascope:problem:'
 
 # The function each door is, whose ``Raises:`` states the door's refusals.
@@ -105,6 +113,7 @@ _SERVER_STATUS = {
     'invalid_request': 422,
     'method_not_allowed': 405,
     'unsupported_media_type': 415,
+    'body_too_large': 413,
     'handle_shared': 422,
     'overloaded': 503,
     'server_closing': 503,
@@ -245,8 +254,15 @@ def unsupported_media_type(detail: str) -> ServerRefusedError:
     return ServerRefusedError('unsupported_media_type', detail)
 
 
+def body_too_large(ceiling_bytes: int) -> ServerRefusedError:
+    """A body larger than its route takes, refused before more of it than *ceiling_bytes* is held."""
+    return ServerRefusedError(
+        'body_too_large', f'This route takes a body of at most {ceiling_bytes} bytes.'
+    )
+
+
 def overloaded(detail: str, retry_after_s: float) -> ServerRefusedError:
-    """More is held than the server keeps; asking again later may succeed."""
+    """More is held than the server keeps -- calls, jobs, handles or uploads; asking again later may succeed."""
     return ServerRefusedError('overloaded', detail, retry_after_s=retry_after_s)
 
 

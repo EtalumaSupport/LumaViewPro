@@ -183,7 +183,8 @@ forgets a finished job (`204`). It is a stop, so no control session refuses it.
 A still has no stop, and its job ends as it would have; a call held as a job
 only because it outlived its wait holds no operation, and is refused `409`
 (`'not_cancellable'`). Finished jobs are kept up to 1000 and 24 hours; at most
-256 calls run at once, past which a call is refused `503` (`'overloaded'`).
+256 calls run at once, past which a call is refused `503` (`'overloaded'`). A
+call's JSON body is at most 64 KiB, refused `413` (`'body_too_large'`) past it.
 Take a job's id from the answer that made it, never count it: every call held
 as a job takes the next id.
 
@@ -239,7 +240,7 @@ refusal's; every reason and its status is in the reference's
 | `403` | `'client_not_allowed'`: a client [`allowed_clients`](#serving-another-computer) does not list. |
 | `500` | A fault: the call failed. |
 | `404` | No such route, handle, job or file. |
-| `405` / `415` | The wrong method; a body that is not JSON. |
+| `405` / `413` / `415` | The wrong method; a body larger than its route takes (`'body_too_large'`: 64 KiB of JSON, 64 MiB for an upload); a body that is not JSON. |
 | `503` | With `Retry-After`, try again later (`'overloaded'`, `'no_frame_yet'`). Without it, nothing succeeds until the application restarts (`'not_connected'`, `'session_closing'`, `'server_closing'`, and every other restart cause). |
 
 ## The event stream
@@ -282,7 +283,13 @@ the top of the picture, as LumaViewPro's window and its saved files have it.
 - `PUT /api/v1/files/<name>` -- a new file in the live folder, answered `201`
   with its path; a file already at the name is refused (`'file_exists'`), so
   an upload never replaces a capture. It is a write, carrying
-  `Control-Session` under a held session.
+  `Control-Session` under a held session. It takes at most 64 MiB, refused
+  `413` (`'body_too_large'`) on its `Content-Length` before a byte is read,
+  a chunked one at the first byte past it; the server still reads a refused
+  body to its end. Four uploads are read at once, each counted among the 256
+  calls while its body arrives: a fifth, or one past the 256, is refused `503`
+  (`'overloaded'`, `Retry-After`) before its body is read, whichever clients
+  hold the four.
 - `GET /api/v1/previews/<name>` -- a saved image downscaled to a JPEG for
   display (`max_width` as for `/live`).
 - `POST /api/v1/still` -- a still at the camera's own depth, saved nowhere

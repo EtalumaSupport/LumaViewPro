@@ -18294,7 +18294,7 @@ read from this record.
 
 **Attributes**
 
-- `reason`: The machine-readable code. `'not_found'` -- the route, the handle or the job asked for is not there. `'invalid_request'` -- the request's arguments do not fit its member. `'method_not_allowed'` -- the route does not answer the method it was asked with. `'unsupported_media_type'` -- the request's body is not JSON. `'handle_shared'` -- the handle asked to be forgotten is one every client shares, and it is kept. `'overloaded'` -- the server holds as many handles or jobs as it keeps; asking again later may succeed. `'server_closing'` -- the server is closing: it finishes what is under way, answers nothing new, and exits. `'no_frame_yet'` -- the live view has no frame to show, because the camera sent none in time; asking again later may succeed. `'not_cancellable'` -- the job is a call held as a job when it outlived its wait, and holds no operation to stop. `'idempotency_key_reused'` -- the `Idempotency-Key` was sent before with a different request; a key is sent again only to retry the same request. `'client_not_allowed'` -- the scope serves only the clients its `rest_api.allowed_clients` names, and the request came from another address.
+- `reason`: The machine-readable code. `'not_found'` -- the route, the handle or the job asked for is not there. `'invalid_request'` -- the request's arguments do not fit its member. `'method_not_allowed'` -- the route does not answer the method it was asked with. `'unsupported_media_type'` -- the request's body is not JSON. `'body_too_large'` -- the request's body is larger than its route takes; nothing past the ceiling was held, and nothing ran. `'handle_shared'` -- the handle asked to be forgotten is one every client shares, and it is kept. `'overloaded'` -- the server holds as many handles, jobs or uploads as it keeps; asking again later may succeed. `'server_closing'` -- the server is closing: it finishes what is under way, answers nothing new, and exits. `'no_frame_yet'` -- the live view has no frame to show, because the camera sent none in time; asking again later may succeed. `'not_cancellable'` -- the job is a call held as a job when it outlived its wait, and holds no operation to stop. `'idempotency_key_reused'` -- the `Idempotency-Key` was sent before with a different request; a key is sent again only to retry the same request. `'client_not_allowed'` -- the scope serves only the clients its `rest_api.allowed_clients` names, and the request came from another address.
 - `title`: The heading, the reason's.
 - `errors`: For `'invalid_request'` from the request reader, each argument that does not fit; None otherwise.
 - `retry_after_s`: Seconds to wait before asking again, for a refusal that waiting may lift (`'overloaded'`, `'no_frame_yet'`); None when no wait helps.
@@ -18305,6 +18305,7 @@ read from this record.
 
 | Reason | Cause | REST status |
 |---|---|---|
+| `body_too_large` | request | 413 |
 | `client_not_allowed` | request | 403 |
 | `handle_shared` | request | 422 |
 | `idempotency_key_reused` | request | 422 |

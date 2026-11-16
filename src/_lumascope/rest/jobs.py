@@ -46,6 +46,9 @@ WAIT_CAP_S = 60.0
 RETRY_AFTER_S = 1
 # The most calls running at once: a call past it is refused before it runs.
 LIVE_LIMIT = 256
+# The most file uploads at once: each is held whole while it is read, so
+# four at the upload ceiling bound what uploads hold.
+UPLOAD_PLACES = 4
 # Finished jobs are kept until forgotten, up to this many and this old.
 FINISHED_LIMIT = 1000
 FINISHED_AGE = datetime.timedelta(hours=24)
@@ -172,6 +175,32 @@ class Job:
         return view
 
 
+class UploadPlace:
+    """An upload's live call and its place among ``UPLOAD_PLACES``, taken together before its body is read.
+
+    Taken before the read, so the live limit counts the upload while its
+    body arrives and a refusal comes before the client sends it. Given back
+    once: by the route, on every exit before its write runs
+    (``give_back``), or, once handed to ``JobRegistry.run``, when the
+    write's thread ends.
+    """
+
+    def __init__(self, end: Callable[[], None]) -> None:
+        self._end = end
+        self._route_holds = True
+
+    def give_back(self) -> None:
+        """Give the place and its live call back, unless ``run`` has taken them. Called on the server's loop."""
+        if self._route_holds:
+            self._route_holds = False
+            self._end()
+
+    def _taken_by_run(self) -> Callable[[], None]:
+        """Hand the place to ``run``: the route's ``give_back`` then does nothing, and *run* ends it."""
+        self._route_holds = False
+        return self._end
+
+
 class JobRegistry:
     """The calls running on their own threads, and the jobs clients were told of."""
 
@@ -189,6 +218,7 @@ class JobRegistry:
         self._of_future: weakref.WeakKeyDictionary[Operation, Job] = weakref.WeakKeyDictionary()
         self._next = 1
         self._live_calls = 0
+        self._uploads = 0
         # The calls' threads, each until it has ended, so the server's close can join them.
         self._threads: set[threading.Thread] = set()
 
@@ -209,16 +239,56 @@ class JobRegistry:
                 f'{LIVE_LIMIT} calls are running: ask again when one has ended.', RETRY_AFTER_S
             )
 
-    def run(self, work: Callable[[], Answer], name: str, request_id: str) -> asyncio.Future[Answer]:
+    def take_upload(self) -> UploadPlace:
+        """An upload's live call and one of ``UPLOAD_PLACES``, held from now, before its body is read.
+
+        Raises:
+            ServerRefusedError: ``overloaded``, with ``Retry-After``: the
+                live limit is held, or every upload place is.
+        """
+        with self._lock:
+            if self._live_calls >= LIVE_LIMIT:
+                detail = f'{LIVE_LIMIT} calls are running: ask again when one has ended.'
+            elif self._uploads >= UPLOAD_PLACES:
+                detail = f'{UPLOAD_PLACES} uploads are being read: ask again when one has ended.'
+            else:
+                self._live_calls += 1
+                self._uploads += 1
+                return UploadPlace(self._end_upload)
+        raise problems.overloaded(detail, RETRY_AFTER_S)
+
+    def _end_upload(self) -> None:
+        with self._lock:
+            self._live_calls -= 1
+            self._uploads -= 1
+
+    def _end_call(self) -> None:
+        with self._lock:
+            self._live_calls -= 1
+
+    def run(
+        self,
+        work: Callable[[], Answer],
+        name: str,
+        request_id: str,
+        *,
+        place: UploadPlace | None = None,
+    ) -> asyncio.Future[Answer]:
         """Start *work* on a thread of its own; the future it settles holds its answer.
 
         *work* answers rather than raises, so whoever reads its answer --
-        the route, or a job read later -- reads the same one.
+        the route, or a job read later -- reads the same one. A call is
+        counted live until its thread ends; an upload's *place*, taken
+        before its read, is that count, and ``run`` owns it from here.
         """
         loop = asyncio.get_running_loop()
         answered: asyncio.Future[Answer] = loop.create_future()
-        with self._lock:
-            self._live_calls += 1
+        if place is None:
+            with self._lock:
+                self._live_calls += 1
+            end = self._end_call
+        else:
+            end = place._taken_by_run()
 
         def settle(answer: Answer) -> None:
             if not answered.cancelled():
@@ -237,8 +307,8 @@ class JobRegistry:
                 fault.__cause__ = e
                 answer = problems.answered_by_member(fault, request_id)
             finally:
+                end()
                 with self._lock:
-                    self._live_calls -= 1
                     self._threads.discard(threading.current_thread())
             loop.call_soon_threadsafe(settle, answer)
 
@@ -248,8 +318,8 @@ class JobRegistry:
         try:
             thread.start()
         except BaseException:
+            end()
             with self._lock:
-                self._live_calls -= 1
                 self._threads.discard(thread)
             raise
         return answered

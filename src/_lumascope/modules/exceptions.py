@@ -1366,10 +1366,12 @@ class ServerRefusedError(Refusal, Exception):
             ``'invalid_request'`` -- the request's arguments do not fit its
             member. ``'method_not_allowed'`` -- the route does not answer the
             method it was asked with. ``'unsupported_media_type'`` -- the
-            request's body is not JSON. ``'handle_shared'`` -- the handle
+            request's body is not JSON. ``'body_too_large'`` -- the
+            request's body is larger than its route takes; nothing past the
+            ceiling was held, and nothing ran. ``'handle_shared'`` -- the handle
             asked to be forgotten is one every client shares, and it is kept.
-            ``'overloaded'`` -- the server holds as many handles or jobs as
-            it keeps; asking again later may succeed. ``'server_closing'`` --
+            ``'overloaded'`` -- the server holds as many handles, jobs or
+            uploads as it keeps; asking again later may succeed. ``'server_closing'`` --
             the server is closing: it finishes what is under way, answers
             nothing new, and exits. ``'no_frame_yet'`` -- the live view has
             no frame to show, because the camera sent none in time; asking
@@ -1397,6 +1399,7 @@ class ServerRefusedError(Refusal, Exception):
         'invalid_request': RefusalCause.REQUEST,
         'method_not_allowed': RefusalCause.REQUEST,
         'unsupported_media_type': RefusalCause.REQUEST,
+        'body_too_large': RefusalCause.REQUEST,
         'handle_shared': RefusalCause.REQUEST,
         'overloaded': RefusalCause.STATE,
         'server_closing': RefusalCause.RESTART,
@@ -1411,6 +1414,7 @@ class ServerRefusedError(Refusal, Exception):
         'invalid_request': 'Invalid Request',
         'method_not_allowed': 'Method Not Allowed',
         'unsupported_media_type': 'Unsupported Media Type',
+        'body_too_large': 'Body Too Large',
         'handle_shared': 'Handle Shared',
         'overloaded': 'Overloaded',
         'server_closing': 'Server Closing',
