@@ -421,6 +421,40 @@ nothing, so the rest of the plugin can be tried.
 
 ---
 
+## The doors a plugin uses
+
+What a plugin calls today, whatever a level row below once taught. Every
+name here is published ([the reference](api-reference.md)); anything else
+is not API and may change in any release. A plugin
+starts from the session, `ctx`, as every caller does.
+
+- **The session's own**: a setting (`ctx.setting(path)`,
+  `ctx.update_settings(path, value)`), the shown channel
+  (`ctx.show_channel`, `ctx.light_shown_channel`), a still
+  (`ctx.capture_still`), a saved still and a recording
+  (`ctx.manual_capture`, `ctx.manual_recording`), protocols and their runs
+  (`ctx.create_empty_protocol`, `ctx.load_protocol`, `ctx.protocol_runner()`),
+  the scope's clock (`ctx.host_steady_ns()`) and the level
+  (`ctx.plugin_api_level`).
+- **The hardware**, `ctx.scope.<api>`: `motion` (a position to keep,
+  `positions_to_keep`; the axes, `axis_positions`), `illumination`, `camera`,
+  `imaging` (whether a frame would count, `changes_in_force`,
+  `judge_frame`), and the catalogues (`ctx.scope.plate`, `objective`,
+  `all_labware`, `all_objectives`).
+- **Registering**: `ctx.plugins.post_processing.register`,
+  `ctx.plugins.live_processing.register` and `ctx.plugins.ui.register`;
+  `ctx.plugins.rest` is reserved.
+- **Listening**: a frame listener for the plugin's life through
+  `ctx.plugins.live_processing.register`, and one for a single action
+  through `scope.imaging.add_frame_listener`; a position, turret or LED
+  listener through `scope.motion.add_position_listener`,
+  `add_turret_listener` and `scope.illumination.add_led_listener`. Each is
+  called on the thread that caused the change, so UI work goes to the UI
+  thread.
+- **Logging**: the `LVP` logger, or a name under it (`LVP.<plugin>`).
+
+---
+
 ## The plugin API level
 
 `session.plugin_api_level` says what
