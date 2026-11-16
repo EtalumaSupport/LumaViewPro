@@ -160,6 +160,23 @@ def test_a_sum_of_fewer_than_one_frame_is_refused(sim_camera):
     assert len(taken) == 4
 
 
+def test_a_sum_of_more_than_100_frames_is_refused_by_its_range(sim_camera):
+    """A sum holds 1 to 100 frames, as a stored sum does; above it, both
+    capture members refuse the count by name and range."""
+    imaging = sim_camera('Mono12').imaging
+    taken = {}
+    for name in ('capture_still', 'capture_image'):
+        try:
+            getattr(imaging, name)(sum_count=101, force_to_8bit=False)
+        except ArgumentRefusedError as refusal:
+            taken[name] = (refusal.reason, refusal.argument, refusal.limits)
+        else:
+            taken[name] = 'taken'
+    assert taken == dict.fromkeys(
+        ('capture_still', 'capture_image'), ('out_of_range', 'sum_count', (1, 100))
+    )
+
+
 @pytest.mark.parametrize(('pixel_format', 'frames'), [('Mono8', 3), ('Mono8', 4), ('Mono12', 3)])
 def test_a_sum_of_blown_frames_reads_saturated(sim_camera, pixel_format, frames):
     """Measured per frame at its own depth, so a sum, whose counts run past

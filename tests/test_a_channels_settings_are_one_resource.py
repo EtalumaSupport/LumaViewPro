@@ -75,6 +75,18 @@ def test_a_write_with_one_value_refused_stores_none_of_them(session):
     assert session.settings_snapshot() == before
 
 
+def test_a_sum_of_more_than_100_frames_is_refused_and_100_is_stored(session):
+    before = session.settings_snapshot()
+
+    with pytest.raises(SettingRefusedError) as refused:
+        session.set_channel_settings('BF', frames_summed=101)
+
+    assert (refused.value.reason, refused.value.path) == ('out_of_range', 'BF.sum')
+    assert session.settings_snapshot() == before
+    assert session.set_channel_settings('BF', frames_summed=100).frames_summed == 100
+    session.set_channel_settings('BF', frames_summed=before['BF']['sum'])
+
+
 def test_an_illumination_above_the_led_board_is_refused_and_nothing_changes(session):
     board_max = session.scope.capabilities.led_max_ma
     before = session.settings_snapshot()

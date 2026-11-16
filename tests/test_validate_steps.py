@@ -205,6 +205,11 @@ class TestValidateSum:
         errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
         assert any('Sum: it must be a whole number of at least 1' in e for e in errors)
 
+    def test_a_sum_over_100_is_refused_naming_its_range(self):
+        p = _make_protocol([_valid_step(Sum=101)])
+        errors = p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
+        assert any('Sum: it must be between 1 and 100, not 101' in e for e in errors), errors
+
     def test_valid_sum(self):
         p = _make_protocol([_valid_step(Sum=3)])
         assert p.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000) == []

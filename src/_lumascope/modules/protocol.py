@@ -2313,12 +2313,6 @@ class Protocol:
             for column, refused in step_channel_values_refused(step, led_max_ma=led_max_ma):
                 errors.append(f'{label}: {column}: {refused.detail}')
 
-            sum_count = step['Sum']
-            if sum_count > 100:
-                logger.warning(
-                    f'[PROTOCOL] {label}: Sum count {sum_count} is unusually high (> 100). This may cause long capture times.'
-                )
-
             # Name length
             name = step.get('Name', '')
             if len(str(name)) > 200:

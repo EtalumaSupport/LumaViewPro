@@ -2847,7 +2847,7 @@ class ScopeSession:
             auto_gain: The camera's auto-gain is on.
             exposure_ms: The camera exposure, in ms.
             false_color: The channel's image is false-coloured.
-            frames_summed: How many frames a capture sums.
+            frames_summed: How many frames a capture sums, 1 to 100.
             focus_z_um: The Z saved as the channel's focus, in micrometres;
                 None clears it.
             autofocus: A step of the channel autofocuses.
@@ -3032,8 +3032,9 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
                 channel; ``'wrong_kind'``, ``sum_count`` is not a whole number
-                of at least 1; ``'not_a_number'`` or ``'out_of_range'``, a time
-                is not a wait from 0 to 30 days, or the wait for the capture
+                of at least 1; ``'out_of_range'``, it is above 100;
+                ``'not_a_number'`` or ``'out_of_range'``, a time is not a wait
+                from 0 to 30 days, or the wait for the capture
                 and every frame of its sum together is longer. Nothing is
                 captured.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope

@@ -31,7 +31,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.closed_sets import member_of
 from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
-from _lumascope.modules.finite_number import is_finite_number
+from _lumascope.modules.finite_number import SUM_COUNT_RANGE, is_finite_number
 from _lumascope.modules.channel_record import parse_display_color
 from _lumascope.modules.lumascope_api._constants import (
     SIMULATOR_TIERS,
@@ -393,6 +393,11 @@ def _stim_pulse_width(path: str, value: float) -> None:
     _refuse_outside(path, value, *STIM_PULSE_WIDTH_MS_RANGE)
 
 
+def _sum(path: str, value: float) -> None:
+    _refuse_non_count(path, value)
+    _refuse_outside(path, value, *SUM_COUNT_RANGE)
+
+
 def _stim_pulse_count(path: str, value: float) -> None:
     _refuse_non_count(path, value)
     _refuse_outside(path, value, *STIM_PULSE_COUNT_RANGE)
@@ -449,7 +454,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     '*.exposure_ms': _positive,
     '*.gain_db': _non_negative,
     '*.illumination_ma': _non_negative,
-    '*.sum': _refuse_non_count,
+    '*.sum': _sum,
     '*.video_config.duration': _video_step_duration,
     '*.composite_brightness_threshold': _composite_threshold,
     '*.stim_config.frequency': _stim_frequency,

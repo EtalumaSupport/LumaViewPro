@@ -18,7 +18,12 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from _lumascope.modules.finite_number import refuse_unless_count, refuse_unless_wait_s
+from _lumascope.modules.finite_number import (
+    SUM_COUNT_RANGE,
+    refuse_outside,
+    refuse_unless_count,
+    refuse_unless_wait_s,
+)
 import _lumascope.modules.image_utils as image_utils
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Frame
@@ -1239,7 +1244,8 @@ class ImagingAPI:
 
         Raises:
             ArgumentRefusedError: ``'wrong_kind'``, a ``sum_count`` that is
-                not a whole number of at least 1; ``'not_a_number'`` or
+                not a whole number of at least 1; ``'out_of_range'``, one
+                above ``SUM_COUNT_RANGE``'s 100; ``'not_a_number'`` or
                 ``'out_of_range'``, a ``timeout_s`` or ``sum_delay_s`` that is
                 no wait.
             HardwareCommandRefusedError: the lane is closed, or a run, a
@@ -1553,7 +1559,8 @@ class ImagingAPI:
 
         Raises:
             ArgumentRefusedError: ``'wrong_kind'``, ``sum_count`` is not a
-                whole number of at least 1; ``'not_a_number'`` or
+                whole number of at least 1; ``'out_of_range'``, it is above
+                100 (``SUM_COUNT_RANGE``); ``'not_a_number'`` or
                 ``'out_of_range'``, a time is not a wait from 0 to 30 days, or
                 the wait for the capture and every frame of its sum together
                 is longer. Nothing reached the camera.
@@ -1641,6 +1648,7 @@ class ImagingAPI:
                 ``'out_of_range'``, as ``capture_still`` says.
         """
         refuse_unless_count(sum_count, 'sum_count')
+        refuse_outside(sum_count, 'sum_count', SUM_COUNT_RANGE)
         for name, value in (('timeout_s', timeout_s), ('sum_delay_s', sum_delay_s)):
             refuse_unless_wait_s(value, name)
         # The executor wait is a liveness bound, not a budget, so it scales
@@ -2228,7 +2236,8 @@ class ImagingAPI:
 
         Raises:
             ArgumentRefusedError: ``'wrong_kind'``, ``sum_count`` is not a
-                whole number of at least 1; ``'not_a_number'`` or
+                whole number of at least 1; ``'out_of_range'``, it is above
+                100 (``SUM_COUNT_RANGE``); ``'not_a_number'`` or
                 ``'out_of_range'``, a time is not a wait from 0 to 30 days, or
                 the wait for every frame of the sum together is longer.
                 Nothing reached the camera.
@@ -2239,6 +2248,7 @@ class ImagingAPI:
                 camera, absent at the call or removed during the grab.
         """
         refuse_unless_count(sum_count, 'sum_count')
+        refuse_outside(sum_count, 'sum_count', SUM_COUNT_RANGE)
         for name, value in (
             ('timeout_s', timeout_s),
             ('sum_delay_s', sum_delay_s),
