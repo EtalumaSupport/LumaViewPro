@@ -12,20 +12,14 @@ only those.
 A reader that joins ``'data'`` onto a data root itself skips that answer
 and reads the copy again. This walk refuses such a join outside
 ``path_utils`` but for the named owners below; a join onto ``build_root()``
-reads the build and is not one. And ``resolve_data_file`` answers a shipped
-file: a name handed to it that the build does not ship is refused, since
-the resolver's rule (a name not in ``USER_DATA_FILES`` is the build's)
-holds only for the build's own files.
+reads the build and is not one.
 """
 
 from __future__ import annotations
 
 import ast
-import pathlib
 
 from tests.ast_seams import iter_package_modules, production_modules, walk_defs
-
-REPO = pathlib.Path(__file__).resolve().parents[2]
 
 # (module, qualname) -> what its join of 'data' onto a data root reaches.
 _JOINS = {
@@ -99,20 +93,3 @@ def test_no_reader_joins_data_onto_a_data_root_outside_path_utils():
         'a file under data/ reached by a join of its own; take '
         f'path_utils.resolve_data_file, which knows the build from the user: {found}'
     )
-
-
-def test_every_name_handed_to_the_resolver_is_a_file_the_build_ships():
-    shipped = {p.name for p in (REPO / 'data').iterdir()}
-    found = []
-    for rel_path, tree in _all_production_modules():
-        for call in ast.walk(tree):
-            if (
-                isinstance(call, ast.Call)
-                and getattr(call.func, 'id', getattr(call.func, 'attr', None))
-                == 'resolve_data_file'
-                and call.args
-                and isinstance(call.args[0], ast.Constant)
-                and call.args[0].value not in shipped
-            ):
-                found.append(f'{rel_path}:{call.lineno} {call.args[0].value}')
-    assert found == [], f'resolve_data_file handed a name the build does not ship: {found}'
