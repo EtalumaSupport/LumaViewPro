@@ -1698,9 +1698,6 @@ class TechSupportReport:
             cb(49, 'Collecting system information...')
             self._step_system_info(tmp)
 
-            # 11b. Hardware-free diagnostics  (52%)
-            self._run_hardware_free_steps(tmp, cb, 52)
-
             # 12. USB devices  (52-55%)
             cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
@@ -1709,26 +1706,12 @@ class TechSupportReport:
             cb(56, 'Testing disk write speed...')
             self._step_disk_speed(tmp)
 
-            # 14. Data folder and the live settings  (60-63%)
-            cb(61, 'Copying data folder...')
-            self._step_data_folder(tmp)
-            self._step_live_settings(tmp)
-
-            # 15. Logs  (63-69%)
-            cb(64, 'Copying log files...')
-            self._step_logs(tmp)
-
-            # 17. Recent protocols  (69-71%)
-            cb(70, 'Collecting recent protocols...')
-            self._step_protocols(tmp)
-
-            # 17b. Video recording receipts  (71-72%)
-            cb(71, 'Collecting video recording receipts...')
-            self._step_video_receipts(tmp)
+            # 14-17. What every bundle carries  (60-72%)
+            self._run_every_bundles_steps(tmp, cb, 60, 72)
 
             # 20. Metadata + ZIP  (94-100%)
             cb(95, 'Writing metadata...')
-            self._step_metadata(tmp, sn)
+            self._step_metadata(tmp, sn, 'tsr')
 
             cb(97, 'Creating ZIP file...')
             zip_path = self._create_zip(tmp, sn, output_dir)
@@ -1931,84 +1914,98 @@ class TechSupportReport:
 
             # 2. Config files from both boards via raw REPL  (5-10%)
             cb(6, 'Backing up firmware config files...')
-            if skip is None:
-                self._step_configbackup(tmp)
-            else:
-                self._record_skipped(
-                    tmp / 'firmware_configs', 'config_backup.txt', 'Config Backup', skip
-                )
+            self._run_or_record_skipped(
+                skip,
+                lambda: self._step_configbackup(tmp),
+                tmp / 'firmware_configs',
+                'config_backup.txt',
+                'Config Backup',
+            )
 
             # 3. LED selftest  (10-15%)
             cb(11, 'Running LED selftest...')
-            if skip is None:
-                self._step_firmware_tests(tmp)
-            else:
-                self._record_skipped(
-                    tmp / 'firmware_tests', 'led_selftest.txt', 'LED SELFTEST', skip
-                )
+            self._run_or_record_skipped(
+                skip,
+                lambda: self._step_firmware_tests(tmp),
+                tmp / 'firmware_tests',
+                'led_selftest.txt',
+                'LED SELFTEST',
+            )
 
             # 4. LED leakage check  (15-18%)
             cb(16, 'Checking LED leakage...')
-            if skip is None:
-                self._step_led_checks(tmp)
-            else:
-                self._record_skipped(
-                    tmp / 'hardware_checks', 'led_leakage.txt', 'LED Leakage Check', skip
-                )
+            self._run_or_record_skipped(
+                skip,
+                lambda: self._step_led_checks(tmp),
+                tmp / 'hardware_checks',
+                'led_leakage.txt',
+                'LED Leakage Check',
+            )
 
             # 5. Motor driver register dump  (18-20%)
             cb(19, 'Reading motor driver registers...')
-            if skip is None:
-                self._step_motor_driver_registers(tmp)
-            else:
-                self._record_skipped(
-                    tmp / 'hardware_checks',
-                    'motor_driver_registers.txt',
-                    'Motor Driver Registers',
-                    skip,
-                )
+            self._run_or_record_skipped(
+                skip,
+                lambda: self._step_motor_driver_registers(tmp),
+                tmp / 'hardware_checks',
+                'motor_driver_registers.txt',
+                'Motor Driver Registers',
+            )
 
             # 6. Fan tachometer verification  (20-23%)
             cb(21, 'Testing fan...')
-            if skip is None:
-                self._step_fan_test(tmp)
-            else:
-                self._record_skipped(tmp / 'hardware_checks', 'fan_test.txt', 'Fan Test', skip)
+            self._run_or_record_skipped(
+                skip,
+                lambda: self._step_fan_test(tmp),
+                tmp / 'hardware_checks',
+                'fan_test.txt',
+                'Fan Test',
+            )
 
             # 7. Serial latency measurement  (23-27%)
             cb(24, 'Measuring serial latency...')
-            if skip is None:
-                self._step_serial_latency(tmp)
-            else:
-                self._record_skipped(
-                    tmp / 'hardware_checks', 'serial_latency.txt', 'Serial Latency', skip
-                )
+            self._run_or_record_skipped(
+                skip,
+                lambda: self._step_serial_latency(tmp),
+                tmp / 'hardware_checks',
+                'serial_latency.txt',
+                'Serial Latency',
+            )
 
             # 8. Homing test  (27-35%)
             cb(28, 'Homing all axes...')
-            if skip is None:
-                self._step_homing_test(tmp)
-            else:
-                self._record_skipped(tmp / 'motion_tests', 'homing_test.txt', 'Homing Test', skip)
+            self._run_or_record_skipped(
+                skip,
+                lambda: self._step_homing_test(tmp),
+                tmp / 'motion_tests',
+                'homing_test.txt',
+                'Homing Test',
+            )
 
             # 9. Camera diagnostics (temp)  (38-41%)
             cb(39, 'Checking camera...')
             self._step_camera_diagnostics(tmp)
 
             # 10. Bandwidth test (optional)  (41-48%)
+            # With no camera, camera_info/no_camera.txt says why there is no test.
             if include_bw:
                 cb(41, 'Running camera bandwidth test (this takes a while)...')
-                if skip is not None:
-                    self._record_skipped(
-                        tmp / 'bandwidth_test', 'summary.txt', 'Camera Bandwidth Test', skip
+                if skip is not None or self._camera_active():
+                    self._run_or_record_skipped(
+                        skip,
+                        lambda: self._step_bandwidth(tmp, cb),
+                        tmp / 'bandwidth_test',
+                        'summary.txt',
+                        'Camera Bandwidth Test',
                     )
-                elif self._camera_active():
-                    self._step_bandwidth(tmp, cb)
         return sn
 
     @staticmethod
-    def _record_skipped(directory, filename, title, skip):
-        """Write a skipped step's file where its result would have gone."""
+    def _run_or_record_skipped(skip, run, directory, filename, title):
+        """Run a step that drives the hardware, or, when ``skip`` says the scope is in use, write why it did not where its result would have gone."""
+        if skip is None:
+            run()
+            return
         directory.mkdir(exist_ok=True)
         with open(directory / filename, 'w', encoding='utf-8') as f:
             f.write(f'{title}\n' + '=' * 40 + '\n\n')
@@ -2755,8 +2752,10 @@ class TechSupportReport:
                 for err in results['errors']:
                     f.write(f'  - {err}\n')
 
-    def _step_metadata(self, tmp, sn):
+    def _step_metadata(self, tmp, sn, report_type):
+        """Write the bundle's ``report_metadata.json``; ``report_type`` is ``_create_zip``'s, ``'tsr'`` or ``'logs_only'``."""
         meta = {
+            'report_type': report_type,
             'report_version': REPORT_VERSION,
             'generated_at': wall_time.now().isoformat(),
             'serial_number': sn,
@@ -2788,7 +2787,29 @@ class TechSupportReport:
             return f'{version} ({build_timestamp})' if build_timestamp else version
         return 'Unknown'
 
-    def _run_hardware_free_steps(self, tmp, cb, pct):
+    def _run_every_bundles_steps(self, tmp, cb, start, end):
+        """The steps both bundles carry, the one place either names them; progress from ``start`` to ``end``.
+
+        A step added to one entry point and not the other is missing from
+        that bundle until someone reads one and asks: a logs-only bundle
+        from the field once lacked the runtime census that way. The
+        hardware-free diagnostics run first, so what they log is in the
+        logs copied after them. A copy step raises: the data folder's copy
+        is where a stored API key is blanked.
+        """
+        steps = (
+            (lambda: self._run_hardware_free_steps(tmp), 'Recording runtime census...'),
+            (lambda: self._step_data_folder(tmp), 'Copying data folder...'),
+            (lambda: self._step_live_settings(tmp), 'Recording the live settings...'),
+            (lambda: self._step_logs(tmp), 'Copying log files...'),
+            (lambda: self._step_protocols(tmp), 'Collecting recent protocols...'),
+            (lambda: self._step_video_receipts(tmp), 'Collecting video recording receipts...'),
+        )
+        for i, (step, words) in enumerate(steps):
+            cb(start + (end - start) * i // len(steps), words)
+            step()
+
+    def _run_hardware_free_steps(self, tmp):
         """Diagnostics that touch no hardware -- run for EVERY bundle shape.
 
         The line that matters is hardware contact, not report size. A
@@ -2797,7 +2818,8 @@ class TechSupportReport:
         of them, so withholding them buys nothing and costs the reader
         the record. This member is the single home for that class: add a
         hardware-free step HERE and both bundle shapes get it, rather
-        than to one entry point and not the other.
+        than to one entry point and not the other. A copy every bundle
+        carries (logs, data, protocols) goes in ``_run_every_bundles_steps``.
 
         A neighbour deliberately does NOT qualify: `_step_system_info`
         duplicates the launch banner already present in every log.
@@ -2807,7 +2829,6 @@ class TechSupportReport:
         the user the very bundle it was added to enrich. A failure is recorded INTO the artifact,
         where support reads it.
         """
-        cb(pct, 'Recording runtime census...')
         for step, name in (
             (self._step_runtime_census, 'runtime_census'),
             (self._step_bring_up, 'bring_up'),
@@ -2872,28 +2893,13 @@ class TechSupportReport:
             with tempfile.TemporaryDirectory(prefix='lvp_logs_') as tmp:
                 tmp = pathlib.Path(tmp)
 
-                cb(5, 'Copying log files...')
-                self._step_logs(tmp)
-
-                cb(35, 'Copying data folder...')
-                self._step_data_folder(tmp)
-                self._step_live_settings(tmp)
-
-                cb(70, 'Copying recent protocols...')
-                self._step_protocols(tmp)
-
-                cb(78, 'Collecting video recording receipts...')
-                self._step_video_receipts(tmp)
-                self._run_hardware_free_steps(tmp, cb, 80)
+                self._run_every_bundles_steps(tmp, cb, 5, 85)
 
                 cb(85, 'Writing metadata...')
                 # The serial the board stated at connect: asking the board now
                 # is refused while a run or a control session holds the scope.
                 sn = self.scope.diagnostics.motor_info().serial_number
-                self._meta['serial_number'] = sn
-                self._meta['report_type'] = 'logs_only'
-                self._meta['report_generated_at'] = wall_time.now().isoformat(timespec='seconds')
-                (tmp / 'metadata.json').write_text(json.dumps(self._meta, indent=2))
+                self._step_metadata(tmp, sn, 'logs_only')
 
                 cb(95, 'Creating ZIP file...')
                 zip_path = self._create_zip(
