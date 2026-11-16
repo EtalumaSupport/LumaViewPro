@@ -783,7 +783,6 @@ class _ClientGone(Quiet, Exception):  # noqa: N818 -- a quiet outcome, not an er
 
     def __init__(self, arrived_bytes: int) -> None:
         super().__init__(f'The client went away after {arrived_bytes} bytes of its body.')
-        self.reason = 'client_gone'
         self.arrived_bytes = arrived_bytes
 
 

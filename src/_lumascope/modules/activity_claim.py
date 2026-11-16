@@ -71,7 +71,6 @@ class FalsifyingChangeInFlightError(Refusal, Exception):
             'The microscope is changing the objective or the camera frame; '
             'a recording started now would record the change.'
         )
-        self.reason = 'falsifying_change_in_flight'
 
 
 @api_fields('name', 'taken_by', 'taken_at_epoch_s')

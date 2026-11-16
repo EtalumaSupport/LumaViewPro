@@ -2092,7 +2092,6 @@ class RunWaitExpiredError(ProtocolError, Quiet, TimeoutError):
             f'{member}: the run was still going when the wait ran out after {timeout_s:g} s; '
             "it goes on, held by this error's operation"
         )
-        self.reason = 'still_running'
         self.member = member
         self.operation = operation
 
@@ -4157,7 +4156,6 @@ class SessionClosingError(Refusal, Exception):
         else:
             sentence = 'The work was not done: LumaViewPro is closing.'
         super().__init__(sentence)
-        self.reason = 'session_closing'
         self.activity = activity
         self.work = work
 
@@ -4897,7 +4895,6 @@ class AxisMovingError(Refusal, Exception):
             f'{_names(axes)} {moving} still moving, so there is no position to keep. '
             f'Wait for {them} to stop, then try again.'
         )
-        self.reason = 'axis_moving'
         self.axes = axes
         self.axis = axes[0]
 
@@ -5351,7 +5348,6 @@ class AutofocusStopped(Quiet, AutofocusAborted):
 
     def __init__(self):
         super().__init__('Autofocus was stopped before it chose a focus.')
-        self.reason = 'sweep_stopped'
 
 
 class AutofocusRunEnded(Quiet, AutofocusAborted):
@@ -5369,7 +5365,6 @@ class AutofocusRunEnded(Quiet, AutofocusAborted):
 
     def __init__(self):
         super().__init__('Autofocus did not start: the run it belongs to had ended.')
-        self.reason = 'sweep_run_ended'
 
 
 class AutofocusLedsHeldError(Refusal, AutofocusAborted):
@@ -5391,7 +5386,6 @@ class AutofocusLedsHeldError(Refusal, AutofocusAborted):
             f'Autofocus did not start: {holder!r} holds the LEDs. '
             'The step is captured at its fallback focus.'
         )
-        self.reason = 'leds_held'
         self.holder = holder
 
 
@@ -5741,7 +5735,6 @@ class OperationWaitExpiredError(Quiet, TimeoutError):
             f'the operation was still going when the wait ran out after {timeout_s:g} s; '
             "it goes on, held by this error's operation"
         )
-        self.reason = 'still_running'
         self.operation = operation
         self.timeout_s = timeout_s
 
