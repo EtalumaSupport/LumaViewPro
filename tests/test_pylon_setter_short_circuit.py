@@ -51,9 +51,8 @@ class TestPixelFormatShortCircuit(unittest.TestCase):
         cam.active.PixelFormat.GetValue.return_value = 'Mono8'
         cam.active.PixelFormat.GetSymbolics.return_value = ('Mono8', 'Mono12')
 
-        result = cam.set_pixel_format('Mono8')
+        cam.set_pixel_format('Mono8')
 
-        self.assertTrue(result)
         cam.active.PixelFormat.SetValue.assert_not_called()
         cam.update_camera_config.assert_not_called()
 
@@ -62,9 +61,8 @@ class TestPixelFormatShortCircuit(unittest.TestCase):
         cam.active.PixelFormat.GetValue.return_value = 'Mono8'
         cam.active.PixelFormat.GetSymbolics.return_value = ('Mono8', 'Mono12')
 
-        result = cam.set_pixel_format('Mono12')
+        cam.set_pixel_format('Mono12')
 
-        self.assertTrue(result)
         cam.active.PixelFormat.SetValue.assert_called_once_with('Mono12')
         cam.update_camera_config.assert_called_once()
 

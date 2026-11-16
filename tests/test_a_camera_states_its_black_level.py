@@ -14,7 +14,13 @@ import numpy as np
 import pytest
 from pypylon import genicam
 
-from _lumascope.drivers.exceptions import CameraReadFailedError, HardwareError
+from ids_peak import ids_peak
+
+from _lumascope.drivers.exceptions import (
+    CameraReadFailedError,
+    CameraWriteFailedError,
+    HardwareError,
+)
 from _lumascope.modules.exceptions import (
     CameraSettingOutOfRangeError,
     CameraSettingRejected,
@@ -61,7 +67,11 @@ def test_a_full_scale_pixel_saturates_under_the_offset_and_does_not_wrap(sim_sco
 
 def test_a_camera_refusal_is_a_rejection_in_the_black_levels_words(sim_scope):
     with (
-        patch.object(sim_scope._camera_driver, 'set_black_level', return_value=False),
+        patch.object(
+            sim_scope._camera_driver,
+            'set_black_level',
+            side_effect=CameraWriteFailedError('the camera refused BlackLevel'),
+        ),
         pytest.raises(CameraSettingRejected) as rejected,
     ):
         sim_scope.camera.set_black_level(4.0)
@@ -171,16 +181,18 @@ def test_pylon_without_the_selector_writes_the_value_alone():
 def test_pylon_failed_write_raises_and_keeps_the_camera():
     cam = _pylon()
     cam.active.BlackLevel.SetValue.side_effect = genicam.OutOfRangeException('refused')
-    with pytest.raises(HardwareError, match=r'BlackLevel 2\.0 write failed'):
+    with pytest.raises(HardwareError, match=r'BlackLevel = 2\.0'):
         cam.set_black_level(2.0)
     cam._mark_disconnected.assert_not_called()
 
 
-def test_pylon_failed_read_back_raises():
+def test_pylon_failed_read_back_answers_nothing():
+    """The write took; only the level in effect is unknown, so nothing is
+    answered and nothing is raised."""
     cam = _pylon()
     cam.active.BlackLevel.GetValue.side_effect = genicam.OutOfRangeException('refused')
-    with pytest.raises(HardwareError, match=r'BlackLevel 2\.0 write failed'):
-        cam.set_black_level(2.0)
+    assert cam.set_black_level(2.0) is None
+    cam.active.BlackLevel.SetValue.assert_called_once_with(2.0)
 
 
 def test_pylon_failed_probe_raises():
@@ -211,8 +223,7 @@ def test_pylon_without_the_node_reports_none_and_offers_nothing():
 
 def _ids(auto):
     cam = bare_ids_camera()
-    nodes = {'BlackLevel': MagicMock(), 'BlackLevelAuto': MagicMock()}
-    nodes['BlackLevelAuto'].CurrentEntry.return_value.SymbolicValue.return_value = auto
+    nodes = {'BlackLevel': MagicMock(), 'BlackLevelAuto': ids_peak.EnumerationNode(auto)}
     nodes['BlackLevel'].Value.return_value = 3.0
     cam.remote_nodemap.HasNode.side_effect = lambda name: name in nodes
     cam.remote_nodemap.FindNode.side_effect = nodes.__getitem__
@@ -221,7 +232,8 @@ def _ids(auto):
 
 def test_ids_with_auto_black_level_on_refuses_and_writes_nothing():
     cam, node = _ids(auto='Continuous')
-    assert cam.set_black_level(3.0) is False
+    with pytest.raises(CameraWriteFailedError, match='BlackLevelAuto is Continuous'):
+        cam.set_black_level(3.0)
     node.SetValue.assert_not_called()
 
 
@@ -233,8 +245,8 @@ def test_ids_with_auto_black_level_off_writes_and_reads_back():
 
 def test_ids_failed_write_raises():
     cam, node = _ids(auto='Off')
-    node.SetValue.side_effect = RuntimeError('peak: write failed')
-    with pytest.raises(HardwareError, match=r'BlackLevel 3\.0 write failed'):
+    node.SetValue.side_effect = ids_peak.Exception('peak: write failed')
+    with pytest.raises(HardwareError, match=r'BlackLevel = 3\.0'):
         cam.set_black_level(3.0)
 
 

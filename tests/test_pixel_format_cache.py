@@ -11,6 +11,7 @@ Behavioral since the typed pypylon stub + bare-driver builders landed:
 each test drives the real getter/setter and watches the node map.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -39,8 +40,15 @@ class TestPylonPixelFormatCache:
         cam._pixel_format_cache = None
         cam.active.PixelFormat.GetSymbolics.return_value = ('Mono12',)
         cam.active.PixelFormat.GetValue.return_value = 'Mono8'
-        assert cam.set_pixel_format('Mono12') is True
+        cam.set_pixel_format('Mono12')
         assert cam._pixel_format_cache == 'Mono12'
+
+
+def _offers_formats(cam, *names):
+    """The IDS body's PixelFormat node offers ``names``."""
+    cam.remote_nodemap.FindNode.return_value.AvailableEntries.return_value = [
+        SimpleNamespace(SymbolicValue=lambda name=name: name) for name in names
+    ]
 
 
 class TestIdsPixelFormatCache:
@@ -53,8 +61,8 @@ class TestIdsPixelFormatCache:
     def test_setter_refreshes_cache(self):
         cam = bare_ids_camera()
         cam._pixel_format_cache = None
-        cam._read_supported_pixel_formats = lambda: ('Mono8',)
-        assert cam.set_pixel_format('Mono8') is True
+        _offers_formats(cam, 'Mono8')
+        cam.set_pixel_format('Mono8')
         assert cam._pixel_format_cache == 'Mono8'
 
     def test_cache_updates_before_grab_restart(self):
@@ -65,7 +73,7 @@ class TestIdsPixelFormatCache:
         # value at the instant grabbing restarts.
         cam = bare_ids_camera()
         cam._pixel_format_cache = 'Mono8'
-        cam._read_supported_pixel_formats = lambda: ('Mono8', 'Mono12')
+        _offers_formats(cam, 'Mono8', 'Mono12')
         cam.is_grabbing = lambda: True  # force update_camera_config to bounce
         cam.stop_grabbing = MagicMock()
         seen = {}
@@ -74,7 +82,7 @@ class TestIdsPixelFormatCache:
             seen['cache_at_restart'] = cam._pixel_format_cache
 
         cam.start_grabbing = _spy_start
-        assert cam.set_pixel_format('Mono12') is True
+        cam.set_pixel_format('Mono12')
         assert seen['cache_at_restart'] == 'Mono12'  # already updated pre-restart
         assert cam._pixel_format_cache == 'Mono12'
 

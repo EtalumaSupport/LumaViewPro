@@ -13,9 +13,10 @@ node, and a read or write that fails is a failure, not an absence:
 - the bench knobs (``set_device_link_throughput_limit``,
   ``set_num_max_queued_urbs``,
   ``set_bandwidth_reserve_mode``,
-  ``set_gev_packet_size``, ``set_gev_inter_packet_delay``) answer ``False``
-  with one INFO line, so the bench sweep calls every one on every camera; a
-  write the camera does not take raises;
+  ``set_gev_packet_size``, ``set_gev_inter_packet_delay``) raise not
+  offered, naming the node, which the bench sweep logs as that knob's record
+  and goes on, calling every one on every camera; a write the camera does not
+  take raises as the camera's refusal;
 - the idle wait at disconnect polls ``AcquisitionActive`` alone on a camera
   without ``ExposureActive``, and cannot poll one without
   ``AcquisitionActive``;
@@ -116,28 +117,24 @@ def _knob_camera(node_map, name, node):
     return _camera(**{node_map: {name: node}})
 
 
-def test_a_bench_knob_the_camera_lacks_answers_false_with_one_info_line(caplog):
+def test_a_bench_knob_the_camera_lacks_raises_not_offered_and_logs_nothing_loud(caplog):
     offenders = []
     for label, call, _node_map, name in _KNOBS:
         caplog.clear()
         with caplog.at_level(logging.DEBUG):
             try:
                 answer = call(_camera())
-            except Exception as e:  # the answer under test: a raise is named
+            except CameraWriteFailedError as e:
+                if name not in str(e) or 'does not offer' not in str(e):
+                    offenders.append(f'{label}: raised without naming {name} not offered: {e}')
+            except Exception as e:  # the answer under test: any other raise is named
                 offenders.append(f'{label}: raised {type(e).__name__}: {e}')
                 continue
+            else:
+                offenders.append(f'{label}: answered {answer!r}')
         loud = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
-        told = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO and 'not offered' in r.getMessage()
-        ]
-        if answer is not False:
-            offenders.append(f'{label}: answered {answer!r}')
         if loud:
             offenders.append(f'{label}: logged {loud}')
-        if len({r.getMessage() for r in told}) != 1 or name not in told[0].getMessage():
-            offenders.append(f'{label}: told {[r.getMessage() for r in told]}')
     assert not offenders, '\n'.join(offenders)
 
 

@@ -105,7 +105,7 @@ def test_a_frame_from_a_window_no_longer_set_is_not_stored():
 
 def test_a_binning_change_lets_the_new_frame_through_until_a_window_is_set(sim_camera):
     sim_camera.set_frame_size(1897, 1101)
-    assert sim_camera.set_binning_size(2)
+    sim_camera.set_binning_size(2)
     frame = grab_a_frame_made_after_now(sim_camera)
     # The window set at 1x no longer fits; frames pass as the camera makes them.
     assert frame.image.shape[:2] != (1101, 1897)

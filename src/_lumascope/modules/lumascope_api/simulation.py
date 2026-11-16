@@ -861,22 +861,24 @@ class SimulationAPI:
     def refuse_camera_write(
         self, node: CameraWriteNode, answer: CameraWriteAnswer, count: int = 1
     ) -> None:
-        """The camera's next ``count`` writes of ``node`` answer ``answer`` and move nothing.
+        """The camera's next ``count`` writes of ``node`` answer ``answer``.
 
         Args:
             node: The setting written: ``'gain'``, ``'exposure'``,
                 ``'auto_exposure'``, ``'frame_size'``, ``'binning'``,
                 ``'pixel_format'``, ``'black_level'``, ``'auto_gain'``,
                 or ``'auto_gain_once'``.
-            answer: What the node write answers: ``'false'``, ``'none'``
-                (no confirmation), ``'true'`` (a bare True that confirms no
-                value; not for ``'frame_size'``, whose write answers the
-                window it delivers), ``'raise'`` (``CameraWriteFailedError``,
-                the driver's failed node write), or ``'removed'`` (False, with the camera
-                gone from the bus during the write; it stays removed for the
-                session, as after ``remove_camera``), or ``'no_answer'``
+            answer: What the node write answers: ``'raise'``
+                (``CameraWriteFailedError``, the driver's failed node
+                write); ``'removed'`` (the same, with the camera gone from
+                the bus during the write; it stays removed for the session,
+                as after ``remove_camera``); ``'no_answer'``
                 (``CameraNoAnswerError``: the write timed out, and the
-                camera stays on the bus).
+                camera stays on the bus). Each moves nothing. Or
+                ``'unreported'``: the write is made and answers nothing, as
+                a driver's whose read-back failed after the write took (not
+                for ``'frame_size'``, whose write answers the window it
+                delivers).
             count: How many writes in a row meet it, 1 or more: the API
                 sends a write the camera did not answer once more, so a
                 second unanswered write takes 2.

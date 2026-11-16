@@ -208,7 +208,7 @@ class TestGeometrySetterSequences:
         camera.set_frame_size(624, 480)
         fv = camera._frame_validity
         before = fv.invalidation_counts
-        plain_scope.simulation.refuse_camera_write('frame_size', 'false')
+        plain_scope.simulation.refuse_camera_write('frame_size', 'raise')
         with pytest.raises(CameraSettingRejected) as caught:
             camera.set_frame_size(1200, 800)
         assert caught.value.setting == 'frame_size'
@@ -251,7 +251,11 @@ class TestGeometrySetterSequences:
         camera_plain.set_binning(2)
         cam = camera_plain._driver
         orig = cam.set_binning_size
-        cam.set_binning_size = lambda size: False
+
+        def refused(size):
+            raise CameraWriteFailedError('binning write refused')
+
+        cam.set_binning_size = refused
         try:
             # Rejection surfaces as the typed raise (the apply contract).
             with pytest.raises(CameraSettingRejected):
@@ -342,26 +346,6 @@ class TestSdkPerfSetterSequences:
             ('set_line_noise_reduction', 'set_line_noise_reduction', True),
         ],
     )
-    def test_a_driver_refusal_is_a_rejection(
-        self, camera_capable, monkeypatch, member, driver_member, value
-    ):
-        """A toggle the camera refused invalidates nothing. Pins today's
-        applied-only invalidation; flips with ruling K12's build."""
-        before = camera_capable._frame_validity.invalidation_counts
-        # a stand-in by design: SimulatedCamera has no conversion-gain or line-noise node, so refuse_camera_write cannot refuse one; the gap is the simulator's missing node
-        monkeypatch.setattr(camera_capable._driver, driver_member, lambda *a, **k: False)
-        with pytest.raises(CameraSettingRejected) as caught:
-            getattr(camera_capable, member)(value)
-        assert caught.value.__cause__ is None
-        assert camera_capable._frame_validity.invalidation_counts == before
-
-    @pytest.mark.parametrize(
-        ('member', 'driver_member', 'value'),
-        [
-            ('set_high_conversion_gain', 'set_conversion_gain_mode', True),
-            ('set_line_noise_reduction', 'set_line_noise_reduction', True),
-        ],
-    )
     def test_a_driver_raise_is_a_chained_rejection(
         self, camera_capable, monkeypatch, member, driver_member, value
     ):
@@ -437,7 +421,7 @@ class TestCameraWriteAuthority:
         fv = camera._frame_validity
         camera.set_gain_db(3.0)
         before = fv.invalidation_counts
-        plain_scope.simulation.refuse_camera_write('gain', 'false')
+        plain_scope.simulation.refuse_camera_write('gain', 'raise')
         with pytest.raises(CameraSettingRejected) as caught:
             camera.set_gain_db(9.0)
         assert caught.value.setting == 'gain_db'
@@ -459,7 +443,7 @@ class TestCameraWriteAuthority:
         fv = camera._frame_validity
         camera.set_exposure_ms(2.5)
         before = fv.invalidation_counts
-        plain_scope.simulation.refuse_camera_write('auto_exposure', 'false')
+        plain_scope.simulation.refuse_camera_write('auto_exposure', 'raise')
         with pytest.raises(CameraSettingRejected) as caught:
             camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
         assert caught.value.setting == 'auto_exposure'

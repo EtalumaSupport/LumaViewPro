@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from _lumascope.drivers import camera_profiles
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.drivers.camera_profiles import lookup_profile, simulated_profile
 from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
@@ -62,7 +63,8 @@ def test_the_smallest_frame_is_the_darts_4_by_4(scope):
 def test_mono10_is_not_offered(scope):
     camera = scope._camera_driver
     assert camera.get_supported_pixel_formats() == ('Mono8', 'Mono12')
-    assert camera.set_pixel_format('Mono10') is False
+    with pytest.raises(CameraWriteFailedError, match='Mono10'):
+        camera.set_pixel_format('Mono10')
 
 
 def test_what_an_api_caller_reads_is_the_darts():

@@ -46,7 +46,7 @@ def _errors(centre_posts):
 
 def test_a_manual_step_whose_exposure_was_not_taken_is_not_captured(tmp_path):
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        session.scope.simulation.refuse_camera_write('exposure', 'false')
+        session.scope.simulation.refuse_camera_write('exposure', 'raise')
         outcome = _run(
             runner,
             tmp_path / 'runs',
@@ -87,7 +87,7 @@ def test_a_manual_step_writes_its_gain_and_exposure_and_no_auto_gain_mode(tmp_pa
 
 def test_an_auto_gain_step_whose_arm_was_refused_is_not_captured(tmp_path):
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        session.scope.simulation.refuse_camera_write('auto_gain', 'false')
+        session.scope.simulation.refuse_camera_write('auto_gain', 'raise')
         outcome = _run(
             runner,
             tmp_path / 'runs',
@@ -104,7 +104,7 @@ def test_an_auto_gain_step_whose_arm_was_refused_is_not_captured(tmp_path):
 
 def test_an_auto_gain_step_whose_starting_gain_was_refused_still_captures(tmp_path, centre_posts):
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        session.scope.simulation.refuse_camera_write('gain', 'false')
+        session.scope.simulation.refuse_camera_write('gain', 'raise')
         outcome = _run(runner, tmp_path / 'runs', [_auto_gain(_step('C0', 0, x=20.0, gain=1.0))])
 
     assert (outcome.status, outcome.captures.captured) == ('completed', 1), outcome
@@ -114,7 +114,7 @@ def test_an_auto_gain_step_whose_starting_gain_was_refused_still_captures(tmp_pa
 def test_a_video_step_whose_one_shot_was_refused_is_not_captured(tmp_path):
     video = {**_auto_gain(_step('V0', 0, x=20.0, gain=1.0)), 'Acquire': 'video'}
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        session.scope.simulation.refuse_camera_write('auto_gain_once', 'false')
+        session.scope.simulation.refuse_camera_write('auto_gain_once', 'raise')
         outcome = _run(runner, tmp_path / 'runs', [video])
 
     [failed] = outcome.captures.failed
@@ -126,7 +126,7 @@ def test_a_video_step_whose_one_shot_was_refused_is_not_captured(tmp_path):
 
 def test_three_steps_in_a_row_end_the_run_naming_the_last(tmp_path):
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        session.scope.simulation.refuse_camera_write('exposure', 'false', count=3)
+        session.scope.simulation.refuse_camera_write('exposure', 'raise', count=3)
         outcome = _run(
             runner,
             tmp_path / 'runs',
@@ -144,7 +144,7 @@ def test_three_steps_in_a_row_end_the_run_naming_the_last(tmp_path):
 def test_a_run_that_saves_no_images_reports_the_setting_instead(tmp_path, centre_posts):
     # Nothing is captured to fail, so the refusal is told, once.
     with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-        session.scope.simulation.refuse_camera_write('exposure', 'false')
+        session.scope.simulation.refuse_camera_write('exposure', 'raise')
         pending = runner.start_single_scan(
             protocol=_protocol([_step('C0', 0, x=20.0, gain=1.0)]),
             parent_dir=str(tmp_path / 'runs'),

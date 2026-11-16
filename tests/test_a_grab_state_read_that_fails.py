@@ -161,7 +161,7 @@ def test_bring_up_whose_grab_state_reads_fail_after_connect_comes_up_saying_so(m
         session.scope._camera_driver.allow_read('grabbing')
         part = _camera_part(session)
         assert part.cause == 'settings_not_applied'
-        assert 'was not sent' in part.detail, part.detail
+        assert 'was not made' in part.detail, part.detail
         assert any('camera streaming state unknown' in r.getMessage() for r in caplog.records)
     finally:
         session.shutdown()

@@ -2617,15 +2617,17 @@ class FX2Camera(Camera):
 
         # Set default window to full 1900x1900 -- also configures the
         # col_size/row_size registers correctly with centering.
-        if self.set_frame_size(IMG_WIDTH, IMG_HEIGHT) is False:
+        try:
+            self.set_frame_size(IMG_WIDTH, IMG_HEIGHT)
+        except CameraWriteFailedError as e:
             # The neighboring init register writes raise on a USB failure and
             # abort connect(); the window apply must not be quieter. Swallowed
             # here, connect() would report success with the sensor still at
             # its power-on window and the ISO frame parser desynced on the
             # mismatched byte count -- garbage live view with no error.
             raise CameraWriteFailedError(
-                'The camera did not take its initial window during sensor init'
-            )
+                f'The camera did not take its initial window during sensor init: {e}'
+            ) from e
 
         logger.info('[FX2 Cam   ] MT9P031 sensor initialized (reset, PLL, window)')
 
@@ -2878,7 +2880,7 @@ class FX2Camera(Camera):
             size_min=(self.FRAME_SIZE_MIN, self.FRAME_SIZE_MIN),
         )
 
-    def _set_hardware_window(self, plan) -> bool:
+    def _set_hardware_window(self, plan) -> None:
         """Set the sensor readout window to the planned acquisition.
 
         The sizes written are one larger than the window; the sensor outputs
@@ -2886,12 +2888,10 @@ class FX2Camera(Camera):
         the window (``frame_layout``). The sensor centres the window itself
         (``_column_start``, ``_row_start``).
 
-        Returns False when a sensor-register write fails -- the same failure
-        contract the Camera base class documents and the pylon / IDS drivers
-        implement, so the camera-write authority upstream sees one rejection
-        signal from every driver.
-
         Raises:
+            CameraWriteFailedError: A sensor-register write failed -- the
+                same failure contract the Camera base class documents and
+                the pylon / IDS drivers implement.
             CameraNoAnswerError: A register write timed out. Nothing is read
                 back, so each of the five writes decides whether the window
                 was applied.
@@ -2923,12 +2923,9 @@ class FX2Camera(Camera):
                 REG_EXPOSURE, shutter_width_for(self._exposure_ms / 1000.0, sensor_w)
             )
         except HardwareError as e:
-            # Translate a USB write failure into the base contract's explicit
-            # False -- the rejection signal the pylon and IDS set_frame_size
-            # already return, which the camera-write authority upstream turns
-            # into its keep-prior-cache branch. The window fields mutate only
-            # after all five writes land, so a failed apply never lets
-            # get_frame_size() report geometry the sensor never took.
+            # The window fields mutate only after all five writes land, so a
+            # failed apply never lets get_frame_size() report geometry the
+            # sensor never took.
             logger.error(
                 '[FX2 Cam   ] set_frame_size(%dx%d) register write failed: %s: %s '
                 '(sensor window may be partially applied until the next '
@@ -2944,7 +2941,9 @@ class FX2Camera(Camera):
             # the failure path too.
             self._fx2.stream.flush()
             _raise_if_no_answer('frame size', e)
-            return False
+            raise CameraWriteFailedError(
+                f'The camera did not take the {w}x{h} window: {type(e).__name__}: {e}'
+            ) from e
 
         self._width = w
         self._height = h
@@ -2962,7 +2961,6 @@ class FX2Camera(Camera):
             row_start,
             col_start,
         )
-        return True
 
     def _hardware_frame_size(self):
         return {'width': self._width, 'height': self._height}
@@ -2975,9 +2973,18 @@ class FX2Camera(Camera):
 
     # -- Pixel format ------------------------------------------------------
 
-    def set_pixel_format(self, pixel_format: str) -> bool:
+    def set_pixel_format(self, pixel_format: str) -> None:
+        """Mono8 is the one format offered (``Camera.set_pixel_format``).
+
+        Raises:
+            CameraWriteFailedError: Any other format; nothing was written.
+        """
         # MT9P031 is 12-bit but the FX2 firmware streams top 8 bits only.
-        return pixel_format == 'Mono8'
+        if pixel_format != 'Mono8':
+            raise CameraWriteFailedError(
+                f'The camera does not offer the pixel format {pixel_format} '
+                '(it streams Mono8 only); nothing was written'
+            )
 
     def get_pixel_format(self) -> str:
         return 'Mono8'
@@ -3009,14 +3016,19 @@ class FX2Camera(Camera):
         exposure change before relying on the new value.
 
         Raises:
+            CameraWriteFailedError: The camera is not connected, so no
+                register write is attempted and nothing is recorded, as
+                ``write_node`` answers on the other drivers; or the
+                register write failed.
             CameraNoAnswerError: The register write timed out; the exposure
                 recorded stays the one before.
         """
-        # Refused while disconnected, as the other drivers do: no register
-        # write is attempted and nothing is recorded. connect() sets the
-        # active flag before init_camera_config() writes the defaults.
+        # connect() sets the active flag before init_camera_config() writes
+        # the defaults.
         if not self.is_connected():
-            return False
+            raise CameraWriteFailedError(
+                f'Exposure {exposure_ms} ms was not written: no camera is open'
+            )
         target_ms = float(exposure_ms)
         rows = shutter_width_for(target_ms / 1000.0, column_size_for(self._width))
         _cam_log.log(
@@ -3063,7 +3075,7 @@ class FX2Camera(Camera):
 
     # -- Gain --------------------------------------------------------------
 
-    def gain(self, g: float) -> float | bool | None:
+    def gain(self, g: float) -> float:
         """Set gain in dB: the DS Table 15 setting nearest the request.
 
         A failed register write RAISES out of ``sensor_reg_write`` rather than
@@ -3075,16 +3087,16 @@ class FX2Camera(Camera):
         the camera last took.
 
         Returns:
-            float | bool | None: See ``Camera.gain``. False while disconnected:
-            refused, nothing written, as ``exposure_t`` answers -- a None there
-            reads to the API as applied, and it would record a gain the camera
-            never received.
+            float: See ``Camera.gain``.
 
         Raises:
+            CameraWriteFailedError: The camera is not connected, so nothing
+                was written, as ``exposure_t`` answers; or the register
+                write failed.
             CameraNoAnswerError: The register write timed out.
         """
         if not self.is_connected():
-            return False
+            raise CameraWriteFailedError(f'Gain {g} dB was not written: no camera is open')
         reg = _gain_db_to_register(g)
         _cam_log.log(
             VERBOSE,
@@ -3163,8 +3175,16 @@ class FX2Camera(Camera):
     def get_all_temperatures(self) -> dict:
         return {}  # MT9P031 has no temperature sensor
 
-    def _set_hardware_binning(self, size: int) -> bool:
-        return size == 1  # only 1x1 supported in this port
+    def _set_hardware_binning(self, size: int) -> None:
+        """Binning 1 is the one factor offered (only 1x1 in this port).
+
+        Raises:
+            CameraWriteFailedError: Any other factor; nothing was written.
+        """
+        if size != 1:
+            raise CameraWriteFailedError(
+                f'Binning {size} is not offered (this camera bins 1 only); nothing was written'
+            )
 
     def get_binning_size(self) -> int:
         return 1

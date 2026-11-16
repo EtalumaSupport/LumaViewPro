@@ -73,10 +73,10 @@ def _told(heard, reason):
 @pytest.mark.parametrize(
     ('refusal', 'bf', 'reason', 'words'),
     [
-        (Refusal('gain', 'false'), None, 'camera_rejected', 'gain'),
-        (Refusal('exposure', 'false'), None, 'camera_rejected', 'exposure'),
+        (Refusal('gain', 'raise'), None, 'camera_rejected', 'gain'),
+        (Refusal('exposure', 'raise'), None, 'camera_rejected', 'exposure'),
         (Refusal('gain', 'no_answer', count=2), None, 'camera_no_answer', 'gain'),
-        (Refusal('auto_gain', 'false'), {'auto_gain': True}, 'camera_rejected', 'auto'),
+        (Refusal('auto_gain', 'raise'), {'auto_gain': True}, 'camera_rejected', 'auto'),
     ],
     ids=['refused_gain', 'refused_exposure', 'unanswered_gain', 'refused_auto_gain_arm'],
 )
@@ -120,7 +120,7 @@ def test_a_camera_that_leaves_during_the_binning_write_is_recorded_as_left():
 
 def test_a_refused_binning_is_recorded():
     heard = []
-    session = _create(heard, Refusal('binning', 'false'))
+    session = _create(heard, Refusal('binning', 'raise'))
     try:
         camera = _camera_part(session)
         assert camera.cause == 'settings_not_applied'
@@ -180,7 +180,7 @@ def test_a_bf_write_that_outlasts_the_lanes_bound_is_recorded(monkeypatch):
 
 def test_after_a_refused_bf_gain_showing_bf_writes_it_again():
     heard = []
-    session = _create(heard, Refusal('gain', 'false'))
+    session = _create(heard, Refusal('gain', 'raise'))
     try:
         assert session.scope.camera.get_held_channel() is None
 
@@ -193,7 +193,7 @@ def test_after_a_refused_bf_gain_showing_bf_writes_it_again():
 
 def test_the_seam_is_refused_on_the_fx2_camera():
     with pytest.raises(ArgumentRefusedError) as refused:
-        _create([], Refusal('gain', 'false'), microscope='LS620')
+        _create([], Refusal('gain', 'raise'), microscope='LS620')
     assert refused.value.reason == 'not_injectable_on_board'
 
 

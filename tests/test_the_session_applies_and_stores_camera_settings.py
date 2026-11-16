@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import pytest
 
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     CameraSettingRejected,
@@ -28,6 +29,11 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.image_mode import ImageMode
 from _lumascope.modules.scope_capabilities import FrameSize
+
+
+def _refused(*_args, **_kwargs):
+    """A driver's refusal of the write: it raises, as every driver's does."""
+    raise CameraWriteFailedError('the camera refused the write')
 
 
 @pytest.fixture
@@ -92,7 +98,7 @@ class TestTheFrame:
 
     def test_a_refused_frame_raises_and_stores_nothing(self, session, monkeypatch):
         before = _stored_frame(session)
-        monkeypatch.setattr(session.scope._camera_driver, 'set_frame_size', lambda w, h: False)
+        monkeypatch.setattr(session.scope._camera_driver, 'set_frame_size', _refused)
 
         with pytest.raises(CameraSettingRejected):
             session.scope.camera.set_frame_size(1000, 800)
@@ -150,7 +156,7 @@ class TestTheFrame:
 
         def _driver(w, h):
             requests.append((w, h))
-            return False if refusing[0] else real(w, h)
+            return _refused() if refusing[0] else real(w, h)
 
         monkeypatch.setattr(driver, 'set_frame_size', _driver)
         with pytest.raises(CameraSettingRejected):
@@ -251,7 +257,7 @@ class TestTheBinning:
 
     def test_a_refused_binning_stores_nothing(self, session, monkeypatch):
         before = (session.settings['binning']['size'], _stored_frame(session))
-        monkeypatch.setattr(session.scope._camera_driver, 'set_binning_size', lambda size: False)
+        monkeypatch.setattr(session.scope._camera_driver, 'set_binning_size', _refused)
 
         with pytest.raises(CameraSettingRejected):
             session.scope.camera.set_binning(2)
@@ -329,7 +335,7 @@ class TestTheImageMode:
 
     def test_a_refused_format_stores_nothing(self, session, monkeypatch):
         before = session.settings['image_mode']
-        monkeypatch.setattr(session.scope._camera_driver, 'set_pixel_format', lambda fmt: False)
+        monkeypatch.setattr(session.scope._camera_driver, 'set_pixel_format', _refused)
 
         with pytest.raises(CameraSettingRejected):
             session.scope.camera.set_image_mode('12bit_scientific')

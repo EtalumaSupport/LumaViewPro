@@ -517,18 +517,18 @@ class TestFX2CameraProfile:
         assert delivered == {'width': 1000, 'height': 999}
         assert cam.get_frame_size() == {'width': 1000, 'height': 999}
 
-    def test_set_frame_size_register_failure_returns_false_keeps_geometry(self, fake_fx2_conn):
+    def test_set_frame_size_register_failure_raises_keeps_geometry(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
         cam.set_frame_size(1000, 996)
         fake_fx2_conn.sensor_reg_write.side_effect = CameraWriteFailedError('usb gone')
+        # A window write the camera did not take raises, as the base contract
+        # says, and leaves get_frame_size() at the geometry the sensor is
+        # still running with.
         try:
-            result = cam.set_frame_size(500, 500)
+            with pytest.raises(CameraWriteFailedError, match='500x500 window'):
+                cam.set_frame_size(500, 500)
         finally:
             fake_fx2_conn.sensor_reg_write.side_effect = None
-        # A window write the camera did not take reports the base contract's
-        # False and leaves get_frame_size() at the geometry the sensor is
-        # still running with.
-        assert result is False
         assert cam.get_frame_size() == {'width': 1000, 'height': 996}
 
     def test_a_defect_in_the_window_write_leaves_as_itself(self, fake_fx2_conn):

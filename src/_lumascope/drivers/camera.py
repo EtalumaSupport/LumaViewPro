@@ -8,18 +8,23 @@ import re
 import threading
 import time
 from types import MappingProxyType
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
 from _lumascope.lib import profile_trace
 from _lumascope.lib.log_helpers import camera_logger as _cam_log
 from _lumascope.lib.log_helpers import logger
+from _lumascope.lib.log_helpers import VERBOSE
 
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.aoi_geometry import AoiPlan, center_crop, plan_aoi
 from _lumascope.drivers.camera_profiles import CameraProfile, lookup_profile
-from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
+from _lumascope.drivers.exceptions import (
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    CameraWriteFailedError,
+)
 
 default_max_exposure = 1_000  # in ms
 
@@ -285,6 +290,8 @@ def orientation_owed(
             holds no value to read; its words name the step and the node.
         CameraWriteFailedError: A write failed, or its read-back is not
             True; its words name the step and the node.
+        CameraNoAnswerError: The camera did not answer a write; its words
+            name the step and the node.
     """
     owed = {}
     for node, axis in _REVERSE_NODES:
@@ -303,7 +310,7 @@ def orientation_owed(
                 continue
             write(node, True)
             back = read(node)
-        except (CameraReadFailedError, CameraWriteFailedError) as e:
+        except (CameraReadFailedError, CameraWriteFailedError, CameraNoAnswerError) as e:
             raise type(e)(f'{step}: {e}') from e
         if not (isinstance(back, CameraNodeValue) and back.value is True):
             raise CameraWriteFailedError(f'{step}: written True, read back {back}')
@@ -944,21 +951,17 @@ class Camera(ABC):
     ) -> tuple[str, ...]:
         """Run each connect-time configuration step; the names of those not applied.
 
-        A step not applied -- it raised, or answered False -- is logged and
-        named, and the next step still runs: one failed write must not leave
-        every later setting at the camera's own default, and is not evidence
-        the camera is gone (only a definite removal signal marks it so).
+        A step not applied -- it raised -- is logged and named, and the next
+        step still runs: one failed write must not leave every later setting
+        at the camera's own default, and is not evidence the camera is gone
+        (only a definite removal signal marks it so).
         """
         failed = []
         for name, step in steps:
             try:
-                applied = step()
+                step()
             except Exception as e:
                 _cam_log.error(f'[CAM Class ] init_camera_config: {name} not applied: {e}')
-                failed.append(name)
-                continue
-            if applied is False:
-                _cam_log.error(f'[CAM Class ] init_camera_config: {name} not applied')
                 failed.append(name)
         return tuple(failed)
 
@@ -1200,7 +1203,7 @@ class Camera(ABC):
         """
         pass
 
-    def set_frame_size(self, w: int, h: int) -> dict | bool:
+    def set_frame_size(self, w: int, h: int) -> dict:
         """Deliver frames of exactly ``w`` x ``h``: acquire the next window up and crop back.
 
         A camera sets its window on a grid, so a size off it cannot be
@@ -1216,23 +1219,22 @@ class Camera(ABC):
             h: Frame height in pixels.
 
         Returns:
-            The delivered size ``{'width': int, 'height': int}`` on success, so
-            a caller records it without a read-back; ``False`` when the camera
-            is inactive or the hardware refuses the window, in which case
-            frames are stored as they arrive until a window is set.
+            The delivered size ``{'width': int, 'height': int}``, so a caller
+            records it without a read-back.
 
         Raises:
             CameraReadFailedError: A read the write needs failed (the grid,
                 or the grab state the driver's config guard reads), before
                 anything was written; the window held before is kept.
-            What the driver's window write raises otherwise (a camera that
-            did not answer it raises ``CameraNoAnswerError``); frames are
-            then stored as they arrive until a window is set.
+            CameraWriteFailedError: No camera is open, so nothing was
+                written; or what the driver's window write raises
+                otherwise (a camera that did not answer it raises
+                ``CameraNoAnswerError``), after which frames are stored as
+                they arrive until a window is set.
         """
         grid = self._frame_grid()
         if grid is None:
-            _cam_log.warning(f'[CAM Class ] Cannot set frame size {w}x{h}: camera inactive')
-            return False
+            raise CameraWriteFailedError(f'Frame size {w}x{h} was not written: no camera is open')
         target = (int(w), int(h))
         plan = plan_aoi(
             target=target,
@@ -1247,7 +1249,7 @@ class Camera(ABC):
         held = self._frame_window
         self._set_frame_window(window)
         try:
-            applied = self._set_hardware_window(plan)
+            self._set_hardware_window(plan)
         except CameraReadFailedError:
             # Every driver reads before its first write, so nothing was sent
             # and the camera still acquires the window held before.
@@ -1258,9 +1260,6 @@ class Camera(ABC):
             # it, so the window recorded is not known to be the camera's.
             self._set_frame_window(None)
             raise
-        if not applied:
-            self._set_frame_window(None)
-            return False
         if (plan.crop_width, plan.crop_height) != target:
             _cam_log.warning(
                 f'[CAM Class ] set_frame_size delivers {plan.crop_width}x{plan.crop_height}, '
@@ -1289,12 +1288,15 @@ class Camera(ABC):
         """
 
     @abstractmethod
-    def _set_hardware_window(self, plan: AoiPlan) -> bool:
+    def _set_hardware_window(self, plan: AoiPlan) -> None:
         """Acquire ``plan.acq_width`` x ``plan.acq_height``, centred.
 
-        Returns:
-            True once the camera acquires the window; False when it refused
-            or the write failed.
+        Raises:
+            CameraReadFailedError: A read the write needs failed; nothing was
+                written.
+            CameraWriteFailedError: The camera did not take a write, or no
+                camera is open.
+            CameraNoAnswerError: The camera did not answer a write.
         """
 
     @abstractmethod
@@ -1352,15 +1354,23 @@ class Camera(ABC):
         """
 
     @abstractmethod
-    def set_pixel_format(self, pixel_format: str) -> bool:
+    def set_pixel_format(self, pixel_format: str) -> None:
         """Set the camera pixel format.
+
+        Every setter of a named setting answers a failure one way, as this
+        one: it raises; a setter that returns has done what it was asked.
 
         Args:
             pixel_format: Format identifier (e.g. ``'Mono8'``,
                 ``'Mono12'``).
 
-        Returns:
-            bool: True on success.
+        Raises:
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         pass
 
@@ -1422,7 +1432,7 @@ class Camera(ABC):
         return self.format_significant_bits(pixel_format, self.native_bit_depth)
 
     @abstractmethod
-    def exposure_t(self, exposure_ms: float) -> float | bool | None:
+    def exposure_t(self, exposure_ms: float) -> float | None:
         """Set exposure time and report the value actually in effect.
 
         A driver may not be able to honor the request exactly: the node
@@ -1441,12 +1451,17 @@ class Camera(ABC):
                 stamp into frame chunk data. Returned on the no-write
                 path too (a short-circuited write still leaves that
                 value in effect).
-            False: The write was refused and the hardware did NOT move.
-                The caller must not record a target for a value the
-                camera never took.
             None: Applied, but the effective value is unknown -- drivers
                 that cannot report one. The caller falls back to the
                 request.
+
+        Raises:
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         pass
 
@@ -1465,15 +1480,19 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def auto_exposure_t(self, state: bool = True) -> bool | None:
+    def auto_exposure_t(self, state: bool = True) -> None:
         """Enable or disable hardware auto-exposure.
 
         Args:
             state: True to enable, False to disable.
 
-        Returns:
-            bool | None: Applied, refused or not attempted, as
-                ``Camera.gain`` defines them.
+        Raises:
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         pass
 
@@ -1591,6 +1610,198 @@ class Camera(ABC):
         a camera active.
         """
         raise NotImplementedError(f'{type(self).__name__} has no named settings')
+
+    # The value ``write_node`` is given to run a command node (``UserSetLoad``,
+    # ``BslCenterX``) rather than set a value on one.
+    RUN: ClassVar[object] = enum.Enum('_Command', 'RUN').RUN
+
+    # The SDK's own exception base: every failure of an SDK call. A driver
+    # with named settings names its SDK's; anything else a write raises is
+    # ours and leaves as itself.
+    _SDK_ERRORS: ClassVar[tuple[type[BaseException], ...]] = ()
+
+    def write_node(
+        self, name: str, value: object, node_map: str = 'device', *, if_present: bool = False
+    ) -> bool | None:
+        """Write one named setting on one of ``node_maps()``: the driver's one write.
+
+        Every setter is a sequence of these and the reads it needs, so a
+        write lands or fails the same way whichever setter makes it, and a
+        new brand's driver fills in ``_node``, ``_put`` and ``_is_timeout``.
+        ``value`` is ``Camera.RUN`` for a command node.
+
+        With ``if_present``, a node the camera does not offer is a fact of
+        the body, not a failure: nothing is written and False is answered.
+
+        Returns:
+            None once written; with ``if_present``, True once written and
+            False when the camera does not offer the node.
+
+        Raises:
+            CameraWriteFailedError: No camera is open (a teardown racing the
+                write), the node map or the node's lookup failed, the camera
+                does not offer the node, or it refused or failed the write;
+                the words name the node and carry the SDK's own.
+            CameraNoAnswerError: The camera did not answer the write in
+                time, so whether it was applied is not known; or did not
+                answer the node's lookup in time.
+        """
+        if not self.active:
+            raise CameraWriteFailedError(f'{name} was not written: no camera is open')
+        try:
+            node = self._node(name, node_map)
+        except (CameraReadFailedError, *self._SDK_ERRORS) as e:
+            # A write's failure, never a read's: a setter's earlier writes may
+            # have landed, and a read failure tells its caller nothing was sent.
+            words = f'{name} was not written: its lookup failed: {type(e).__name__}: {e}'
+            if not isinstance(e, CameraReadFailedError) and self._is_timeout(e):
+                raise CameraNoAnswerError(words) from e
+            raise CameraWriteFailedError(words) from e
+        if node is None:
+            if if_present:
+                _cam_log.info(f'[CAM Class ] {name} not offered by this camera; not written')
+                return False
+            raise CameraWriteFailedError(f'{name} was not written: the camera does not offer it')
+        try:
+            _cam_log.log(VERBOSE, f'{type(self).__name__} {name} <- {value!r}')
+            self._put(node, value)
+        except self._SDK_ERRORS as e:
+            if self._is_timeout(e):
+                raise CameraNoAnswerError(
+                    f'The camera did not answer the write of {name} = {value!r}: '
+                    f'{type(e).__name__}: {e}'
+                ) from e
+            raise CameraWriteFailedError(
+                f'The camera did not take {name} = {value!r}: {type(e).__name__}: {e}'
+            ) from e
+        return True if if_present else None
+
+    def _put(self, node, value: object) -> None:
+        """Give ``node`` its value through the SDK, or run it for ``Camera.RUN``.
+
+        The driver's part of ``write_node``. An SDK failure propagates.
+        """
+        raise NotImplementedError(f'{type(self).__name__} has no named settings')
+
+    def _is_timeout(self, error: BaseException) -> bool:
+        """Whether an SDK failure is the camera not answering in time."""
+        raise NotImplementedError(f'{type(self).__name__} has no named settings')
+
+    def _bounds(self, name: str, node_map: str = 'device') -> tuple[float, float]:
+        """The ``(minimum, maximum)`` the node of this name takes now, read from the camera.
+
+        For a setter that clamps to a bound or opens a limit to one.
+
+        Raises:
+            CameraReadFailedError: The read failed, no camera is open, or the
+                camera does not offer the node.
+            CameraNoAnswerError: The camera did not answer the read in time.
+        """
+        return self._read_part(name, node_map, self._limits_of, 'range')
+
+    def _entries(self, name: str, node_map: str = 'device') -> tuple[str, ...]:
+        """The entries the enumeration node of this name offers now, by name.
+
+        Raises:
+            CameraReadFailedError: The read failed, no camera is open, or the
+                camera does not offer the node.
+            CameraNoAnswerError: The camera did not answer the read in time.
+        """
+        return self._read_part(name, node_map, self._entries_of, 'entries')
+
+    def _offers(self, name: str, node_map: str = 'device') -> bool:
+        """Whether the camera offers the node of this name, for a setter whose writes depend on it.
+
+        Raises:
+            CameraReadFailedError: The lookup failed, or no camera is open.
+            CameraNoAnswerError: The camera did not answer it in time.
+        """
+        return self._read_part(name, node_map, lambda _node: True, 'node', absent=False)
+
+    def _read_part(
+        self, name: str, node_map: str, part: Callable, what: str, *, absent: object = RUN
+    ):
+        """``part(node)`` for the node of this name, failing as ``_bounds`` says.
+
+        ``absent`` is the answer for a node the camera does not offer; left
+        out, that raises.
+        """
+        if not self.active:
+            raise CameraReadFailedError(f"{name}'s {what} were not read: no camera is open")
+        try:
+            node = self._node(name, node_map)
+            if node is None:
+                if absent is not self.RUN:
+                    return absent
+                raise CameraReadFailedError(
+                    f"{name}'s {what} were not read: the camera does not offer it"
+                )
+            return part(node)
+        except self._SDK_ERRORS as e:
+            if self._is_timeout(e):
+                raise CameraNoAnswerError(
+                    f"The camera did not answer a read of {name}'s {what}: {type(e).__name__}: {e}"
+                ) from e
+            raise CameraReadFailedError(
+                f"The camera did not answer a read of {name}'s {what}: {type(e).__name__}: {e}"
+            ) from e
+
+    def _limits_of(self, node) -> tuple[float, float]:
+        """A node's ``(minimum, maximum)`` through the SDK (``_bounds``'s driver part)."""
+        raise NotImplementedError(f'{type(self).__name__} has no named settings')
+
+    def _entries_of(self, node) -> tuple[str, ...]:
+        """An enumeration node's offered entries through the SDK (``_entries``'s driver part)."""
+        raise NotImplementedError(f'{type(self).__name__} has no named settings')
+
+    def _read_back(self, name: str, value: object) -> float | None:
+        """What the node of this name holds after a write of ``value`` it took.
+
+        A setter that reports the value in effect reads it back, since a node
+        may snap the value to its increment. A read that fails follows a
+        write the camera took, so it is not a refusal: it answers None, with
+        a WARNING, and the value in effect is unconfirmed.
+        """
+        try:
+            answer = self.read_node(name, 'device')
+        except CameraReadFailedError as e:
+            _cam_log.warning(
+                f'[CAM Class ] {name} {value} written but the read-back failed; '
+                f'the value in effect is unconfirmed: {e}'
+            )
+            return None
+        if not isinstance(answer, CameraNodeValue):
+            _cam_log.warning(
+                f'[CAM Class ] {name} {value} written but it reads back no value ({answer}); '
+                f'the value in effect is unconfirmed'
+            )
+            return None
+        return float(answer.value)
+
+    def _already(
+        self, name: str, value: object, *, within: float = 0.0, node_map: str = 'device'
+    ) -> bool:
+        """Whether the camera holds ``value`` in the node of this name now.
+
+        A setter asks it to skip a write that would change nothing (a write
+        some bodies take only with the grab stopped, or one sent per frame).
+        A number is held when it is within ``within`` of the value (equal,
+        at 0). A read that fails, or a node holding no value, answers False:
+        not known, so the write goes and its own answer decides.
+        """
+        if not self.active:
+            return False
+        try:
+            answer = self.read_node(name, node_map)
+        except CameraReadFailedError as e:
+            logger.debug(f'[CAM Class ] {name} not read before its write; writing: {e}')
+            return False
+        if not isinstance(answer, CameraNodeValue):
+            return False
+        held = answer.value
+        if isinstance(value, str) or isinstance(held, str) or not within:
+            return held == value
+        return abs(float(held) - float(value)) < within
 
     def get_sdk_info(self) -> dict:
         """Return the camera SDK provenance label for diagnostic snapshots.
@@ -1741,7 +1952,7 @@ class Camera(ABC):
             return None
         return link_info()
 
-    def set_binning_size(self, size: int) -> bool:
+    def set_binning_size(self, size: int) -> None:
         """Set hardware binning factor.
 
         A change of binning resizes the frames the camera makes, so the
@@ -1750,9 +1961,6 @@ class Camera(ABC):
 
         Args:
             size: Binning factor (1, 2, 4, ...).
-
-        Returns:
-            bool: True on success.
 
         Raises:
             CameraReadFailedError: A read the write needs failed (the binning
@@ -1764,7 +1972,7 @@ class Camera(ABC):
         """
         before = self.get_binning_size()
         try:
-            applied = self._set_hardware_binning(size)
+            self._set_hardware_binning(size)
         except CameraReadFailedError:
             # Every driver reads before its first write, so nothing was sent.
             raise
@@ -1773,13 +1981,18 @@ class Camera(ABC):
             # each, so the window set before is not known to fit its frames.
             self._set_frame_window(None)
             raise
-        if applied and size != before:
+        if size != before:
             self._set_frame_window(None)
-        return applied
 
     @abstractmethod
-    def _set_hardware_binning(self, size: int) -> bool:
-        """Write the binning factor to the camera; True on success."""
+    def _set_hardware_binning(self, size: int) -> None:
+        """Write the binning factor to the camera.
+
+        Raises:
+            CameraWriteFailedError: The camera does not offer the factor or
+                did not take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write.
+        """
 
     @abstractmethod
     def get_binning_size(self) -> int:
@@ -1911,35 +2124,42 @@ class Camera(ABC):
         return self.grab()
 
     @abstractmethod
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> bool | None:
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> None:
         """Update the target brightness for the auto-gain loop.
 
         Args:
             auto_target_brightness: Normalized target brightness (0.0
                 to 1.0).
 
-        Returns:
-            bool | None: Applied, refused or not attempted, as
-                ``Camera.gain`` defines them.
+        Raises:
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         pass
 
     @abstractmethod
     def update_auto_gain_min_max(
         self, min_gain_db: float | None, max_gain_db: float | None
-    ) -> bool | None:
+    ) -> None:
         """Update the auto-gain bounds.
 
         Args:
-            min_gain_db: Minimum gain in dB, or None to leave unchanged.
-            max_gain_db: Maximum gain in dB, or None to leave unchanged.
-
-        Returns:
-            True when the bounds are in effect, False when the camera did not
-            take them; None when the camera is inactive.
+            min_gain_db: Minimum gain in dB, or None for the camera's own
+                minimum.
+            max_gain_db: Maximum gain in dB, or None for the camera's own
+                maximum.
 
         Raises:
-            CameraNoAnswerError: The camera did not answer a bound's write.
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         pass
 
@@ -1957,7 +2177,7 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def gain(self, value: float) -> float | bool | None:
+    def gain(self, value: float) -> float | None:
         """Set the camera gain, and report the gain now in effect.
 
         The caller records the answer in its camera cache, as the
@@ -1970,26 +2190,22 @@ class Camera(ABC):
         can tell a refusal from a success says which, and when it applied
         the value it says what it applied.
 
-        This is also the canonical statement of the three-case return the
-        bool-reporting setters share (the auto-mode setters point here):
-        ``True`` applied, ``False`` refused, ``None`` not attempted. ``gain``
-        and ``exposure_t`` answer with the value in effect in place of
-        ``True``.
-
         Args:
             value: Gain in dB.
 
         Returns:
-            float: Applied -- the gain in dB the hardware now holds,
-                including when the write was skipped because it already
-                held it.
-            True: Applied, but the value in effect could not be read back
-                (the write succeeded and the confirming read failed). The
-                caller keeps the request as its best knowledge.
-            False: Refused -- the hardware did NOT move. The caller must
-                not record the request as truth.
-            None: Not attempted, because no camera is active. Not a
-                refusal: nothing was asked of any hardware.
+            float: The gain in dB the hardware now holds, including when
+                the write was skipped because it already held it.
+            None: Applied, but the value in effect could not be read back
+                (the write took and the confirming read failed).
+
+        Raises:
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         pass
 
@@ -2009,31 +2225,33 @@ class Camera(ABC):
         """
         return False
 
-    def set_conversion_gain_mode(self, mode: str) -> bool:
+    def set_conversion_gain_mode(self, mode: str) -> None:
         """Set the sensor conversion gain mode, ``'High'`` or ``'Low'``.
 
         Called only when ``supports_conversion_gain_mode`` is True.
 
-        Returns:
-            bool: True when the camera is in ``mode``; False is the
-                camera's refusal, or the camera lost.
-
         Raises:
-            HardwareError: The write failed.
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         raise NotImplementedError(f'{type(self).__name__} offers no conversion gain mode')
 
-    def set_line_noise_reduction(self, enabled: bool, strength: float = 0.5) -> bool:
+    def set_line_noise_reduction(self, enabled: bool, strength: float = 0.5) -> None:
         """Turn the line-noise-reduction filter on at ``strength`` (0.0-1.0), or off.
 
         Called only when ``supports_line_noise_reduction`` is True.
 
-        Returns:
-            bool: True when the filter is as asked; False is the camera's
-                refusal, or the camera lost.
-
         Raises:
-            HardwareError: The write failed.
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         raise NotImplementedError(f'{type(self).__name__} offers no line noise reduction')
 
@@ -2076,15 +2294,19 @@ class Camera(ABC):
         """
         return None
 
-    def set_black_level(self, value: float) -> float | bool | None:
+    def set_black_level(self, value: float) -> float | None:
         """Set the black level, and report the value now in effect.
 
         Called only when ``supports_black_level`` is True and ``value`` is
-        inside ``read_black_level_range``. Returns as ``gain`` does: ``False``
-        is the camera's refusal, or the camera lost.
+        inside ``read_black_level_range``. Returns as ``gain`` does.
 
         Raises:
-            HardwareError: The write or its read-back failed.
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         raise NotImplementedError(f'{type(self).__name__} offers no black level setting')
 
@@ -2096,7 +2318,7 @@ class Camera(ABC):
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> bool | None:
+    ) -> None:
         """Enable or disable continuous auto-gain, with auto-exposure.
 
         The camera's gain and exposure loops switch together (Pylon's
@@ -2111,9 +2333,13 @@ class Camera(ABC):
                 on the exposure auto-exposure may drive to. Honored where
                 the driver supports auto-exposure bounds; ignored otherwise.
 
-        Returns:
-            bool | None: Applied, refused or not attempted, as
-                ``Camera.gain`` defines them.
+        Raises:
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         pass
 
@@ -2147,7 +2373,7 @@ class Camera(ABC):
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> bool | None:
+    ) -> None:
         """Run a single auto-gain iteration.
 
         Args:
@@ -2158,9 +2384,13 @@ class Camera(ABC):
             ae_max_exposure_ms: Optional per-channel-class exposure upper
                 bound (ms); honored where the driver supports it.
 
-        Returns:
-            bool | None: Applied, refused or not attempted, as
-                ``Camera.gain`` defines them.
+        Raises:
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         pass
 
@@ -2171,5 +2401,13 @@ class Camera(ABC):
         Args:
             enabled: True to enable the pattern, False to disable.
             pattern: Pattern name (SDK-specific; e.g. ``'Black'``).
+
+        Raises:
+            CameraWriteFailedError: The camera does not offer it or did not
+                take it, or no camera is open.
+            CameraNoAnswerError: The camera did not answer a write, or a
+                read it needs.
+            CameraReadFailedError: A read the write needs failed; nothing
+                was written.
         """
         pass

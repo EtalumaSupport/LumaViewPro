@@ -58,7 +58,7 @@ def test_refused_write_records_no_target(sim_camera, monkeypatch):
     """A driver that refused did not move the hardware: the prior target stands."""
     camera, _cam, simulation = sim_camera
     camera.set_exposure_ms(2.5)
-    simulation.refuse_camera_write('exposure', 'false')
+    simulation.refuse_camera_write('exposure', 'raise')
 
     with pytest.raises(CameraSettingRejected) as caught:
         camera.set_exposure_ms(REQUEST_MS)
@@ -79,16 +79,3 @@ def test_driver_reporting_no_value_falls_back_to_the_request(sim_camera, monkeyp
     camera.set_exposure_ms(REQUEST_MS)
 
     assert camera._frame_validity.target('exposure') == REQUEST_US
-
-
-def test_a_bare_true_is_not_mistaken_for_microseconds(sim_camera, monkeypatch):
-    """bool is an int subclass; a driver reporting True must not stamp 1.0 us."""
-    camera, cam, _simulation = sim_camera
-    # a stand-in by design: a driver that confirms with a bare True; the simulator reports microseconds
-    monkeypatch.setattr(cam, 'exposure_t', lambda exposure_ms: True)
-
-    camera.set_exposure_ms(REQUEST_MS)
-
-    assert camera._frame_validity.target('exposure') == REQUEST_US, (
-        'True is applied-but-unknown, not a 1 microsecond exposure'
-    )

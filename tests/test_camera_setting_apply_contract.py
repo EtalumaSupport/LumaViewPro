@@ -6,7 +6,7 @@ and pixel-format bodies) observe success by VALUE and failure by RAISE:
 
   - success returns the applied value (frame size returns the DELIVERED
     geometry, which may differ from the request);
-  - a LIVE driver rejecting the apply (False return) or raising from it
+  - a LIVE driver rejecting the apply (raising its refusal) or failing it
     raises CameraSettingRejected, carrying the title and sentence the one
     reporter shows -- the setter itself neither logs nor notifies -- so a
     caller that drops the return cannot record a rejected apply as current;
@@ -58,8 +58,8 @@ class ApplyDriver(ScriptedCameraDriver):
     def __init__(self, scripts: dict, active: bool = True):
         super().__init__(scripts, active)
         self.apply_frame_size = lambda w, h: {'width': w, 'height': h}
-        self.apply_binning = lambda size: True
-        self.apply_pixel_format = lambda fmt: True
+        self.apply_binning = lambda size: None
+        self.apply_pixel_format = lambda fmt: None
 
     def set_frame_size(self, w, h):
         return self.apply_frame_size(w, h)
@@ -98,6 +98,11 @@ def _posted(centre_posts, severity):
     return [(n.category, n.title, n.message) for n in centre_posts if n.severity == severity]
 
 
+def _refused(*_args, **_kwargs):
+    """A driver's refusal of the write: it raises, as every driver's does."""
+    raise CameraWriteFailedError('the camera refused the write')
+
+
 def _assert_carries_its_words(rejected, title, in_sentence, centre_posts):
     """The rejection is shown once, by its reporter, in its own words: the
     setter shows nothing, and the exception carries the title and the
@@ -114,7 +119,7 @@ def _assert_carries_its_words(rejected, title, in_sentence, centre_posts):
 def test_set_frame_size_rejection_raises_and_preserves_cache(centre_posts):
     driver = apply_driver()
     camera = _build_camera(driver)  # populate caches 1936x1216
-    driver.apply_frame_size = lambda w, h: False
+    driver.apply_frame_size = _refused
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         _apply(camera, 'set_frame_size', 1900, 1900)
@@ -132,7 +137,7 @@ def test_set_frame_size_rejection_raises_and_preserves_cache(centre_posts):
 def test_set_binning_rejection_raises_and_preserves_cache(centre_posts):
     driver = apply_driver()
     camera = _build_camera(driver)  # populate caches binning 2
-    driver.apply_binning = lambda size: False
+    driver.apply_binning = _refused
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         _apply(camera, 'set_binning', 4)
@@ -149,7 +154,7 @@ def test_set_binning_rejection_raises_and_preserves_cache(centre_posts):
 def test_set_pixel_format_rejection_raises_and_preserves_cache(centre_posts):
     driver = apply_driver()
     camera = _build_camera(driver)  # populate caches 'Mono12'
-    driver.apply_pixel_format = lambda fmt: False
+    driver.apply_pixel_format = _refused
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         _apply(camera, 'set_pixel_format', 'Mono8')
@@ -168,7 +173,7 @@ def test_a_reported_rejection_is_shown_once_in_its_own_words(centre_posts):
 
     driver = apply_driver()
     camera = _build_camera(driver)
-    driver.apply_binning = lambda size: False
+    driver.apply_binning = _refused
     with pytest.raises(CameraSettingRejected) as excinfo:
         _apply(camera, 'set_binning', 4)
 
@@ -445,7 +450,7 @@ def test_initialize_contains_frame_size_rejection_and_completes(monkeypatch):
     )
 
     def _reject_frame(scope):
-        scope._camera_driver.set_frame_size = lambda w, h: False
+        scope._camera_driver.set_frame_size = _refused
 
     _applied, frames, _errors, reached_end = _drive_initialize(
         _init_config(2, frame_width=900, frame_height=600), monkeypatch, prepare=_reject_frame
@@ -476,18 +481,13 @@ def _a_camera_with_both_toggles(answer):
     return prepare
 
 
-def _refuses():
-    return False
-
-
 def _raises():
     raise CameraWriteFailedError('node write failed')
 
 
-@pytest.mark.parametrize('answer', [_refuses, _raises], ids=['refuses', 'raises'])
-def test_initialize_contains_a_toggle_rejection_and_completes(monkeypatch, answer):
-    # A camera that has both toggles but refuses (or raises from) each at
-    # bring-up: each is reported once, unsolicited, and bring-up runs on.
+def test_initialize_contains_a_toggle_rejection_and_completes(monkeypatch):
+    # A camera that has both toggles but refuses each at bring-up: each is
+    # reported once, unsolicited, and bring-up runs on.
     import dataclasses
 
     from _lumascope.modules.notification_center import notifications
@@ -503,7 +503,7 @@ def test_initialize_contains_a_toggle_rejection_and_completes(monkeypatch, answe
     )
 
     _applied, _frames, _errors, reached_end = _drive_initialize(
-        config, monkeypatch, prepare=_a_camera_with_both_toggles(answer)
+        config, monkeypatch, prepare=_a_camera_with_both_toggles(_raises)
     )
 
     rejections = [

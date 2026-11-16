@@ -57,7 +57,12 @@ def _posted(centre_posts, *severities):
 # ===========================================================================
 # 1. Domain exceptions -- no mocks needed, pure Python module
 # ===========================================================================
-from _lumascope.drivers.exceptions import BoardNoReplyError, BoardReportedError, HardwareError
+from _lumascope.drivers.exceptions import (
+    BoardNoReplyError,
+    BoardReportedError,
+    CameraWriteFailedError,
+    HardwareError,
+)
 from _lumascope.modules.exceptions import (
     AutofocusAborted,
     CaptureError,
@@ -1144,19 +1149,24 @@ class TestSetBinningSizeAnswersByRaising:
         cam._mark_disconnected.assert_not_called()
 
         cam = _bare_pylon_camera()
-        cam.active.BinningVertical.SetValue.side_effect = ValueError('unexpected')
+        cam.active.BinningVertical.SetValue.side_effect = genicam.AccessException('refused')
         with pytest.raises(HardwareError):
             cam.set_binning_size(2)
 
-    def test_pyloncamera_set_binning_size_guards_return_false(self):
-        """Caller-correctable guards return False without touching the SDK."""
+    def test_pyloncamera_set_binning_size_refuses_what_it_cannot_send(self):
+        """A size the camera does not offer, or no camera, raises without
+        touching the SDK."""
+        from _lumascope.drivers.exceptions import CameraWriteFailedError
+
         cam = _bare_pylon_camera()
-        assert cam.set_binning_size(9) is False
+        with pytest.raises(CameraWriteFailedError, match='not offered'):
+            cam.set_binning_size(9)
         cam.active.BinningVertical.SetValue.assert_not_called()
 
         cam = _bare_pylon_camera()
         cam.active = None
-        assert cam.set_binning_size(2) is False
+        with pytest.raises(CameraWriteFailedError, match='no camera is open'):
+            cam.set_binning_size(2)
 
     def test_pyloncamera_set_pixel_format_raises_hardware_error(self):
         """Tier 3a / C1: SDK failure surfaces as HardwareError (a
@@ -1164,10 +1174,12 @@ class TestSetBinningSizeAnswersByRaising:
         test_pylon_setter_transient_writes)."""
         from _lumascope.drivers.exceptions import HardwareError
 
+        from pypylon import genicam
+
         cam = _bare_pylon_camera()
         cam.active.PixelFormat.GetSymbolics.return_value = ('Mono12',)
         cam.active.PixelFormat.GetValue.return_value = 'Mono8'
-        cam.active.PixelFormat.SetValue.side_effect = ValueError('unexpected')
+        cam.active.PixelFormat.SetValue.side_effect = genicam.AccessException('refused')
         with pytest.raises(HardwareError):
             cam.set_pixel_format('Mono12')
 
@@ -1175,8 +1187,10 @@ class TestSetBinningSizeAnswersByRaising:
         """Tier 3a / C5."""
         from _lumascope.drivers.exceptions import HardwareError
 
+        from ids_peak import ids_peak
+
         cam = _bare_ids_camera()
-        cam.remote_nodemap.FindNode.return_value.SetValue.side_effect = RuntimeError('sdk')
+        cam.remote_nodemap.FindNode.return_value.SetValue.side_effect = ids_peak.Exception('sdk')
         with pytest.raises(HardwareError):
             cam.set_binning_size(2)
 
@@ -1189,16 +1203,19 @@ class TestSetBinningSizeAnswersByRaising:
 
         from _lumascope.drivers.exceptions import HardwareError
 
+        from ids_peak import ids_peak
+
         assert_def(
             'src/_lumascope/drivers/idscamera.py',
             'set_pixel_format',
-            returns='bool',
-            msg='IDSCamera.set_pixel_format must declare `-> bool` (Wave 1 C3 / Rule 37)',
+            returns='None',
+            msg='IDSCamera.set_pixel_format must declare `-> None`: a failure raises',
         )
 
         cam = _bare_ids_camera()
-        cam._read_supported_pixel_formats = lambda: ('Mono8',)
-        cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.side_effect = RuntimeError('sdk')
+        node = cam.remote_nodemap.FindNode.return_value
+        node.AvailableEntries.return_value = [MagicMock(SymbolicValue=lambda: 'Mono8')]
+        node.SetCurrentEntry.side_effect = ids_peak.Exception('sdk')
         with pytest.raises(HardwareError):
             cam.set_pixel_format('Mono8')
         cam._mark_disconnected.assert_not_called()
@@ -2400,7 +2417,6 @@ from tests.camera_fakes import (
     chunk_config_pylon_camera as _chunk_config_pylon_camera,
     diag_snapshot_pylon_camera as _diag_snapshot_pylon_camera,
     disconnectable_pylon_camera as _disconnectable_pylon_camera,
-    fake_trigger_entry as _fake_trigger_entry,
     init_configurable_pylon_camera as _init_configurable_pylon_camera,
     run_one_stats_poll as _run_one_stats_poll,
     stats_poll_pylon_camera as _stats_poll_pylon_camera,
@@ -3104,7 +3120,7 @@ class TestDeviceLinkThroughputLimitSetter:
         assert hasattr(ImagingAPI, '_set_device_link_throughput_limit')
         assert callable(ImagingAPI._set_device_link_throughput_limit)
 
-    def test_no_camera_returns_false(self):
+    def test_no_camera_is_refused_not_connected(self):
         from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
@@ -3112,9 +3128,10 @@ class TestDeviceLinkThroughputLimitSetter:
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         give_camera_and_imaging(scope)
-        assert scope.imaging._set_device_link_throughput_limit('Off') is False
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.imaging._set_device_link_throughput_limit('Off')
 
-    def test_inactive_camera_returns_false(self):
+    def test_an_inactive_camera_is_refused_not_connected(self):
         class _Fake:
             active = None
 
@@ -3122,10 +3139,11 @@ class TestDeviceLinkThroughputLimitSetter:
                 raise AssertionError('driver should not be reached')
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_device_link_throughput_limit('Off') is False
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.imaging._set_device_link_throughput_limit('Off')
 
-    def test_unsupported_driver_returns_false(self):
-        """Camera class without the setter (e.g. SimulatedCamera) -> False."""
+    def test_a_driver_without_the_knob_raises_not_offered(self):
+        """Camera class without the setter (e.g. SimulatedCamera) raises not offered."""
 
         class _NoSetter:
             active = True
@@ -3134,7 +3152,8 @@ class TestDeviceLinkThroughputLimitSetter:
                 return True
 
         scope = self._make_scope_with_fake_camera(_NoSetter())
-        assert scope.imaging._set_device_link_throughput_limit('Off') is False
+        with pytest.raises(CameraWriteFailedError):
+            scope.imaging._set_device_link_throughput_limit('Off')
 
     def test_off_routes_to_driver(self):
         called_with = {}
@@ -3151,7 +3170,7 @@ class TestDeviceLinkThroughputLimitSetter:
                 return True
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_device_link_throughput_limit('Off') is True
+        scope.imaging._set_device_link_throughput_limit('Off')
         assert called_with == {'mode': 'Off', 'value_bps': None}
 
     def test_on_with_value_routes_to_driver(self):
@@ -3169,8 +3188,7 @@ class TestDeviceLinkThroughputLimitSetter:
                 return True
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        ok = scope.imaging._set_device_link_throughput_limit('On', value_bps=160_000_000)
-        assert ok is True
+        scope.imaging._set_device_link_throughput_limit('On', value_bps=160_000_000)
         assert called_with == {'mode': 'On', 'value_bps': 160_000_000}
 
     def test_pylon_driver_method_present(self):
@@ -3729,7 +3747,7 @@ class TestPylonInitCameraConfigStyleConsistency:
         default."""
         cam = _init_configurable_pylon_camera()
         fake = cam.active
-        fake.TriggerSelector.GetEntries.return_value = [_fake_trigger_entry('FrameStart')]
+        fake.TriggerSelector.GetSymbolics.return_value = ['FrameStart']
         cam.init_camera_config()
         fake.AcquisitionMode.SetValue.assert_called_with('Continuous')
         fake.TriggerMode.SetValue.assert_called_with('Off')
@@ -3739,15 +3757,12 @@ class TestPylonInitCameraConfigStyleConsistency:
         steps above for all available trigger types.' A camera exposing
         AcquisitionStart / FrameBurstStart / ExposureStart in addition
         to FrameStart needs each of them set to TriggerMode=Off, or a
-        stray non-Off type leaks through and blocks free-run.
-        Unavailable enum entries must be skipped."""
+        stray non-Off type leaks through and blocks free-run. The
+        available entries are the selector's symbolics, which GenApi lists
+        only for entries available now."""
         cam = _init_configurable_pylon_camera()
         fake = cam.active
-        fake.TriggerSelector.GetEntries.return_value = [
-            _fake_trigger_entry('FrameStart'),
-            _fake_trigger_entry('AcquisitionStart'),
-            _fake_trigger_entry('ExposureStart', available=False),
-        ]
+        fake.TriggerSelector.GetSymbolics.return_value = ['FrameStart', 'AcquisitionStart']
         cam.init_camera_config()
         selected = [call.args[0] for call in fake.TriggerSelector.SetValue.call_args_list]
         assert selected == ['FrameStart', 'AcquisitionStart'], (
@@ -4771,8 +4786,11 @@ class TestPylonGainSelectorBeforeGainSetValue:
         cam = _bare_pylon_camera()
         fake = cam.active
         fake.Gain.GetValue.return_value = 10.0
-        fake.GainSelector.SetValue.side_effect = RuntimeError('node not present')
+        nodemap = fake.GetNodeMap.return_value
+        offered = nodemap.Contains.side_effect
+        nodemap.Contains.side_effect = lambda name: name != 'GainSelector' and offered(name)
         cam.gain(2.0)
+        fake.GainSelector.SetValue.assert_not_called()
         fake.Gain.SetValue.assert_called_once_with(2.0)
 
     def test_gain_short_circuits_when_already_at_target(self):
@@ -4975,7 +4993,7 @@ class TestGigeSetters:
             )
             assert callable(getattr(ImagingAPI, name))
 
-    def test_no_camera_returns_false_for_all(self):
+    def test_no_camera_is_refused_not_connected_for_all(self):
         from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
@@ -4983,11 +5001,14 @@ class TestGigeSetters:
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         give_camera_and_imaging(scope)
-        assert scope.imaging._set_bandwidth_reserve_mode('Performance') is False
-        assert scope.imaging._set_gev_packet_size(9000) is False
-        assert scope.imaging._set_gev_inter_packet_delay(0) is False
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.imaging._set_bandwidth_reserve_mode('Performance')
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.imaging._set_gev_packet_size(9000)
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.imaging._set_gev_inter_packet_delay(0)
 
-    def test_inactive_camera_returns_false_for_all(self):
+    def test_an_inactive_camera_is_refused_not_connected_for_all(self):
         class _Fake:
             active = None
 
@@ -5001,9 +5022,12 @@ class TestGigeSetters:
                 raise AssertionError('driver should not be reached')
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_bandwidth_reserve_mode('Performance') is False
-        assert scope.imaging._set_gev_packet_size(9000) is False
-        assert scope.imaging._set_gev_inter_packet_delay(0) is False
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.imaging._set_bandwidth_reserve_mode('Performance')
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.imaging._set_gev_packet_size(9000)
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.imaging._set_gev_inter_packet_delay(0)
 
     def test_bandwidth_reserve_mode_routes_to_driver(self):
         called_with = {}
@@ -5019,7 +5043,7 @@ class TestGigeSetters:
                 return True
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_bandwidth_reserve_mode('Performance') is True
+        scope.imaging._set_bandwidth_reserve_mode('Performance')
         assert called_with == {'mode': 'Performance'}
 
     def test_gev_packet_size_routes_to_driver(self):
@@ -5036,7 +5060,7 @@ class TestGigeSetters:
                 return True
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_gev_packet_size(9000) is True
+        scope.imaging._set_gev_packet_size(9000)
         assert called_with == {'size_bytes': 9000}
 
     def test_gev_inter_packet_delay_routes_to_driver(self):
@@ -5053,7 +5077,7 @@ class TestGigeSetters:
                 return True
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_gev_inter_packet_delay(100) is True
+        scope.imaging._set_gev_inter_packet_delay(100)
         assert called_with == {'delay_ticks': 100}
 
     def test_pylon_setters_present(self):
@@ -5075,8 +5099,11 @@ class TestGigeSetters:
 
         assert PylonCamera._BANDWIDTH_RESERVE_MODES == ('Default', 'Performance')
 
+        from _lumascope.drivers.exceptions import CameraWriteFailedError
+
         cam = _bare_pylon_camera()
-        assert cam.set_bandwidth_reserve_mode('Turbo') is False
+        with pytest.raises(CameraWriteFailedError, match='Turbo'):
+            cam.set_bandwidth_reserve_mode('Turbo')
         cam.active.GetNodeMap.assert_not_called()
 
     def test_pylon_setters_raise_hardware_error(self):
@@ -5099,20 +5126,23 @@ class TestGigeSetters:
             with pytest.raises(HardwareError):
                 call(cam)
 
-    def test_ids_gev_setters_return_false_when_unwritable(self):
-        # The IDS GEV setters are now guarded live writes (GigE-ready), not
-        # hardcoded stubs: they return False when they can't apply -- inactive
-        # camera, or the node absent on a USB3 body -- so the bench sweep can
-        # still call them unconditionally per cell. BandwidthReserveMode stays a
-        # stub (no IDS equivalent node).
+    def test_ids_gev_setters_raise_not_offered_on_a_usb3_body(self):
+        # The IDS GEV setters are guarded live writes (GigE-ready): on a USB3
+        # body the GEV transport nodes are absent, so the write raises not
+        # offered, and the bench sweep logs it and goes on (a GigE body would
+        # resolve the node and write it). BandwidthReserveMode has no IDS
+        # equivalent node.
+        from _lumascope.drivers.exceptions import CameraWriteFailedError
+
         camera = _bare_ids_camera()
-        # USB3 body: the GEV transport nodes are absent, so FindNode returns
-        # None and the guarded write returns False (a GigE body would resolve
-        # the node and write it).
-        camera.remote_nodemap.FindNode.return_value = None
-        assert camera.set_bandwidth_reserve_mode('Performance') is False
-        assert camera.set_gev_packet_size(9000) is False
-        assert camera.set_gev_inter_packet_delay(0) is False
+        camera.remote_nodemap.HasNode.return_value = False
+        for write in (
+            lambda: camera.set_bandwidth_reserve_mode('Performance'),
+            lambda: camera.set_gev_packet_size(9000),
+            lambda: camera.set_gev_inter_packet_delay(0),
+        ):
+            with pytest.raises(CameraWriteFailedError, match='does not offer'):
+                write()
 
 
 class TestPylonCameraLineLengthCap:
@@ -5213,7 +5243,7 @@ class TestStreamGrabberSetters:
         # Phase 4 relocation: the method now lives on ImagingAPI.
         assert callable(ImagingAPI._set_num_max_queued_urbs)
 
-    def test_no_camera_returns_false(self):
+    def test_no_camera_is_refused_not_connected(self):
         from _lumascope.modules.lumascope_api import Lumascope
 
         scope = Lumascope.__new__(Lumascope)
@@ -5221,9 +5251,10 @@ class TestStreamGrabberSetters:
         scope.runtime_state = RuntimeState(scope)
         scope._camera_driver = None
         give_camera_and_imaging(scope)
-        assert scope.imaging._set_num_max_queued_urbs(64) is False
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.imaging._set_num_max_queued_urbs(64)
 
-    def test_inactive_camera_returns_false(self):
+    def test_an_inactive_camera_is_refused_not_connected(self):
         class _Fake:
             active = None
 
@@ -5231,10 +5262,11 @@ class TestStreamGrabberSetters:
                 raise AssertionError('driver should not be reached')
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_num_max_queued_urbs(64) is False
+        with pytest.raises(HardwareCommandRefusedError):
+            scope.imaging._set_num_max_queued_urbs(64)
 
-    def test_unsupported_driver_returns_false(self):
-        """Camera class without the setter (e.g. SimulatedCamera) -> False."""
+    def test_a_driver_without_the_knob_raises_not_offered(self):
+        """Camera class without the setter (e.g. SimulatedCamera) raises not offered."""
 
         class _NoSetter:
             active = True
@@ -5243,7 +5275,8 @@ class TestStreamGrabberSetters:
                 return True
 
         scope = self._make_scope_with_fake_camera(_NoSetter())
-        assert scope.imaging._set_num_max_queued_urbs(64) is False
+        with pytest.raises(CameraWriteFailedError):
+            scope.imaging._set_num_max_queued_urbs(64)
 
     def test_num_max_queued_urbs_routes_to_driver(self):
         called_with = {}
@@ -5259,7 +5292,7 @@ class TestStreamGrabberSetters:
                 return True
 
         scope = self._make_scope_with_fake_camera(_Fake())
-        assert scope.imaging._set_num_max_queued_urbs(value=32) is True
+        scope.imaging._set_num_max_queued_urbs(value=32)
         assert called_with == {'value': 32}
 
     def test_pylon_driver_method_present(self):
@@ -5267,18 +5300,18 @@ class TestStreamGrabberSetters:
 
         assert_def('src/_lumascope/drivers/pyloncamera.py', 'set_num_max_queued_urbs')
 
-    def test_ids_driver_setters_return_false_when_inactive(self):
-        # These were stubs; they now perform real node writes (TestPattern and
-        # the U3vStreamChannel* transfer-tuning nodes are bench-confirmed
-        # ReadWrite on the U3-34L0XCP-M) but still return False when the camera
-        # is inactive, so the API layer can call them unconditionally. Full
-        # write coverage lives in tests/test_ids_transport_setters.py.
+    def test_ids_driver_setter_raises_when_inactive(self):
+        # A real node write (U3vStreamChannelTransferRequestCount is
+        # bench-confirmed ReadWrite on the U3-34L0XCP-M); with no camera open
+        # it raises, as every write_node does. Full write coverage lives in
+        # tests/test_ids_transport_setters.py.
+        from _lumascope.drivers.exceptions import CameraWriteFailedError
         from tests.camera_fakes import bare_ids_camera
 
         camera = bare_ids_camera()
         camera.active = False
-        assert camera.set_max_transfer_size(262144) is False
-        assert camera.set_num_max_queued_urbs(64) is False
+        with pytest.raises(CameraWriteFailedError, match='no camera is open'):
+            camera.set_num_max_queued_urbs(64)
 
     def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
         """StreamGrabber knobs are set via the StreamGrabber NodeMap,
@@ -5290,10 +5323,7 @@ class TestStreamGrabberSetters:
         src = (
             Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
         ).read_text()
-        for name in (
-            'set_num_max_queued_urbs',
-            '_set_stream_grabber_int_node',
-        ):
+        for name in ('set_num_max_queued_urbs',):
             body = _function_source(src, name)
             assert 'with self.update_camera_config' not in body, (
                 f'PylonCamera.{name} must NOT wrap StreamGrabber writes '

@@ -48,7 +48,7 @@ import numpy as np
 _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT / 'src'))
 
-from _lumascope.drivers.exceptions import CameraWriteFailedError
+from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.exceptions import CameraSettingOutOfRangeError, CameraSettingRejected
 from _lumascope.modules.image_mode import ImageMode
@@ -282,8 +282,9 @@ def _apply_cell(scope, transport: str, cell: dict):
     # These setters are private (underscore-prefixed) on ImagingAPI
     # because they are bench-tooling artifacts, not part of the L2
     # contract. This tool is internal bench tooling; the underscore
-    # access is intentional. A knob the camera refuses is one cell's
-    # data point, recorded as the image mode's is.
+    # access is intentional. A knob the camera refuses, does not offer or
+    # does not answer is one cell's data point, recorded as the image
+    # mode's is; no camera ends the sweep (not a HardwareError).
     if transport == 'usb3':
         knobs = [
             (
@@ -306,8 +307,9 @@ def _apply_cell(scope, transport: str, cell: dict):
         knobs = []
     for name, set_knob in knobs:
         try:
-            log.append((name, set_knob()))
-        except CameraWriteFailedError as e:
+            set_knob()
+            log.append((name, 'written'))
+        except HardwareError as e:
             log.append((name, f'FAILED: {e}'))
 
     return log

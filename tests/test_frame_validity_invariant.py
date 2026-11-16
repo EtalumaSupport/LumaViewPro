@@ -20,6 +20,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.lumascope_api.imaging import ImagingAPI
 from _lumascope.modules.notification_center import Severity
@@ -300,10 +301,14 @@ class TestSaturationGuard:
         assert dark.value.reason == 'out_of_range'
 
 
+def _refused(*_args, **_kwargs):
+    """A driver's refusal of the write: it raises, as every driver's does."""
+    raise CameraWriteFailedError('the camera refused the write')
+
+
 class TestRejectedSettingRaisesAndKeepsCache:
-    """A driver that CONFIRMS a settings-write rejection (returns False;
-    drivers with no confirmation signal return None) must reach the caller
-    as a raise -- which carries the words its reporter shows, so the API
+    """A driver's settings-write rejection (it raises, as every driver's
+    refusal does) must reach the caller as a raise -- which carries the words its reporter shows, so the API
     posts nothing itself -- and the requested value must NOT be recorded in
     the camera cache as if it took. IDS has no chunk data, so without this
     the camera streams at the old setting while the cache claims the
@@ -312,7 +317,7 @@ class TestRejectedSettingRaisesAndKeepsCache:
     def test_rejected_gain_raises_and_keeps_cache(self, sim_camera, monkeypatch, centre_posts):
         camera, cam = sim_camera
         camera.set_gain_db(2.0)  # establish a known cache value
-        monkeypatch.setattr(cam, 'gain', lambda v: False)
+        monkeypatch.setattr(cam, 'gain', _refused)
 
         # The public setter raises the rejection to its caller; what this test
         # pins is what happens on the way out -- the API posts nothing, and the
@@ -327,7 +332,7 @@ class TestRejectedSettingRaisesAndKeepsCache:
     def test_rejected_exposure_raises_and_keeps_cache(self, sim_camera, monkeypatch, centre_posts):
         camera, cam = sim_camera
         camera.set_exposure_ms(20.0)  # establish a known cache value
-        monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
+        monkeypatch.setattr(cam, 'exposure_t', _refused)
 
         # See the gain case above: the raise is the public setter's contract,
         # the silent API and the held cache are what this test pins.

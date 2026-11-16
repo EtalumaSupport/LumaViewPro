@@ -28,6 +28,7 @@ import pytest
 # succeeds against the conftest mock and the marker below skips the
 # tests at collection time.
 from _lumascope.drivers import host_clock
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.drivers.pyloncamera import PylonCamera
 
 
@@ -65,9 +66,11 @@ class TestPylon(unittest.TestCase):
 
     def test_binning_size(self):
         # Most Basler models support 1x and 2x; reject 0 and very large.
-        self.assertTrue(self.camera.set_binning_size(1))
+        self.camera.set_binning_size(1)
         self.assertEqual(self.camera.get_binning_size(), 1)
-        self.assertFalse(self.camera.set_binning_size(0))
+        with self.assertRaisesRegex(CameraWriteFailedError, 'not offered'):
+            self.camera.set_binning_size(0)
+        self.assertEqual(self.camera.get_binning_size(), 1)
 
     def test_grab_frame(self):
         time.sleep(0.5)  # Allow grabbing to settle

@@ -195,14 +195,6 @@ def init_configurable_pylon_camera():
     return cam
 
 
-def fake_trigger_entry(symbolic: str, available: bool = True):
-    """One TriggerSelector.GetEntries() element for init-config tests."""
-    entry = MagicMock()
-    entry.IsAvailable.return_value = available
-    entry.GetSymbolic.return_value = symbolic
-    return entry
-
-
 class FakeDiagNode:
     """Nodemap node returning a queued sequence of values (last repeats)."""
 
@@ -289,16 +281,13 @@ def run_one_stats_poll(cam):
 
 
 class WriteRecorderNode:
-    """Chunk-config style node recording every ``.Value = x`` write."""
+    """Chunk-config style node recording every value written to it."""
 
     def __init__(self):
-        object.__setattr__(self, 'writes', [])
+        self.writes = []
 
-    def __setattr__(self, name, value):
-        if name == 'Value':
-            self.writes.append(value)
-        else:
-            object.__setattr__(self, name, value)
+    def SetValue(self, value):
+        self.writes.append(value)
 
 
 def chunk_config_pylon_camera(advertised):
@@ -309,14 +298,9 @@ def chunk_config_pylon_camera(advertised):
     cam = bare_pylon_camera()
     cam.is_grabbing = lambda: False
     fake = cam.active
-    entries = []
-    for name in advertised:
-        entry = MagicMock()
-        entry.GetSymbolic.return_value = name
-        entries.append(entry)
     fake.ChunkModeActive = WriteRecorderNode()
     fake.ChunkSelector = WriteRecorderNode()
-    fake.ChunkSelector.GetEntries = lambda: entries
+    fake.ChunkSelector.GetSymbolics = lambda: list(advertised)
     fake.ChunkEnable = WriteRecorderNode()
     return cam
 
@@ -350,21 +334,31 @@ class FakeAutoRoiCamera:
         self._roi_h_cap = roi_h_cap if roi_h_cap is not None else sensor_h
 
         class _Sensor:
+            Min = 0
+
             def __init__(self, maximum):
                 self.Max = maximum
 
         class _Recorder:
             def __init__(self, name):
                 self._name = name
+                # No value yet: no write is skipped as already made.
+                self._value = float('nan')
 
             def SetValue(self, value):
                 cam.calls.append((self._name, value))
+                self._value = value
+
+            def GetValue(self):
+                return self._value
 
         class _GainLimit(_Recorder):
             Min = 0.0
             Max = 24.0
 
         class _WidthNode:
+            Min = 0
+
             @property
             def Max(self):
                 return min(cam._roi_w_cap, cam._sensor_w - cam._off_x)
@@ -378,6 +372,8 @@ class FakeAutoRoiCamera:
                 cam.calls.append(('AutoFunctionROIWidth', value))
 
         class _HeightNode:
+            Min = 0
+
             @property
             def Max(self):
                 return min(cam._roi_h_cap, cam._sensor_h - cam._off_y)
@@ -391,6 +387,8 @@ class FakeAutoRoiCamera:
                 cam.calls.append(('AutoFunctionROIHeight', value))
 
         class _OffsetXNode:
+            Min = 0
+
             @property
             def Max(self):
                 return cam._sensor_w - cam._roi_w
@@ -404,6 +402,8 @@ class FakeAutoRoiCamera:
                 cam.calls.append(('AutoFunctionROIOffsetX', value))
 
         class _OffsetYNode:
+            Min = 0
+
             @property
             def Max(self):
                 return cam._sensor_h - cam._roi_h
@@ -427,6 +427,21 @@ class FakeAutoRoiCamera:
         self.AutoFunctionROIHeight = _HeightNode()
         self.AutoFunctionROIOffsetX = _OffsetXNode()
         self.AutoFunctionROIOffsetY = _OffsetYNode()
+        self.AutoFunctionROIUseBrightness = _Recorder('AutoFunctionROIUseBrightness')
+
+    def GetNodeMap(self):
+        """The camera's node map: its attributes are its nodes, as pypylon's
+        ``camera.<Name>`` and ``GetNodeMap().GetNode('<Name>')`` are one node."""
+        camera = self
+
+        class _NodeMap:
+            def Contains(self, name):
+                return hasattr(camera, name)
+
+            def GetNode(self, name):
+                return getattr(camera, name)
+
+        return _NodeMap()
 
     @property
     def roi(self):

@@ -22,6 +22,7 @@ import pytest
 # mock so the real SDK can load here. When the flag is NOT set, this
 # import succeeds against the conftest mock and the marker below skips
 # the tests at collection time.
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.drivers.idscamera import IDSCamera
 from _lumascope.modules.image_utils import convert_to_8bit
 
@@ -73,7 +74,7 @@ class TestIDS(unittest.TestCase):
         supported = self.camera.get_supported_pixel_formats()
         if not any(s.startswith('Mono8') for s in supported):
             self.skipTest(f'camera has no Mono8-class entry (supported={list(supported)})')
-        self.assertTrue(self.camera.set_pixel_format('Mono8'))
+        self.camera.set_pixel_format('Mono8')
         active = self.camera.get_pixel_format()
         self.assertTrue(
             active.startswith('Mono8'), f'Logical Mono8 resolved to non-Mono8 entry: {active}'
@@ -84,14 +85,14 @@ class TestIDS(unittest.TestCase):
         self.assertAlmostEqual(self.camera.get_exposure_t(), 15.0, delta=0.01)
 
     def test_binning_size(self):
-        self.assertTrue(self.camera.set_binning_size(1))
+        self.camera.set_binning_size(1)
         self.assertEqual(self.camera.get_binning_size(), 1)
-        self.assertTrue(self.camera.set_binning_size(2))
+        self.camera.set_binning_size(2)
         self.assertEqual(self.camera.get_binning_size(), 2)
-        self.assertFalse(self.camera.set_binning_size(3))
-        self.assertEqual(self.camera.get_binning_size(), 2)
-        self.assertFalse(self.camera.set_binning_size(0))
-        self.assertEqual(self.camera.get_binning_size(), 2)
+        for refused in (3, 0):
+            with self.assertRaisesRegex(CameraWriteFailedError, 'not offered'):
+                self.camera.set_binning_size(refused)
+            self.assertEqual(self.camera.get_binning_size(), 2)
 
     def test_binned_aoi_space_max_halves(self):
         """Resolve whether the AOI maxima are reported in binned or native px.
@@ -147,7 +148,10 @@ class TestIDS(unittest.TestCase):
             self.skipTest(f'TestPattern absent on this body (probe={tp})')
         original = tp.get('current')
 
-        self.camera.set_test_pattern(enabled=True, pattern='ColorBar')
+        try:
+            self.camera.set_test_pattern(enabled=True, pattern='ColorBar')
+        except CameraWriteFailedError as refused:
+            print(f'[test-pattern-write] refused while grabbing: {refused}')
         applied_while_grabbing = (
             self._feature_node('remote', 'TestPattern').get('current') == 'ColorBar'
         )
@@ -158,10 +162,7 @@ class TestIDS(unittest.TestCase):
             # Locked during acquisition -- release the stream lock and retry.
             self.camera.stop_grabbing()
             try:
-                self.assertTrue(
-                    self.camera.set_test_pattern(enabled=True, pattern='ColorBar'),
-                    'TestPattern write rejected even with the stream stopped',
-                )
+                self.camera.set_test_pattern(enabled=True, pattern='ColorBar')
                 self.assertEqual(
                     self._feature_node('remote', 'TestPattern').get('current'), 'ColorBar'
                 )
@@ -179,9 +180,10 @@ class TestIDS(unittest.TestCase):
         )
 
     def _exercise_test_pattern_entries(self):
-        """A bogus entry is rejected (False, not a raise); disabling restores Off."""
-        self.assertFalse(self.camera.set_test_pattern(enabled=True, pattern='NotAPattern'))
-        self.assertTrue(self.camera.set_test_pattern(enabled=False))
+        """A bogus entry is refused, naming the node; disabling restores Off."""
+        with self.assertRaisesRegex(CameraWriteFailedError, 'TestPattern'):
+            self.camera.set_test_pattern(enabled=True, pattern='NotAPattern')
+        self.camera.set_test_pattern(enabled=False)
         self.assertEqual(self._feature_node('remote', 'TestPattern').get('current'), 'Off')
 
     def test_set_max_transfer_size_write(self):
@@ -208,15 +210,18 @@ class TestIDS(unittest.TestCase):
             self.skipTest(f'{node_name} absent on this body (probe={node})')
         original = node.get('value')
 
-        applied_while_grabbing = setter(int(original))
+        try:
+            setter(int(original))
+            applied_while_grabbing = True
+        except CameraWriteFailedError as refused:
+            print(f'[stream-param-write] {node_name} refused while grabbing: {refused}')
+            applied_while_grabbing = False
 
         # Stop acquisition to release the TLParamsLocked transport lock, then the
         # write must take on a ReadWrite node.
         self.camera.stop_grabbing()
         try:
-            self.assertTrue(
-                setter(int(original)), f'{node_name}: write rejected even with the stream stopped'
-            )
+            setter(int(original))
             read_back = self._feature_node('stream', node_name).get('value')
             self.assertEqual(read_back, original)
         finally:
@@ -313,7 +318,7 @@ class TestIDS(unittest.TestCase):
         native12 = next((f for f in supported if f.startswith('Mono12')), None)
         if native12 is None:
             self.skipTest(f'body advertises no Mono12 native format (supported={list(supported)})')
-        self.assertTrue(self.camera.set_pixel_format(native12), f'could not set {native12}')
+        self.camera.set_pixel_format(native12)
 
         time.sleep(1)  # let the grab loop store a native-depth frame post-reconfigure
         grabbed = self.camera.grab()

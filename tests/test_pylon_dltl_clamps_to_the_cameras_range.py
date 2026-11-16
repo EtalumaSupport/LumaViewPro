@@ -4,7 +4,13 @@ docstring records both of Basler's range warnings."""
 
 from __future__ import annotations
 
+from unittest.mock import PropertyMock
+
+import pytest
+from pypylon import genicam
+
 from _lumascope.drivers import pyloncamera
+from _lumascope.drivers.exceptions import CameraReadFailedError
 from tests.camera_fakes import bare_pylon_camera, nodemaps_answer_attributes
 from tests.log_capture import records_of
 
@@ -24,7 +30,7 @@ def _pylon_cam_warnings(caplog):
 
 class TestPylonDltlClampAndDocWarnings:
     """set_device_link_throughput_limit must clamp out-of-range
-    values via DeviceLinkThroughputLimit.GetMin() / GetMax() rather
+    values to DeviceLinkThroughputLimit's Min / Max, read live, rather
     than letting the SDK raise OutOfRangeException, and the docstring
     must record both Basler doc warnings: rolling-shutter distortion
     if too low, corrupt/dropped frames if too high.
@@ -39,8 +45,8 @@ class TestPylonDltlClampAndDocWarnings:
 
     def _camera_with_dltl_range(self, lo=1000, hi=5000):
         cam = _bare_pylon_camera()
-        cam.active.DeviceLinkThroughputLimit.GetMin.return_value = lo
-        cam.active.DeviceLinkThroughputLimit.GetMax.return_value = hi
+        cam.active.DeviceLinkThroughputLimit.Min = lo
+        cam.active.DeviceLinkThroughputLimit.Max = hi
         return cam
 
     def _set_dltl(self, caplog, cam, value_bps):
@@ -51,7 +57,7 @@ class TestPylonDltlClampAndDocWarnings:
     def test_below_minimum_clamps_to_min_and_warns(self, caplog):
         cam = self._camera_with_dltl_range()
         result, warnings = self._set_dltl(caplog, cam, 500)
-        assert result is True
+        assert result is None
         cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(1000)
         assert any('clamping' in m for m in warnings), (
             f'A clamped low DLTL value must warn the operator; got {warnings!r}'
@@ -60,26 +66,28 @@ class TestPylonDltlClampAndDocWarnings:
     def test_above_maximum_clamps_to_max_and_warns(self, caplog):
         cam = self._camera_with_dltl_range()
         result, warnings = self._set_dltl(caplog, cam, 9000)
-        assert result is True
+        assert result is None
         cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(5000)
         assert any('clamping' in m for m in warnings)
 
     def test_in_range_value_passes_unclamped(self, caplog):
         cam = self._camera_with_dltl_range()
         result, warnings = self._set_dltl(caplog, cam, 3000)
-        assert result is True
+        assert result is None
         cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(3000)
         assert not warnings
 
-    def test_minmax_query_failure_passes_value_through(self, caplog):
-        """Best-effort contract: if the range query fails, the value is
-        written unchanged (the SDK's own OutOfRangeException then
-        surfaces through the RuntimeException branch)."""
+    def test_a_range_read_that_fails_raises_and_writes_nothing(self, caplog):
+        """The range is a read the write needs: a value cannot be clamped to
+        a range not read, so a failed read raises and nothing is written."""
         cam = _bare_pylon_camera()
-        cam.active.DeviceLinkThroughputLimit.GetMin.side_effect = RuntimeError('no node')
-        result, _warnings = self._set_dltl(caplog, cam, 12345)
-        assert result is True
-        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(12345)
+        type(cam.active.DeviceLinkThroughputLimit).Min = PropertyMock(
+            side_effect=genicam.RuntimeException('no node')
+        )
+        with pytest.raises(CameraReadFailedError, match='no node'):
+            self._set_dltl(caplog, cam, 12345)
+        cam.active.DeviceLinkThroughputLimit.SetValue.assert_not_called()
+        cam.active.DeviceLinkThroughputLimitMode.SetValue.assert_not_called()
 
     def test_docstring_records_both_basler_range_warnings(self):
         # pin-justified: the docstring is the documented operator

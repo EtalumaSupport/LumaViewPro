@@ -246,20 +246,46 @@ def test_two_latches_from_two_threads_each_map_their_own_instant(sim_scope, sim_
         assert abs(latched_steady_ns - mapping.host_ns) <= mapping.uncertainty_ns, mapping
 
 
-def _configured_pylon_camera(advertised):
+def _configured_pylon_camera(advertised, chunk_enable=None):
     """A Pylon camera reconnected through the real ``init_camera_config``,
     its chunks and its tick rate read as a connect reads them, advertising
-    ``advertised`` chunks."""
+    ``advertised`` chunks; ``chunk_enable(handle)``, when given, builds its
+    ChunkEnable node."""
     # a stand-in by design: the Pylon SDK never runs in the test process.
     cam = init_configurable_pylon_camera()
     del cam._enable_validity_chunks, cam._read_timestamp_tick_frequency
     # The rate an earlier connect of the same camera read.
     cam.timestamp_tick_frequency_hz = 1_000_000_000
     chunks = chunk_config_pylon_camera(advertised).active
+    if chunk_enable is not None:
+        chunks.ChunkEnable = chunk_enable(chunks)
     for node in ('GetNodeMap', 'ChunkModeActive', 'ChunkSelector', 'ChunkEnable'):
         setattr(cam.active, node, getattr(chunks, node))
     cam.init_camera_config()
     return cam
+
+
+def test_a_chunk_the_camera_refuses_costs_no_chunk_after_it():
+    """One refused chunk is that chunk's fallback alone: the Timestamp chunk
+    after it is still enabled, so the camera keeps its tick rate and its
+    clock latch, and the step is named not applied."""
+    from pypylon import genicam
+
+    def refuses_gain(handle):
+        selector = handle.ChunkSelector
+
+        class _RefusesGain:
+            def SetValue(self, value):
+                if selector.writes[-1] == 'Gain':
+                    raise genicam.AccessException('ChunkGain not writable')
+
+        return _RefusesGain()
+
+    cam = _configured_pylon_camera(['ExposureTime', 'Gain', 'Timestamp'], chunk_enable=refuses_gain)
+
+    assert cam.active.ChunkSelector.writes == ['ExposureTime', 'Gain', 'Timestamp']
+    assert cam.timestamp_tick_frequency_hz is not None
+    assert 'the validity chunks' in cam.config_not_applied
 
 
 def test_a_camera_whose_frames_carry_no_start_states_no_tick_rate():

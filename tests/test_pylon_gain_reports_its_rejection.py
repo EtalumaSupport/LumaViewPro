@@ -2,10 +2,10 @@
 """A Pylon gain write the camera refused is reported as refused, not as applied.
 
 ``pyloncamera.gain`` caught every exception its SDK write could raise and
-returned ``None`` on the way out. ``_camera_write`` treats anything that is not
-``False`` as applied -- a ``None`` means "this driver cannot confirm", which is
-believed -- so a REFUSED write stamped the requested value into the camera cache
-and into the ``'gain'`` frame-validity chunk target. On a chunk-capable camera
+returned ``None`` on the way out. ``_camera_write`` treats a return as applied
+-- a ``None`` means "this driver cannot confirm", which is believed -- so a
+REFUSED write stamped the requested value into the camera cache and into the
+``'gain'`` frame-validity chunk target. On a chunk-capable camera
 the poisoned target then mismatches every frame the camera can produce and
 captures are refused until the next applied gain write; on a camera without
 chunk data the frames pass unverified at a gain nobody achieved.
@@ -14,7 +14,8 @@ The trigger is not the disconnect path. ``gain`` has no range reconciliation,
 and the GenICam rejection classes are SIBLINGS of
 ``RuntimeException``, not subclasses -- checked against the installed pypylon,
 and mirrored by ``tests/pypylon_stub.py``. So an out-of-range gain on a LIVE,
-streaming camera lands in the method's bare ``except Exception``. The
+streaming camera arrived as one of them, which a handler of RuntimeException
+alone does not see. The
 engineering plugin records this from the field: a requested 29.99999986 dB
 normalised to 30.0, "which the SDK rejects".
 
@@ -28,13 +29,19 @@ the access that decides whether a setting write happened leaves every setting
 writer the API reaches as ``CameraNoAnswerError``: the camera is still on the
 bus, so removal is not latched, and the API may send the write again. A timeout
 on a read the setter only uses to skip a redundant write is tolerated, and one
-on the read-back after the write took is the write applied.
+on the read-back after the write took is the write applied, its value unknown.
 """
+
+from unittest.mock import PropertyMock
 
 import pytest
 from pypylon import genicam
 
-from _lumascope.drivers.exceptions import CameraNoAnswerError, CameraReadFailedError
+from _lumascope.drivers.exceptions import (
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    CameraWriteFailedError,
+)
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.lumascope_api import Lumascope
 from _lumascope.modules.notification_center import Severity
@@ -43,8 +50,8 @@ from tests.pypylon_stub import PlaceholderParameter
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
 
 # Every GenICam class a refused SetValue can arrive as that is NOT a
-# RuntimeException subclass, and therefore reaches the bare handler with the
-# camera still live. Each must be reported as a refusal rather than swallowed.
+# RuntimeException subclass, with the camera still live. Each must be raised
+# as a refusal rather than swallowed.
 # TimeoutException is a sibling too, but it is the camera not answering, not a
 # refusal: TestAWriteTheCameraDidNotAnswer owns it.
 SIBLING_REJECTIONS = [
@@ -92,13 +99,14 @@ def pylon_camera(pylon_cam):
 
 class TestEverySwallowedRejectionIsReported:
     @pytest.mark.parametrize('exc_name', SIBLING_REJECTIONS)
-    def test_a_sibling_rejection_answers_refused(self, pylon_cam, exc_name):
-        """Not RuntimeException, so it reaches the bare handler -- and the
-        camera is still live, so the caller's next capture is real."""
+    def test_a_sibling_rejection_raises_refused(self, pylon_cam, exc_name):
+        """Not RuntimeException -- and the camera is still live, so the
+        caller's next capture is real."""
         exc_cls = getattr(genicam, exc_name)
         pylon_cam.active.Gain.SetValue.side_effect = exc_cls('refused by the SDK')
 
-        assert pylon_cam.gain(30.0) is False
+        with pytest.raises(CameraWriteFailedError, match='Gain'):
+            pylon_cam.gain(30.0)
 
     @pytest.mark.parametrize('exc_name', SIBLING_REJECTIONS)
     def test_a_sibling_rejection_does_not_mark_the_camera_gone(self, pylon_cam, exc_name):
@@ -106,7 +114,8 @@ class TestEverySwallowedRejectionIsReported:
         exc_cls = getattr(genicam, exc_name)
         pylon_cam.active.Gain.SetValue.side_effect = exc_cls('refused by the SDK')
 
-        pylon_cam.gain(30.0)
+        with pytest.raises(CameraWriteFailedError):
+            pylon_cam.gain(30.0)
 
         pylon_cam._mark_disconnected.assert_not_called()
 
@@ -150,13 +159,13 @@ class TestTheAppliedPathsSayApplied:
         assert pylon_cam.gain(30.0) == pytest.approx(30.0)
         pylon_cam.active.Gain.SetValue.assert_not_called()
 
-    def test_an_inactive_camera_answers_not_attempted(self, pylon_cam):
-        """No camera is not a refusal -- the published contract calls it a
-        quiet no-op, and the API never reaches the driver on that path anyway.
-        ``None`` is the one honest answer here."""
+    def test_an_inactive_camera_raises_and_sends_nothing(self, pylon_cam):
+        """No camera open (a teardown racing the write) raises, as every
+        write_node does; the API answers it as not connected."""
         pylon_cam.active = None
 
-        assert pylon_cam.gain(30.0) is None
+        with pytest.raises(CameraWriteFailedError, match='no camera is open'):
+            pylon_cam.gain(30.0)
 
 
 class TestARefusalIsNotRecordedAsTruth:
@@ -338,7 +347,7 @@ class TestAWriteTheCameraDidNotAnswer:
         with pytest.raises(CameraNoAnswerError) as excinfo:
             pylon_cam.gain(30.0)
 
-        assert 'gain(30.0)' in str(excinfo.value)
+        assert 'Gain = 30.0' in str(excinfo.value)
         assert 'USB stalled' in str(excinfo.value)
 
     def test_a_timed_out_short_circuit_read_falls_through_to_the_write(self, pylon_cam):
@@ -351,17 +360,20 @@ class TestAWriteTheCameraDidNotAnswer:
         pylon_cam.active.Gain.SetValue.assert_called_once_with(30.0)
 
     def test_a_timed_out_read_back_is_the_write_applied(self, pylon_cam):
-        """The node took the write; only its confirmation went unanswered."""
+        """The node took the write; only its confirmation went unanswered, so
+        the value in effect is unknown and nothing is answered."""
         pylon_cam.active.Gain.GetValue.side_effect = [0.0, _timeout('Gain.GetValue')]
         pylon_cam.active.Gain.SetValue.side_effect = None
 
-        assert pylon_cam.gain(30.0) is True
+        assert pylon_cam.gain(30.0) is None
+        pylon_cam.active.Gain.SetValue.assert_called_once_with(30.0)
         pylon_cam._mark_disconnected.assert_not_called()
 
     def test_a_timed_out_black_level_read_back_is_the_write_applied(self, pylon_cam):
         pylon_cam.active.BlackLevel.GetValue.side_effect = _timeout('BlackLevel.GetValue')
 
-        assert pylon_cam.set_black_level(5.0) is True
+        assert pylon_cam.set_black_level(5.0) is None
+        pylon_cam.active.BlackLevel.SetValue.assert_called_once_with(5.0)
         pylon_cam._mark_disconnected.assert_not_called()
 
     def test_an_auto_function_write_unanswered_inside_auto_gain_is_auto_gains_no_answer(
@@ -395,8 +407,8 @@ ARMS = {
 
 class TestAnArmWhoseTargetOrLimitsWereNotTakenIsRefused:
     """An auto-gain arm is its target and its limits: one the camera refused
-    leaves an arm it would not have chosen, so the arm answers False and the
-    mode is never set (Eric 2026-10-16: a failed limit write refuses the arm,
+    leaves an arm it would not have chosen, so the arm raises the refusal and
+    the mode is never set (Eric 2026-10-16: a failed limit write refuses the arm,
     so a step using auto-gain is not captured)."""
 
     def test_each_refused_nested_write_refuses_the_arm_before_its_mode(self):
@@ -406,8 +418,12 @@ class TestAnArmWhoseTargetOrLimitsWereNotTakenIsRefused:
                 cam = bare_pylon_camera()
                 _no_answer_on_write(cam, node)
                 getattr(cam.active, node).SetValue.side_effect = _refused(node)
-                result = call(cam)
-                if result is not False:
+                try:
+                    result = call(cam)
+                except CameraWriteFailedError as e:
+                    if node not in str(e):
+                        offenders.append(f'{arm} with {what} refused named another: {e}')
+                else:
                     offenders.append(f'{arm} with {what} refused returned {result!r}')
                 if cam.active.GainAuto.SetValue.called:
                     offenders.append(f'{arm} with {what} refused set the mode')
@@ -427,9 +443,12 @@ class TestAnArmWhoseTargetOrLimitsWereNotTakenIsRefused:
     def test_a_sensor_without_exposure_bounds_still_arms(self):
         cam = bare_pylon_camera()
         nodemap = cam.active.GetNodeMap.return_value
-        nodemap.GetNode.side_effect = PlaceholderParameter
+        offered = nodemap.GetNode.side_effect
+        nodemap.GetNode.side_effect = lambda name: (
+            PlaceholderParameter(name) if name.startswith('AutoExposureTime') else offered(name)
+        )
 
-        assert cam.auto_gain(state=True) is True
+        cam.auto_gain(state=True)
         cam.active.AutoExposureTimeUpperLimit.SetValue.assert_not_called()
         cam.active.GainAuto.SetValue.assert_called_with('Continuous')
 
@@ -454,46 +473,60 @@ def _black_level_probe_unread(cam):
     return cam.set_black_level(5.0)
 
 
+def _gain_limits_range_unread(cam):
+    """The auto-gain limits' range, read for a bound left to the camera's own end."""
+    type(cam.active.AutoGainLowerLimit).Min = PropertyMock(
+        side_effect=_timeout('AutoGainLowerLimit.Min')
+    )
+    return cam.update_auto_gain_min_max(None, 12.0)
+
+
 def _pixel_formats_unread(cam):
     cam.active.PixelFormat.GetSymbolics.side_effect = _timeout('PixelFormat.GetSymbolics')
     return cam.set_pixel_format('Mono8')
 
 
-# Reads a setter must make before it can send its write at all: the node they
-# probe is the one written. Part of the write, so unanswered they are its
-# no-answer.
+# Reads a setter must make before it can send its write at all: the lookup of
+# the node written, or the entries it is chosen from. Part of the write, so
+# unanswered they are its no-answer; each names the node that was not sent.
 READS_BEFORE_THE_WRITE = {
-    'set_conversion_gain_mode (the node probe)': _conversion_gain_probe_unread,
-    'set_line_noise_reduction (the node probe)': _line_noise_probe_unread,
-    'set_black_level (the selector probe)': _black_level_probe_unread,
+    'set_conversion_gain_mode (the node lookup)': (
+        _conversion_gain_probe_unread,
+        'BslConversionGainMode',
+    ),
+    'set_line_noise_reduction (the node lookup)': (
+        _line_noise_probe_unread,
+        'BslLineNoiseReductionEnable',
+    ),
+    'set_black_level (the selector lookup)': (_black_level_probe_unread, 'BlackLevel'),
+    'set_pixel_format (the supported formats)': (_pixel_formats_unread, 'PixelFormat'),
+    "update_auto_gain_min_max (the limits' range)": (
+        _gain_limits_range_unread,
+        'AutoGainLowerLimit',
+    ),
 }
 
 # The getters a setter reads first, the value computed from them: unanswered,
 # each raises its own read failure, and nothing is sent.
 GETTERS_BEFORE_THE_WRITE = {
     'set_frame_size (the Width/Height grid)': (_frame_grid_unread, 'SetValue'),
-    'set_pixel_format (the supported formats)': (_pixel_formats_unread, 'SetValue'),
 }
 
 
 class TestAReadTheWriteNeedsWasNotAnswered:
-    def test_the_setter_raises_no_answer_and_says_nothing_was_written(self):
+    def test_the_setter_raises_no_answer_and_writes_nothing(self):
         """A read the write cannot be made without is part of the write: the
-        camera did not answer the setter, which may be sent again. The words
-        say the write was never sent."""
+        camera did not answer the setter, which may be sent again. The node
+        is never written."""
         offenders = {}
-        for name, drive in READS_BEFORE_THE_WRITE.items():
+        for name, (drive, node) in READS_BEFORE_THE_WRITE.items():
             cam = bare_pylon_camera()
             cam._device_removed = False
             outcome = _outcome(cam, drive)
             if outcome is not None:
                 offenders[name] = outcome
-                continue
-            try:
-                drive(cam)
-            except CameraNoAnswerError as e:
-                if 'nothing was written' not in str(e):
-                    offenders[name] = f'said {str(e)!r}'
+            elif getattr(cam.active, node).SetValue.called:
+                offenders[name] = f'wrote {node}'
 
         assert not offenders, '; '.join(f'{n} {o}' for n, o in offenders.items())
 

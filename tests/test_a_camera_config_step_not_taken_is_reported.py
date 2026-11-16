@@ -17,6 +17,7 @@ test is the only one that fails.
 
 from unittest.mock import MagicMock
 
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import bare_ids_camera, init_configurable_pylon_camera
 from tests.test_bring_up_is_a_record import _bring_up
@@ -24,7 +25,7 @@ from tests.test_bring_up_is_a_record import _bring_up
 
 def test_a_pylon_step_not_taken_is_named_and_the_rest_run():
     cam = init_configurable_pylon_camera()
-    cam.set_pixel_format = MagicMock(return_value=False)
+    cam.set_pixel_format = MagicMock(side_effect=CameraWriteFailedError('Mono8 refused'))
     cam.gain = MagicMock(side_effect=Exception('Gain not writable'))
 
     cam.init_camera_config()

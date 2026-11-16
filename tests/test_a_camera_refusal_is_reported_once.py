@@ -74,7 +74,7 @@ class TestTheSetterAnswersWithTheValueInEffect:
 class TestTheApiPostsNothing:
     def test_a_refused_gain_raises_and_posts_nothing(self, sim_scope, centre_posts):
         camera = sim_scope.camera
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
 
         with pytest.raises(CameraSettingRejected):
             camera.set_gain_db(7.0)
@@ -83,7 +83,7 @@ class TestTheApiPostsNothing:
 
     def test_a_refused_exposure_raises_and_posts_nothing(self, sim_scope, centre_posts):
         camera = sim_scope.camera
-        sim_scope.simulation.refuse_camera_write('exposure', 'false')
+        sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
         with pytest.raises(CameraSettingRejected):
             camera.set_exposure_ms(25.0)
@@ -94,7 +94,7 @@ class TestTheApiPostsNothing:
 class TestTheLayerApply:
     def test_a_refused_gain_still_writes_the_exposure_then_raises(self, sim_scope, centre_posts):
         camera = sim_scope.camera
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
             camera.apply(gain_db=5.0, exposure_ms=40.0, channel='BF')
@@ -110,7 +110,7 @@ class TestTheRunReportsAndCarriesOn:
         from _lumascope.modules.lumascope_api.camera import AutoGainLock
 
         held_gain = sim_scope.camera.gain_db
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
         runner = AutofocusRunner(sim_scope)
         runner._camera_gain = 7.0
         runner._camera_exposure = 20.0
@@ -147,7 +147,7 @@ class TestTheApiReportsTheWritesNoCallerHears:
     def test_the_locks_refused_write_back_is_reported(self, sim_scope, reported):
         camera = sim_scope.camera
         camera.set_auto_gain(True, AG_SETTINGS)
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
 
         lock = camera.lock_auto_gain()
 
@@ -158,7 +158,7 @@ class TestTheApiReportsTheWritesNoCallerHears:
     def test_a_refused_ceiling_clamp_is_reported_and_the_arm_goes_on(self, sim_scope, reported):
         camera = sim_scope.camera
         camera.set_exposure_ms(100.0)
-        sim_scope.simulation.refuse_camera_write('exposure', 'false')
+        sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
         camera.set_auto_gain(True, {**AG_SETTINGS, 'max_exposure_ms': 10.0})
 
@@ -169,7 +169,7 @@ class TestTheApiReportsTheWritesNoCallerHears:
         camera = sim_scope.camera
         camera.set_auto_gain(True, AG_SETTINGS, resume_after_capture=True)
         lock = camera.lock_auto_gain()
-        sim_scope.simulation.refuse_camera_write('auto_gain', 'false')
+        sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
         camera._resume_auto_gain_impl(lock)
 
@@ -178,8 +178,8 @@ class TestTheApiReportsTheWritesNoCallerHears:
     def test_a_refused_restore_reports_each_write(self, sim_scope, reported):
         camera = sim_scope.camera
         snapshot = camera.save_camera_state('test')
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
-        sim_scope.simulation.refuse_camera_write('exposure', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
+        sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
         camera.restore_camera_state(snapshot)
 
@@ -190,18 +190,8 @@ class TestTheApiReportsTheWritesNoCallerHears:
         camera.set_auto_gain(True, AG_SETTINGS)
         snapshot = camera.save_camera_state('test')
         camera.set_auto_gain(False, AG_SETTINGS)
-        sim_scope.simulation.refuse_camera_write('auto_gain', 'false')
+        sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
         camera.restore_camera_state(snapshot)
 
         assert [(exc.setting, exc.requested) for exc, _kw in reported] == [('auto_gain', True)]
-
-
-def test_a_driver_answering_a_bare_true_leaves_the_request_recorded(sim_scope):
-    """``bool`` is an ``int``: a driver that answers ``True`` for applied is
-    not saying it applied 1 dB."""
-    camera = sim_scope.camera
-    sim_scope.simulation.refuse_camera_write('gain', 'true')
-
-    assert camera.set_gain_db(12.5) == pytest.approx(12.5)
-    assert camera.gain_db == pytest.approx(12.5)

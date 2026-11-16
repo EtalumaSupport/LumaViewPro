@@ -399,22 +399,21 @@ class SimulatedCamera(Camera):
         'auto_gain': 'auto_gain',
         'auto_gain_once': 'auto_gain_once',
     }
-    # What a refused write answers, by name: a real SDK's node write
-    # answers False, nothing, a bare True that confirms no value, or raises;
-    # or answers False because the camera left the bus during the write; or
-    # is not answered in time while the camera stays on the bus.
+    # What a write the camera does not simply take answers, by name, as a
+    # real driver's does: it raises its refusal; or raises because the camera
+    # left the bus during the write; or is not answered in time while the
+    # camera stays on the bus; or lands and answers nothing, the read-back
+    # after it failing (``unreported``).
     REFUSED_WRITE_ANSWERS: ClassVar[tuple[str, ...]] = (
-        'false',
-        'none',
-        'true',
         'raise',
         'removed',
         'no_answer',
+        'unreported',
     )
-    # The answers no real driver gives for a node: a frame-size write answers
-    # the window it delivers or False, never a bare True.
+    # The answers no real driver gives for a node: a frame-size write always
+    # answers the window it delivers.
     _ANSWERS_NO_DRIVER_GIVES: ClassVar[dict[str, frozenset[str]]] = {
-        'frame_size': frozenset({'true'}),
+        'frame_size': frozenset({'unreported'}),
     }
     # The nodes a read can be failed on (refuse_read), each by the member
     # the real drivers read it through. A failed read raises
@@ -828,18 +827,19 @@ class SimulatedCamera(Camera):
         return tuple(a for a in cls.REFUSED_WRITE_ANSWERS if a not in never)
 
     def refuse_write(self, node: str, answer: str, count: int = 1) -> None:
-        """The next ``count`` writes of ``node`` answer ``answer`` and move nothing.
+        """The next ``count`` writes of ``node`` answer ``answer``.
 
         Args:
             node: One of ``WRITABLE_NODES``.
-            answer: One of ``REFUSED_WRITE_ANSWERS``: ``'false'``,
-                ``'none'`` or ``'true'`` is returned; ``'raise'`` raises
+            answer: One of ``REFUSED_WRITE_ANSWERS``: ``'raise'`` raises
                 ``CameraWriteFailedError``, as a real driver's failed node
-                write does; ``'removed'``
-                takes the camera off the bus and returns False, as a
-                camera pulled during the write does; ``'no_answer'``
-                raises ``CameraNoAnswerError`` as a write the camera did
-                not answer in time, leaving it on the bus.
+                write does; ``'removed'`` takes the camera off the bus and
+                raises it, as a camera pulled during the write does;
+                ``'no_answer'`` raises ``CameraNoAnswerError`` as a write
+                the camera did not answer in time, leaving it on the bus.
+                Each of those moves nothing. ``'unreported'`` makes the
+                write and answers nothing, as a real driver whose read-back
+                failed after the write took.
             count: How many writes in a row meet it, 1 or more: a write
                 sent again at once meets the second.
 
@@ -863,15 +863,19 @@ class SimulatedCamera(Camera):
             left[0] -= 1
             if left[0] <= 0:
                 vars(self).pop(setter, None)
+            if answer == 'unreported':
+                logger.warning(f'[CAM Sim   ] {node} written; its read-back failed (simulated)')
+                getattr(type(self), setter)(self, *args, **kwargs)
+                return None
             logger.warning(f'[CAM Sim   ] {node} write refused ({answer}, simulated)')
-            if answer == 'raise':
-                raise CameraWriteFailedError(f'simulated {node} node write failed')
             if answer == 'removed':
                 self.leave_bus()
-                return False
+                raise CameraWriteFailedError(
+                    f'simulated {node} node write failed: the camera left the bus'
+                )
             if answer == 'no_answer':
                 raise CameraNoAnswerError(f'simulated {node} write: the camera did not answer')
-            return {'false': False, 'none': None, 'true': True}[answer]
+            raise CameraWriteFailedError(f'simulated {node} node write failed')
 
         vars(self)[setter] = refused
 
@@ -1201,7 +1205,7 @@ class SimulatedCamera(Camera):
             max_size=(self._native_width // self._binning, self._native_height // self._binning),
         )
 
-    def _set_hardware_window(self, plan) -> bool:
+    def _set_hardware_window(self, plan) -> None:
         # A geometry change stops the stream, applies, and restarts it, as it
         # does on a real body (pixel format and binning below do the same), so
         # no frame made under the old setting is stored after the change.
@@ -1209,7 +1213,6 @@ class SimulatedCamera(Camera):
             self._width = plan.acq_width
             self._height = plan.acq_height
             _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
-        return True
 
     def get_min_frame_size(self) -> dict:
         """Return the simulator's minimum supported frame size.
@@ -1239,29 +1242,27 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Pixel format
     # ------------------------------------------------------------------
-    def set_pixel_format(self, pixel_format: str) -> bool:
+    def set_pixel_format(self, pixel_format: str) -> None:
         """Set the simulated camera pixel format.
 
         Args:
             pixel_format: Format identifier (must be one its profile lists).
 
-        Returns:
-            bool: True on success, False when the format is not supported.
-
         Raises:
+            CameraWriteFailedError: The format is not one its profile lists;
+                nothing was set.
             CameraReadFailedError: The supported formats' read failed
                 (``refuse_read('pixel_formats', ...)``); nothing was set.
         """
         # Through the list's reader, as the real drivers read it, so a failed
         # list read fails the write.
         if pixel_format not in self.get_supported_pixel_formats():
-            _cam_log.error(f'sim set_pixel_format({pixel_format}) UNSUPPORTED')
-            logger.error(f'[CAM Sim   ] Unsupported pixel format: {pixel_format}')
-            return False
+            raise CameraWriteFailedError(
+                f'The camera does not offer the pixel format {pixel_format}; nothing was written'
+            )
         with self.update_camera_config(), self._lock:
             self._pixel_format = pixel_format
             _cam_log.info(f'sim set_pixel_format({pixel_format})')
-        return True
 
     # The shortest exposure the daA3840 takes at each depth, as both bench
     # bodies read it (2026-11-11: 14 us in Mono8 on firmware 1.1.0, 29 us in
@@ -1294,29 +1295,36 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Exposure
     # ------------------------------------------------------------------
-    def exposure_t(self, exposure_ms: float) -> float | bool:
+    def exposure_t(self, exposure_ms: float) -> float:
         """Set exposure time in milliseconds, returning the microseconds
         actually in effect.
 
-        Refuses (``False``) rather than silently no-opping when the
-        simulator is inactive or the request is outside the range the profile
-        declares, below its floor or above ``max_exposure``, as a real body's
+        Refuses rather than silently no-opping when the simulator is
+        inactive or the request is outside the range the profile declares,
+        below its floor or above ``max_exposure``, as a real body's
         ExposureTime node does: the hardware value does not move on any of
-        these paths, so a caller that treated them as applied would record a
-        chunk-match target the simulator never stamps.
+        these paths.
 
         Args:
             exposure_ms: Exposure time in milliseconds.
+
+        Raises:
+            CameraWriteFailedError: No camera is active, or the request is
+                outside the range.
         """
         if not self.active:
-            return False
+            raise CameraWriteFailedError(
+                f'Exposure {exposure_ms} ms was not written: no camera is open'
+            )
         low, high = self.get_min_exposure(), self.max_exposure
         if (low is not None and exposure_ms < low) or exposure_ms > high:
             _cam_log.warning(
                 f'sim ExposureTime.SetValue({exposure_ms}ms) REFUSED range=[{low}, {high}]ms'
             )
-            logger.warning(f'[CAM Sim   ] Exposure {exposure_ms}ms outside [{low}, {high}] ms')
-            return False
+            raise CameraWriteFailedError(
+                f'The camera did not take ExposureTime = {exposure_ms} ms: '
+                f'outside [{low}, {high}] ms'
+            )
         with self._lock:
             self._exposure_us = float(exposure_ms) * 1000.0
             _cam_log.log(
@@ -1336,17 +1344,13 @@ class SimulatedCamera(Camera):
             return -1
         return self._exposure_us / 1000.0
 
-    def auto_exposure_t(self, state: bool = True) -> bool:
+    def auto_exposure_t(self, state: bool = True) -> None:
         """Enable or disable simulated auto-exposure (state stored only).
 
         Args:
             state: True to enable, False to disable.
-
-        Returns:
-            bool: Always True.
         """
         self._auto_exposure_enabled = state
-        return True
 
     # ------------------------------------------------------------------
     # Temperature
@@ -1381,19 +1385,19 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Binning
     # ------------------------------------------------------------------
-    def _set_hardware_binning(self, size: int) -> bool:
+    def _set_hardware_binning(self, size: int) -> None:
         """Set hardware binning factor for the simulator.
 
         Args:
             size: Binning factor (1-4 inclusive).
 
-        Returns:
-            bool: True on success, False when ``size`` is unsupported.
+        Raises:
+            CameraWriteFailedError: ``size`` is outside 1-4; nothing was set.
         """
         if size < 1 or size > 4:
-            _cam_log.error(f'sim set_binning_size({size}) UNSUPPORTED')
-            logger.error(f'[CAM Sim   ] Unsupported bin size: {size}')
-            return False
+            raise CameraWriteFailedError(
+                f'Binning {size} is not offered (1 to 4); nothing was written'
+            )
         with self.update_camera_config(), self._lock:
             self._binning = size
             # Frame is in post-binning pixels, so a larger binning shrinks the
@@ -1404,7 +1408,6 @@ class SimulatedCamera(Camera):
             self._width = min(self._width, self._native_width // size)
             self._height = min(self._height, self._native_height // size)
             _cam_log.info(f'sim set_binning_size({size})')
-        return True
 
     def get_binning_size(self) -> int:
         """Return the simulator's current binning factor.
@@ -1871,15 +1874,21 @@ class SimulatedCamera(Camera):
             return None
         return self._BLACK_LEVEL_RANGE
 
-    def set_black_level(self, value: float) -> float | bool | None:
+    def set_black_level(self, value: float) -> float:
         """Set the simulated black level; refused outside its range, as a
-        real node refuses. Returns as ``gain`` does."""
+        real node refuses. Returns as ``gain`` does.
+
+        Raises:
+            CameraWriteFailedError: No camera is active, or the value is
+                outside the range.
+        """
         if not self.active:
-            return None
+            raise CameraWriteFailedError(f'BlackLevel {value} was not written: no camera is open')
         low, high = self._BLACK_LEVEL_RANGE
         if not low <= float(value) <= high:
-            logger.warning(f'[CAM Sim   ] Black level {value} outside [{low}, {high}]')
-            return False
+            raise CameraWriteFailedError(
+                f'The camera did not take BlackLevel = {value}: outside [{low}, {high}]'
+            )
         with self._lock:
             self._black_level = float(value)
         return float(value)
@@ -1891,27 +1900,31 @@ class SimulatedCamera(Camera):
     def supports_conversion_gain_mode(self) -> bool:
         return bool(self.active) and self._has_conversion_gain_mode
 
-    def set_conversion_gain_mode(self, mode: str) -> bool:
-        """Set the conversion gain mode; returns as the Pylon driver's does.
+    def set_conversion_gain_mode(self, mode: str) -> None:
+        """Set the conversion gain mode, as the Pylon driver's does.
 
-        Returns:
-            bool: True when the camera is in ``mode``. False when no camera
-                is active, the mode is neither ``'High'`` nor ``'Low'``, or
-                the camera was built without the mode.
+        Raises:
+            CameraWriteFailedError: No camera is active, the mode is neither
+                ``'High'`` nor ``'Low'``, or the camera was built without the
+                mode.
         """
-        if not self.active or not self._has_conversion_gain_mode:
-            return False
+        if not self.active:
+            raise CameraWriteFailedError('BslConversionGainMode was not written: no camera is open')
+        if not self._has_conversion_gain_mode:
+            raise CameraWriteFailedError(
+                'BslConversionGainMode was not written: the camera does not offer it'
+            )
         if mode not in ('Low', 'High'):
-            logger.error(f'[CAM Sim   ] Unsupported conversion gain mode: {mode}')
-            return False
+            raise CameraWriteFailedError(
+                f'Conversion gain mode {mode!r} is not offered (Low or High); nothing was written'
+            )
         with self._lock:
             self._conversion_gain_mode = mode
-        return True
 
-    def gain(self, value: float) -> float | bool | None:
+    def gain(self, value: float) -> float:
         """Set the simulated camera gain.
 
-        Refuses (``False``) a value outside the range the profile declares,
+        Refuses a value outside the range the profile declares,
         as a real body's gain node does, so a refused gain is reachable in
         the simulator and not only on a bench. The simulated gain does not
         move on a refusal.
@@ -1926,14 +1939,19 @@ class SimulatedCamera(Camera):
             value: Gain in dB.
 
         Returns:
-            float | bool | None: See ``Camera.gain``.
+            float: See ``Camera.gain``.
+
+        Raises:
+            CameraWriteFailedError: No camera is active, or the value is
+                outside the range.
         """
         if not self.active:
-            return None
+            raise CameraWriteFailedError(f'Gain {value} dB was not written: no camera is open')
         low, high = self.min_gain, self.max_gain
         if (low is not None and float(value) < low) or float(value) > high:
-            logger.warning(f'[CAM Sim   ] Gain {value} dB outside [{low}, {high}] dB')
-            return False
+            raise CameraWriteFailedError(
+                f'The camera did not take Gain = {value} dB: outside [{low}, {high}] dB'
+            )
         with self._lock:
             if not self._auto_gain_enabled:
                 self._gain = float(value)
@@ -1946,16 +1964,13 @@ class SimulatedCamera(Camera):
         auto_target_brightness: float = 0.5,
         min_gain: float | None = None,
         max_gain: float | None = None,
-    ) -> bool:
+    ) -> None:
         """Initialize auto-gain ROI and parameters (no-op in simulation).
 
         Args:
             auto_target_brightness: Normalized brightness target (0.0-1.0).
             min_gain: Optional lower bound in dB.
             max_gain: Optional upper bound in dB.
-
-        Returns:
-            bool: Always True.
         """
         with self._lock:
             self._auto_gain_target_brightness = auto_target_brightness
@@ -1963,7 +1978,6 @@ class SimulatedCamera(Camera):
                 self._auto_gain_min = min_gain
             if max_gain is not None:
                 self._auto_gain_max = max_gain
-        return True
 
     def _converged_gain(self) -> float:
         """Return the gain the simulated auto-gain loop settles on.
@@ -1986,7 +2000,7 @@ class SimulatedCamera(Camera):
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> bool:
+    ) -> None:
         """Enable or disable simulated continuous auto-gain and auto-exposure.
 
         The two loops switch together, as a Basler body's ``GainAuto`` and
@@ -2000,9 +2014,6 @@ class SimulatedCamera(Camera):
             max_gain_db: Optional upper bound in dB.
             ae_max_exposure_ms: Accepted for interface parity; the
                 simulator has no auto-exposure bound to apply.
-
-        Returns:
-            bool: Always True.
         """
         with self._lock:
             self._auto_gain_enabled = state
@@ -2017,7 +2028,6 @@ class SimulatedCamera(Camera):
             _cam_log.info(
                 f'sim auto_gain(state={state}, target={target_brightness}, min_db={min_gain_db}, max_db={max_gain_db})'
             )
-        return True
 
     def auto_gain_once(
         self,
@@ -2026,7 +2036,7 @@ class SimulatedCamera(Camera):
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
         ae_max_exposure_ms: float | None = None,
-    ) -> bool:
+    ) -> None:
         """Run a single simulated auto-gain iteration.
 
         Converges on the midpoint of [min_gain_db, max_gain_db], held inside
@@ -2037,9 +2047,6 @@ class SimulatedCamera(Camera):
             target_brightness: Normalized brightness target (0.0-1.0).
             min_gain_db: Optional lower bound in dB.
             max_gain_db: Optional upper bound in dB.
-
-        Returns:
-            bool: Always True.
         """
         if state:
             with self._lock:
@@ -2049,39 +2056,30 @@ class SimulatedCamera(Camera):
                 if max_gain_db is not None:
                     self._auto_gain_max = max_gain_db
                 self._gain = self._converged_gain()
-        return True
 
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> bool:
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> None:
         """Update the auto-gain target brightness.
 
         Args:
             auto_target_brightness: Normalized brightness target (0.0-1.0).
-
-        Returns:
-            bool: Always True.
         """
         with self._lock:
             self._auto_gain_target_brightness = auto_target_brightness
-        return True
 
     def update_auto_gain_min_max(
         self, min_gain_db: float | None, max_gain_db: float | None
-    ) -> bool:
+    ) -> None:
         """Update auto-gain bounds.
 
         Args:
             min_gain_db: Minimum gain in dB, or None to leave unchanged.
             max_gain_db: Maximum gain in dB, or None to leave unchanged.
-
-        Returns:
-            bool: Always True.
         """
         with self._lock:
             if min_gain_db is not None:
                 self._auto_gain_min = min_gain_db
             if max_gain_db is not None:
                 self._auto_gain_max = max_gain_db
-        return True
 
     # ------------------------------------------------------------------
     # Test pattern

@@ -27,7 +27,11 @@ from _lumascope.modules.finite_number import (
 import _lumascope.modules.image_utils as image_utils
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Frame
-from _lumascope.drivers.exceptions import CameraReadFailedError, HardwareError
+from _lumascope.drivers.exceptions import (
+    CameraReadFailedError,
+    CameraWriteFailedError,
+    HardwareError,
+)
 from _lumascope.lib import profile_trace
 from _lumascope.lvp_logger import logger
 from _lumascope.lib.log_helpers import VERBOSE
@@ -566,40 +570,52 @@ class ImagingAPI:
     # capability tokens for "supports readback" would belong on
     # scope.capabilities.
 
-    def _set_bandwidth_reserve_mode(self, mode: str) -> bool:
+    def _write_bench_knob(self, knob: str, **kwargs) -> None:
+        """Call the driver's bench knob ``knob`` with ``kwargs``.
+
+        A knob is offered by some drivers, bodies and transports and not
+        others, and the bench sweep calls every one on every camera: a
+        driver without it raises its refusal, as a camera without the node
+        does, and the sweep logs it and goes on. No camera ends the sweep:
+        the later cells would measure nothing.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, naming the
+                knob: no camera is active.
+            CameraWriteFailedError: The driver does not offer the knob.
+            HardwareError: What the driver's write raises.
+        """
+        if not self._driver or not self._driver.active:
+            raise _camera_not_connected(knob)
+        write = getattr(self._driver, knob, None)
+        if write is None:
+            raise CameraWriteFailedError(
+                f'{knob} was not written: {type(self._driver).__name__} does not offer it'
+            )
+        write(**kwargs)
+
+    def _set_bandwidth_reserve_mode(self, mode: str) -> None:
         """Set BandwidthReserveMode (GigE-only Pylon node).
 
         ``'Default'`` reserves a portion of GigE bandwidth for
         retransmits; ``'Performance'`` dedicates all bandwidth to
         image transmit. Per dmA3536-9gm spec, ``'Performance'``
-        unlocks 9.5 fps vs the default 9.3 fps.
-
-        USB3 cameras do not expose the node; returns False so the
-        bench-probe sweep can call this method unconditionally per
-        cell.
+        unlocks 9.5 fps vs the default 9.3 fps. USB3 cameras do not
+        offer the node.
 
         Args:
             mode: ``'Default'`` or ``'Performance'``.
 
-        Returns:
-            bool: True on success. False if the camera is absent /
-                inactive, the driver doesn't implement the setter,
-                or the node is not exposed.
-
         Raises:
-            HardwareError: Underlying SDK call failed in the driver.
+            HardwareError: As ``_write_bench_knob``.
         """
-        if not self._driver or not self._driver.active:
-            return False
-        if not hasattr(self._driver, 'set_bandwidth_reserve_mode'):
-            return False
-        return bool(self._driver.set_bandwidth_reserve_mode(mode=mode))
+        self._write_bench_knob('set_bandwidth_reserve_mode', mode=mode)
 
     def _set_device_link_throughput_limit(
         self,
         mode: str,
         value_bps: int | None = None,
-    ) -> bool:
+    ) -> None:
         """Set the camera's DeviceLinkThroughputLimit mode and value.
 
         Both nodes are live-writable per the SDK lock-state table -- no
@@ -631,30 +647,12 @@ class ImagingAPI:
                 while ``mode='On'``, only the mode is changed and the
                 existing limit value is preserved.
 
-        Returns:
-            bool: True on success. False if the camera is absent /
-                inactive, the mode argument is invalid, or the driver
-                returned False (unsupported by this driver).
-
         Raises:
-            HardwareError: Underlying SDK call failed in the driver.
+            HardwareError: As ``_write_bench_knob``.
         """
-        if not self._driver or not self._driver.active:
-            return False
-        if not hasattr(self._driver, 'set_device_link_throughput_limit'):
-            logger.warning(
-                f'[SCOPE API ] set_device_link_throughput_limit: '
-                f'{type(self._driver).__name__} does not implement this method'
-            )
-            return False
-        return bool(
-            self._driver.set_device_link_throughput_limit(
-                mode=mode,
-                value_bps=value_bps,
-            )
-        )
+        self._write_bench_knob('set_device_link_throughput_limit', mode=mode, value_bps=value_bps)
 
-    def _set_num_max_queued_urbs(self, value: int) -> bool:
+    def _set_num_max_queued_urbs(self, value: int) -> None:
         """Set Pylon StreamGrabber NumMaxQueuedUrbs (USB3 only).
 
         Number of USB Request Blocks the SDK keeps in flight to the
@@ -662,29 +660,17 @@ class ImagingAPI:
         the named lever for "insufficient system memory"
         (0xe2010130 / 0xe2100001) -- decreasing the value reduces
         kernel URB allocation pressure on memory-constrained hosts.
-
-        USB3-only. The node is absent on GigE cameras and on the IDS
-        SDK; returns False so the bench-probe sweep can call this
-        method unconditionally per cell.
+        The node is absent on GigE cameras.
 
         Args:
             value: New NumMaxQueuedUrbs (count).
 
-        Returns:
-            bool: True on success. False if the camera is absent /
-                inactive, the driver doesn't implement the setter, or
-                the node is not exposed.
-
         Raises:
-            HardwareError: Underlying SDK call failed in the driver.
+            HardwareError: As ``_write_bench_knob``.
         """
-        if not self._driver or not self._driver.active:
-            return False
-        if not hasattr(self._driver, 'set_num_max_queued_urbs'):
-            return False
-        return bool(self._driver.set_num_max_queued_urbs(value=value))
+        self._write_bench_knob('set_num_max_queued_urbs', value=value)
 
-    def _set_grab_strategy(self, name: str) -> bool:
+    def _set_grab_strategy(self, name: str) -> None:
         """Set the Pylon GrabStrategy used by the next start_grabbing().
 
         Production default is LatestImageOnly (the contract for
@@ -700,75 +686,43 @@ class ImagingAPI:
         Args:
             name: 'LatestImageOnly' or 'OneByOne'.
 
-        Returns:
-            bool: True on accepted name. False if camera is absent or
-                the driver doesn't implement the setter.
-
         Raises:
+            HardwareError: As ``_write_bench_knob``.
             ValueError: name is not a recognized strategy.
         """
-        if not self._driver:
-            return False
-        if not hasattr(self._driver, 'set_grab_strategy'):
-            return False
-        return bool(self._driver.set_grab_strategy(name=name))
+        self._write_bench_knob('set_grab_strategy', name=name)
 
-    def _set_gev_packet_size(self, size_bytes: int) -> bool:
+    def _set_gev_packet_size(self, size_bytes: int) -> None:
         """Set GevSCPSPacketSize (GigE-only Pylon node).
 
         Packet size in bytes. 1500 = standard Ethernet MTU; 9000 =
         typical jumbo-frame size. Larger packets reduce per-camera
         CPU + packet rate but require OS-level jumbo-frame config.
-
-        USB3 cameras do not expose the node; returns False so the
-        bench-probe sweep can call this method unconditionally per
-        cell.
+        USB3 cameras do not offer the node.
 
         Args:
             size_bytes: Packet size in bytes (positive int).
 
-        Returns:
-            bool: True on success. False if the camera is absent /
-                inactive, size_bytes is non-positive, the driver
-                doesn't implement the setter, or the node is not
-                exposed.
-
         Raises:
-            HardwareError: Underlying SDK call failed in the driver.
+            HardwareError: As ``_write_bench_knob``.
         """
-        if not self._driver or not self._driver.active:
-            return False
-        if not hasattr(self._driver, 'set_gev_packet_size'):
-            return False
-        return bool(self._driver.set_gev_packet_size(size_bytes=size_bytes))
+        self._write_bench_knob('set_gev_packet_size', size_bytes=size_bytes)
 
-    def _set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
+    def _set_gev_inter_packet_delay(self, delay_ticks: int) -> None:
         """Set GevSCPD (GigE inter-packet delay, in clock ticks).
 
         Inserts a wait between successive packets to throttle the
         camera. Used when multiple cameras share a single GigE link
-        or when the host CPU can't keep up. 0 = no delay.
-
-        USB3 cameras do not expose the node; returns False so the
-        bench-probe sweep can call this method unconditionally per
-        cell.
+        or when the host CPU can't keep up. 0 = no delay. USB3 cameras
+        do not offer the node.
 
         Args:
             delay_ticks: Non-negative int; camera-specific tick rate.
 
-        Returns:
-            bool: True on success. False if the camera is absent /
-                inactive, delay_ticks is negative, the driver doesn't
-                implement the setter, or the node is not exposed.
-
         Raises:
-            HardwareError: Underlying SDK call failed in the driver.
+            HardwareError: As ``_write_bench_knob``.
         """
-        if not self._driver or not self._driver.active:
-            return False
-        if not hasattr(self._driver, 'set_gev_inter_packet_delay'):
-            return False
-        return bool(self._driver.set_gev_inter_packet_delay(delay_ticks=delay_ticks))
+        self._write_bench_knob('set_gev_inter_packet_delay', delay_ticks=delay_ticks)
 
     # --- Capture ---
     def _capture_still_impl(

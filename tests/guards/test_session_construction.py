@@ -221,7 +221,7 @@ class TestCreateTakesTheHostInjections:
                     model='LS850T',
                     model_answer=SimulatedModelAnswer('LS850T'),
                     refused_stream_starts=1,
-                    refused_camera_writes=(SimulatedCameraWriteRefusal('gain', 'false'),),
+                    refused_camera_writes=(SimulatedCameraWriteRefusal('gain', 'raise'),),
                     camera_present=False,
                     slide=Slide.RONCHI,
                 ),

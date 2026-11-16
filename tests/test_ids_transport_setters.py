@@ -5,15 +5,20 @@ The nodemap probe in read_diagnostic_snapshot confirmed on the U3-34L0XCP-M
 that TestPattern, U3vStreamChannelBulkTransferSize, and
 U3vStreamChannelTransferRequestCount exist and are ReadWrite (while
 ChunkModeActive / ChunkSelector are absent). These tests exercise the setters
-now wired to those nodes against FindNode-style fakes (the ids_peak idiom:
-remote_nodemap.FindNode().SetCurrentEntry() for the enum TestPattern, the
-DataStream nodemap .FindNode().SetValue() for the transfer-tuning scalars), and
-the AccessStatus -> symbolic-name mapping used in the probe + free-run log.
+now wired to those nodes against HasNode/FindNode-style fakes (the ids_peak
+idiom: SetCurrentEntry() for the enum TestPattern, the DataStream nodemap's
+SetValue() for the transfer-tuning scalar), and the AccessStatus ->
+symbolic-name mapping used in the probe + free-run log. A write that is not
+made raises, as every write_node does.
 """
 
 from unittest.mock import MagicMock
 
+import pytest
+from ids_peak import ids_peak
+
 import _lumascope.drivers.idscamera as idscamera
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from tests.camera_fakes import bare_ids_camera
 
 
@@ -35,22 +40,25 @@ class _RecordingIntNode:
 
 class _RaisingNode:
     def SetCurrentEntry(self, entry):
-        raise RuntimeError('SDK rejected entry')
+        raise ids_peak.Exception('SDK rejected entry')
 
     def SetValue(self, value):
-        raise RuntimeError('SDK rejected value')
+        raise ids_peak.Exception('SDK rejected value')
 
 
 class _FindNodeMap:
-    """FindNode dispatch: known names return their node, unknown names raise
-    (the ids_peak shape for an absent node)."""
+    """The ids_peak nodemap shape: ``HasNode`` says whether a name is there,
+    and ``FindNode`` of an absent name raises."""
 
     def __init__(self, nodes):
         self._nodes = nodes
 
+    def HasNode(self, name):
+        return name in self._nodes
+
     def FindNode(self, name):
         if name not in self._nodes:
-            raise RuntimeError(f'absent node: {name}')
+            raise ids_peak.NotFoundException(f'absent node: {name}')
         return self._nodes[name]
 
 
@@ -62,28 +70,30 @@ class TestSetTestPattern:
         cam = bare_ids_camera()
         node = _RecordingEnumNode()
         cam.remote_nodemap = _FindNodeMap({'TestPattern': node})
-        assert cam.set_test_pattern(enabled=False) is True
+        cam.set_test_pattern(enabled=False)
         assert node.set_entry == 'Off'
 
     def test_enabled_sets_named_pattern(self):
         cam = bare_ids_camera()
         node = _RecordingEnumNode()
         cam.remote_nodemap = _FindNodeMap({'TestPattern': node})
-        assert cam.set_test_pattern(enabled=True, pattern='ColorBar') is True
+        cam.set_test_pattern(enabled=True, pattern='ColorBar')
         assert node.set_entry == 'ColorBar'
 
-    def test_inactive_returns_false(self):
+    def test_inactive_raises(self):
         cam = bare_ids_camera()
         cam.active = False
-        assert cam.set_test_pattern(enabled=True) is False
+        with pytest.raises(CameraWriteFailedError, match='no camera is open'):
+            cam.set_test_pattern(enabled=True)
 
-    def test_sdk_rejection_returns_false(self):
+    def test_sdk_rejection_raises(self):
         cam = bare_ids_camera()
         cam.remote_nodemap = _FindNodeMap({'TestPattern': _RaisingNode()})
-        assert cam.set_test_pattern(enabled=True, pattern='Bogus') is False
+        with pytest.raises(CameraWriteFailedError, match='TestPattern'):
+            cam.set_test_pattern(enabled=True, pattern='Bogus')
 
 
-# --- USB3 transfer-tuning setters (DataStream nodemap) ----------------------
+# --- USB3 transfer-tuning setter (DataStream nodemap) -----------------------
 
 
 class TestTransferTuningSetters:
@@ -94,7 +104,7 @@ class TestTransferTuningSetters:
         cam.data_stream.NodeMaps.return_value = [
             _FindNodeMap({'U3vStreamChannelBulkTransferSize': node})
         ]
-        assert cam.set_max_transfer_size(1048576) is True
+        cam.set_max_transfer_size(1048576)
         assert node.set_value == 1048576
 
     def test_num_max_queued_urbs_writes_data_stream_node(self):
@@ -104,34 +114,41 @@ class TestTransferTuningSetters:
         cam.data_stream.NodeMaps.return_value = [
             _FindNodeMap({'U3vStreamChannelTransferRequestCount': node})
         ]
-        assert cam.set_num_max_queued_urbs(6) is True
+        cam.set_num_max_queued_urbs(6)
         assert node.set_value == 6
 
-    def test_inactive_returns_false(self):
+    def test_inactive_raises(self):
         cam = bare_ids_camera()
         cam.active = False
-        assert cam.set_max_transfer_size(1048576) is False
+        with pytest.raises(CameraWriteFailedError, match='no camera is open'):
+            cam.set_num_max_queued_urbs(6)
 
-    def test_absent_node_returns_false(self):
+    def test_absent_node_raises_not_offered(self):
         cam = bare_ids_camera()
         cam.data_stream = MagicMock()
         cam.data_stream.NodeMaps.return_value = [_FindNodeMap({})]
-        assert cam.set_num_max_queued_urbs(3) is False
+        with pytest.raises(CameraWriteFailedError, match='does not offer'):
+            cam.set_num_max_queued_urbs(3)
 
-    def test_empty_nodemap_returns_false(self):
+    def test_empty_nodemap_raises_a_write_failure(self):
+        """The map a write needs is missing (a teardown racing it): a write's
+        failure, never a read's, which would tell the caller nothing was sent
+        after a setter's earlier writes had landed."""
         cam = bare_ids_camera()
         cam.data_stream = MagicMock()
         cam.data_stream.NodeMaps.return_value = []
-        assert cam.set_max_transfer_size(1048576) is False
+        with pytest.raises(CameraWriteFailedError, match='stream node map'):
+            cam.set_num_max_queued_urbs(3)
 
-    def test_sdk_rejection_returns_false(self):
-        # A node present but locked (grabbing) -> SetValue raises -> False.
+    def test_sdk_rejection_raises(self):
+        # A node present but locked (grabbing) -> SetValue raises.
         cam = bare_ids_camera()
         cam.data_stream = MagicMock()
         cam.data_stream.NodeMaps.return_value = [
-            _FindNodeMap({'U3vStreamChannelBulkTransferSize': _RaisingNode()})
+            _FindNodeMap({'U3vStreamChannelTransferRequestCount': _RaisingNode()})
         ]
-        assert cam.set_max_transfer_size(1048576) is False
+        with pytest.raises(CameraWriteFailedError, match='U3vStreamChannelTransferRequestCount'):
+            cam.set_num_max_queued_urbs(3)
 
 
 # --- AccessStatus symbolic mapping ------------------------------------------

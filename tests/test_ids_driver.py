@@ -35,7 +35,11 @@ from _lumascope.drivers.idscamera import (
     _ids_ipl_target,
     ids_significant_bits,
 )
-from _lumascope.drivers.exceptions import CameraReadFailedError, CameraUsbOpenFailedError
+from _lumascope.drivers.exceptions import (
+    CameraReadFailedError,
+    CameraUsbOpenFailedError,
+    CameraWriteFailedError,
+)
 from tests.camera_fakes import bare_ids_camera
 from tests.log_capture import records_of
 
@@ -217,11 +221,12 @@ class TestFrameRateCap:
         # Target is only written when enabled.
         assert 'AcquisitionFrameRateTarget' not in nodes
 
-    def test_inactive_camera_is_a_noop(self):
+    def test_an_inactive_camera_raises_and_writes_nothing(self):
         cam = bare_ids_camera()
         cam.active = False
         cam.remote_nodemap = _RecordingNodemap()
-        cam.set_max_acquisition_frame_rate(True, 16.0)
+        with pytest.raises(CameraWriteFailedError, match='no camera is open'):
+            cam.set_max_acquisition_frame_rate(True, 16.0)
         assert cam.remote_nodemap.nodes == {}
 
 
@@ -282,7 +287,7 @@ class TestFreeRunConfig:
         # low by an earlier long exposure: a bundle must say so.
         class _RefusingNode(_RecordingNode):
             def SetValue(self, v):
-                raise RuntimeError('OUT_OF_RANGE')
+                raise ids_peak.Exception('OUT_OF_RANGE')
 
         cam = self._cam()
         cam.remote_nodemap.nodes['AcquisitionFrameRate'] = _RefusingNode(maximum=45.0)
@@ -293,10 +298,8 @@ class TestFreeRunConfig:
 
     def test_a_camera_without_the_rate_node_is_not_a_warning(self, caplog):
         class _NoRateNodemap(_RecordingNodemap):
-            def FindNode(self, name):
-                if name == 'AcquisitionFrameRate':
-                    raise RuntimeError('NotFound')
-                return super().FindNode(name)
+            def HasNode(self, name):
+                return name != 'AcquisitionFrameRate'
 
         cam = self._cam()
         cam.remote_nodemap = _NoRateNodemap()
@@ -394,17 +397,17 @@ class TestGainDbConversion:
         cam.exposure_t(0.01)
         assert cam.remote_nodemap.nodes['ExposureTime'].value == pytest.approx(10.0)
 
-    def test_an_exposure_the_camera_refuses_is_answered_refused(self):
-        """A value the camera will not take is refused by the SDK and answered
-        ``False``, the camera keeping the exposure it had: the caller records
-        no chunk-match target for a value the camera never took."""
+    def test_an_exposure_the_camera_refuses_is_raised_refused(self):
+        """A value the camera will not take is refused by the SDK and raised,
+        the camera keeping the exposure it had: the caller records no
+        chunk-match target for a value the camera never took."""
 
         class _RangedNode(_RecordingNode):
             # a stand-in by design: the SDK's own range check, which no
             # simulated IDS body runs.
             def SetValue(self, v):
                 if not self._min <= v <= self._max:
-                    raise RuntimeError('OUT_OF_RANGE')
+                    raise ids_peak.Exception('OUT_OF_RANGE')
                 super().SetValue(v)
 
         cam = bare_ids_camera()
@@ -414,8 +417,9 @@ class TestGainDbConversion:
         cam.remote_nodemap = _RecordingNodemap(
             {'ExposureTime': _RangedNode(value=1e4, minimum=31.245791, maximum=2e6)}
         )
-        assert cam.exposure_t(0.01) is False
-        assert cam.exposure_t(3000.0) is False
+        for refused_ms in (0.01, 3000.0):
+            with pytest.raises(CameraWriteFailedError, match='OUT_OF_RANGE'):
+                cam.exposure_t(refused_ms)
         assert cam.remote_nodemap.nodes['ExposureTime'].value == pytest.approx(1e4)
 
     def test_exposure_above_live_min_passes_through(self):
@@ -2169,6 +2173,13 @@ class _SdkNode:
         self.writes.append(entry)
         self.value = entry
 
+    def IsReadable(self):
+        return True
+
+
+class _SdkEnumNode(_SdkNode, ids_peak.EnumerationNode):
+    """An enumeration node: its value read is its current entry's name."""
+
 
 class _SdkNodemap:
     def __init__(self, nodes):
@@ -2191,16 +2202,16 @@ def _camera_answering_except(*overrides: _SdkNode):
         for node in (
             _SdkNode('ExposureTime', value=10000.0, minimum=20.0, maximum=2e6),
             _SdkNode('Gain', value=1.0, minimum=1.0, maximum=31.62),
-            _SdkNode('GainSelector', value='AnalogAll'),
+            _SdkEnumNode('GainSelector', value='AnalogAll'),
             _SdkNode('Width', value=3504, minimum=48, maximum=3504, increment=48),
             _SdkNode('Height', value=3544, minimum=4, maximum=3544, increment=4),
             _SdkNode('OffsetX', value=0, minimum=0, increment=8),
             _SdkNode('OffsetY', value=0, minimum=0, increment=2),
             _SdkNode('BinningVertical', value=1, maximum=2),
             _SdkNode('BinningHorizontal', value=1, maximum=2),
-            _SdkNode('PixelFormat', value='Mono8', entries=('Mono8', 'Mono12')),
+            _SdkEnumNode('PixelFormat', value='Mono8', entries=('Mono8', 'Mono12')),
             _SdkNode('BlackLevel', value=3.0, minimum=0.0, maximum=255.0),
-            _SdkNode('BlackLevelAuto', value='Off'),
+            _SdkEnumNode('BlackLevelAuto', value='Off'),
         )
     }
     nodes.update({node.name: node for node in overrides})
@@ -2242,8 +2253,8 @@ _DECIDING_WRITES = {
 
 class TestASettingWriteTheCameraDoesNotAnswer:
     """A setting write the camera does not answer is told apart from one it
-    refused: the refusal returns False, the unanswered write raises
-    CameraNoAnswerError so the API can send it once more, and the camera is not
+    refused: the refusal raises CameraWriteFailedError, the unanswered write
+    raises CameraNoAnswerError so the API can send it once more, and the camera is not
     taken for removed (a timeout is a camera still on the bus).
 
     A read the write cannot be computed without is a no-answer too: nothing
@@ -2291,10 +2302,11 @@ class TestASettingWriteTheCameraDoesNotAnswer:
         assert cam._frame_window is None
 
     def test_an_unanswered_read_the_write_needs_writes_nothing(self):
-        """A read inside the write's own body is a no-answer (sent again by the
-        API); a getter the write reads first (the frame grid, the format list,
-        the gain selector) raises its read failure, refused by the API as a
-        write not sent. Either way nothing is written."""
+        """A range or entry list the write reads in its own body (``_bounds``,
+        ``_entries``) is a no-answer (sent again by the API); a getter the
+        write reads first (the frame grid, the auto black level) raises its
+        read failure, refused by the API as a write not sent. Either way
+        nothing is written."""
         from _lumascope.drivers.exceptions import CameraNoAnswerError
 
         # writer: (the node read ahead of the write, that read, the call, the
@@ -2317,14 +2329,14 @@ class TestASettingWriteTheCameraDoesNotAnswer:
                 'CurrentEntry',
                 lambda cam: cam.set_black_level(3.0),
                 'BlackLevel',
-                CameraNoAnswerError,
+                CameraReadFailedError,
             ),
             'set_pixel_format': (
                 'PixelFormat',
                 'AvailableEntries',
                 lambda cam: cam.set_pixel_format('Mono12'),
                 'PixelFormat',
-                CameraReadFailedError,
+                CameraNoAnswerError,
             ),
             # The selector left unresolved at connect is resolved by the write.
             'gain (its selector)': (
@@ -2332,7 +2344,7 @@ class TestASettingWriteTheCameraDoesNotAnswer:
                 'AvailableEntries',
                 lambda cam: (setattr(cam, '_gain_selector', None), cam.gain(6.0))[1],
                 'Gain',
-                CameraReadFailedError,
+                CameraNoAnswerError,
             ),
         }
         offenders = []
@@ -2344,8 +2356,6 @@ class TestASettingWriteTheCameraDoesNotAnswer:
             except (CameraNoAnswerError, CameraReadFailedError) as e:
                 if type(e) is not raises:
                     offenders.append(f'{writer}: raised {type(e).__name__}, not {raises.__name__}')
-                elif raises is CameraNoAnswerError and 'not written' not in str(e):
-                    offenders.append(f'{writer}: words {str(e)!r} do not say nothing was written')
                 elif 'GC_ERR_TIMEOUT' not in str(e):
                     offenders.append(f"{writer}: words {str(e)!r} drop the SDK's text")
             except Exception as e:
@@ -2367,8 +2377,9 @@ class TestASettingWriteTheCameraDoesNotAnswer:
         assert cam.remote_nodemap.nodes['BinningVertical'].writes == []
 
     def test_a_read_back_the_camera_does_not_answer_is_the_write_applied(self):
+        """The write took; only the level in effect is unknown, so nothing is answered."""
         cam = _camera_answering_except(
             _SdkNode('BlackLevel', value=0.0, minimum=0.0, maximum=255.0, unanswered_reads='after')
         )
-        assert cam.set_black_level(3.0) == 3.0
+        assert cam.set_black_level(3.0) is None
         assert cam.remote_nodemap.nodes['BlackLevel'].writes == [3.0]

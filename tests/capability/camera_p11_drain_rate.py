@@ -70,6 +70,7 @@ import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report, void
 from _lumascope.drivers import host_clock
+from _lumascope.drivers.exceptions import HardwareError
 
 EXPOSURE_MS = 5
 WINDOW_S = 10
@@ -166,6 +167,15 @@ def _changed(before, after):
 _TRANSFER = ('U3vStreamChannelTransferRequestCount', 'U3vStreamChannelBulkTransferSize')
 
 
+def _written(write, value):
+    """'written', or the failure's words: a refused cell is the sweep's record, not its end."""
+    try:
+        write(value)
+    except HardwareError as e:
+        return f'FAILED: {e}'
+    return 'written'
+
+
 def _steps(info):
     """The values a sweep tries for one node: from its current value up to its maximum.
 
@@ -199,8 +209,8 @@ def _sweep(scope, dump):
             for size in _steps(size_info):
                 with driver.update_camera_config():
                     wrote = (
-                        driver.set_num_max_queued_urbs(count),
-                        driver.set_max_transfer_size(size),
+                        _written(driver.set_num_max_queued_urbs, count),
+                        _written(driver.set_max_transfer_size, size),
                     )
                 nodemap = driver.data_stream.NodeMaps()[0]
                 read = tuple(driver._diag_probe_node(nodemap, n).get('value') for n in _TRANSFER)

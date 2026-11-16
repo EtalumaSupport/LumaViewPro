@@ -24,7 +24,7 @@ from ids_peak import ids_peak
 
 from _lumascope.drivers.camera import FrameWindow, ImageHandlerBase
 from _lumascope.drivers.camera_profiles import CameraProfile
-from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
 from tests.camera_fakes import bare_ids_camera
 
 # Bench-confirmed IMX676 AOI maxima (binned-space probe, 2026-06-25): 3504x3544.
@@ -101,14 +101,14 @@ class _FakeIdsAoiNode:
     def SetValue(self, value):
         nm = self._nm
         if self._name in nm.fail_on:
-            raise RuntimeError(f'simulated SDK failure on {self._name}.SetValue({value})')
+            raise ids_peak.Exception(f'simulated SDK failure on {self._name}.SetValue({value})')
         # Mirror GenICam: the legal set is Minimum + k*Increment, and an off-grid
         # write raises OUT_OF_RANGE (the exact bench failure on a 2x-binned
         # Height, Min=418 Inc=4). A phase-0 fixture can't surface a phased-grid
         # bug, so enforce the real predicate on every write.
         inc = self.Increment()
         if (value - self.Minimum()) % inc != 0:
-            raise RuntimeError(
+            raise ids_peak.Exception(
                 f'simulated OUT_OF_RANGE on {self._name}.SetValue({value}): '
                 f'(value - Min={self.Minimum()}) not divisible by Inc={inc}'
             )
@@ -258,7 +258,7 @@ def test_set_binning_size_clears_the_window():
     cam = bare_ids_camera()
     cam._frame_window = FrameWindow(1920, 1900, (10, 0, 1900, 1900))
 
-    assert cam.set_binning_size(2) is True
+    cam.set_binning_size(2)
     assert cam._frame_window is None
 
 
@@ -269,7 +269,8 @@ def test_set_frame_size_failure_clears_the_stale_window():
     cam = _ids_camera_with_aoi(fail_on=('Height',))
     cam._frame_window = FrameWindow(110, 110, (5, 5, 100, 100))  # from a prior call
 
-    assert cam.set_frame_size(1900, 1900) is False
+    with pytest.raises(CameraWriteFailedError, match='Height'):
+        cam.set_frame_size(1900, 1900)
     assert cam._frame_window is None
 
 
@@ -279,7 +280,8 @@ def test_an_inactive_camera_refuses_a_frame_size_without_writing():
     cam = _ids_camera_with_aoi()
     cam.active = None
 
-    assert cam.set_frame_size(1900, 1900) is False
+    with pytest.raises(CameraWriteFailedError, match='no camera is open'):
+        cam.set_frame_size(1900, 1900)
     assert cam.remote_nodemap.writes == []
     assert cam._frame_window is None
 

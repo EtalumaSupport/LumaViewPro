@@ -25,7 +25,7 @@ def test_pylon_reads_the_binning_once_and_the_frame_not_at_all():
     for node in ('BinningVertical', 'BinningHorizontal'):
         getattr(cam.active, node).GetValue.return_value = 1
 
-    assert cam.set_binning_size(2) is True
+    cam.set_binning_size(2)
 
     reads = {
         node: getattr(cam.active, node).GetValue.call_count
@@ -48,7 +48,7 @@ def test_ids_reads_the_binning_once_and_the_frame_not_at_all():
     cam.remote_nodemap = MagicMock()
     cam.remote_nodemap.FindNode.side_effect = find
 
-    assert cam.set_binning_size(2) is True
+    cam.set_binning_size(2)
 
     reads = {
         node: nodes[node].Value.call_count if node in nodes else 0

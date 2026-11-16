@@ -24,8 +24,8 @@ root's modules) refuses, outside the two lookups:
   instant camera's own methods, and a ``getattr`` on it anywhere but
   ``PylonCamera._nodemap``, which takes a nodemap by its getter's name.
 
-The setting writers the driver contract's Stage 3 commit C rewrites through
-one write function per driver are the one exception list; C empties it.
+Every setting writer finds its node through ``write_node``, which calls
+``_node``, so no writer is excepted.
 """
 
 from __future__ import annotations
@@ -64,68 +64,11 @@ _INSTANT_CAMERA_METHODS = Words(
     }
 )
 
-# The setting writers commit C rewrites, each a sequence of calls through the
-# driver's one write function; their lookups go with them.
-_REWRITTEN_BY_C = {
-    _PYLON: {
-        'PylonCamera.connect',
-        'PylonCamera.latch_clock',
-        'PylonCamera.init_camera_config',
-        'PylonCamera._enable_validity_chunks',
-        'PylonCamera._write_bench_knob',
-        'PylonCamera.set_pixel_format',
-        'PylonCamera._set_hardware_binning',
-        'PylonCamera.set_conversion_gain_mode',
-        'PylonCamera.set_line_noise_reduction',
-        'PylonCamera.set_black_level',
-        'PylonCamera.init_auto_gain_focus',
-        'PylonCamera.update_auto_gain_target_brightness',
-        'PylonCamera.update_auto_gain_min_max',
-        'PylonCamera._set_auto_exposure_time_bounds',
-        'PylonCamera._set_hardware_window',
-        'PylonCamera.gain',
-        'PylonCamera.auto_gain',
-        'PylonCamera.auto_gain_once',
-        'PylonCamera.exposure_t',
-        'PylonCamera.auto_exposure_t',
-        'PylonCamera.set_test_pattern',
-    },
-    _IDS: {
-        'IDSCamera._configure_free_run',
-        'IDSCamera._query_dynamic_capabilities',
-        'IDSCamera._rollback_failed_start',
-        'IDSCamera._set_data_stream_int_node',
-        'IDSCamera._set_free_run_frame_rate',
-        'IDSCamera._set_hardware_binning',
-        'IDSCamera._set_hardware_window',
-        'IDSCamera._set_remote_node',
-        'IDSCamera._start_grabbing',
-        'IDSCamera._stop_grabbing',
-        'IDSCamera._write_reverse',
-        'IDSCamera.exposure_t',
-        'IDSCamera.gain',
-        'IDSCamera.init_camera_config',
-        'IDSCamera.probe_afl_packed_acceptance',
-        'IDSCamera.set_black_level',
-        'IDSCamera.set_max_acquisition_frame_rate',
-        'IDSCamera.set_pixel_format',
-        'IDSCamera.set_test_pattern',
-    },
-}
-
 
 def _production_tree():
     yield from iter_package_modules(('src', 'ui', 'tools'))
     for rel_path in tracked_files(pattern='*.py'):
         yield rel_path, parse_module(rel_path)
-
-
-def _excepted(rel_path: str, qualname: str) -> bool:
-    """Whether ``qualname`` is, or is nested in, a writer C rewrites."""
-    return any(
-        qualname == name or qualname.startswith(f'{name}.')
-        for name in _REWRITTEN_BY_C.get(rel_path, ())
-    )
 
 
 def _is_the_handle(node, aliases) -> bool:
@@ -189,7 +132,7 @@ def _lookups_outside_the_owner(rel_path: str, tree: ast.Module) -> list[str]:
                 inner = f'{qualname}.{child.name}' if qualname else child.name
                 visit(child, inner, aliases | _handle_aliases(child))
                 continue
-            if (rel_path, qualname) not in _OWNERS and not _excepted(rel_path, qualname):
+            if (rel_path, qualname) not in _OWNERS:
                 pylon = rel_path == _PYLON and qualname.startswith('PylonCamera.')
                 if _lookup_call(child) or (pylon and _handle_lookup(child, aliases, qualname)):
                     found.append(f'{rel_path}:{child.lineno} {qualname}: {ast.unparse(child)}')
@@ -209,22 +152,6 @@ def test_no_camera_node_is_looked_up_but_through_the_drivers_one_lookup():
         "A camera node looked up outside the driver's one lookup; find it with _node "
         '(or read it with read_node):\n' + '\n'.join(found)
     )
-
-
-def test_every_excepted_writer_is_a_member_of_its_driver():
-    """A writer renamed or deleted leaves no stale name on the exception list."""
-    stale = []
-    for rel_path, names in _REWRITTEN_BY_C.items():
-        tree = parse_module(rel_path)
-        defined = {
-            f'{cls.name}.{fn.name}'
-            for cls in tree.body
-            if isinstance(cls, ast.ClassDef)
-            for fn in cls.body
-            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
-        }
-        stale.extend(f'{rel_path}: {name}' for name in sorted(names - defined))
-    assert not stale, '\n'.join(stale)
 
 
 def test_the_walk_finds_each_way_a_node_is_looked_up():
@@ -249,8 +176,6 @@ def test_the_walk_finds_each_way_a_node_is_looked_up():
         '    def instant_camera_methods(self):\n'
         '        self.active.StopGrabbing()\n'
         '        return self.active.GetNodeMap()\n'
-        '    def exposure_t(self, ms):\n'
-        '        self.active.ExposureTime.SetValue(ms)\n'
     )
     planted_ids = ast.parse(
         'class IDSCamera:\n'

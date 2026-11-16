@@ -21,6 +21,6 @@ def test_the_grab_restarts_with_the_new_format_cached():
     seen_at_restart = []
     cam.start_grabbing = lambda *a, **k: seen_at_restart.append(cam.get_pixel_format())
 
-    assert cam.set_pixel_format('Mono12') is True
+    cam.set_pixel_format('Mono12')
 
     assert seen_at_restart == ['Mono12']

@@ -158,7 +158,7 @@ def test_a_removed_camera_refuses_the_next_write(scope):
 
 def test_a_refused_gain_write_is_rejected_and_records_no_target(scope):
     scope.camera.set_gain_db(3.0)
-    scope.simulation.refuse_camera_write('gain', 'false')
+    scope.simulation.refuse_camera_write('gain', 'raise')
     with pytest.raises(CameraSettingRejected) as rejected:
         scope.camera.set_gain_db(9.0)
     assert rejected.value.setting == 'gain_db'
@@ -176,7 +176,7 @@ def test_a_raising_binning_write_is_a_chained_rejection(scope):
 
 
 def test_a_refused_write_is_one_write(scope):
-    scope.simulation.refuse_camera_write('gain', 'false')
+    scope.simulation.refuse_camera_write('gain', 'raise')
     with pytest.raises(CameraSettingRejected):
         scope.camera.set_gain_db(9.0)
     scope.camera.set_gain_db(9.0)
@@ -184,7 +184,7 @@ def test_a_refused_write_is_one_write(scope):
 
 
 def test_a_refused_write_counted_twice_is_two_writes(scope):
-    scope.simulation.refuse_camera_write('gain', 'false', count=2)
+    scope.simulation.refuse_camera_write('gain', 'raise', count=2)
     for _ in range(2):
         with pytest.raises(CameraSettingRejected):
             scope.camera.set_gain_db(9.0)
@@ -252,8 +252,8 @@ def test_the_fast_motor_board_cannot_fail_a_home(scope):
         ('refuse_camera_write', ('focus', 'false'), 'not_offered', 'node'),
         ('refuse_camera_write', ('gain', 'no'), 'not_offered', 'answer'),
         # A frame-size write answers the window it delivers, never a bare True.
-        ('refuse_camera_write', ('frame_size', 'true'), 'not_offered', 'answer'),
-        ('refuse_camera_write', ('gain', 'false', 0), 'fault_bound', 'count'),
+        ('refuse_camera_write', ('frame_size', 'unreported'), 'not_offered', 'answer'),
+        ('refuse_camera_write', ('gain', 'raise', 0), 'fault_bound', 'count'),
         ('refuse_camera_read', ('high_conversion_gain', 'failed'), 'not_offered', 'node'),
         ('refuse_camera_read', ('gain', 'false'), 'not_offered', 'answer'),
         ('refuse_camera_read', ('gain', 'failed', 0), 'fault_bound', 'count'),
@@ -287,11 +287,11 @@ def test_a_camera_fault_on_a_scope_whose_camera_did_not_come_up_names_the_boards
 def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     before = scope.motion.read_actual_position('X')
     scope.simulation.silence('motor')
-    scope.simulation.refuse_camera_write('gain', 'none')
+    scope.simulation.refuse_camera_write('gain', 'unreported')
     scope.simulation.refuse_camera_read('black_level', 'failed')
     assert scope.simulation.injected() == (
         InjectedFault('silence', {'board': 'motor'}),
-        InjectedFault('refuse_camera_write', {'node': 'gain', 'answer': 'none', 'count': 1}),
+        InjectedFault('refuse_camera_write', {'node': 'gain', 'answer': 'unreported', 'count': 1}),
         InjectedFault(
             'refuse_camera_read', {'node': 'black_level', 'answer': 'failed', 'count': 1}
         ),
@@ -467,7 +467,7 @@ def test_a_silenced_ls720_board_answers_nothing_until_unsilenced(ls720):
 
 def test_the_fx2_refuses_what_its_device_cannot_show(ls620):
     for member, args in (
-        (ls620.simulation.refuse_camera_write, ('gain', 'false')),
+        (ls620.simulation.refuse_camera_write, ('gain', 'raise')),
         (ls620.simulation.stall_stream, (0.0, 1.0)),
         (ls620.simulation.withhold_chunk, ('Timestamp', 1)),
         (ls620.simulation.replug, ('led',)),
@@ -492,13 +492,13 @@ def client():
 
 def test_a_fault_injected_over_the_wire_meets_the_next_call(client):
     injected = client.post(
-        '/api/v1/scope/simulation/refuse_camera_write', json={'node': 'gain', 'answer': 'false'}
+        '/api/v1/scope/simulation/refuse_camera_write', json={'node': 'gain', 'answer': 'raise'}
     )
     assert injected.status_code == 200, injected.text
     assert client.get('/api/v1/scope/simulation/injected').json() == [
         {
             'member': 'refuse_camera_write',
-            'arguments': {'node': 'gain', 'answer': 'false', 'count': 1},
+            'arguments': {'node': 'gain', 'answer': 'raise', 'count': 1},
         }
     ]
 

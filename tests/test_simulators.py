@@ -729,7 +729,8 @@ class TestSimulatedCamera:
     def test_exposure_rejects_over_max(self):
         cam = SimulatedCamera()
         original = cam.get_exposure_t()
-        cam.exposure_t(999_999)  # way over max
+        with pytest.raises(CameraWriteFailedError):
+            cam.exposure_t(999_999)  # way over max
         assert cam.get_exposure_t() == original  # unchanged
 
     def test_exposure_refuses_under_its_floor(self):
@@ -740,7 +741,8 @@ class TestSimulatedCamera:
         floor_ms = cam.get_min_exposure()
         assert floor_ms is not None and floor_ms > 0.001, 'the test needs a camera with a floor'
 
-        assert cam.exposure_t(floor_ms / 2) is False
+        with pytest.raises(CameraWriteFailedError):
+            cam.exposure_t(floor_ms / 2)
         assert cam.get_exposure_t() == 50.0
 
     # -- Gain --
@@ -752,28 +754,22 @@ class TestSimulatedCamera:
 
     def test_auto_gain(self):
         cam = SimulatedCamera()
-        result = cam.auto_gain(state=True, target_brightness=0.3, min_gain_db=1.0, max_gain_db=10.0)
-        assert result is True
+        cam.auto_gain(state=True, target_brightness=0.3, min_gain_db=1.0, max_gain_db=10.0)
         # Gain should converge to mid-range
         assert 1.0 <= cam.get_gain() <= 10.0
 
     def test_auto_gain_once(self):
         cam = SimulatedCamera()
-        result = cam.auto_gain_once(
-            state=True, target_brightness=0.5, min_gain_db=2.0, max_gain_db=8.0
-        )
-        assert result is True
+        cam.auto_gain_once(state=True, target_brightness=0.5, min_gain_db=2.0, max_gain_db=8.0)
         assert 2.0 <= cam.get_gain() <= 8.0
 
     def test_update_auto_gain_target(self):
         cam = SimulatedCamera()
-        result = cam.update_auto_gain_target_brightness(0.7)
-        assert result is True
+        cam.update_auto_gain_target_brightness(0.7)
 
     def test_update_auto_gain_min_max(self):
         cam = SimulatedCamera()
-        result = cam.update_auto_gain_min_max(min_gain_db=0.5, max_gain_db=15.0)
-        assert result is True
+        cam.update_auto_gain_min_max(min_gain_db=0.5, max_gain_db=15.0)
 
     # -- Pixel format --
 
@@ -783,12 +779,13 @@ class TestSimulatedCamera:
 
     def test_set_pixel_format(self):
         cam = SimulatedCamera()
-        assert cam.set_pixel_format('Mono12') is True
+        cam.set_pixel_format('Mono12')
         assert cam.get_pixel_format() == 'Mono12'
 
     def test_reject_unsupported_pixel_format(self):
         cam = SimulatedCamera()
-        assert cam.set_pixel_format('RGB24') is False
+        with pytest.raises(CameraWriteFailedError):
+            cam.set_pixel_format('RGB24')
         assert cam.get_pixel_format() == 'Mono8'  # unchanged
 
     def test_supported_pixel_formats(self):
@@ -801,12 +798,13 @@ class TestSimulatedCamera:
 
     def test_set_binning(self):
         cam = SimulatedCamera()
-        assert cam.set_binning_size(2) is True
+        cam.set_binning_size(2)
         assert cam.get_binning_size() == 2
 
     def test_reject_invalid_binning(self):
         cam = SimulatedCamera()
-        assert cam.set_binning_size(8) is False
+        with pytest.raises(CameraWriteFailedError):
+            cam.set_binning_size(8)
         assert cam.get_binning_size() == 1  # unchanged
 
     # -- Grab / image generation --
@@ -848,7 +846,7 @@ class TestSimulatedCamera:
         cam._grab_delay = 0.2
         cam.open_and_start()
         grab_a_frame_made_after_now(cam)
-        assert cam.set_pixel_format('Mono12') is True
+        cam.set_pixel_format('Mono12')
         frame = cam.grab_new_capture(timeout_s=5.0)
         assert frame is not None
         assert frame.image.dtype == np.uint16, (
@@ -1889,16 +1887,21 @@ class TestTheCamerasFaultDoors:
     """A simulated camera refuses a node write once, leaves the bus, and
     takes back a stall, through the doors ``scope.simulation`` drives."""
 
-    @pytest.mark.parametrize(
-        ('answer', 'returned'), [('false', False), ('none', None), ('true', True)]
-    )
-    def test_a_refused_write_answers_once_and_moves_nothing(self, answer, returned):
+    def test_a_refused_write_raises_once_and_moves_nothing(self):
         cam = SimulatedCamera()
         cam.gain(2.0)
-        cam.refuse_write('gain', answer)
-        assert cam.gain(8.0) is returned
+        cam.refuse_write('gain', 'raise')
+        with pytest.raises(CameraWriteFailedError):
+            cam.gain(8.0)
         assert cam.get_gain() == pytest.approx(2.0)
         cam.gain(8.0)
+        assert cam.get_gain() == pytest.approx(8.0)
+
+    def test_an_unreported_write_moves_the_value_and_answers_nothing(self):
+        cam = SimulatedCamera()
+        cam.gain(2.0)
+        cam.refuse_write('gain', 'unreported')
+        assert cam.gain(8.0) is None
         assert cam.get_gain() == pytest.approx(8.0)
 
     def test_a_raising_write_raises(self):
@@ -1925,14 +1928,14 @@ class TestTheCamerasFaultDoors:
 
     def test_a_refusal_no_write_met_is_taken_back(self):
         cam = SimulatedCamera()
-        cam.refuse_write('gain', 'false')
+        cam.refuse_write('gain', 'raise')
         cam.allow_write('gain')
-        assert cam.gain(8.0) is not False
+        assert cam.gain(8.0) == pytest.approx(8.0)
 
     def test_a_node_or_answer_it_lacks_is_refused(self):
         cam = SimulatedCamera()
         with pytest.raises(ValueError, match='focus'):
-            cam.refuse_write('focus', 'false')
+            cam.refuse_write('focus', 'raise')
         with pytest.raises(ValueError, match='maybe'):
             cam.refuse_write('gain', 'maybe')
 

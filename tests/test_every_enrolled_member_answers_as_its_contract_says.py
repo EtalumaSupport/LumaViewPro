@@ -1045,7 +1045,7 @@ def _fault_rows() -> list[Fault]:
             'apply, the camera refusing the gain',
             'CameraAPI.apply',
             'LS850',
-            lambda s: s.session.scope.simulation.refuse_camera_write('gain', 'false'),
+            lambda s: s.session.scope.simulation.refuse_camera_write('gain', 'raise'),
             lambda s: s.session.scope.camera.apply(3.0, 20.0),
             CameraSettingRejected,
             None,

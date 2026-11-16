@@ -58,11 +58,11 @@ class TestAGrabCarriesDepth:
 
         cam = SimulatedCamera()
         cam.connect()
-        assert cam.set_pixel_format('Mono12')
+        cam.set_pixel_format('Mono12')
         cam.start_grabbing()
         assert grab_a_frame_made_after_now(cam).significant_bits == 12
 
-        assert cam.set_pixel_format('Mono8')
+        cam.set_pixel_format('Mono8')
         assert grab_a_frame_made_after_now(cam).significant_bits == 8
 
 

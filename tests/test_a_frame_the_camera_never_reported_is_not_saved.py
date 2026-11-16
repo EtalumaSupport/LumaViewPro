@@ -11,10 +11,16 @@ and each saves no frame while it is unknown.
 
 import pytest
 
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
+
+
+def _refused(*_args, **_kwargs):
+    """A driver's refusal of the write: it raises, as every driver's does."""
+    raise CameraWriteFailedError('the camera refused the frame size')
 
 
 @pytest.fixture
@@ -23,7 +29,7 @@ def silent_frame_session(tmp_path, monkeypatch):
     # answers no frame-size read, and bring-up reads it inside create(),
     # before scope.simulation can inject one (a simulator gap).
     monkeypatch.setattr(SimulatedCamera, 'get_frame_size', lambda self: {})
-    monkeypatch.setattr(SimulatedCamera, 'set_frame_size', lambda self, *a, **k: False)
+    monkeypatch.setattr(SimulatedCamera, 'set_frame_size', _refused)
     settings = complete_settings(live_folder=str(tmp_path))
     # Copied first: create prepares the dict it is handed in place.
     saved_frame = dict(settings['frame'])

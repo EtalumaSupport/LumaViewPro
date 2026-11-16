@@ -5415,8 +5415,8 @@ class CameraSettingRejected(Fault, Exception):  # noqa: N818 -- named for the ev
             its driver raised from it. ``'camera_no_answer'`` -- the camera
             did not answer the write, sent twice, so whether it took it is
             not known. ``'camera_read_failed'`` -- a read the write needs
-            first failed, so nothing was sent and the camera keeps its
-            previous value. The setting is in ``setting`` and in the words.
+            failed, so the setting was not written and the camera keeps its
+            previous value of it. The setting is in ``setting`` and in the words.
         setting: Machine-readable setting name (e.g. 'frame_size').
         requested: The value the caller asked for.
     """

@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from _lumascope.drivers.camera import CameraNodeValue
-from _lumascope.drivers.exceptions import CameraWriteFailedError
+from _lumascope.drivers.exceptions import CameraNoAnswerError, CameraWriteFailedError
 from tools.pylon_probe_sweep import (
     _apply_cell,
     _build_gige_cells,
@@ -226,8 +226,8 @@ class TestDetectTransport:
 
 def test_a_cell_sets_the_image_mode_and_frame_as_lvp_does(sim_scope):
     """The image mode reaches the camera as the pixel format LVP captures it
-    in, and the frame as LVP frames it; a knob this camera has no setter for
-    is the cell's record (False), not an abort."""
+    in, and the frame as LVP frames it; a knob this camera does not offer is
+    the cell's record (FAILED, not offered), not an abort."""
     largest = sim_scope.capabilities.camera_limits.frame_max
     cell = {
         'image_mode': '12bit_scientific',
@@ -241,7 +241,11 @@ def test_a_cell_sets_the_image_mode_and_frame_as_lvp_does(sim_scope):
     assert log == [
         ('image_mode', 'Mono12'),
         ('frame', f'{largest.width}x{largest.height}'),
-        ('dltl', False),
+        (
+            'dltl',
+            'FAILED: set_device_link_throughput_limit was not written: '
+            'SimulatedCamera does not offer it',
+        ),
     ]
     assert sim_scope.camera.read_frame_size() == largest
 
@@ -271,8 +275,9 @@ def test_a_sweep_on_a_camera_whose_transport_is_unknown_stops_before_any_cell(si
 
 
 def test_a_knob_the_camera_refuses_is_the_cells_record_and_the_cell_goes_on():
-    """A GEV write the camera refuses is recorded as that knob's FAILED
-    entry, as a refused image mode is, and the knobs after it are set."""
+    """A GEV write the camera refuses, or does not answer, is recorded as that
+    knob's FAILED entry, as a refused image mode is, and the knobs after it
+    are set."""
     calls = []
 
     def refused(name):
@@ -282,10 +287,16 @@ def test_a_knob_the_camera_refuses_is_the_cells_record_and_the_cell_goes_on():
 
         return set_knob
 
+    def unanswered(name):
+        def set_knob(value):
+            calls.append(name)
+            raise CameraNoAnswerError(f'{name} not answered')
+
+        return set_knob
+
     def taken(name):
         def set_knob(value):
             calls.append(name)
-            return True
 
         return set_knob
 
@@ -300,7 +311,7 @@ def test_a_knob_the_camera_refuses_is_the_cells_record_and_the_cell_goes_on():
         imaging=SimpleNamespace(
             _set_bandwidth_reserve_mode=taken('bw_mode'),
             _set_gev_packet_size=refused('packet_size'),
-            _set_gev_inter_packet_delay=taken('delay_ticks'),
+            _set_gev_inter_packet_delay=unanswered('delay_ticks'),
         ),
     )
     cell = {
@@ -317,7 +328,7 @@ def test_a_knob_the_camera_refuses_is_the_cells_record_and_the_cell_goes_on():
     assert log == [
         ('image_mode', 'Mono8'),
         ('frame', '2100x2100'),
-        ('bw_mode', True),
+        ('bw_mode', 'written'),
         ('packet_size', 'FAILED: packet_size not writable now'),
-        ('delay_ticks', True),
+        ('delay_ticks', 'FAILED: delay_ticks not answered'),
     ]

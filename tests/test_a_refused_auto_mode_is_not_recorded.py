@@ -29,7 +29,7 @@ def reported(monkeypatch):
 
 def test_a_refused_auto_gain_arm_raises_and_is_not_recorded(sim_scope):
     camera = sim_scope.camera
-    sim_scope.simulation.refuse_camera_write('auto_gain', 'false')
+    sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         camera.set_auto_gain(True, AG_SETTINGS)
@@ -40,7 +40,7 @@ def test_a_refused_auto_gain_arm_raises_and_is_not_recorded(sim_scope):
 
 def test_a_refused_auto_exposure_raises(sim_scope):
     camera = sim_scope.camera
-    sim_scope.simulation.refuse_camera_write('auto_exposure', 'false')
+    sim_scope.simulation.refuse_camera_write('auto_exposure', 'raise')
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         camera.set_auto_exposure(CameraAutoMode.CONTINUOUS)
@@ -50,7 +50,7 @@ def test_a_refused_auto_exposure_raises(sim_scope):
 
 def test_the_layer_apply_names_a_refused_auto_gain(sim_scope):
     camera = sim_scope.camera
-    sim_scope.simulation.refuse_camera_write('auto_gain', 'false')
+    sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
     with pytest.raises(CameraSettingRejected) as excinfo:
         camera.apply(
@@ -68,7 +68,7 @@ def test_the_layer_apply_names_a_refused_auto_gain(sim_scope):
 def test_the_locks_refused_disarm_is_reported(sim_scope, reported):
     camera = sim_scope.camera
     camera.set_auto_gain(True, AG_SETTINGS)
-    sim_scope.simulation.refuse_camera_write('auto_gain', 'false')
+    sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
     camera.lock_auto_gain()
 
@@ -116,7 +116,7 @@ def test_the_video_steps_refused_disarm_leaves_the_step_unreported(sim_scope, tm
     from tests.video_step_drives import video_step_on
 
     recorder = video_step_on(sim_scope, tmp_path, autogain_settings=dict(AG_SETTINGS))
-    sim_scope.simulation.refuse_camera_write('auto_gain', 'false')
+    sim_scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
     with pytest.raises(CameraSettingRejected) as raised:
         recorder._prologue({'Exposure': 10.0, 'Auto_Gain': True})

@@ -44,7 +44,7 @@ def _errors(centre_posts):
 class TestAConfirmedRejectionReachesTheCaller:
     def test_a_refused_gain_raises_by_name(self, sim_scope):
         camera = sim_scope.camera
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
             camera.set_gain_db(7.0)
@@ -59,7 +59,7 @@ class TestAConfirmedRejectionReachesTheCaller:
 
     def test_a_refused_exposure_raises_by_name(self, sim_scope):
         camera = sim_scope.camera
-        sim_scope.simulation.refuse_camera_write('exposure', 'false')
+        sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
             camera.set_exposure_ms(25.0)
@@ -75,7 +75,7 @@ class TestAConfirmedRejectionReachesTheCaller:
         """The raise carries the words; whoever ends its flight shows them, so
         the API posting too would show the one refusal twice."""
         camera = sim_scope.camera
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
 
         with pytest.raises(CameraSettingRejected):
             camera.set_gain_db(7.0)
@@ -83,7 +83,7 @@ class TestAConfirmedRejectionReachesTheCaller:
         assert not _errors(centre_posts), 'the refusal is shown by its reporter, not by the API'
 
     def test_a_refused_one_shot_auto_gain_raises_by_name(self, sim_scope):
-        sim_scope.simulation.refuse_camera_write('auto_gain_once', 'false')
+        sim_scope.simulation.refuse_camera_write('auto_gain_once', 'raise')
 
         with pytest.raises(CameraSettingRejected) as excinfo:
             sim_scope.camera.auto_gain_once(True, 0.5, 0.0, 20.0)
@@ -92,10 +92,10 @@ class TestAConfirmedRejectionReachesTheCaller:
 
 
 class TestOnlyAConfirmedRejectionRaises:
-    def test_a_driver_without_a_confirmation_signal_does_not_raise(self, sim_scope):
-        """``None`` means "this driver cannot confirm", never "refused"."""
+    def test_a_write_whose_value_was_not_reported_does_not_raise(self, sim_scope):
+        """A write that took and answers nothing (its read-back failed) is not a refusal."""
         camera = sim_scope.camera
-        sim_scope.simulation.refuse_camera_write('gain', 'none')
+        sim_scope.simulation.refuse_camera_write('gain', 'unreported')
 
         camera.set_gain_db(7.0)
 
@@ -119,9 +119,8 @@ class TestOnlyAConfirmedRejectionRaises:
 class TestARefusalIsNotRecordedAsTruth:
     """The API's judgement rule, pinned independently of any one driver.
 
-    Driver-agnostic and it passes before the Pylon fix as well as after: what it
-    guards is ``_camera_write``'s rule that only an explicit ``False`` is a
-    refusal, and the state consequence that rule carries. A future change that
+    Driver-agnostic: what it guards is ``_camera_write``'s rule that only a
+    driver's raise is a refusal, and the state consequence that rule carries. A future change that
     loosened the rule -- or that recorded the request before consulting the
     result -- would leave the cache describing a gain the camera is not at and a
     chunk target no frame can ever carry. The driver half of the same contract
@@ -131,7 +130,7 @@ class TestARefusalIsNotRecordedAsTruth:
     def test_a_refused_gain_moves_neither_the_cache_nor_the_target(self, sim_scope):
         camera = sim_scope.camera
         camera.set_gain_db(3.0)
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
 
         with pytest.raises(CameraSettingRejected):
             camera.set_gain_db(9.0)
@@ -148,11 +147,12 @@ class TestARefusalIsNotRecordedAsTruth:
         assert camera.gain_db == 9.0
         assert camera._frame_validity.target('gain') == 9.0
 
-    def test_a_driver_that_cannot_confirm_is_believed(self, sim_scope):
-        """``None`` is not a refusal, so the request IS recorded -- that is the
-        deliberate rule, and it is why a driver that CAN confirm must."""
+    def test_a_write_whose_value_was_not_reported_is_believed(self, sim_scope):
+        """A write that took and answers nothing is not a refusal, so the
+        request IS recorded -- that is the deliberate rule, and it is why a
+        driver that CAN report the value in effect must."""
         camera = sim_scope.camera
-        sim_scope.simulation.refuse_camera_write('gain', 'none')
+        sim_scope.simulation.refuse_camera_write('gain', 'unreported')
 
         camera.set_gain_db(9.0)
 
@@ -165,8 +165,8 @@ class TestOneChannel:
 
     def test_the_value_bodies_raise_a_refusal_unreported(self, sim_scope, centre_posts):
         camera = sim_scope.camera
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
-        sim_scope.simulation.refuse_camera_write('exposure', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
+        sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
         for body, setting in (
             (lambda: camera._set_gain_db_impl(7.0), 'gain_db'),
@@ -180,8 +180,8 @@ class TestOneChannel:
     def test_an_auto_gain_lock_survives_a_refused_write(self, sim_scope):
         """The lock consumes the arm; a raise would strand it, disarmed."""
         camera = sim_scope.camera
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
-        sim_scope.simulation.refuse_camera_write('exposure', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
+        sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
         lock = camera._lock_auto_gain_impl()
 
@@ -284,7 +284,7 @@ class TestAWriteTheCameraDidNotAnswer:
     def test_a_refused_write_is_not_sent_again(self, sim_scope):
         # One refusal injected: sent again, the write would meet the node and
         # apply, and nothing would be raised.
-        sim_scope.simulation.refuse_camera_write('gain', 'false')
+        sim_scope.simulation.refuse_camera_write('gain', 'raise')
 
         with pytest.raises(CameraSettingRejected) as rejected:
             sim_scope.camera.set_gain_db(9.0)
@@ -322,7 +322,7 @@ class TestTheCallersThatGoOn:
     def test_a_layer_apply_with_any_part_unanswered_is_not_answered(self, sim_scope):
         camera = sim_scope.camera
         sim_scope.simulation.refuse_camera_write('gain', 'no_answer', count=2)
-        sim_scope.simulation.refuse_camera_write('exposure', 'false')
+        sim_scope.simulation.refuse_camera_write('exposure', 'raise')
 
         with pytest.raises(CameraSettingRejected) as rejected:
             camera.apply(4.0, 30.0, channel='BF')
@@ -348,7 +348,7 @@ def test_every_setter_raises_a_refusal_as_rejected(sim_scope):
     }
     answered = {}
     for node, setter in setters.items():
-        sim_scope.simulation.refuse_camera_write(node, 'false')
+        sim_scope.simulation.refuse_camera_write(node, 'raise')
         try:
             setter()
         except CameraSettingRejected as rejected:

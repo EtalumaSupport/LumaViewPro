@@ -6,24 +6,26 @@ The camera is marked removed only on a definite signal -- the SDK's removal
 callback, a grab result of DEVICE_NOT_FOUND, the consecutive-failure cascade, a
 released handle -- and a removal has no reset short of a reconnect: frames
 stop and every later camera command is refused. One RuntimeException from one
-node write is none of those, so the write answers as one the camera did not
-take (False, or ``CameraWriteFailedError``) and the camera stays connected.
-The getters' half of the same contract is ``test_pylon_getter_transient_reads``.
+node write is none of those, so the write raises as one the camera did not
+take (``CameraWriteFailedError``) and the camera stays connected. The
+getters' half of the same contract is ``test_pylon_getter_transient_reads``.
 
-One test walks every Pylon method that writes a node inside a ``try`` and
-names each that marks the camera removed or answers the failure as applied.
-The table is checked against the driver's source, so a new writer cannot be
-left out.
+One test walks every Pylon setting writer and names each that marks the
+camera removed or answers the failure as applied. Every writer writes through
+``write_node`` (``tests/guards/test_a_camera_node_has_one_writer.py``), so
+its one failure form is the one these share.
 """
 
-import ast
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from pypylon import genicam
 
-from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
+from _lumascope.drivers.exceptions import (
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    CameraWriteFailedError,
+)
 from tests.camera_fakes import bare_pylon_camera, nodemaps_answer_attributes
 
 _WRITES = frozenset({'SetValue', 'SetIntValue', 'Execute'})
@@ -33,8 +35,12 @@ def _comms_lost(*_args, **_kwargs):
     raise genicam.RuntimeException('comms lost')
 
 
+def _timed_out(*_args, **_kwargs):
+    raise genicam.TimeoutException('no answer in time')
+
+
 class _WritesFail(MagicMock):
-    """A camera handle whose every node write raises RuntimeException.
+    """A camera handle whose every node write raises ``failure`` (RuntimeException).
 
     a stand-in by design: the SDK below the driver is the subject's
     collaborator, and no simulated camera runs pyloncamera.py. Reads answer
@@ -42,24 +48,32 @@ class _WritesFail(MagicMock):
     call or a ``.Value`` assignment, on any node however reached -- raises.
     """
 
+    failure = staticmethod(_comms_lost)
+
     def _get_child_mock(self, **kw):
-        child = _WritesFail(**kw)
+        child = type(self)(**kw)
         if kw.get('name') in _WRITES:
-            child.side_effect = _comms_lost
+            child.side_effect = self.failure
         return child
 
     def __setattr__(self, name, value):
         if name == 'Value':
-            _comms_lost()
+            self.failure()
         super().__setattr__(name, value)
 
 
-def _camera():
+class _WritesTimeOut(_WritesFail):
+    """A camera handle whose every node write is not answered in time."""
+
+    failure = staticmethod(_timed_out)
+
+
+def _camera(handle=_WritesFail):
     """A bare PylonCamera with the real removal latch and a failing handle."""
     cam = bare_pylon_camera()
     del cam._mark_disconnected
     cam._device_removed = False
-    cam.active = _WritesFail()
+    cam.active = handle()
     nodemaps_answer_attributes(cam)
     cam.active.IsGrabbing.return_value = False
     cam.active.PixelFormat.GetSymbolics.return_value = ('Mono8', 'Mono12')
@@ -77,56 +91,40 @@ def _camera():
     return cam
 
 
-# (the writer the handler is in, the call a caller makes, the failure answer).
-# 'false' / 'raises' are the two answers for a write not taken ('read_failed'
-# for latch_clock, whose write starts a read). init_camera_config's steps
-# each answer 'not_applied', named in config_not_applied
-# (test_a_camera_config_step_not_taken_is_reported); with every write
-# failing, its orientation write fails too, and a camera whose orientation is
-# not taken raises. 'none' is set_test_pattern, which answers None for every
-# failure.
+# (the writer, the call a caller makes, the failure answer). 'raises' is the
+# answer for a write not taken ('read_failed' for latch_clock, whose write
+# starts a read). init_camera_config's steps are each named in
+# config_not_applied (test_a_camera_config_step_not_taken_is_reported); with
+# every write failing, its orientation write fails too, and a camera whose
+# orientation is not taken raises.
 _CASES = [
     ('init_camera_config', lambda c: c.init_camera_config(), 'raises'),
     ('_write_reverse', lambda c: c._write_reverse('ReverseY', True), 'raises'),
-    # The bench knobs' one writer; each knob's answer is
+    # A bench knob; each knob's answer to a node it lacks is
     # test_a_pylon_node_the_camera_lacks.
-    ('_write_bench_knob', lambda c: c.set_gev_packet_size(1500), 'raises'),
+    ('set_gev_packet_size', lambda c: c.set_gev_packet_size(1500), 'raises'),
     ('set_pixel_format', lambda c: c.set_pixel_format('Mono12'), 'raises'),
     ('_set_hardware_binning', lambda c: c.set_binning_size(2), 'raises'),
     ('set_conversion_gain_mode', lambda c: c.set_conversion_gain_mode('High'), 'raises'),
     ('set_line_noise_reduction', lambda c: c.set_line_noise_reduction(True), 'raises'),
-    ('set_black_level', lambda c: c.set_black_level(2.0), 'false'),
+    ('set_black_level', lambda c: c.set_black_level(2.0), 'raises'),
     ('init_auto_gain_focus', lambda c: c.init_auto_gain_focus(), 'raises'),
     (
         'update_auto_gain_target_brightness',
         lambda c: c.update_auto_gain_target_brightness(0.4),
-        'false',
+        'raises',
     ),
-    ('update_auto_gain_min_max', lambda c: c.update_auto_gain_min_max(0.0, 12.0), 'false'),
-    ('_set_hardware_window', lambda c: c.set_frame_size(1024, 1024), 'false'),
-    ('gain', lambda c: c.gain(12.0), 'false'),
-    ('auto_gain', lambda c: c.auto_gain(True), 'false'),
-    ('auto_gain_once', lambda c: c.auto_gain_once(True), 'false'),
-    ('exposure_t', lambda c: c.exposure_t(20.0), 'false'),
-    ('auto_exposure_t', lambda c: c.auto_exposure_t(True), 'false'),
-    ('set_test_pattern', lambda c: c.set_test_pattern(pattern='White'), 'none'),
-    ('_set_auto_exposure_time_bounds', lambda c: c._set_auto_exposure_time_bounds(50.0), 'false'),
+    ('update_auto_gain_min_max', lambda c: c.update_auto_gain_min_max(0.0, 12.0), 'raises'),
+    ('_set_hardware_window', lambda c: c.set_frame_size(1024, 1024), 'raises'),
+    ('gain', lambda c: c.gain(12.0), 'raises'),
+    ('auto_gain', lambda c: c.auto_gain(True), 'raises'),
+    ('auto_gain_once', lambda c: c.auto_gain_once(True), 'raises'),
+    ('exposure_t', lambda c: c.exposure_t(20.0), 'raises'),
+    ('auto_exposure_t', lambda c: c.auto_exposure_t(True), 'raises'),
+    ('set_test_pattern', lambda c: c.set_test_pattern(pattern='White'), 'raises'),
+    ('_set_auto_exposure_time_bounds', lambda c: c._set_auto_exposure_time_bounds(50.0), 'raises'),
     ('latch_clock', lambda c: c.latch_clock(), 'read_failed'),
 ]
-
-# Methods the source rule finds whose answer is pinned where they are owned:
-# connect answers a bring-up that failed; the reads write only a selector
-# before reading (test_a_failed_temperature_read_raises, the diagnostic
-# probe's tests); _enable_validity_chunks logs each chunk it could
-# not enable by design and is a step of init_camera_config, in the table.
-_ANSWERED_ELSEWHERE = frozenset(
-    {
-        'connect',
-        'get_all_temperatures',
-        'read_diagnostic_snapshot',
-        '_enable_validity_chunks',
-    }
-)
 
 
 def _answered(answer, call, cam):
@@ -139,43 +137,7 @@ def _answered(answer, call, cam):
         return answer == 'read_failed', 'raised CameraReadFailedError'
     except Exception as e:  # the answer under test: any other raise is named
         return False, f'raised {type(e).__name__}: {e}'
-    if answer == 'not_applied':
-        return bool(cam.config_not_applied), f'config_not_applied={cam.config_not_applied!r}'
-    if answer == 'false':
-        return result is False, f'answered {result!r}'
-    if answer == 'none':
-        return result is None, f'answered {result!r}'
     return False, f'answered {result!r}'
-
-
-def _writers_inside_a_try() -> set[str]:
-    """PylonCamera methods with a node write inside a ``try`` that has handlers."""
-    source = Path(__file__).resolve().parent.parent / 'src/_lumascope/drivers' / 'pyloncamera.py'
-    tree = ast.parse(source.read_text())
-    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'PylonCamera')
-    found = set()
-    for fn in cls.body:
-        if not isinstance(fn, ast.FunctionDef):
-            continue
-        tries = [t for t in ast.walk(fn) if isinstance(t, ast.Try) and t.handlers]
-        if any(_writes(n) for t in tries for stmt in t.body for n in ast.walk(stmt)):
-            found.add(fn.name)
-    return found
-
-
-def _writes(node) -> bool:
-    return (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr in _WRITES
-    ) or (
-        isinstance(node, ast.Assign)
-        and any(isinstance(t, ast.Attribute) and t.attr == 'Value' for t in node.targets)
-    )
-
-
-def test_the_table_is_every_writer_inside_a_try():
-    assert {name for name, _, _ in _CASES} == _writers_inside_a_try() - _ANSWERED_ELSEWHERE
 
 
 @pytest.mark.filterwarnings('ignore::pytest.PytestUnraisableExceptionWarning')
@@ -188,4 +150,26 @@ def test_a_runtime_exception_on_a_write_is_its_failure_not_a_removal():
             offenders.append(f'{name}: marked the camera removed ({said})')
         elif not ok:
             offenders.append(f'{name}: expected {answer}, {said}')
+    assert not offenders, '\n'.join(offenders)
+
+
+@pytest.mark.filterwarnings('ignore::pytest.PytestUnraisableExceptionWarning')
+def test_a_write_the_camera_does_not_answer_is_no_answer_from_every_writer():
+    """A timeout is answered one way by every writer: ``CameraNoAnswerError``,
+    which the API sends once more, never a refusal and never a removal
+    (``latch_clock``'s write starts a read, so it is that read's failure)."""
+    offenders = []
+    for name, call, answer in _CASES:
+        cam = _camera(_WritesTimeOut)
+        expected = CameraReadFailedError if answer == 'read_failed' else CameraNoAnswerError
+        try:
+            result = call(cam)
+        except expected:
+            pass
+        except Exception as e:  # the answer under test: any other raise is named
+            offenders.append(f'{name}: expected {expected.__name__}, raised {type(e).__name__}')
+        else:
+            offenders.append(f'{name}: expected {expected.__name__}, answered {result!r}')
+        if cam.is_device_removed():
+            offenders.append(f'{name}: marked the camera removed')
     assert not offenders, '\n'.join(offenders)

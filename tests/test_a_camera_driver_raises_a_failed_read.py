@@ -7,9 +7,10 @@ the SDK's words carried and the camera kept. Pylon's getters are walked in
 ``test_pylon_getter_transient_reads.py``; IDS's are here.
 
 A setter that meets that raise -- the config guard's grab-state read at its
-entry, a gain selector it resolves -- lets it out as itself, with nothing
+entry -- lets it out as itself, with nothing
 written, so the API refuses the write as one not sent rather than the
-camera's refusal or a write it did not answer. And the base keeps the frame
+camera's refusal or a write it did not answer (a gain selector read in the
+write's own body is the write's no-answer). And the base keeps the frame
 window when a read failed before anything was sent.
 
 The SDK stand-ins are the suite's ``pypylon`` and ``ids_peak`` modules,
@@ -31,7 +32,11 @@ import pytest
 from ids_peak import ids_peak
 
 from _lumascope.drivers.camera import Camera, FrameWindow
-from _lumascope.drivers.exceptions import CameraReadFailedError
+from _lumascope.drivers.exceptions import (
+    CameraNoAnswerError,
+    CameraReadFailedError,
+    CameraWriteFailedError,
+)
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 
@@ -152,8 +157,11 @@ def _ids_window_write(cam):
 
 def _ids_format_write(cam):
     cam._pixel_format_cache = 'Mono12'
-    cam._read_supported_pixel_formats = lambda: ('Mono8', 'Mono12')
-    entry = cam.remote_nodemap.FindNode.return_value.SetCurrentEntry
+    node = cam.remote_nodemap.FindNode.return_value
+    node.AvailableEntries.return_value = [
+        SimpleNamespace(SymbolicValue=lambda name=name: name) for name in ('Mono8', 'Mono12')
+    ]
+    entry = node.SetCurrentEntry
     return cam.set_pixel_format('Mono8'), (entry,)
 
 
@@ -201,12 +209,14 @@ def test_every_setter_lets_its_guards_failed_read_out_as_itself_with_nothing_wri
     assert not offenders, '\n'.join(offenders)
 
 
-def test_an_ids_gain_write_whose_selector_read_fails_lets_it_out_with_nothing_written():
+def test_an_ids_gain_write_whose_selector_read_is_unanswered_raises_it_with_nothing_written():
+    """The selector is read inside the write's own body, so its timeout is the
+    write's no-answer, which the API sends once more."""
     cam = bare_ids_camera()
     cam._gain_selector = None
     cam.remote_nodemap.HasNode.side_effect = ids_peak.TimeoutException('GC_ERR_TIMEOUT')
 
-    with pytest.raises(CameraReadFailedError, match='GainSelector'):
+    with pytest.raises(CameraNoAnswerError, match='GainSelector'):
         cam.gain(6.0)
     cam.remote_nodemap.FindNode.return_value.SetValue.assert_not_called()
     cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.assert_not_called()
@@ -283,12 +293,10 @@ def test_an_ids_write_whose_restart_cannot_read_the_grab_state_took_and_the_star
         _ids_restart_read_fails(cam)
         caplog.clear()
         try:
-            answer, written = write(cam)
+            _answer, written = write(cam)
         except Exception as e:
             offenders.append(f'{name}: the write was told {type(e).__name__}: {e}')
             continue
-        if answer is False:
-            offenders.append(f'{name}: answered not applied')
         if not all(node.called for node in written):
             offenders.append(f'{name}: not every value was sent')
         if not cam.grab_wanted:
@@ -345,6 +353,32 @@ def test_a_frame_size_write_that_fails_otherwise_drops_the_window():
     cam._set_hardware_window = MagicMock(side_effect=RuntimeError('half-written'))
     with pytest.raises(RuntimeError):
         cam.set_frame_size(400, 300)
+    assert cam._frame_window is None
+
+
+def test_a_lookup_that_fails_after_a_setters_first_write_is_a_write_failure():
+    """A setter's later lookup that fails is the write's failure, not a read's:
+    its first write landed, so the base must not keep a window the camera may
+    no longer acquire, as it does for a read that failed before any write."""
+    from pypylon import genicam
+
+    cam = bare_pylon_camera()
+    cam._frame_window = FrameWindow(1000, 1000, (0, 0, 1000, 1000))
+    cam.active.BinningVertical.GetValue.return_value = 1
+    nodemap = cam.active.GetNodeMap.return_value
+    offered = nodemap.GetNode.side_effect
+
+    def lookup(name):
+        # The getter's read before the write finds it; the write's lookup does not.
+        if name == 'BinningHorizontal' and cam.active.BinningVertical.SetValue.called:
+            raise genicam.RuntimeException('lookup lost')
+        return offered(name)
+
+    nodemap.GetNode.side_effect = lookup
+
+    with pytest.raises(CameraWriteFailedError, match='BinningHorizontal was not written'):
+        cam.set_binning_size(2)
+    cam.active.BinningVertical.SetValue.assert_called_once_with(2)
     assert cam._frame_window is None
 
 

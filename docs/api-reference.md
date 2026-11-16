@@ -6087,7 +6087,7 @@ Nothing.
 ### `CameraAPI.set_auto_exposure`
 
 ```python
-def set_auto_exposure(self, mode: CameraAutoMode) -> bool | None
+def set_auto_exposure(self, mode: CameraAutoMode) -> None
 ```
 
 Marks: sets [`auto_exposure`](#CameraAPI.auto_exposure); enters: `lane_call`.  
@@ -6097,9 +6097,9 @@ Put the camera's auto-exposure in `mode`, and wait for it.
 
 One command on the camera's lane, waited for; a write the camera
 does not apply raises. With no camera connected, turning
-auto-exposure off is satisfied: True, as a camera already in manual
-answers; so is turning off a mode a camera without hardware
-auto-exposure never had, with nothing written.
+auto-exposure off is satisfied, as a camera already in manual is;
+so is turning off a mode a camera without hardware auto-exposure
+never had, with nothing written.
 
 **Args**
 
@@ -6129,7 +6129,7 @@ def set_auto_gain(
     settings: dict,
     *,
     resume_after_capture: bool = True,
-) -> bool | None
+) -> None
 ```
 
 Marks: enters: `lane_call`.  
@@ -6139,8 +6139,9 @@ Enable or disable automatic gain adjustment, and wait for it.
 
 One command on the camera's lane, waited for. A write the camera
 does not apply raises and records no arm. With no camera connected,
-turning auto-gain off is satisfied: True, as a camera already in
-manual answers. The write is a raw one, which the next channel the
+turning auto-gain off is satisfied, as a camera already in manual is;
+so is turning off a mode a camera without hardware auto-gain never
+had, with nothing written. The write is a raw one, which the next channel the
 camera holds replaces; a channel's own auto-gain, which a capture of
 that channel uses, is `ScopeSession.set_channel_settings`' `auto_gain`.
 
@@ -6149,10 +6150,6 @@ that channel uses, is `ScopeSession.set_channel_settings`' `auto_gain`.
 - `state`: True to turn auto-gain on, False to turn it off.
 - `settings`: The arm's settings: `target_brightness`, `min_gain_db`, `max_gain_db`, and optionally `max_exposure_ms` and `min_exposure_ms`, the bounds the exposure may settle in. Read only to arm; turning auto-gain off reads none.
 - `resume_after_capture`: With `state` True, whether a capture that locks this arm re-arms it afterwards (live view) or leaves the camera at the locked values (a protocol step).
-
-**Returns**
-
-bool | None: The camera's answer, True or None; True, with nothing written, for turning off a mode a camera without hardware auto-gain never had.
 
 **Raises**
 
@@ -9642,12 +9639,12 @@ def refuse_camera_write(
 Marks: enters: `guarded_write`.  
 Route: `POST /api/v1/scope/simulation/refuse_camera_write`.
 
-The camera's next `count` writes of `node` answer `answer` and move nothing.
+The camera's next `count` writes of `node` answer `answer`.
 
 **Args**
 
 - `node`: The setting written: `'gain'`, `'exposure'`, `'auto_exposure'`, `'frame_size'`, `'binning'`, `'pixel_format'`, `'black_level'`, `'auto_gain'`, or `'auto_gain_once'`.
-- `answer`: What the node write answers: `'false'`, `'none'` (no confirmation), `'true'` (a bare True that confirms no value; not for `'frame_size'`, whose write answers the window it delivers), `'raise'` (`CameraWriteFailedError`, the driver's failed node write), or `'removed'` (False, with the camera gone from the bus during the write; it stays removed for the session, as after `remove_camera`), or `'no_answer'` (`CameraNoAnswerError`: the write timed out, and the camera stays on the bus).
+- `answer`: What the node write answers: `'raise'` (`CameraWriteFailedError`, the driver's failed node write); `'removed'` (the same, with the camera gone from the bus during the write; it stays removed for the session, as after `remove_camera`); `'no_answer'` (`CameraNoAnswerError`: the write timed out, and the camera stays on the bus). Each moves nothing. Or `'unreported'`: the write is made and answers nothing, as a driver's whose read-back failed after the write took (not for `'frame_size'`, whose write answers the window it delivers).
 - `count`: How many writes in a row meet it, 1 or more: the API sends a write the camera did not answer once more, so a second unanswered write takes 2.
 
 **Raises**
@@ -14206,12 +14203,10 @@ Taken by: [`SimulationAPI.refuse_camera_write`](#SimulationAPI.refuse_camera_wri
 
 What a refused camera write answers.
 
-- `false`
-- `none`
-- `true`
 - `raise`
 - `removed`
 - `no_answer`
+- `unreported`
 
 <a id="CameraWriteNode"></a>
 ### `lumascope.CameraWriteNode`
@@ -15572,7 +15567,7 @@ notifies it.
 
 **Attributes**
 
-- `reason`: `'camera_rejected'` -- the camera refused the write, or its driver raised from it. `'camera_no_answer'` -- the camera did not answer the write, sent twice, so whether it took it is not known. `'camera_read_failed'` -- a read the write needs first failed, so nothing was sent and the camera keeps its previous value. The setting is in `setting` and in the words.
+- `reason`: `'camera_rejected'` -- the camera refused the write, or its driver raised from it. `'camera_no_answer'` -- the camera did not answer the write, sent twice, so whether it took it is not known. `'camera_read_failed'` -- a read the write needs failed, so the setting was not written and the camera keeps its previous value of it. The setting is in `setting` and in the words.
 - `setting`: Machine-readable setting name (e.g. 'frame_size').
 - `requested`: The value the caller asked for.
 

@@ -549,7 +549,7 @@ def test_an_off_is_satisfied_when_the_camera_leaves_during_it(make_session):
         session.scope.simulation.refuse_camera_write(node, 'removed')
         answers[name] = SATISFIED[name](session.scope)
 
-    assert answers == {'set_auto_gain_off': True, 'set_auto_exposure_off': True}
+    assert answers == {'set_auto_gain_off': None, 'set_auto_exposure_off': None}
 
 
 def test_a_write_the_camera_left_during_leaves_no_value_to_read(make_session):
@@ -564,21 +564,11 @@ def test_a_write_the_camera_left_during_leaves_no_value_to_read(make_session):
     assert (camera.gain_db, camera._frame_validity.target('gain')) == (None, target)
 
 
-def test_a_write_that_raises_as_the_camera_leaves_is_refused_as_an_absent_one(
-    make_session, monkeypatch
-):
+def test_a_write_that_raises_as_the_camera_leaves_is_refused_as_an_absent_one(make_session):
     """The driver raised and the camera was declared removed: the absence is
     the answer, chained to the driver's error, not a rejection of the value."""
     session = make_session('LS850')
-    driver = session.scope._camera_driver
-
-    # A stand-in by design: the simulator's 'removed' write answers False; a
-    # write that raises as its camera leaves is a fault it does not offer.
-    def leaves_and_raises(*args, **kwargs):
-        session.scope.simulation.remove_camera()
-        raise CameraWriteFailedError('simulated node write lost its device')
-
-    monkeypatch.setattr(driver, 'gain', leaves_and_raises)
+    session.scope.simulation.refuse_camera_write('gain', 'removed')
 
     refusal = _refused(lambda: session.scope.camera.set_gain_db(9.0))
 
@@ -638,7 +628,7 @@ def test_a_camera_removed_as_live_view_re_arms_auto_gain_keeps_the_frame_and_tel
     def leaves_on_the_re_arm(state=True, **kwargs):
         if state:
             session.scope.simulation.remove_camera()
-            return False
+            raise CameraWriteFailedError('simulated auto-gain write lost its device')
         return real_auto_gain(state, **kwargs)
 
     monkeypatch.setattr(driver, 'auto_gain', leaves_on_the_re_arm)

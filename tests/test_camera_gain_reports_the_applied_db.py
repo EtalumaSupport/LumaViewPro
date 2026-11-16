@@ -19,6 +19,7 @@ import math
 import pytest
 
 from _lumascope.drivers import fx2driver
+from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 
@@ -54,7 +55,8 @@ class TestPylon:
 
 class TestPylonReadBack:
     """The write succeeded and the confirming read failed: applied, but the
-    value in effect is unknown -- never reported as a refusal, which would
+    value in effect is unknown, so nothing is answered -- never reported as a
+    refusal, which would
     leave the old gain recorded over a node that took the new one."""
 
     @pytest.fixture
@@ -75,7 +77,8 @@ class TestPylonReadBack:
         from _lumascope.drivers.pyloncamera import genicam
 
         cam._read_back_error = genicam.TimeoutException('read-back timed out')
-        assert cam.gain(12.5) is True
+        assert cam.gain(12.5) is None
+        cam.active.Gain.SetValue.assert_called_once_with(12.5)
         cam._mark_disconnected.assert_not_called()
 
     def test_lost_comms_on_the_read_back_is_the_write_applied_unconfirmed(self, cam):
@@ -86,7 +89,7 @@ class TestPylonReadBack:
         del cam._mark_disconnected  # the real latch
         cam._device_removed = False
         cam._read_back_error = genicam.RuntimeException('comms lost')
-        assert cam.gain(12.5) is True
+        assert cam.gain(12.5) is None
         assert not cam.is_device_removed()
 
 
@@ -123,19 +126,21 @@ class TestFX2:
         assert cam.gain(60.0) == pytest.approx(20 * math.log10(128))
 
     def test_an_inactive_camera_refuses_a_gain(self, cam):
-        """Refused, as its exposure is: a ``None`` would read to the API as
+        """Refused, as its exposure is: an answer would read to the API as
         applied and record a gain the camera never received."""
         cam._active = None
         cam._fx2.sensor_reg_write.reset_mock()
-        assert cam.gain(6.0) is False
+        with pytest.raises(CameraWriteFailedError, match='no camera is open'):
+            cam.gain(6.0)
         cam._fx2.sensor_reg_write.assert_not_called()
 
     def test_an_inactive_camera_refuses_an_exposure(self, cam):
         """``exposure_t``'s ``None`` means "applied, value unknown", so an
-        inactive camera answers refused, as the pylon and simulated drivers do."""
+        inactive camera raises refused, as the pylon and simulated drivers do."""
         cam._active = None
         cam._fx2.sensor_reg_write.reset_mock()
-        assert cam.exposure_t(20.0) is False
+        with pytest.raises(CameraWriteFailedError, match='no camera is open'):
+            cam.exposure_t(20.0)
         cam._fx2.sensor_reg_write.assert_not_called()
 
 
@@ -153,12 +158,14 @@ class TestSimulated:
     def test_a_gain_above_the_declared_maximum_is_refused(self, cam):
         before = cam.get_gain()
         above = cam.max_gain + 1.0
-        assert cam.gain(above) is False
+        with pytest.raises(CameraWriteFailedError):
+            cam.gain(above)
         assert cam.get_gain() == before
 
     def test_a_gain_below_the_declared_minimum_is_refused(self, cam):
         before = cam.get_gain()
-        assert cam.gain(-5.0) is False
+        with pytest.raises(CameraWriteFailedError):
+            cam.gain(-5.0)
         assert cam.get_gain() == before
 
 
@@ -198,4 +205,4 @@ class TestSimulatedAutoGain:
         cam = SimulatedCamera()
         cam.active = True
         cam.auto_gain_once(True, min_gain_db=0.0, max_gain_db=48.0)
-        assert cam.gain(cam.get_gain()) is not False
+        assert cam.gain(cam.get_gain()) == pytest.approx(cam.get_gain())

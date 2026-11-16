@@ -235,7 +235,7 @@ def test_a_format_the_camera_refuses_at_bring_up_leaves_the_saved_mode_and_is_to
 ):
     """A mode is a save policy every camera honours, so nothing is substituted for it."""
     scope, saved = _bring_up(
-        prepare=lambda s: s.simulation.refuse_camera_write('pixel_format', 'false'),
+        prepare=lambda s: s.simulation.refuse_camera_write('pixel_format', 'raise'),
         image_mode='12bit_scientific',
     )
 
@@ -343,7 +343,7 @@ def test_a_restore_the_camera_refuses_part_way_saves_what_the_camera_holds(sessi
     snapshot = camera.save_camera_state('test')
     camera.set_binning(2)
     camera.set_frame_size(400, 300)
-    session.scope.simulation.refuse_camera_write(node, 'false')
+    session.scope.simulation.refuse_camera_write(node, 'raise')
 
     with pytest.raises(CameraSettingRejected):
         camera.restore_camera_state(snapshot)
