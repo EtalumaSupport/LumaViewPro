@@ -1158,7 +1158,7 @@ class LumaViewProApp(TooltipMixin, App):
         # Wire UI components now that widget tree exists
         ctx.viewer = lumaview.ids['viewer_id']
         ctx.scope_display = ctx.viewer.ids['scope_display_id']
-        ctx.scope_display.window_minimized = lambda: self._window_minimized
+        ctx.scope_display.window_minimized = self.window_minimized
         # A zoom, a pan, Fit and 1:1 all change the viewer's transform; a
         # frame of another shape changes the image's place inside the view.
         ctx.viewer.bind(transform=self._geometry_changed)
@@ -1490,6 +1490,10 @@ class LumaViewProApp(TooltipMixin, App):
             gui_logger.window_event('keyboard', f'key=Ctrl-Q mods={mods}')
         return False
 
+    def window_minimized(self) -> bool:
+        """Whether the window is minimized, as a slow frame's line names it."""
+        return self._window_minimized
+
     def _on_window_minimize(self, *args) -> None:
         self._window_minimized = True
         gui_logger.window_event('minimize')
@@ -1508,7 +1512,12 @@ class LumaViewProApp(TooltipMixin, App):
         Focus changes are routine (clicking between LVP and another
         app); the value comes from knowing whether the user moved
         attention elsewhere just before a shutdown / freeze.
+
+        A focus gain is also the window back from a minimize: a minimized
+        window cannot hold focus, and on the Mac Kivy sends no restore.
         """
+        if focused:
+            self._window_minimized = False
         gui_logger.window_event('focus', f'focused={focused}')
 
     def on_request_close(self, *args) -> bool:
