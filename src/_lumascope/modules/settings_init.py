@@ -15,7 +15,7 @@ from _lumascope.modules.exceptions import (
     SettingsFileNotReplacedError,
     StoredSettingReplacedNotice,
 )
-from _lumascope.modules.path_utils import read_installation_file
+from _lumascope.modules.path_utils import read_installation_file, resolve_data_file
 from _lumascope.modules.python_values import python_values
 
 # A setting's value: what one leaf of the settings file holds.
@@ -854,8 +854,8 @@ def prepare_settings(
         (path, reason) naming the user's file that was set aside.
     """
     current_path = current_json_path(directory)
-    template_path = os.path.join(directory, 'data', 'settings.json')
-    data_dir = os.path.join(directory, 'data')
+    template_path = template_path_for(directory)
+    data_dir = os.path.dirname(current_path)
     rejected = None
 
     if os.path.exists(current_path):
@@ -1073,7 +1073,7 @@ def fall_back_to_template(logger: logging.Logger, lvp_appdata: str, reason: str)
     global rejected_current_json
 
     current_path = current_json_path(lvp_appdata)
-    template_path = os.path.join(lvp_appdata, 'data', 'settings.json')
+    template_path = template_path_for(lvp_appdata)
     template = load_template(logger, template_path)
 
     logger.error(
@@ -1139,6 +1139,16 @@ def current_json_path(directory: str | os.PathLike) -> str:
     return os.path.join(directory, 'data', 'current.json')
 
 
+def template_path_for(directory: str | os.PathLike | None) -> str:
+    """The shipped template the installation at ``directory`` is prepared from.
+
+    ``resolve_data_file``'s answer: an installed build's own, never a copy
+    an earlier build of the version left in its data folder, whose missing
+    keys would never be merged in.
+    """
+    return str(resolve_data_file('settings.json', source_path=directory))
+
+
 def read_before_preparation(directory: str, key: str) -> tuple[object, str]:
     """One installation-only setting, read before the settings are prepared.
 
@@ -1160,14 +1170,13 @@ def read_before_preparation(directory: str, key: str) -> tuple[object, str]:
             the caller does not answer with a default: the launch stops and
             names the file.
     """
-    data_dir = os.path.join(directory, 'data')
     try:
-        live = read_settings_json(os.path.join(data_dir, 'current.json'))
+        live = read_settings_json(current_json_path(directory))
     except (FileNotFoundError, SettingsFileError):
         live = {}
     if key in live:
         return live[key], 'current.json'
-    template_path = os.path.join(data_dir, 'settings.json')
+    template_path = template_path_for(directory)
     template = read_installation_file(template_path)
     if key not in template:
         raise InstallationFileError(template_path, f'has no {key!r}')

@@ -521,22 +521,29 @@ def installed_data_root() -> pathlib.Path | None:
     return documents_dir / data_folder_name(version)
 
 
-def seed_installed_data_root() -> None:
-    """Copy into an installed build's data folder every file the build ships that it lacks.
+# The files the build ships under data/ that are the user's to change: their
+# plates (the manual's custom-labware page edits labware.json in the data
+# folder) and the protocols, the default one the template's protocol path.
+# Every other shipped file is the build's own, and an installed build reads
+# it from the build (``resolve_data_file``). Its data folder is named for the
+# version alone, so a later build of that version finds the earlier one's
+# folder: a copy of the build's files there would be the earlier build's.
+USER_DATA_FILES = ('labware.json', 'example_protocol.tsv', 'new_default_protocol.tsv')
 
-    An installed build's data folder is in Documents and starts empty, and
-    its ``data/settings.json`` is read before anything else (the logging
-    start's ``debug_mode``), so the program's logging start seeds it first.
-    A file already there, the user's or shipped, is never overwritten; a
-    shipped file the folder lacks, at its first launch or after a removal,
-    is copied. Each file is copied under a temporary name beside its own
-    and moved to its name in one ``os.replace``, so a file at its name is
-    always the whole shipped file: a copy stopped partway (the disk full,
-    the process killed) leaves only the temporary file, which no reader
-    names, and the next launch copies it again; two launches at once each
-    move a whole copy of the same bytes. Any other run's data root is the
-    folder it was launched from, holding the build's own data, and is left
-    as it is.
+
+def seed_installed_data_root() -> None:
+    """Copy into an installed build's data folder each of ``USER_DATA_FILES`` it lacks.
+
+    An installed build's data folder is in Documents and starts empty. A
+    file already there is the user's and is never overwritten; one the
+    folder lacks, at its first launch or after a removal, is copied. Each
+    file is copied under a temporary name beside its own and moved to its
+    name in one ``os.replace``, so a file at its name is always the whole
+    shipped file: a copy stopped partway (the disk full, the process killed)
+    leaves only the temporary file, which no reader names, and the next
+    launch copies it again; two launches at once each move a whole copy of
+    the same bytes. Any other run's data root is the folder it was launched
+    from, holding the build's own data, and is left as it is.
 
     Raises:
         OSError: a file could not be copied; the files moved before it stay.
@@ -545,9 +552,10 @@ def seed_installed_data_root() -> None:
         return
     shipped = build_root() / 'data'
     data = get_source_root() / 'data'
-    for source in sorted(shipped.rglob('*')):
-        target = data / source.relative_to(shipped)
-        if not source.is_file() or target.exists():
+    for name in USER_DATA_FILES:
+        source = shipped / name
+        target = data / name
+        if target.exists():
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         handle, partial = tempfile.mkstemp(
@@ -585,8 +593,30 @@ def resolve_data_file(
     *parts: str,
     source_path: str | pathlib.Path | None = None,
 ) -> pathlib.Path:
-    """Resolve a file under the writable data/ directory."""
-    return get_source_root(source_path).joinpath('data', *parts)
+    """The file under ``data/`` that a reader of it reads: the one answer.
+
+    The data root's (``get_source_root(source_path)``), but on an installed
+    build: there a file the build ships for its own reading -- every one
+    but ``USER_DATA_FILES`` -- is the build's (``build_root()/data``), so
+    the build that runs is the build whose template and catalogues are read,
+    whatever an earlier build of the version left in the data folder. A
+    file the build does not ship (``current.json``, anything the user
+    keeps there) is the data folder's. A caller's ``source_path`` naming a
+    folder of its own reads that folder's. The installed folder is
+    recognised as the folder it names, however the path is spelled: the
+    hosts hand it on as a string.
+    """
+    root = get_source_root(source_path)
+    installed = installed_data_root()
+    shipped = build_root().joinpath('data', *parts)
+    if (
+        installed is not None
+        and parts[0] not in USER_DATA_FILES
+        and shipped.exists()
+        and root.resolve() == installed.resolve()
+    ):
+        return shipped
+    return root.joinpath('data', *parts)
 
 
 def _one_value_per_key(pairs: list[tuple[str, object]]) -> dict:

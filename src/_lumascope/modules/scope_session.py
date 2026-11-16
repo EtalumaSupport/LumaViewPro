@@ -1895,7 +1895,7 @@ class ScopeSession:
         # session's alone, so a write into the caller's dict reaches no
         # setting past update_settings' checks.
         root = get_source_root(source_path)
-        template = settings_init.load_template(logger, str(root / 'data' / 'settings.json'))
+        template = settings_init.load_template(logger, settings_init.template_path_for(root))
         settings = settings_init.prepare_loaded(
             logger, copy.deepcopy(settings), template, str(root), source='settings', handed=True
         )

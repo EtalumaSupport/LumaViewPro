@@ -1,6 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A support report copies the data folder with every stored ``api_key`` value blanked.
 
+A file there that an installed build reads from the build instead is named
+in ``NOT_COPIED.txt``, not carried as if it were read.
+
 The data folder's copy (``TechSupportReport._step_data_folder``, both
 reports' one copier) blanks the value of every ``"api_key"`` in every
 ``current.json*`` -- the live file, each file set aside as rejected, a
@@ -23,8 +26,9 @@ import zipfile
 
 import pytest
 
+from _lumascope.modules import path_utils
 from _lumascope.modules.exceptions import SupportReportNotSavedError
-from tests.installation_fixtures import INSTALLATION_FILES
+from tests.installation_fixtures import INSTALLATION_FILES, copy_installation_files
 
 # Each file as it sits in the data folder, and as the report must carry it.
 _FILES = {
@@ -86,9 +90,43 @@ def test_every_stored_api_key_is_blanked_and_every_other_byte_kept(session, data
     assert {name: copied.get(name) for name in _FILES} == {
         name: carried for name, (_, carried) in _FILES.items()
     }
-    # Beside them, the installation's own files, each byte as it ships.
+    # Beside them, the installation's own files, each byte as it ships: an
+    # installation of its own is read from its own folder.
     for name in INSTALLATION_FILES:
         assert copied[name] == (data / name).read_bytes()
+
+
+def test_an_installed_builds_report_names_the_copies_it_does_not_read(
+    session, data, tmp_path, monkeypatch
+):
+    """An installed build reads its template and catalogues from the build.
+
+    Copies an earlier build of the version left in the data folder are not
+    what ran, so the report names them as not copied instead of carrying
+    them as if read; the user's files there (their settings, their plates,
+    anything else they keep) are carried.
+    """
+    root = session.scope.source_path
+    bundle = tmp_path / 'bundle'
+    (bundle / 'data').mkdir(parents=True)
+    copy_installation_files(bundle / 'data')
+    # a stand-in by design: an installed build is a frozen process launched
+    # beside the installer's marker, which this test process is not; the
+    # session's folder stands as its data folder, and a bundle holding the
+    # shipped files as its build (a checkout's data/ also holds its own
+    # current.json, which no build ships).
+    monkeypatch.setattr(path_utils, 'installed_data_root', lambda: root)
+    monkeypatch.setattr(path_utils, 'build_root', lambda: bundle)
+
+    copied = _copied(session.make_logs_zip(output_dir=tmp_path / 'out').path)
+
+    assert copied['current.json'] == _FILES['current.json'][1]
+    assert copied['notes/api_key.txt'] == _FILES['notes/api_key.txt'][1]
+    assert copied['labware.json'] == (data / 'labware.json').read_bytes()
+    not_copied = copied['NOT_COPIED.txt'].decode()
+    for name in set(INSTALLATION_FILES) - set(path_utils.USER_DATA_FILES):
+        assert name not in copied
+        assert name in not_copied, not_copied
 
 
 @pytest.mark.skipif(

@@ -68,6 +68,7 @@ from _lumascope.modules.path_utils import (
     folder_to_make,
     get_log_dir,
     require_capture_location,
+    resolve_data_file,
 )
 from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.scope_parts import Board
@@ -96,10 +97,6 @@ FIRMWARE_CONFIG_EXTENSIONS = {'.json', '.ini'}
 RECENT_PROTOCOL_COUNT = 10
 
 RECENT_VIDEO_RECEIPT_COUNT = 20
-
-# The one part of an installation's data folder a report leaves out: the
-# GUI's pictures, which every installation of a release holds byte for byte.
-DATA_FOLDER_NOT_COPIED = ('icons',)
 
 # What a section holds in place of what it collects when the live folder is
 # not there to read.
@@ -160,14 +157,36 @@ def _without_api_keys(data: bytes) -> bytes:
     )
 
 
-def _data_folder_not_copied(data_dir: pathlib.Path) -> Callable[[str, list[str]], set[str]]:
-    """``copytree``'s ignore for ``data_dir``: bytecode anywhere, ``DATA_FOLDER_NOT_COPIED`` at its top."""
+# The one part of an installation's data folder a report leaves out: the
+# GUI's pictures, which every installation of a release holds byte for byte.
+DATA_FOLDER_NOT_COPIED = ('icons',)
+
+
+def _data_folder_not_copied(
+    data_dir: pathlib.Path, unread: list[str]
+) -> Callable[[str, list[str]], set[str]]:
+    """``copytree``'s ignore for ``data_dir``: bytecode anywhere; at its top ``DATA_FOLDER_NOT_COPIED`` and every unread file.
+
+    A file at the top of ``data_dir`` that its reader reads from elsewhere
+    (``resolve_data_file`` answers the build's on an installed build) is a
+    copy an earlier build of the version left there: it is named in
+    ``unread`` instead of carried as if it were read.
+    """
     bytecode = shutil.ignore_patterns('__pycache__', '*.pyc')
+    root = data_dir.parent
 
     def ignore(folder: str, names: list[str]) -> set[str]:
         skipped = set(bytecode(folder, names))
         if pathlib.Path(folder) == data_dir:
             skipped.update(name for name in names if name in DATA_FOLDER_NOT_COPIED)
+            elsewhere = sorted(
+                name
+                for name in names
+                if name not in skipped
+                and resolve_data_file(name, source_path=root) != data_dir / name
+            )
+            unread.extend(elsewhere)
+            skipped.update(elsewhere)
         return skipped
 
     return ignore
@@ -2543,7 +2562,7 @@ class TechSupportReport:
         )
 
     def _step_data_folder(self, tmp):
-        """Copy the installation's data folder but its icons, every ``current.json*``'s stored ``api_key`` value blanked.
+        """Copy the installation's data folder but its icons and unread files, every ``current.json*``'s stored ``api_key`` value blanked.
 
         The live settings file, each one set aside as rejected and a
         ``.saving`` a power cut left are all copied: support reads them
@@ -2551,13 +2570,15 @@ class TechSupportReport:
         on their bytes and every other byte is kept. A copy that fails
         raises. A file gone between the listing and its copy -- the
         settings saver renames its ``.saving`` over ``current.json`` -- is
-        not there to copy, and is named in ``NOT_COPIED.txt``.
+        not there to copy, and is named in ``NOT_COPIED.txt``, as is each
+        file there that is read from elsewhere (``_data_folder_not_copied``).
         """
         data_dir = self._data_folder()
         if not data_dir.is_dir():
             return
         dest = tmp / 'data'
         gone = []
+        unread = []
 
         def copy(src: str, dst: str) -> None:
             try:
@@ -2577,14 +2598,23 @@ class TechSupportReport:
             data_dir,
             dest,
             dirs_exist_ok=True,
-            ignore=_data_folder_not_copied(data_dir),
+            ignore=_data_folder_not_copied(data_dir, unread),
             copy_function=copy,
         )
+        notes = []
+        if unread:
+            notes.append(
+                'Read from the build, not from this folder; a copy an earlier build of the '
+                'version left here:\n' + ''.join(f'{name}\n' for name in unread)
+            )
         if gone:
-            (dest / 'NOT_COPIED.txt').write_text(
+            notes.append(
                 'Gone from the data folder between its listing and its copy:\n'
                 + ''.join(f'{name}\n' for name in gone)
             )
+        if notes:
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / 'NOT_COPIED.txt').write_text('\n'.join(notes))
 
     def _step_live_settings(self, tmp):
         """The settings the session is running on, its stored ``api_key`` values blanked.
