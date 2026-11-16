@@ -14,7 +14,7 @@ from _lumascope.modules import gui_logger
 from _lumascope.modules.coord_transformations import PlatePosition
 from _lumascope.modules.exceptions import Refusal
 from _lumascope.modules.channel_record import GREY, Color, format_display_color
-from ui.ui_helpers import fixed_number, run_unasked
+from ui.ui_helpers import fixed_number, schedule_ui_interval
 
 logger = logging.getLogger('LVP.ui.shader')
 
@@ -149,16 +149,7 @@ void main (void) {
         # was too sluggish for stage-position feedback during motion).
         # 10 Hz keeps cursor XY responsive without saturating
         # Window.set_title() on SDL2/Windows.
-        # Drawn through the GUI's boundary: nothing waits on the title, and a
-        # raise out of a clock callback closes the application, so a fault is
-        # reported where it stops and the next tick draws again.
-        def _status_bar_tick(dt):
-            # Returns nothing: an interval callback that returns False is
-            # cancelled, and run_unasked answers False for a fault.
-            run_unasked(lambda: self._update_status_bar(dt), 'STATUS_BAR')
-
-        self._status_bar_trigger = Clock.create_trigger(_status_bar_tick, 0.1, interval=True)
-        self._status_bar_trigger()
+        self._status_bar_tick = schedule_ui_interval(self._update_status_bar, 0.1, 'STATUS_BAR')
         self._mouse_pixel_x = -1
         self._mouse_pixel_y = -1
         # The cursor as fractions of the shown frame, in the API's frame

@@ -13,7 +13,7 @@ from kivy.properties import BooleanProperty, NumericProperty
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules import gui_logger
 from _lumascope.modules.ui_queue import schedule_ui
-from ui.ui_helpers import run_reported, submit_reported
+from ui.ui_helpers import run_reported, schedule_ui_interval, submit_reported
 from ui.composite_capture import CompositeCapture
 
 logger = logging.getLogger('LVP.ui.main_display')
@@ -111,7 +111,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             return
         button.state = 'down'
         if self._recording_poll is None:
-            self._recording_poll = Clock.schedule_interval(self._poll_recording_state, 0.1)
+            self._recording_poll = schedule_ui_interval(
+                self._poll_recording_state, 0.1, 'RECORDING_POLL'
+            )
 
     def _poll_recording_state(self, dt=None):
         """Main-thread poll: titles and button state only.

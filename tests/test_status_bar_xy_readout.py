@@ -44,26 +44,24 @@ def test_status_bar_trigger_runs_at_at_least_10hz():
     """#638 follow-up: cursor XY readout cadence must be >= 10 Hz.
 
     Original implementation ran at 1 Hz which felt sluggish during
-    stage motion -- Eric flagged this on bench. The Clock.create_trigger
-    interval must be <= 0.1 s so the title-bar XY position keeps up
-    with motor moves.
+    stage motion -- Eric flagged this on bench. The status bar's interval
+    must be <= 0.1 s so the title-bar XY position keeps up with motor
+    moves.
     """
     import re
 
     src = _read('ui/shader.py')
     match = re.search(
-        r'_status_bar_trigger\s*=\s*Clock\.create_trigger\('
-        r'\s*(?:self\._update_status_bar|_status_bar_tick'
-        r'|lambda dt: run_unasked\(lambda: self\._update_status_bar\(dt\), \'STATUS_BAR\'\))'
-        r'\s*,\s*([0-9]*\.?[0-9]+)',
+        r'_status_bar_tick\s*=\s*schedule_ui_interval\('
+        r'\s*self\._update_status_bar\s*,\s*([0-9]*\.?[0-9]+)',
         src,
     )
     assert match is not None, (
-        '_status_bar_trigger Clock.create_trigger(...) call not found in ui/shader.py'
+        '_status_bar_tick schedule_ui_interval(...) call not found in ui/shader.py'
     )
     interval = float(match.group(1))
     assert interval <= 0.1, (
-        f'_status_bar_trigger interval is {interval}s -- must be '
+        f'the status bar interval is {interval}s -- must be '
         f'<= 0.1s (10 Hz) so cursor XY/Plate readouts stay responsive '
         f'during motion. (#638)'
     )

@@ -89,10 +89,6 @@ class _ImmediateClock:
         callback(0)
 
     @staticmethod
-    def schedule_interval(callback, timeout):
-        return object()
-
-    @staticmethod
     def unschedule(event):
         pass
 
@@ -106,6 +102,8 @@ def _make_display(monkeypatch, controller):
     display._recording_poll = None
 
     monkeypatch.setattr(main_display, 'Clock', _ImmediateClock)
+    # The recording poll's schedule: a handle the cleanup cancels, never ticked here.
+    monkeypatch.setattr(main_display, 'schedule_ui_interval', lambda *a: object())
     monkeypatch.setattr(main_display.gui_logger, 'button', lambda *a, **kw: None)
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda fn: fn(0))
     ctx = MagicMock()

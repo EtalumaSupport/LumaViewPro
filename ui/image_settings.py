@@ -11,7 +11,7 @@ import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.channel_record as channel_record
 from _lumascope.modules import gui_logger
-from ui.ui_helpers import LoggedAccordionItem, resort_accordion
+from ui.ui_helpers import LoggedAccordionItem, resort_accordion, schedule_ui_interval
 
 logger = logging.getLogger('LVP.ui.image_settings')
 
@@ -83,6 +83,9 @@ class ImageSettings(BoxLayout):
             channel: ChannelDrawer(channel=channel) for channel in common_utils.get_channels()
         }
         self._shown_channels: frozenset[str] = frozenset()
+        # The shown channel's histogram schedule (set_histogram_channel's),
+        # the one handle that stops it; one channel's is ever scheduled.
+        self._histogram_tick = None
         self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
 
@@ -417,12 +420,12 @@ class ImageSettings(BoxLayout):
 
 
 def set_histogram_channel(active_channel):
-    for channel in common_utils.get_channels():
-        channel_control = _app_ctx.ctx.image_settings.channel_control_lookup(channel=channel)
-        Clock.unschedule(channel_control.ids['histo_id'].histogram)
-
-        if channel == active_channel:
-            Clock.schedule_interval(channel_control.ids['histo_id'].histogram, 0.5)
-            logger.debug(
-                f'[LVP Main  ] Clock.schedule_interval(...[{active_channel}]...histogram, 0.5)'
-            )
+    """Draw *active_channel*'s histogram every half second, and no other channel's."""
+    image_settings = _app_ctx.ctx.image_settings
+    if image_settings._histogram_tick is not None:
+        image_settings._histogram_tick.cancel()
+    channel_control = image_settings.channel_control_lookup(channel=active_channel)
+    image_settings._histogram_tick = schedule_ui_interval(
+        channel_control.ids['histo_id'].histogram, 0.5, f'HISTOGRAM_{active_channel}'
+    )
+    logger.debug(f'[LVP Main  ] histogram drawn for {active_channel}, every 0.5 s')

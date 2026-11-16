@@ -280,6 +280,33 @@ def run_unasked(call: typing.Callable[[], object], label: str) -> bool:
     return _contained(call, label, solicited=False)
 
 
+def schedule_ui_interval(
+    callback: typing.Callable[[float], object], interval_s: float, label: str
+) -> object:
+    """Run *callback* every *interval_s* seconds on the UI thread; a raise is reported, and the schedule goes on.
+
+    Kivy ends a repeating schedule whose callback raised, whatever the
+    application's exception handler answers, so a display drawn by one
+    would stop at its first fault and go on showing its last value as if
+    it were live. Every repeating GUI callback is scheduled here instead:
+    a raise is reported unasked under *label*, as ``run_unasked`` reports
+    it, and the next tick runs again. A tick that returned answers what
+    *callback* answered, so a callback still ends its own schedule by
+    returning False.
+
+    Returns the Kivy event, the one handle that cancels the schedule. The
+    schedule holds *callback*, and the object it is bound to, until that
+    handle is cancelled.
+    """
+
+    def _tick(dt: float) -> object:
+        answered = []
+        _contained(lambda: answered.append(callback(dt)), label, solicited=False)
+        return answered[0] if answered else None
+
+    return Clock.schedule_interval(_tick, interval_s)
+
+
 class CommitInput(TextInput):
     """A text box that commits what the person typed, and nothing else.
 

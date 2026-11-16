@@ -26,7 +26,7 @@ from __future__ import annotations
 import ast
 import pathlib
 import textwrap
-from tests.stock_channels import LED1
+from tests.stock_channels import LED1, LED2
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -123,10 +123,12 @@ def test_histogram_calls_is_displayed_before_camera_read():
     assert guard < read, '_is_displayed guard must precede the camera read'
 
 
-def test_the_shown_histogram_draws_again_after_the_panel_folds_and_unfolds(monkeypatch):
-    """Folding the image-settings panel leaves the shown channel's histogram
-    scheduled, so it draws again the moment the panel unfolds; while folded,
-    _is_displayed (above) is what skips its work."""
+def _a_panel_with_a_recorded_histogram_schedule(monkeypatch):
+    """The image-settings panel over a stub context, with what is scheduled recorded.
+
+    Returns the module, each channel's controls, the panel and the set of
+    histogram callbacks scheduled now.
+    """
     from types import SimpleNamespace
 
     import _lumascope.modules.app_context as _app_ctx
@@ -134,17 +136,15 @@ def test_the_shown_histogram_draws_again_after_the_panel_folds_and_unfolds(monke
     import ui.image_settings as image_settings
 
     # a stand-in by design: Kivy is stubbed in the test process, so the
-    # Clock is a recorder of what is scheduled; the subject is the panel's
-    # fold, not Kivy's timer
+    # interval routine is a recorder of what is scheduled, each handle
+    # cancelling its own; the subject is the panel, not Kivy's timer
     scheduled = set()
-    monkeypatch.setattr(
-        image_settings,
-        'Clock',
-        SimpleNamespace(
-            schedule_interval=lambda callback, _interval: scheduled.add(callback),
-            unschedule=scheduled.discard,
-        ),
-    )
+
+    def schedule(callback, _interval, _label):
+        scheduled.add(callback)
+        return SimpleNamespace(cancel=lambda: scheduled.discard(callback))
+
+    monkeypatch.setattr(image_settings, 'schedule_ui_interval', schedule)
     controls = {
         channel: SimpleNamespace(ids={'histo_id': SimpleNamespace(histogram=lambda *a: None)})
         for channel in common_utils.get_channels()
@@ -155,6 +155,7 @@ def test_the_shown_histogram_draws_again_after_the_panel_folds_and_unfolds(monke
         tab_width=20,
         settings_width=300,
         channel_control_lookup=lambda channel: controls[channel],
+        _histogram_tick=None,
     )
     monkeypatch.setattr(
         _app_ctx,
@@ -164,6 +165,16 @@ def test_the_shown_histogram_draws_again_after_the_panel_folds_and_unfolds(monke
             lumaview=SimpleNamespace(width=1000),
             image_settings=panel,
         ),
+    )
+    return image_settings, controls, panel, scheduled
+
+
+def test_the_shown_histogram_draws_again_after_the_panel_folds_and_unfolds(monkeypatch):
+    """Folding the image-settings panel leaves the shown channel's histogram
+    scheduled, so it draws again the moment the panel unfolds; while folded,
+    _is_displayed (above) is what skips its work."""
+    image_settings, controls, panel, scheduled = _a_panel_with_a_recorded_histogram_schedule(
+        monkeypatch
     )
     image_settings.set_histogram_channel(active_channel=LED1)
     shown = controls[LED1].ids['histo_id'].histogram
@@ -175,3 +186,15 @@ def test_the_shown_histogram_draws_again_after_the_panel_folds_and_unfolds(monke
 
     assert panel.x == 1000 - 300
     assert scheduled == {shown}
+
+
+def test_showing_another_channel_stops_the_last_ones_histogram(monkeypatch):
+    """Only the shown channel's histogram is scheduled: showing another one
+    cancels the last one's schedule through its handle."""
+    image_settings, controls, _panel, scheduled = _a_panel_with_a_recorded_histogram_schedule(
+        monkeypatch
+    )
+    image_settings.set_histogram_channel(active_channel=LED1)
+    image_settings.set_histogram_channel(active_channel=LED2)
+
+    assert scheduled == {controls[LED2].ids['histo_id'].histogram}

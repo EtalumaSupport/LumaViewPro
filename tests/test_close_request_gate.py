@@ -54,13 +54,13 @@ def _method(class_node, name):
 
 
 def _interval_callback(method_node):
-    """The function handed to Clock.schedule_interval inside ``method_node``."""
+    """The function handed to ``schedule_ui_interval`` inside ``method_node``."""
     scheduled = None
     for node in ast.walk(method_node):
         if (
             isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'schedule_interval'
+            and isinstance(node.func, ast.Name)
+            and node.func.id == 'schedule_ui_interval'
             and node.args
             and isinstance(node.args[0], ast.Name)
         ):
@@ -98,6 +98,44 @@ def test_the_close_watch_stops_itself():
         f'{watch.name} must return False on the tick that finds the close ended, so '
         'the Kivy interval stops itself.'
     )
+
+
+def test_the_close_watch_stops_the_app_when_the_popups_dismiss_raises(centre_posts):
+    """Once the close's thread has ended, the app stops whatever the dismiss does.
+
+    The watch is scheduled through ``schedule_ui_interval``, where a tick
+    that raised runs again: a dismiss that raised would repeat every 0.2 s
+    with the close done and the app never stopped. The real ``_watch`` body
+    runs here, compiled out of ``_run_the_close`` with the names it closes
+    over supplied.
+    """
+    import types
+
+    from ui.ui_helpers import run_unasked
+
+    watch = _interval_callback(_method(_app_class(_module_tree()), '_run_the_close'))
+    stopped = []
+
+    def _dismiss():
+        raise RuntimeError('the popup is already gone')
+
+    # a stand-in by design: the app and its popup are the watch's
+    # collaborators, and lumaviewpro.py builds a widget tree at import
+    namespace = {
+        'self': types.SimpleNamespace(
+            _close_thread=types.SimpleNamespace(is_alive=lambda: False),
+            stop=lambda: stopped.append(True),
+        ),
+        'popup': types.SimpleNamespace(dismiss=_dismiss),
+        'run_unasked': run_unasked,
+    }
+    exec(compile(ast.Module(body=[watch], type_ignores=[]), _ENTRY_POINT, 'exec'), namespace)
+
+    answered = namespace[watch.name](0.2)
+
+    assert stopped == [True]
+    assert answered is False
+    assert [post.category for post in centre_posts] == ['UI:CLOSE_POPUP_DISMISS']
 
 
 def test_close_request_refuses_re_entry_while_a_close_is_in_flight():
@@ -264,16 +302,26 @@ def test_the_close_stops_the_window_listening_before_the_scope_goes():
     prepare = _method(class_node, '_prepare_the_close')
     calls = [node for node in ast.walk(prepare) if isinstance(node, ast.Call)]
     called = {ast.unparse(node.func) for node in calls}
-    unscheduled = {
-        ast.unparse(node.args[0])
+    cancelled = {
+        ast.unparse(node.func.value)
         for node in calls
-        if isinstance(node.func, ast.Attribute) and node.func.attr == 'unschedule' and node.args
+        if isinstance(node.func, ast.Attribute) and node.func.attr == 'cancel'
+    }
+    # The handle each position redraw's schedule was stored in by the fit.
+    scheduled_into = {
+        ast.unparse(node.value.args[0]): ast.unparse(node.targets[0])
+        for node in ast.walk(_method(class_node, '_fit'))
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and ast.unparse(node.value.func) == 'schedule_ui_interval'
     }
 
     assert 'ctx.ui_listener_bridge.unregister_all' in called
-    assert {'ctx.stage.draw_labware', 'ctx.motion_settings.update_xy_stage_control_gui'} <= (
-        unscheduled
-    ), unscheduled
+    redraws = ('ctx.stage.draw_labware', 'ctx.motion_settings.update_xy_stage_control_gui')
+    assert {scheduled_into.get(redraw) for redraw in redraws} <= cancelled, (
+        scheduled_into,
+        cancelled,
+    )
 
     def listener_handed_to(method, member):
         handed = [

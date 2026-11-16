@@ -589,6 +589,7 @@ from ui.ui_helpers import (
     report_ui_thread_hold,
     run_reported,
     run_unasked,
+    schedule_ui_interval,
     work_item_text,
 )
 
@@ -647,6 +648,11 @@ class LumaViewProApp(TooltipMixin, App):
     # None while none has been started; every close ends the session
     # through it.
     _rest_server = None
+
+    # The fit's 1 Hz labware and XY-readout schedules, each the one handle
+    # that stops it; the close stops both before the scope is torn down.
+    _labware_tick = None
+    _xy_readout_tick = None
 
     # Set first in every close, on the Kivy thread: what follows the startup
     # motion is refused once it is. The session's own closing is set later,
@@ -728,7 +734,7 @@ class LumaViewProApp(TooltipMixin, App):
         open until bring-up returns, with the instance lock still bound;
         every exit that must wait for it waits on ``_bring_up``.
         """
-        Clock.schedule_interval(report_ui_thread_hold, UI_HOLD_TICK_S)
+        schedule_ui_interval(report_ui_thread_hold, UI_HOLD_TICK_S, 'UI_HOLD')
         self._bring_up = concurrent.futures.Future()
         threading.Thread(target=self._bring_up_on_its_thread, name='bring-up', daemon=True).start()
         self._bring_up.add_done_callback(lambda done: schedule_ui(lambda dt: self._hand_over(done)))
@@ -1262,8 +1268,10 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)
-        Clock.schedule_interval(ctx.stage.draw_labware, 1.0)
-        Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
+        self._labware_tick = schedule_ui_interval(ctx.stage.draw_labware, 1.0, 'LABWARE')
+        self._xy_readout_tick = schedule_ui_interval(
+            ctx.motion_settings.update_xy_stage_control_gui, 1.0, 'XY_READOUT'
+        )
 
         # Publish the shown channel to scope_display_thread at 30Hz, in
         # engineering mode, for the image stats. The Session's shown channel
@@ -1277,7 +1285,7 @@ class LumaViewProApp(TooltipMixin, App):
                 ctx.session.shown_channel.channel if ctx.session.engineering_mode else None,
             )
 
-        Clock.schedule_interval(_publish_channel_config, 1.0 / 30)
+        schedule_ui_interval(_publish_channel_config, 1.0 / 30, 'CHANNEL_CONFIG')
 
         # Clear app initialization flag and apply settings for the default opened channel
         def complete_initialization(dt):
@@ -1632,12 +1640,14 @@ class LumaViewProApp(TooltipMixin, App):
                     stage=', '.join(item.name for item in work) or 'Closing LumaViewPro...',
                 )
                 return True
-            # Returning False is what stops a Kivy interval.
-            popup.dismiss()
+            # The app stops whatever the dismiss does: a raise in it is
+            # reported, and a tick that raised would run again, every 0.2 s,
+            # with the close done. Returning False ends the schedule.
+            run_unasked(popup.dismiss, 'CLOSE_POPUP_DISMISS')
             self.stop()
             return False
 
-        Clock.schedule_interval(_watch, 0.2)
+        schedule_ui_interval(_watch, 0.2, 'CLOSE_WATCH')
 
     def stop(self, *largs) -> None:
         """End the event loop; ``run()`` then dispatches ``on_stop``, once.
@@ -1681,8 +1691,8 @@ class LumaViewProApp(TooltipMixin, App):
         # on_stop, which a crash skips.
         ctx.ui_listener_bridge.unregister_all()
         ctx.session.remove_run_state_listener(self._on_run_state)
-        Clock.unschedule(ctx.stage.draw_labware)
-        Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
+        self._labware_tick.cancel()
+        self._xy_readout_tick.cancel()
 
         # Plugins released first, here on the Kivy thread their widgets live
         # on: an unregister stops its own work, and their listener

@@ -15,6 +15,12 @@ the count to the table, each row with the reason it runs on the UI thread.
 A new call, or a count that grows, fails until it is classified here or
 moved to the dispatcher. Not caught: a function classified here later called
 from another thread.
+
+A repeating schedule is one routine's alone, ``ui_helpers.schedule_ui_interval``:
+Kivy ends a repeating schedule whose callback raised, whatever the
+application's exception handler answers, and the routine reports the raise
+and keeps the schedule running. A ``Clock.schedule_interval``, or a
+``Clock.create_trigger`` made repeating, anywhere else fails here.
 """
 
 from __future__ import annotations
@@ -35,10 +41,6 @@ _UI_THREAD = {
         1,
         'called from after_the_startup_motion and the fit step, both on the Clock',
     ),
-    ('lumaviewpro.py', 'LumaViewProApp._fit'): (
-        3,
-        'the fit step, run from the hand-over on the UI thread',
-    ),
     ('lumaviewpro.py', 'LumaViewProApp._on_resize'): (2, "the window's resize event"),
     ('lumaviewpro.py', 'LumaViewProApp.build'): (
         1,
@@ -49,22 +51,12 @@ _UI_THREAD = {
         'called from after_the_startup_motion and the fit step, both on the Clock',
     ),
     ('lumaviewpro.py', 'LumaViewProApp.on_request_close'): (2, "Kivy's close request"),
-    ('lumaviewpro.py', 'LumaViewProApp.on_start'): (1, "Kivy's start, on the UI thread"),
-    ('lumaviewpro.py', 'LumaViewProApp._run_the_close'): (
-        1,
-        "every close's watch, started on the UI thread",
-    ),
     ('ui/advanced_settings.py', 'AdvancedSettings.set_acceleration_limit_pct'): (1, _DEBOUNCE),
     ('ui/image_settings.py', 'ImageSettings.__init__'): (1, _CONSTRUCTION),
     ('ui/image_settings.py', 'ImageSettings._init_ui'): (1, _CONSTRUCTION),
-    ('ui/image_settings.py', 'set_histogram_channel'): (1, _DEBOUNCE),
     ('ui/channel_control.py', 'ChannelControl.__init__'): (2, _CONSTRUCTION),
     ('ui/channel_control.py', 'ChannelControl._bind_depth_hint'): (1, _CONSTRUCTION),
     ('ui/channel_control.py', 'ChannelControl._init_ui'): (1, _CONSTRUCTION),
-    ('ui/main_display.py', 'MainDisplay.draw_record_button'): (
-        1,
-        "the recording's poll, started from the record button's own draws",
-    ),
     ('ui/motion_settings.py', 'MotionSettings.__init__'): (1, _CONSTRUCTION),
     ('ui/motion_settings.py', 'MotionSettings._init_ui'): (1, _CONSTRUCTION),
     ('ui/post_processing.py', 'ZProjectionControls.__init__'): (1, _CONSTRUCTION),
@@ -78,7 +70,7 @@ _UI_THREAD = {
         1,
         'a widget handler, or scan_started delivered with on_ui_thread=True',
     ),
-    ('ui/shader.py', 'ShaderViewer.__init__'): (2, _CONSTRUCTION),
+    ('ui/shader.py', 'ShaderViewer.__init__'): (1, _CONSTRUCTION),
     ('ui/walk.py', 'Walk._await_bring_up'): (1, "the walk's own steps, on the Clock"),
     ('ui/walk.py', 'Walk._resume'): (2, "the walk's own steps, on the Clock"),
     ('ui/walk.py', 'Walk.start'): (1, "the walk's own steps, on the Clock"),
@@ -88,6 +80,10 @@ _UI_THREAD = {
         "its callers are the bridge's posted XY draw and widget handlers",
     ),
     ('ui/tooltip.py', 'TooltipMixin.mouse_moved'): (1, "the window's mouse event"),
+    ('ui/ui_helpers.py', 'schedule_ui_interval'): (
+        1,
+        'the one repeating schedule; each caller schedules from the UI thread',
+    ),
     ('ui/vertical_control.py', 'VerticalControl.__init__'): (1, _CONSTRUCTION),
     ('ui/vertical_control.py', 'VerticalControl.show_turret_state'): (
         1,
@@ -100,9 +96,11 @@ _UI_THREAD = {
 }
 
 
-def _raw_clock_calls() -> Counter:
-    """``{(file, enclosing function): count}`` of every raw ``Clock`` post in production."""
-    counts: Counter = Counter()
+_THE_INTERVAL_ROUTINE = ('ui/ui_helpers.py', 'schedule_ui_interval')
+
+
+def _raw_clock_posts():
+    """``(file, enclosing function, call)`` for every raw ``Clock`` post in production."""
     for rel_path, tree in production_modules():
         enclosing = {}
         for qualname, node in walk_defs(tree.body):
@@ -116,8 +114,22 @@ def _raw_clock_calls() -> Counter:
                 and isinstance(node.func.value, ast.Name)
                 and node.func.value.id == 'Clock'
             ):
-                counts[(rel_path, enclosing.get(id(node), '<module>'))] += 1
-    return counts
+                yield rel_path, enclosing.get(id(node), '<module>'), node
+
+
+def _raw_clock_calls() -> Counter:
+    """``{(file, enclosing function): count}`` of every raw ``Clock`` post in production."""
+    return Counter((path, qualname) for path, qualname, _call in _raw_clock_posts())
+
+
+def _repeats(call: ast.Call) -> bool:
+    """Whether a raw ``Clock`` call makes a repeating schedule."""
+    if call.func.attr == 'schedule_interval':
+        return True
+    if call.func.attr != 'create_trigger':
+        return False
+    flags = [kw.value for kw in call.keywords if kw.arg == 'interval'] + call.args[2:3]
+    return any(not (isinstance(flag, ast.Constant) and flag.value is False) for flag in flags)
 
 
 def test_every_raw_clock_post_is_classified_as_the_ui_threads_own():
@@ -136,4 +148,17 @@ def test_every_raw_clock_post_is_classified_as_the_ui_threads_own():
         'through ui_queue.schedule_ui (an event) or schedule_ui_latest (a state), and a '
         "UI thread's own deferral is classified here with its reason:\n"
         + '\n'.join(unclassified + [f'{site}: classified, no longer found' for site in stale])
+    )
+
+
+def test_every_repeating_schedule_goes_through_the_interval_routine():
+    elsewhere = [
+        f'{path} {qualname}: Clock.{call.func.attr}(...) at line {call.lineno}'
+        for path, qualname, call in _raw_clock_posts()
+        if _repeats(call) and (path, qualname) != _THE_INTERVAL_ROUTINE
+    ]
+    assert elsewhere == [], (
+        'a repeating Kivy schedule is made only by ui_helpers.schedule_ui_interval, which '
+        'reports a raising tick and keeps the schedule running; Kivy ends a bare one at '
+        'its first raise:\n' + '\n'.join(elsewhere)
     )
