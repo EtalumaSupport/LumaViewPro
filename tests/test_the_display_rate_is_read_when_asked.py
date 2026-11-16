@@ -88,7 +88,7 @@ def _draw_live(display, n, clock, spacing_s):
     frame = np.zeros((4, 4), dtype=np.uint8)
     for _ in range(n):
         clock.now += spacing_s
-        display.create_and_set_texture(frame.tobytes(), frame.shape, generation=0, live=True)
+        display.create_and_set_texture(frame.tobytes(), frame.shape, generation=0, held_s=None)
 
 
 class TestTheRateIsTheLastSecondsDraws:
@@ -105,6 +105,6 @@ class TestTheRateIsTheLastSecondsDraws:
 
     def test_a_saved_image_put_on_the_screen_is_not_a_live_frame(self, display, clock):
         image = np.zeros((4, 4), dtype=np.uint8)
-        display.create_and_set_texture(image.tobytes(), image.shape, generation=0, live=False)
+        display.create_and_set_texture(image.tobytes(), image.shape, generation=0, held_s=1.0)
         assert display.frames_shown == 1, 'the held image was not put on the screen'
         assert display.display_fps() == 0

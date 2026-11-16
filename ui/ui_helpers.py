@@ -414,6 +414,12 @@ def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited:
 # ============================================================================
 
 
+# How long a run's saved frame, and Enhance's preview, stay on screen
+# before live view comes back: long enough to see, short against a run's
+# step.
+BRIEF_HOLD_S = 1.0
+
+
 def show_captured_frame(image, frames_summed: int, frame_significant_bits: int) -> None:
     """Every GUI run's ``frame_captured``: hold the frame a run just captured on screen.
 
@@ -422,7 +428,7 @@ def show_captured_frame(image, frames_summed: int, frame_significant_bits: int) 
     The display is looked up when the frame arrives, not when the run starts.
     """
     _app_ctx.ctx.scope_display.hold_protocol_saved_image(
-        image, frames_summed, frame_significant_bits
+        image, frames_summed, frame_significant_bits, held_s=BRIEF_HOLD_S
     )
 
 

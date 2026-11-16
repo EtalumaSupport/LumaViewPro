@@ -28,7 +28,7 @@ import _lumascope.modules.post_processing as post_processing
 import _lumascope.modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
 import _lumascope.modules.app_context as _app_ctx
-from ui.ui_helpers import run_reported, run_unasked, submit_reported
+from ui.ui_helpers import BRIEF_HOLD_S, run_reported, run_unasked, submit_reported
 
 logger = logging.getLogger('LVP.ui.post_processing')
 
@@ -133,7 +133,9 @@ class QuickEnhanceControls(BoxLayout):
         display_image = image.copy()
         scope_display.post_held_frame(
             lambda: run_unasked(
-                lambda: scope_display.hold_derived_image(display_image, significant_bits),
+                lambda: scope_display.hold_derived_image(
+                    display_image, significant_bits, held_s=BRIEF_HOLD_S
+                ),
                 'ENHANCE_PREVIEW',
             )
         )

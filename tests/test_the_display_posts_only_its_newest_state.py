@@ -213,16 +213,14 @@ def _render_held(gui_ctx, display, monkeypatch):
 
 def test_the_run_thread_only_hands_its_saved_frame_over(gui_ctx, display, held):
     """The hold starts on the run's thread; nothing is rendered or posted there."""
-    display._PROTOCOL_HOLD_MS = 60_000
-    display.hold_protocol_saved_image(_frame(5), 1, 8)
+    display.hold_protocol_saved_image(_frame(5), 1, 8, held_s=60)
     assert ui_backlog() == 0, 'the saved frame was rendered on the run thread'
     assert gui_ctx.scope_display_thread.protocol_hold_in_force
 
 
 def test_a_sum_is_shown_against_one_frames_white(gui_ctx, display, held, monkeypatch):
-    display._PROTOCOL_HOLD_MS = 60_000
     summed = np.full((4, 4), 255, dtype=np.uint16)
-    display.hold_protocol_saved_image(summed, 3, 8)
+    display.hold_protocol_saved_image(summed, 3, 8, held_s=60)
     _render_held(gui_ctx, display, monkeypatch)
     held.run()
     assert _drawn(display) == np.full((4, 4), 255, dtype=np.uint8).tobytes()
@@ -231,9 +229,8 @@ def test_a_sum_is_shown_against_one_frames_white(gui_ctx, display, held, monkeyp
 def test_a_saved_frame_is_not_drawn_over_by_a_live_one_during_its_hold(
     gui_ctx, display, held, monkeypatch
 ):
-    display._PROTOCOL_HOLD_MS = 60_000
     for value in range(50):
-        display.hold_protocol_saved_image(_frame(value), 1, 8)
+        display.hold_protocol_saved_image(_frame(value), 1, 8, held_s=60)
     _render_held(gui_ctx, display, monkeypatch)
     assert ui_backlog() == 1, f'{ui_backlog()} saved frames pending'
 
@@ -242,7 +239,7 @@ def test_a_saved_frame_is_not_drawn_over_by_a_live_one_during_its_hold(
     gen = display._current_generation()
     held.schedule(
         lambda dt: display.create_and_set_texture(
-            _frame(200).tobytes(), (4, 4), generation=gen, live=True
+            _frame(200).tobytes(), (4, 4), generation=gen, held_s=None
         ),
         0,
     )
@@ -252,7 +249,7 @@ def test_a_saved_frame_is_not_drawn_over_by_a_live_one_during_its_hold(
 
     # The hold ends; the live view draws again.
     gui_ctx.scope_display_thread.bump_protocol_hold(0)
-    display.create_and_set_texture(_frame(201).tobytes(), (4, 4), generation=gen, live=True)
+    display.create_and_set_texture(_frame(201).tobytes(), (4, 4), generation=gen, held_s=None)
     assert _drawn(display) == _frame(201).tobytes()
 
 
@@ -266,8 +263,8 @@ def test_a_saved_frame_and_derived_images_wait_as_one_held_frame(
     gui_ctx.scope_display = display
     shown = []
     # a stand-in by design: the draw is Kivy's texture upload; the subject is the post.
-    display.hold_derived_image = lambda image, bits: shown.append(int(image[0, 0]))
-    display.hold_protocol_saved_image(_frame(1), 1, 8)
+    display.hold_derived_image = lambda image, bits, held_s: shown.append(int(image[0, 0]))
+    display.hold_protocol_saved_image(_frame(1), 1, 8, held_s=60)
     _render_held(gui_ctx, display, monkeypatch)
     for value in range(50):
         post_processing.QuickEnhanceControls._queue_derived_image(None, _frame(value), 8)
@@ -280,18 +277,65 @@ def test_a_saved_frame_is_held_its_whole_time_from_its_draw(gui_ctx, display, he
     # The hold began on the run's thread when the frame was handed over, so
     # the time the post waited for a slow UI thread came out of it: here all
     # of it. Counted from the draw, the frame is held its whole time.
-    display._PROTOCOL_HOLD_MS = 0
-    display.hold_protocol_saved_image(_frame(7), 1, 8)
+    display.hold_protocol_saved_image(_frame(7), 1, 8, held_s=60)
     _render_held(gui_ctx, display, monkeypatch)
-    assert not gui_ctx.scope_display_thread.protocol_hold_in_force
-    display._PROTOCOL_HOLD_MS = 60_000
+    gui_ctx.scope_display_thread.bump_protocol_hold(0)  # the wait used it all
     held.run()
     assert _drawn(display) == _frame(7).tobytes()
     assert gui_ctx.scope_display_thread.protocol_hold_in_force
 
 
-def test_a_derived_image_drawn_is_held_its_time(gui_ctx, display):
-    display._PROTOCOL_HOLD_MS = 60_000
+class _Clock:
+    """A monotonic clock the test moves by hand."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+def _hold_clock(monkeypatch):
+    """The display thread's clock, by hand from here; its loop must be stopped."""
+    import _lumascope.modules.scope_display_thread as scope_display_thread
+
+    clock = _Clock()
+    # The thread module's own name for the time module, so no other thread
+    # sees the fake clock.
+    monkeypatch.setattr(scope_display_thread, 'time', SimpleNamespace(monotonic=clock))
+    return clock
+
+
+def _held_for(gui_ctx, clock):
+    """Whether the hold is in force just inside and just past one second from now."""
+    thread = gui_ctx.scope_display_thread
+    start = clock.now
+    clock.now = start + 0.9
+    inside = thread.protocol_hold_in_force
+    clock.now = start + 1.1
+    return inside, thread.protocol_hold_in_force
+
+
+def test_a_runs_saved_frame_is_held_a_second_from_its_draw(gui_ctx, display, held, monkeypatch):
+    from ui.ui_helpers import show_captured_frame
+
+    gui_ctx.scope_display = display
+    show_captured_frame(_frame(9), 1, 8)
+    _render_held(gui_ctx, display, monkeypatch)
+    clock = _hold_clock(monkeypatch)
+    held.run()
+    assert _drawn(display) == _frame(9).tobytes()
+    assert _held_for(gui_ctx, clock) == (True, False)
+
+
+def test_enhances_preview_is_held_a_second_from_its_draw(gui_ctx, display, held, monkeypatch):
+    import ui.post_processing as post_processing
+
+    gui_ctx.scope_display = display
+    clock = _hold_clock(monkeypatch)
+    post_processing.QuickEnhanceControls._queue_derived_image(
+        None, np.zeros((4, 4, 3), dtype=np.uint8), 8
+    )
     assert not gui_ctx.scope_display_thread.protocol_hold_in_force
-    display.hold_derived_image(np.zeros((4, 4, 3), dtype=np.uint8), 8)
-    assert gui_ctx.scope_display_thread.protocol_hold_in_force
+    held.run()
+    assert _held_for(gui_ctx, clock) == (True, False)
