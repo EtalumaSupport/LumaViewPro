@@ -620,15 +620,6 @@ def to_float(val) -> float:
         return float(val)
 
 
-def to_int(val) -> int | None:
-    if 'numpy' in str(type(val)):
-        return int(val.astype(float))
-    elif val in ('', None):
-        return -1
-    else:
-        return int(float(val))
-
-
 def get_pixel_size(
     focal_length: float,
     binning_size: int | None,

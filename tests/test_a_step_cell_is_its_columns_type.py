@@ -73,6 +73,7 @@ TWO_STEPS = [
         ('Z', 'high'),
         ('Exposure', '10 ms'),
         ('Sum', '2.5'),
+        ('Sum', '9223372036854775808'),
         ('Z-Slice', 'top'),
         ('Z-Slice', ''),
         ('Tile Group ID', 'first'),
@@ -108,6 +109,20 @@ def test_a_saved_false_autofocus_is_false_once_the_file_is_typed(tmp_path):
 
     assert protocol.step_row(step_index=0)['Auto_Focus'] is True
     assert protocol.step_row(step_index=1)['Auto_Focus'] is False
+
+
+def test_a_whole_number_cell_reads_back_as_written_past_a_floats_precision(tmp_path):
+    """2**53 + 1 is the first whole number a float cannot hold; read through one it is 2**53.
+
+    A runnable load reads every whole-number column by one reader, and the
+    post-processing load reads Z-Slice by it too before keeping a blank as -1.
+    """
+    past_a_float = 2**53 + 1
+    path = _with_cell(_saved(tmp_path, TWO_STEPS), 0, 'Tile Group ID', str(past_a_float))
+    path = _with_cell(path, 1, 'Z-Slice', str(past_a_float))
+
+    assert _load(path).steps()['Tile Group ID'].tolist()[0] == past_a_float
+    assert _load(path, StoredNames.KEPT).steps()['Z-Slice'].tolist()[1] == past_a_float
 
 
 def test_a_typed_file_loads_with_the_schemas_dtypes(tmp_path):

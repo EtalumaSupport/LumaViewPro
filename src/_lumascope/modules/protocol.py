@@ -698,11 +698,35 @@ def _position_cell(value: object) -> float:
     return _float_cell(value)
 
 
+_INT64 = np.iinfo(np.int64)
+
+
 def _int_cell(value: object) -> int:
-    number = _float_cell(value)
-    if not number.is_integer():
-        raise ValueError('is not a whole number')
-    return int(number)
+    """A whole-number cell, read exactly: an integer as itself, any other number when it is whole.
+
+    An integer is never read through a float: above 2**53 a float rounds it,
+    so a cell would load as a number nobody wrote. A whole number outside
+    int64 is refused here, where the step is named; the column it goes into
+    is int64, and the cast fails there with no step to name.
+    """
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError('is not a number')
+    number = None
+    if isinstance(value, (int, np.integer)):
+        number = int(value)
+    elif isinstance(value, str):
+        try:
+            number = int(value)
+        except ValueError:
+            pass
+    if number is None:
+        whole = _float_cell(value)
+        if not whole.is_integer():
+            raise ValueError('is not a whole number')
+        number = int(whole)
+    if not _INT64.min <= number <= _INT64.max:
+        raise ValueError(f'is not a whole number from {_INT64.min} to {_INT64.max}')
+    return number
 
 
 def _acquire_cell(value: object) -> str:
@@ -4368,7 +4392,7 @@ class Protocol:
         # post-processing reader keeps the -1 sentinel for a blank, so a z
         # index never renders as 'Z3.0' in the names it matches files by.
         if not runnable:
-            protocol_df['Z-Slice'] = protocol_df['Z-Slice'].apply(common_utils.to_int)
+            protocol_df['Z-Slice'] = [-1 if cell == '' else cell for cell in protocol_df['Z-Slice']]
 
         # Added in v3
         DEFAULT_VIDEO_CONFIG = {'duration': 5}

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from _lumascope.modules import post_derivation
-from _lumascope.modules.common_utils import PostFunction, read_table, recover_step_label, to_int
+from _lumascope.modules.common_utils import PostFunction, read_table, recover_step_label
 from _lumascope.modules.protocol import _bool_cell, _float_cell, _int_cell
 from _lumascope.modules.protocol_execution_record import ProtocolExecutionRecord
 
@@ -17,12 +17,13 @@ from _lumascope.lvp_logger import logger
 
 
 # The record's number and True/False columns, each with the cell reader for
-# its type; Z-Slice is read by to_int, which keeps a blank as -1.
+# its type; a blank Z-Slice is then kept as -1.
 _RECORD_CELLS = {
     'Scan Count': _int_cell,
     'X': _float_cell,
     'Y': _float_cell,
     'Z': _float_cell,
+    'Z-Slice': _int_cell,
     'Tile Group ID': _int_cell,
     'Custom Step': _bool_cell,
     'Channel Group ID': _int_cell,
@@ -469,10 +470,10 @@ class ProtocolPostRecord:
                     lambda row: (root_path / row['Filepath']).is_file(), axis=1
                 )
 
-                # Z-Slice arrives as float64 whenever any cell is blank
-                # (pandas NaN inference); normalize to the int / -1-sentinel
-                # form so a z index can never render as 'Z3.0' in a name.
-                df['Z-Slice'] = df['Z-Slice'].apply(to_int)
+                # A blank Z-Slice (an output with no single slice) is the -1
+                # sentinel, so the column holds whole numbers only and a z
+                # index can never render as 'Z3.0' in a name.
+                df['Z-Slice'] = [-1 if cell == '' else cell for cell in df['Z-Slice']]
 
             if 'Label' not in df.columns:
                 # Pre-v2 records never persisted the label; recover it per
