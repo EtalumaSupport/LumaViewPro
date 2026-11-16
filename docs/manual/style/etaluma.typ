@@ -78,6 +78,8 @@
 #let appendices(title, hide-parent: false, body) = {
   counter(heading).update(0)
   set heading(numbering: "A.1")
+  // An appendix's figures carry its letter (Figure B.1), as its headings do.
+  set figure(numbering: n => numbering("A.1", counter(heading).get().first(), n))
   body
 }
 
