@@ -1728,36 +1728,6 @@ class DiagnosticsAPI:
     # imports avoid the diagnostics.py <-> _lumascope.py cycle.
 
     @staticmethod
-    def _safe_pylon_versions() -> dict:
-        """Best-effort capture of pypylon + pylon SDK runtime versions.
-
-        Both reads are wrapped: pypylon may not be installed (FX2-only
-        installs), or the runtime version helper may have been renamed
-        between SDK versions.
-        """
-        out = {'pypylon_version': None, 'pylon_sdk_version': None}
-        try:
-            import pypylon as _pyp
-
-            out['pypylon_version'] = getattr(_pyp, '__version__', None)
-        except Exception:
-            pass
-        try:
-            from pypylon import pylon as _pylon
-
-            for fn_name in ('GetPylonVersion', 'GetVersionString'):
-                fn = getattr(_pylon, fn_name, None)
-                if callable(fn):
-                    try:
-                        out['pylon_sdk_version'] = str(fn())
-                        break
-                    except Exception:
-                        continue
-        except Exception:
-            pass
-        return out
-
-    @staticmethod
     def _human_os_version() -> str:
         """Render OS version in a form humans can recognise.
 

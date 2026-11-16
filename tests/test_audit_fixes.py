@@ -3044,16 +3044,6 @@ class TestPylonDiagnosticProbe:
         assert isinstance(v, str)
         assert len(v) > 0
 
-    def test_safe_pylon_versions_returns_dict(self):
-        """The version helper returns a dict with both keys, even when
-        pypylon is absent (returns Nones)."""
-        from _lumascope.modules.lumascope_api.diagnostics import DiagnosticsAPI
-
-        result = DiagnosticsAPI._safe_pylon_versions()
-        assert isinstance(result, dict)
-        assert 'pypylon_version' in result
-        assert 'pylon_sdk_version' in result
-
     def test_pylon_camera_has_read_diagnostic_snapshot(self):
         """Seam lock: PylonCamera must implement the driver method the
         API depends on."""
