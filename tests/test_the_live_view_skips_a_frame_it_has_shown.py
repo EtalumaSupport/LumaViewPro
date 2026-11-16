@@ -6,7 +6,7 @@ delivers, and the buffer hands back the same frame until the next one
 arrives. It used to convert that frame to 8 bits (5.2 ms on a full frame)
 and draw its scale bar before it compared the frame's ordinal with the one
 it had shown, then threw the result away. A caller now names the frame it
-has (``unless_seq``) and gets back its ordinal and no image, with nothing
+has (``unless_seq``) and gets back the frame's record and no image, with nothing
 drawn or converted.
 """
 
@@ -34,16 +34,16 @@ def stalled_12bit(sim_scope):
     sim_scope.simulation.clear()
 
 
-def test_a_read_of_the_frame_the_caller_has_returns_its_ordinal_and_no_image(stalled_12bit):
+def test_a_read_of_the_frame_the_caller_has_returns_its_record_and_no_image(stalled_12bit):
     imaging = stalled_12bit.imaging
-    image, seq = imaging.buffered_image(force_to_8bit=True)
-    assert image is not None and seq is not None
+    image, frame = imaging.buffered_image(force_to_8bit=True)
+    assert image is not None and frame is not None
 
-    assert imaging.buffered_image(force_to_8bit=True, unless_seq=seq) == (None, seq)
+    assert imaging.buffered_image(force_to_8bit=True, unless_seq=frame.seq) == (None, frame)
 
     # Any other ordinal is not the frame the caller has: the frame comes back.
-    again, again_seq = imaging.buffered_image(force_to_8bit=True, unless_seq=seq - 1)
-    assert again_seq == seq
+    again, again_frame = imaging.buffered_image(force_to_8bit=True, unless_seq=frame.seq - 1)
+    assert again_frame is frame
     assert again is not None and again.shape == image.shape
 
 

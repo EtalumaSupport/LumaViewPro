@@ -576,6 +576,7 @@ def delivered_frame(
     chunks=None,
     *,
     seq: int = 1,
+    stored: int | None = None,
     significant_bits: int | None = None,
     arrived_ns: int | None = None,
     wall_ns: int | None = None,
@@ -584,7 +585,8 @@ def delivered_frame(
 
     Built the way ``ImageHandlerBase._store_frame`` builds one: read-only
     pixels (a read-only view, so the caller's array stays its own) and
-    read-only chunks. ``significant_bits`` defaults to the container width;
+    read-only chunks. ``stored`` defaults to ``seq`` (every frame handed
+    over was stored); ``significant_bits`` to the container width;
     ``arrived_ns`` and ``wall_ns`` to the host's clocks now.
     """
     view = image.view()
@@ -592,6 +594,7 @@ def delivered_frame(
     return Frame(
         image=view,
         seq=seq,
+        stored=stored if stored is not None else seq,
         arrived_ns=arrived_ns if arrived_ns is not None else host_clock.steady_ns(),
         wall_ns=wall_ns if wall_ns is not None else host_clock.wall_ns(),
         significant_bits=(
@@ -675,8 +678,8 @@ def stall_with_a_frame_buffered(
     an earlier one, or one delivered after the capture.
     """
     captured = scope.imaging.capture_image(force_to_8bit=False)
-    _image, seq = scope.imaging.buffered_image(force_to_8bit=False)
-    at_capture = BufferedAtCapture(captured, seq)
+    _image, frame = scope.imaging.buffered_image(force_to_8bit=False)
+    at_capture = BufferedAtCapture(captured, frame.seq)
     watcher = _StreamStopped()
     logger = logging.getLogger('LVP')
     logger.addHandler(watcher)

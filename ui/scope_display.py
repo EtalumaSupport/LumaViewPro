@@ -776,16 +776,16 @@ class ScopeDisplay(Image):
         # until the next arrives, and its ordinal names it. Never the wall
         # time, which can repeat between two frames. The read is told the
         # ordinal, so a frame already shown is never converted or drawn.
-        image, frame_seq = ctx.scope.imaging.buffered_image(
+        image, frame = ctx.scope.imaging.buffered_image(
             force_to_8bit=True,
             out_8bit=self._display_8bit_buf,
             unless_seq=self._last_frame_seq,
         )
         if image is None:
-            return STATUS_EMPTY if frame_seq is None else STATUS_DUPLICATE
+            return STATUS_EMPTY if frame is None else STATUS_DUPLICATE
         if image.size == 0:
             return STATUS_EMPTY
-        self._last_frame_seq = frame_seq
+        self._last_frame_seq = frame.seq
 
         # Record the full-resolution frame size for coordinate math before any
         # preview downscale. Both the bullseye and the mono preview derive from

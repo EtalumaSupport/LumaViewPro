@@ -29,7 +29,7 @@ from _lumascope.modules.api_surface import api_fields
 
 # The camera driver defines the records and cannot import the marker, so the
 # API publishes their fields here.
-api_fields('image', 'seq', 'arrived_ns', 'wall_ns', 'significant_bits', 'chunks')(Frame)
+api_fields('image', 'seq', 'stored', 'arrived_ns', 'wall_ns', 'significant_bits', 'chunks')(Frame)
 api_fields('value', 'unit')(CameraNodeValue)
 
 __all__ = [

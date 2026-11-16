@@ -2209,7 +2209,7 @@ class ImagingAPI:
                 allocation. The returned array is the buffer itself when used,
                 so the caller must copy (e.g. tobytes()) before the next call
                 overwrites it.
-            unless_seq: The ordinal of the frame the caller already has. When
+            unless_seq: The ``seq`` of the frame the caller already has. When
                 the buffer still holds that frame, nothing is drawn or
                 converted: a poll faster than the camera delivers costs no
                 conversion.
@@ -2220,9 +2220,11 @@ class ImagingAPI:
                 the image's own.
 
         Returns:
-            tuple: (image, seq) where image is numpy.ndarray and seq is the
-                   frame's hand-over ordinal (``Frame.seq``), the same for every
-                   read of one frame; (None, seq) when the buffered frame is
+            tuple: (image, frame) where image is numpy.ndarray and frame is
+                   the store's record of the frame it was read from
+                   (``Frame``: its ``seq``, ``stored`` count and
+                   ``arrived_ns`` among it), the same record for every read
+                   of one frame; (None, frame) when the buffered frame is
                    ``unless_seq``'s; or (None, None) if unavailable.
                    Per the Sentinel-return contract: `if image is None: ...`.
 
@@ -2252,7 +2254,7 @@ class ImagingAPI:
         # write from retiring any of that write's wait.
         self._frame_validity.count_frame(frame.seq, by=Counter.PREVIEW)
         if frame.seq == unless_seq:
-            return None, frame.seq
+            return None, frame
         tmp = frame.image
 
         if stride > 1:
@@ -2275,7 +2277,7 @@ class ImagingAPI:
         if force_to_8bit and tmp.dtype != np.uint8:
             tmp = image_utils.convert_to_8bit(tmp, frame.significant_bits, out=out_8bit)
 
-        return tmp, frame.seq
+        return tmp, frame
 
     @api
     @property
@@ -2813,8 +2815,8 @@ class ImagingAPI:
         over-budget or raising invocations remove it, reported once as a
         ``FrameHandlerRemovedError`` warning). Callback
         signature is ``cb(frame)``, the camera's ``Frame`` record
-        (``Frame``: ``image``, ``seq``,
-        ``timestamp``, ``arrived_ns``, ``significant_bits``, ``chunks``);
+        (``Frame``: ``image``, ``seq``, ``stored``,
+        ``arrived_ns``, ``wall_ns``, ``significant_bits``, ``chunks``);
         runs on the SDK
         callback thread (Pylon ``PylonImageGrab`` / IDS grab loop /
         simulated delivery thread). Listeners MUST NOT block -- heavy work belongs

@@ -123,6 +123,10 @@ class Frame:
             been handed when the driver first had this one (``HandOver``).
             Only goes up, whatever the clocks do, and may skip a number for a
             frame handed over and never stored.
+        stored: How many frames this camera's handler had stored, this one
+            included (``delivered_counts``'s frames when it was stored). The
+            frames stored between two records are the difference less one;
+            the hand-over numbers overstate it by every frame never stored.
         arrived_ns: The scope's steady clock (``host_clock.steady_ns``) at
             the hand-over, where the driver first had the frame: a steady time
             to set against when a change was made.
@@ -138,6 +142,7 @@ class Frame:
 
     image: np.ndarray
     seq: int
+    stored: int
     arrived_ns: int
     wall_ns: int
     significant_bits: int
@@ -586,6 +591,7 @@ class ImageHandlerBase:
             frame = Frame(
                 image=image,
                 seq=handed_over.seq,
+                stored=self._frames_stored,
                 arrived_ns=handed_over.arrived_ns,
                 wall_ns=handed_over.wall_ns,
                 significant_bits=significant_bits,

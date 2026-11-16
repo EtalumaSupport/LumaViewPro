@@ -6986,8 +6986,8 @@ The supplied handler is wrapped in a budget enforcer
 over-budget or raising invocations remove it, reported once as a
 `FrameHandlerRemovedError` warning). Callback
 signature is `cb(frame)`, the camera's `Frame` record
-(`Frame`: `image`, `seq`,
-`timestamp`, `arrived_ns`, `significant_bits`, `chunks`);
+(`Frame`: `image`, `seq`, `stored`,
+`arrived_ns`, `wall_ns`, `significant_bits`, `chunks`);
 runs on the SDK
 callback thread (Pylon `PylonImageGrab` / IDS grab loop /
 simulated delivery thread). Listeners MUST NOT block -- heavy work belongs
@@ -7048,12 +7048,12 @@ Copy budget (per frame):
 
 - `force_to_8bit`: Convert 12-bit images to 8-bit output.
 - `out_8bit`: Optional caller-owned (H, W) uint8 buffer reused as the 12->8 LUT destination, avoiding a fresh per-frame allocation on the 30 fps preview path. Each caller must supply its OWN buffer (the preview thread and the histogram run on different threads); a None / mismatched buffer falls back to a fresh allocation. The returned array is the buffer itself when used, so the caller must copy (e.g. tobytes()) before the next call overwrites it.
-- `unless_seq`: The ordinal of the frame the caller already has. When the buffer still holds that frame, nothing is drawn or converted: a poll faster than the camera delivers costs no conversion.
+- `unless_seq`: The `seq` of the frame the caller already has. When the buffer still holds that frame, nothing is drawn or converted: a poll faster than the camera delivers costs no conversion.
 - `stride`: Take every `stride`-th pixel of every `stride`-th row, 1 or more. A read with a stride above 1 samples the raw frame and converts only the sample, and draws no scale bar, whose size would be wrong on a sample: the pixels are the image's own.
 
 **Returns**
 
-tuple: (image, seq) where image is numpy.ndarray and seq is the frame's hand-over ordinal (`Frame.seq`), the same for every read of one frame; (None, seq) when the buffered frame is `unless_seq`'s; or (None, None) if unavailable. Per the Sentinel-return contract: `if image is None: ...`.
+tuple: (image, frame) where image is numpy.ndarray and frame is the store's record of the frame it was read from (`Frame`: its `seq`, `stored` count and `arrived_ns` among it), the same record for every read of one frame; (None, frame) when the buffered frame is `unless_seq`'s; or (None, None) if unavailable. Per the Sentinel-return contract: `if image is None: ...`.
 
 **Raises**
 
@@ -10894,6 +10894,7 @@ records are equal only when they are the same delivery (identity).
 - <a id="Frame.image"></a>`image`: `ndarray` -- The pixels, cropped to the camera's window, read-only.
 - <a id="Frame.seq"></a>`seq`: `int` -- Hand-over ordinal: how many frames this camera's handler had been handed when the driver first had this one (`HandOver`). Only goes up, whatever the clocks do, and may skip a number for a frame handed over and never stored.
 - <a id="Frame.significant_bits"></a>`significant_bits`: `int` -- Payload depth of these pixels (12 for Mono12 in a uint16 container), from the frame's own format.
+- <a id="Frame.stored"></a>`stored`: `int` -- How many frames this camera's handler had stored, this one included (`delivered_counts`'s frames when it was stored). The frames stored between two records are the difference less one; the hand-over numbers overstate it by every frame never stored.
 - <a id="Frame.wall_ns"></a>`wall_ns`: `int` -- The host's wall clock (`host_clock.wall_ns`) at the hand-over, the arrival a saved file states. It can step backwards; order by `seq`.
 
 <a id="FrameCaptured"></a>

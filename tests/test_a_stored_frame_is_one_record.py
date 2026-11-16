@@ -42,6 +42,20 @@ class TestTheStoreBuildsOneRecord:
         assert int(stored.image[0, 0]) == 7
         assert dict(stored.chunks) == {'ExposureTime': 14530.0, 'FrameID': 12}
 
+    def test_the_record_counts_the_frames_stored_not_the_frames_handed_over(self):
+        # A frame handed over and never stored (made under another window,
+        # displaced) uses a hand-over number and no stored count, so a
+        # reader counting the frames stored between two it read gets the
+        # store's count, which the hand-over numbers overstate.
+        handler = ImageHandlerBase()
+        first = _store(handler, 1)
+        handler.hand_over()
+        second = _store(handler, 2)
+
+        assert (first.seq, second.seq) == (1, 3)
+        assert (first.stored, second.stored) == (1, 2)
+        assert second.stored == handler.delivered_counts[0]
+
     def test_the_record_cannot_be_changed(self):
         handler = ImageHandlerBase()
         stored = _store(handler, 7, chunks={'Gain': 1.0})

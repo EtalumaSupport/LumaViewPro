@@ -35,23 +35,23 @@ def test_a_strided_read_is_the_raw_frames_sample_converted_with_no_bar(stalled_1
     session, at_capture = stalled_12bit
     imaging = session.scope.imaging
     session.set_scale_bar_enabled(False)
-    raw, seq = imaging.buffered_image(force_to_8bit=False)
+    raw, frame = imaging.buffered_image(force_to_8bit=False)
     # Red twice in whole runs and green alone: the message says whether the
     # capture itself was 8-bit, or the buffer later held another frame.
     assert raw.dtype == np.uint16, (
-        f'the buffer holds frame {seq} as {raw.dtype}; the 12-bit capture took a'
+        f'the buffer holds frame {frame.seq} as {raw.dtype}; the 12-bit capture took a'
         f' {at_capture.captured.dtype} frame, after which the buffer held frame {at_capture.seq}'
     )
     expected = image_utils.convert_to_8bit(raw[::4, ::4], 12)
 
     session.set_scale_bar_enabled(True)
     # The bar is drawn on a whole read: the frame is the one sampled.
-    whole, whole_seq = imaging.buffered_image(force_to_8bit=True)
-    assert whole_seq == seq
+    whole, whole_frame = imaging.buffered_image(force_to_8bit=True)
+    assert whole_frame is frame
     assert not np.array_equal(whole, image_utils.convert_to_8bit(raw, 12)), 'no bar was drawn'
 
-    sample, sample_seq = imaging.buffered_image(force_to_8bit=True, stride=4)
-    assert sample_seq == seq
+    sample, sample_frame = imaging.buffered_image(force_to_8bit=True, stride=4)
+    assert sample_frame is frame
     np.testing.assert_array_equal(sample, expected)
 
 
