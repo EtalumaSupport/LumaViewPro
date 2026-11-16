@@ -222,36 +222,57 @@ class TestTheGuiHandlerLooksTheDisplayUpLate:
 
 
 def _subscribes_the_handler(call: ast.Call) -> bool:
-    return any(
-        kw.arg == 'frame_captured'
-        and isinstance(kw.value, ast.Name)
-        and kw.value.id == 'show_captured_frame'
-        for kw in call.keywords
+    return _the_handler(call) == 'show_captured_frame'
+
+
+def _the_handler(call: ast.Call) -> str | None:
+    """The name a ``RunEvents(...)`` call subscribes as its ``frame_captured``."""
+    for kw in call.keywords:
+        if kw.arg == 'frame_captured' and isinstance(kw.value, ast.Name):
+            return kw.value.id
+    return None
+
+
+def _given_to_a_still(call: ast.Call, parents: dict) -> bool:
+    """Whether ``call`` is written as the ``events`` of a ``start_save_still(...)``."""
+    keyword = parents.get(call)
+    starter = parents.get(keyword)
+    return (
+        isinstance(keyword, ast.keyword)
+        and keyword.arg == 'events'
+        and isinstance(starter, ast.Call)
+        and isinstance(starter.func, ast.Attribute)
+        and starter.func.attr == 'start_save_still'
     )
 
 
 class TestEveryGuiRunStarterSubscribesTheHandler:
-    def test_every_run_events_the_gui_builds_subscribes_show_captured_frame(self):
-        """Source-level: a GUI run started without the handler would silently
-        lose the hold. Every ``RunEvents(...)`` built under ui/ subscribes
-        ``show_captured_frame`` as its ``frame_captured``."""
+    def test_every_run_events_the_gui_builds_subscribes_its_starters_hold(self):
+        """Source-level: a GUI start without its hold would silently show
+        nothing, and a run given the still's would hold every frame for the
+        user's still time. Every ``RunEvents(...)`` built under ui/ subscribes
+        ``show_captured_still`` when written as a still's ``events``, and
+        ``show_captured_frame`` everywhere else."""
         built = []
         offenders = []
         for rel, tree in iter_package_modules(('ui',)):
+            parents = {
+                child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)
+            }
             for n in ast.walk(tree):
                 if (
                     isinstance(n, ast.Call)
                     and isinstance(n.func, ast.Name)
                     and n.func.id == 'RunEvents'
                 ):
-                    built.append(f'{rel}:{n.lineno}')
-                    if not _subscribes_the_handler(n):
-                        offenders.append(f'{rel}:{n.lineno}')
-        assert built, 'no GUI run starter builds RunEvents; the guard would be vacuous'
-        assert not offenders, (
-            f'these GUI run starters build RunEvents without frame_captured=show_captured_frame: '
-            f'{offenders}'
-        )
+                    still = _given_to_a_still(n, parents)
+                    built.append(('still' if still else 'run', f'{rel}:{n.lineno}'))
+                    wanted = 'show_captured_still' if still else 'show_captured_frame'
+                    if _the_handler(n) != wanted:
+                        offenders.append(f'{rel}:{n.lineno} wants frame_captured={wanted}')
+        kinds = {kind for kind, _where in built}
+        assert kinds == {'still', 'run'}, f'the guard would be vacuous for a kind: {built}'
+        assert not offenders, offenders
 
     def test_the_dead_display_key_is_gone_everywhere(self):
         """``update_scope_display`` was a field nothing read and three no-op

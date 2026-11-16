@@ -37,6 +37,7 @@ from _lumascope.modules.recording_frames import frame_fact
 from _lumascope.modules.api_surface import api, api_fields
 from _lumascope.modules.operation import Operation
 from _lumascope.modules.protocol_image_writer import WRITE_STALL_FATAL_S
+from _lumascope.modules.run_events import RunEvents, deliver_here
 
 logger = logging.getLogger('LVP.modules.manual_capture')
 
@@ -159,6 +160,7 @@ class ManualCaptureController:
         *,
         bullseye: bool = False,
         crosshairs: bool = False,
+        events: RunEvents | None = None,
     ) -> 'Operation[tuple[SavedStill, ...]]':
         """Capture one still and save it; returns at once.
 
@@ -167,6 +169,12 @@ class ManualCaptureController:
             crosshairs: Also save a copy with the centre crosshairs. With
                 either overlay, one extra file is written, from the same
                 frame, beside the unmarked one.
+            events: The still sends ``frame_captured`` alone, once its
+                unmarked file is written: the frame as the file got it, a
+                sum when summing, read-only, with its sum count, its depth
+                and the channel it was named for; on the camera lane, which
+                waits for it, so it must not block. A handler's raise is
+                reported once and fails nothing. None for none.
 
         The still is named for the shown channel (``session.show_channel``),
         read as its frame is taken, and the camera holds that channel's
@@ -224,6 +232,7 @@ class ManualCaptureController:
                 crosshairs=crosshairs,
                 engineering_mode=self._engineering_mode(),
                 channel_colors=self._channel_colors(),
+                events=events if events is not None else RunEvents(),
             )
             waiter: concurrent.futures.Future = concurrent.futures.Future()
             # Marked running before the lane holds it, so only the lane
@@ -442,6 +451,14 @@ class ManualCaptureController:
             # chose its focus.
             fallback_focus=None,
         )
+        deliver_here(
+            request.events.frame_captured,
+            'frame_captured',
+            array,
+            frame_record.frames_summed,
+            frame_record.frame_significant_bits,
+            channel,
+        )
 
         def saved(path: pathlib.Path, written: Any, bits: int) -> SavedStill:
             return SavedStill(
@@ -551,6 +568,7 @@ class _StillRequest:
         crosshairs: bool,
         engineering_mode: bool,
         channel_colors: ChannelColors,
+        events: RunEvents,
     ):
         self.scope = scope
         self.settings = settings
@@ -558,6 +576,7 @@ class _StillRequest:
         self.crosshairs = crosshairs
         self.engineering_mode = engineering_mode
         self.channel_colors = channel_colors
+        self.events = events
         # Set as the lane body's first act: after it, the body owns releasing
         # the in-flight guard.
         self.body_started = threading.Event()

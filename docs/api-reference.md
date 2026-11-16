@@ -4133,6 +4133,7 @@ def start_save_still(
     *,
     bullseye: bool = False,
     crosshairs: bool = False,
+    events: RunEvents | None = None,
 ) -> Operation[tuple[SavedStill, ...]]
 ```
 
@@ -4144,6 +4145,7 @@ Capture one still and save it; returns at once.
 
 - `bullseye`: Also save a copy with the bullseye colour map.
 - `crosshairs`: Also save a copy with the centre crosshairs. With either overlay, one extra file is written, from the same frame, beside the unmarked one.
+- `events`: The still sends `frame_captured` alone, once its unmarked file is written: the frame as the file got it, a sum when summing, read-only, with its sum count, its depth and the channel it was named for; on the camera lane, which waits for it, so it must not block. A handler's raise is reported once and fails nothing. None for none.
 
 The still is named for the shown channel (`session.show_channel`),
 read as its frame is taken, and the camera holds that channel's
@@ -12926,7 +12928,7 @@ A `run_ended` event, sent once the run has let go of the scope and its outcome h
 ## `lumascope.RunEvents`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Taken by: [`ProtocolRunner.run_autofocus`](#ProtocolRunner.run_autofocus), [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_composite`](#ProtocolRunner.run_composite), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.run_zstack`](#ProtocolRunner.run_zstack), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack).
+Taken by: [`ManualCaptureController.start_save_still`](#ManualCaptureController.start_save_still), [`ProtocolRunner.run_autofocus`](#ProtocolRunner.run_autofocus), [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_composite`](#ProtocolRunner.run_composite), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.run_zstack`](#ProtocolRunner.run_zstack), [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_composite`](#ProtocolRunner.start_composite), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack).
 
 The handlers a run calls as it goes, each optional; a misspelt one fails here.
 

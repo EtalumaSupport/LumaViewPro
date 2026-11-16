@@ -22,6 +22,7 @@ from ui.ui_helpers import (
     run_reported,
     set_title_event_text,
     show_captured_frame,
+    show_captured_still,
     submit_reported,
 )
 
@@ -52,7 +53,8 @@ class CompositeCapture(FloatLayout):
         user asked for, read here on the main thread. A second press while a
         still is in flight, and a press while a run holds the camera, are
         the member's refusals; the reporter shows them, and whatever the
-        still's operation settles with, like any other outcome.
+        still's operation settles with, like any other outcome. The saved
+        still is shown for the user's time, then live view comes back.
         """
         gui_logger.button('LIVE_CAPTURE')
         ctx = _app_ctx.ctx
@@ -62,6 +64,7 @@ class CompositeCapture(FloatLayout):
             lambda: ctx.session.manual_capture.start_save_still(
                 bullseye=bullseye,
                 crosshairs=crosshairs,
+                events=RunEvents(frame_captured=show_captured_still),
             ).add_done_callback(lambda done: schedule_ui(lambda _dt: _still_settled(done))),
             None,
             'LIVE_CAPTURE',

@@ -104,16 +104,19 @@ def test_anything_else_is_not_shown_raw(button_ctx, centre_posts):
     assert 'live_folder' not in _one_notice(centre_posts).message
 
 
-def test_the_button_hands_the_member_only_the_overlays_asked_for(button_ctx):
+def test_the_button_hands_the_member_the_overlays_asked_for_and_the_stills_hold(button_ctx):
     from ui.composite_capture import CompositeCapture
+    from ui.ui_helpers import show_captured_still
 
     CompositeCapture.live_capture(object())
 
     kwargs = button_ctx.session.manual_capture.start_save_still.call_args.kwargs
+    events = kwargs.pop('events')
     assert kwargs == {
         'bullseye': True,
         'crosshairs': False,
     }
+    assert events.frame_captured is show_captured_still
 
 
 def test_a_saved_still_shows_nothing(button_ctx, centre_posts, tmp_path):

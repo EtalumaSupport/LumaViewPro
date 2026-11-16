@@ -244,7 +244,8 @@ merge settles, which may be after its `files_written`. A handler's raise is
 reported under its event's name. A `frame_captured` handler takes four
 arguments, `(image, frames_summed, frame_significant_bits, channel)`, the last
 the channel the frame was taken for; a handler written for the three before it
-raises on every frame.
+raises on every frame. A still (`manual_capture.start_save_still`) takes
+`events` as well and sends `frame_captured` alone, once its file is written.
 
 **Levels and edges.** The run-state listener is a level: it is called once at
 registration with the state now, then on every change, so a display that

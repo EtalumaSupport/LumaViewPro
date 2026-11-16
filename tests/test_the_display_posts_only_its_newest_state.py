@@ -310,13 +310,13 @@ def _hold_clock(monkeypatch):
     return clock
 
 
-def _held_for(gui_ctx, clock):
-    """Whether the hold is in force just inside and just past one second from now."""
+def _held_for(gui_ctx, clock, seconds=1):
+    """Whether the hold is in force just inside and just past ``seconds`` from now."""
     thread = gui_ctx.scope_display_thread
     start = clock.now
-    clock.now = start + 0.9
+    clock.now = start + seconds - 0.1
     inside = thread.protocol_hold_in_force
-    clock.now = start + 1.1
+    clock.now = start + seconds + 0.1
     return inside, thread.protocol_hold_in_force
 
 
@@ -331,6 +331,19 @@ def test_a_runs_saved_frame_is_held_a_second_from_its_draw(gui_ctx, display, hel
     assert _drawn(display) == _frame(9).tobytes()
     assert gui_ctx.viewer.show_drawn.call_args.args == ('luminance', 'BF')
     assert _held_for(gui_ctx, clock) == (True, False)
+
+
+def test_a_still_is_held_the_users_time_from_its_draw(gui_ctx, display, held, monkeypatch):
+    from ui.ui_helpers import show_captured_still
+
+    gui_ctx.scope_display = display
+    gui_ctx.session.update_settings('capture_shown_s', 5)
+    show_captured_still(_frame(11), 1, 8, 'BF')
+    _render_held(gui_ctx, display, monkeypatch)
+    clock = _hold_clock(monkeypatch)
+    held.run()
+    assert _drawn(display) == _frame(11).tobytes()
+    assert _held_for(gui_ctx, clock, seconds=5) == (True, False)
 
 
 def test_enhances_preview_is_held_a_second_from_its_draw(gui_ctx, display, held, monkeypatch):

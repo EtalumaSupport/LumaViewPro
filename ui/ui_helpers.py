@@ -436,6 +436,26 @@ def show_captured_frame(
     )
 
 
+def show_captured_still(
+    image, frames_summed: int, frame_significant_bits: int, channel: str
+) -> None:
+    """The Capture button's ``frame_captured``: hold the still just saved on screen.
+
+    For the user's ``capture_shown_s`` seconds, then live view comes back by
+    itself. On the camera lane, where the still sends it; the display renders
+    the still on its own thread, so the lane does not wait for it. The still
+    is shown as its file renders it: a sum against one frame's white,
+    brighter.
+    """
+    ctx = _app_ctx.ctx
+    ctx.scope_display.hold_protocol_saved_image(
+        image,
+        frames_summed,
+        frame_significant_bits,
+        held=HeldFrame(ctx.session.setting('capture_shown_s'), channel),
+    )
+
+
 def restore_display_after_run(*_ended) -> None:
     """Put the display back on the user's settings once a run has ended.
 

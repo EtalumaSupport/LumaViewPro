@@ -32,6 +32,7 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.image_mode import OutputFormat
 from _lumascope.modules.image_utils import read_file_record, read_tiff_with_legacy_collapse
+from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.sequential_io_executor import IOTask
 from tests.scope_fakes import home_sim_scope
 from tests.test_composite_run_e2e import headless_settings
@@ -261,6 +262,50 @@ class TestOverlays:
 
         assert len(paths) == 2
         assert all(p.is_file() for p in paths)
+
+
+class TestTheStillSendsItsSavedFrame:
+    def test_a_summed_still_sends_the_frame_its_file_holds_once_its_file_is_written(self, tmp_path):
+        settings = _settings(tmp_path)
+        settings['image_mode'] = image_mode.ImageMode.SCIENTIFIC
+        settings['BF']['sum'] = 3
+        sent = []
+
+        def _captured(image, frames_summed, bits, channel):
+            written = sorted((tmp_path / 'Manual').glob('live_*'))
+            sent.append((image, frames_summed, bits, channel, written))
+
+        with _open_session(settings) as session:
+            (still,) = _capture(session, events=RunEvents(frame_captured=_captured))
+
+        assert len(sent) == 1, sent
+        image, frames_summed, bits, channel, written = sent[0]
+        assert written == [still.file], 'the frame is sent once its file is written'
+        assert np.array_equal(image, read_tiff_with_legacy_collapse(still.file))
+        assert not image.flags.writeable
+        assert (frames_summed, bits, channel) == (
+            3,
+            still.record.frame_significant_bits,
+            'BF',
+        )
+
+    def test_a_handlers_raise_fails_nothing_and_is_reported_once(self, still_session, monkeypatch):
+        from _lumascope.modules.notification_center import notifications
+
+        session, _ = still_session
+        reported = []
+        monkeypatch.setattr(
+            notifications, 'report_outcome', lambda e, **kwargs: reported.append((e, kwargs))
+        )
+        failure = ValueError('a display that cannot draw it')
+
+        def _captured(*_frame):
+            raise failure
+
+        stills = _capture(session, events=RunEvents(frame_captured=_captured))
+
+        assert stills[0].file.is_file()
+        assert reported == [(failure, {'solicited': False, 'category': 'frame_captured'})]
 
 
 class TestASumIsTakenBackToBack:
