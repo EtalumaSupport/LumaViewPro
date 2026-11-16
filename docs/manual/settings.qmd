@@ -220,6 +220,12 @@ press Record again to stop sooner.
 draws every frame. Default: [30]{.default setting="live_view_fps"}. Lower values reduce the load on the
 computer. Recordings and captures aren't affected.
 
+#### How long a captured image stays on screen {#sec-capture-shown}
+
+[Capture shown (s)]{.guilabel} is how many seconds a still or a composite
+stays on screen after you take it, before the live image comes back.
+Default: [2]{.default setting="capture_shown_s"}.
+
 #### Stamping the time on each video frame
 
 [Video Timestamp Overlay]{.guilabel} burns each frame's capture time into the frames of a recording, for both

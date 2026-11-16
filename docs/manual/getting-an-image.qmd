@@ -41,7 +41,8 @@ For a transmitted-light or fluorescence channel:
    spot later, click [Set Z]{.guilabel} in [Objective Control]{.guilabel},
    plus [Set X]{.guilabel} and [Set Y]{.guilabel} in
    [XY Stage Control]{.guilabel} if you have a motorized stage.
-7. Click Capture in the toolbar.
+7. Click Capture in the toolbar. The image you took shows for a few
+   seconds, then the live image comes back (@sec-capture-shown).
 
 The image is saved in the `Manual` folder inside your destination folder.
 Its name includes the channel and a number that goes up with each
@@ -78,8 +79,8 @@ focus in a transmitted-light channel first:
    several frames into each image, for example 4 (@sec-sum). The extra
    range from summing is kept only in a full-depth
    [Image Mode]{.guilabel}.
-5. Click Capture in the toolbar. Then click Open last save folder in the
-   toolbar, open the image, and check that the luminescence shows.
+5. Click Capture in the toolbar. The image you took shows for a few
+   seconds; check that the luminescence shows.
 
 To image [Lumi]{.channel} at the focus you found in transmitted light,
 click [Save Focus]{.guilabel} in the [Lumi]{.channel} drawer too, before
@@ -102,9 +103,10 @@ transmitted-light channel.
 3. Click Composite in the toolbar. Each channel is captured in turn with
    its own settings, at its saved focus. A channel with no saved focus
    uses the current focus, and a channel with [Auto Focus]{.guilabel} on
-   autofocuses first. A composite finishes by itself; to interrupt it,
-   click Composite again. The channels already captured are kept, but no
-   combined image is made.
+   autofocuses first. When the combined image is made, it shows for a few
+   seconds, then the live image comes back. A composite finishes by
+   itself; to interrupt it, click Composite again. The channels already
+   captured are kept, but no combined image is made.
 
 Each composite gets its own folder, `Manual/Composites/<date>_<time>/`,
 inside your destination folder. It holds one image per channel, such as
