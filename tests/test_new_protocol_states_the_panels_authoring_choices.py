@@ -119,7 +119,7 @@ def test_an_unknown_objective_is_shown_not_raised(monkeypatch, tmp_path, caplog,
     """The config carries the active objective, which is unknown on an
     unassigned slot and during every turret move. The panel shows the
     Session's reason as a refusal -- a warning, not an error dialog or an
-    ERROR line; an exception out of a button handler ends the app."""
+    ERROR line, nor an exception out of the button handler."""
     import logging
 
     from _lumascope.modules.notification_center import Severity

@@ -5,8 +5,10 @@ Two of the panel's code paths run with no person waiting on them: the step
 editor's debounced redraw, a clock trigger, and the shutdown override that
 stops a live run when the application closes. A raise out of either used
 to be caught at the site and turned into a blank label or an ERROR line
-the panel wrote itself; uncaught, it would reach Kivy's main loop and
-close the application. Both now run through the GUI's unasked boundary.
+the panel wrote itself; uncaught, the shutdown override's raise would end
+the close, and the redraw's would reach Kivy's main loop with the step
+editor's remaining work lost. Both now run through the GUI's unasked
+boundary.
 
 These tests drive the real handlers with the widget tree stubbed.
 """

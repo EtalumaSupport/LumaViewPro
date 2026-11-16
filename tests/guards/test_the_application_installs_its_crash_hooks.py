@@ -4,7 +4,8 @@
 Importing ``lvp_logger`` installs none (a script crashes as Python does), so
 the GUI calls ``install_crash_hooks()`` itself; without the call a core
 defect leaving ``LumaViewProApp().run()`` -- which ``_PluginCrashGuard``
-re-raises for its post-mortem -- would leave no crash record in the log.
+re-raises during the start, for its post-mortem -- would leave no crash
+record in the log.
 """
 
 from __future__ import annotations

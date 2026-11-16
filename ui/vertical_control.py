@@ -406,7 +406,7 @@ class VerticalControl(BoxLayout):
         the current position; withheld with no hardware and while settings
         are provisional). This widget only shows the question and hands
         the choice back. The question runs through the boundary: this runs
-        on Clock callbacks, where a raise exits the app, and the Session's
+        on Clock callbacks, which nothing waits on, and the Session's
         refusal -- the turret in no known slot, an unreadable catalogue --
         is shown once by the one reporter, in its own words.
 
@@ -440,7 +440,7 @@ class VerticalControl(BoxLayout):
     def _resolve_objective(self, on_resolved) -> None:
         """Run the continuation through the boundary; a raise is reported, not raised.
 
-        This runs on a Clock callback, where a raise exits the app, and
+        This runs on a Clock callback, which nothing waits on, and
         after a question that raised, where it would replace one reported
         failure with another. Nothing waits on the step it runs, so its
         failure is shown as one.

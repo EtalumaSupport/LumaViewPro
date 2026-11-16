@@ -5,8 +5,8 @@ Whether the objective is unknowable is the Session's decision (see
 test_session_objective_question.py). This widget only renders the
 question the Session returns, hands the choice back through
 ``confirm_objective`` and shows what happened -- and every failure on
-that path becomes a notification, because it runs on Clock callbacks,
-where a raise exits the app.
+that path becomes a notification in its own words, because it runs on
+Clock callbacks, which nothing waits on.
 """
 
 import ast

@@ -587,6 +587,7 @@ from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     draw_shared_run_displays,
     report_ui_thread_hold,
+    report_unasked,
     run_reported,
     run_unasked,
     schedule_ui_interval,
@@ -680,9 +681,10 @@ class LumaViewProApp(TooltipMixin, App):
         keeps one draw waiting. Level-read at
         fire time means out-of-order delivery degrades to bounded staleness,
         never a permanently wrong publish; registration itself level-syncs
-        the records to current truth. The draw is contained: a raise out of a
-        clock callback closes the application. A member, not a lambda, so the
-        close can remove it.
+        the records to current truth. The draw is contained, as an unasked
+        edge's is: an edge comes during the start too (the startup motion
+        holds the scope), when a raise reaching the loop ends the
+        application. A member, not a lambda, so the close can remove it.
         """
         schedule_ui_latest(
             (self, 'run_state'), lambda dt: run_unasked(self.publish_run_state, 'RUN_STATE')
@@ -1181,29 +1183,41 @@ class LumaViewProApp(TooltipMixin, App):
         # the built-ins. Each is handed the session.
         ctx.session.load_plugins()
 
-        # A plugin exception reaching the Kivy event loop must not take
-        # down the host: plugins are separately versioned (and may not be
-        # written by us), and one bad button handler in one crashed the
-        # whole app at the bench. Exceptions whose traceback enters a
-        # loaded plugin's package are contained -- logged, recorded in
-        # the plugin's health ledger, surfaced as a popup -- and the app
-        # continues. Anything NOT attributable to plugin code re-raises,
-        # so core defects keep their full crash post-mortem.
+        # The Kivy event loop's one exception handler: what no call caught.
+        # A plugin exception must not take down the host: plugins are
+        # separately versioned (and may not be written by us), and one bad
+        # button handler in one crashed the whole app at the bench.
+        # Exceptions whose traceback enters a loaded plugin's package are
+        # contained -- logged, recorded in the plugin's health ledger,
+        # surfaced as a popup -- and the app continues. LVP's own raise is
+        # reported unasked once the start has finished, and the app
+        # continues: the one policy run_unasked, schedule_ui_interval and
+        # the headless host's queue hold. Before then a raise is a start
+        # that failed, and it ends the app through the crash hook, since a
+        # half-started window that looks up is the worse outcome. An exit
+        # request (anything not an Exception) always ends it.
         from kivy.base import ExceptionHandler, ExceptionManager
 
         class _PluginCrashGuard(ExceptionHandler):
+            # Set as the last step of the start (after_the_startup_motion).
+            started = False
+
             def handle_exception(self, inst):
                 plugin_name = None
                 try:
                     plugin_name = ctx.session.plugins.attribute_exception(sys.exc_info()[2])
                 except Exception as e:
                     logger.debug(f'[Plugins ] crash attribution failed: {e}')
-                if plugin_name is None:
-                    return ExceptionManager.RAISE
-                ctx.session.plugins.record_runtime_error(plugin_name, 'ui_event', inst)
-                return ExceptionManager.PASS
+                if plugin_name is not None:
+                    ctx.session.plugins.record_runtime_error(plugin_name, 'ui_event', inst)
+                    return ExceptionManager.PASS
+                if self.started and isinstance(inst, Exception):
+                    report_unasked(inst, 'UNCAUGHT')
+                    return ExceptionManager.PASS
+                return ExceptionManager.RAISE
 
-        ExceptionManager.add_handler(_PluginCrashGuard())
+        crash_guard = _PluginCrashGuard()
+        ExceptionManager.add_handler(crash_guard)
 
         # Attach UI-namespace plugin mounts now that the widget tree
         # exists. Each registered (name, mount, builder) tuple is
@@ -1372,6 +1386,11 @@ class LumaViewProApp(TooltipMixin, App):
 
             # The atexit emergency-shutdown hook is registered in Lumascope.__init__
             # so every Lumascope user gets the same safety net automatically.
+
+            # The start has finished: from here the loop's handler reports
+            # LVP's own raise and the app stays up. Last, so a raise in any
+            # step above is still a start that failed.
+            crash_guard.started = True
 
         def startup_motion_settled(done: concurrent.futures.Future) -> None:
             from _lumascope.modules.exceptions import LaneCallStillRunningError, SessionClosingError

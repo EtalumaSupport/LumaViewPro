@@ -9,6 +9,10 @@ record carrying the plugin's own traceback, and one notice under its
 class's title whose words name the plugin. Discovery reports once, when it
 ends, naming every plugin that did not load, so plugins failing together
 are not merged into one notice that names only the first.
+
+The main loop's handler that catches a plugin's raise also decides LVP's
+own: reported once the start has finished, an exit before then. Its tests
+are here because its body runs only through this file's harness.
 """
 
 from __future__ import annotations
@@ -289,14 +293,18 @@ class _ExceptionManager:
     PASS = 'pass'
 
 
-def _crash_guard(session):
-    """The REAL handle_exception body, compiled out of lumaviewpro.py.
+def _crash_guard(session, *, started=False):
+    """The REAL handle_exception body, compiled out of lumaviewpro.py, as the loop calls it.
 
     The guard is a class nested in the fit step, and lumaviewpro.py is not
     importable under the harness, so its FunctionDef is compiled with only
     the module names it closes over supplied: the GUI's context, which
-    reaches the plugins through its session.
+    reaches the plugins through its session, and the GUI's unasked
+    reporter. The guard itself is a stand-in carrying only whether the
+    start has finished, the one thing the body reads from it.
     """
+    from ui.ui_helpers import report_unasked
+
     node = find_def('lumaviewpro.py', 'handle_exception', class_name='_PluginCrashGuard')
     assert node is not None, 'lumaviewpro.py: _PluginCrashGuard.handle_exception is gone'
     namespace = {
@@ -304,10 +312,12 @@ def _crash_guard(session):
         'sys': sys,
         'ExceptionManager': _ExceptionManager,
         'logger': logging.getLogger('LVP'),
+        'report_unasked': report_unasked,
     }
     module = ast.Module(body=[node], type_ignores=[])
     exec(compile(module, str(REPO_ROOT / 'lumaviewpro.py'), 'exec'), namespace)
-    return namespace['handle_exception']
+    guard = types.SimpleNamespace(started=started)
+    return lambda inst: namespace['handle_exception'](guard, inst)
 
 
 def test_the_crash_guard_reports_a_plugin_crash_through_the_recorder(
@@ -321,20 +331,59 @@ def test_the_crash_guard_reports_a_plugin_crash_through_the_recorder(
         raise ValueError('button handler bug')
     except ValueError as crash:
         caught = crash
-        answer = handle(None, crash)
+        answer = handle(crash)
 
     assert answer == _ExceptionManager.PASS
     _assert_one_report(centre_posts, outcome_records, PluginFailedError, 'crashy', cause=caught)
 
 
-def test_the_crash_guard_leaves_our_own_crashes_to_raise(harness_ctx, centre_posts, monkeypatch):
+def test_once_started_the_crash_guard_reports_our_own_crash_and_the_app_goes_on(
+    harness_ctx, centre_posts, outcome_records, monkeypatch
+):
+    """After the start, LVP's own raise that no call caught is reported once,
+    unasked, its record carrying the traceback, and the loop goes on."""
     monkeypatch.setattr(harness_ctx.plugins, 'attribute_exception', lambda tb: None)
-    handle = _crash_guard(harness_ctx)
+    handle = _crash_guard(harness_ctx, started=True)
 
     try:
         raise ValueError('core bug')
     except ValueError as crash:
-        answer = handle(None, crash)
+        caught = crash
+        answer = handle(crash)
+
+    assert answer == _ExceptionManager.PASS
+    assert [n.category for n in centre_posts] == ['UI:UNCAUGHT']
+    faults = _faults(outcome_records)
+    assert len(faults) == 1, [r.getMessage() for r in faults]
+    assert faults[0].exc_info[1] is caught
+    assert faults[0].exc_info[2] is not None
+
+
+def test_before_the_start_finishes_our_own_crash_ends_the_app(
+    harness_ctx, centre_posts, monkeypatch
+):
+    """A raise before the start has finished is a start that failed: the
+    guard leaves it to end the app, through the crash hook, and reports nothing."""
+    monkeypatch.setattr(harness_ctx.plugins, 'attribute_exception', lambda tb: None)
+    handle = _crash_guard(harness_ctx, started=False)
+
+    try:
+        raise ValueError('core bug')
+    except ValueError as crash:
+        answer = handle(crash)
+
+    assert answer == _ExceptionManager.RAISE
+    assert centre_posts == []
+
+
+def test_an_exit_request_ends_the_app_even_once_started(harness_ctx, centre_posts, monkeypatch):
+    monkeypatch.setattr(harness_ctx.plugins, 'attribute_exception', lambda tb: None)
+    handle = _crash_guard(harness_ctx, started=True)
+
+    try:
+        raise KeyboardInterrupt
+    except KeyboardInterrupt as stop:
+        answer = handle(stop)
 
     assert answer == _ExceptionManager.RAISE
     assert centre_posts == []

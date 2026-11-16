@@ -217,9 +217,9 @@ def _run_inline(func: Callable) -> None:
     try:
         func(0)
     except Exception as ex:
-        # Deliberately more forgiving than the GUI branch, which
-        # re-raises: a REST or headless caller must not be killed
-        # by one bad UI callback. The failure still has to be
+        # The GUI's policy too, once its start has finished (its
+        # main loop's handler): a REST or headless caller must not be
+        # killed by one bad UI callback. The failure still has to be
         # visible -- discarding it made a throwing protocol or
         # recording callback produce no record at all, so the run
         # looked like it had succeeded -- and it is reported, not

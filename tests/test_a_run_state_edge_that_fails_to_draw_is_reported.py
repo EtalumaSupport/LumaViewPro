@@ -3,9 +3,10 @@
 
 The GUI hears each run-state edge by scheduling ``publish_run_state`` on the
 clock. A raise out of a clock callback reaches Kivy's main loop, whose crash
-guard re-raises anything a plugin did not cause, and the application closes.
-No person asked for that redraw and nothing waits on it, so its fault is
-reported where it stops, unsolicited, and the next edge draws again.
+guard ends the application during the start, when edges already come (the
+startup motion holds the scope). No person asked for that redraw and
+nothing waits on it, so its fault is reported where it stops, unsolicited,
+and the next edge draws again.
 """
 
 import ast
@@ -75,5 +76,6 @@ def test_the_apps_run_state_listener_draws_through_run_unasked():
         registered = ast.unparse(member)
     assert 'publish_run_state' in registered
     assert 'run_unasked' in registered, (
-        'publish_run_state runs bare on the clock: a raise in it closes the application'
+        'publish_run_state runs bare on the clock: a raise in it during the start '
+        'ends the application'
     )

@@ -3,8 +3,9 @@
 takes the application down.
 
 A handler handed to the UI scheduler runs on a later Clock tick, after the
-call that scheduled it has returned, and the app's crash guard re-raises
-anything it cannot attribute to a plugin. So the catch has to sit inside the
+call that scheduled it has returned, so nothing around the scheduling call
+sees its raise; the app's crash guard would report it as an uncaught fault,
+or end the app during the start. So the catch has to sit inside the
 function the dispatcher runs, around the handler: a ``try`` around the
 scheduling call catches nothing on the GUI host. The report is the
 handler's own exception, under the event's name: a refusal stays a refusal

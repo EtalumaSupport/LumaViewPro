@@ -267,11 +267,13 @@ def run_unasked(call: typing.Callable[[], object], label: str) -> bool:
     """Run for an edge no person asked for; a raise is reported, not raised.
 
     A run-state edge redraws on the clock, a step-list change redraws the
-    step editor, the application's close stops a live run. A raise out of a
-    clock callback or a shutdown step reaches the main loop and closes the
-    application, and nothing waits on these calls, so a fault stops here --
-    reported as unasked, which an unattended run's mute and the repeat
-    window apply to -- and the next edge runs again.
+    step editor, the application's close stops a live run. Nothing waits on
+    these calls, so a fault stops here -- reported as unasked, which an
+    unattended run's mute and the repeat window apply to -- and the next
+    edge runs again. The main loop's handler reports the same way what no
+    call caught, but only once the start has finished (before then the
+    raise ends the application), and a callback's remaining work is lost
+    with the raise; here the caller learns whether the call got through.
 
     True when *call* returned, False when it raised and was reported: a
     step that must follow whether or not the call got through runs on
@@ -420,19 +422,35 @@ def _reported(fn: typing.Callable[[], object] | None, label: str) -> bool:
     return _contained(fn, label, solicited=True)
 
 
+def report_unasked(exception: Exception, label: str) -> None:
+    """Report a GUI fault no person asked for, under *label*.
+
+    The GUI's one spelling of an unasked report: ``_contained`` makes it
+    for a call it ran, and the main loop's handler for a raise no call
+    caught.
+    """
+    _report(exception, label, solicited=False)
+
+
+def _report(exception: Exception, label: str, *, solicited: bool) -> None:
+    from _lumascope.modules.notification_center import notifications
+
+    notifications.report_outcome(exception, solicited=solicited, category=f'UI:{label}')
+
+
 def _contained(fn: typing.Callable[[], object] | None, label: str, *, solicited: bool) -> bool:
     """The only place in the GUI that catches an outcome: run *fn*, report what it raises.
 
-    True when *fn* returned (or there was none), False when it raised.
+    The main loop's handler reports, through ``report_unasked``, what no
+    call caught. True when *fn* returned (or there was none), False when it
+    raised.
     """
     if fn is None:
         return True
-    from _lumascope.modules.notification_center import notifications
-
     try:
         fn()
     except Exception as e:
-        notifications.report_outcome(e, solicited=solicited, category=f'UI:{label}')
+        _report(e, label, solicited=solicited)
         return False
     return True
 

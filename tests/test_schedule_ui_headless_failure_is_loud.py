@@ -1,24 +1,22 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A UI callback that raises off the GUI path must still be reported.
 
-`schedule_ui` has two branches, and they are NOT symmetric.
+`schedule_ui` has two branches.
 
 The GUI branch hands the callback to `Clock.schedule_once`. A raising
-callback there reaches the app's crash guard, which returns
-`ExceptionManager.RAISE` for any frame it cannot attribute to a
-plugin -- which is everything this function dispatches. So the GUI
-RE-RAISES: it is the harsher host, and it is loud.
+callback there reaches the app's crash guard, which reports it once the
+start has finished and the app goes on, and before then ends the app as
+a start that failed.
 
 The no-GUI branch -- the ONLY branch a headless, REST or test caller
 takes -- used to `pass` on the exception. A throwing protocol or
 recording callback produced no record at all and the run looked like
 it had succeeded.
 
-These tests pin that the headless failure is VISIBLE, not that the two
-branches match. Reporting rather than raising is a deliberate choice to
-be more forgiving than the GUI: a REST caller must not be killed by
-one bad UI callback. Silence is the only option with no argument for
-it.
+These tests pin that the headless failure is VISIBLE. Reporting rather
+than raising is the same choice the GUI makes once started: a REST
+caller must not be killed by one bad UI callback. Silence is the only
+option with no argument for it.
 """
 
 from unittest.mock import MagicMock
