@@ -1708,14 +1708,16 @@ def _offered_words(offered: Iterable[object]) -> str:
 
 @api_fields('argument', 'offered')
 class CatalogueNameRefusedError(Refusal, ConfigError):
-    """A labware or objective name the installation's catalogue does not hold.
+    """A labware, objective or scope model name the installation's catalogue does not hold.
 
     Raised by the catalogue's lookup -- ``Lumascope.plate`` for a plate,
     ``Lumascope.objective`` for an objective --
     before anything is stored, so every door that names one is refused
-    alike. A ``ConfigError``, because the same check reads a stored setting
-    at bring-up and the callers that recover from a bad stored name catch
-    that type.
+    alike. A scope model is refused by ``ScopeSession.select_model`` before
+    it is saved, and at bring-up when the scope is to be built as a model
+    the catalogue does not list. A ``ConfigError``, because the same check
+    reads a stored setting at bring-up and the callers that recover from a
+    bad stored name catch that type.
 
     The catalogue is the installation's, fixed for the process, so the same
     name is refused every time it is sent.
@@ -1724,9 +1726,17 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
         reason: ``'labware_unknown'`` -- the labware name is no plate in the
             labware catalogue. ``'objective_not_in_catalogue'`` -- the
             objective name is no key of the objective catalogue.
-        argument: The owner's parameter: ``labware_id`` or ``objective_id``.
+            ``'model_unknown'`` -- the model is none the scope catalogue
+            lists: with no board naming its own, the model is a scope's
+            whole description (its axes, channels and optics), so one the
+            catalogue lacks would bring a scope up with none of them.
+        argument: Where the name came from, so the person who gave it can
+            find it: the owner's parameter (``labware_id``,
+            ``objective_id``, ``model``), or, for a model met at bring-up,
+            the stored setting ``microscope`` or the ``simulated`` scope
+            ``ScopeSession.create`` was handed.
         value: What was given, as given.
-        offered: The catalogue's keys.
+        offered: The catalogue's keys, in the catalogue's order.
 
     ``argument`` and ``offered`` are published, so a REST problem carries
     them beside the words. The run's ``ProtocolRunRefusedError`` names the
@@ -1744,6 +1754,11 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
         'objective_not_in_catalogue': (
             'Objective Not Known',
             '{argument} must be a key of the objective catalogue, one of {offered}; '
+            '{value!r} is not one.',
+        ),
+        'model_unknown': (
+            'Scope Model Not Known',
+            '{argument} must be a model in the scope catalogue, one of {offered}; '
             '{value!r} is not one.',
         ),
     }
@@ -1888,34 +1903,6 @@ class SettingsFileNotWrittenError(Fault, ConfigError):
             'unchanged; the next settings change saves again.'
         )
         self.file = file
-
-
-class ScopeModelUnknownError(Refusal, ValueError):
-    """A scope model was selected that this release's catalogue does not list.
-
-    The selection is the whole identity of a scope that cannot report its
-    own model, so an unlisted one would start the scope with no channels, no
-    optics and no scale. Refused before it is saved, rather than saved and
-    found at the next start.
-
-    Subclasses ValueError because it is a bad argument, like an unknown
-    axis name. The message reaches the person verbatim and names the
-    models the catalogue does list.
-
-    Attributes:
-        reason: ``'model_unknown'``.
-        model: The model that was refused.
-    """
-
-    causes: ClassVar[dict[str, RefusalCause | None]] = {'model_unknown': RefusalCause.REQUEST}
-    title = 'Unknown Scope Model'
-
-    def __init__(self, model: str, known: Iterable[str]):
-        super().__init__(
-            f'{model!r} is not a scope model this version of LumaViewPro knows. '
-            f'Choose one of: {", ".join(sorted(known))}.'
-        )
-        self.model = model
 
 
 class CaptureError(_Umbrella, Exception):

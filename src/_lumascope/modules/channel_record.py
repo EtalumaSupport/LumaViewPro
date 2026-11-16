@@ -33,6 +33,7 @@ from dataclasses import dataclass, fields
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
+    CatalogueNameRefusedError,
     ChannelBlockSupersededNotice,
     ChannelBlockUnusableNotice,
     ChannelRowsSkippedNotice,
@@ -41,7 +42,6 @@ from _lumascope.modules.exceptions import (
     InstallationFileError,
     MissingPart,
     Notice,
-    ScopeModelUnknownError,
 )
 from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.path_utils import read_installation_file, resolve_data_file
@@ -856,16 +856,28 @@ def _scope_model(
     )
 
 
-def model_axes(models: Mapping[str, ScopeModel], model: str) -> frozenset[str]:
+def model_axes(models: Mapping[str, ScopeModel], model: str, *, argument: str) -> frozenset[str]:
     """The motor axes the catalogue says a model has, or a refusal.
 
     A model the catalogue does not list is refused rather than answered
     as axis-less: an axis-less answer builds a manual scope, and a typo in
     the model name would then look like a scope with no motor board.
+
+    Args:
+        models: The scope's model catalogue.
+        model: The model to look up.
+        argument: Where ``model`` came from, named in the refusal so the
+            person who gave it can find it.
+
+    Raises:
+        CatalogueNameRefusedError: ``'model_unknown'``, the catalogue does
+            not list ``model``.
     """
     entry = models.get(model)
     if entry is None:
-        raise ScopeModelUnknownError(model, sorted(models))
+        raise CatalogueNameRefusedError(
+            'model_unknown', argument=argument, value=model, offered=tuple(models)
+        )
     return entry_axes(entry)
 
 

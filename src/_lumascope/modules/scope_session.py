@@ -66,6 +66,7 @@ from _lumascope.modules.exceptions import (
     CameraDriverRepairedNotice,
     CameraDriverRepairFailedError,
     CameraDriverRepairRefusedError,
+    CatalogueNameRefusedError,
     ConfigError,
     DiagnosticRefusedError,
     FileWriterNotStuckError,
@@ -84,7 +85,6 @@ from _lumascope.modules.exceptions import (
     RemedyName,
     ScopeDisconnectError,
     ScopeModelDeferredNotice,
-    ScopeModelUnknownError,
     SettingRefusedError,
     SettingsFileNotWrittenError,
     SettingsNotSavedNotice,
@@ -1848,10 +1848,11 @@ class ScopeSession:
                 ``simulate=False`` asked for while another LumaViewPro, REST
                 server or script drives the microscope, or while another
                 real scope in this process is open. Nothing was opened.
-            ScopeModelUnknownError: the stored ``microscope`` is a model the
-                catalogue does not list, and no motor board reports a model
-                to stand in its place (a simulated scope is built as the
-                stored model unless ``simulated.model`` names another).
+            CatalogueNameRefusedError: ``'model_unknown'``, the scope is to
+                be built as a model the catalogue does not list: the stored
+                ``microscope`` with no motor board reporting a model to stand
+                in its place, or, for a simulated scope, ``simulated.model``
+                (``argument`` names the stored setting or ``simulated``).
                 Nothing it started is left running.
             InstallationFileError: an installation data file the scope is
                 built from is missing, unreadable, or not the shape its
@@ -5336,12 +5337,14 @@ class ScopeSession:
             model: A model the release's catalogue lists.
 
         Raises:
-            ScopeModelUnknownError: the scope's catalogue does not list
-                ``model``; nothing is saved.
+            CatalogueNameRefusedError: ``'model_unknown'``, the scope's
+                catalogue does not list ``model``; nothing is saved.
         """
         scope_models = self.scope.scope_models
         if model not in scope_models:
-            raise ScopeModelUnknownError(model, scope_models)
+            raise CatalogueNameRefusedError(
+                'model_unknown', argument='model', value=model, offered=tuple(scope_models)
+            )
         with self.settings_lock:
             self._store_setting('microscope', model)
         logger.info(f'[Session  ] scope model {model!r} saved')
@@ -5514,8 +5517,9 @@ class ScopeSession:
             ConfigError: a settings key ``initialize`` cannot do without is
                 missing (``frame``; ``objective_id`` on a scope with no
                 turret); or that ``objective_id`` names no shipped objective.
-            ScopeModelUnknownError: the motor board reports no model and the
-                stored ``microscope`` is one the catalogue does not list.
+            CatalogueNameRefusedError: ``'model_unknown'``, the motor board
+                reports no model and the stored ``microscope`` is one the
+                catalogue does not list.
         """
         from _lumascope.modules.scope_init_config import ScopeInitConfig
 
@@ -5535,7 +5539,12 @@ class ScopeSession:
                 # scope's whole description, and one the catalogue does not
                 # list would bring it up with no axes, channels or optics to
                 # stand on.
-                raise ScopeModelUnknownError(stored, scope_models)
+                raise CatalogueNameRefusedError(
+                    'model_unknown',
+                    argument='microscope',
+                    value=stored,
+                    offered=tuple(scope_models),
+                )
         elif detected not in scope_models:
             logger.info(
                 f'[Session  ] scope reports model {detected}, not in the catalogue; '

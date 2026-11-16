@@ -541,7 +541,6 @@ from _lumascope.modules.app_config import (
 from _lumascope.modules.exceptions import (
     CatalogueNameRefusedError,
     ObjectiveUnknownError,
-    ScopeModelUnknownError,
 )
 from _lumascope.modules.settings_init import fall_back_to_template
 
@@ -1053,7 +1052,6 @@ class LumaViewProApp(TooltipMixin, App):
         try:
             return _compose(settings)
         except (
-            ScopeModelUnknownError,
             CatalogueNameRefusedError,
             ObjectiveUnknownError,
         ) as unusable:

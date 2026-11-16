@@ -18,7 +18,7 @@ import _lumascope.modules.lumascope_api._lumascope as lumascope_module
 
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
-from _lumascope.modules.channel_record import load_scope_models, model_axes
+from _lumascope.modules.channel_record import entry_axes, load_scope_models
 from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -26,7 +26,7 @@ from tests.scope_fakes import build_scope, simulated_camera_on_a_real_scope
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
 MODELS = load_scope_models()
-MANUAL = sorted(model for model in MODELS if not model_axes(MODELS, model))
+MANUAL = sorted(model for model in MODELS if not entry_axes(MODELS[model]))
 
 TIERS = [
     'fast',
@@ -53,8 +53,8 @@ def test_the_fast_tier_reports_every_catalogue_models_axes(model):
         register_atexit=False,
     )
     try:
-        assert set(scope.capabilities.axes) == model_axes(MODELS, model)
-        if not model_axes(MODELS, model):
+        assert set(scope.capabilities.axes) == entry_axes(MODELS[model])
+        if not entry_axes(MODELS[model]):
             assert isinstance(scope._motion_driver, NullMotionBoard)
     finally:
         scope.disconnect()

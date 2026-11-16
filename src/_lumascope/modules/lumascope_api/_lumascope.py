@@ -1033,7 +1033,10 @@ class Lumascope:
             # the scope's model is the selection's to decide.
             board_names_its_model = sim_model is not None or sim_unit_config is not None
             selected_model = configured_model if board_names_its_model else model
-            sim_axes = model_axes(self._scope_models, model)
+            # The refusal names where the model came from: the simulated
+            # scope asked for, else the stored setting (or the template's).
+            source = 'simulated' if sim_model else 'microscope'
+            sim_axes = model_axes(self._scope_models, model, argument=source)
             sim_led_board, sim_motor_board = self._simulated_boards(model, sim_axes)
             if sim_led_board == LedBoardFamily.FX2 or not sim_camera_present:
                 for argument, value, given in (

@@ -24,7 +24,7 @@ import _lumascope.modules.lumascope_api._lumascope as lumascope_module
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.modules import channel_record
-from _lumascope.modules.exceptions import InstallationFileError, ScopeModelUnknownError
+from _lumascope.modules.exceptions import CatalogueNameRefusedError, InstallationFileError
 from tests.scope_fakes import build_scope, construct_scope, simulated_camera_on_a_real_scope
 from tests.settings_fixtures import installation_of_its_own
 
@@ -114,10 +114,14 @@ def test_a_model_the_folder_does_not_list_is_refused_before_a_lane_starts():
     before = set(threading.enumerate())
 
     # The setting names a model the folder lacks: the settings' fault, not the file's.
-    with pytest.raises(ScopeModelUnknownError, match="'LS850T' is not a scope model"):
+    with pytest.raises(CatalogueNameRefusedError) as refused:
         construct_scope(
             simulate=True, sim_model='LS850T', source_path=str(root), warn_pre_release=False
         )
+    assert refused.value.reason == 'model_unknown'
+    # The model came from the simulated scope asked for, not from the settings.
+    assert refused.value.argument == 'simulated'
+    assert refused.value.offered == ('LS620',)
 
     assert set(threading.enumerate()) <= before
 

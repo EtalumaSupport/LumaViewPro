@@ -49,7 +49,7 @@ def _scope(model, **kwargs):
 
 def test_every_row_names_a_motor_board_exactly_when_it_has_axes():
     def check(model):
-        has_axes = bool(channel_record.model_axes(MODELS, model))
+        has_axes = bool(channel_record.entry_axes(MODELS[model]))
         assert (MODELS[model].motor_board is not None) == has_axes
 
     failed = failing_cases(sorted(MODELS), check)

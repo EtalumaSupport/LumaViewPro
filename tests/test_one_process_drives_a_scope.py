@@ -346,7 +346,9 @@ def test_the_server_prints_a_model_it_does_not_know_exits_1_and_gives_the_lock_b
     said = capsys.readouterr()
     # The refusal's own words, not the crash hook's class-prefixed line.
     [line] = said.err.strip().splitlines()
-    assert line.startswith("'LS999' is not a scope model this version of LumaViewPro knows.")
+    # Named by the setting the operator's current.json holds it under.
+    assert line.startswith('microscope must be a model in the scope catalogue, one of ')
+    assert "'LS999' is not one." in line
     assert 'LS850' in line
     assert 'REST server:' not in said.out
     assert _another_process_can_take(port)

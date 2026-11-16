@@ -9,7 +9,7 @@ import sys
 
 import harness as _common
 
-from _lumascope.modules.exceptions import ScopeModelUnknownError
+from _lumascope.modules.exceptions import CatalogueNameRefusedError
 
 s, live = _common.make_session()
 try:
@@ -32,7 +32,7 @@ try:
             False,
             f'stored {s.settings_snapshot()["microscope"]!r}',
         )
-    except ScopeModelUnknownError as e:
+    except CatalogueNameRefusedError as e:
         _common.ok('a model outside the catalogue is refused', True, str(e))
     # capabilities still follow the hardware, not the stored model
     print(

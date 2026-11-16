@@ -1147,7 +1147,7 @@ settings, then the camera start gate released) and is torn down by
 - `ArgumentRefusedError`: `'not_an_installation'`, a `source_path` that holds no `data/settings.json` template. `'needs_simulated_scope'`, `simulated` without `simulate`: a real scope's file lane writes to a real drive, and only a simulated scope's boards and camera take a fault. `'needs_simulated_camera'`, the record's `camera_stall`, `focal_spread_um` or `conversion_gain_mode` for a model simulated with an FX2 or with `camera_present` False (`argument` names the scope's `sim_camera_stall`, `sim_focal_spread_um` or `sim_conversion_gain_mode`). `'not_injectable_on_board'`, its `model_answer`, `refused_stream_starts`, `refused_camera_writes`, `refused_camera_reads` or `camera_usb_bindings` for a scope whose board or camera cannot show it; `'fault_unknown'`, its `refused_stream_starts`, `refused_camera_writes` or `refused_camera_reads` with `camera_present` False, a camera the scope does not have; `'fault_bound'`, a negative `refused_stream_starts` or a refusal's count below 1; `'not_offered'`, a node or an answer the camera's write does not give. `'wrong_kind'`, a block of `settings` that is not the kind the shipped template holds (`argument` names it). `'needs_simulated_firmware'`, the record's `unit_config` for a scope whose motor board is not the simulated motor firmware: the `fast` simulator tier (chosen, or run where this machine has no MicroPython runtime, which the words then say), or a model with no EL-0940 motor board; `'missing_key'` or `'wrong_kind'`, a `unit_config` without the `Microscope`, `Axis Present` or `IniFiles` the simulator boots it by, or one marking no axis present; `'not_offered'`, a register table its `IniFiles` names that the simulated firmware does not carry (`argument` names the scope's `sim_unit_config` throughout).
 - `SettingRefusedError`: `'wrong_kind'` or `'out_of_range'`, a value in `settings` the writer refuses: a dict handed to a session is a write of every key at once, held to the same ranges.
 - `ScopeInUseError`: `'scope_in_use'`, a session with `simulate=False` asked for while another LumaViewPro, REST server or script drives the microscope, or while another real scope in this process is open. Nothing was opened.
-- `ScopeModelUnknownError`: the stored `microscope` is a model the catalogue does not list, and no motor board reports a model to stand in its place (a simulated scope is built as the stored model unless `simulated.model` names another). Nothing it started is left running.
+- `CatalogueNameRefusedError`: `'model_unknown'`, the scope is to be built as a model the catalogue does not list: the stored `microscope` with no motor board reporting a model to stand in its place, or, for a simulated scope, `simulated.model` (`argument` names the stored setting or `simulated`). Nothing it started is left running.
 - `InstallationFileError`: an installation data file the scope is built from is missing, unreadable, or not the shape its reader needs; `file_path` names it. The installation is at fault, not `settings`. Nothing it started is left running.
 - `DriverNotLiveError`: with `simulate`, a simulated board that never answered as the scope came up. Nothing it started is left running.
 
@@ -1156,7 +1156,7 @@ settings, then the camera start gate released) and is torn down by
 - [`ScopeInUseError`](#ScopeInUseError): `scope_in_use`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_an_installation`, `needs_simulated_scope`, `needs_simulated_camera`, `not_injectable_on_board`, `fault_unknown`, `fault_bound`, `not_offered`, `wrong_kind`, `needs_simulated_firmware`, `missing_key`
 - [`SettingRefusedError`](#SettingRefusedError): `wrong_kind`, `out_of_range`
-- [`ScopeModelUnknownError`](#ScopeModelUnknownError): `model_unknown`
+- [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `model_unknown`
 - [`InstallationFileError`](#InstallationFileError): `installation_file_unusable`
 - [`DriverNotLiveError`](#DriverNotLiveError): `driver_not_live`
 
@@ -2763,12 +2763,12 @@ it is: `'scope_model_deferred'`, it applies at the next start, or
 
 **Raises**
 
-- `ScopeModelUnknownError`: the scope's catalogue does not list `model`; nothing is saved.
+- `CatalogueNameRefusedError`: `'model_unknown'`, the scope's catalogue does not list `model`; nothing is saved.
 
 **Refusals by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ScopeModelUnknownError`](#ScopeModelUnknownError): `model_unknown`
+- 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `model_unknown`
 
 <a id="ScopeSession.select_objective"></a>
 ### `ScopeSession.select_objective`
@@ -15875,24 +15875,26 @@ A still was saved, without its well or position, because X or Y is unknown.
 
 A refusal; bases `Refusal`, `ConfigError`.
 
-A labware or objective name the installation's catalogue does not hold.
+A labware, objective or scope model name the installation's catalogue does not hold.
 
 Raised by the catalogue's lookup -- `Lumascope.plate` for a plate,
 `Lumascope.objective` for an objective --
 before anything is stored, so every door that names one is refused
-alike. A `ConfigError`, because the same check reads a stored setting
-at bring-up and the callers that recover from a bad stored name catch
-that type.
+alike. A scope model is refused by `ScopeSession.select_model` before
+it is saved, and at bring-up when the scope is to be built as a model
+the catalogue does not list. A `ConfigError`, because the same check
+reads a stored setting at bring-up and the callers that recover from a
+bad stored name catch that type.
 
 The catalogue is the installation's, fixed for the process, so the same
 name is refused every time it is sent.
 
 **Attributes**
 
-- `reason`: `'labware_unknown'` -- the labware name is no plate in the labware catalogue. `'objective_not_in_catalogue'` -- the objective name is no key of the objective catalogue.
-- `argument`: The owner's parameter: `labware_id` or `objective_id`.
+- `reason`: `'labware_unknown'` -- the labware name is no plate in the labware catalogue. `'objective_not_in_catalogue'` -- the objective name is no key of the objective catalogue. `'model_unknown'` -- the model is none the scope catalogue lists: with no board naming its own, the model is a scope's whole description (its axes, channels and optics), so one the catalogue lacks would bring a scope up with none of them.
+- `argument`: Where the name came from, so the person who gave it can find it: the owner's parameter (`labware_id`, `objective_id`, `model`), or, for a model met at bring-up, the stored setting `microscope` or the `simulated` scope `ScopeSession.create` was handed.
 - `value`: What was given, as given.
-- `offered`: The catalogue's keys.
+- `offered`: The catalogue's keys, in the catalogue's order.
 
 `argument` and `offered` are published, so a REST problem carries
 them beside the words. The run's `ProtocolRunRefusedError` names the
@@ -15900,12 +15902,13 @@ same fact for a protocol's steps; `argument` is on this type only.
 
 **Fields**
 
-- <a id="CatalogueNameRefusedError.argument"></a>`argument`: `str` -- The owner's parameter: `labware_id` or `objective_id`.
-- <a id="CatalogueNameRefusedError.offered"></a>`offered`: `tuple[str, ...]` -- The catalogue's keys.
+- <a id="CatalogueNameRefusedError.argument"></a>`argument`: `str` -- Where the name came from, so the person who gave it can find it: the owner's parameter (`labware_id`, `objective_id`, `model`), or, for a model met at bring-up, the stored setting `microscope` or the `simulated` scope `ScopeSession.create` was handed.
+- <a id="CatalogueNameRefusedError.offered"></a>`offered`: `tuple[str, ...]` -- The catalogue's keys, in the catalogue's order.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `labware_unknown` | request | 422 |
+| `model_unknown` | request | 422 |
 | `objective_not_in_catalogue` | request | 422 |
 
 <a id="CellCountScaleDroppedNotice"></a>
@@ -18328,31 +18331,6 @@ selection is kept for a microscope that does not report its own.
 |---|---|---|
 | `scope_model_deferred` | -- | 409 |
 | `scope_model_for_another_scope` | -- | 409 |
-
-<a id="ScopeModelUnknownError"></a>
-### `lumascope.ScopeModelUnknownError`
-
-A refusal; bases `Refusal`, `ValueError`.
-
-A scope model was selected that this release's catalogue does not list.
-
-The selection is the whole identity of a scope that cannot report its
-own model, so an unlisted one would start the scope with no channels, no
-optics and no scale. Refused before it is saved, rather than saved and
-found at the next start.
-
-Subclasses ValueError because it is a bad argument, like an unknown
-axis name. The message reaches the person verbatim and names the
-models the catalogue does list.
-
-**Attributes**
-
-- `reason`: `'model_unknown'`.
-- `model`: The model that was refused.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `model_unknown` | request | 422 |
 
 <a id="ServerRefusedError"></a>
 ### `lumascope.ServerRefusedError`

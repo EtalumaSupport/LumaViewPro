@@ -17,7 +17,7 @@ import pytest
 import _lumascope.modules.lumascope_api._lumascope as lumascope_module
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
-from _lumascope.modules.exceptions import ScopeModelUnknownError
+from _lumascope.modules.exceptions import CatalogueNameRefusedError
 from _lumascope.modules.lumascope_api.simulation import SimulatedModelAnswer, SimulatedScope
 from _lumascope.modules.scope_session import ScopeSession
 from tests.log_capture import records_of
@@ -207,11 +207,13 @@ def test_with_no_board_to_say_what_the_scope_is_an_unlisted_stored_model_is_refu
     )
     simulated_camera_on_a_real_scope(monkeypatch)
 
-    with pytest.raises(ScopeModelUnknownError) as refused:
+    with pytest.raises(CatalogueNameRefusedError) as refused:
         ScopeSession.create(
             complete_settings(microscope='LS999'),
             source_path=str(installation_of_its_own()),
             simulate=False,
             warn_pre_release=False,
         )
-    assert refused.value.model == 'LS999'
+    assert refused.value.reason == 'model_unknown'
+    assert refused.value.argument == 'microscope'
+    assert refused.value.value == 'LS999'
