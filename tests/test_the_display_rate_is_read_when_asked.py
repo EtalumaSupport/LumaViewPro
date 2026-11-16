@@ -75,9 +75,13 @@ def clock(monkeypatch):
 @pytest.fixture
 def display(monkeypatch, clock):
     # a stand-in by design: the viewer is a Kivy widget; the subject is the
-    # display's rate, not the colour it tells the viewer.
+    # display's rate, not the colour it tells the viewer. No session: a live
+    # draw is judged as a slow frame, and with no session's heartbeat no
+    # stretch is one the process did not run.
     monkeypatch.setattr(
-        app_context, 'ctx', SimpleNamespace(viewer=MagicMock(), settings={'debug_mode': False})
+        app_context,
+        'ctx',
+        SimpleNamespace(viewer=MagicMock(), settings={'debug_mode': False}, session=None),
     )
     # The constructor draws its overlays on the canvas and binds Kivy
     # properties; the stub base has neither, so the instance gets them first.

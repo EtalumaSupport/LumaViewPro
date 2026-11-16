@@ -29,6 +29,7 @@ Threading model (Stage B1):
 import dataclasses
 import logging
 import statistics
+import threading
 import time
 
 import numpy as np
@@ -110,6 +111,41 @@ FRAME_SPIKE_MEDIAN_REFRESH_S = 0.5  # recompute the cached median at most this o
 FRAME_SPIKE_LOG_MIN_GAP_S = 2.0
 
 
+@dataclasses.dataclass
+class _SinceDraw:
+    """What the display thread did between two live frames drawn.
+
+    The display thread adds to it at every frame it picks up and every pass
+    it held or paused; the UI thread takes it whole at a live draw and judges
+    the interval since the previous one by it. A post replaced before it is
+    drawn leaves its share here, so the frame drawn answers for every frame
+    picked up since the last.
+
+    Attributes:
+        posted_at: ``time.monotonic`` when the oldest live frame still
+            waiting for the UI thread was posted; None when none waits.
+        camera_ms: The longest gap between the arrivals of two frames picked
+            up in a row.
+        skipped: The frames the camera stored that were never picked up.
+        settled: False when any frame picked up came while a camera change
+            was switching over.
+        held_ms: Time the display deliberately drew nothing (a hold, the
+            pause).
+        grab_ms: The display thread's reads of the frames picked up.
+        proc_ms: Its renders of them.
+        eng_ms: Its engineering stats on them.
+    """
+
+    posted_at: float | None = None
+    camera_ms: float = 0.0
+    skipped: int = 0
+    settled: bool = True
+    held_ms: float = 0.0
+    grab_ms: float = 0.0
+    proc_ms: float = 0.0
+    eng_ms: float = 0.0
+
+
 def _stopped_ms(began, ended):
     """The milliseconds of ``began`` to ``ended`` (``time.monotonic``) in which no thread of the process ran.
 
@@ -189,18 +225,14 @@ class ScopeDisplay(Image):
         self._frame_interval_history = deque(maxlen=2000)
         self._last_frame_pull_time = None
 
-        # Per-spike frame-drop attribution ("uneven video" instrument). Keyed off
-        # the last STATUS_OK frame so it measures inter-DISPLAYED-frame gaps, not
-        # loop iterations (duplicate/empty polls would otherwise collapse the
-        # interval). The window of recent OK-frame intervals feeds the median
-        # baseline; the median is cached and refreshed at most every
-        # FRAME_SPIKE_MEDIAN_REFRESH_S so the hot render path doesn't re-sort it
-        # every frame. _last_ok_compute carries the PREVIOUS OK frame's
-        # grab/proc/eng -- the display-path work that actually ran during the
-        # interval being attributed.
+        # Per-spike frame-drop attribution ("uneven video" instrument), judged
+        # on the UI thread at each live frame drawn, so it measures the gaps a
+        # viewer sees, whichever thread was late. The window of recent drawn
+        # intervals feeds the median baseline; the median is cached and
+        # refreshed at most every FRAME_SPIKE_MEDIAN_REFRESH_S so the draw
+        # doesn't re-sort it every frame. All of it is the UI thread's.
         self._spike_interval_window = deque(maxlen=FRAME_SPIKE_WINDOW)
-        self._last_ok_frame_time = None
-        self._last_ok_compute = None
+        self._last_live_draw = None
         self._spike_median_cache = None
         self._spike_median_refresh = 0.0
         self._spike_min_samples = FRAME_SPIKE_MIN_SAMPLES
@@ -209,11 +241,14 @@ class ScopeDisplay(Image):
         # _camera_settled read it at the previous drawn frame; None until the
         # first, which answers by the in-force state alone.
         self._changes_at_last_frame = None
-        # Intended non-render time (holds, pause) accumulated across loop
-        # iterations since the last displayed frame; the spike instrument
-        # subtracts it so a deliberately held frame is not reported as a
-        # stutter. Reset each time an OK frame is judged.
-        self._wait_since_last_ok_ms = 0.0
+        # What the display thread did since the last live frame drawn: added
+        # to on the display thread, taken at the draw on the UI thread.
+        self._since_draw = _SinceDraw()
+        self._since_draw_lock = threading.Lock()
+        # The (arrived_ns, stored) of the frame the display thread picked up
+        # last; the display thread's alone. None until the first frame and
+        # after the camera goes, whose handler counts again from one.
+        self._last_pickup = None
 
         # Engineering stats timing (2x per second)
         self._eng_stats_last_time = 0.0
@@ -483,12 +518,58 @@ class ScopeDisplay(Image):
             'n': n,
         }
 
-    def _check_slow_frame(self, cycle_start, *, grab_ms, proc_ms, eng_ms, settled, held_ms=0.0):
-        """Emit one WARN when the gap to the previous displayed frame spikes.
+    def _note_held(self, held_ms):
+        """Add time the display deliberately drew nothing to the record; on the display thread."""
+        with self._since_draw_lock:
+            self._since_draw.held_ms += held_ms
 
-        The "uneven video" instrument. Called only on STATUS_OK, so cycle_start
-        is the start of a genuinely-new displayed frame; the interval to the
-        previous OK frame is the gap the user actually perceives. Fires when that
+    def _note_pickup(self, frame, *, settled, posted_at, grab_ms, proc_ms, eng_ms):
+        """Add a frame picked up to the record; on the display thread.
+
+        Args:
+            frame: The store's ``Frame`` the image was read from.
+            settled: ``_camera_settled``'s answer at this frame.
+            posted_at: ``time.monotonic`` when the frame was posted to the
+                UI thread; None when it was not (the bullseye's rate cap).
+            grab_ms: The read of the frame.
+            proc_ms: Its render.
+            eng_ms: Its engineering stats.
+        """
+        last = self._last_pickup
+        self._last_pickup = (frame.arrived_ns, frame.stored)
+        with self._since_draw_lock:
+            since = self._since_draw
+            if last is not None:
+                since.camera_ms = max(since.camera_ms, (frame.arrived_ns - last[0]) / 1e6)
+                since.skipped += frame.stored - last[1] - 1
+            since.settled = since.settled and settled
+            if since.posted_at is None:
+                since.posted_at = posted_at
+            since.grab_ms += grab_ms
+            since.proc_ms += proc_ms
+            since.eng_ms += eng_ms
+
+    def _drop_waiting_post(self):
+        """The waiting live frame was kept off the screen by a hold; on the UI thread.
+
+        A frame not drawn on purpose did not wait for the UI thread.
+        """
+        with self._since_draw_lock:
+            self._since_draw.posted_at = None
+
+    def _judge_live_draw(self, drawn_at):
+        """Take the record at a live frame drawn and judge the interval; on the UI thread."""
+        with self._since_draw_lock:
+            since, self._since_draw = self._since_draw, _SinceDraw()
+        self._check_slow_frame(drawn_at, since)
+
+    def _check_slow_frame(self, drawn_at, since):
+        """Emit one WARN when the gap to the previous live frame drawn spikes.
+
+        The "uneven video" instrument. Called at each live frame drawn, on the
+        UI thread, so the interval to the previous one is the gap the viewer
+        sees, whether the camera, the display thread or the UI thread was
+        late. Fires when that
         interval exceeds both FRAME_SPIKE_RATIO x the recent-window median AND
         FRAME_SPIKE_FLOOR_MS -- transient stutters, not a uniformly slow stream
         (whose median rises to match; display_fps owns that). The floor is a
@@ -496,7 +577,7 @@ class ScopeDisplay(Image):
         so it reaches a normal bench bundle whether or not debug_mode/[PERF] is
         on; the floor+ratio+rate-limit gate keeps it to genuine spikes.
 
-        held_ms is time the loop deliberately spent not rendering during the
+        ``since.held_ms`` is time the loop deliberately spent not rendering during the
         raw span (protocol / derived-image holds chain a saved frame on screen
         at capture cadence; the pause button freezes the view for as long as
         the user likes). It is subtracted before judging AND before feeding the
@@ -507,10 +588,12 @@ class ScopeDisplay(Image):
         thread of the process ran is taken out the same way, and reported as
         stopped= when a spike remains.
 
-        settled is False while the API reports a camera-side change (exposure,
-        gain, LED, frame size, ...) whose switch-over frames are still arriving,
-        and when one was recorded since the last frame judged (one that came
-        into force while nothing was drawn). Those frames are not judged, and
+        ``since.settled`` is False when a frame picked up since the last draw
+        came while the API reported a camera-side change (exposure, gain, LED,
+        frame size, ...) whose switch-over frames were still arriving, or one
+        recorded since the frame before it (one that came into force while
+        nothing was drawn), even when that frame's post was replaced before
+        it was drawn. Those draws are not judged, and
         the baseline is discarded and rebuilt from FRAME_SPIKE_RESTART_SAMPLES
         frames once the change has settled: a median built at a 17 ms exposure
         called every frame of a 1000 ms one a stall, and a long exposure's last
@@ -519,46 +602,43 @@ class ScopeDisplay(Image):
         it -- a move does not change the frame cadence, and a stutter while the
         stage jogs is exactly what a viewer sees.
 
-        Attribution: the grab/proc/eng reported are the PREVIOUS frame's --
-        the display-path work that actually ran DURING this interval (this
-        frame's compute happens after cycle_start, outside the interval). gap =
-        interval - that work = the non-display remainder: pacing wait, camera
-        delivery latency, GIL contention, host scheduling / page-fault pressure.
-        A large gap with small prev-frame compute points upstream of the display
-        path; a large prev-frame compute points at the render itself.
+        Attribution: the grab/proc/eng reported are the display thread's work
+        on the frames it picked up since the last draw, the display-path work
+        that ran during this interval. gap = interval - that work = the
+        non-display remainder: pacing wait, camera delivery latency, the UI
+        thread's wait, GIL contention, host scheduling / page-fault pressure.
         """
-        prev_time = self._last_ok_frame_time
-        prev_compute = self._last_ok_compute
-        self._last_ok_frame_time = cycle_start
-        self._last_ok_compute = (grab_ms, proc_ms, eng_ms)
+        prev_time = self._last_live_draw
+        self._last_live_draw = drawn_at
         window = self._spike_interval_window
-        if not settled:
+        if not since.settled:
             window.clear()
             self._spike_median_cache = None
             self._spike_min_samples = FRAME_SPIKE_RESTART_SAMPLES
             return
         if prev_time is None:
             return
-        stopped_ms = _stopped_ms(prev_time, cycle_start)
-        interval_ms = (cycle_start - prev_time) * 1000.0 - held_ms - stopped_ms
+        held_ms = since.held_ms
+        stopped_ms = _stopped_ms(prev_time, drawn_at)
+        interval_ms = (drawn_at - prev_time) * 1000.0 - held_ms - stopped_ms
         window.append(interval_ms)
         if len(window) < self._spike_min_samples:
             return
-        median_ms = self._spike_median(cycle_start)
+        median_ms = self._spike_median(drawn_at)
         threshold_ms = max(FRAME_SPIKE_FLOOR_MS, FRAME_SPIKE_RATIO * median_ms)
         if interval_ms <= threshold_ms:
             return
-        if (cycle_start - self._slow_frame_last_log) < FRAME_SPIKE_LOG_MIN_GAP_S:
+        if (drawn_at - self._slow_frame_last_log) < FRAME_SPIKE_LOG_MIN_GAP_S:
             return
-        self._slow_frame_last_log = cycle_start
-        p_grab, p_proc, p_eng = prev_compute if prev_compute else (0.0, 0.0, 0.0)
-        prev_total = p_grab + p_proc + p_eng
+        self._slow_frame_last_log = drawn_at
+        compute_ms = since.grab_ms + since.proc_ms + since.eng_ms
         held_note = f' held={held_ms:.0f}ms' if held_ms > 0 else ''
         stopped_note = f' stopped={stopped_ms:.0f}ms' if stopped_ms > 0 else ''
         logger.warning(
             f'[SLOW FRAME] interval={interval_ms:.0f}ms (median={median_ms:.0f}ms) | '
-            f'prev-frame grab={p_grab:.1f}ms proc={p_proc:.1f}ms eng={p_eng:.1f}ms '
-            f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms{held_note}{stopped_note}'
+            f'display grab={since.grab_ms:.1f}ms proc={since.proc_ms:.1f}ms '
+            f'eng={since.eng_ms:.1f}ms (={compute_ms:.1f}ms) '
+            f'gap={interval_ms - compute_ms:.0f}ms{held_note}{stopped_note}'
         )
 
     def _camera_settled(self, imaging) -> bool:
@@ -721,10 +801,10 @@ class ScopeDisplay(Image):
             STATUS_NOT_READY,
         )
 
-        # Accumulate intended waits toward the next displayed frame BEFORE any
+        # Accumulate intended waits toward the next live frame drawn BEFORE any
         # early return, so a hold followed by an empty/not-ready iteration is
-        # still excluded when the next OK frame is judged.
-        self._wait_since_last_ok_ms += intentional_wait_ms
+        # still excluded when the next draw is judged.
+        self._note_held(intentional_wait_ms)
 
         ctx = _app_ctx.ctx
 
@@ -754,8 +834,10 @@ class ScopeDisplay(Image):
                 self._bullseye_rgb_buf = None
                 self._display_8bit_buf = None
                 # A reconnected camera's handler counts its frames from one
-                # again, so the last ordinal shown names no frame of it.
+                # again, so the last ordinal shown names no frame of it, and
+                # the last frame picked up is not its frame to count from.
                 self._last_frame_seq = None
+                self._last_pickup = None
                 schedule_ui_latest(
                     (self, 'camera_indicator'),
                     lambda dt: self.set_camera_disconnected_display(),
@@ -809,6 +891,9 @@ class ScopeDisplay(Image):
         # (mono downscale, or the bullseye transform when its rate cap lets it
         # render). Stays 0 when a rate cap skips the render -- there was no work.
         proc_ms = 0.0
+        # The draw of this frame posted to the UI thread; None when the
+        # bullseye's rate cap skips its render.
+        live_post = None
         if ctx.session.engineering_mode:
             # Frame validity indicator: update every frame (lightweight canvas op)
             fv_valid = ctx.scope.imaging.changes_in_force()
@@ -863,13 +948,9 @@ class ScopeDisplay(Image):
                 proc_ms = (time.monotonic() - t_process_start) * 1000.0
                 bullseye_shape = display_bullseye.shape
                 g = generation
-                # The same one waiting live frame as the main path below.
-                schedule_ui_latest(
-                    (self, 'live_frame'),
-                    lambda dt, b=bullseye_bytes, s=bullseye_shape, gen=g: (
-                        self.create_and_set_bullseye_texture(b, s, gen)
-                    ),
-                )
+
+                def live_post(dt, b=bullseye_bytes, s=bullseye_shape, gen=g):
+                    self.create_and_set_bullseye_texture(b, s, gen)
 
         if not self.use_bullseye:
             t_process_start = time.monotonic()
@@ -891,69 +972,67 @@ class ScopeDisplay(Image):
             image_shape = display_image.shape
             t_blit_scheduled = time.monotonic()
             g = generation
+
+            def live_post(dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g):
+                self.create_and_set_texture(b, s, ts, gen, held=None)
+
+        # Add this frame to the record the next live draw is judged by before
+        # its draw is posted, so the UI thread never draws a frame the record
+        # does not hold yet. Only reached on STATUS_OK -- a genuinely new frame,
+        # past the duplicate gate. grab/eng are set in both render paths; proc
+        # by whichever render branch ran.
+        self._note_pickup(
+            frame,
+            settled=self._camera_settled(ctx.scope.imaging),
+            posted_at=time.monotonic() if live_post is not None else None,
+            grab_ms=(t_grab_end - t_grab_start) * 1000.0,
+            proc_ms=proc_ms,
+            eng_ms=t_eng_stats * 1000.0,
+        )
+        if live_post is not None:
             # The live frame is a state: the display thread produces a
             # full-frame byte buffer (~3.5 MB) per iteration, and one per post
             # piled up whenever the UI thread stalled (homing / tiling moves).
             # One waits, the newest; intermediate frames are dropped from the
-            # display only, never from capture or save.
-            schedule_ui_latest(
-                (self, 'live_frame'),
-                lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: (
-                    self.create_and_set_texture(b, s, ts, gen, held=None)
-                ),
-            )
-            # Performance instrumentation gated on settings.debug_mode, which
-            # also puts the main log at DEBUG, so the [PERF] logger.debug
-            # below reaches it.
-            if self._debug_perf_enabled(ctx):
-                self._perf_grab_times.append(t_grab_end - t_grab_start)
-                self._perf_process_times.append(t_process_end - t_process_start)
-                now_perf = time.monotonic()
-                if now_perf - self._perf_log_last_time >= self._perf_log_interval:
-                    self._perf_log_last_time = now_perf
-                    n = len(self._perf_grab_times)
-                    if n > 0:
-                        avg_grab = sum(self._perf_grab_times) / n * 1000
-                        avg_proc = sum(self._perf_process_times) / n * 1000
-                        max_grab = max(self._perf_grab_times) * 1000
-                        max_proc = max(self._perf_process_times) * 1000
-                        kivy_fps = Clock.get_fps()
-                        kivy_rfps = Clock.get_rfps()
-                        display_fps = self.display_fps()
-                        avg_blit_delay = (
-                            sum(self._perf_blit_delays) / max(1, len(self._perf_blit_delays)) * 1
-                            if self._perf_blit_delays
-                            else 0
-                        )
-                        max_blit_delay = (
-                            max(self._perf_blit_delays) if self._perf_blit_delays else 0
-                        )
-                        capture_fps = ctx.scope.imaging.delivered_rate().frame_rate_fps
-                        logger.debug(
-                            f'[PERF] capture={capture_fps:.1f} display={display_fps:.1f} '
-                            f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '
-                            f'grab={avg_grab:.1f}ms(max {max_grab:.1f}) '
-                            f'proc={avg_proc:.1f}ms(max {max_proc:.1f}) '
-                            f'blit_delay={avg_blit_delay:.1f}ms(max {max_blit_delay:.0f}) eng={t_eng_stats * 1000:.1f}ms'
-                        )
-                    self._perf_grab_times.clear()
-                    self._perf_process_times.clear()
-                    self._perf_blit_delays.clear()
+            # display only, never from capture or save. The mono frame and the
+            # bullseye are the same one waiting live frame.
+            schedule_ui_latest((self, 'live_frame'), live_post)
 
-        # Attribute this displayed frame's stutter (if any) before returning. Only
-        # reached on STATUS_OK -- a genuinely new frame, past the duplicate gate --
-        # so the interval it measures is between frames the user actually sees, not
-        # between loop iterations. grab/eng are set in both render paths; proc by
-        # whichever render branch ran.
-        self._check_slow_frame(
-            cycle_start,
-            grab_ms=(t_grab_end - t_grab_start) * 1000.0,
-            proc_ms=proc_ms,
-            eng_ms=t_eng_stats * 1000.0,
-            settled=self._camera_settled(ctx.scope.imaging),
-            held_ms=self._wait_since_last_ok_ms,
-        )
-        self._wait_since_last_ok_ms = 0.0
+        # Performance instrumentation gated on settings.debug_mode, which
+        # also puts the main log at DEBUG, so the [PERF] logger.debug
+        # below reaches it.
+        if not self.use_bullseye and self._debug_perf_enabled(ctx):
+            self._perf_grab_times.append(t_grab_end - t_grab_start)
+            self._perf_process_times.append(t_process_end - t_process_start)
+            now_perf = time.monotonic()
+            if now_perf - self._perf_log_last_time >= self._perf_log_interval:
+                self._perf_log_last_time = now_perf
+                n = len(self._perf_grab_times)
+                if n > 0:
+                    avg_grab = sum(self._perf_grab_times) / n * 1000
+                    avg_proc = sum(self._perf_process_times) / n * 1000
+                    max_grab = max(self._perf_grab_times) * 1000
+                    max_proc = max(self._perf_process_times) * 1000
+                    kivy_fps = Clock.get_fps()
+                    kivy_rfps = Clock.get_rfps()
+                    display_fps = self.display_fps()
+                    avg_blit_delay = (
+                        sum(self._perf_blit_delays) / max(1, len(self._perf_blit_delays)) * 1
+                        if self._perf_blit_delays
+                        else 0
+                    )
+                    max_blit_delay = max(self._perf_blit_delays) if self._perf_blit_delays else 0
+                    capture_fps = ctx.scope.imaging.delivered_rate().frame_rate_fps
+                    logger.debug(
+                        f'[PERF] capture={capture_fps:.1f} display={display_fps:.1f} '
+                        f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '
+                        f'grab={avg_grab:.1f}ms(max {max_grab:.1f}) '
+                        f'proc={avg_proc:.1f}ms(max {max_proc:.1f}) '
+                        f'blit_delay={avg_blit_delay:.1f}ms(max {max_blit_delay:.0f}) eng={t_eng_stats * 1000:.1f}ms'
+                    )
+                self._perf_grab_times.clear()
+                self._perf_process_times.clear()
+                self._perf_blit_delays.clear()
 
         return STATUS_OK
 
@@ -1040,6 +1119,7 @@ class ScopeDisplay(Image):
         if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
         if self._protocol_hold_in_force():
+            self._drop_waiting_post()
             return  # a held frame is on screen for its time
         size = (shape[1], shape[0])
         # Mirror the mono path's caching -- only allocate a new GDI texture
@@ -1067,6 +1147,7 @@ class ScopeDisplay(Image):
         self.frames_shown += 1
         self.canvas.ask_update()
         self._count_display_fps()
+        self._judge_live_draw(time.monotonic())
         # _schedule_next retired; ScopeDisplayThread loop owns pacing.
 
     def _current_generation(self):
@@ -1100,6 +1181,7 @@ class ScopeDisplay(Image):
         if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
         if live and self._protocol_hold_in_force():
+            self._drop_waiting_post()
             return  # a held frame is on screen for its time
         if not live:
             # Its time on screen is counted from here: the wait for a slow
@@ -1132,6 +1214,7 @@ class ScopeDisplay(Image):
         self.canvas.ask_update()
         if live:
             self._count_display_fps()
+            self._judge_live_draw(time.monotonic())
         # _schedule_next retired; ScopeDisplayThread loop owns pacing.
 
     def hold_protocol_saved_image(self, image, frames_summed, frame_significant_bits, *, held):

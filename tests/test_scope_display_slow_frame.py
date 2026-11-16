@@ -1,70 +1,36 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Regression tests for the per-spike frame-drop attribution logger.
 
-`_check_slow_frame` is the "uneven video" instrument: it emits one WARN when
-the gap to the PREVIOUS displayed frame spikes above its recent-window
-baseline, with a grab/proc/eng breakdown so a bench bundle can attribute each
-stutter. The contract these tests lock:
+The "uneven video" instrument emits one WARN when the gap between two live
+frames drawn spikes above its recent-window baseline, with a breakdown so a
+bench bundle can attribute each stutter. It is judged on the UI thread at
+each live frame drawn (``ScopeDisplay._judge_live_draw``), by the record the
+display thread adds to at each frame it picks up. The contract these tests
+lock:
 
-  * It is called only on STATUS_OK and keys off _last_ok_frame_time, so the
-    interval is between DISPLAYED frames -- duplicate/empty loop iterations
-    never collapse it (the original bug: measuring inter-iteration time made
-    the median collapse to ~1ms on a slow camera, so it never fired).
-  * The reported grab/proc/eng are the PREVIOUS frame's -- the display-path
-    work that actually ran during the interval -- not this frame's (whose
-    compute happens after the interval ends). gap = interval - that work.
+  * The interval is between live frames DRAWN -- duplicate/empty loop
+    iterations never collapse it, and a UI thread too busy to draw is a
+    stutter even when the display thread kept picking frames up.
+  * The reported grab/proc/eng are the display thread's work on the frames
+    it picked up since the last draw -- the display-path work that ran
+    during the interval. gap = interval - that work.
   * It fires only when the interval beats BOTH the floor AND ratio-x-median,
     so a uniformly slow stream (median rises to match) does not fire.
   * A fast->slow transition is rate-limited so it does not log every frame
     until the median catches up.
   * Intended non-render time (protocol/derived-image holds, user pause) is
-    passed as held_ms and subtracted before judging AND before feeding the
-    median window: a deliberately held frame is not a stutter, and a hold
-    chain must not inflate the baseline. A genuine residue past the hold
-    still fires, with held= reported on the line.
-
-The real ScopeDisplay is a Kivy widget needing a GL context; the logic touches
-only a handful of instance attributes + module constants, so a minimal stand-in
-borrowing the real methods exercises the exact code without constructing it.
+    subtracted before judging AND before feeding the median window: a
+    deliberately held frame is not a stutter, and a hold chain must not
+    inflate the baseline. A genuine residue past the hold still fires, with
+    held= reported on the line.
 """
 
-import logging
-import sys
 from collections import deque
-from types import ModuleType
-from unittest.mock import MagicMock
-
-import pytest
-
-
-class _StubWidget:
-    def __init__(self, **kwargs):
-        pass
-
-
-def _real_base_module(name, **attrs):
-    mod = ModuleType(name)
-    for key, value in attrs.items():
-        setattr(mod, key, value)
-    sys.modules[name] = mod
-
-
-for _name in (
-    'kivy.uix',
-    'kivy.graphics',
-    'kivy.graphics.texture',
-    'kivy.metrics',
-    'kivy.properties',
-    'kivy.input',
-    'kivy.clock',
-):
-    sys.modules.setdefault(_name, MagicMock())
-
-_real_base_module('kivy.uix.image', Image=_StubWidget)
-_real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 import numpy as np
+import pytest
 
+from tests.live_view_driver import LiveView, SlowFrameLines, live_view_widget
 from ui.scope_display import (
     FRAME_SPIKE_FLOOR_MS,
     FRAME_SPIKE_LOG_MIN_GAP_S,
@@ -74,164 +40,166 @@ from ui.scope_display import (
     ScopeDisplay,
 )
 
-# A representative previous-frame compute (grab, proc, eng) in ms; eng dominant
-# (the engineering-stats hitch) so the breakdown is easy to assert.
-_PREV_COMPUTE = (2.0, 8.0, 51.0)
+
+def _settled_at(baseline_ms, **compute):
+    """A live view that has drawn a full window of frames ``baseline_ms`` apart."""
+    view = LiveView(live_view_widget())
+    view.frames(FRAME_SPIKE_WINDOW + 1, baseline_ms, **compute)
+    return view
 
 
-class _Stand:
-    """Carries only the slow-frame state + the real methods under test."""
-
-    _check_slow_frame = ScopeDisplay._check_slow_frame
-    _spike_median = ScopeDisplay._spike_median
-
-    def __init__(self):
-        self._spike_interval_window = deque(maxlen=FRAME_SPIKE_WINDOW)
-        self._last_ok_frame_time = None
-        self._last_ok_compute = None
-        self._spike_median_cache = None
-        self._spike_median_refresh = 0.0
-        self._spike_min_samples = FRAME_SPIKE_MIN_SAMPLES
-        self._slow_frame_last_log = 0.0
+def _next(view, interval_ms, *, compute=(2.0, 8.0, 51.0)):
+    """The next frame, picked up and drawn ``interval_ms`` after the last draw; the lines it wrote."""
+    with SlowFrameLines() as lines:
+        view.pick_up(after_ms=interval_ms, compute=compute)
+        view.draw()
+    return lines.lines
 
 
-def _primed(baseline_ms, *, prev_time=1000.0, prev_compute=_PREV_COMPUTE):
-    """A stand with the median window pre-filled to a known baseline and a
-    previous OK frame already recorded (so the next call computes an interval)."""
-    stand = _Stand()
-    stand._spike_interval_window = deque(
-        [baseline_ms] * FRAME_SPIKE_WINDOW, maxlen=FRAME_SPIKE_WINDOW
-    )
-    stand._last_ok_frame_time = prev_time
-    stand._last_ok_compute = prev_compute
-    return stand
+def test_the_first_draw_is_silent():
+    view = LiveView(live_view_widget())
+    with SlowFrameLines() as lines:
+        view.frames(1, 5000.0)
+        view.frames(1, 5000.0)
+    assert lines.lines == []
 
 
-def _feed(stand, cycle_start, caplog, *, grab=1.0, proc=3.0, eng=0.0):
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger='LVP.ui.scope_display'):
-        stand._check_slow_frame(cycle_start, grab_ms=grab, proc_ms=proc, eng_ms=eng, settled=True)
-    return [r.getMessage() for r in caplog.records if '[SLOW FRAME]' in r.getMessage()]
-
-
-def test_first_frame_is_silent_and_seeds_state(caplog):
-    # No previous OK frame -> no interval to judge; just record state.
-    stand = _Stand()
-    assert _feed(stand, 1000.0, caplog) == []
-    assert stand._last_ok_frame_time == 1000.0
-    assert stand._last_ok_compute == (1.0, 3.0, 0.0)
-
-
-def test_silent_until_window_has_min_samples(caplog):
+def test_silent_until_window_has_min_samples():
     # A clear 250ms spike, but only a handful of baseline samples -> the median
     # is not yet meaningful, so no warn.
-    stand = _Stand()
-    stand._spike_interval_window = deque([33.0] * 5, maxlen=FRAME_SPIKE_WINDOW)
-    stand._last_ok_frame_time = 1000.0
-    stand._last_ok_compute = _PREV_COMPUTE
-    assert _feed(stand, 1000.250, caplog) == []
+    view = LiveView(live_view_widget())
+    view.frames(6, 33.0)
+    assert FRAME_SPIKE_MIN_SAMPLES > 6
+    assert _next(view, 250.0) == []
 
 
-def test_fires_and_attributes_to_previous_frame(caplog):
-    stand = _primed(33.0)  # 2x = 66ms < the floor -> threshold = FRAME_SPIKE_FLOOR_MS
-    # 250ms gap. This frame's own compute is small; the WARN must report the
-    # PREVIOUS frame's compute (the work that ran during the interval).
-    records = _feed(stand, 1000.250, caplog, grab=1.0, proc=3.0, eng=0.0)
-    assert len(records) == 1
-    msg = records[0]
+def test_fires_and_attributes_the_display_threads_work_since_the_last_draw():
+    view = _settled_at(33.0)  # 2x = 66ms < the floor -> threshold = FRAME_SPIKE_FLOOR_MS
+    lines = _next(view, 250.0, compute=(2.0, 8.0, 51.0))
+    assert len(lines) == 1
+    msg = lines[0]
     assert 'interval=250ms' in msg
     assert 'median=33ms' in msg
-    assert 'grab=2.0ms proc=8.0ms eng=51.0ms' in msg  # the PREVIOUS frame's
+    assert 'grab=2.0ms proc=8.0ms eng=51.0ms' in msg
     # gap = 250 - (2 + 8 + 51) = 189ms -> the non-display remainder (upstream).
     assert 'gap=189ms' in msg
 
 
-def test_previous_frame_attribution_across_two_real_calls(caplog):
-    # Locks the off-by-one fix end to end: feed a normal frame carrying compute
-    # A, then a slow frame carrying compute B. The WARN must blame A (ran during
-    # the interval), never B (this frame's own compute, after the interval).
-    stand = _primed(33.0, prev_compute=(99.0, 99.0, 99.0))
-    # Normal frame (30ms, under the floor): silent, but records compute A.
-    assert _feed(stand, 1000.030, caplog, grab=2.0, proc=8.0, eng=51.0) == []
-    # Slow frame 250ms later, carrying a deliberately different compute B.
-    records = _feed(stand, 1000.280, caplog, grab=7.0, proc=7.0, eng=7.0)
-    assert len(records) == 1
-    assert 'grab=2.0ms proc=8.0ms eng=51.0ms' in records[0]  # compute A, not B
-    assert '7.0ms' not in records[0]
+def test_the_work_is_every_frame_picked_up_since_the_last_draw_and_none_before_it():
+    # Work on a frame drawn before this interval is not this interval's; work
+    # on a frame picked up and never drawn (its post replaced) is.
+    view = _settled_at(33.0, compute=(99.0, 99.0, 99.0))
+    with SlowFrameLines() as lines:
+        view.pick_up(after_ms=125.0, compute=(1.0, 4.0, 25.0))
+        view.pick_up(after_ms=125.0, compute=(1.0, 4.0, 26.0))
+        view.draw()
+    assert len(lines.lines) == 1
+    assert 'grab=2.0ms proc=8.0ms eng=51.0ms' in lines.lines[0]
+    assert '99.0ms' not in lines.lines[0]
 
 
-def test_silent_just_below_threshold(caplog):
-    stand = _primed(33.0)  # 2x median is under the floor, so the floor is the threshold
-    just_below = 1000.0 + (FRAME_SPIKE_FLOOR_MS - 1.0) / 1000.0
-    assert _feed(stand, just_below, caplog) == []
+def test_a_ui_thread_too_busy_to_draw_is_a_slow_frame():
+    # The camera delivers every 33 ms and the display thread picks every
+    # frame up; the UI thread draws nothing for 330 ms. The viewer sees a
+    # 330 ms stutter. Judged where the display thread picks up, it was none.
+    view = _settled_at(33.0)
+    with SlowFrameLines() as lines:
+        for _ in range(10):
+            view.pick_up(after_ms=33.0)
+        view.draw()
+    assert len(lines.lines) == 1
+    assert 'interval=330ms' in lines.lines[0]
 
 
-def test_floor_suppresses_fast_stream_jitter(caplog):
+def test_silent_just_below_threshold():
+    view = _settled_at(33.0)  # 2x median is under the floor, so the floor is the threshold
+    assert _next(view, FRAME_SPIKE_FLOOR_MS - 1.0) == []
+
+
+def test_floor_suppresses_fast_stream_jitter():
     # Fast stream: median 10ms, 2x = 20ms, but the floor dominates, so a
     # 30ms blip (3x median) does NOT fire -- it is not a real stutter.
     assert FRAME_SPIKE_RATIO * 10.0 < FRAME_SPIKE_FLOOR_MS
-    assert _feed(_primed(10.0), 1000.030, caplog) == []
+    assert _next(_settled_at(10.0), 30.0) == []
     # ...but a genuine 200ms stall on the same fast stream does fire.
-    assert len(_feed(_primed(10.0), 1000.200, caplog)) == 1
+    assert len(_next(_settled_at(10.0), 200.0)) == 1
 
 
-def test_uniformly_slow_stream_does_not_fire(caplog):
+def test_uniformly_slow_stream_does_not_fire():
     # A steadily slow stream raises the median to match, so no single frame
     # beats 2x median. This is the case capture_fps owns, not this instrument.
-    stand = _primed(2000.0)  # ~0.5 fps, the old fps-bug symptom
-    assert _feed(stand, 1002.0, caplog) == []  # 2000ms interval
-    assert _feed(stand, 1004.1, caplog) == []  # 2100ms interval
+    view = _settled_at(2000.0)  # ~0.5 fps, the old fps-bug symptom
+    assert _next(view, 2000.0) == []
+    assert _next(view, 2100.0) == []
 
 
-def test_rate_limit_caps_a_fast_to_slow_burst(caplog):
-    stand = _primed(33.0)
+def test_rate_limit_caps_a_fast_to_slow_burst():
+    view = _settled_at(33.0)
     # First spike fires.
-    assert len(_feed(stand, 1000.250, caplog)) == 1
+    assert len(_next(view, 250.0)) == 1
     # A second spike within FRAME_SPIKE_LOG_MIN_GAP_S is suppressed (the median
     # has not yet caught up to the new slow rate, but we don't flood the log).
-    assert _feed(stand, 1000.500, caplog) == []
+    assert _next(view, 250.0) == []
     # Once the min gap has elapsed, a distinct later stutter logs again.
-    later = 1000.500 + FRAME_SPIKE_LOG_MIN_GAP_S + 0.300
-    assert len(_feed(stand, later, caplog)) == 1
+    view.frames(round(FRAME_SPIKE_LOG_MIN_GAP_S * 1000 / 33.0) + 1, 33.0)
+    assert len(_next(view, 300.0)) == 1
 
 
-def _feed_held(stand, cycle_start, caplog, held_ms, *, grab=1.0, proc=3.0, eng=0.0):
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger='LVP.ui.scope_display'):
-        stand._check_slow_frame(
-            cycle_start, grab_ms=grab, proc_ms=proc, eng_ms=eng, settled=True, held_ms=held_ms
-        )
-    return [r.getMessage() for r in caplog.records if '[SLOW FRAME]' in r.getMessage()]
-
-
-def test_intentional_hold_fully_accounting_for_excess_is_silent(caplog):
+def test_intentional_hold_fully_accounting_for_excess_is_silent():
     # A protocol hold chains a saved frame on screen: the 550ms wall-clock span
     # is 517ms of deliberate hold + a normal 33ms frame. Not a stutter.
-    stand = _primed(33.0)
-    assert _feed_held(stand, 1000.550, caplog, 517.0) == []
+    view = _settled_at(33.0)
+    with SlowFrameLines() as lines:
+        view.held(517.0)
+        view.pick_up(after_ms=33.0)
+        view.draw()
+    assert lines.lines == []
     # The median window got the ADJUSTED interval, so a hold chain does not
-    # inflate the baseline and mask real stutters afterwards.
-    assert abs(stand._spike_interval_window[-1] - 33.0) < 0.001
+    # inflate the baseline and mask real stutters afterwards: a 160 ms
+    # stutter is still judged against 33 ms.
+    for _ in range(FRAME_SPIKE_WINDOW // 2):
+        view.held(517.0)
+        view.frames(1, 33.0)
+    assert len(_next(view, FRAME_SPIKE_FLOOR_MS + 10.0)) == 1
 
 
-def test_hold_with_genuine_residue_fires_and_reports_held(caplog):
+def test_a_hold_with_no_draw_of_its_own_then_a_live_draw_is_silent():
+    # The pause, or a hold whose saved frame is drawn by the held path, not
+    # as a live frame: no live draw ends it, so the next live draw's
+    # interval spans it, and its time is taken out.
+    view = _settled_at(33.0)
+    with SlowFrameLines() as lines:
+        view.pick_up(after_ms=33.0)
+        view.held(2000.0)
+        view.draw(after_ms=10.0)
+    assert lines.lines == []
+
+
+def test_hold_with_genuine_residue_fires_and_reports_held():
     # 750ms span = 500ms hold + 250ms real gap: the residue is a genuine spike
     # and must still fire, with the hold reported so the line accounts for the
     # full wall-clock span.
-    stand = _primed(33.0)
-    records = _feed_held(stand, 1000.750, caplog, 500.0)
-    assert len(records) == 1
-    msg = records[0]
+    view = _settled_at(33.0)
+    with SlowFrameLines() as lines:
+        view.held(500.0)
+        view.pick_up(after_ms=250.0, compute=(2.0, 8.0, 51.0))
+        view.draw()
+    assert len(lines.lines) == 1
+    msg = lines.lines[0]
     assert 'interval=250ms' in msg
     assert 'held=500ms' in msg
     # gap arithmetic stays on the judged interval: 250 - (2+8+51) = 189ms.
     assert 'gap=189ms' in msg
 
 
-def test_no_hold_line_has_no_held_note(caplog):
-    records = _feed(_primed(33.0), 1000.250, caplog)
-    assert len(records) == 1
-    assert 'held=' not in records[0]
+def test_no_hold_line_has_no_held_note():
+    lines = _next(_settled_at(33.0), 250.0)
+    assert len(lines) == 1
+    assert 'held=' not in lines[0]
+
+
+class _Stand:
+    """Carries only the frame-interval history and the real method under test."""
 
 
 def test_record_frame_interval_excludes_intentional_wait():
@@ -260,26 +228,24 @@ def test_record_frame_interval_excludes_intentional_wait():
 # view could see as a stutter; the ratio term still carries long exposures.
 
 
-def test_single_missed_tick_on_a_30fps_stream_is_silent(caplog):
+def test_single_missed_tick_on_a_30fps_stream_is_silent():
     for interval_ms in (63.0, 94.0, 125.0):
-        stand = _primed(31.0)
-        records = _feed(stand, 1000.0 + interval_ms / 1000.0, caplog, eng=94.0)
-        assert records == [], f'{interval_ms:.0f}ms on a 31ms median must not warn'
+        lines = _next(_settled_at(31.0), interval_ms, compute=(0.0, 0.0, 94.0))
+        assert lines == [], f'{interval_ms:.0f}ms on a 31ms median must not warn'
 
 
-def test_perceptible_stutter_on_a_30fps_stream_fires(caplog):
-    stand = _primed(31.0)
+def test_perceptible_stutter_on_a_30fps_stream_fires():
     interval_ms = FRAME_SPIKE_FLOOR_MS + 10.0
-    records = _feed(stand, 1000.0 + interval_ms / 1000.0, caplog)
-    assert len(records) == 1
-    assert f'interval={interval_ms:.0f}ms' in records[0]
+    lines = _next(_settled_at(31.0), interval_ms)
+    assert len(lines) == 1
+    assert f'interval={interval_ms:.0f}ms' in lines[0]
 
 
-def test_floor_is_the_perception_bound_not_the_display_quantum(caplog):
+def test_floor_is_the_perception_bound_not_the_display_quantum():
     assert FRAME_SPIKE_FLOOR_MS >= 100.0
     # A long-exposure layer: 100 ms median. The ratio governs there, and a
     # 250 ms interval is still a spike.
-    assert len(_feed(_primed(100.0), 1000.250, caplog)) == 1
+    assert len(_next(_settled_at(100.0), 250.0)) == 1
 
 
 # --- The engineering stats run on a stride-4 view -----------------------------
@@ -330,16 +296,25 @@ def stopped_10_s(sim_session, monkeypatch):
     watch.tick_heartbeat()
 
 
-def test_a_frame_gap_the_process_did_not_run_is_not_a_slow_frame(stopped_10_s, caplog):
-    stand = _primed(33.0)
-    assert _feed(stand, 1010.033, caplog) == []
-    assert abs(stand._spike_interval_window[-1] - 33.0) < 0.001
+def _settled_before_the_stop():
+    """A live view settled at 33 ms whose last draw is at 1000.0, where the stop begins."""
+    view = LiveView(live_view_widget(), now=1000.0 - (FRAME_SPIKE_WINDOW + 1) * 0.033)
+    view.frames(FRAME_SPIKE_WINDOW + 1, 33.0)
+    view.now = 1000.0
+    return view
 
 
-def test_a_stutter_beside_a_stop_fires_and_reports_the_stop(stopped_10_s, caplog):
-    records = _feed(_primed(33.0), 1010.250, caplog)
-    assert len(records) == 1, records
-    assert 'interval=250ms' in records[0] and 'stopped=10000ms' in records[0], records
+def test_a_frame_gap_the_process_did_not_run_is_not_a_slow_frame(stopped_10_s):
+    view = _settled_before_the_stop()
+    assert _next(view, 10033.0) == []
+    # The stop did not reach the baseline: a 160 ms stutter is still one.
+    assert len(_next(view, FRAME_SPIKE_FLOOR_MS + 10.0)) == 1
+
+
+def test_a_stutter_beside_a_stop_fires_and_reports_the_stop(stopped_10_s):
+    lines = _next(_settled_before_the_stop(), 10250.0)
+    assert len(lines) == 1, lines
+    assert 'interval=250ms' in lines[0] and 'stopped=10000ms' in lines[0], lines
 
 
 def test_record_frame_interval_excludes_a_stop(stopped_10_s):

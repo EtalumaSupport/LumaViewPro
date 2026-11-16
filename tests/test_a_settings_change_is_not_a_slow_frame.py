@@ -13,77 +13,30 @@ simulator logs were full of these lines, so the real ones were ignored.
 The detector now takes ``settled`` from the API's frame validity: frames
 delivered while a change is still switching over are not judged, and the
 baseline is rebuilt from a few frames at the new setting. These tests drive
-the real method through the frame sequences the logs showed.
+the real display through the frame sequences the logs showed.
 """
 
 import functools
-import logging
-from collections import deque
 from types import SimpleNamespace
 
 
 from _lumascope.modules.frame_validity import Counter, FrameValidity
 from _lumascope.modules.lumascope_api.imaging import ImagingAPI
-from ui.scope_display import (
-    FRAME_SPIKE_MIN_SAMPLES,
-    FRAME_SPIKE_WINDOW,
-    ScopeDisplay,
-)
+from tests.live_view_driver import LiveView, SlowFrameLines, live_view_widget
 
 # The simulator's frame period is the exposure plus this; the log line
 # `interval=151ms (median=34ms)` at a 134 ms exposure is exactly that.
 _READOUT_MS = 17.0
 
 
-class _Stand:
-    """The detector's state and the real methods under test."""
-
-    _check_slow_frame = ScopeDisplay._check_slow_frame
-    _spike_median = ScopeDisplay._spike_median
-    _camera_settled = ScopeDisplay._camera_settled
-
-    def __init__(self):
-        self._spike_interval_window = deque(maxlen=FRAME_SPIKE_WINDOW)
-        self._last_ok_frame_time = None
-        self._last_ok_compute = None
-        self._spike_median_cache = None
-        self._spike_median_refresh = 0.0
-        self._spike_min_samples = FRAME_SPIKE_MIN_SAMPLES
-        self._slow_frame_last_log = 0.0
-        self._changes_at_last_frame = None
-        self.now = 1000.0
-
-
-class _Warnings(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.lines = []
-
-    def emit(self, record):
-        message = record.getMessage()
-        if '[SLOW FRAME]' in message:
-            self.lines.append(message)
-
-
 def _frames(stand, warnings, count, period_ms, *, settled=True):
-    for _ in range(count):
-        stand.now += period_ms / 1000.0
-        stand._check_slow_frame(stand.now, grab_ms=0.3, proc_ms=0.3, eng_ms=0.0, settled=settled)
+    stand.frames(count, period_ms, settled=settled, compute=(0.3, 0.3, 0.0))
     return warnings.lines
 
 
 def _rig():
-    warnings = _Warnings()
-    logger = logging.getLogger('LVP.ui.scope_display')
-    level = logger.level
-    logger.addHandler(warnings)
-    logger.setLevel(logging.DEBUG)
-
-    def done():
-        logger.removeHandler(warnings)
-        logger.setLevel(level)
-
-    return _Stand(), warnings, done
+    warnings = SlowFrameLines().__enter__()
+    return LiveView(live_view_widget()), warnings, lambda: warnings.__exit__(None, None, None)
 
 
 def _change(stand, warnings, old_period_ms, new_period_ms, switch_over=3):
@@ -173,8 +126,8 @@ def test_a_baseline_cached_before_the_change_is_not_used_after_it():
     stand, warnings, done = _rig()
     try:
         _frames(stand, warnings, 100, 100.0)
-        stand._spike_median_cache = 100.0
-        stand._spike_median_refresh = stand.now
+        stand.widget._spike_median_cache = 100.0
+        stand.widget._spike_median_refresh = stand.now
         _change(stand, warnings, 100.0, 30.0)
         _frames(stand, warnings, 3, 30.0)
         lines = _frames(stand, warnings, 1, 180.0)
@@ -213,12 +166,12 @@ def test_a_change_still_owed_frames_has_not_settled():
     """A change is in force once its count of frames has come: the
     slow-frame check judges no frame before that."""
     validity = _exposure_changed(FrameValidity.SKIP_FRAMES['exposure'] - 1)
-    assert _Stand()._camera_settled(_imaging(validity)) is False
+    assert live_view_widget()._camera_settled(_imaging(validity)) is False
 
 
 def test_a_change_whose_count_has_come_has_settled():
     validity = _exposure_changed(FrameValidity.SKIP_FRAMES['exposure'])
-    assert _Stand()._camera_settled(_imaging(validity)) is True
+    assert live_view_widget()._camera_settled(_imaging(validity)) is True
 
 
 def test_the_live_view_asks_validity_with_stage_motion_left_out():
@@ -229,18 +182,18 @@ def test_the_live_view_asks_validity_with_stage_motion_left_out():
     validity.invalidate('xy_move', began_ns=None)
     validity.invalidate('z_move', began_ns=None)
     validity.invalidate('turret', began_ns=None)
-    stand = _Stand()
-    assert stand._camera_settled(_imaging(validity)) is True
+    widget = live_view_widget()
+    assert widget._camera_settled(_imaging(validity)) is True
 
     validity.invalidate('exposure', began_ns=None)
-    assert stand._camera_settled(_imaging(validity)) is False
+    assert widget._camera_settled(_imaging(validity)) is False
 
 
 def test_a_stall_while_the_stage_moves_is_reported():
     validity = FrameValidity(lambda: 0)
     validity.set_settle_check(lambda source: False)
     validity.invalidate('xy_move', began_ns=None)
-    moving = _Stand()._camera_settled(_imaging(validity))
+    moving = live_view_widget()._camera_settled(_imaging(validity))
 
     stand, warnings, done = _rig()
     try:
@@ -268,17 +221,16 @@ class _Scope:
 
 
 def _drawn(stand, scope, count, period_ms, *, held_ms=0.0):
-    """Frames the live view draws, each judged with the display's own settled read."""
+    """Frames the live view draws, each picked up with the display's own settled read."""
     for _ in range(count):
-        stand.now += (period_ms + held_ms) / 1000.0
-        stand._check_slow_frame(
-            stand.now,
-            grab_ms=0.3,
-            proc_ms=0.3,
-            eng_ms=0.0,
-            settled=stand._camera_settled(scope.imaging),
-            held_ms=held_ms,
+        if held_ms:
+            stand.held(held_ms)
+        stand.pick_up(
+            after_ms=period_ms,
+            settled=stand.widget._camera_settled(scope.imaging),
+            compute=(0.3, 0.3, 0.0),
         )
+        stand.draw()
 
 
 _CAPTURE_HOLD_MS = 500.0
@@ -321,10 +273,10 @@ def test_a_move_recorded_between_drawn_frames_does_not_reset_the_baseline():
     frames does not make the next frame unsettled."""
     scope = _Scope()
     scope.validity.set_settle_check(lambda source: False)  # the stage is still moving
-    stand = _Stand()
-    assert stand._camera_settled(scope.imaging) is True
+    widget = live_view_widget()
+    assert widget._camera_settled(scope.imaging) is True
     scope.validity.invalidate('xy_move', began_ns=None)
-    assert stand._camera_settled(scope.imaging) is True
+    assert widget._camera_settled(scope.imaging) is True
 
 
 def test_an_interval_spanning_a_hold_across_two_changes_is_not_judged():
@@ -340,5 +292,25 @@ def test_an_interval_spanning_a_hold_across_two_changes_is_not_judged():
         _drawn(stand, scope, 1, 178.0, held_ms=_CAPTURE_HOLD_MS)
         _drawn(stand, scope, 20, 25.0)
         assert warnings.lines == []
+    finally:
+        done()
+
+
+def test_a_change_on_a_frame_whose_post_was_replaced_is_not_judged():
+    """The display thread picked up a switch-over frame and then a settled
+    one before the UI thread drew; the drawn frame's post replaced the
+    switch-over frame's. The draw spans the change and is not judged, and
+    the baseline restarts from the new cadence."""
+    stand, warnings, done = _rig()
+    try:
+        _frames(stand, warnings, 100, 34.0)
+        stand.pick_up(after_ms=300.0, settled=False)
+        stand.pick_up(after_ms=300.0)
+        stand.draw()
+        assert warnings.lines == []
+        _frames(stand, warnings, 3, 300.0)
+        lines = _frames(stand, warnings, 1, 900.0)
+        assert len(lines) == 1
+        assert 'interval=900ms (median=300ms)' in lines[0]
     finally:
         done()
