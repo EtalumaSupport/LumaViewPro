@@ -7,8 +7,9 @@ builds WiX installer outputs.
 
 ## Outputs
 
-All build outputs are written under `exe_artifacts\LumaViewPro-<version>\` next
-to `build.ps1`.
+All build outputs are written under
+`exe_artifacts\LumaViewPro-<version>_<yyyyMMdd_HHmmss>\` next to `build.ps1`,
+one folder per build, named for the time it started.
 
 | Output | Purpose | Ship to customers? |
 |--------|---------|--------------------|
@@ -378,12 +379,13 @@ The script then:
 Example output:
 
 ```text
-C:\LVP\appbuild\exe_artifacts\LumaViewPro-4.0.0-beta6\
+C:\LVP\appbuild\exe_artifacts\LumaViewPro-4.0.0-beta6_20261115_143012\
 |-- LumaViewPro-4.0.0-beta6.msi
 `-- LumaViewPro-4.0.0-beta6-setup.exe
 ```
 
-Previous completed packages are preserved in `exe_artifacts\`.
+Every earlier build's folder is kept in `exe_artifacts\`; no build writes into
+another's.
 
 ## Release Checklist
 

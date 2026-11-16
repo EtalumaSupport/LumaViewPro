@@ -16,7 +16,7 @@
 #                                        # the branch's fresh clone and leave
 #                                        # it in exe_artifacts; no build
 #
-# Output: <build_dir>\exe_artifacts\LumaViewPro-X.X.X\
+# Output: <build_dir>\exe_artifacts\LumaViewPro-X.X.X_<yyyyMMdd_HHmmss>\
 
 param(
     [string]$Branch = "",
@@ -116,7 +116,13 @@ $ErrorActionPreference = "Stop"
 # file it verified; v13 checked only signtool's exit code, and its log held
 # no line from signtool. A v13 copy still builds this branch correctly, so
 # MIN_BUILD_SCRIPT_VERSION is unchanged.
-$script_version = 14
+#
+# v15: each build's output folder is named for its version and the time it
+# started, so no build writes into a folder an earlier one filled; v14 named
+# it for the version alone and never emptied it, so a second build of one
+# version left the first one's files beside its own. A v14 copy still builds
+# this branch correctly, so MIN_BUILD_SCRIPT_VERSION is unchanged.
+$script_version = 15
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -765,8 +771,8 @@ $product = "LumaViewPro-$version"
 # Two names, because they answer different questions.
 #
 # $product identifies an ARTIFACT and carries the version: the output
-# folder, the .msi and the -setup.exe. Two builds must never overwrite
-# each other on disk, and a returned installer has to be attributable to
+# folder (with the build's start time), the .msi and the -setup.exe. Two
+# builds must never overwrite each other on disk, and a returned installer has to be attributable to
 # the build that produced it.
 #
 # $product_installed identifies the INSTALLED PRODUCT and must never
@@ -789,11 +795,11 @@ $product_installed = "LumaViewPro"
 # The per-build output folder, established here rather than at the MSI step
 # because the diagnostics written during PyInstaller belong in it too. It
 # holds one build's complete record -- installer, bundle, log, PyInstaller
-# warn file and TOC manifests -- and everything in it is overwritten as a
-# unit by the next build of the same version, so the folder is always
-# internally consistent: the log and manifests describe the installer
-# sitting beside them.
-$output_dir = Join-Path $artifacts $product
+# warn file and TOC manifests -- and is named for the time the build started,
+# the same stamp as its log, so no other build writes into it: the log and
+# manifests describe the installer sitting beside them, and every earlier
+# build's folder is kept as it was.
+$output_dir = Join-Path $artifacts "$($product)_$build_log_ts"
 New-Item $output_dir -ItemType Directory -Force | Out-Null
 
 $wix_ver = Get-InstallerVersion $version
@@ -1317,9 +1323,8 @@ Write-Host "======================================="
 # The transcript cannot be written there directly -- it opens at the top of
 # the run, and $output_dir's name depends on $version, which is not known
 # until the clone succeeds. So the log starts at the $artifacts root and is
-# copied here at the end. That root copy is deliberately kept: it is
-# timestamped rather than overwritten, and is the only record that survives
-# a rebuild of the same version.
+# copied here at the end. That root copy is kept as well: it is the only
+# record of a run that stopped before the output folder was made.
 if (Test-Path $output_dir) {
     try {
         Copy-Item $build_log -Destination (Join-Path $output_dir "build.log") -Force
