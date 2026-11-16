@@ -6773,7 +6773,9 @@ board's lane, waited for. The board lights at the nearest current its step can
 deliver, and a request above zero but below one step at one step;
 that commanded current, not the request, is what is stored and
 returned. 0 mA leaves the channel on at 0 mA, which the board treats
-as off.
+as off. A channel lit for a capture of it is lit at its stored
+current, once it is shown (`ScopeSession.show_channel`), by
+`ScopeSession.light_shown_channel(True)`.
 
 **Args**
 

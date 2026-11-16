@@ -85,7 +85,10 @@ prints it, and LumaViewPro shows it in Advanced Settings).
 
 The session is the root: its member `<member>` is `/api/v1/<member>`, and each sub-object is
 a path segment, so `session.scope.motion.start_move_xy` is
-`POST /api/v1/scope/motion/start_move_xy`.
+`POST /api/v1/scope/motion/start_move_xy`. As in Python, what is the session's
+is a session route (`POST /api/v1/show_channel`) and the hardware is under
+`/api/v1/scope/` ([Where a call starts](concepts.md#architecture)); each
+capability has one route.
 
 - **A read is `GET`**: a property, a published field, or a method that changes
   nothing. A read method's arguments are its query string

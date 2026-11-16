@@ -27,9 +27,10 @@ optional `unregister(ctx)`. `register(ctx)` calls one or more
 `ctx.plugins.<namespace>.register(...)` methods to attach the
 plugin's handlers; the host wraps the call in try/except so a bad
 plugin cannot crash the app. `ctx` is the `ScopeSession` hosting the
-plugin: the same session the GUI, REST and scripts drive, so a plugin
-reaches the instrument through `ctx.scope` and the session's members
-(`docs/lumascope-skills.md`).
+plugin: the same session the GUI, REST and scripts drive, and a plugin
+starts from it as every caller does: the session's members for what is the
+session's (its settings, the shown channel, runs, captures), `ctx.scope.<api>`
+for the hardware (`docs/lumascope-skills.md`).
 
 Four namespaces are defined for 4.x:
 

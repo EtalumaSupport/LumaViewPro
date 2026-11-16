@@ -19,6 +19,12 @@ saving images, a worker pool, and the thread that runs protocols.
 autofocus, a recording, a diagnostic, a home -- and a command that would change
 what it is doing is refused, naming the holder ([Who may act](#who-may-act)).
 
+**Where a call starts.** Every caller starts from the session: what is the
+session's -- the settings, the shown channel, runs, captures, who may act,
+outcomes -- is its member (`session.show_channel`, `session.manual_capture`),
+and the hardware is `session.scope.<api>` (`session.scope.motion.move_z`,
+`session.scope.camera.set_binning`). Each capability has one spelling.
+
 **What is API.** Everything published is imported from one module,
 `lumascope` (`from lumascope import ScopeSession`), and the
 [reference](../api-reference.md) lists every member and field of it; anything
