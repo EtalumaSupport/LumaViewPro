@@ -50,10 +50,11 @@ def main():
         print(f'Held: {session.control}')
         with session.acting_in_control(session_id):
             scope.motion.move_to_well('B2')
-            scope.illumination.led_on('BF', 5)
+            session.show_channel('BF')
+            session.light_shown_channel(True)
             saving = session.manual_capture.start_save_still()
             still = saving.result(timeout=30)[0]
-            scope.illumination.leds_off()
+            session.light_shown_channel(False)
         print(f'Saved in the session: {still.file.name}')
 
         # Any other caller's write is refused while the session is held.

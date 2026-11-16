@@ -264,7 +264,7 @@ sums frames. The record's `illumination_ma` is keyed by LED board address;
 ```python
 scope.motion.move_to_well('B2')             # over the simulator's specimen
 session.show_channel('BF')
-scope.illumination.led_on('BF', 5)         # at 5 mA; session.light_shown_channel(True) lights it at its stored current
+session.light_shown_channel(True)           # at BF's stored current, 5 mA
 still = session.capture_still('BF', all_ones_check=True)
 record = still.record
 print(still.image.shape, still.image.dtype)

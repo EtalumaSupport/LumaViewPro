@@ -32,14 +32,15 @@ def main():
         scope = session.scope
         scope.motion.move_to_well('B2')
 
-        # 5 mA lights the simulator's specimen without clipping; brightfield
-        # saturates from about 20 mA at the shipped exposure.
-        scope.illumination.led_on('BF', 5)
-
-        # The still is named for the lit LED, and the camera holds that
-        # channel's stored gain and exposure for its frame.
+        # The still is named for the shown channel, and the camera holds
+        # that channel's stored gain and exposure for its frame. Lighting it
+        # lights it at its stored current: brightfield's 5 mA lights the
+        # simulator's specimen without clipping, and it saturates from about
+        # 20 mA at the shipped exposure.
+        session.show_channel('BF')
+        session.light_shown_channel(True)
         saved = session.manual_capture.start_save_still().result(timeout=30)
-        scope.illumination.leds_off()
+        session.light_shown_channel(False)
 
         still = saved[0]
         full_scale = (1 << still.significant_bits) - 1

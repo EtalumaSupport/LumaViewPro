@@ -59,12 +59,12 @@ file is shown, never what it records.
 ```python
 scope.motion.move_to_well('B2')             # over the simulator's specimen
 session.show_channel('BF')
-scope.illumination.led_on('BF', 5)
+session.light_shown_channel(True)
 saving = session.manual_capture.start_save_still()
 saved = saving.result(timeout=30)
 print(saved[0].file, saved[0].channel, saved[0].statistics.maximum)
 assert saved[0].well_label == 'B2' and saved[0].statistics.maximum > 0   # at B2, and lit
-scope.illumination.leds_off()
+session.light_shown_channel(False)
 ```
 
 **A recording.** `session.manual_recording.start()` starts the recording
@@ -155,9 +155,9 @@ or keep the `SavedStill` or the run's record the capture answered. In Python:
 import tifffile
 
 session.show_channel('BF')
-scope.illumination.led_on('BF', 5)
+session.light_shown_channel(True)
 path = session.manual_capture.start_save_still().result(timeout=30)[0].file
-scope.illumination.leds_off()
+session.light_shown_channel(False)
 
 with tifffile.TiffFile(path) as tif:    # a plain TIFF's first description is the view
     view = dict(

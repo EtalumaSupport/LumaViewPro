@@ -21,10 +21,11 @@ curl -s -w '\n' $API/control                                        # 200: who h
 # In the session: a move, and a still.
 MOVE=$(curl -s -H "Control-Session: $CONTROL" --json '{"well": "B2"}' $API/scope/motion/start_move_to_well | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$MOVE               # 200: "status": "completed"
-curl -s -w '\n' -H "Control-Session: $CONTROL" --json '{"channel": "BF", "illumination_ma": 5.0}' $API/scope/illumination/led_on   # 200: 5.0
+curl -s -w '\n' -H "Control-Session: $CONTROL" --json '{"channel": "BF"}' $API/show_channel      # 200
+curl -s -w '\n' -H "Control-Session: $CONTROL" --json '{"lit": true}' $API/light_shown_channel   # 200
 JOB=$(curl -s -H "Control-Session: $CONTROL" --json '{}' $API/manual_capture/start_save_still | jq -r .id)   # 202
 curl -s -w '\n' -H 'Prefer: wait=60' $API/jobs/$JOB                 # 200: the still
-curl -s -w '\n' -H "Control-Session: $CONTROL" --json '{}' $API/scope/illumination/leds_off   # 200
+curl -s -w '\n' -H "Control-Session: $CONTROL" --json '{"lit": false}' $API/light_shown_channel   # 200
 
 # Any other client's write is refused while the session is held.
 curl -s -w '\n' --json '{"z_um": 4000.0}' $API/scope/motion/start_move_z   # 409 control_session_held

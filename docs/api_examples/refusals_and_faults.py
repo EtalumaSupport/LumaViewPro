@@ -47,9 +47,10 @@ def main():
         # camera is refused until the application restarts.
         scope.simulation.remove_camera()
         print(f'Not connected: {scope.unconnected_parts()}')
-        scope.illumination.led_on('BF', 5)
+        session.show_channel('BF')
+        session.light_shown_channel(True)
         no_camera = refused(lambda: session.manual_capture.start_save_still().result(timeout=30))
-        scope.illumination.leds_off()
+        session.light_shown_channel(False)
         return before_home, past_travel, no_camera
     finally:
         session.shutdown()
