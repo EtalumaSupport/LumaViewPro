@@ -5679,8 +5679,8 @@ class ScopeSession:
         Blocks for minutes. The hardware steps hold the scope for a
         diagnostic, so a run cannot start under a homing or a fan sweep; a
         report started while a run holds the scope skips those steps and
-        says so in the ZIP. A step that fails is written into the ZIP; the
-        report does not stop for it.
+        says so in the ZIP. What the hardware answers when a step fails is
+        written into the ZIP; the report does not stop for it.
 
         Args:
             include_bandwidth_test: Also time the camera's frame delivery
@@ -5698,7 +5698,8 @@ class ScopeSession:
             LiveFolderPathRefusedError: ``'not_a_folder'``, a file is at
                 ``output_dir`` or above it; refused before anything is made.
             SupportReportNotSavedError: no ZIP was saved; chained from the
-                failure, whose words it carries.
+                failure, whose words it carries: a failure that is not the
+                hardware's answer, such as the data folder's copy.
         """
         from _lumascope.modules.tech_support_report import (
             SupportReportKind,
@@ -5771,7 +5772,7 @@ class ScopeSession:
         The same report, on the diagnostics lane, so a Stop never waits
         behind it; the operation is done with what ``make_support_report``
         would have returned or raised. A report has no stop: once started it
-        runs to its end, a step that fails written into the ZIP.
+        runs to its end, a step the hardware fails written into the ZIP.
 
         Args:
             output_dir: As for ``make_support_report``.

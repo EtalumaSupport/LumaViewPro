@@ -1921,8 +1921,8 @@ Make the full Tech Support Report: the boards, the motors, the camera and the fi
 Blocks for minutes. The hardware steps hold the scope for a
 diagnostic, so a run cannot start under a homing or a fan sweep; a
 report started while a run holds the scope skips those steps and
-says so in the ZIP. A step that fails is written into the ZIP; the
-report does not stop for it.
+says so in the ZIP. What the hardware answers when a step fails is
+written into the ZIP; the report does not stop for it.
 
 **Args**
 
@@ -1937,7 +1937,7 @@ Where the ZIP is, and the words that say where to send it.
 **Raises**
 
 - `LiveFolderPathRefusedError`: `'not_a_folder'`, a file is at `output_dir` or above it; refused before anything is made.
-- `SupportReportNotSavedError`: no ZIP was saved; chained from the failure, whose words it carries.
+- `SupportReportNotSavedError`: no ZIP was saved; chained from the failure, whose words it carries: a failure that is not the hardware's answer, such as the data folder's copy.
 
 **Refusals**
 
@@ -3700,7 +3700,7 @@ Start `make_support_report` without waiting for it; returns its `Operation`.
 The same report, on the diagnostics lane, so a Stop never waits
 behind it; the operation is done with what `make_support_report`
 would have returned or raised. A report has no stop: once started it
-runs to its end, a step that fails written into the ZIP.
+runs to its end, a step the hardware fails written into the ZIP.
 
 **Args**
 

@@ -1678,11 +1678,13 @@ class TechSupportReport:
             LiveFolderPathRefusedError: ``'not_a_folder'``, a file is at
                 ``output_dir`` or above it; refused before the report starts.
             SupportReportNotSavedError: no ZIP was saved; chained from the
-                failure, whose words it carries. A step that fails inside
-                the report is written into the report and does not raise,
-                except the data folder's copy: it is where a stored API key
-                is blanked, so a copy that went wrong is not shipped as if
-                it had not.
+                failure, whose words it carries. What the hardware says
+                when it fails (a board fault, a refusal for its state or a
+                part the scope lacks) is written into the report and does
+                not raise. A step's other failures are written in by some
+                steps and raise from others; a failed copy of the data
+                folder raises: it is where a stored API key is blanked, so
+                a copy that went wrong is not shipped as if it had not.
         """
         output_dir = folder_to_make(output_dir)
         cb = callback or (lambda pct, msg: None)
