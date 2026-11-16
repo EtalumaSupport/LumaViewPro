@@ -102,8 +102,7 @@ overexposed. Set the gain and exposure by hand for such images.
 *[Lumi]{.channel} channel only.*
 
 [Sum]{.guilabel} adds several frames, each at the set exposure, into one
-image to collect more of a faint signal: 1 to 100 on the slider, or type
-any whole number. Default: [1]{.default setting="channel_defaults.fluorescence.sum Lumi.sum"}, one frame.
+image to collect more of a faint signal, 1 to 100 frames. Default: [1]{.default setting="channel_defaults.fluorescence.sum Lumi.sum"}, one frame.
 
 In the [8-bit]{.guilabel} image mode, a summed image is saved in 8 bits and
 the added range is lost; a note in the drawer warns you of this. Select a
