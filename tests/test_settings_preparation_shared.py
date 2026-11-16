@@ -299,105 +299,40 @@ def test_normalization_reports_whether_it_changed_anything():
     assert renamed_plate['protocol']['labware'] == '384 well microplate'
 
 
-def test_a_stored_bf_focus_for_fluorescence_is_dropped():
-    # The setting was removed; a file that still carries it loads without it.
+def _stored_at(settings: dict, path: str, value: object) -> None:
+    """Store ``value`` at the dotted ``path``, making each block it names."""
+    *parents, leaf = path.split('.')
+    for segment in parents:
+        settings = settings.setdefault(segment, {})
+    settings[leaf] = value
+
+
+def _concrete(path: str) -> str:
+    return path.replace('*', 'BF', 1) if path.startswith('*.') else path
+
+
+def _holds(settings: dict, path: str) -> bool:
+    *parents, leaf = path.split('.')
+    for segment in parents:
+        settings = settings.get(segment)
+        if not isinstance(settings, dict):
+            return False
+    return leaf in settings
+
+
+def test_a_retired_setting_stored_alone_is_dropped_and_reported_whatever_it_holds():
+    # Null is the hard case: a stored null was once dropped without the
+    # repair being reported.
     with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
-        stored = json.load(f)
-    stored['protocol']['bf_af_for_fluorescence'] = True
-
-    assert settings_init.normalize_loaded_settings(stored) is True
-    assert 'bf_af_for_fluorescence' not in stored['protocol']
-
-
-def test_a_stored_object_sampler_interval_is_dropped():
-    # The handle trace's object-type sampler was removed; a file that still
-    # carries its interval loads without it.
-    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
-        stored = json.load(f)
-    stored['profiling']['handle_trace_obj_sample_every'] = 200
-
-    assert settings_init.normalize_loaded_settings(stored) is True
-    assert 'handle_trace_obj_sample_every' not in stored['profiling']
-
-
-def test_a_stored_tracemalloc_switch_is_dropped():
-    # The second tracemalloc profiler was retired; a file that still carries
-    # its switch loads without it.
-    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
-        stored = json.load(f)
-    stored['tracemalloc_enabled'] = True
-
-    assert settings_init.normalize_loaded_settings(stored) is True
-    assert 'tracemalloc_enabled' not in stored
-
-
-def test_a_stored_cprofile_switch_is_dropped():
-    # cProfile's switch was retired; profile_session is the one CPU profiler.
-    # A file that still carries the switch loads without it.
-    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
-        stored = json.load(f)
-    stored['cprofile_enabled'] = True
-
-    assert settings_init.normalize_loaded_settings(stored) is True
-    assert 'cprofile_enabled' not in stored
-
-
-def test_a_stored_deep_view_switch_is_dropped():
-    # The third tracemalloc profiler, the deep view, was retired; a file that
-    # still carries its switch loads without it.
-    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
-        stored = json.load(f)
-    stored['profiling']['enabled'] = True
-
-    assert settings_init.normalize_loaded_settings(stored) is True
-    assert 'enabled' not in stored['profiling']
-
-
-def test_the_settings_nothing_reads_are_dropped_from_a_stored_file():
-    # Eight shipped keys had no reader; a file that still carries them loads
-    # without them, and the autofocus and stage blocks they filled go whole.
-    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
-        stored = json.load(f)
-    stored['camera_type'] = 'pylon'
-    stored['profiling']['stim_profiling'] = False
-    stored['autofocus'] = {
-        'one_af_per_well': True,
-        'reduce_af_range': False,
-        'af_range_reduction_pct': -999,
-        'suppress_background_during_protocol': False,
-    }
-    stored['stage'] = {'plate_bottom_z_estimate': None, 'focus_safety_margin_um': 500}
-
-    assert settings_init.normalize_loaded_settings(stored) is True
-    assert 'camera_type' not in stored
-    assert 'stim_profiling' not in stored['profiling']
-    assert 'autofocus' not in stored
-    assert 'stage' not in stored
-
-
-def test_the_auto_gain_wait_nothing_reads_is_dropped_from_a_stored_file():
-    # The longest an auto-gain step waited was unread once its settle became a
-    # frame count, and the camera's auto-gain refuses a key it does not take:
-    # a file that still carries it loads without it, the other bounds kept.
-    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
-        stored = json.load(f)
-    shipped = dict(stored['protocol']['autogain'])
-    stored['protocol']['autogain']['max_duration_seconds'] = 1.0
-
-    assert settings_init.normalize_loaded_settings(stored) is True
-    assert stored['protocol']['autogain'] == shipped
-
-
-def test_the_rest_servers_dead_settings_are_dropped_from_a_stored_file():
-    # The server's host, key and CORS origins were never read. A file that
-    # still carries them loads without them, every shipped key kept.
-    with open(SHIPPED_TEMPLATE, encoding='utf-8') as f:
-        stored = json.load(f)
-    shipped = set(stored['rest_api'])
-    stored['rest_api'].update(host='0.0.0.0', api_key='s3cr3t', cors_origins=['http://localhost:*'])
-
-    assert settings_init.normalize_loaded_settings(stored) is True
-    assert set(stored['rest_api']) == shipped
+        shipped = json.load(f)
+    wrong = []
+    for path in map(_concrete, settings_init._RETIRED_PATHS):
+        stored = copy.deepcopy(shipped)
+        _stored_at(stored, path, None)
+        reported = settings_init.normalize_loaded_settings(stored)
+        if not reported or _holds(stored, path):
+            wrong.append((path, reported))
+    assert wrong == []
 
 
 def test_a_dead_rest_setting_handed_in_is_dropped_and_never_saved(tmp_path):
@@ -419,12 +354,12 @@ def test_a_dead_rest_setting_handed_in_is_dropped_and_never_saved(tmp_path):
     assert set(json.loads(saved.read_text())['rest_api']) == shipped
 
 
-def test_a_stored_layer_file_root_is_dropped_at_load(tmp_path):
-    # Every layer once shipped a filename prefix nothing read; a current.json
-    # that still carries one comes up without it.
+def test_a_stored_file_carrying_every_retired_setting_comes_up_without_them(tmp_path):
     data_dir = _data_dir(tmp_path)
     stored = json.loads((data_dir / 'settings.json').read_text())
-    stored['BF']['file_root'] = 'BF_'
+    retired = [_concrete(path) for path in settings_init._RETIRED_PATHS]
+    for path in retired:
+        _stored_at(stored, path, 'a value an older release wrote')
     (data_dir / 'current.json').write_text(json.dumps(stored))
 
     prepared, rejected = settings_init.prepare_settings(
@@ -432,7 +367,7 @@ def test_a_stored_layer_file_root_is_dropped_at_load(tmp_path):
     )
 
     assert rejected is None
-    assert 'file_root' not in prepared['BF']
+    assert [path for path in retired if _holds(prepared, path)] == []
 
 
 def test_a_plate_the_catalogue_never_had_is_left_as_written():

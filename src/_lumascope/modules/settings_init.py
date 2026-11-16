@@ -388,6 +388,94 @@ rejected_current_json = None
 DEFAULT_VIDEO_DURATION_SEC = 5
 
 
+# A setting a release retired, as its dotted path: nothing reads it, so a
+# stored copy is removed at load whatever it holds. ``*`` is any channel.
+# Retiring a setting is a row here.
+_RETIRED_PATHS = (
+    # Protocol accordions are permanently enabled; a stored preference for
+    # the retired toggle would be read by nothing.
+    'disable_protocol_accordions',
+    # Reusing brightfield's autofocus result for the fluorescence steps was
+    # removed, never shown: it skipped their autofocus without moving to
+    # that focus, and carried one well's result to the next.
+    'protocol.bf_af_for_fluorescence',
+    # The longest an auto-gain step waited to converge, unread since its
+    # settle became a frame count: the camera's auto-gain refuses a key it
+    # does not take, so a stored one would refuse every arm.
+    'protocol.autogain.max_duration_seconds',
+    # Seven shipped settings that nothing read: stimulation profiling, whose
+    # producer is gone, and the autofocus and stage blocks, which named
+    # features not built. A stored copy was readable, unwritable and never
+    # range-checked, so it goes with the template's.
+    'profiling.stim_profiling',
+    'autofocus',
+    'stage',
+    # The handle trace's object-type sampler was removed: its gc.get_objects()
+    # handed the grab and save threads' half-built tuples to another thread,
+    # whose tuple() then raised. Its interval has nothing left to set.
+    'profiling.handle_trace_obj_sample_every',
+    # Two more tracemalloc profilers' switches, retired with them: the memory
+    # profiler is the one, and a second start of tracemalloc is ignored.
+    'tracemalloc_enabled',
+    'profiling.enabled',
+    # The cProfile switch, retired the same way: it profiled the one thread
+    # that started it, and profile_session samples every thread.
+    'cprofile_enabled',
+    # The REST server's host, key and CORS origins, which nothing ever read;
+    # where it serves is ``address``.
+    'rest_api.host',
+    'rest_api.api_key',
+    'rest_api.cors_origins',
+    # The slot a person last turned the turret to, once preferred when two
+    # slots carry one objective. Each protocol step now records its own
+    # slot, and nothing reads this one.
+    'turret_position',
+    # The camera driver once chosen in the settings, which nothing read:
+    # bring-up asks the camera registry, and a host that wants one driver
+    # names it to Lumascope itself.
+    'camera_type',
+    # A top-level binning factor that nothing writes and no shipped template
+    # carries. It was read as the headless binning and always answered 1;
+    # binning lives at settings['binning']['size'] as the selector's label.
+    # Dropping it means a file that somehow carries one cannot be mistaken
+    # for a second, disagreeing source of the same fact.
+    'binning_size',
+    # A second channel order, once derived from the catalogue for new
+    # protocols' steps. Every build follows the drawers' order now, so a
+    # stored copy would be an order nothing reads.
+    'step_channel_order',
+    # A filename prefix every channel once shipped, which nothing reads:
+    # a capture's name is built by the writer that saves it.
+    '*.file_root',
+    # A channel's own recording rate, which every protocol video step it
+    # made copied and recorded at below the one global limit: a
+    # recording's only limit is ``video.max_fps``.
+    '*.video_config.fps',
+)
+
+
+def _remove_retired_paths(settings_dict: dict, channels: list[str]) -> bool:
+    """Remove every ``_RETIRED_PATHS`` setting ``settings_dict`` holds, whatever its value.
+
+    ``channels`` are the keys ``*`` stands for.
+
+    Returns:
+        True when at least one was removed.
+    """
+    removed = False
+    for path in _RETIRED_PATHS:
+        first, *rest = path.split('.')
+        for top in channels if first == '*' else (first,):
+            *parents, leaf = (top, *rest)
+            holder = settings_dict
+            for segment in parents:
+                holder = holder.get(segment) if isinstance(holder, dict) else None
+            if isinstance(holder, dict) and leaf in holder:
+                del holder[leaf]
+                removed = True
+    return removed
+
+
 def normalize_loaded_settings(settings_dict: dict) -> bool:
     """Repair loaded values the running version cannot use as written.
 
@@ -408,7 +496,7 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     from _lumascope.modules.common_utils import get_channels
     from _lumascope.modules.zstack_config import ZStackReference
 
-    changed = False
+    changed = _remove_retired_paths(settings_dict, get_channels())
 
     output_format = settings_dict.get('image_output_format')
     if isinstance(output_format, dict) and output_format.get('sequenced') == 'ImageJ Hyperstack':
@@ -431,72 +519,6 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         zstack['position'] = retired_labels[stored_label]
         changed = True
 
-    # Protocol accordions are permanently enabled; a stored preference for
-    # the retired toggle would be read by nothing.
-    if settings_dict.pop('disable_protocol_accordions', None) is not None:
-        changed = True
-
-    # Reusing brightfield's autofocus result for the fluorescence steps was
-    # removed, never shown: it skipped their autofocus without moving to
-    # that focus, and carried one well's result to the next.
-    protocol = settings_dict.get('protocol')
-    if isinstance(protocol, dict) and protocol.pop('bf_af_for_fluorescence', None) is not None:
-        changed = True
-
-    # The longest an auto-gain step waited to converge, unread since its
-    # settle became a frame count: the camera's auto-gain refuses a key it
-    # does not take, so a stored one would refuse every arm.
-    autogain = protocol.get('autogain') if isinstance(protocol, dict) else None
-    if isinstance(autogain, dict) and autogain.pop('max_duration_seconds', None) is not None:
-        changed = True
-
-    # Seven shipped settings that nothing read: stimulation profiling, whose
-    # producer is gone, and the autofocus and stage blocks, which named
-    # features not built. A stored copy was readable, unwritable and never
-    # range-checked, so it goes with the template's.
-    profiling = settings_dict.get('profiling')
-    if isinstance(profiling, dict) and profiling.pop('stim_profiling', None) is not None:
-        changed = True
-    for block in ('autofocus', 'stage'):
-        if settings_dict.pop(block, None) is not None:
-            changed = True
-
-    # The handle trace's object-type sampler was removed: its gc.get_objects()
-    # handed the grab and save threads' half-built tuples to another thread,
-    # whose tuple() then raised. Its interval has nothing left to set.
-    if (
-        isinstance(profiling, dict)
-        and profiling.pop('handle_trace_obj_sample_every', None) is not None
-    ):
-        changed = True
-
-    # Two more tracemalloc profilers' switches, retired with them: the memory
-    # profiler is the one, and a second start of tracemalloc is ignored.
-    if settings_dict.pop('tracemalloc_enabled', None) is not None:
-        changed = True
-    # The cProfile switch, retired the same way: it profiled the one thread
-    # that started it, and profile_session samples every thread.
-    if settings_dict.pop('cprofile_enabled', None) is not None:
-        changed = True
-    if isinstance(profiling, dict) and profiling.pop('enabled', None) is not None:
-        changed = True
-
-    # The REST server's host, key and CORS origins, which nothing ever read;
-    # where it serves is ``address``. A shipped null key is dropped too, so
-    # the test is membership, not the value.
-    rest_api = settings_dict.get('rest_api')
-    if isinstance(rest_api, dict):
-        for key in ('host', 'api_key', 'cors_origins'):
-            if key in rest_api:
-                del rest_api[key]
-                changed = True
-
-    # The slot a person last turned the turret to, once preferred when two
-    # slots carry one objective. Each protocol step now records its own
-    # slot, and nothing reads this one.
-    if settings_dict.pop('turret_position', None) is not None:
-        changed = True
-
     # Unconfirmed, as stored before the confirmation recorded its topology.
     if settings_dict.get('objective_confirmed') is False:
         settings_dict['objective_confirmed'] = None
@@ -508,26 +530,6 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
     # confirmation naming the id a person picked and the objective unknown.
     if settings_dict.get('objective_confirmed') == 'turretless':
         settings_dict['objective_confirmed'] = settings_dict.get('objective_id')
-        changed = True
-
-    # The camera driver once chosen in the settings, which nothing read:
-    # bring-up asks the camera registry, and a host that wants one driver
-    # names it to Lumascope itself.
-    if settings_dict.pop('camera_type', None) is not None:
-        changed = True
-
-    # A top-level binning factor that nothing writes and no shipped template
-    # carries. It was read as the headless binning and always answered 1;
-    # binning lives at settings['binning']['size'] as the selector's label.
-    # Dropping it means a file that somehow carries one cannot be mistaken
-    # for a second, disagreeing source of the same fact.
-    if settings_dict.pop('binning_size', None) is not None:
-        changed = True
-
-    # A second channel order, once derived from the catalogue for new
-    # protocols' steps. Every build follows the drawers' order now, so a
-    # stored copy would be an order nothing reads.
-    if settings_dict.pop('step_channel_order', None) is not None:
         changed = True
 
     # A plate the catalogue has renamed since this file named it, folded to
@@ -548,12 +550,6 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
         if not isinstance(channel_config, dict):
             continue
 
-        # A filename prefix every channel once shipped, which nothing reads:
-        # a capture's name is built by the writer that saves it.
-        if 'file_root' in channel_config:
-            del channel_config['file_root']
-            changed = True
-
         video_config = channel_config.get('video_config')
         if not isinstance(video_config, dict):
             video_config = {}
@@ -561,12 +557,6 @@ def normalize_loaded_settings(settings_dict: dict) -> bool:
             changed = True
         if 'duration' not in video_config:
             video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
-            changed = True
-        # A channel's own recording rate, which every protocol video step it
-        # made copied and recorded at below the one global limit: a
-        # recording's only limit is ``video.max_fps``.
-        if 'fps' in video_config:
-            del video_config['fps']
             changed = True
 
     return changed
