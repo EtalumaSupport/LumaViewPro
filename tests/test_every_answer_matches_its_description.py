@@ -37,7 +37,7 @@ from tests.test_the_event_stream_carries_what_the_scope_tells import _reading, _
 # A call that only asks, by its name: safe to make with no argument.
 _ASKS = re.compile(
     r'(get_|status|bring_up_record|capabilities|list|live_folder_listing|frame_size|'
-    r'min_frame|read_|scale_bar|scope_models|settings_template|resolve_current|'
+    r'min_frame|read_|scale_bar|settings_template|resolve_current|'
     r'plugin_health|is_|has_)'
 )
 

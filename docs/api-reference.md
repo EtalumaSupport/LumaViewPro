@@ -5064,6 +5064,24 @@ key `objective` takes.
 
 Nothing.
 
+<a id="Lumascope.all_scope_models"></a>
+### `Lumascope.all_scope_models`
+
+```python
+all_scope_models: tuple[ScopeModel, ...]  # property
+```
+
+Route: `GET /api/v1/scope/all_scope_models`.
+
+Every scope model of the installation, read once at bring-up, in the catalogue's order.
+
+Each record is read-only and carries its `id`, the name
+`scope_model` takes.
+
+**Raises**
+
+Nothing.
+
 <a id="Lumascope.motion_expected"></a>
 ### `Lumascope.motion_expected`
 
@@ -5137,23 +5155,29 @@ carries the old name; the plate it now lives under is answered.
 
 - 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
 
-<a id="Lumascope.scope_models"></a>
-### `Lumascope.scope_models`
+<a id="Lumascope.scope_model"></a>
+### `Lumascope.scope_model`
 
 ```python
-scope_models: Mapping[str, ScopeModel]  # property
+def scope_model(self, model: str) -> ScopeModel
 ```
 
-Route: `GET /api/v1/scope/scope_models`.
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/scope_model`.
 
-The model catalogue (scopes.json's `Models`): a read-only mapping of model name to its `ScopeModel`.
+The installation's scope model `model` names, by its catalogue name.
 
-Read-only, as each record is: no caller can change what another
-reads.
+**Args**
+
+- `model`: The model's name in the scope catalogue.
 
 **Raises**
 
-Nothing.
+- `CatalogueNameRefusedError`: `'model_unknown'`, the catalogue does not list `model`; `offered` carries the models it lists, in its order.
+
+**Refusals by REST status**
+
+- 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `model_unknown`
 
 <a id="Lumascope.settings_template"></a>
 ### `Lumascope.settings_template`
@@ -13202,7 +13226,7 @@ tuple.
 ## `lumascope.ScopeModel`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`Lumascope.scope_models`](#Lumascope.scope_models).
+Returned by: [`Lumascope.all_scope_models`](#Lumascope.all_scope_models), [`Lumascope.scope_model`](#Lumascope.scope_model).
 
 One model of the installation's catalogue (`scopes.json`'s `Models`), read once at bring-up.
 
@@ -15878,13 +15902,13 @@ A refusal; bases `Refusal`, `ConfigError`.
 A labware, objective or scope model name the installation's catalogue does not hold.
 
 Raised by the catalogue's lookup -- `Lumascope.plate` for a plate,
-`Lumascope.objective` for an objective --
-before anything is stored, so every door that names one is refused
-alike. A scope model is refused by `ScopeSession.select_model` before
-it is saved, and at bring-up when the scope is to be built as a model
-the catalogue does not list. A `ConfigError`, because the same check
-reads a stored setting at bring-up and the callers that recover from a
-bad stored name catch that type.
+`Lumascope.objective` for an objective, `Lumascope.scope_model` for
+a scope model -- before anything is stored, so every door that names one
+is refused alike. A scope model is also refused at bring-up when the
+scope is to be built as a model the catalogue does not list. A
+`ConfigError`, because the same check reads a stored setting at
+bring-up and the callers that recover from a bad stored name catch that
+type.
 
 The catalogue is the installation's, fixed for the process, so the same
 name is refused every time it is sent.
@@ -18786,6 +18810,7 @@ reads what the person was shown.
 | `PUT` | `/api/v1/scale_bar_enabled` | [`ScopeSession.set_scale_bar_enabled`](#ScopeSession.set_scale_bar_enabled) |
 | `GET` | `/api/v1/scope/all_labware` | [`Lumascope.all_labware`](#Lumascope.all_labware) |
 | `GET` | `/api/v1/scope/all_objectives` | [`Lumascope.all_objectives`](#Lumascope.all_objectives) |
+| `GET` | `/api/v1/scope/all_scope_models` | [`Lumascope.all_scope_models`](#Lumascope.all_scope_models) |
 | `GET` | `/api/v1/scope/camera/applied_auto_gain_for` | [`CameraAPI.applied_auto_gain_for`](#CameraAPI.applied_auto_gain_for) |
 | `GET` | `/api/v1/scope/camera/applied_exposure_ms_for` | [`CameraAPI.applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for) |
 | `GET` | `/api/v1/scope/camera/applied_gain_db_for` | [`CameraAPI.applied_gain_db_for`](#CameraAPI.applied_gain_db_for) |
@@ -18880,7 +18905,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/runtime_state/stage_to_plate` | [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate) |
 | `GET` | `/api/v1/scope/runtime_state/turret_config` | [`RuntimeState.turret_config`](#RuntimeState.turret_config) |
 | `GET` | `/api/v1/scope/runtime_state/well_label` | [`RuntimeState.well_label`](#RuntimeState.well_label) |
-| `GET` | `/api/v1/scope/scope_models` | [`Lumascope.scope_models`](#Lumascope.scope_models) |
+| `GET` | `/api/v1/scope/scope_model` | [`Lumascope.scope_model`](#Lumascope.scope_model) |
 | `GET` | `/api/v1/scope/settings_template` | [`Lumascope.settings_template`](#Lumascope.settings_template) |
 | `POST` | `/api/v1/scope/simulation/answer_model` | [`SimulationAPI.answer_model`](#SimulationAPI.answer_model) |
 | `POST` | `/api/v1/scope/simulation/bind_camera_usb_driver` | [`SimulationAPI.bind_camera_usb_driver`](#SimulationAPI.bind_camera_usb_driver) |

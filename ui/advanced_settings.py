@@ -331,7 +331,9 @@ class AdvancedSettings(Popup):
 
     def load_scopes(self):
         # The scope's own model catalogue, read once at its construction.
-        self.ids['scope_spinner'].values = list(_app_ctx.ctx.session.scope.scope_models)
+        self.ids['scope_spinner'].values = [
+            model.id for model in _app_ctx.ctx.session.scope.all_scope_models
+        ]
 
     def select_scope(self):
         ctx = _app_ctx.ctx

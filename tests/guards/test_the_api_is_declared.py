@@ -877,7 +877,7 @@ OPEN_STRINGS: dict[str, str] = {
     'LiveFolderEntry.name field': _PATH,
     'Lumascope.objective parameter objective_id': _OBJECTIVE,
     'Lumascope.plate parameter labware_id': _LABWARE,
-    'Lumascope.scope_models return': _MODEL,
+    'Lumascope.scope_model parameter model': _MODEL,
     'ManualRecordingController.end_reason return': _REASON,
     'MissingPart.channel field': _CHANNEL,
     'MotionAPI.move_to_well parameter well': _WELL,

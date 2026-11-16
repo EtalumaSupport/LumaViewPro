@@ -31,12 +31,12 @@ def test_the_labware_refuses_a_change(scope):
 
 
 def test_the_scope_models_refuse_a_change(scope):
-    models = scope.scope_models
-    with pytest.raises(TypeError):
-        models['LS850T'] = models['LS620']
+    listed = {model.id: model for model in scope.all_scope_models}
     with pytest.raises(dataclasses.FrozenInstanceError):
-        models['LS850T'].has_turret = False
-    assert scope.scope_models['LS850T'].has_turret is True
+        listed['LS850T'].has_turret = False
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        scope.scope_model('LS850T').has_turret = False
+    assert scope.scope_model('LS850T').has_turret is True
 
 
 def test_the_objectives_refuse_a_change(scope):

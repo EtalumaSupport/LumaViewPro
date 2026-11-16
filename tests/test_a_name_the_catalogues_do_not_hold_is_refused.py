@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A labware or objective name the installation's catalogues do not hold is refused as the request's.
+"""A labware, objective or scope model name the installation's catalogues do not hold is refused as the request's.
 
 Each catalogue's owner -- ``WellPlateLoader.resolve_plate_key`` for a plate,
 ``ObjectiveLoader.get_objective_info`` for an objective -- refused a name it
@@ -129,6 +129,21 @@ def test_an_objective_the_catalogue_lacks_is_refused_offering_its_keys(
     assert _selection(session) == before
 
 
+@pytest.mark.parametrize('name', ['LS999', '', 'ls850'])
+def test_a_model_the_catalogue_lacks_is_refused_offering_its_models(session, name):
+    before = session.settings['microscope']
+    for refuse in (session.scope.scope_model, session.select_model):
+        with pytest.raises(CatalogueNameRefusedError) as refused:
+            refuse(name)
+        assert refused.value.reason == 'model_unknown'
+        assert refused.value.cause == RefusalCause.REQUEST
+        assert isinstance(refused.value, ConfigError)
+        assert refused.value.argument == 'model'
+        assert refused.value.value == name
+        assert refused.value.offered == tuple(m.id for m in session.scope.all_scope_models)
+    assert session.settings['microscope'] == before
+
+
 def test_no_objective_is_none_selected_where_a_stored_one_is_read(session):
     before = _selection(session)
     with pytest.raises(ObjectiveUnknownError) as refused:
@@ -206,6 +221,7 @@ def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offer
     [
         ('plate', {'labware_id': 'Acme 1536 Ultra Plate'}, 'labware_unknown', 'labware_id'),
         ('objective', {'objective_id': '10xOly'}, 'objective_not_in_catalogue', 'objective_id'),
+        ('scope_model', {'model': 'LS999'}, 'model_unknown', 'model'),
     ],
 )
 def test_a_wire_lookup_of_a_name_the_catalogue_lacks_is_the_requests(

@@ -79,6 +79,7 @@ from _lumascope.modules.exceptions import (
     CameraFeatureAbsentNotice,
     CameraNotAvailableError,
     CameraSettingRejected,
+    CatalogueNameRefusedError,
     ConfigurationDefectError,
     DisconnectStep,
     FrameRefittedNotice,
@@ -2282,18 +2283,53 @@ class Lumascope:
         """
         return tuple(self.wellplate_loader.plates.values())
 
-    @api
     @property
     def scope_models(self) -> 'Mapping[str, ScopeModel]':
         """The model catalogue (scopes.json's ``Models``): a read-only mapping of model name to its ``ScopeModel``.
 
         Read-only, as each record is: no caller can change what another
-        reads.
+        reads. Not published: a caller looks a model up with ``scope_model``
+        and lists them with ``all_scope_models``.
 
         Raises:
             Nothing.
         """
         return self._scope_models
+
+    @api(reads=True)
+    def scope_model(self, model: str) -> 'ScopeModel':
+        """The installation's scope model ``model`` names, by its catalogue name.
+
+        Args:
+            model: The model's name in the scope catalogue.
+
+        Raises:
+            CatalogueNameRefusedError: ``'model_unknown'``, the catalogue
+                does not list ``model``; ``offered`` carries the models it
+                lists, in its order.
+        """
+        entry = self._scope_models.get(model)
+        if entry is None:
+            raise CatalogueNameRefusedError(
+                'model_unknown',
+                argument='model',
+                value=model,
+                offered=tuple(self._scope_models),
+            )
+        return entry
+
+    @api
+    @property
+    def all_scope_models(self) -> 'tuple[ScopeModel, ...]':
+        """Every scope model of the installation, read once at bring-up, in the catalogue's order.
+
+        Each record is read-only and carries its ``id``, the name
+        ``scope_model`` takes.
+
+        Raises:
+            Nothing.
+        """
+        return tuple(self._scope_models.values())
 
     @api
     @property

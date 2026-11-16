@@ -5340,11 +5340,9 @@ class ScopeSession:
             CatalogueNameRefusedError: ``'model_unknown'``, the scope's
                 catalogue does not list ``model``; nothing is saved.
         """
-        scope_models = self.scope.scope_models
-        if model not in scope_models:
-            raise CatalogueNameRefusedError(
-                'model_unknown', argument='model', value=model, offered=tuple(scope_models)
-            )
+        # The catalogue's lookup refuses a model it does not list, before
+        # anything is saved; the record itself is not needed here.
+        self.scope.scope_model(model)
         with self.settings_lock:
             self._store_setting('microscope', model)
         logger.info(f'[Session  ] scope model {model!r} saved')
