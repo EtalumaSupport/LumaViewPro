@@ -41,6 +41,7 @@ from _lumascope.modules.finite_number import refuse_unless_finite_number
 from _lumascope.modules.coord_transformations import AxisLimits, PlateLocation, StageOffset
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
+    CameraReadFailedError,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
     ProtocolStepsInvalidNotice,
@@ -1304,14 +1305,21 @@ class ProtocolsAPI:
             steps: The protocol's steps table (``Protocol.steps()``).
 
         Raises:
-            ProtocolRunRefusedError: A step's gain or exposure is outside the
-                camera's range.
-            CameraReadFailedError: ``'camera_read_failed'``, the camera's
-                range could not be read after its last readout change.
+            ProtocolRunRefusedError: ``'camera_setting_out_of_range'``, a
+                step's gain or exposure is outside the camera's range;
+                ``'camera_range_unread'``, the camera's range could not be
+                read after its last readout change, so no step's value can
+                be checked or sent.
         """
         from _lumascope.modules.protocol import rows_by_column
 
-        limits = self._scope.camera.setting_limits
+        try:
+            limits = self._scope.camera.setting_limits
+        except CameraReadFailedError as failed:
+            self._refuse(
+                reason='camera_range_unread',
+                message=f'{failed} The run was not started.',
+            )
         checks = (
             (
                 'Gain',

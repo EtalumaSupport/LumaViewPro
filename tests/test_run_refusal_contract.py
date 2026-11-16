@@ -760,6 +760,10 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_run_needs_camera_values_in_range.py'
         '::test_a_gain_above_the_camera_maximum_is_refused_naming_the_step'
     ),
+    'camera_range_unread': (
+        'tests/test_the_camera_range_follows_each_write.py'
+        '::test_a_run_is_refused_while_the_range_is_unread'
+    ),
     'validation_failed': _FUNNEL_LOOP,
     # A check that crashed is a fault (RunCheckFailedError), not a refusal:
     # it is not reported where it is raised, so it cannot ride the

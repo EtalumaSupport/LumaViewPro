@@ -18,7 +18,7 @@ import functools
 import logging as _logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import _lumascope.modules.binning as binning
@@ -590,6 +590,45 @@ def _read_failed_rejection(setting: str, requested: object) -> CameraSettingReje
         ),
         reason='camera_read_failed',
     )
+
+
+# What brings an unread gain and exposure range back: the camera API reads it
+# after each readout change, and nothing reconnects a camera during a session.
+_RANGE_READ_AGAIN = (
+    'It is read again at the next change of binning, frame size or pixel format, '
+    'else when LumaViewPro restarts.'
+)
+_RANGE_UNREAD = f"The camera's gain and exposure range could not be read. {_RANGE_READ_AGAIN}"
+
+
+def _range_unread_rejection(asked: Mapping[str, object]) -> CameraSettingRejected:
+    """The refusal of a write of ``asked`` not sent because the camera's range is unread.
+
+    ``asked`` maps each setting the write asked for to its requested value;
+    every one is named, since none was sent. One setting is refused as a
+    single write is; more than one in the combined shape ``apply`` gives.
+    """
+    settings = tuple(asked)
+    nouns = [_setting_noun(setting) for setting in settings]
+    named = nouns[0] if len(nouns) == 1 else f'{", ".join(nouns[:-1])} and {nouns[-1]}'
+    sent = 'change was' if len(nouns) == 1 else 'changes were'
+    return CameraSettingRejected(
+        ','.join(settings),
+        asked[settings[0]] if len(settings) == 1 else tuple(asked.values()),
+        message=(
+            f"The camera's gain and exposure range could not be read, so the {named} "
+            f'{sent} not sent. {_RANGE_READ_AGAIN}'
+        ),
+        reason='camera_read_failed',
+    )
+
+
+def _asked_of_apply(
+    gain_db: float | None, exposure_ms: float | None, auto_gain: bool | None
+) -> dict[str, object]:
+    """Each part an apply asks for, mapped to its requested value; None asks for none."""
+    asked = {'gain_db': gain_db, 'exposure_ms': exposure_ms, 'auto_gain': auto_gain}
+    return {setting: value for setting, value in asked.items() if value is not None}
 
 
 def _mode_rejection(setting: str, requested: object, what: str) -> CameraSettingRejected:
@@ -1223,6 +1262,32 @@ class CameraAPI:
         except CameraReadFailedError as failed:
             raise self._read_failed(member, setting, requested) from failed
 
+    def _range_a_write_needs(
+        self, member: str, asked: Mapping[str, object]
+    ) -> CameraSettingLimits | None:
+        """The camera's range, for a write of ``asked`` that is checked against it.
+
+        ``asked`` maps each setting the write asks for to its requested
+        value. A range whose last read failed sends nothing, so the write is
+        refused as one not sent for a failed read, naming every setting in
+        ``asked``.
+
+        Returns:
+            CameraSettingLimits | None: The range; None with no camera.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the camera was
+                declared removed by the time the read failed.
+            CameraSettingRejected: ``'camera_read_failed'``, chained to the
+                range's failed read.
+        """
+        try:
+            return self.setting_limits
+        except CameraReadFailedError as failed:
+            if self.camera_removed:
+                raise _camera_not_connected(member) from failed
+            raise _range_unread_rejection(asked) from failed
+
     def _read_failed(
         self, member: str, setting: str, requested: object
     ) -> HardwareCommandRefusedError | CameraSettingRejected:
@@ -1680,9 +1745,6 @@ class CameraAPI:
                 finite number; nothing was sent to the camera.
             CameraSettingOutOfRangeError: The gain is outside the range the
                 camera declares; nothing was sent to it.
-            CameraReadFailedError: ``'camera_read_failed'``, the camera's
-                range could not be read after its last readout change
-                (``setting_limits``); nothing was sent to it.
             CameraSettingRejected: A live driver refused the gain or raised
                 from the write (chained). It carries the words its reporter
                 shows; nothing is shown here.
@@ -1690,14 +1752,15 @@ class CameraAPI:
                 ``'camera_no_answer'`` for a write the camera answered
                 neither time, and ``'camera_read_failed'`` for one not sent
                 because a read it needs failed, the camera keeping its
-                previous value.
+                previous value: among them the camera's range, when its
+                last read failed (``setting_limits``).
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
         """
         # The range is the connected camera's: with none, or the scope
         # disconnected, that is the answer, not a range it no longer has.
         self.refuse_camera_not_connected('set_gain_db')
-        limits = self.setting_limits
+        limits = self._range_a_write_needs('set_gain_db', {'gain_db': gain_db})
         self._refuse_out_of_range(
             'gain_db',
             gain_db,
@@ -1739,9 +1802,6 @@ class CameraAPI:
                 finite number; nothing was sent to the camera.
             CameraSettingOutOfRangeError: The exposure is outside the range
                 the camera declares; nothing was sent to it.
-            CameraReadFailedError: ``'camera_read_failed'``, the camera's
-                range could not be read after its last readout change
-                (``setting_limits``); nothing was sent to it.
             CameraSettingRejected: A live driver refused the exposure or
                 raised from the write (chained). It carries the words its
                 reporter shows; nothing is shown here.
@@ -1749,14 +1809,15 @@ class CameraAPI:
                 ``'camera_no_answer'`` for a write the camera answered
                 neither time, and ``'camera_read_failed'`` for one not sent
                 because a read it needs failed, the camera keeping its
-                previous value.
+                previous value: among them the camera's range, when its
+                last read failed (``setting_limits``).
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
         """
         # The range is the connected camera's: with none, or the scope
         # disconnected, that is the answer, not a range it no longer has.
         self.refuse_camera_not_connected('set_exposure_ms')
-        limits = self.setting_limits
+        limits = self._range_a_write_needs('set_exposure_ms', {'exposure_ms': exposure_ms})
         self._refuse_out_of_range(
             'exposure_ms',
             exposure_ms,
@@ -1878,7 +1939,13 @@ class CameraAPI:
                 )
             self._commit_camera_writes({'auto_gain': CameraAutoMode.OFF})
             return
-        ceiling_ms = self._applied_ae_ceiling_ms(settings.get('max_exposure_ms')) if state else None
+        ceiling_ms = (
+            self._applied_ae_ceiling_ms(
+                settings.get('max_exposure_ms'), member='set_auto_gain', state=state
+            )
+            if state
+            else None
+        )
 
         def _write_auto_gain():
             if not state:
@@ -3554,10 +3621,7 @@ class CameraAPI:
         with self._camera_cache_lock:
             held = self._setting_limits
         if isinstance(held, HardwareError):
-            raise CameraReadFailedError(
-                f"The camera's gain and exposure range could not be read after its "
-                f'last readout change: {held}'
-            ) from held
+            raise CameraReadFailedError(_RANGE_UNREAD) from held
         return held
 
     @property
@@ -3803,7 +3867,9 @@ class CameraAPI:
         )
         return AppliedExposure(stored_ms=stored, applied_ms=applied, capped=applied != stored)
 
-    def _applied_ae_ceiling_ms(self, stored_ceiling_ms: float | None) -> float | None:
+    def _applied_ae_ceiling_ms(
+        self, stored_ceiling_ms: float | None, *, member: str, state: bool
+    ) -> float | None:
         """The exposure ceiling an auto loop runs under on the attached camera.
 
         The one resolution of a stored ``max_exposure_ms`` for every reader:
@@ -3813,9 +3879,19 @@ class CameraAPI:
         the stored one is kept, the rule a stored channel value follows
         (``applied_exposure_ms_for``), logged where it is resolved. None,
         no ceiling, stays None: the loop runs to the camera's own maximum.
+        ``member`` and ``state`` are the auto-gain write's, which a range
+        whose last read failed refuses.
+
+        Raises:
+            HardwareCommandRefusedError: ``'not_connected'``, the camera was
+                declared removed by the time the range's read failed.
+            CameraSettingRejected: ``'camera_read_failed'``, naming
+                ``auto_gain``: the camera's range is unread, so the
+                auto-gain write is not sent.
         """
         if stored_ceiling_ms is None:
             return None
+        self._range_a_write_needs(member, {'auto_gain': state})
         applied = self.applied_exposure_ms_for(stored_ceiling_ms)
         if applied.capped:
             logger.info(
@@ -4489,9 +4565,6 @@ class CameraAPI:
             CameraSettingOutOfRangeError: ``'gain_db_out_of_range'`` or
                 ``'exposure_ms_out_of_range'``, the gain or the exposure is
                 outside the range the camera declares; nothing was written.
-            CameraReadFailedError: ``'camera_read_failed'``, the camera's
-                range could not be read after its last readout change
-                (``setting_limits``); nothing was written.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; nothing was written.
             CameraSettingRejected: The camera did not take the gain, the
@@ -4500,7 +4573,10 @@ class CameraAPI:
                 their values in that order, the message carries each
                 sentence, and the reason is the first any of them carries of
                 ``'camera_no_answer'``, ``'camera_read_failed'`` and
-                ``'camera_rejected'``.
+                ``'camera_rejected'``. With the camera's range unread
+                (``setting_limits``), ``'camera_read_failed'`` naming the
+                gain, the exposure and the auto-gain mode asked for, none
+                of which was written.
         """
         if auto_gain:
             if auto_gain_settings is None:
@@ -4508,7 +4584,9 @@ class CameraAPI:
             _refuse_unless_auto_gain_settings(auto_gain_settings, 'auto_gain_settings')
         # The range is the connected camera's, as for the single setters.
         self.refuse_camera_not_connected('apply')
-        limits = self.setting_limits
+        limits = self._range_a_write_needs(
+            'apply', _asked_of_apply(gain_db, exposure_ms, auto_gain)
+        )
         self._refuse_out_of_range(
             'gain_db',
             gain_db,
@@ -4590,10 +4668,19 @@ class CameraAPI:
                 names each, comma-separated, ``requested`` holds their values in
                 that order, the message carries each sentence, and the reason is
                 the first any of them carries of ``'camera_no_answer'``,
-                ``'camera_read_failed'`` and ``'camera_rejected'``.
+                ``'camera_read_failed'`` and ``'camera_rejected'``. With
+                the camera's range unread (``setting_limits``),
+                ``'camera_read_failed'`` naming every part asked for, none
+                of which was written.
+            HardwareCommandRefusedError: ``'not_connected'``, the camera
+                was declared removed by the time the range's read failed.
         """
         if not self._driver or not self._driver.active:
             return None
+        # A gain, an exposure and an arm's ceiling are each checked against
+        # the range; turning auto-gain off alone needs none.
+        if gain_db is not None or exposure_ms is not None or auto_gain:
+            self._range_a_write_needs('apply', _asked_of_apply(gain_db, exposure_ms, auto_gain))
         # These arrive as the channel's STORED values, which a smaller camera
         # need not be able to reach. Capping here is what lets the store keep
         # the user's intent: the write below carries a value this body takes,
@@ -4753,7 +4840,9 @@ class CameraAPI:
         # target and fall back to skip-frames settling. Both invalidations and
         # target-clears are forced -- one call, two sources, no value write the
         # authority could observe.
-        ceiling_ms = self._applied_ae_ceiling_ms(ae_max_exposure_ms)
+        ceiling_ms = self._applied_ae_ceiling_ms(
+            ae_max_exposure_ms, member='auto_gain_once', state=state
+        )
         self._camera_write(
             lambda: self._driver.auto_gain_once(
                 state=state,

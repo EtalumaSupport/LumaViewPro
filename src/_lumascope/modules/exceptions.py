@@ -2177,7 +2177,11 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``'positions_outside_travel'`` -- steps of the protocol fall
             outside the stage's travel.
             ``'camera_setting_out_of_range'`` -- a step's gain or exposure is
-            outside this camera's range. ``'positions_unreachable'`` -- the
+            outside this camera's range. ``'camera_range_unread'`` -- the
+            camera's gain and exposure range could not be read after its last
+            readout change, so no step's value can be checked or sent; it is
+            read again at the next binning, frame size or pixel format
+            change. ``'positions_unreachable'`` -- the
             work needs motion on an axis this scope has no motor for.
             ``'step_position_missing'`` -- steps have no position on an axis
             this scope moves, having been recorded on a scope without it.
@@ -2267,6 +2271,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'zslices_outside_travel': RefusalCause.REQUEST,
         'positions_outside_travel': RefusalCause.REQUEST,
         'camera_setting_out_of_range': RefusalCause.REQUEST,
+        'camera_range_unread': RefusalCause.STATE,
         'positions_unreachable': RefusalCause.REQUEST,
         'step_position_missing': RefusalCause.REQUEST,
         'channel_not_on_scope': RefusalCause.REQUEST,
@@ -2322,6 +2327,7 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'zslices_outside_travel': 'Z-Stack Outside Z Travel',
         'positions_outside_travel': 'Positions Outside Stage Travel',
         'camera_setting_out_of_range': 'Camera Setting Out of Range',
+        'camera_range_unread': 'Camera Range Not Read',
         'positions_unreachable': 'Position Not Reachable',
         'step_position_missing': 'Step Has No Position',
         'channel_not_on_scope': 'Channel Not on This Scope',

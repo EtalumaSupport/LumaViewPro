@@ -2964,6 +2964,8 @@ class ScopeSession:
             CameraSettingRejected: the camera did not take a setting --
                 refused it, did not answer it, or a read it needed failed so
                 it was not sent (its ``reason``); the others were applied.
+                With the camera's range unread, ``'camera_read_failed'``
+                naming every setting, none of which was sent.
         """
         if not self.scope.camera_connected:
             return None
