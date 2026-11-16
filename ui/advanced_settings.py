@@ -445,6 +445,8 @@ kv = Builder.load_string(
 #:import LIVE_VIEW_FPS_LIMIT _lumascope.modules.settings_paths.LIVE_VIEW_FPS_LIMIT
 #:import CAPTURE_SHOWN_S_RANGE _lumascope.modules.settings_paths.CAPTURE_SHOWN_S_RANGE
 #:import VIDEO_MAX_FPS_LIMIT _lumascope.modules.settings_paths.VIDEO_MAX_FPS_LIMIT
+#:import ACCELERATION_PCT_MIN _lumascope.modules.lumascope_api._constants.ACCELERATION_PCT_MIN
+#:import ACCELERATION_PCT_MAX _lumascope.modules.lumascope_api._constants.ACCELERATION_PCT_MAX
 
 <SectionHeader@Label>:
     font_size: '13sp'
@@ -531,8 +533,8 @@ kv = Builder.load_string(
                     ModSlider:
                         id: acceleration_pct_slider
                         disabled: app.lock.run_lockout
-                        min: 1
-                        max: 100
+                        min: ACCELERATION_PCT_MIN
+                        max: ACCELERATION_PCT_MAX
                         value: 100
                         step: 1
                         cursor_size: '20dp','20dp'

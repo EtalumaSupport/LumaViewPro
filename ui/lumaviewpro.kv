@@ -2,6 +2,10 @@
 #:import live_work _lumascope.modules.live_work
 #:import build_file _lumascope.lib.build_files.build_file
 #:import JPG_QUALITY_RANGE _lumascope.modules.settings_paths.JPG_QUALITY_RANGE
+#:import STIM_FREQUENCY_HZ_RANGE _lumascope.modules.settings_paths.STIM_FREQUENCY_HZ_RANGE
+#:import STIM_PULSE_WIDTH_MS_RANGE _lumascope.modules.settings_paths.STIM_PULSE_WIDTH_MS_RANGE
+#:import STIM_PULSE_COUNT_RANGE _lumascope.modules.settings_paths.STIM_PULSE_COUNT_RANGE
+#:import COMPOSITE_THRESHOLD_RANGE _lumascope.modules.settings_paths.COMPOSITE_THRESHOLD_RANGE
 #:import SUM_COUNT_RANGE _lumascope.modules.finite_number.SUM_COUNT_RANGE
 # The share of its row that a button or box alone in that row takes, centred.
 #:set NARROW_WIDTH 0.6
@@ -3203,8 +3207,8 @@
 				ModSlider:
 					id: stim_freq_slider
 					disabled: app.lock.run_lockout
-					min: 0.5
-					max: 6.
+					min: STIM_FREQUENCY_HZ_RANGE[0]
+					max: STIM_FREQUENCY_HZ_RANGE[1]
 					value: 1.
 					step: 0.25
 					cursor_size: '20dp','20dp'
@@ -3249,8 +3253,8 @@
 				ModSlider:
 					id: stim_pulse_width_slider
 					disabled: app.lock.run_lockout
-					min: 5
-					max: 25.
+					min: STIM_PULSE_WIDTH_MS_RANGE[0]
+					max: STIM_PULSE_WIDTH_MS_RANGE[1]
 					value: 10.
 					step: 1.
 					cursor_size: '20dp','20dp'
@@ -3296,8 +3300,8 @@
 				ModSlider:
 					id: stim_pulse_count_slider
 					disabled: app.lock.run_lockout
-					min: 1
-					max: 300
+					min: STIM_PULSE_COUNT_RANGE[0]
+					max: STIM_PULSE_COUNT_RANGE[1]
 					value: 1
 					step: 1
 					cursor_size: '20dp','20dp'
@@ -3796,8 +3800,8 @@
 				ModSlider:
 					id: composite_threshold_slider # 0 to 100
 					disabled: app.lock.run_lockout
-					min: 0.
-					max: 100.
+					min: COMPOSITE_THRESHOLD_RANGE[0]
+					max: COMPOSITE_THRESHOLD_RANGE[1]
 					value: 0.
 					step: 1
 					cursor_size: '20dp','20dp'
