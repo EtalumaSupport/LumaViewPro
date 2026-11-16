@@ -552,6 +552,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 113 | A run's stuck file writer is read on its `live_work` item: the run's-images item's `stuck_write` names the write past the stall threshold, None while the writes progress; `protocol_files_stalled` and `protocol_files_stuck_write` are gone. |
 | level 114 | A record's `to_dict()` is published, in-process: every record the API answers has it, its fields as plain Python, as it already did. |
 | level 115 | A still's depth is published: `CapturedStill.significant_bits`, the depth of its `image` (8 for an 8-bit array, else the bits its sum can reach), as `SavedStill.significant_bits` is a saved still's and `X-Significant-Bits` the REST still's. |
+| level 116 | Names earlier rows taught are not API, and a plugin does not use them; nothing they do changed, and the rows above stay as history. `diagnostics.send_diagnostic_command` and `send_diagnostic_command_multiline` (level 81) are the raw text channel to a board, Etaluma's engineering plugin's alone. `imaging.capture_still` (levels 45, 60) is an engineering member beneath the Session: a still is `session.capture_still`. `scope.host_steady_ns` (level 40): the scope's clock is `session.host_steady_ns()`. `motion.get_current_position` and `get_current_positions` (levels 44, 46): a position to keep is `scope.motion.positions_to_keep`, the axes' positions `scope.motion.axis_positions`. `scope.protocols` (level 44): a protocol is the Session's (`create_empty_protocol`, `load_protocol`). |
 
 ---
 
