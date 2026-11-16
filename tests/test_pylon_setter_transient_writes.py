@@ -24,7 +24,7 @@ import pytest
 from pypylon import genicam
 
 from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
-from tests.camera_fakes import bare_pylon_camera
+from tests.camera_fakes import bare_pylon_camera, nodemaps_answer_attributes
 
 _WRITES = frozenset({'SetValue', 'SetIntValue', 'Execute'})
 
@@ -60,6 +60,7 @@ def _camera():
     del cam._mark_disconnected
     cam._device_removed = False
     cam.active = _WritesFail()
+    nodemaps_answer_attributes(cam)
     cam.active.IsGrabbing.return_value = False
     cam.active.PixelFormat.GetSymbolics.return_value = ('Mono8', 'Mono12')
     cam.active.PixelFormat.GetValue.return_value = 'Mono8'

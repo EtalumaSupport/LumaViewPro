@@ -1581,6 +1581,17 @@ class Camera(ABC):
         """
         raise NotImplementedError(f'{type(self).__name__} has no named settings')
 
+    def _node(self, name: str, node_map: str = 'device'):
+        """The SDK's node of this name on one of ``node_maps()``, or None when the map has none.
+
+        The driver's one lookup: whether the camera offers a node is decided
+        here and nowhere else, so every reader and writer of a named setting
+        finds it the same way. An SDK failure propagates as the SDK's own
+        exception, for the reader or the writer to classify. Called only with
+        a camera active.
+        """
+        raise NotImplementedError(f'{type(self).__name__} has no named settings')
+
     def get_sdk_info(self) -> dict:
         """Return the camera SDK provenance label for diagnostic snapshots.
 

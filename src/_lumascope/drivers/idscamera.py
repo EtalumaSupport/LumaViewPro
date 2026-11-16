@@ -491,9 +491,7 @@ class IDSCamera(Camera):
                 self._device_serial = descriptor.SerialNumber()
                 logger.info(f'[CAM Class ] Camera Model: {self.model_name}')
                 logger.info(f'[CAM Class ] Camera Serial Number: {self._device_serial}')
-                self._device_firmware = self.remote_nodemap.FindNode(
-                    'DeviceFirmwareVersion'
-                ).Value()
+                self._device_firmware = self._node('DeviceFirmwareVersion').Value()
                 logger.info(f'[CAM Class ] Camera Firmware Version: {self._device_firmware}')
             except Exception:
                 _cam_log.warning('[CAM Class ] Could not read all IDS camera information')
@@ -904,15 +902,40 @@ class IDSCamera(Camera):
 
     def read_node(self, name: str, node_map: str) -> CameraNodeValue | CameraNodeHasNoValue | None:
         """Read one node from the device's or the data stream's nodemap (``Camera.read_node``)."""
-        if node_map == 'device':
-            return self._read_node_in(self.remote_nodemap, name)
         try:
-            maps = self.data_stream.NodeMaps()
+            nodemap = self._nodemap(node_map)
         except ids_peak.Exception as e:
             raise CameraReadFailedError(f'The camera did not give its stream node map: {e}') from e
+        return self._read_node_in(nodemap, name)
+
+    def _nodemap(self, node_map: str):
+        """The remote device's nodemap (``'device'``) or the data stream's (``'stream'``).
+
+        Raises:
+            CameraReadFailedError: The data stream has no nodemap.
+        """
+        if node_map == 'device':
+            return self.remote_nodemap
+        maps = self.data_stream.NodeMaps()
         if not maps:
             raise CameraReadFailedError('The camera did not give its stream node map: it has none')
-        return self._read_node_in(maps[0], name)
+        return maps[0]
+
+    def _node(self, name: str, node_map: str = 'device'):
+        """The node of this name on the device's or the stream's nodemap (``Camera._node``)."""
+        return self._node_in(self._nodemap(node_map), name)
+
+    @staticmethod
+    def _node_in(nodemap, name: str):
+        """``_node`` on a nodemap already in hand: the node, or None when the map has none.
+
+        Absence is ``HasNode``'s answer: ``FindNode`` raises for an absent
+        name (``NotFoundException``), which is not the camera failing. Any
+        error is the camera's or the SDK's failure and propagates.
+        """
+        if not nodemap.HasNode(name):
+            return None
+        return nodemap.FindNode(name)
 
     # Node types that hold no value, by what they are. Every other node is
     # one of the value types (IntegerNode, FloatNode, BooleanNode,
@@ -926,15 +949,11 @@ class IDSCamera(Camera):
 
     @classmethod
     def _read_node_in(cls, nodemap, name: str) -> CameraNodeValue | CameraNodeHasNoValue | None:
-        """``read_node`` on a nodemap already in hand.
-
-        Absence is ``HasNode``'s answer: ``FindNode`` raises for an absent
-        name (``NotFoundException``), which is not a failed read.
-        """
+        """``read_node`` on a nodemap already in hand."""
         try:
-            if not nodemap.HasNode(name):
+            node = cls._node_in(nodemap, name)
+            if node is None:
                 return None
-            node = nodemap.FindNode(name)
             for node_type, kind in cls._NO_VALUE_TYPES:
                 if isinstance(node, node_type):
                     return kind
@@ -961,7 +980,7 @@ class IDSCamera(Camera):
         string, so one absent node never aborts the whole snapshot.
         """
         try:
-            return self.remote_nodemap.FindNode(name).Maximum()
+            return self._node(name).Maximum()
         except Exception as e:
             return f'<missing: {type(e).__name__}>'
 
@@ -978,7 +997,7 @@ class IDSCamera(Camera):
         Never raises: a missing node records ``present=False``.
         """
         try:
-            node = nodemap.FindNode(name)
+            node = self._node_in(nodemap, name)
         except Exception as e:
             return {'present': False, 'detail': f'{type(e).__name__}: {e}'}
         if node is None:
@@ -1068,7 +1087,7 @@ class IDSCamera(Camera):
         stats: dict = {}
         for name in _DIAG_STREAM_COUNTERS:
             try:
-                node = stream_nm.FindNode(name)
+                node = self._node_in(stream_nm, name)
                 stats[name] = node.Value() if node is not None else '<missing>'
             except Exception as e:
                 stats[name] = f'<missing: {type(e).__name__}>'
@@ -1280,12 +1299,10 @@ class IDSCamera(Camera):
                 refused for it, not told the body has none.
         """
         try:
-            nodemap = self.remote_nodemap
-            if not nodemap.HasNode('GainSelector'):
+            selector = self._node('GainSelector')
+            if selector is None:
                 return None
-            entries = tuple(
-                e.SymbolicValue() for e in nodemap.FindNode('GainSelector').AvailableEntries()
-            )
+            entries = tuple(e.SymbolicValue() for e in selector.AvailableEntries())
         except ids_peak.Exception as e:
             raise CameraReadFailedError(
                 f'The camera did not answer a read of GainSelector entries: {e}'
@@ -1511,7 +1528,7 @@ class IDSCamera(Camera):
             CameraReadFailedError: The camera did not answer the node's access.
         """
         try:
-            return self.remote_nodemap.FindNode(name).IsWriteable()
+            return self._node(name).IsWriteable()
         except ids_peak.Exception as e:
             raise CameraReadFailedError(
                 f'The camera did not answer the access of {name}: {e}'
@@ -1908,7 +1925,7 @@ class IDSCamera(Camera):
             return
 
         try:
-            comp = self.remote_nodemap.FindNode('DeviceLinkThroughputLimitComponent')
+            comp = self._node('DeviceLinkThroughputLimitComponent')
             limiter = comp.CurrentEntry().SymbolicValue()
             logger.info(f'[CAM Class ] Free-run: the camera reports its rate limited by {limiter}')
         except Exception as e:
@@ -1919,7 +1936,7 @@ class IDSCamera(Camera):
 
         def _value_and_max(name):
             try:
-                node = self.remote_nodemap.FindNode(name)
+                node = self._node(name)
                 return node.Value(), node.Maximum()
             except Exception as e:
                 return None, f'<unavailable: {type(e).__name__}>'
@@ -2233,8 +2250,7 @@ class IDSCamera(Camera):
         # unpacked format that removes the need for any host unpack at all.
         try:
             results['available_formats'] = [
-                e.SymbolicValue()
-                for e in self.remote_nodemap.FindNode('PixelFormat').AvailableEntries()
+                e.SymbolicValue() for e in self._node('PixelFormat').AvailableEntries()
             ]
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] benchmark: PixelFormat enum read failed: {e}')
@@ -2412,11 +2428,10 @@ class IDSCamera(Camera):
             _cam_log.info('[CAM Class ] set_frame_size skipped: camera inactive')
             return None
         try:
-            nodemap = self.remote_nodemap
-            width_node = nodemap.FindNode('Width')
-            height_node = nodemap.FindNode('Height')
-            offset_x_node = nodemap.FindNode('OffsetX')
-            offset_y_node = nodemap.FindNode('OffsetY')
+            width_node = self._node('Width')
+            height_node = self._node('Height')
+            offset_x_node = self._node('OffsetX')
+            offset_y_node = self._node('OffsetY')
             if self._sensor_max is None:
                 # The offsets are at zero here (connect, or a binning change,
                 # which zeroes them), so Maximum() is the true sensor max and
@@ -2540,8 +2555,8 @@ class IDSCamera(Camera):
             # still at their zero default, so a live Maximum() read is the true
             # sensor max.
             return {
-                'width': self.remote_nodemap.FindNode('Width').Maximum(),
-                'height': self.remote_nodemap.FindNode('Height').Maximum(),
+                'width': self._node('Width').Maximum(),
+                'height': self._node('Height').Maximum(),
             }
         except ids_peak.Exception as e:
             raise CameraReadFailedError(
@@ -2566,8 +2581,8 @@ class IDSCamera(Camera):
 
         try:
             return {
-                'width': self.remote_nodemap.FindNode('Width').Value(),
-                'height': self.remote_nodemap.FindNode('Height').Value(),
+                'width': self._node('Width').Value(),
+                'height': self._node('Height').Value(),
             }
         except ids_peak.Exception as e:
             raise CameraReadFailedError(
@@ -2741,7 +2756,7 @@ class IDSCamera(Camera):
         if self._pixel_format_cache is not None:
             return self._pixel_format_cache
         try:
-            value = self.remote_nodemap.FindNode('PixelFormat').CurrentEntry().SymbolicValue()
+            value = self._node('PixelFormat').CurrentEntry().SymbolicValue()
         except ids_peak.Exception as e:
             raise CameraReadFailedError(
                 f'The camera did not answer a read of PixelFormat: {e}'
@@ -2773,10 +2788,7 @@ class IDSCamera(Camera):
         if not self.active or self._device_removed:
             return ()
         try:
-            return tuple(
-                pf.SymbolicValue()
-                for pf in self.remote_nodemap.FindNode('PixelFormat').AvailableEntries()
-            )
+            return tuple(pf.SymbolicValue() for pf in self._node('PixelFormat').AvailableEntries())
         except ids_peak.Exception as e:
             # Removal stays owned by the DeviceLost callback, so this query
             # never marks disconnected itself; the SDK's words name a removal
@@ -2843,7 +2855,7 @@ class IDSCamera(Camera):
             CameraReadFailedError: The node read failed.
         """
         try:
-            node = self.remote_nodemap.FindNode(name)
+            node = self._node(name)
             return float(node.Minimum()), float(node.Maximum())
         except Exception as e:
             raise CameraReadFailedError(f'{what} read failed: {type(e).__name__}: {e}') from e
@@ -2924,7 +2936,7 @@ class IDSCamera(Camera):
             return -1
 
         try:
-            microsec = self.remote_nodemap.FindNode('ExposureTime').Value()
+            microsec = self._node('ExposureTime').Value()
         except ids_peak.Exception as e:
             raise CameraReadFailedError(
                 f'The camera did not answer a read of ExposureTime: {e}'
@@ -2967,14 +2979,14 @@ class IDSCamera(Camera):
         if not self.active or self.remote_nodemap is None:
             raise PartAbsentError('Camera temperature read: no camera is active')
         try:
-            if not self.remote_nodemap.HasNode('DeviceTemperature'):
+            temp = self._node('DeviceTemperature')
+            if temp is None:
                 return {}
-            temp = self.remote_nodemap.FindNode('DeviceTemperature')
             temps: dict[str, float] = {}
             # The selector is optional -- a single-sensor body may expose only
             # DeviceTemperature. With a selector, read every available entry.
-            if self.remote_nodemap.HasNode('DeviceTemperatureSelector'):
-                selector = self.remote_nodemap.FindNode('DeviceTemperatureSelector')
+            selector = self._node('DeviceTemperatureSelector')
+            if selector is not None:
                 # Restore the selector afterwards so a later DeviceTemperature
                 # read (or a concurrent reader) is not left pointed at the last
                 # iterated sensor.
@@ -3002,7 +3014,7 @@ class IDSCamera(Camera):
         if not self.active or self.remote_nodemap is None:
             return False
         try:
-            return bool(self.remote_nodemap.HasNode('DeviceTemperature'))
+            return self._node('DeviceTemperature') is not None
         except Exception as e:
             raise CameraReadFailedError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
 
@@ -3180,8 +3192,8 @@ class IDSCamera(Camera):
             return 1
 
         try:
-            vert_bin = self.remote_nodemap.FindNode('BinningVertical').Value()
-            horiz_bin = self.remote_nodemap.FindNode('BinningHorizontal').Value()
+            vert_bin = self._node('BinningVertical').Value()
+            horiz_bin = self._node('BinningHorizontal').Value()
         except ids_peak.Exception as e:
             raise CameraReadFailedError(
                 f'The camera did not answer a read of BinningVertical/BinningHorizontal: {e}'
@@ -3219,7 +3231,7 @@ class IDSCamera(Camera):
             return -1
 
         try:
-            factor = self.remote_nodemap.FindNode('Gain').Value()
+            factor = self._node('Gain').Value()
         except ids_peak.Exception as e:
             raise CameraReadFailedError(f'The camera did not answer a read of Gain: {e}') from e
         if factor <= 0:
@@ -3309,7 +3321,7 @@ class IDSCamera(Camera):
         if not self.active or self.remote_nodemap is None:
             return False
         try:
-            return bool(self.remote_nodemap.HasNode('BlackLevel'))
+            return self._node('BlackLevel') is not None
         except Exception as e:
             raise CameraReadFailedError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
 
@@ -3318,9 +3330,10 @@ class IDSCamera(Camera):
         if not self.active or self.remote_nodemap is None:
             return None
         try:
-            if not self.remote_nodemap.HasNode('BlackLevel'):
+            node = self._node('BlackLevel')
+            if node is None:
                 return None
-            return float(self.remote_nodemap.FindNode('BlackLevel').Value())
+            return float(node.Value())
         except Exception as e:
             raise CameraReadFailedError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
 
@@ -3329,9 +3342,9 @@ class IDSCamera(Camera):
         if not self.active or self.remote_nodemap is None:
             return None
         try:
-            if not self.remote_nodemap.HasNode('BlackLevel'):
+            node = self._node('BlackLevel')
+            if node is None:
                 return None
-            node = self.remote_nodemap.FindNode('BlackLevel')
             return float(node.Minimum()), float(node.Maximum())
         except Exception as e:
             raise CameraReadFailedError(
@@ -3346,9 +3359,10 @@ class IDSCamera(Camera):
         if not self.active or self.remote_nodemap is None:
             return None
         try:
-            if not self.remote_nodemap.HasNode('AcquisitionFrameRate'):
+            node = self._node('AcquisitionFrameRate')
+            if node is None:
                 return None
-            return float(self.remote_nodemap.FindNode('AcquisitionFrameRate').Maximum())
+            return float(node.Maximum())
         except Exception as e:
             raise CameraReadFailedError(
                 f'AcquisitionFrameRate maximum read failed: {type(e).__name__}: {e}'
@@ -3359,18 +3373,19 @@ class IDSCamera(Camera):
         and inter-packet delay, live. See ``Camera.get_link_info``."""
         if not self.active or self.remote_nodemap is None:
             return None
-        nodemap = self.remote_nodemap
         try:
 
             def _read(name):
-                return nodemap.FindNode(name).Value() if nodemap.HasNode(name) else None
+                node = self._node(name)
+                return None if node is None else node.Value()
 
             transport = None
-            if nodemap.HasNode('DeviceTLType'):
-                transport = nodemap.FindNode('DeviceTLType').CurrentEntry().SymbolicValue()
+            node = self._node('DeviceTLType')
+            if node is not None:
+                transport = node.CurrentEntry().SymbolicValue()
             speed = None
-            if nodemap.HasNode('DeviceLinkSpeed'):
-                node = nodemap.FindNode('DeviceLinkSpeed')
+            node = self._node('DeviceLinkSpeed')
+            if node is not None:
                 speed = declared_speed(node.Value(), node.Unit())
             return link_info(
                 transport=transport,

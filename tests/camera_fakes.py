@@ -86,13 +86,21 @@ def bare_pylon_camera():
         'Gain': _float_node(genicam, 0.0, 48.0),
         'ExposureTime': _float_node(genicam, 14.0, 10_000_000.0),
     }
+    for name, node in cam.range_nodes.items():
+        setattr(cam.active, name, node)
 
+    # Any other name is the camera attribute's node, as on pypylon, where
+    # ``camera.<Name>`` and ``GetNodeMap().GetNode('<Name>')`` are one node:
+    # a test sets a node's answer on the attribute and the driver's lookup
+    # finds it.
     def get_node(name):
         if name in reverses and name not in cam.reverse_nodes:
             return PlaceholderParameter(name)
         if name in cam.range_nodes:
             return cam.range_nodes[name]
-        return cam.reverse_nodes.get(name, DEFAULT)
+        if name in cam.reverse_nodes:
+            return cam.reverse_nodes[name]
+        return getattr(cam.active, name)
 
     cam.active.GetNodeMap.return_value.GetNode.side_effect = get_node
     for getter in _NODE_MAP_GETTERS:
@@ -306,11 +314,9 @@ def chunk_config_pylon_camera(advertised):
         entry = MagicMock()
         entry.GetSymbolic.return_value = name
         entries.append(entry)
-    selector_node = MagicMock()
-    selector_node.GetEntries.return_value = entries
-    fake.GetNodeMap.return_value.GetNode.return_value = selector_node
     fake.ChunkModeActive = WriteRecorderNode()
     fake.ChunkSelector = WriteRecorderNode()
+    fake.ChunkSelector.GetEntries = lambda: entries
     fake.ChunkEnable = WriteRecorderNode()
     return cam
 

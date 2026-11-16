@@ -57,7 +57,7 @@ def _induce_exposure_nodes_absent(cam):
 
 
 def _induce_exposure_read_raises(cam):
-    cam.active.GetNodeMap.return_value.GetNode.return_value.GetValue.side_effect = _boom
+    cam.active.BslEffectiveExposureTime.GetValue.side_effect = _boom
 
 
 def _induce_pixel_format(cam):
@@ -108,7 +108,7 @@ def _as_timeouts(cam) -> None:
             mock = getattr(getattr(cam.active, node), accessor)
             if mock.side_effect is _boom:
                 mock.side_effect = _timeout
-    read = cam.active.GetNodeMap.return_value.GetNode.return_value.GetValue
+    read = cam.active.BslEffectiveExposureTime.GetValue
     if read.side_effect is _boom:
         read.side_effect = _timeout
 

@@ -16,6 +16,7 @@ import unittest
 from unittest.mock import MagicMock
 
 from _lumascope.drivers.pyloncamera import PylonCamera
+from tests.camera_fakes import nodemaps_answer_attributes
 
 
 def _mock_camera():
@@ -34,7 +35,7 @@ def _mock_camera():
     cam.update_camera_config = MagicMock()
     cam._frame_window = None
     cam.cam_image_handler = None
-    return cam
+    return nodemaps_answer_attributes(cam)
 
 
 def _sensor(cam, maximum=3536, step=4):

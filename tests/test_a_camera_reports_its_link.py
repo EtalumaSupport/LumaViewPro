@@ -104,7 +104,7 @@ def _pylon(values, device_class='BaslerUsb', speed_unit='bps'):
     def get_node(name):
         if name not in values:
             return PlaceholderParameter(name)
-        return MagicMock()
+        return getattr(cam.active, name)
 
     cam.active.GetNodeMap.return_value.GetNode.side_effect = get_node
     cam.active.GetDeviceInfo.return_value.GetDeviceClass.return_value = device_class

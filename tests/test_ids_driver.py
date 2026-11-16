@@ -96,6 +96,10 @@ class _RecordingNodemap:
     def __init__(self, preset=None):
         self.nodes: dict[str, _RecordingNode] = dict(preset or {})
 
+    def HasNode(self, name):
+        # Holds every name: FindNode makes the node it is asked for.
+        return True
+
     def FindNode(self, name):
         return self.nodes.setdefault(name, _RecordingNode())
 

@@ -147,7 +147,7 @@ def _pylon(nodes=('BlackLevel', 'BlackLevelSelector')):
     def get_node(name):
         if name not in nodes:
             return PlaceholderParameter(name)
-        return MagicMock()
+        return getattr(cam.active, name)
 
     cam.active.GetNodeMap.return_value.GetNode.side_effect = get_node
     return cam

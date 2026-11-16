@@ -5092,8 +5092,10 @@ class TestGigeSetters:
             lambda cam: cam.set_gev_inter_packet_delay(100),
         ):
             cam = _bare_pylon_camera()
-            node = cam.active.GetNodeMap.return_value.GetNode.return_value
-            node.SetValue.side_effect = genicam.RuntimeException('usb gone')
+            # Every name the map is asked for is this one node, which fails.
+            nodemap = cam.active.GetNodeMap.return_value
+            nodemap.GetNode.side_effect = None
+            nodemap.GetNode.return_value.SetValue.side_effect = genicam.RuntimeException('usb gone')
             with pytest.raises(HardwareError):
                 call(cam)
 

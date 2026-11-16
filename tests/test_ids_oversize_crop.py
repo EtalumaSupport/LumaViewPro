@@ -55,6 +55,10 @@ class _FakeIdsAoiNodemap:
         if minimums:
             self.minimums.update(minimums)
 
+    def HasNode(self, name):
+        # Holds every name: FindNode answers a node for any.
+        return True
+
     def FindNode(self, name):
         return _FakeIdsAoiNode(self, name)
 

@@ -326,7 +326,7 @@ class PylonCamera(Camera):
             CameraReadFailedError: The node or its range could not be read.
         """
         try:
-            node = self._find_node(self.active.GetNodeMap(), name)
+            node = self._node(name)
             if node is None:
                 return None
             return _accepted_range(node, name)
@@ -395,8 +395,6 @@ class PylonCamera(Camera):
             return
 
         try:
-            nm = self.active.GetNodeMap()
-
             # The gain and exposure ranges are not stored: they move with the
             # readout (Mono8 to Mono12 raises the exposure floor), so they are
             # read from the camera when asked (min_gain, max_gain,
@@ -448,7 +446,7 @@ class PylonCamera(Camera):
             # advertise the node leaves pixel_size_um unset; the scale then
             # degrades honestly rather than inheriting a guessed default.
             try:
-                px_node = self._find_node(nm, 'SensorPixelWidth')
+                px_node = self._node('SensorPixelWidth')
                 if px_node is None:
                     logger.info(
                         '[CAM Class ] SensorPixelWidth not offered by this camera; '
@@ -1035,8 +1033,7 @@ class PylonCamera(Camera):
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             try:
-                nm = self.active.GetNodeMap()
-                acq_node = self._find_node(nm, 'AcquisitionActive')
+                acq_node = self._node('AcquisitionActive')
                 if acq_node is None:
                     # Older firmware or non-Basler -- can't poll, bail
                     # quickly without warning (this is expected).
@@ -1044,7 +1041,7 @@ class PylonCamera(Camera):
                 acq_active = bool(acq_node.GetValue())
                 # A camera without ExposureActive is polled on
                 # AcquisitionActive alone.
-                exp_node = self._find_node(nm, 'ExposureActive')
+                exp_node = self._node('ExposureActive')
                 exp_active = bool(exp_node.GetValue()) if exp_node is not None else False
                 if not acq_active and not exp_active:
                     return True
@@ -1085,8 +1082,7 @@ class PylonCamera(Camera):
         if self.active is None:
             return
         try:
-            sg = self.active.GetStreamGrabberNodeMap()
-            node = self._find_node(sg, 'Status')
+            node = self._node('Status', 'stream')
             if node is None:
                 _cam_log.info(f'pylon StreamGrabber.Status [{label}]: <node missing>')
                 return
@@ -1362,7 +1358,7 @@ class PylonCamera(Camera):
             try:
                 _sg_map = camera.GetStreamGrabberNodeMap()
                 _mts_node = (
-                    self._find_node(_sg_map, 'MaxTransferSize') if _sg_map is not None else None
+                    self._node_in(_sg_map, 'MaxTransferSize') if _sg_map is not None else None
                 )
                 if _mts_node is None:
                     _log_cam(
@@ -1427,7 +1423,7 @@ class PylonCamera(Camera):
 
                     _log_cam('info', f'[CAM Class ] Camera Serial Number: {self._device_serial}')
 
-                    firmware_node = self._find_node(nm, 'DeviceFirmwareVersion')
+                    firmware_node = self._node_in(nm, 'DeviceFirmwareVersion')
                     if firmware_node is None:
                         _log_cam(
                             'info', '[CAM Class ] DeviceFirmwareVersion not offered by this camera'
@@ -1444,7 +1440,7 @@ class PylonCamera(Camera):
                     try:
 
                         def _node_text(name, absent):
-                            node = self._find_node(nm, name)
+                            node = self._node_in(nm, name)
                             return absent if node is None else node.ToString()
 
                         pix = _node_text('PixelFormat', '?')
@@ -1544,12 +1540,11 @@ class PylonCamera(Camera):
             raise PartAbsentError('Camera temperature read: no camera is active')
 
         try:
-            nodemap = self.active.GetNodeMap()
-            if not self._has_temperature_nodes(nodemap):
+            if not self._has_temperature_nodes():
                 return {}
 
-            selector = self._find_node(nodemap, 'DeviceTemperatureSelector')
-            temp = self._find_node(nodemap, 'DeviceTemperature')
+            selector = self._node('DeviceTemperatureSelector')
+            temp = self._node('DeviceTemperature')
 
             temps: dict[str, float] = {}
 
@@ -1588,14 +1583,15 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         try:
-            return self._has_temperature_nodes(self.active.GetNodeMap())
+            return self._has_temperature_nodes()
         except Exception as e:
             # No disconnect teardown, as in the read above.
             raise CameraReadFailedError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
 
-    def _has_temperature_nodes(self, nodemap) -> bool:
-        return self._has_node(nodemap, 'DeviceTemperatureSelector') and self._has_node(
-            nodemap, 'DeviceTemperature'
+    def _has_temperature_nodes(self) -> bool:
+        return (
+            self._node('DeviceTemperatureSelector') is not None
+            and self._node('DeviceTemperature') is not None
         )
 
     def supports_clock_latch(self) -> bool:
@@ -1603,9 +1599,9 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         try:
-            nodemap = self.active.GetNodeMap()
-            return self._has_node(nodemap, 'TimestampLatch') and self._has_node(
-                nodemap, 'TimestampLatchValue'
+            return (
+                self._node('TimestampLatch') is not None
+                and self._node('TimestampLatchValue') is not None
             )
         except Exception as e:
             # No disconnect teardown, as in the probes above.
@@ -1625,7 +1621,7 @@ class PylonCamera(Camera):
     def latched_clock_ticks(self) -> int:
         """Read ``TimestampLatchValue``. See ``Camera.latched_clock_ticks``."""
         try:
-            return int(self.active.TimestampLatchValue.GetValue())
+            return int(self._node('TimestampLatchValue').GetValue())
         except Exception as e:
             raise CameraReadFailedError(
                 f'TimestampLatchValue read failed: {type(e).__name__}: {e}'
@@ -1810,7 +1806,7 @@ class PylonCamera(Camera):
                 is then named in ``config_not_applied``.
         """
         nodemap = self.active.GetNodeMap()
-        node = self._find_node(nodemap, 'BslAcquisitionStopMode')
+        node = self._node_in(nodemap, 'BslAcquisitionStopMode')
         if node is None:
             _cam_log.info(
                 '[CAM Class ] BslAcquisitionStopMode not offered by this camera; '
@@ -1835,7 +1831,7 @@ class PylonCamera(Camera):
             CameraReadFailedError: The camera did not answer the node's access.
         """
         try:
-            return genicam.IsWritable(self._find_node(self.active.GetNodeMap(), name))
+            return genicam.IsWritable(self._node(name))
         except genicam.GenericException as e:
             raise CameraReadFailedError(
                 f'The camera did not answer the access of {name}: {e}'
@@ -1848,7 +1844,7 @@ class PylonCamera(Camera):
             CameraWriteFailedError: The camera refused the write.
         """
         try:
-            self._find_node(self.active.GetNodeMap(), name).SetValue(value)
+            self._node(name).SetValue(value)
         except genicam.GenericException as e:
             raise CameraWriteFailedError(f'The camera refused a write of {name}: {e}') from e
 
@@ -1975,8 +1971,7 @@ class PylonCamera(Camera):
             return
         for node_name in ('GevTimestampTickFrequency', 'TimestampTickFrequency'):
             try:
-                nm = camera.GetNodeMap()
-                node = self._find_node(nm, node_name)
+                node = self._node(node_name)
                 if node is not None and genicam.IsReadable(node):
                     self.timestamp_tick_frequency_hz = int(node.GetValue())
                     logger.info(
@@ -2019,7 +2014,7 @@ class PylonCamera(Camera):
         """
         try:
             nm = camera.GetNodeMap()
-            selector_node = PylonCamera._find_node(nm, 'ChunkSelector')
+            selector_node = PylonCamera._node_in(nm, 'ChunkSelector')
             if selector_node is None:
                 _cam_log.warning(
                     '[CAM Class ] ChunkSelector node missing; '
@@ -2134,7 +2129,7 @@ class PylonCamera(Camera):
         catches that).
         """
         try:
-            node = self.active.DeviceLinkThroughputLimit
+            node = self._node('DeviceLinkThroughputLimit')
             lo = int(node.GetMin())
             hi = int(node.GetMax())
         except Exception as e:
@@ -2233,7 +2228,7 @@ class PylonCamera(Camera):
         """
         try:
             nodemap = getattr(self.active, self._NODE_MAPS[node_map])()
-            nodes = {name: self._find_node(nodemap, name) for name in values}
+            nodes = {name: self._node_in(nodemap, name) for name in values}
             absent = [name for name, node in nodes.items() if node is None]
             if absent:
                 _cam_log.info(
@@ -2409,7 +2404,7 @@ class PylonCamera(Camera):
             return self._pixel_format_cache
 
         try:
-            value = self.active.PixelFormat.GetValue()
+            value = self._node('PixelFormat').GetValue()
         except genicam.GenericException as e:
             # Intentionally NO disconnect teardown: latching device-removed
             # from a possibly-transient node read silently killed the live
@@ -2442,7 +2437,7 @@ class PylonCamera(Camera):
                 for it, nothing sent.
         """
         try:
-            return self.active.PixelFormat.GetSymbolics()
+            return self._node('PixelFormat').GetSymbolics()
         except genicam.GenericException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
             # a transient node read killed the stream); removal is owned by
@@ -2526,8 +2521,8 @@ class PylonCamera(Camera):
             return 1
 
         try:
-            vert_bin = self.active.BinningVertical.GetValue()
-            horiz_bin = self.active.BinningHorizontal.GetValue()
+            vert_bin = self._node('BinningVertical').GetValue()
+            horiz_bin = self._node('BinningHorizontal').GetValue()
         except genicam.GenericException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
             # a transient node read killed the stream); removal is owned by
@@ -2578,7 +2573,7 @@ class PylonCamera(Camera):
             _cam_log.error(f'[CAM Class ] Unsupported conversion gain mode: {mode}')
             return False
         try:
-            has_node = self._has_node(self.active.GetNodeMap(), 'BslConversionGainMode')
+            has_node = self._node('BslConversionGainMode') is not None
         except genicam.TimeoutException as e:
             raise _no_answer(
                 f'set_conversion_gain_mode({mode})', e, read='the BslConversionGainMode node'
@@ -2638,9 +2633,9 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         try:
-            node_map = self.active.GetNodeMap()
-            has_nodes = self._has_node(node_map, 'BslLineNoiseReductionEnable') and self._has_node(
-                node_map, 'BslLineNoiseReduction'
+            has_nodes = (
+                self._node('BslLineNoiseReductionEnable') is not None
+                and self._node('BslLineNoiseReduction') is not None
             )
         except genicam.TimeoutException as e:
             raise _no_answer(
@@ -2686,7 +2681,7 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         try:
-            return self._has_node(self.active.GetNodeMap(), 'BslConversionGainMode')
+            return self._node('BslConversionGainMode') is not None
         except Exception as e:
             raise CameraReadFailedError(
                 f'BslConversionGainMode probe failed: {type(e).__name__}: {e}'
@@ -2698,9 +2693,9 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         try:
-            node_map = self.active.GetNodeMap()
-            return self._has_node(node_map, 'BslLineNoiseReductionEnable') and self._has_node(
-                node_map, 'BslLineNoiseReduction'
+            return (
+                self._node('BslLineNoiseReductionEnable') is not None
+                and self._node('BslLineNoiseReduction') is not None
             )
         except Exception as e:
             raise CameraReadFailedError(
@@ -2712,7 +2707,7 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         try:
-            return self._has_node(self.active.GetNodeMap(), 'BlackLevel')
+            return self._node('BlackLevel') is not None
         except Exception as e:
             raise CameraReadFailedError(f'BlackLevel probe failed: {type(e).__name__}: {e}') from e
 
@@ -2725,9 +2720,10 @@ class PylonCamera(Camera):
         if not self.active:
             return None
         try:
-            if not self._has_node(self.active.GetNodeMap(), 'BlackLevel'):
+            node = self._node('BlackLevel')
+            if node is None:
                 return None
-            return float(self.active.BlackLevel.GetValue())
+            return float(node.GetValue())
         except Exception as e:
             raise CameraReadFailedError(f'BlackLevel read failed: {type(e).__name__}: {e}') from e
 
@@ -2736,9 +2732,9 @@ class PylonCamera(Camera):
         if not self.active:
             return None
         try:
-            if not self._has_node(self.active.GetNodeMap(), 'BlackLevel'):
+            node = self._node('BlackLevel')
+            if node is None:
                 return None
-            node = self.active.BlackLevel
             return float(node.GetMin()), float(node.GetMax())
         except Exception as e:
             raise CameraReadFailedError(
@@ -2760,7 +2756,7 @@ class PylonCamera(Camera):
             return None
         try:
             try:
-                has_selector = self._has_node(self.active.GetNodeMap(), 'BlackLevelSelector')
+                has_selector = self._node('BlackLevelSelector') is not None
             except genicam.TimeoutException as e:
                 raise _no_answer(
                     f'set_black_level({value})', e, read='the BlackLevelSelector node'
@@ -2813,16 +2809,14 @@ class PylonCamera(Camera):
         if not self.active:
             return None
         try:
-            nodemap = self.active.GetNodeMap()
 
             def _read(name):
-                if not self._has_node(nodemap, name):
-                    return None
-                return getattr(self.active, name).GetValue()
+                node = self._node(name)
+                return None if node is None else node.GetValue()
 
             speed = None
-            if self._has_node(nodemap, 'DeviceLinkSpeed'):
-                node = self.active.DeviceLinkSpeed
+            node = self._node('DeviceLinkSpeed')
+            if node is not None:
                 speed = declared_speed(node.GetValue(), node.GetUnit())
             return link_info(
                 transport=self.active.GetDeviceInfo().GetDeviceClass(),
@@ -3137,7 +3131,7 @@ class PylonCamera(Camera):
             return None
         write = f'_set_auto_exposure_time_bounds({max_exposure_ms})'
         try:
-            has_bounds = self._has_node(self.active.GetNodeMap(), 'AutoExposureTimeUpperLimit')
+            has_bounds = self._node('AutoExposureTimeUpperLimit') is not None
         except genicam.TimeoutException as e:
             raise _no_answer(write, e, read='the AutoExposureTime limit nodes') from e
         if not has_bounds:
@@ -3257,14 +3251,14 @@ class PylonCamera(Camera):
                 timeout included; the frame size cannot be planned without
                 the grid, so no write is sent.
         """
-        camera = self.active
-        if not camera:
+        if not self.active:
             return None
         try:
+            width, height = self._node('Width'), self._node('Height')
             return FrameGrid(
-                step=(camera.Width.GetInc(), camera.Height.GetInc()),
-                max_size=(camera.Width.GetMax(), camera.Height.GetMax()),
-                size_min=(camera.Width.GetMin(), camera.Height.GetMin()),
+                step=(width.GetInc(), height.GetInc()),
+                max_size=(width.GetMax(), height.GetMax()),
+                size_min=(width.GetMin(), height.GetMin()),
             )
         except genicam.GenericException as e:
             # Intentionally NO disconnect teardown, as for the other node
@@ -3355,13 +3349,12 @@ class PylonCamera(Camera):
             CameraReadFailedError: The camera did not answer the read, a
                 timeout included. The camera is kept.
         """
-        camera = self.active
-        if not camera:
+        if not self.active:
             return {}
         try:
             return {
-                'width': camera.Width.GetMin(),
-                'height': camera.Height.GetMin(),
+                'width': self._node('Width').GetMin(),
+                'height': self._node('Height').GetMin(),
             }
         except genicam.GenericException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
@@ -3381,13 +3374,12 @@ class PylonCamera(Camera):
             CameraReadFailedError: The camera did not answer the read, a
                 timeout included. The camera is kept.
         """
-        camera = self.active
-        if not camera:
+        if not self.active:
             return {}
         try:
             return {
-                'width': camera.Width.GetMax(),
-                'height': camera.Height.GetMax(),
+                'width': self._node('Width').GetMax(),
+                'height': self._node('Height').GetMax(),
             }
         except genicam.GenericException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
@@ -3404,13 +3396,12 @@ class PylonCamera(Camera):
             CameraReadFailedError: The camera did not answer the read, a
                 timeout included. The camera is kept.
         """
-        camera = self.active
-        if not camera:
+        if not self.active:
             return None
 
         try:
-            width = camera.Width.GetValue()
-            height = camera.Height.GetValue()
+            width = self._node('Width').GetValue()
+            height = self._node('Height').GetValue()
         except genicam.GenericException as e:
             # Driver-wide policy (every pure getter): NO disconnect teardown
             # from a caught node-read error. An SDK exception here is
@@ -3441,7 +3432,7 @@ class PylonCamera(Camera):
             return -1
 
         try:
-            return float(self.active.Gain.GetValue())
+            return float(self._node('Gain').GetValue())
         except genicam.GenericException as e:
             # Intentionally NO disconnect teardown (latching device-removed on
             # a transient node read killed the stream); removal is owned by
@@ -3468,11 +3459,11 @@ class PylonCamera(Camera):
     def _read_auto_mode(self, name: str) -> str:
         """The mode node ``name`` holds on the camera now (``IgnoreCache``).
 
-        The lookup is inside the ``try``: the SDK raises there, before the
-        read, when the node is unavailable.
+        The lookup is inside the ``try``: an SDK failure there, or a node
+        the camera does not offer, is a failed read.
         """
         try:
-            node = getattr(self.active, name)
+            node = self._node(name)
             return str(node.GetCurrentEntry(False, True).GetSymbolic())
         except Exception as e:
             raise CameraReadFailedError(f'{name} read failed: {type(e).__name__}: {e}') from e
@@ -3969,16 +3960,27 @@ class PylonCamera(Camera):
     def read_node(self, name: str, node_map: str) -> CameraNodeValue | CameraNodeHasNoValue | None:
         """Read one node from one of the instant camera's nodemaps (``Camera.read_node``)."""
         try:
-            nodemap = getattr(self.active, self._NODE_MAPS[node_map])()
+            nodemap = self._nodemap(node_map)
         except genicam.GenericException as e:
             raise CameraReadFailedError(
                 f'The camera did not give its {node_map} node map: {e}'
             ) from e
         return self._read_node_in(nodemap, name)
 
+    def _nodemap(self, node_map: str):
+        """The active instant camera's nodemap of this name (``_NODE_MAPS``)."""
+        return getattr(self.active, self._NODE_MAPS[node_map])()
+
+    def _node(self, name: str, node_map: str = 'device'):
+        """The node of this name on one of the active camera's nodemaps (``Camera._node``)."""
+        return self._node_in(self._nodemap(node_map), name)
+
     @staticmethod
-    def _find_node(nodemap, name: str):
-        """The node of this name on ``nodemap``, or None when the map has none.
+    def _node_in(nodemap, name: str):
+        """``_node`` on a nodemap already in hand: the node, or None when the map has none.
+
+        A stop's or a snapshot's reads take the nodemaps of the camera they
+        were handed, which teardown may already have taken off ``active``.
 
         pypylon's GetNode answers a placeholder for a name the map lacks,
         which fails only at its first read or write, so whether the map
@@ -4004,7 +4006,7 @@ class PylonCamera(Camera):
     def _read_node_in(cls, nodemap, name: str) -> CameraNodeValue | CameraNodeHasNoValue | None:
         """``read_node`` on a nodemap already in hand."""
         try:
-            node = cls._find_node(nodemap, name)
+            node = cls._node_in(nodemap, name)
             if node is None:
                 return None
             for node_type, kind in cls._NO_VALUE_TYPES:
@@ -4016,18 +4018,6 @@ class PylonCamera(Camera):
             return CameraNodeValue(node.GetValue(), unit)
         except genicam.GenericException as e:
             raise CameraReadFailedError(f'The camera did not answer a read of {name}: {e}') from e
-
-    @classmethod
-    def _has_node(cls, nodemap, name: str) -> bool:
-        """True if the nodemap exposes a node by this name.
-
-        An absent optional node is the EXPECTED case for cameras that do not
-        implement the feature (Basler darts lack the Bsl* nodes; other
-        vendors lack them entirely), so a missing node is a quiet False, not
-        an error. Comms failures (RuntimeException) and any other error
-        propagate to the caller, which answers them as its own failure.
-        """
-        return cls._find_node(nodemap, name) is not None
 
     @classmethod
     def _safe_node(cls, nodemap, *names: str):
@@ -4291,9 +4281,9 @@ class PylonCamera(Camera):
         # on a malformed firmware response)
         if drain_camera_side_errors:
             try:
-                err_present = self._find_node(nm, 'BslErrorPresent')
-                code_node = self._find_node(nm, 'BslErrorReportValue')
-                next_cmd = self._find_node(nm, 'BslErrorReportNext')
+                err_present = self._node_in(nm, 'BslErrorPresent')
+                code_node = self._node_in(nm, 'BslErrorReportValue')
+                next_cmd = self._node_in(nm, 'BslErrorReportNext')
                 if err_present is not None and code_node is not None and next_cmd is not None:
                     # The codes drained before a failed read are kept,
                     # and the failure is recorded beside them.

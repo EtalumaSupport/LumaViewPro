@@ -4,9 +4,9 @@
 pypylon answers a placeholder for a node the map does not hold, on
 ``GetNode`` and on the instant camera's attribute alike, which raises
 ``genicam.LogicalErrorException`` at its first read or write; the map's
-``Contains`` says whether it holds the node. ``PylonCamera._find_node`` is the
+``Contains`` says whether it holds the node. ``PylonCamera._node`` is the
 one lookup that answers absence as absence (guard
-``tests/guards/test_a_pylon_node_is_found_one_way``).
+``tests/guards/test_a_camera_node_is_found_one_way``).
 Each site that asks then does what its contract says for a camera without the
 node, and a read or write that fails is a failure, not an absence:
 
@@ -297,8 +297,16 @@ def _profile():
 _RANGE_NODES = ('Gain', 'ExposureTime', 'SensorPixelWidth')
 
 
+def _pixel_format():
+    # Every camera LVP runs offers PixelFormat; the query reads its entries
+    # before the pixel pitch.
+    node = MagicMock()
+    node.GetSymbolics.return_value = ('Mono8',)
+    return node
+
+
 def test_a_camera_without_the_range_nodes_is_told_so_and_its_profile_is_left_unset(caplog):
-    cam = _camera()
+    cam = _camera(device={'PixelFormat': _pixel_format()})
     cam.profile = _profile()
     with caplog.at_level(logging.INFO):
         cam._query_dynamic_capabilities()
@@ -317,7 +325,7 @@ def test_a_camera_without_the_range_nodes_is_told_so_and_its_profile_is_left_uns
 def test_a_failed_pixel_pitch_read_is_told_at_warning(caplog):
     failing = MagicMock()
     failing.GetValue.side_effect = genicam.RuntimeException('usb gone')
-    cam = _camera(device={'SensorPixelWidth': failing})
+    cam = _camera(device={'SensorPixelWidth': failing, 'PixelFormat': _pixel_format()})
     cam.profile = _profile()
     with caplog.at_level(logging.WARNING):
         cam._query_dynamic_capabilities()

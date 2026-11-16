@@ -56,7 +56,10 @@ def test_a_slow_stop_is_a_warning_with_its_elapsed_time_after_the_state_it_stopp
     cam.cam_image_handler._frames_handed_over = 42
     cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value.GetValue.return_value = 7
     cam.active.GetInstantCameraNodeMap.return_value.GetNode.return_value.GetValue.return_value = 3
-    cam.active.GetNodeMap.return_value.GetNode.return_value.GetValue.return_value = 'Complete'
+    # Every name the device map is asked for is one node, holding 'Complete'.
+    device = cam.active.GetNodeMap.return_value
+    device.GetNode.side_effect = None
+    device.GetNode.return_value.GetValue.return_value = 'Complete'
     write_timeouts = [0]
     tl_value = cam.active.GetTLNodeMap.return_value.GetNode.return_value.GetValue
     tl_value.side_effect = lambda: write_timeouts[0]
