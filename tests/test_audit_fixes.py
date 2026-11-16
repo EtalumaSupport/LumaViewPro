@@ -2085,97 +2085,9 @@ class TestPIW2_DisksUsageDeduped:
         )
 
 
-class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
-    """Cluster sibling of LED-state-hygiene-at-transition (#666 / #659 /
-    #617): the OpenGL shader's false-color white_point also needs a
-    run-end restore.
-
-    Bug shape (sim repro 2026-05-23): protocol step on the LED 2 layer calls
-    its ChannelControl.apply_settings(), which sets the shader's live
-    colour to LED2's, writing
-    `white_point = (white, 0.0, 0.0, 1.0)` to the canvas shader.
-    Subsequent rendered frames are red-tinted via this multiplier.
-    When the protocol stops, the run restores LEDs, AF, camera state,
-    and stage position -- but NOT shader state. The last protocol
-    step's tint persisted indefinitely on the live preview canvas
-    regardless of which accordion the user opens.
-
-    The shader is display state, so its restore is the GUI's: the panel's
-    ``run_ended`` handler calls ``restore_display_after_run``, which
-    re-applies the open accordion's shader (BF when none is open). The
-    engine names no shader.
-    """
-
-    def _protocol_settings_src(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'ui' / 'protocol_settings.py').read_text()
-
-    def _restore_with(self, monkeypatch, shown_channel):
-        import ui.ui_helpers as ui_helpers
-        from _lumascope.modules.scope_session import ShownChannel
-
-        ctx = MagicMock()
-        ctx.session.shown_channel = ShownChannel(shown_channel, lit=False)
-        monkeypatch.setattr(ui_helpers._app_ctx, 'ctx', ctx)
-        synced = MagicMock()
-        monkeypatch.setattr(ui_helpers, 'sync_channel_widgets_from_settings', synced)
-        ui_helpers.restore_display_after_run(MagicMock(), None, MagicMock())
-        return ctx, synced
-
-    def test_the_shown_channels_shader_is_reapplied(self, monkeypatch):
-        ctx, synced = self._restore_with(monkeypatch, LED1)
-        ctx.image_settings.channel_control_lookup.assert_called_once_with(channel=LED1)
-        ctx.image_settings.channel_control_lookup.return_value.update_shader.assert_called_once_with(
-            dt=0
-        )
-        ctx.viewer.set_live_color.assert_not_called()
-        synced.assert_called_once_with()
-
-    def test_the_cleanup_names_no_shader(self):
-        """The engine's cleanup is GUI-agnostic: the shader restore left it
-        for the GUI's run_ended handler, and must not drift back."""
-        import inspect
-
-        import _lumascope.modules.protocol_cleanup as protocol_cleanup
-
-        src = inspect.getsource(protocol_cleanup)
-        assert 'shader' not in src.lower(), 'protocol_cleanup must not restore a GUI shader'
-
-    def test_a_raising_restore_is_reported_once_as_itself(self, monkeypatch):
-        """A run_ended handler that raises is reported by the event delivery,
-        once, as its own exception -- never as a scope cleanup failure."""
-        from _lumascope.modules.notification_center import notifications
-        from _lumascope.modules.run_events import RunEvents, deliver
-
-        reported = []
-        monkeypatch.setattr(
-            notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw))
-        )
-        boom = RuntimeError('shader boom')
-
-        def _raise(*_ended):
-            raise boom
-
-        deliver(RunEvents(run_ended=_raise), 'run_ended', MagicMock(), None, MagicMock())
-        assert reported == [(boom, {'solicited': False, 'category': 'run_ended'})], reported
-
-    def test_protocol_settings_restores_the_display_on_run_ended(self):
-        """The GUI caller (ui/protocol_settings.py) must call
-        restore_display_after_run from the run_ended handler it hands the
-        run, otherwise the bug recurs."""
-        src = self._protocol_settings_src()
-        start = src.find('def _ended(*ended):')
-        assert start != -1, 'protocol_settings must define its run_ended handler'
-        body = src[start : src.find('events = RunEvents(', start)]
-        assert 'restore_display_after_run()' in body, (
-            'the run_ended handler must restore the display (layer widgets and shader)'
-        )
-        assert 'run_ended=_ended' in src[start:], 'the handler must be the run_ended event'
-
-
 class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
-    """Cluster sibling of the shader-state-hygiene fix above. The
+    """Cluster sibling of the run-end colour restore
+    (``tests/test_run_leaves_layer_settings_alone.py``). The
     user's open accordion drifted toward the last protocol step's
     channel across repeated stop/start cycles: the run's per-step
     display scheduled the step-panel redraw, and the last step's

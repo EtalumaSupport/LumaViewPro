@@ -23,7 +23,8 @@ Contract under test:
   settings.
 - At run end the GUI's ``run_ended`` handler re-syncs every layer's widgets
   from its stored settings, once, through the one settings-to-widgets
-  implementation (the startup loop, extracted); the engine names no such chore.
+  implementation (the startup loop, extracted), and puts the live colour
+  back on the shown channel's; the engine names no such chore.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tests.ast_seams import find_def, parse_module
+from tests.ast_seams import direct_call_names, find_def, parse_module
 from _lumascope.modules.protocol import CHANNEL_SETTING_KEYS
 from _lumascope.modules.scope_session import ScopeSession
 from tests.test_issue_733_step_nav_preview_led_button import (  # noqa: F401 -- stepnav_env is a fixture
@@ -522,3 +523,100 @@ class TestStimIlluminationTextWritesTheSliderKey:
 
         assert text_path == 'stim_config.illumination_ma'
         assert text_path in slider_paths, slider_paths
+
+
+class TestARunsEndRestoresTheLayerShader_ShaderHygiene:
+    """Cluster sibling of LED-state-hygiene-at-transition (#666 / #659 /
+    #617): the OpenGL shader's false-color white_point also needs a
+    run-end restore.
+
+    Bug shape (sim repro 2026-05-23): protocol step on the LED 2 layer calls
+    its ChannelControl.apply_settings(), which sets the shader's live
+    colour to LED2's, writing
+    `white_point = (white, 0.0, 0.0, 1.0)` to the canvas shader.
+    Subsequent rendered frames are red-tinted via this multiplier.
+    When the protocol stops, the run restores LEDs, AF, camera state,
+    and stage position -- but NOT shader state. The last protocol
+    step's tint persisted indefinitely on the live preview canvas
+    regardless of which accordion the user opens.
+
+    The shader is display state, so its restore is the GUI's: the panel's
+    ``run_ended`` handler calls ``restore_display_after_run``, which
+    re-applies the open accordion's shader (BF when none is open). The
+    engine names no shader.
+    """
+
+    def _restore_with(self, monkeypatch, shown_channel):
+        import ui.ui_helpers as ui_helpers
+        from _lumascope.modules.scope_session import ShownChannel
+
+        ctx = MagicMock()
+        ctx.session.shown_channel = ShownChannel(shown_channel, lit=False)
+        monkeypatch.setattr(ui_helpers._app_ctx, 'ctx', ctx)
+        synced = MagicMock()
+        monkeypatch.setattr(ui_helpers, 'sync_channel_widgets_from_settings', synced)
+        ui_helpers.restore_display_after_run(MagicMock(), None, MagicMock())
+        return ctx, synced
+
+    def test_the_shown_channels_shader_is_reapplied(self, monkeypatch):
+        ctx, synced = self._restore_with(monkeypatch, LED1)
+        ctx.image_settings.channel_control_lookup.assert_called_once_with(channel=LED1)
+        ctx.image_settings.channel_control_lookup.return_value.update_shader.assert_called_once_with(
+            dt=0
+        )
+        ctx.viewer.set_live_color.assert_not_called()
+        synced.assert_called_once_with()
+
+    def test_the_cleanup_names_no_shader(self):
+        """The engine's cleanup is GUI-agnostic: the shader restore left it
+        for the GUI's run_ended handler, and must not drift back."""
+        import inspect
+
+        import _lumascope.modules.protocol_cleanup as protocol_cleanup
+
+        src = inspect.getsource(protocol_cleanup)
+        assert 'shader' not in src.lower(), 'protocol_cleanup must not restore a GUI shader'
+
+    def test_a_raising_restore_is_reported_once_as_itself(self, monkeypatch):
+        """A run_ended handler that raises is reported by the event delivery,
+        once, as its own exception -- never as a scope cleanup failure."""
+        from _lumascope.modules.notification_center import notifications
+        from _lumascope.modules.run_events import RunEvents, deliver
+
+        reported = []
+        monkeypatch.setattr(
+            notifications, 'report_outcome', lambda ex, **kw: reported.append((ex, kw))
+        )
+        boom = RuntimeError('shader boom')
+
+        def _raise(*_ended):
+            raise boom
+
+        deliver(RunEvents(run_ended=_raise), 'run_ended', MagicMock(), None, MagicMock())
+        assert reported == [(boom, {'solicited': False, 'category': 'run_ended'})], reported
+
+    def test_protocol_settings_restores_the_display_on_run_ended(self):
+        """The Scan and Protocol starter (ui/protocol_settings.py) hands the
+        run a run_ended handler that calls restore_display_after_run,
+        otherwise the bug recurs."""
+        starter = find_def(
+            'ui/protocol_settings.py', '_sequenced_capture_start', class_name='ProtocolSettings'
+        )
+        assert starter is not None, 'ProtocolSettings._sequenced_capture_start is gone'
+        handed = {
+            kw.value.id
+            for node in ast.walk(starter)
+            if isinstance(node, ast.Call) and getattr(node.func, 'id', None) == 'RunEvents'
+            for kw in node.keywords
+            if kw.arg == 'run_ended' and isinstance(kw.value, ast.Name)
+        }
+        assert len(handed) == 1, f'the starter hands the run one run_ended handler: {handed}'
+        (name,) = handed
+        handler = next(
+            node
+            for node in ast.walk(starter)
+            if isinstance(node, ast.FunctionDef) and node.name == name
+        )
+        assert 'restore_display_after_run' in direct_call_names(handler), (
+            'the run_ended handler must restore the display (layer widgets and shader)'
+        )
