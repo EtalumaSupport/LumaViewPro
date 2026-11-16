@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import enum
+import functools
 import logging
 import typing
 
@@ -34,6 +35,8 @@ from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, Output
 from _lumascope.modules.finite_number import SUM_COUNT_RANGE, is_finite_number
 from _lumascope.modules.channel_record import parse_display_color
 from _lumascope.modules.lumascope_api._constants import (
+    ACCELERATION_PCT_MAX,
+    ACCELERATION_PCT_MIN,
     SIMULATOR_TIERS,
     refuse_acceleration_pct,
     refuse_inverted_gain_range,
@@ -220,14 +223,45 @@ STIM_PULSE_COUNT_RANGE: typing.Final = (1, 300)
 """The stimulation ranges, as the channel panel's sliders have always held them."""
 
 
-def _refuse_outside(path: str, value: float, low: float, high: float) -> None:
-    if not low <= value <= high:
+COMPOSITE_THRESHOLD_RANGE: typing.Final = (0, 100)
+"""A composite's brightness threshold, in percent, inclusive."""
+
+
+def _refuse_outside(
+    path: str,
+    value: float,
+    limits: tuple[float, float],
+    *,
+    whole: bool = False,
+    count: bool = False,
+    low_open: bool = False,
+) -> None:
+    # ``whole`` and ``count`` are judged before the range, each in its own
+    # words. An open low bound has no ``limits`` to publish: no number is the
+    # lowest a client may send.
+    if whole:
+        _refuse_unless_int(path, value)
+    if count:
+        _refuse_non_count(path, value)
+    low, high = limits
+    if low_open:
+        if not low < value <= high:
+            raise SettingRefusedError(
+                'out_of_range', path, f'it must be above {low} and at most {high}, not {value!r}'
+            )
+    elif not low <= value <= high:
         raise SettingRefusedError(
             'out_of_range',
             path,
             f'it must be between {low} and {high}, not {value!r}',
             limits=(low, high),
         )
+
+
+def _refuse_unless_int(path: str, value: float) -> None:
+    # bool is excluded by name: True is an int.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SettingRefusedError('out_of_range', path, f'it must be a whole number, not {value!r}')
 
 
 def _refuse_below(path: str, value: float, floor: float, *, inclusive: bool) -> None:
@@ -269,61 +303,29 @@ def _refuse_unless_member(
         )
 
 
-def _overlap(path: str, value: float) -> None:
+def _judged(
+    judge: typing.Callable[[typing.Any], object],
+    refused: type[Exception],
+    path: str,
+    value: object,
+    *,
+    limits: tuple[float, float] | None = None,
+) -> None:
+    """Refuse what another owner's ``judge`` refuses, as this setting's refusal.
+
+    The judge's own words are kept; ``refused`` is the one exception it
+    raises for a value it does not take.
+    """
     try:
-        TilingGrids.validate_overlap_percent(value)
-    except ValueError as e:
-        raise SettingRefusedError('out_of_range', path, str(e), limits=OVERLAP_PERCENT_RANGE) from e
+        judge(value)
+    except refused as e:
+        raise SettingRefusedError('out_of_range', path, str(e), limits=limits) from e
 
 
-def _binning_label(path: str, value: str) -> None:
-    # A label is arithmetic (a positive square ``NxN``), judged here before
-    # bring-up parses it: parsed there, one malformed label dropped the
-    # whole file for the shipped template.
-    try:
-        binning.binning_size_str_to_int(text=value)
-    except ArgumentRefusedError as e:
-        raise SettingRefusedError('out_of_range', path, str(e)) from e
-
-
-def _acceleration(path: str, value: float) -> None:
-    try:
-        refuse_acceleration_pct(value)
-    except AccelerationLimitRefusedError as e:
-        raise SettingRefusedError('out_of_range', path, str(e), limits=e.limits) from e
-
-
-def _schedule(path: str, value: object) -> None:
-    try:
-        schedule_from_units(path.rpartition('.')[2], value)
-    except ProtocolScheduleRefusedError as e:
-        raise SettingRefusedError('out_of_range', path, str(e)) from e
-
-
-def _live_format(path: str, value: str) -> None:
-    _refuse_unless_member(path, value, OutputFormat, within=LIVE_OUTPUT_FORMATS)
-
-
-def _sequenced_format(path: str, value: str) -> None:
-    _refuse_unless_member(path, value, OutputFormat)
-
-
-def _zstack_position(path: str, value: str) -> None:
-    _refuse_unless_member(path, value, ZStackReference)
-
-
-def _simulator_tier(path: str, value: str) -> None:
-    _refuse_unknown_format(path, value, frozenset(SIMULATOR_TIERS))
-
-
-def _image_mode(path: str, value: str) -> None:
-    _refuse_unless_member(path, value, ImageMode)
-
-
-def _acquire(path: str, value: str | None) -> None:
-    # None is a channel that acquires nothing.
+def _or_none(rule: typing.Callable[[str, typing.Any], None], path: str, value: object) -> None:
+    """``rule``, for a setting shipped null: None is always taken."""
     if value is not None:
-        _refuse_unless_member(path, value, AcquireMode)
+        rule(path, value)
 
 
 def _log_level(path: str, value: str) -> None:
@@ -333,88 +335,6 @@ def _log_level(path: str, value: str) -> None:
         raise SettingRefusedError(
             'out_of_range', path, f'{value!r} is not a log level: {", ".join(sorted(levels))}'
         )
-
-
-def _video_max_fps(path: str, value: float) -> None:
-    _refuse_outside(path, value, 0, VIDEO_MAX_FPS_LIMIT)
-
-
-def _live_view_fps(path: str, value: float) -> None:
-    _refuse_outside(path, value, 0, LIVE_VIEW_FPS_LIMIT)
-
-
-def _video_max_duration(path: str, value: float) -> None:
-    _refuse_outside(path, value, *VIDEO_MAX_DURATION_S_RANGE)
-
-
-def _refuse_unless_int(path: str, value: float) -> None:
-    # bool is excluded by name: True is an int.
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise SettingRefusedError('out_of_range', path, f'it must be a whole number, not {value!r}')
-
-
-def _jpg_quality(path: str, value: float) -> None:
-    # The encoder takes a whole quality; a fraction would be truncated.
-    _refuse_unless_int(path, value)
-    _refuse_outside(path, value, *JPG_QUALITY_RANGE)
-
-
-def _capture_shown(path: str, value: float) -> None:
-    # Whole seconds: a half second's difference is not a preference anyone states.
-    _refuse_unless_int(path, value)
-    _refuse_outside(path, value, *CAPTURE_SHOWN_S_RANGE)
-
-
-def _non_negative(path: str, value: float) -> None:
-    _refuse_below(path, value, 0, inclusive=True)
-
-
-def _positive(path: str, value: float) -> None:
-    _refuse_below(path, value, 0, inclusive=False)
-
-
-def _fraction(path: str, value: float) -> None:
-    if not 0 < value <= 1:
-        raise SettingRefusedError(
-            'out_of_range', path, f'it must be above 0 and at most 1, not {value!r}'
-        )
-
-
-def _metrics_interval(path: str, value: float | None) -> None:
-    # Shipped null, the default cadence; a value set is seconds between samples.
-    if value is not None:
-        _positive(path, value)
-
-
-def _video_step_duration(path: str, value: float) -> None:
-    if not 0 < value <= VIDEO_STEP_DURATION_S_MAX:
-        raise SettingRefusedError(
-            'out_of_range',
-            path,
-            f'it must be above 0 and at most {VIDEO_STEP_DURATION_S_MAX}, not {value!r}',
-        )
-
-
-def _composite_threshold(path: str, value: float) -> None:
-    _refuse_outside(path, value, 0, 100)
-
-
-def _stim_frequency(path: str, value: float) -> None:
-    _refuse_outside(path, value, *STIM_FREQUENCY_HZ_RANGE)
-
-
-def _stim_pulse_width(path: str, value: float) -> None:
-    _refuse_outside(path, value, *STIM_PULSE_WIDTH_MS_RANGE)
-
-
-def _sum(path: str, value: float) -> None:
-    _refuse_non_count(path, value)
-    _refuse_outside(path, value, *SUM_COUNT_RANGE)
-
-
-def _stim_pulse_count(path: str, value: float) -> None:
-    _refuse_non_count(path, value)
-    _refuse_outside(path, value, *STIM_PULSE_COUNT_RANGE)
 
 
 def _display_color(path: str, value: str | None) -> None:
@@ -429,6 +349,10 @@ def _display_color(path: str, value: str | None) -> None:
         ) from None
 
 
+_NON_NEGATIVE = functools.partial(_refuse_below, floor=0, inclusive=True)
+_POSITIVE = functools.partial(_refuse_below, floor=0, inclusive=False)
+
+
 # The range the writer owns for a setting: what any value of it must satisfy
 # whatever hardware is attached. A ceiling the attached hardware declares (a
 # camera's exposure or gain, an LED board's current) is not a range here: the
@@ -437,45 +361,83 @@ def _display_color(path: str, value: str | None) -> None:
 # A member's setting is here too: its range is held at load as well, though a
 # write to it is refused for its member before the range is read. ``*`` stands
 # for any channel, as in ``SETTINGS_WITH_A_MEMBER``. Each rule takes the
-# concrete path and the value.
+# concrete path and the value. A row is one of the refusers above with its
+# numbers, or another owner's judge through ``_judged``; a rule written for one
+# setting is refused by the guard over this table.
 _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
-    'binning.size': _binning_label,
-    'simulator_tier': _simulator_tier,
-    'zstack.position': _zstack_position,
-    'image_mode': _image_mode,
+    # A label is arithmetic (a positive square ``NxN``), judged here before
+    # bring-up parses it: parsed there, one malformed label dropped the
+    # whole file for the shipped template.
+    'binning.size': functools.partial(
+        _judged, binning.binning_size_str_to_int, ArgumentRefusedError
+    ),
+    'simulator_tier': functools.partial(_refuse_unknown_format, formats=frozenset(SIMULATOR_TIERS)),
+    'zstack.position': functools.partial(_refuse_unless_member, closed_set=ZStackReference),
+    'image_mode': functools.partial(_refuse_unless_member, closed_set=ImageMode),
     'logging.default.level': _log_level,
-    'motion.acceleration_max_pct': _acceleration,
-    'protocol.period': _schedule,
-    'protocol.duration': _schedule,
-    'tiling_overlap_percent': _overlap,
-    'image_output_format.live': _live_format,
-    'image_output_format.sequenced': _sequenced_format,
-    'video.max_fps': _video_max_fps,
-    'video.max_duration_s': _video_max_duration,
-    'jpg_quality': _jpg_quality,
-    'live_view_fps': _live_view_fps,
-    'capture_shown_s': _capture_shown,
-    'zstack.step_size': _non_negative,
-    'zstack.range': _non_negative,
-    'protocol.autogain.target_brightness': _fraction,
-    'protocol.autogain.min_gain_db': _non_negative,
-    'protocol.autogain.max_gain_db': _non_negative,
-    'profiling.metrics_interval_s': _metrics_interval,
-    'memory_profile_interval_s': _positive,
-    'ag_ae_max_exposure_ms.transmitted': _positive,
-    'ag_ae_max_exposure_ms.fluorescence': _positive,
-    'ag_ae_max_exposure_ms.luminescence': _positive,
-    '*.acquire': _acquire,
-    '*.exposure_ms': _positive,
-    '*.gain_db': _non_negative,
-    '*.illumination_ma': _non_negative,
-    '*.sum': _sum,
-    '*.video_config.duration': _video_step_duration,
-    '*.composite_brightness_threshold': _composite_threshold,
-    '*.stim_config.frequency': _stim_frequency,
-    '*.stim_config.pulse_width': _stim_pulse_width,
-    '*.stim_config.pulse_count': _stim_pulse_count,
-    '*.stim_config.illumination_ma': _non_negative,
+    'motion.acceleration_max_pct': functools.partial(
+        _judged,
+        refuse_acceleration_pct,
+        AccelerationLimitRefusedError,
+        limits=(ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX),
+    ),
+    'protocol.period': functools.partial(
+        _judged, functools.partial(schedule_from_units, 'period'), ProtocolScheduleRefusedError
+    ),
+    'protocol.duration': functools.partial(
+        _judged, functools.partial(schedule_from_units, 'duration'), ProtocolScheduleRefusedError
+    ),
+    'tiling_overlap_percent': functools.partial(
+        _judged, TilingGrids.validate_overlap_percent, ValueError, limits=OVERLAP_PERCENT_RANGE
+    ),
+    'image_output_format.live': functools.partial(
+        _refuse_unless_member, closed_set=OutputFormat, within=LIVE_OUTPUT_FORMATS
+    ),
+    'image_output_format.sequenced': functools.partial(
+        _refuse_unless_member, closed_set=OutputFormat
+    ),
+    'video.max_fps': functools.partial(_refuse_outside, limits=(0, VIDEO_MAX_FPS_LIMIT)),
+    'video.max_duration_s': functools.partial(_refuse_outside, limits=VIDEO_MAX_DURATION_S_RANGE),
+    # The encoder takes a whole quality; a fraction would be truncated.
+    'jpg_quality': functools.partial(_refuse_outside, limits=JPG_QUALITY_RANGE, whole=True),
+    'live_view_fps': functools.partial(_refuse_outside, limits=(0, LIVE_VIEW_FPS_LIMIT)),
+    # Whole seconds: a half second's difference is not a preference anyone states.
+    'capture_shown_s': functools.partial(_refuse_outside, limits=CAPTURE_SHOWN_S_RANGE, whole=True),
+    'zstack.step_size': _NON_NEGATIVE,
+    'zstack.range': _NON_NEGATIVE,
+    'protocol.autogain.target_brightness': functools.partial(
+        _refuse_outside, limits=(0, 1), low_open=True
+    ),
+    'protocol.autogain.min_gain_db': _NON_NEGATIVE,
+    'protocol.autogain.max_gain_db': _NON_NEGATIVE,
+    # Shipped null, the default cadence; a value set is seconds between samples.
+    'profiling.metrics_interval_s': functools.partial(_or_none, _POSITIVE),
+    'memory_profile_interval_s': _POSITIVE,
+    'ag_ae_max_exposure_ms.transmitted': _POSITIVE,
+    'ag_ae_max_exposure_ms.fluorescence': _POSITIVE,
+    'ag_ae_max_exposure_ms.luminescence': _POSITIVE,
+    # None is a channel that acquires nothing.
+    '*.acquire': functools.partial(
+        _or_none, functools.partial(_refuse_unless_member, closed_set=AcquireMode)
+    ),
+    '*.exposure_ms': _POSITIVE,
+    '*.gain_db': _NON_NEGATIVE,
+    '*.illumination_ma': _NON_NEGATIVE,
+    '*.sum': functools.partial(_refuse_outside, limits=SUM_COUNT_RANGE, count=True),
+    '*.video_config.duration': functools.partial(
+        _refuse_outside, limits=(0, VIDEO_STEP_DURATION_S_MAX), low_open=True
+    ),
+    '*.composite_brightness_threshold': functools.partial(
+        _refuse_outside, limits=COMPOSITE_THRESHOLD_RANGE
+    ),
+    '*.stim_config.frequency': functools.partial(_refuse_outside, limits=STIM_FREQUENCY_HZ_RANGE),
+    '*.stim_config.pulse_width': functools.partial(
+        _refuse_outside, limits=STIM_PULSE_WIDTH_MS_RANGE
+    ),
+    '*.stim_config.pulse_count': functools.partial(
+        _refuse_outside, limits=STIM_PULSE_COUNT_RANGE, count=True
+    ),
+    '*.stim_config.illumination_ma': _NON_NEGATIVE,
     '*.display_color': _display_color,
 }
 
