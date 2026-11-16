@@ -5612,7 +5612,7 @@ class ScopeSession:
         camera's limit, by the rule every apply follows (``cap_stored_value``).
         Empty while the range is not known, as ``capped_channels`` says.
         """
-        from _lumascope.modules.lumascope_api.camera import cap_stored_value
+        from _lumascope.modules.finite_number import cap_stored_value
 
         limits = self.scope.camera.known_setting_limits
         if limits is None:
@@ -5626,7 +5626,9 @@ class ScopeSession:
             for record in self.scope.channel_identity.channels:
                 channel = record.key_name
                 for setting, floor, cap in bounds:
-                    stored, applied = cap_stored_value(self._settings[channel][setting], floor, cap)
+                    stored, applied = cap_stored_value(
+                        float(self._settings[channel][setting]), floor, cap
+                    )
                     if applied != stored:
                         capped.append((channel, setting, stored, applied))
         return tuple(capped)

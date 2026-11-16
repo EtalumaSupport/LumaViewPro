@@ -22,7 +22,7 @@ import pathlib
 
 import pytest
 
-from _lumascope.modules.lumascope_api.camera import AppliedGain, cap_stored_value
+from _lumascope.modules.lumascope_api.camera import AppliedGain
 from tests.scope_fakes import set_camera_limits
 from tests.stock_channels import LED0
 
@@ -73,12 +73,6 @@ class TestTheApiDecidesWhatAStoredValueApplies:
         assert (exposure.stored_ms, exposure.applied_ms, exposure.capped) == (0.005, floor_ms, True)
         gain = camera.applied_gain_db_for(0.5)
         assert (gain.stored_db, gain.applied_db, gain.capped) == (0.5, 2.0, True)
-
-    def test_an_unknown_bound_narrows_nothing(self):
-        # No camera, or a driver that publishes no limit: a missing bound is
-        # not a bound of zero, and inventing one would apply a limit no
-        # hardware asked for.
-        assert cap_stored_value(5.0, None, None) == (5.0, 5.0)
 
     def test_a_triple_that_contradicts_itself_cannot_be_built(self):
         # capped is whether the write differs from the intent, not a caller's

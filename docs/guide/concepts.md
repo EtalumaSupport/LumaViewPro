@@ -375,8 +375,8 @@ gain or exposure outside the camera's range stays stored: what the camera would
 be given for it is `scope.camera.applied_gain_db_for(gain)`,
 `applied_exposure_ms_for(exposure)` and `applied_auto_gain_for(...)`, and
 bring-up reports a stored value it capped (`'channel_setting_capped'`). A gain
-asked of the camera directly outside its range is refused
-(`'gain_db_out_of_range'`).
+asked of the camera directly outside its range is set at the range's end, and
+the call reports it (`'value_clamped'`).
 
 ```python
 assert scope.illumination.led_on('BF', 10.37) == 10.0      # the board's step

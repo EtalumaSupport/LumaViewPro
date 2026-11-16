@@ -5416,13 +5416,14 @@ the camera's loop off; an arm may lower the exposure to its own
 ceiling, `auto_gain_settings`' `max_exposure_ms`. Every write is
 attempted even when an earlier one is refused, so one refused setting
 does not leave the others at a previous channel's values; the refusal
-is raised once all have run. The range refusals are `set_gain_db`'s and
-`set_exposure_ms`'s.
+is raised once all have run. A gain or an exposure past the camera's
+range is set at its end and told, in one notice for both, as
+`set_gain_db` and `set_exposure_ms` tell theirs.
 
 **Args**
 
-- `gain_db`: The gain in dB.
-- `exposure_ms`: The exposure time in milliseconds.
+- `gain_db`: The gain in dB, at least 0.
+- `exposure_ms`: The exposure time in milliseconds, above 0.
 - `auto_gain`: The mode the camera is left in. True arms auto-gain from `auto_gain_settings`; False turns it off; None, the default, leaves the mode as it is and writes none.
 - `auto_gain_settings`: The arm's settings, read only when `auto_gain` is True, which needs them.
 - `resume_after_capture`: With `auto_gain` True, whether a capture that locks the arm re-arms it afterwards (live view) or leaves the camera at the locked values (a protocol step).
@@ -5430,19 +5431,18 @@ is raised once all have run. The range refusals are `set_gain_db`'s and
 
 **Returns**
 
-dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effect, which differs from the request when the camera snapped it, None for one not known (`set_gain_db`). `None` when no camera is active.
+dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effect, which differs from the request when it was past the range or the camera snapped it, None for one not known (`set_gain_db`). `None` when no camera is active.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'missing_key'`, `auto_gain` is True and `auto_gain_settings` is None or lacks a key the auto-gain write reads; `'not_a_number'`, one of its values, the gain or the exposure is not a finite number; `'key_unknown'`, it holds a key the write does not take; `'gain_range_inverted'`, its minimum gain is above its maximum. Nothing was written.
-- `CameraSettingOutOfRangeError`: `'gain_db_out_of_range'` or `'exposure_ms_out_of_range'`, the gain or the exposure is outside the range the camera declares; nothing was written.
+- `ArgumentRefusedError`: `'missing_key'`, `auto_gain` is True and `auto_gain_settings` is None or lacks a key the auto-gain write reads; `'not_a_number'`, one of its values, the gain or the exposure is not a finite number; `'wrong_kind'`, the gain is below 0 or the exposure 0 or below; `'key_unknown'`, it holds a key the write does not take; `'gain_range_inverted'`, its minimum gain is above its maximum. Nothing was written.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; nothing was written.
 - `CameraSettingRejected`: The camera did not take the gain, the exposure or the auto-gain change. When more than one, `setting` names each, comma-separated, `requested` holds their values in that order, the message carries each sentence, and the reason is the first any of them carries of `'camera_no_answer'`, `'camera_read_failed'` and `'camera_rejected'`. With the camera's range unread (`setting_limits`), `'camera_read_failed'` naming the gain, the exposure and the auto-gain mode asked for, none of which was written.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `not_a_number`, `wrong_kind`, `key_unknown`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_no_answer`, `camera_read_failed`, `camera_rejected`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6295,26 +6295,29 @@ value in effect.
 See `read_black_level` for what the value means. The value holds
 until the next connect, when the camera reloads its default user set.
 
+A level past the range the camera reports for its current pixel
+format is set at the range's end and told, as `set_gain_db`'s gain
+is.
+
 **Args**
 
-- `level`: The black level, in the camera's own units for its current pixel format.
+- `level`: The black level, in the camera's own units for its current pixel format, at least 0.
 
 **Returns**
 
-float | None: The black level now in effect, which differs from the request when the camera snapped it. `None` when the camera took the write and its black level could not be read back, or when it reports none.
+float | None: The black level now in effect, which differs from the request when it was past the range or the camera snapped it. `None` when the camera took the write and its black level could not be read back, or when it reports none.
 
 **Raises**
 
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write.
 - `CameraSettingUnsupportedError`: This camera has no black level setting (`capabilities.camera_supports_black_level` is False). Nothing reached the camera.
-- `ArgumentRefusedError`: `'not_a_number'`, `level` is not a finite number; nothing was sent to the camera.
-- `CameraSettingOutOfRangeError`: `level` is outside the range the camera reports for its current pixel format; nothing was sent.
+- `ArgumentRefusedError`: `'not_a_number'`, `level` is not a finite number; `'wrong_kind'`, it is below 0. Nothing was sent to the camera.
 - `CameraSettingRejected`: The camera refused it, as a camera holding its black level automatically does, or raised from the write (chained). Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6337,25 +6340,27 @@ one: afterwards the camera holds no channel's stored settings. A
 channel's own exposure, which a capture of that channel uses, is its
 stored setting (`ScopeSession.set_channel_settings(channel, exposure_ms=...)`).
 
+An exposure past the camera's range now (`setting_limits`) is set
+at the range's end and told, as `set_gain_db`'s gain is.
+
 **Args**
 
-- `exposure_ms`: The exposure time in milliseconds, within the camera's range now (`setting_limits`).
+- `exposure_ms`: The exposure time in milliseconds, above 0.
 
 **Returns**
 
-float | None: The exposure in milliseconds now in effect, which differs from the request when the camera quantized it. `None` when the camera's teardown landed after the lane asked for it, or when the camera took the write and its exposure could not be read back.
+float | None: The exposure in milliseconds now in effect, which differs from the request when it was past the range or the camera quantized it. `None` when the camera's teardown landed after the lane asked for it, or when the camera took the write and its exposure could not be read back.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'not_a_number'`, the exposure is not a finite number; nothing was sent to the camera.
-- `CameraSettingOutOfRangeError`: The exposure is outside the range the camera declares; nothing was sent to it.
+- `ArgumentRefusedError`: `'not_a_number'`, the exposure is not a finite number; `'wrong_kind'`, it is 0 or below. Nothing was sent to the camera.
 - `CameraSettingRejected`: A live driver refused the exposure or raised from the write (chained). It carries the words its reporter shows; nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value: among them the camera's range, when its last read failed (`setting_limits`).
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6421,25 +6426,28 @@ records `held_channel` None. A channel's own gain, which a capture
 of that channel uses, is its stored setting
 (`ScopeSession.set_channel_settings(channel, gain_db=...)`).
 
+A gain past the camera's range now (`setting_limits`) is set at
+the range's end, and the clamp is told once the camera has taken it
+(`ValueClampedNotice`), so the answer is the gain the camera runs.
+
 **Args**
 
-- `gain_db`: The gain in dB, within the camera's range now (`setting_limits`).
+- `gain_db`: The gain in dB, at least 0.
 
 **Returns**
 
-float | None: The gain in dB now in effect, which differs from the request when the camera snapped it. `None` when the camera's teardown landed after the lane asked for it, or when the camera took the write and its gain could not be read back.
+float | None: The gain in dB now in effect, which differs from the request when it was past the range or the camera snapped it. `None` when the camera's teardown landed after the lane asked for it, or when the camera took the write and its gain could not be read back.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'not_a_number'`, the gain is not a finite number; nothing was sent to the camera.
-- `CameraSettingOutOfRangeError`: The gain is outside the range the camera declares; nothing was sent to it.
+- `ArgumentRefusedError`: `'not_a_number'`, the gain is not a finite number; `'wrong_kind'`, it is below 0. Nothing was sent to the camera.
 - `CameraSettingRejected`: A live driver refused the gain or raised from the write (chained). It carries the words its reporter shows; nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value: among them the camera's range, when its last read failed (`setting_limits`).
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `gain_db_out_of_range`, `exposure_ms_out_of_range`, `frame_width_out_of_range`, `frame_height_out_of_range`, `black_level_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6560,7 +6568,7 @@ The gain and exposure the camera takes now; no camera read.
 Read from the camera at connect and after each change of its
 readout (pixel format, binning, frame size, conversion gain,
 line-noise reduction, and the restore that writes them), so it is
-the range in force. Each setter refuses a value outside it.
+the range in force. Each setter holds a value to it.
 
 **Returns**
 
@@ -15603,7 +15611,7 @@ The words carry the SDK's own text, so the person reads the title.
 
 A refusal; bases `Refusal`, `ValueError`.
 
-A camera setting outside the range this camera declares was asked for.
+A frame side outside the range this camera declares was asked for.
 
 Declined before anything reaches the camera, the same on every camera: a
 body that would refuse the value and a body that would silently clamp it
@@ -15614,8 +15622,8 @@ ask again inside the range, so a refusal rather than a fault. A
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code, `'<setting>_out_of_range'`. `'gain_db_out_of_range'` -- the gain is outside the camera's declared range. `'exposure_ms_out_of_range'` -- the exposure is outside the camera's declared range. `'frame_width_out_of_range'` -- the frame width is outside the widths the camera declares. `'frame_height_out_of_range'` -- the frame height is outside the heights the camera declares. `'black_level_out_of_range'` -- the black level is outside the camera's declared range.
-- `setting`: Machine-readable setting name ('gain_db', 'exposure_ms', 'frame_width', 'frame_height', 'black_level').
+- `reason`: Machine-readable refusal code, `'<setting>_out_of_range'`. `'frame_width_out_of_range'` -- the frame width is outside the widths the camera declares. `'frame_height_out_of_range'` -- the frame height is outside the heights the camera declares.
+- `setting`: Machine-readable setting name ('frame_width', 'frame_height').
 - `requested`: The value asked for.
 - `limits`: The camera's declared floor and ceiling, in the setting's unit; either is None when the camera declares none, and is not checked.
 
@@ -15628,11 +15636,8 @@ the words.
 
 | Reason | Cause | REST status |
 |---|---|---|
-| `black_level_out_of_range` | request | 422 |
-| `exposure_ms_out_of_range` | request | 422 |
 | `frame_height_out_of_range` | request | 422 |
 | `frame_width_out_of_range` | request | 422 |
-| `gain_db_out_of_range` | request | 422 |
 
 <a id="CameraSettingRejected"></a>
 ### `lumascope.CameraSettingRejected`
@@ -18665,6 +18670,28 @@ Firmware update failure with stage and recoverability info.
 | Reason | Cause | REST status |
 |---|---|---|
 | `update_failed` | -- | 500 |
+
+<a id="ValueClampedNotice"></a>
+### `lumascope.ValueClampedNotice`
+
+A notice; bases `Notice`, `Exception`.
+
+Values written past the attached hardware's limit; each was set at the limit.
+
+Reported once per call by the writer that held the values to the limit,
+every value of the call in one notice, so the person, and a client on
+the event stream, learn that what runs is not what was asked. The value
+set is what the writer answers and what it stores. Never reported for a
+value the writer was not handed: a stored value applied at bring-up is
+`ChannelSettingCappedNotice`'s.
+
+**Attributes**
+
+- `clamped`: `(where, setting, asked, applied)` for each value: what was written to (`'camera'`), the setting, the value asked for and the limit it was set at.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `value_clamped` | -- | 409 |
 
 <a id="VideoFramesDroppedError"></a>
 ### `lumascope.VideoFramesDroppedError`

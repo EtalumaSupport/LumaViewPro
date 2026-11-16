@@ -48,20 +48,22 @@ try:
     ]
     print('session/API members mentioning "layer":', sorted(set(names)))
 
-    # Range refusal on the per-layer values the drawer renders
+    # The per-layer values the drawer renders, past the camera's range
     limits = s.scope.camera.setting_limits
     print('max gain / max exposure:', limits.gain_max_db, limits.exposure_max_ms)
-    # The camera's range refuses each of them (CameraSettingOutOfRangeError).
-    for fn, bad, label in (
-        (im.set_gain_db, 999.0, 'gain 999 dB'),
-        (im.set_exposure_ms, 1e7, 'exposure 10,000,000 ms'),
-        (im.set_gain_db, -50.0, 'gain -50 dB'),
+    # A value past the range is set at its end (ValueClampedNotice); a
+    # negative gain is refused (ArgumentRefusedError 'wrong_kind').
+    for fn, past, end, label in (
+        (im.set_gain_db, 999.0, limits.gain_max_db, 'gain 999 dB'),
+        (im.set_exposure_ms, 1e7, limits.exposure_max_ms, 'exposure 10,000,000 ms'),
     ):
-        try:
-            r = fn(bad)
-            _common.ok(f'{label} refused', False, f'returned {r}')
-        except Exception as e:
-            _common.ok(f'{label} refused', True, f'{type(e).__name__}: {e}')
+        r = fn(past)
+        _common.ok(f'{label} set at {end}', abs(r - end) < 0.01, f'returned {r}')
+    try:
+        r = im.set_gain_db(-50.0)
+        _common.ok('gain -50 dB refused', False, f'returned {r}')
+    except Exception as e:
+        _common.ok('gain -50 dB refused', True, f'{type(e).__name__}: {e}')
     print('gain/exposure after the bad writes:', im.read_gain_db(), im.read_exposure_ms())
 except Exception:
     import traceback

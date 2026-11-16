@@ -729,6 +729,36 @@ class ChannelSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, 
         self.capped = capped
 
 
+class ValueClampedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """Values written past the attached hardware's limit; each was set at the limit.
+
+    Reported once per call by the writer that held the values to the limit,
+    every value of the call in one notice, so the person, and a client on
+    the event stream, learn that what runs is not what was asked. The value
+    set is what the writer answers and what it stores. Never reported for a
+    value the writer was not handed: a stored value applied at bring-up is
+    ``ChannelSettingCappedNotice``'s.
+
+    Attributes:
+        clamped: ``(where, setting, asked, applied)`` for each value: what
+            was written to (``'camera'``), the setting, the value asked for
+            and the limit it was set at.
+    """
+
+    title = 'Set at the hardware limit'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'value_clamped': None}
+
+    def __init__(self, clamped: list[tuple[str, str, float, float]]):
+        listed = '; '.join(
+            f'{where} {setting} {asked!r} was set to {applied!r}'
+            for where, setting, asked, applied in clamped
+        )
+        super().__init__(
+            f'These values are past what this scope can do, so each was set at its limit: {listed}.'
+        )
+        self.clamped = clamped
+
+
 class SettingsNotSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
     """The session's accepted settings writes are kept in memory, not saved.
 
@@ -5549,7 +5579,7 @@ class CameraNodeNotReadableError(Refusal, Exception):
 
 @api_fields('limits')
 class CameraSettingOutOfRangeError(Refusal, ValueError):
-    """A camera setting outside the range this camera declares was asked for.
+    """A frame side outside the range this camera declares was asked for.
 
     Declined before anything reaches the camera, the same on every camera: a
     body that would refuse the value and a body that would silently clamp it
@@ -5560,16 +5590,11 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
 
     Attributes:
         reason: Machine-readable refusal code, ``'<setting>_out_of_range'``.
-            ``'gain_db_out_of_range'`` -- the gain is outside the camera's
-            declared range. ``'exposure_ms_out_of_range'`` -- the exposure
-            is outside the camera's declared range.
             ``'frame_width_out_of_range'`` -- the frame width is outside the
             widths the camera declares. ``'frame_height_out_of_range'`` --
             the frame height is outside the heights the camera declares.
-            ``'black_level_out_of_range'`` -- the black level is outside the
-            camera's declared range.
-        setting: Machine-readable setting name ('gain_db', 'exposure_ms',
-            'frame_width', 'frame_height', 'black_level').
+        setting: Machine-readable setting name ('frame_width',
+            'frame_height').
         requested: The value asked for.
         limits: The camera's declared floor and ceiling, in the setting's
             unit; either is None when the camera declares none, and is not
@@ -5585,13 +5610,7 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
     # outside it is refused every time it is sent.
     title = ProtocolRunRefusedError.titles['camera_setting_out_of_range']
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
-        (
-            'gain_db_out_of_range',
-            'exposure_ms_out_of_range',
-            'frame_width_out_of_range',
-            'frame_height_out_of_range',
-            'black_level_out_of_range',
-        ),
+        ('frame_width_out_of_range', 'frame_height_out_of_range'),
         RefusalCause.REQUEST,
     )
 

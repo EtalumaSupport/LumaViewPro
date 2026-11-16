@@ -72,18 +72,20 @@ is `scope.imaging`. One member writes each setting, and the settings LumaViewPro
 keeps (binning, frame size, image mode) are saved by that member, whoever calls
 it.
 
-**A write applies or raises.** Every camera write either took effect or raises:
-a value outside the camera's declared range is refused before it reaches the
-camera (`CameraSettingOutOfRangeError`, its `limits` the range: for gain and
-exposure, `scope.camera.setting_limits`, read again after each change of the
-camera's readout, since a pixel format or a binning moves it), and a value
-the camera refused or did not answer is the fault `CameraSettingRejected`
-(`'camera_rejected'`, `'camera_no_answer'`). A setting can be several node
-writes, some of which the camera may take before it refuses one, so a refusal's
-`in_effect` is what the camera holds for the setting, read after it (None when
-that read fails), and its words say it. Each setter answers what the camera
-now runs, which may differ from what was asked; None when the camera took the
-write and its value could not be read back.
+**A write applies or raises.** Every camera write either took effect or raises.
+A gain, exposure or black level past the camera's declared range is set at the
+range's end and told once, in a `ValueClampedNotice` on the event stream (the
+range for gain and exposure is `scope.camera.setting_limits`, read again after
+each change of the camera's readout, since a pixel format or a binning moves
+it); a value no range makes sense of -- not a finite number, an exposure of 0
+or below, a gain or black level below 0 -- is refused (`ArgumentRefusedError`).
+A value the camera refused or did not answer is the fault
+`CameraSettingRejected` (`'camera_rejected'`, `'camera_no_answer'`). A setting
+can be several node writes, some of which the camera may take before it
+refuses one, so a refusal's `in_effect` is what the camera holds for the
+setting, read after it (None when that read fails), and its words say it. Each
+setter answers what the camera now runs, which may differ from what was asked;
+None when the camera took the write and its value could not be read back.
 
 ```python
 gain = scope.camera.set_gain_db(3.3)
@@ -93,8 +95,13 @@ print(scope.camera.setting_limits)          # the gain and exposure range in for
 print(scope.capabilities.camera_limits)     # the frame limits, read once at connect
 ```
 
-```python raises=CameraSettingOutOfRangeError:gain_db_out_of_range
-scope.camera.set_gain_db(999.0)             # gain_db_out_of_range
+```python
+gain = scope.camera.set_gain_db(999.0)      # past the range: set at its end, and told
+assert gain == scope.camera.setting_limits.gain_max_db
+```
+
+```python raises=ArgumentRefusedError:wrong_kind
+scope.camera.set_exposure_ms(0.0)           # wrong_kind: an exposure takes a number above 0
 ```
 
 **Held and fresh reads.** Each setting has two reads. The held read, a

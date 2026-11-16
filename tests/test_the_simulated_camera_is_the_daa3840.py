@@ -17,7 +17,6 @@ import pytest
 from _lumascope.drivers import camera_profiles
 from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.drivers.camera_profiles import lookup_profile, simulated_profile
-from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
 
 
@@ -35,19 +34,18 @@ def test_a_gain_the_dart_takes_is_taken(scope, gain_db):
     assert scope.camera.set_gain_db(gain_db) == pytest.approx(gain_db)
 
 
-def test_a_gain_above_the_darts_is_refused(scope):
-    with pytest.raises(CameraSettingOutOfRangeError):
-        scope.camera.set_gain_db(48.5)
+def test_a_gain_above_the_darts_is_set_at_the_darts_maximum(scope):
+    assert scope.camera.set_gain_db(48.5) == pytest.approx(48.0)
 
 
 def test_an_exposure_the_dart_takes_is_taken(scope):
     assert scope.camera.set_exposure_ms(1000.0) == pytest.approx(1000.0)
 
 
-@pytest.mark.parametrize('exposure_ms', [1500.0, 0.010])
-def test_an_exposure_outside_the_darts_range_is_refused(scope, exposure_ms):
-    with pytest.raises(CameraSettingOutOfRangeError):
-        scope.camera.set_exposure_ms(exposure_ms)
+def test_an_exposure_outside_the_darts_range_is_set_at_its_ends(scope):
+    """About 14 us to 1 s at eight bits, the dart's."""
+    assert scope.camera.set_exposure_ms(1500.0) == pytest.approx(1000.0)
+    assert scope.camera.set_exposure_ms(0.010) == pytest.approx(0.014)
 
 
 def test_a_1900_frame_is_acquired_at_1900(scope):

@@ -26,7 +26,11 @@ import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 from _lumascope.modules.image_mode import ImageMode
 from _lumascope.modules.closed_sets import refuse_unless_offered
-from _lumascope.modules.finite_number import is_finite_number, refuse_unless_finite_number
+from _lumascope.modules.finite_number import (
+    cap_stored_value,
+    is_finite_number,
+    refuse_unless_finite_number,
+)
 from _lumascope.modules.request_fields import key_path, refuse_unless_kind, required
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Frame
@@ -45,6 +49,7 @@ from _lumascope.modules.exceptions import (
     ExposureAtMinimumNotice,
     HardwareCommandRefusedError,
     MissingPart,
+    ValueClampedNotice,
 )
 from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.activity_claim import ActivityHolder, current_taking, guarded_write
@@ -449,23 +454,56 @@ class AppliedAutoGain:
         _refuse_a_contradicted_cap(self, self.stored, self.applied, self.capped)
 
 
-def cap_stored_value(stored: float, floor: float | None, cap: float | None) -> tuple[float, float]:
-    """Resolve a stored setting against a published range: (stored, applied).
+# The sign each camera setting a caller hands in must have: (bound, whether
+# the bound itself is taken, the words). Judged before the value is held to
+# the camera's range, since the camera's floor would otherwise turn a value
+# that means nothing -- an exposure of no time, a negative gain -- into one
+# the caller never asked for.
+_SIGN_TAKEN: dict[str, tuple[float, bool, str]] = {
+    'gain_db': (0.0, True, 'a number of at least 0'),
+    'exposure_ms': (0.0, False, 'a number above 0'),
+    'black_level': (0.0, True, 'a number of at least 0'),
+}
 
-    A value below ``floor`` applies as the floor and one above ``cap`` as
-    the cap; the stored value is returned unchanged beside it. An unknown
-    bound (no camera, or a driver that publishes none) narrows nothing: a
-    missing bound is not a bound of zero, and inventing one here would
-    apply a limit no hardware asked for. ``stored`` is a finite number: its
-    callers refuse any other, since every comparison with NaN is False and
-    NaN would be applied as itself.
+
+def _held_to_range(
+    setting: str, requested: float, minimum: float | None, maximum: float | None
+) -> float:
+    """The value a write of ``setting`` sends: ``requested`` held to the camera's range.
+
+    Asked by every member that hands the camera a gain, an exposure or a
+    black level of its caller's, before anything is sent, so every camera
+    answers alike: a body that would refuse a value past its limit and one
+    that would silently clamp it are both sent the limit. An undeclared end
+    narrows nothing. The member tells the clamp (``_tell_clamped``) once its
+    write has landed.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'``, the request is not a
+            finite number; ``'wrong_kind'``, it has a sign the setting cannot
+            take (``_SIGN_TAKEN``). Nothing was sent.
     """
-    value = float(stored)
-    if floor is not None and value < floor:
-        return value, float(floor)
-    if cap is not None and value > cap:
-        return value, float(cap)
-    return value, value
+    refuse_unless_finite_number(requested, setting)
+    bound, bound_taken, takes = _SIGN_TAKEN[setting]
+    if not (requested >= bound if bound_taken else requested > bound):
+        raise ArgumentRefusedError('wrong_kind', argument=setting, value=requested, takes=takes)
+    return cap_stored_value(float(requested), minimum, maximum)[1]
+
+
+def _tell_clamped(*writes: tuple[str, float, float]) -> None:
+    """Report, as one notice, each value of a landed camera write that was held to the range.
+
+    ``writes`` holds ``(setting, requested, sent)`` for each value the
+    caller handed in; one sent as asked is not named, and with none held
+    nothing is reported. Solicited: it answers the call that asked.
+    """
+    clamped = [
+        ('camera', setting, float(requested), sent)
+        for setting, requested, sent in writes
+        if sent != float(requested)
+    ]
+    if clamped:
+        notifications.report_outcome(ValueClampedNotice(clamped), solicited=True, category='Camera')
 
 
 # What a refusal says the camera holds, by setting, once it was read after the
@@ -1757,15 +1795,13 @@ class CameraAPI:
         noun: str,
         unit: str,
     ) -> None:
-        """Refuse a request outside the camera's declared range.
+        """Refuse a frame side outside the camera's declared range.
 
-        Checked on the public setters, from the range held
-        (``setting_limits``), so every camera answers alike: a body that
-        would refuse the value and one that would silently clamp it both
-        never see it. The impls check no range;
-        their callers (the channel apply, the auto-gain lock, the restore)
-        write values that are already the camera's own or capped to it. An
-        undeclared end is not checked.
+        Asked by the frame's write, so every camera answers alike: a body
+        that would refuse the side and one that would silently clamp it both
+        never see it. A gain, an exposure or a black level is held to its
+        range instead (``_held_to_range``). An undeclared end is not
+        checked.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the request is not a
@@ -1801,21 +1837,24 @@ class CameraAPI:
         of that channel uses, is its stored setting
         (``ScopeSession.set_channel_settings(channel, gain_db=...)``).
 
+        A gain past the camera's range now (``setting_limits``) is set at
+        the range's end, and the clamp is told once the camera has taken it
+        (``ValueClampedNotice``), so the answer is the gain the camera runs.
+
         Args:
-            gain_db: The gain in dB, within the camera's range now
-                (``setting_limits``).
+            gain_db: The gain in dB, at least 0.
 
         Returns:
             float | None: The gain in dB now in effect, which differs from the
-                request when the camera snapped it. ``None`` when the camera's
-                teardown landed after the lane asked for it, or when the camera
-                took the write and its gain could not be read back.
+                request when it was past the range or the camera snapped it.
+                ``None`` when the camera's teardown landed after the lane
+                asked for it, or when the camera took the write and its gain
+                could not be read back.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the gain is not a
-                finite number; nothing was sent to the camera.
-            CameraSettingOutOfRangeError: The gain is outside the range the
-                camera declares; nothing was sent to it.
+                finite number; ``'wrong_kind'``, it is below 0. Nothing was
+                sent to the camera.
             CameraSettingRejected: A live driver refused the gain or raised
                 from the write (chained). It carries the words its reporter
                 shows; nothing is shown here.
@@ -1832,20 +1871,21 @@ class CameraAPI:
         # disconnected, that is the answer, not a range it no longer has.
         self.refuse_camera_not_connected('set_gain_db')
         limits = self._range_a_write_needs('set_gain_db', {'gain_db': gain_db})
-        self._refuse_out_of_range(
+        sent = _held_to_range(
             'gain_db',
             gain_db,
             limits.gain_min_db if limits else None,
             limits.gain_max_db if limits else None,
-            noun='gain',
-            unit='dB',
         )
-        return self._dispatch_camera(
+        in_effect = self._dispatch_camera(
             self._no_channels_write(self._set_gain_db_impl),
             'set_gain_db',
-            args=(gain_db,),
+            args=(sent,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if in_effect is not None:
+            _tell_clamped(('gain_db', gain_db, sent))
+        return in_effect
 
     @api(sets='exposure_ms', admitted_by=(Admission.LANE_CALL,))
     def set_exposure_ms(self, exposure_ms: float) -> float | None:
@@ -1858,22 +1898,23 @@ class CameraAPI:
         channel's own exposure, which a capture of that channel uses, is its
         stored setting (``ScopeSession.set_channel_settings(channel, exposure_ms=...)``).
 
+        An exposure past the camera's range now (``setting_limits``) is set
+        at the range's end and told, as ``set_gain_db``'s gain is.
+
         Args:
-            exposure_ms: The exposure time in milliseconds, within the
-                camera's range now (``setting_limits``).
+            exposure_ms: The exposure time in milliseconds, above 0.
 
         Returns:
             float | None: The exposure in milliseconds now in effect, which
-                differs from the request when the camera quantized it.
-                ``None`` when the camera's teardown landed after the lane
-                asked for it, or when the camera took the write and its
-                exposure could not be read back.
+                differs from the request when it was past the range or the
+                camera quantized it. ``None`` when the camera's teardown
+                landed after the lane asked for it, or when the camera took
+                the write and its exposure could not be read back.
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, the exposure is not a
-                finite number; nothing was sent to the camera.
-            CameraSettingOutOfRangeError: The exposure is outside the range
-                the camera declares; nothing was sent to it.
+                finite number; ``'wrong_kind'``, it is 0 or below. Nothing
+                was sent to the camera.
             CameraSettingRejected: A live driver refused the exposure or
                 raised from the write (chained). It carries the words its
                 reporter shows; nothing is shown here.
@@ -1890,20 +1931,21 @@ class CameraAPI:
         # disconnected, that is the answer, not a range it no longer has.
         self.refuse_camera_not_connected('set_exposure_ms')
         limits = self._range_a_write_needs('set_exposure_ms', {'exposure_ms': exposure_ms})
-        self._refuse_out_of_range(
+        sent = _held_to_range(
             'exposure_ms',
             exposure_ms,
             limits.exposure_min_ms if limits else None,
             limits.exposure_max_ms if limits else None,
-            noun='exposure',
-            unit='ms',
         )
-        return self._dispatch_camera(
+        in_effect = self._dispatch_camera(
             self._no_channels_write(self._set_exposure_ms_impl),
             'set_exposure_ms',
-            args=(exposure_ms,),
+            args=(sent,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if in_effect is not None:
+            _tell_clamped(('exposure_ms', exposure_ms, sent))
+        return in_effect
 
     @api(admitted_by=(Admission.LANE_CALL,))
     def set_auto_gain(
@@ -3335,15 +3377,19 @@ class CameraAPI:
         See ``read_black_level`` for what the value means. The value holds
         until the next connect, when the camera reloads its default user set.
 
+        A level past the range the camera reports for its current pixel
+        format is set at the range's end and told, as ``set_gain_db``'s gain
+        is.
+
         Args:
             level: The black level, in the camera's own units for its current pixel
-                format.
+                format, at least 0.
 
         Returns:
             float | None: The black level now in effect, which differs from
-                the request when the camera snapped it. ``None`` when the
-                camera took the write and its black level could not be read
-                back, or when it reports none.
+                the request when it was past the range or the camera snapped
+                it. ``None`` when the camera took the write and its black
+                level could not be read back, or when it reports none.
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
@@ -3352,9 +3398,8 @@ class CameraAPI:
                 setting (``capabilities.camera_supports_black_level`` is
                 False). Nothing reached the camera.
             ArgumentRefusedError: ``'not_a_number'``, ``level`` is not a
-                finite number; nothing was sent to the camera.
-            CameraSettingOutOfRangeError: ``level`` is outside the range the
-                camera reports for its current pixel format; nothing was sent.
+                finite number; ``'wrong_kind'``, it is below 0. Nothing was
+                sent to the camera.
             CameraSettingRejected: The camera refused it, as a camera holding
                 its black level automatically does, or raised from the write
                 (chained).
@@ -3373,9 +3418,10 @@ class CameraAPI:
 
     def _set_black_level_impl(self, value: float) -> float | None:
         """Set the black level; the refusals of ``set_black_level`` are raised
-        here, on the camera lane, because the range is a live camera read, as
-        the support probe is when bring-up's failed. A write that did not
-        apply raises ``CameraSettingRejected`` (``_camera_write``).
+        here, and a level past the range is held to it and told here, on the
+        camera lane, because the range is a live camera read, as the support
+        probe is when bring-up's failed. A write that did not apply raises
+        ``CameraSettingRejected`` (``_camera_write``).
         """
         driver = self._driver
         if not driver or not driver.active:
@@ -3396,20 +3442,21 @@ class CameraAPI:
         low, high = self._read_a_write_needs(
             'set_black_level', 'black_level', value, driver.read_black_level_range
         )
-        self._refuse_out_of_range('black_level', value, low, high, noun='black level', unit='units')
+        sent = _held_to_range('black_level', value, low, high)
 
         def _write_black_level():
-            return self._driver.set_black_level(float(value))
+            return self._driver.set_black_level(sent)
 
         result = self._camera_write(
             _write_black_level,
             member='set_black_level',
-            refusal=lambda held: _value_rejection('black_level', value, held),
+            refusal=lambda held: _value_rejection('black_level', sent, held),
             invalidates=(FrameValiditySource.BLACK_LEVEL,),
             holds=('black_level',),
         )
         held = self._landed_value(result, 'black_level')
         self._commit_camera_writes({'black_level': held})
+        _tell_clamped(('black_level', value, sent))
         return held
 
     def _read_fresh(self, key: str) -> object:
@@ -3718,7 +3765,7 @@ class CameraAPI:
         Read from the camera at connect and after each change of its
         readout (pixel format, binning, frame size, conversion gain,
         line-noise reduction, and the restore that writes them), so it is
-        the range in force. Each setter refuses a value outside it.
+        the range in force. Each setter holds a value to it.
 
         Returns:
             CameraSettingLimits | None: The range; None with no camera.
@@ -3970,7 +4017,7 @@ class CameraAPI:
         refuse_unless_finite_number(stored_gain_db, 'stored_gain_db')
         limits = self.setting_limits
         stored, applied = cap_stored_value(
-            stored_gain_db,
+            float(stored_gain_db),
             limits.gain_min_db if limits else None,
             limits.gain_max_db if limits else None,
         )
@@ -3996,7 +4043,7 @@ class CameraAPI:
         refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
         limits = self.setting_limits
         stored, applied = cap_stored_value(
-            stored_exposure_ms,
+            float(stored_exposure_ms),
             limits.exposure_min_ms if limits else None,
             limits.exposure_max_ms if limits else None,
         )
@@ -4667,12 +4714,13 @@ class CameraAPI:
         ceiling, ``auto_gain_settings``' ``max_exposure_ms``. Every write is
         attempted even when an earlier one is refused, so one refused setting
         does not leave the others at a previous channel's values; the refusal
-        is raised once all have run. The range refusals are ``set_gain_db``'s and
-        ``set_exposure_ms``'s.
+        is raised once all have run. A gain or an exposure past the camera's
+        range is set at its end and told, in one notice for both, as
+        ``set_gain_db`` and ``set_exposure_ms`` tell theirs.
 
         Args:
-            gain_db: The gain in dB.
-            exposure_ms: The exposure time in milliseconds.
+            gain_db: The gain in dB, at least 0.
+            exposure_ms: The exposure time in milliseconds, above 0.
             auto_gain: The mode the camera is left in. True arms auto-gain
                 from ``auto_gain_settings``; False turns it off; None, the
                 default, leaves the mode as it is and writes none.
@@ -4686,21 +4734,19 @@ class CameraAPI:
 
         Returns:
             dict | None: ``{'gain_db': ..., 'exposure_ms': ...}``, each the
-                value now in effect, which differs from the request when the
-                camera snapped it, None for one not known (``set_gain_db``).
-                ``None`` when no camera is active.
+                value now in effect, which differs from the request when it
+                was past the range or the camera snapped it, None for one not
+                known (``set_gain_db``). ``None`` when no camera is active.
 
         Raises:
             ArgumentRefusedError: ``'missing_key'``, ``auto_gain`` is True
                 and ``auto_gain_settings`` is None or lacks a key the
                 auto-gain write reads; ``'not_a_number'``, one of its values,
                 the gain or the exposure is not a finite number;
-                ``'key_unknown'``, it holds a key the write does not take;
-                ``'gain_range_inverted'``, its minimum gain is above its
-                maximum. Nothing was written.
-            CameraSettingOutOfRangeError: ``'gain_db_out_of_range'`` or
-                ``'exposure_ms_out_of_range'``, the gain or the exposure is
-                outside the range the camera declares; nothing was written.
+                ``'wrong_kind'``, the gain is below 0 or the exposure 0 or
+                below; ``'key_unknown'``, it holds a key the write does not
+                take; ``'gain_range_inverted'``, its minimum gain is above
+                its maximum. Nothing was written.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected; nothing was written.
             CameraSettingRejected: The camera did not take the gain, the
@@ -4723,26 +4769,22 @@ class CameraAPI:
         limits = self._range_a_write_needs(
             'apply', _asked_of_apply(gain_db, exposure_ms, auto_gain)
         )
-        self._refuse_out_of_range(
+        gain_sent = _held_to_range(
             'gain_db',
             gain_db,
             limits.gain_min_db if limits else None,
             limits.gain_max_db if limits else None,
-            noun='gain',
-            unit='dB',
         )
-        self._refuse_out_of_range(
+        exposure_sent = _held_to_range(
             'exposure_ms',
             exposure_ms,
             limits.exposure_min_ms if limits else None,
             limits.exposure_max_ms if limits else None,
-            noun='exposure',
-            unit='ms',
         )
-        return self._dispatch_camera(
+        in_effect = self._dispatch_camera(
             self._no_channels_write(self._apply_settings_impl),
             'apply',
-            args=(gain_db, exposure_ms),
+            args=(gain_sent, exposure_sent),
             kwargs={
                 'channel': channel,
                 'auto_gain': auto_gain,
@@ -4751,6 +4793,11 @@ class CameraAPI:
             },
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
+        if in_effect is not None:
+            _tell_clamped(
+                ('gain_db', gain_db, gain_sent), ('exposure_ms', exposure_ms, exposure_sent)
+            )
+        return in_effect
 
     def _apply_settings_impl(
         self,
@@ -4822,8 +4869,8 @@ class CameraAPI:
         # need not be able to reach. Capping here is what lets the store keep
         # the user's intent: the write below carries a value this body takes,
         # so the chunk target and the cache record what the sensor is actually
-        # at, and no driver is asked for a value it would refuse (pylon) or
-        # silently self-clamp while reporting success (IDS, FX2) -- that
+        # at, and no driver is asked for a value it would refuse (pylon, IDS)
+        # or silently self-clamp while reporting success (FX2) -- that
         # divergence is why the cap cannot be left to the driver.
         gain = None if gain_db is None else self.applied_gain_db_for(gain_db)
         exposure = None if exposure_ms is None else self.applied_exposure_ms_for(exposure_ms)

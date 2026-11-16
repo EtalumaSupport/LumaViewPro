@@ -14,11 +14,7 @@ bench bodies read it.
 import pytest
 
 from _lumascope.drivers.exceptions import CameraReadFailedError
-from _lumascope.modules.exceptions import (
-    CameraSettingOutOfRangeError,
-    CameraSettingRejected,
-    ProtocolRunRefusedError,
-)
+from _lumascope.modules.exceptions import CameraSettingRejected, ProtocolRunRefusedError
 from _lumascope.modules.image_mode import ImageMode
 from tests.test_a_protocol_needs_its_objectives_on_the_turret import _prepare
 from tests.test_a_run_needs_camera_values_in_range import _steps
@@ -46,9 +42,9 @@ def _leave_the_range_unread(camera):
     camera.set_image_mode(ImageMode.SCIENTIFIC)
 
 
-def test_an_exposure_under_the_twelve_bit_floor_is_refused_by_the_api(sim_camera, monkeypatch):
-    """After Mono8 to Mono12, 14 us is refused by the API naming 29 us, and
-    nothing reaches the camera; before the change it was taken."""
+def test_an_exposure_under_the_twelve_bit_floor_is_raised_to_it_by_the_api(sim_camera, monkeypatch):
+    """After Mono8 to Mono12, 14 us is sent as the 29 us floor the camera
+    now declares; before the change it was taken as asked."""
     camera, cam = sim_camera
     camera.set_image_mode(ImageMode.EIGHT_BIT)
     assert camera.set_exposure_ms(0.014) == pytest.approx(0.014)
@@ -57,13 +53,11 @@ def test_an_exposure_under_the_twelve_bit_floor_is_refused_by_the_api(sim_camera
     taken = cam.exposure_t
     monkeypatch.setattr(cam, 'exposure_t', lambda ms: sent.append(ms) or taken(ms))
 
-    with pytest.raises(CameraSettingOutOfRangeError) as refused:
-        camera.set_exposure_ms(0.014)
+    assert camera.set_exposure_ms(0.014) == pytest.approx(0.029)
 
-    assert refused.value.reason == 'exposure_ms_out_of_range'
-    assert refused.value.limits[0] == pytest.approx(0.029)
-    assert '0.029 to' in str(refused.value)
-    assert sent == [], 'the API refused it; the camera was never asked'
+    assert sent == [pytest.approx(0.029)], (
+        'the API held it to the range; the camera was asked the floor'
+    )
 
 
 def test_the_range_is_read_again_after_a_readout_change(sim_camera):

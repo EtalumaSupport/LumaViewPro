@@ -240,6 +240,7 @@ from _lumascope.modules.exceptions import (
     StoredSettingReplacedNotice,
     SupportReportNotSavedError,
     UnfitArgument,
+    ValueClampedNotice,
     VideoFramesDroppedError,
     VideoWriterFailedError,
 )
@@ -877,6 +878,7 @@ __all__ = [
     'UsbCensusDevice',
     'UsbDeviceBinding',
     'UsbIdentityBindings',
+    'ValueClampedNotice',
     'Video',
     'VideoConfig',
     'VideoFramesDroppedError',

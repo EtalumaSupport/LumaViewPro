@@ -28,7 +28,7 @@ import pytest
 from _lumascope.drivers.simulated_camera import SimulatedCamera
 from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
 from _lumascope.modules.exceptions import (
-    CameraSettingOutOfRangeError,
+    ArgumentRefusedError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
     HardwareCommandRefusedError,
@@ -405,11 +405,11 @@ class TestBlackLevelSetterSequence:
             before, 'black_level'
         )
 
-    def test_an_out_of_range_black_level_invalidates_nothing(self, camera_plain):
+    def test_a_refused_black_level_invalidates_nothing(self, camera_plain):
         before = camera_plain._frame_validity.invalidation_counts
-        with pytest.raises(CameraSettingOutOfRangeError) as caught:
-            camera_plain.set_black_level(1000.0)
-        assert caught.value.reason == 'black_level_out_of_range'
+        with pytest.raises(ArgumentRefusedError) as caught:
+            camera_plain.set_black_level(-1.0)
+        assert caught.value.reason == 'wrong_kind'
         assert camera_plain._frame_validity.invalidation_counts == before
 
 

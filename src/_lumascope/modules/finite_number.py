@@ -53,6 +53,28 @@ def refuse_outside(value: object, argument: str, limits: tuple[float, float]) ->
         raise ArgumentRefusedError('out_of_range', argument=argument, value=value, limits=limits)
 
 
+def cap_stored_value(value: float, floor: float | None, cap: float | None) -> tuple[float, float]:
+    """Resolve a value against a hardware's published range: (value, applied).
+
+    The one rule for a value past a limit the attached hardware declares,
+    whether it was stored (applied at the limit, the stored value kept as
+    the person's intent) or written now (stored as applied). A value below
+    ``floor`` applies as the floor and one above ``cap`` as the cap; the
+    value is returned unchanged beside it, and a bound replaces it as the
+    bound is given, so a whole number held under a whole-number ceiling
+    stays one. An unknown bound (no camera, or a driver that publishes
+    none) narrows nothing: a missing bound is not a bound of zero, and
+    inventing one here would apply a limit no hardware asked for.
+    ``value`` is a finite number its caller has already judged: every
+    comparison with NaN is False, so NaN would be applied as itself.
+    """
+    if floor is not None and value < floor:
+        return value, floor
+    if cap is not None and value > cap:
+        return value, cap
+    return value, value
+
+
 # The longest wait a caller may ask for, in seconds: 30 days, room for a
 # multi-day protocol's run, and short of the smallest wait the host can
 # hold. Python's waits raise past threading.TIMEOUT_MAX, which is about

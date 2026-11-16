@@ -22,7 +22,7 @@ from _lumascope.drivers.exceptions import (
     HardwareError,
 )
 from _lumascope.modules.exceptions import (
-    CameraSettingOutOfRangeError,
+    ArgumentRefusedError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
     HardwareCommandRefusedError,
@@ -85,21 +85,20 @@ def test_the_simulator_reloads_its_default_black_level_at_connect(sim_scope):
     assert driver.get_black_level() == 0.0
 
 
-def test_a_value_outside_the_range_is_refused_and_nothing_moves(sim_scope):
+def test_a_negative_value_is_refused_and_nothing_moves(sim_scope):
     camera = sim_scope.camera
-    with pytest.raises(CameraSettingOutOfRangeError):
-        camera.set_black_level(1000.0)
+    with pytest.raises(ArgumentRefusedError) as refused:
+        camera.set_black_level(-1.0)
+    assert refused.value.reason == 'wrong_kind'
     assert camera.read_black_level() == 0.0
 
 
-def test_the_range_is_the_one_the_setter_refuses_outside(sim_scope):
+def test_the_range_is_the_one_the_setter_holds_a_value_to(sim_scope):
     camera = sim_scope.camera
     low, high = camera.read_black_level_range()
     assert (low, high) == sim_scope._camera_driver.read_black_level_range()
     assert camera.set_black_level(high) == high
-    with pytest.raises(CameraSettingOutOfRangeError) as refused:
-        camera.set_black_level(high + 1.0)
-    assert refused.value.limits[1] == high
+    assert camera.set_black_level(high + 1.0) == high
 
 
 def test_a_failed_range_read_raises(sim_scope):
