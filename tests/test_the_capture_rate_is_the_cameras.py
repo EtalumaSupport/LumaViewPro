@@ -24,7 +24,7 @@ import time
 import pytest
 
 from _lumascope.modules import app_context, config_helpers
-from _lumascope.modules.lumascope_api.imaging import ImagingAPI
+from _lumascope.modules.lumascope_api.imaging import DeliveredRate, ImagingAPI
 from _lumascope.modules.scope_session import ScopeSession
 from tests.log_capture import records_of
 from tests.settings_fixtures import complete_settings
@@ -113,22 +113,19 @@ class TestTheRateIsTheCameras:
 
 class TestEveryHostLogsIt:
     def test_a_headless_session_logs_the_cameras_rate(self, session, monkeypatch, tmp_path, caplog):
-        imaging, _camera, _camera_fps = _streaming_fast(session)
-        assert _wait_for(lambda: imaging.delivered_rate().frame_rate_fps > 0, 5.0)
-
-        # The line logs the API's rate: what delivered_rate answered the
-        # tick, kept as it passes. Whether that rate is the camera's is
-        # TestTheRateIsTheCameras'; on a loaded host one window's rate and a
-        # longer average differ, so the two are not compared here.
+        # The line logs the API's rate: what delivered_rate answered the tick.
+        # Whether that rate is the camera's is TestTheRateIsTheCameras'.
+        # A stand-in by design: the subject is the line, and a live window
+        # read across a whole tick goes stale on a loaded host (it read 0.0
+        # under the full suite once the tick ran every real probe).
         answered = []
-        read_rate = imaging.delivered_rate
+        rate = DeliveredRate(frame_rate_fps=12.5, bytes_per_s=25_000_000.0)
 
-        def _kept():
-            rate = read_rate()
+        def _answer():
             answered.append(rate)
             return rate
 
-        monkeypatch.setattr(imaging, 'delivered_rate', _kept)
+        monkeypatch.setattr(session.scope.imaging, 'delivered_rate', _answer)
 
         monkeypatch.setattr(app_context, 'ctx', None)
         session.set_live_folder(str(tmp_path))
@@ -144,6 +141,6 @@ class TestEveryHostLogsIt:
         assert lines, 'a headless session logged no [BUFFER METRICS] line'
         fields = dict(part.strip().split('=', 1) for part in lines[0].split(']', 1)[1].split('|'))
         assert len(answered) == 1, 'the tick did not read the API rate once'
-        assert answered[0].frame_rate_fps > 0
-        assert fields['capture_fps'] == f'{answered[0].frame_rate_fps:.1f}'
+        assert fields['capture_fps'] == '12.5'
+        assert fields['camera_data_rate'] == '25.0 MB/s'
         assert 'display_fps' not in fields, 'a session with no display logged a display rate'
