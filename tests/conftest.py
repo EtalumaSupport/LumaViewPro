@@ -729,6 +729,46 @@ def _no_settings_replacement_outlives_its_test():
 
 
 @pytest.fixture(autouse=True)
+def _no_test_reads_the_host_it_runs_on():
+    """Every session's startup reading reads a PC with room to spare, never the one the test runs on.
+
+    The development Mac's save drive is under the notice's free-space line,
+    so a real read would tell the notice at every test's startup motion. A
+    test of the reading replaces ``read_host`` itself, through its own
+    ``monkeypatch``, which is undone before this puts the real reader back.
+    Not through ``monkeypatch`` here: an autouse fixture that takes it sets
+    it up before every other fixture of the test, so its undo would come
+    after their teardown, and a test's own patches would outlive the
+    teardown of the scope they stand in for.
+    """
+    from _lumascope.modules import host_resources
+
+    real = host_resources.read_host
+    host_resources.read_host = a_roomy_host
+    yield
+    host_resources.read_host = real
+
+
+def a_roomy_host(save_folder):
+    """A PC inside every line of the startup reading: 16 GB available, 500 GB free, nothing else running."""
+    from collections import namedtuple
+
+    from _lumascope.modules import host_resources
+
+    cpu_times = namedtuple('cpu_times', 'user system idle')(0.0, 0.0, 0.0)
+    return host_resources.HostSnapshot(
+        at_s=0.0,
+        cpu_times=cpu_times,
+        processes={},
+        unread_processes=0,
+        cores=8,
+        ram_available_bytes=16 * 2**30,
+        disk_free_bytes=None if save_folder is None else 500 * 2**30,
+        read_s=0.0,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _no_log_setting_outlives_its_test():
     """Each test ends with the log levels and the autofocus score log as it found them.
 

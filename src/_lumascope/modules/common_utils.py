@@ -1208,6 +1208,72 @@ def cpu_busy_percent(before: NamedTuple, after: NamedTuple) -> float | None:
     return (total - idle) / total * 100.0
 
 
+# A process's CPU seconds so far, keyed by (pid, create_time) so a pid the OS
+# gave to a new process is never paired with the one that had it before.
+ProcessCpuSeconds = dict[tuple[int, float], tuple[str, float]]
+
+
+def process_cpu_seconds() -> tuple[ProcessCpuSeconds, int]:
+    """Every process's CPU seconds so far, and how many the OS would not let this one read.
+
+    A process that ends while the table is read is left out. One whose
+    CPU time or start the OS keeps from this process is counted, not read:
+    on macOS a non-root user cannot read about a third, ``WindowServer``
+    and ``kernel_task`` among them.
+
+    Returns:
+        ``({(pid, create_time): (name, user + system seconds)}, denied)``.
+    """
+    seconds: ProcessCpuSeconds = {}
+    denied = 0
+    for proc in psutil.process_iter(['name', 'create_time', 'cpu_times']):
+        times, created = proc.info['cpu_times'], proc.info['create_time']
+        if times is None or created is None:
+            denied += 1
+            continue
+        seconds[(proc.pid, created)] = (
+            proc.info['name'] or f'pid {proc.pid}',
+            times.user + times.system,
+        )
+    return seconds, denied
+
+
+def program_cpu_shares(
+    before: ProcessCpuSeconds,
+    after: ProcessCpuSeconds,
+    window_s: float,
+    cores: int,
+    left_out: frozenset[int],
+) -> list[tuple[str, int, float]]:
+    """Each process's share of the whole machine's CPU between two ``process_cpu_seconds`` tables.
+
+    100% is every logical core busy for the whole window, as Task Manager
+    counts it. Only a process in both tables is shared: one that ended or
+    started inside the window has no share.
+
+    Args:
+        before: The table at the window's start.
+        after: The table at its end.
+        window_s: The seconds between the two.
+        cores: The host's logical cores.
+        left_out: The pids that are not other programs (this process; on
+            Windows pid 0, the System Idle Process).
+
+    Returns:
+        ``(name, pid, percent)`` for each process, largest share first;
+        empty for a window with no length.
+    """
+    if window_s <= 0.0:
+        return []
+    capacity_s = window_s * cores
+    shares = [
+        (name, pid, (cpu_s - before[(pid, created)][1]) / capacity_s * 100.0)
+        for (pid, created), (name, cpu_s) in after.items()
+        if pid not in left_out and (pid, created) in before
+    ]
+    return sorted(shares, key=lambda share: share[2], reverse=True)
+
+
 # ---------------------------------------------------------------------------
 # Per-thread CPU attribution
 #

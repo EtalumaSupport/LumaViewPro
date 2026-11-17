@@ -176,6 +176,7 @@ from _lumascope.modules.exceptions import (
     LiveFolderFileNotWrittenError,
     LiveFolderPathRefusedError,
     LoggingStartRefusedError,
+    LowSystemResourcesNotice,
     MissingPart,
     MotorBoardUnavailableError,
     MotorStopFailedError,
@@ -254,6 +255,10 @@ from _lumascope.modules.frame_validity import (
 )
 from _lumascope.modules.graph_analysis import (
     Trendline,
+)
+from _lumascope.modules.host_resources import (
+    HostReading,
+    ProgramCpu,
 )
 from _lumascope.modules.image_mode import (
     ImageMode,
@@ -671,6 +676,7 @@ __all__ = [
     'HomingFailedError',
     'HomingFaultError',
     'HomingStoppedError',
+    'HostReading',
     'HyperstackRefusedError',
     'HyperstacksSavedNotice',
     'HyperstacksSavingNotice',
@@ -705,6 +711,7 @@ __all__ = [
     'LiveProcessingRegistry',
     'LiveWork',
     'LoggingStartRefusedError',
+    'LowSystemResourcesNotice',
     'Lumascope',
     'LumascopeError',
     'ManualCaptureController',
@@ -765,6 +772,7 @@ __all__ = [
     'PostProcessingRefusedError',
     'PostProcessingRegistry',
     'ProcessorResult',
+    'ProgramCpu',
     'Protocol',
     'ProtocolAsksForStimulationError',
     'ProtocolError',

@@ -37,6 +37,7 @@ from _lumascope.drivers.simulated_camera import SimulatedStall
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import (
     common_utils,
+    host_resources,
     ui_queue,
     live_work,
     path_utils,
@@ -92,6 +93,7 @@ from _lumascope.modules.exceptions import (
     SettingsNotSavedNotice,
     ValueClampedNotice,
 )
+from _lumascope.modules.host_resources import HostReading
 from _lumascope.modules.scope_parts import Board, Part
 from _lumascope.modules.ui_queue import UiDispatcher
 from _lumascope.modules.keep_awake import KeepAwake
@@ -461,7 +463,15 @@ class ControlsLock:
 
 
 @api_fields(
-    'live_work', 'lock', 'control', 'run_refused', 'axes', 'turret', 'parts', 'camera_streaming'
+    'live_work',
+    'lock',
+    'control',
+    'run_refused',
+    'axes',
+    'turret',
+    'parts',
+    'camera_streaming',
+    'host_reading',
 )
 @dataclasses.dataclass(frozen=True)
 class Status:
@@ -496,6 +506,9 @@ class Status:
         camera_streaming: Whether the camera is grabbing frames, asked of
             the camera itself (``ImagingAPI.is_streaming``); None when the
             camera did not answer, the failure reported in the log at each ask.
+        host_reading: This PC's resources as read over the session's
+            startup (``ScopeSession.host_reading``); None until the startup
+            motion has ended.
     """
 
     live_work: LiveWork
@@ -506,6 +519,7 @@ class Status:
     turret: TurretStatus | None
     parts: tuple[PartStatus, ...]
     camera_streaming: bool | None
+    host_reading: HostReading | None
 
 
 @api_fields('paths')
@@ -687,6 +701,7 @@ def _read_only(value):
     'open_remembered_protocol',
     'as_a_guarded_write',
     'status_at_edge',
+    'startup_motion_ended_by_the_close',
 )
 class ScopeSession:
     """Owns the shared, GUI-independent state for one microscope session.
@@ -758,6 +773,10 @@ class ScopeSession:
         # retry possible; read at entry to make the second call a logged
         # no-op. Host-serialized like the metrics flag.
         self._shut_down = False
+        # The host's read at create's entry, until the startup motion's end
+        # takes it for the session's one reading; the reading once taken.
+        self._host_opened: host_resources.HostSnapshot | None = None
+        self._host_reading: HostReading | None = None
         # A diagnostic's claim whose lent run outlived the diagnostic's wait:
         # released when that run ends, so a claim is never left with nobody
         # to release it -- a close would wait on it for ever.
@@ -1454,6 +1473,7 @@ class ScopeSession:
             'axes': self.scope.motion.axis_positions(),
             'turret': self.scope.motion.turret_status(),
             'parts': self.scope.bring_up_record().parts,
+            'host_reading': self._host_reading,
         }
         return lambda: Status(**at_edge, camera_streaming=self._camera_streaming())
 
@@ -1879,6 +1899,11 @@ class ScopeSession:
         from _lumascope.lib.build_files import build_root
         from _lumascope.modules.path_utils import get_source_root
 
+        # The startup reading's window opens first, so it holds the whole
+        # bring-up: from create's return to a non-homing host's settle is
+        # too short to read another program's share in.
+        host_opened = host_resources.read_host(None)
+
         # Every host builds its session here, so the process's environment
         # is logged here, once, before anything below can refuse: a log from
         # the REST server, a script or a probe names its host, build, camera
@@ -2000,6 +2025,7 @@ class ScopeSession:
                 no_engineering=no_engineering,
                 _composition=COMPOSED_BY_CREATE,
             )
+            session._host_opened = host_opened
             if outcome_listener is not None:
                 session._outcome_listeners.append(outcome_listener)
             report_step(on_progress, CONFIGURING)
@@ -7292,7 +7318,7 @@ class ScopeSession:
             log_helpers.end_bring_up()
             done = Operation()
             concurrent.futures.Future.set_result(done, None)
-            return done
+            return self._read_the_host_when_settled(done)
 
         if disable_homing:
             return skipped('homing disabled; the turret is left where it is')
@@ -7336,7 +7362,51 @@ class ScopeSession:
         except BaseException:
             release_if_unrun()
             raise
-        return Operation.following(waiter, stop=stop, first=release_if_unrun)
+        return self._read_the_host_when_settled(
+            Operation.following(waiter, stop=stop, first=release_if_unrun)
+        )
+
+    def _read_the_host_when_settled(self, motion: 'Operation[None]') -> 'Operation[None]':
+        """``motion``, which takes the session's one host reading when it settles."""
+        motion.add_done_callback(self._take_the_host_reading)
+        return motion
+
+    def _take_the_host_reading(self, done: 'Operation[None]') -> None:
+        """At the startup motion's end, read the host once, keep it, log it and tell what is past its line.
+
+        Taken only at a motion that ended as the motion's (homed, a reported
+        failed home, a skip, STOP), never a defect's or the close's, and
+        only once a session: a later startup motion's end reads nothing.
+        """
+        if done.exception() is not None or self.startup_motion_ended_by_the_close(done):
+            return
+        opened, self._host_opened = self._host_opened, None
+        if opened is None:
+            return
+        save_folder = self.setting('live_folder')
+        settled = host_resources.read_host(save_folder)
+        reading = host_resources.reading_between(opened, settled, save_folder)
+        self._host_reading = reading
+        logger.info(host_resources.log_line(reading, settled.read_s))
+        notice = host_resources.judge(reading)
+        if notice is not None:
+            notifications.report_outcome(notice, solicited=False, category='Host')
+
+    @api
+    @property
+    def host_reading(self) -> HostReading | None:
+        """This PC's resources as read over the session's startup; None until its startup motion has ended.
+
+        Read once a session, over the window from ``create`` to the end of
+        the first startup motion that ends as the motion's own (homed, a
+        reported failed home, a skip, STOP). ``LowSystemResourcesNotice``
+        was told then when anything in it was past its line; a client that
+        connected afterwards reads it here, or in ``status``.
+
+        Raises:
+            Nothing.
+        """
+        return self._host_reading
 
     def startup_motion_ended_by_the_close(self, done: concurrent.futures.Future) -> bool:
         """Whether the session's close ended the settled startup motion, rather than the motion.

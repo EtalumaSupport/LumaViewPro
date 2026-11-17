@@ -34,6 +34,7 @@ from _lumascope.modules.run_outcome import ENDING_TITLES, FAILURE_REASONS
 
 if TYPE_CHECKING:
     from _lumascope.modules.frame_validity import FrameValiditySource
+    from _lumascope.modules.host_resources import HostReading, ProgramCpu
     from _lumascope.modules.plugins import PluginNotLoaded
     from _lumascope.modules.tech_support_report import SupportReportKind
 
@@ -485,6 +486,77 @@ class NoHardwareDetectedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
             f'{self._CONNECT[reason]}'
         )
         self.reason = reason
+
+
+class LowSystemResourcesNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """This PC was short of what LumaViewPro needs when its startup motion ended.
+
+    Told once a session, by the session's startup reading
+    (``ScopeSession.host_reading``), when available memory, free space on
+    the drive LumaViewPro saves to, or another program's share of the CPU
+    is past its line. A PC without the resources looks to the person like a
+    LumaViewPro defect: slow, freezing, a camera that seems to drop.
+
+    Attributes:
+        reading: The whole reading (``HostReading``).
+        ram_low: Available memory is under its line.
+        disk_low: Free space on the save drive is under its line; False
+            when the save folder could not be read.
+        busy: Each other program over the CPU line (``ProgramCpu``),
+            largest share first.
+    """
+
+    title = 'Low system resources'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'low_system_resources': None}
+
+    def __init__(
+        self,
+        reading: 'HostReading',
+        *,
+        ram_low: bool,
+        disk_low: bool,
+        busy: 'tuple[ProgramCpu, ...]',
+    ):
+        sentences = [_the_host_read(reading)]
+        if ram_low:
+            sentences.append(
+                f'With {_gb(reading.ram_available_bytes)} of memory available, LumaViewPro '
+                'may run slowly, drop frames or stall; closing other programs frees memory.'
+            )
+        for program in busy:
+            sentences.append(
+                f'{program.name} is using {program.cpu_pct:.0f}% of the CPU, so LumaViewPro '
+                'may run slowly, drop frames or stall while it does.'
+            )
+        if disk_low:
+            sentences.append(
+                f'With {_gb(reading.disk_free_bytes)} free on the drive LumaViewPro saves to, '
+                'long runs and recordings may not fit.'
+            )
+        super().__init__(' '.join(sentences))
+        self.reading = reading
+        self.ram_low = ram_low
+        self.disk_low = disk_low
+        self.busy = busy
+
+
+def _gb(size_bytes: int) -> str:
+    """A size in binary gigabytes, labelled GB as Windows shows it."""
+    return f'{size_bytes / 2**30:.1f} GB'
+
+
+def _the_host_read(reading: 'HostReading') -> str:
+    """The readings of ``LowSystemResourcesNotice`` as one sentence."""
+    if reading.disk_free_bytes is None:
+        disk = f'the free space of {reading.save_folder} could not be read'
+    else:
+        disk = f'{_gb(reading.disk_free_bytes)} free on the save drive'
+    cpu = (
+        ''
+        if reading.cpu_pct is None
+        else f', and its CPU {reading.cpu_pct:.0f}% busy, LumaViewPro included'
+    )
+    return f'At startup this PC had {_gb(reading.ram_available_bytes)} of memory available, {disk}{cpu}.'
 
 
 class CellCountScaleDroppedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error

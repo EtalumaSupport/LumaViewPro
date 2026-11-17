@@ -216,6 +216,7 @@ def test_a_read_answers_its_encoded_value(client, session):
         'turret',
         'parts',
         'camera_streaming',
+        'host_reading',
     }
 
 

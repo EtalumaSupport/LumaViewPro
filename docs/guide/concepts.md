@@ -151,7 +151,12 @@ event), and the motion ends there, without the turret move, so a program
 reads `scope.motion.axes_without_position()` before it trusts a position.
 LumaViewPro and the REST server (`python -m lumascope.rest`) run the startup
 motion before a client's first call, and still serve after a failed home, so a
-client can home again.
+client can home again. When the session's first startup motion ends, it reads
+the PC once: memory available, free space on the save drive, and each other
+program's share of the CPU since `create`. The reading is `host_reading`, and
+`status` carries it; when memory is under 4 GB, free space under 50 GB or
+another program over 30% of the machine, `LowSystemResourcesNotice` is told
+then, once, as an outcome.
 
 **The plate, the objective and the model.** The plate is chosen by
 `select_labware`, which answers whether it changed. The installation's plates

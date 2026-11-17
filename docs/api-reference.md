@@ -88,6 +88,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`GraphOptions`](#GraphOptions)
 - [`GraphResult`](#GraphResult)
 - [`HeldClaim`](#HeldClaim)
+- [`HostReading`](#HostReading)
 - [`ImageStatistics`](#ImageStatistics)
 - [`InjectedFault`](#InjectedFault)
 - [`Judgment`](#Judgment)
@@ -119,6 +120,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`PositionChanged`](#PositionChanged)
 - [`PostProcessingRegistry`](#PostProcessingRegistry)
 - [`ProcessorResult`](#ProcessorResult)
+- [`ProgramCpu`](#ProgramCpu)
 - [`Protocol`](#Protocol)
 - [`ProtocolRunner`](#ProtocolRunner)
 - [`ProtocolSizeAdvisory`](#ProtocolSizeAdvisory)
@@ -1561,6 +1563,27 @@ What a run control greys on while leaving its own run's Stop live
 **Args**
 
 - `run`: The operation a run member returned, whose own hold is not counted. None, the default, asks whether anything holds the scope at all.
+
+**Raises**
+
+Nothing.
+
+<a id="ScopeSession.host_reading"></a>
+### `ScopeSession.host_reading`
+
+```python
+host_reading: HostReading | None  # property
+```
+
+Route: `GET /api/v1/host_reading`.
+
+This PC's resources as read over the session's startup; None until its startup motion has ended.
+
+Read once a session, over the window from `create` to the end of
+the first startup motion that ends as the motion's own (homed, a
+reported failed home, a skip, STOP). `LowSystemResourcesNotice`
+was told then when anything in it was past its line; a client that
+connected afterwards reads it here, or in `status`.
 
 **Raises**
 
@@ -11125,6 +11148,29 @@ same claim is a different object.
 
 Nothing.
 
+<a id="HostReading"></a>
+## `lumascope.HostReading`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Returned by: [`ScopeSession.host_reading`](#ScopeSession.host_reading).  
+Held in: [`Status.host_reading`](#Status.host_reading).
+
+This PC's resources, read once over the session's startup.
+
+The window opens when the session is created and closes when its
+startup motion ends: after homing, or at once on a host that does not
+home.
+
+**Fields**
+
+- <a id="HostReading.cpu_pct"></a>`cpu_pct`: `float | None` -- The whole machine's CPU busy over the window, LumaViewPro's own startup included; None when no CPU time passed.
+- <a id="HostReading.disk_free_bytes"></a>`disk_free_bytes`: `int | None` -- Its drive's free space at the window's end; None when the folder did not exist or could not be read.
+- <a id="HostReading.programs"></a>`programs`: `tuple[ProgramCpu, ...]` -- The other programs with the largest shares of the CPU over the window, up to three, largest first. LumaViewPro is not one; a process the OS would not let LumaViewPro read is not either.
+- <a id="HostReading.ram_available_bytes"></a>`ram_available_bytes`: `int` -- The memory available at the window's end.
+- <a id="HostReading.save_folder"></a>`save_folder`: `str` -- The save folder (`live_folder`) whose drive was read.
+- <a id="HostReading.unread_processes"></a>`unread_processes`: `int` -- How many processes the OS would not let LumaViewPro read.
+- <a id="HostReading.window_s"></a>`window_s`: `float` -- The window's length.
+
 <a id="ImageStatistics"></a>
 ## `lumascope.ImageStatistics`
 
@@ -12030,6 +12076,20 @@ a failure to the person with its message.
 - <a id="ProcessorResult.message"></a>`message`: `str` -- A one-line summary for the person using the microscope.
 - <a id="ProcessorResult.outputs"></a>`outputs`: `tuple[FilePath, ...]` -- The absolute paths of the files it wrote.
 - <a id="ProcessorResult.success"></a>`success`: `bool` -- Whether the processor completed.
+
+<a id="ProgramCpu"></a>
+## `lumascope.ProgramCpu`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Held in: [`HostReading.programs`](#HostReading.programs).
+
+Another program's share of the CPU over the startup.
+
+**Fields**
+
+- <a id="ProgramCpu.cpu_pct"></a>`cpu_pct`: `float` -- Its share of the whole machine, in percent: 100 is every logical core busy for the whole window, as Task Manager counts.
+- <a id="ProgramCpu.name"></a>`name`: `str` -- The program's process name.
+- <a id="ProgramCpu.pid"></a>`pid`: `int` -- Its process id.
 
 <a id="Protocol"></a>
 ## `lumascope.Protocol`
@@ -13575,6 +13635,7 @@ axis can read HOMING in `axes` a moment before the home appears in
 - <a id="Status.axes"></a>`axes`: `dict[StageAxis, AxisPosition]` -- Each stage axis's state and position, None where the position is not known (`MotionAPI.axis_positions`): X, Y and Z, in um. An axis whose state is `moving` or `homing` is moving now; with `turret`, the read of whether anything moves.
 - <a id="Status.camera_streaming"></a>`camera_streaming`: `bool | None` -- Whether the camera is grabbing frames, asked of the camera itself (`ImagingAPI.is_streaming`); None when the camera did not answer, the failure reported in the log at each ask.
 - <a id="Status.control"></a>`control`: `ControlSession | None` -- The control session held, None when none is (`ScopeSession.control`).
+- <a id="Status.host_reading"></a>`host_reading`: `HostReading | None` -- This PC's resources as read over the session's startup (`ScopeSession.host_reading`); None until the startup motion has ended.
 - <a id="Status.live_work"></a>`live_work`: `LiveWork` -- Everything the session is still doing (`ScopeSession.live_work`).
 - <a id="Status.lock"></a>`lock`: `ControlsLock` -- Which of a person's controls the Session locks, and why (`ScopeSession.controls_lock`): its editing policy, not a refusal.
 - <a id="Status.parts"></a>`parts`: `tuple[PartStatus, ...]` -- Which parts came up at bring-up, and why each that did not (`ScopeSession.bring_up_record`).
@@ -16951,6 +17012,30 @@ refusal.
 |---|---|---|
 | `logging_started_otherwise` | restart | 503 |
 
+<a id="LowSystemResourcesNotice"></a>
+### `lumascope.LowSystemResourcesNotice`
+
+A notice; bases `Notice`, `Exception`.
+
+This PC was short of what LumaViewPro needs when its startup motion ended.
+
+Told once a session, by the session's startup reading
+(`ScopeSession.host_reading`), when available memory, free space on
+the drive LumaViewPro saves to, or another program's share of the CPU
+is past its line. A PC without the resources looks to the person like a
+LumaViewPro defect: slow, freezing, a camera that seems to drop.
+
+**Attributes**
+
+- `reading`: The whole reading (`HostReading`).
+- `ram_low`: Available memory is under its line.
+- `disk_low`: Free space on the save drive is under its line; False when the save folder could not be read.
+- `busy`: Each other program over the CPU line (`ProgramCpu`), largest share first.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `low_system_resources` | -- | 409 |
+
 <a id="MotionInterlockError"></a>
 ### `lumascope.MotionInterlockError`
 
@@ -18800,6 +18885,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/handles/ProtocolRunner/{handle_id}/start_single_scan` | [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan) |
 | `POST` | `/api/v1/handles/ProtocolRunner/{handle_id}/start_zstack` | [`ProtocolRunner.start_zstack`](#ProtocolRunner.start_zstack) |
 | `GET` | `/api/v1/held_by_other` | [`ScopeSession.held_by_other`](#ScopeSession.held_by_other) |
+| `GET` | `/api/v1/host_reading` | [`ScopeSession.host_reading`](#ScopeSession.host_reading) |
 | `GET` | `/api/v1/labware_id` | [`ScopeSession.labware_id`](#ScopeSession.labware_id) |
 | `PUT` | `/api/v1/labware_id` | [`ScopeSession.select_labware`](#ScopeSession.select_labware) |
 | `POST` | `/api/v1/last_run` | [`ScopeSession.last_run`](#ScopeSession.last_run) |

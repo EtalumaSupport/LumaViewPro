@@ -149,6 +149,7 @@ def test_the_first_event_is_the_status_with_the_current_id(client):
         'turret',
         'parts',
         'camera_streaming',
+        'host_reading',
     }
 
 
@@ -272,6 +273,7 @@ def test_each_run_state_edge_sends_the_status_in_the_order_heard(client, session
         'turret',
         'parts',
         'camera_streaming',
+        'host_reading',
     } == set(states[0])
     lockouts = [s['lock']['run_lockout'] for s in states]
     # Held from the run's grant until it lets go, and never held again after.
