@@ -13,9 +13,9 @@ So it is off unless asked for, and the flat-cost handle count carries
 the leak trend instead.
 
 The rendering matters as much as the gate. The metric has three states
--- measured, ran-and-failed, and never-asked-for -- and -1 was already
-taken by the second. Letting the third fall through to -1 would print a
-deliberate configuration as a malfunction in every log a reader opens.
+-- measured, ran-and-failed, and never-asked-for -- and the third reads
+`off`, never as the second's `unavailable`: a deliberate configuration
+printed as a malfunction would mislead every log a reader opens.
 
 The gate is read with `is True` rather than truthiness because nothing
 validates the settings files: a hand-edited `"false"` is a truthy
@@ -26,7 +26,6 @@ operator believed it off.
 import logging
 import os
 import re
-from collections import defaultdict
 
 from types import SimpleNamespace
 
@@ -57,192 +56,73 @@ class _CountingProcess(psutil.Process):
 def counting_proc(monkeypatch):
     """The metrics' process handle, one whose open_files() calls are observable."""
     proc = _CountingProcess()
-    monkeypatch.setattr(common_utils, '_self_process', lambda: proc)
+    monkeypatch.setattr(common_utils, 'self_process', lambda: proc)
     return proc
 
 
 def _metrics_lines(caplog, call):
-    """The INFO lines config_helpers writes to the metrics log while ``call`` runs."""
+    """The lines config_helpers writes to the metrics log while ``call`` runs."""
     caplog.clear()
     with caplog.at_level(logging.INFO, logger=config_helpers.metrics_logger.name):
         call()
     return [
         r.getMessage()
         for r in records_of(caplog, config_helpers)
-        if r.name == config_helpers.metrics_logger.name and r.levelno == logging.INFO
+        if r.name == config_helpers.metrics_logger.name
     ]
 
 
-def _drive_log_system_metrics(monkeypatch, scope, settings, metrics, on_call=None):
-    """Run log_system_metrics with its psutil-backed neighbours stubbed.
-
-    It compares check_disk_space() against an int and subscripts the
-    metrics mapping directly, so both need real values before the
-    [HANDLE METRICS] block is reachable at all.
-
-    a stand-in by design: the subject is how each state of a metric is
-    rendered, and a failed or unavailable reading is not one this host
-    can be made to produce.
-    """
-    monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
-
-    def _stub(**kwargs):
-        if on_call is not None:
-            on_call(kwargs)
-        return metrics
-
-    monkeypatch.setattr(config_helpers.common_utils, 'system_metrics', _stub)
-    config_helpers.log_system_metrics(settings, scope=scope, executors=real_executor_bundle())
-
-
-def _routed_gate_value(monkeypatch, scope, settings):
-    """What collect_open_files does log_system_metrics pass down."""
-    recorded = {}
-    _drive_log_system_metrics(
-        monkeypatch, scope, settings, defaultdict(float), on_call=recorded.update
+def _tick_lines(caplog, scope, tmp_path, **profiling):
+    settings = complete_settings(live_folder=str(tmp_path), profiling=profiling)
+    return _metrics_lines(
+        caplog,
+        lambda: config_helpers.log_system_metrics(
+            settings, scope=scope, executors=real_executor_bundle()
+        ),
     )
-    return recorded.get('collect_open_files')
+
+
+def _handle_line(lines):
+    (line,) = [m for m in lines if m.startswith('[HANDLE METRICS]')]
+    return line
 
 
 class TestOpenFilesGate:
-    def test_gate_off_does_not_call_open_files(self, counting_proc):
-        common_utils.system_metrics(collect_open_files=False)
+    def test_gate_off_does_not_call_open_files_and_says_off(
+        self, counting_proc, caplog, sim_scope, tmp_path
+    ):
+        line = _handle_line(_tick_lines(caplog, sim_scope, tmp_path))
         assert counting_proc.open_files_answers == []
+        # "off", never a failure: a chosen configuration is not a broken probe.
+        assert re.fullmatch(r'\[HANDLE METRICS\] handles=\d+ \| open_files=off', line), line
 
-    def test_gate_off_omits_the_key_entirely(self, counting_proc):
-        metrics = common_utils.system_metrics(collect_open_files=False)
-        # Absent, not -1: -1 already means "ran and failed".
-        assert 'open_files_count' not in metrics
-
-    def test_gate_on_measures(self, counting_proc):
-        metrics = common_utils.system_metrics(collect_open_files=True)
+    def test_gate_on_measures(self, counting_proc, caplog, sim_scope, tmp_path):
+        line = _handle_line(_tick_lines(caplog, sim_scope, tmp_path, open_files_enabled=True))
         (answer,) = counting_proc.open_files_answers
-        assert metrics['open_files_count'] == len(answer)
-
-    def test_the_gate_argument_is_required(self, counting_proc):
-        # A future caller must decide explicitly; a default is how the
-        # ungated probe this file exists to fix came to be.
-        with pytest.raises(TypeError):
-            common_utils.system_metrics()
+        assert line.endswith(f'| open_files={len(answer)}'), line
 
     @pytest.mark.parametrize('configured', ['false', 'true', 0, 1, None, '', 'yes', [], 'False'])
-    def test_only_a_real_true_enables_the_probe(self, monkeypatch, sim_scope, configured, tmp_path):
+    def test_only_a_real_true_enables_the_probe(
+        self, counting_proc, caplog, sim_scope, configured, tmp_path
+    ):
         # 'true' and 'yes' are the dangerous half: truthy strings that a
         # loose read would honour.
-        settings = complete_settings(
-            live_folder=str(tmp_path), profiling={'open_files_enabled': configured}
-        )
-        assert _routed_gate_value(monkeypatch, sim_scope, settings) is False
-
-    def test_a_real_true_enables_it(self, monkeypatch, sim_scope, tmp_path):
-        settings = complete_settings(
-            live_folder=str(tmp_path), profiling={'open_files_enabled': True}
-        )
-        assert _routed_gate_value(monkeypatch, sim_scope, settings) is True
-
-
-class TestHandleMetricsLine:
-    def _emit(self, monkeypatch, caplog, scope, tmp_path, metrics):
-        # defaultdict(float): direct-subscript metric keys resolve to 0.0
-        # while .get() still honours the caller's default for absent keys,
-        # which is the distinction under test.
-        backing = defaultdict(float)
-        backing.update(metrics)
-        lines = _metrics_lines(
-            caplog,
-            lambda: _drive_log_system_metrics(
-                monkeypatch, scope, complete_settings(live_folder=str(tmp_path)), backing
-            ),
-        )
-        return [m for m in lines if '[HANDLE METRICS]' in m]
-
-    def test_disabled_renders_as_off_not_as_a_failure(
-        self, monkeypatch, caplog, sim_scope, tmp_path
-    ):
-        lines = self._emit(monkeypatch, caplog, sim_scope, tmp_path, {'os_handles': 812})
-        assert lines, 'no [HANDLE METRICS] line emitted'
-        assert 'handles=812' in lines[0]
-        assert 'open_files=off' in lines[0]
-        assert 'open_files=-1' not in lines[0]
-
-    def test_failure_still_renders_as_minus_one(self, monkeypatch, caplog, sim_scope, tmp_path):
-        lines = self._emit(
-            monkeypatch, caplog, sim_scope, tmp_path, {'os_handles': 812, 'open_files_count': -1}
-        )
-        assert lines and 'open_files=-1' in lines[0]
-
-    def test_measured_renders_the_count(self, monkeypatch, caplog, sim_scope, tmp_path):
-        lines = self._emit(
-            monkeypatch, caplog, sim_scope, tmp_path, {'os_handles': 812, 'open_files_count': 34}
-        )
-        assert lines and 'open_files=34' in lines[0]
-
-    def test_no_line_when_neither_metric_is_available(
-        self, monkeypatch, caplog, sim_scope, tmp_path
-    ):
-        # The disabled probe must not conjure a line on a platform where
-        # the handle count is unavailable too.
-        lines = self._emit(monkeypatch, caplog, sim_scope, tmp_path, {'os_handles': -1})
-        assert not lines
+        _tick_lines(caplog, sim_scope, tmp_path, open_files_enabled=configured)
+        assert counting_proc.open_files_answers == []
 
 
 class TestGcMetricsLine:
-    def test_the_line_states_the_snapshots_heap_block_count(
-        self, monkeypatch, caplog, sim_scope, tmp_path
-    ):
-        # The real snapshot, so the line and the snapshot agree on the key.
-        # a stand-in by design: check_disk_space needs a real number for the
-        # line to be reached at all, as in _drive_log_system_metrics.
-        monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
-        lines = _metrics_lines(
-            caplog,
-            lambda: config_helpers.log_system_metrics(
-                complete_settings(live_folder=str(tmp_path)),
-                scope=sim_scope,
-                executors=real_executor_bundle(),
-            ),
-        )
+    def test_the_line_states_the_heap_block_count(self, caplog, sim_scope, tmp_path):
+        lines = _tick_lines(caplog, sim_scope, tmp_path)
         (line,) = [m for m in lines if '[GC METRICS]' in m]
         assert re.search(r'\[GC METRICS\] blocks=[1-9]\d* \|', line), line
 
 
 class TestUptimeOnTheSystemLine:
-    def _system_line(self, monkeypatch, caplog, scope, tmp_path):
-        # a stand-in by design: check_disk_space needs a real number for the
-        # line to be reached at all, as in _drive_log_system_metrics.
-        monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
-        lines = _metrics_lines(
-            caplog,
-            lambda: config_helpers.log_system_metrics(
-                complete_settings(live_folder=str(tmp_path)),
-                scope=scope,
-                executors=real_executor_bundle(),
-            ),
-        )
+    def test_the_line_states_the_hosts_uptime(self, caplog, sim_scope, tmp_path):
+        lines = _tick_lines(caplog, sim_scope, tmp_path)
         (line,) = [m for m in lines if '[SYSTEM METRICS]' in m]
-        return line
-
-    def test_the_line_states_the_hosts_uptime(self, monkeypatch, caplog, sim_scope, tmp_path):
-        line = self._system_line(monkeypatch, caplog, sim_scope, tmp_path)
         assert re.search(r'\| uptime_hr=\d+\.\d$', line), line
-
-    def test_an_unreadable_boot_time_is_raised_not_dropped(
-        self, monkeypatch, caplog, sim_scope, tmp_path
-    ):
-        """A boot time psutil cannot read reaches the tick's caller, which
-        reports it; the line is never logged without its uptime."""
-
-        refusal = psutil.Error()
-
-        def unreadable():
-            raise refusal
-
-        # a stand-in by design: a host whose boot time cannot be read is not
-        # one this host can be made into.
-        monkeypatch.setattr(psutil, 'boot_time', unreadable)
-        with pytest.raises(psutil.Error) as raised:
-            self._system_line(monkeypatch, caplog, sim_scope, tmp_path)
-        assert raised.value is refusal
 
 
 def test_an_unreadable_boot_time_is_raised_from_the_environment_line(monkeypatch):

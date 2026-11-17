@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 import time
-from collections import defaultdict
 
 import pytest
 
@@ -132,10 +131,6 @@ class TestEveryHostLogsIt:
         monkeypatch.setattr(imaging, 'delivered_rate', _kept)
 
         monkeypatch.setattr(app_context, 'ctx', None)
-        monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
-        monkeypatch.setattr(
-            config_helpers.common_utils, 'system_metrics', lambda **k: defaultdict(float)
-        )
         session.set_live_folder(str(tmp_path))
 
         caplog.set_level(logging.INFO, logger='LVP.metrics')

@@ -56,8 +56,8 @@ from _lumascope.modules.scheduler import Scheduler
 # whose being forgotten produced a 38-minute soak with a single snapshot
 # and no measurable handle-growth rate.
 #
-# The trade production accepts: metrics derived through _delta_rate
-# (io_read_mbps, io_write_mbps, page_faults_per_sec) become hour-averages
+# The trade production accepts: metrics derived through delta_rate
+# ([PROCESS IO]'s rates, [PAGE FAULTS]' rate) become hour-averages
 # off-bench. Engineering plugin / REST status endpoint can still call
 # snapshot_* on demand, and any caller can override via
 # settings.profiling.metrics_interval_s.

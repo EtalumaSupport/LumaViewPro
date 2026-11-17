@@ -7,12 +7,12 @@ rate math is deterministic on every platform -- macOS psutil only reports a
 single aggregate thread, so real per-thread enumeration can't be exercised
 here. Behaviors pinned:
 
-  * first call returns {} (no baseline yet) but records state
+  * the first call answers None (no baseline yet), the next one a reading
   * a thread with a CPU delta reports delta / interval as a percentage
   * OS thread ids map to Python thread names via native_id
   * same-named threads collapse into one summed label
-  * exited threads are evicted from the module-level state cache
-  * a sub-0.5s interval is skipped (divide-by-near-zero guard)
+  * a thread with no reading at the previous call is left out
+  * a sub-0.5s interval answers None (divide-by-near-zero guard)
 """
 
 import threading
@@ -42,17 +42,14 @@ class _FakeProc:
 
 
 @pytest.fixture(autouse=True)
-def _clear_state():
-    common_utils._thread_cpu_state.clear()
-    yield
-    common_utils._thread_cpu_state.clear()
+def _clear_state(monkeypatch):
+    monkeypatch.setattr(common_utils, '_thread_cpu_state', {'ts': None, 'cpu': {}})
 
 
-def test_first_call_returns_empty_but_records_baseline():
+def test_first_call_answers_none_and_the_next_a_reading():
     proc = _FakeProc([_FakePthread(100, 1.0, 0.0)])
-    assert common_utils.thread_cpu_percentages(proc=proc, now=0.0) == {}
-    # Baseline is cached so the next call can compute a delta.
-    assert 100 in common_utils._thread_cpu_state
+    assert common_utils.thread_cpu_percentages(proc=proc, now=0.0) is None
+    assert common_utils.thread_cpu_percentages(proc=proc, now=1.0) == {'tid_100': 0.0}
 
 
 def test_delta_over_interval_is_percentage():
@@ -104,22 +101,31 @@ def test_same_named_threads_collapse_into_one_label():
     assert result['dup'] == pytest.approx(60.0)
 
 
-def test_exited_threads_evicted_from_state():
-    proc1 = _FakeProc([_FakePthread(100, 1.0, 0.0), _FakePthread(200, 1.0, 0.0)])
-    common_utils.thread_cpu_percentages(proc=proc1, now=0.0)
-    assert 100 in common_utils._thread_cpu_state
-    assert 200 in common_utils._thread_cpu_state
-    # tid 200 is gone on the next sample -> evicted.
-    proc2 = _FakeProc([_FakePthread(100, 1.0, 0.0)])
-    common_utils.thread_cpu_percentages(proc=proc2, now=1.0)
-    assert 100 in common_utils._thread_cpu_state
-    assert 200 not in common_utils._thread_cpu_state
+def test_a_thread_with_no_reading_at_the_previous_call_is_left_out():
+    common_utils.thread_cpu_percentages(
+        proc=_FakeProc([_FakePthread(100, 1.0, 0.0), _FakePthread(200, 1.0, 0.0)]), now=0.0
+    )
+    # tid 200 exits, then its id returns: it has no reading over that interval.
+    common_utils.thread_cpu_percentages(proc=_FakeProc([_FakePthread(100, 1.0, 0.0)]), now=1.0)
+    result = common_utils.thread_cpu_percentages(
+        proc=_FakeProc([_FakePthread(100, 1.5, 0.0), _FakePthread(200, 9.0, 0.0)]), now=2.0
+    )
+    assert result == {'tid_100': pytest.approx(50.0)}
+
+
+def test_a_thread_whose_id_a_new_thread_took_is_left_out():
+    common_utils.thread_cpu_percentages(proc=_FakeProc([_FakePthread(100, 5.0, 0.0)]), now=0.0)
+    # Less CPU than the last reading: a new thread under the old id.
+    result = common_utils.thread_cpu_percentages(
+        proc=_FakeProc([_FakePthread(100, 0.2, 0.0)]), now=1.0
+    )
+    assert result == {}
 
 
 def test_subsecond_interval_skipped():
     proc1 = _FakeProc([_FakePthread(100, 1.0, 0.0)])
     common_utils.thread_cpu_percentages(proc=proc1, now=0.0)
     proc2 = _FakeProc([_FakePthread(100, 5.0, 0.0)])
-    # 0.2s interval is below the 0.5s guard -> no sample emitted.
+    # 0.2s interval is below the 0.5s guard -> no reading.
     result = common_utils.thread_cpu_percentages(proc=proc2, now=0.2)
-    assert result == {}
+    assert result is None

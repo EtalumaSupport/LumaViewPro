@@ -7,9 +7,12 @@ and scope objects without any Kivy/GUI dependencies. They can be
 used by LumaViewPro, the REST API, or standalone scripts.
 """
 
+import collections
 import copy
 import dataclasses
-import pathlib
+import gc
+import sys
+import threading
 import typing
 
 import psutil
@@ -499,187 +502,300 @@ class DisplayRates(typing.Protocol):
         ...
 
 
-def log_system_metrics(
-    settings: dict,
-    *,
-    scope: 'Lumascope',
-    executors: 'ExecutorBundle',
-    display: DisplayRates | None = None,
-) -> None:
-    """Log CPU, RAM, and disk metrics, the scope's camera delivery, the
-    session's executor queues and futures, and the display's rates when
-    the host has a display."""
-    path = settings['live_folder']
-    # Resolve relative paths and handle missing directories gracefully.
-    # On installed apps, live_folder may still be './capture' before
-    # microscope_settings resolves it to Documents.
+class _Tick(typing.NamedTuple):
+    """What one metrics tick reads besides the host itself."""
 
-    resolved = pathlib.Path(path).resolve()
-    if not resolved.exists():
-        try:
-            resolved.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            resolved = pathlib.Path.home()  # Fallback to home dir for metrics
-    path = str(resolved)
-    # `is True`, not truthiness: nothing validates the settings files, so a
-    # hand-edited value of the STRING "false" would otherwise read truthy and
-    # switch on a probe that can stall the process for hundreds of ms a tick.
-    # Any non-boolean reads as off, which is the safe direction.
-    collect_open_files = settings['profiling']['open_files_enabled'] is True
-    metrics = common_utils.system_metrics(path=path, collect_open_files=collect_open_files)
-    free_space = common_utils.check_disk_space(path=path)
+    live_folder: str
+    collect_open_files: bool
+    scope: 'Lumascope'
+    executors: 'ExecutorBundle'
+    display: DisplayRates | None
 
-    if free_space < 1024:  # Less than 1 GB
-        logger.error(
-            f'Low disk space: {free_space:.1f} MB remaining',
-        )
 
+class _Warned(str):
+    """A line one of whose fields failed its probe: written at WARNING, so
+    it reaches the errors log as a line that failed whole does."""
+
+
+_MIB = 1024 * 1024
+
+
+def _named(error: BaseException) -> str:
+    """The error's type, qualified by its module unless it is a builtin."""
+    kind = type(error)
+    if kind.__module__ == 'builtins':
+        return kind.__qualname__
+    return f'{kind.__module__}.{kind.__qualname__}'
+
+
+def _failed(value) -> bool:
+    return isinstance(value, (BaseException, common_utils.CounterFailed))
+
+
+def _field(value, spec: str, unit: str = '') -> str:
+    """One field of a line: its reading, ``NA`` where there is none yet or
+    this host lacks its counter, or ``unavailable`` where its probe failed."""
+    if value is None:
+        return f'NA{unit}'
+    if isinstance(value, common_utils.CounterFailed):
+        return f'unavailable: 0x{value.status:08x}'
+    if isinstance(value, BaseException):
+        return f'unavailable: {_named(value)}'
+    return f'{value:{spec}}{unit}'
+
+
+def _per(value, unit: float):
+    """A reading in ``unit``; anything but a number passes through."""
+    return value / unit if isinstance(value, (int, float)) else value
+
+
+def _read(probe: typing.Callable[[], object]) -> object:
+    """The probe's reading, or the error it raised: for a field whose
+    failure must not take its line's other fields with it."""
+    try:
+        return probe()
+    except Exception as failed:
+        return failed
+
+
+def _leveled(text: str, *values) -> str:
+    return _Warned(text) if any(_failed(v) for v in values) else text
+
+
+# Each line below answers its text, or None where its group does not apply
+# on this host or this tick; a raise is the line's failure.
+
+
+def _system_line(tick: _Tick) -> str:
     # System uptime per-tick -- pairs with [ENV METRICS] boot timestamp
     # logged once at startup. Lets post-hoc log analysis tag each tick
     # with "system has been up for N hours" to filter out runs
     # contaminated by long-uptime memory exhaustion.
+    cpu = common_utils.system_cpu_percent()
+    vmem = psutil.virtual_memory()
     uptime_hr = common_utils.host_boot().uptime_hr
-
-    metrics_logger.info(
-        f'[SYSTEM METRICS] CPU Usage: {metrics["cpu_percent_total"]:.1f}% | '
-        f'RAM Available: {metrics["ram_available_gb"]:.1f} GB | '
-        f'RAM Usage: {metrics["ram_percent_total"]:.1f}% | uptime_hr={uptime_hr:.1f}',
-    )
-    metrics_logger.info(
-        f'[DISK METRICS] Disk Free: {metrics["disk_free_gb"]:.1f} GB | '
-        f'Disk Usage: {metrics["disk_used_percent"]:.1f}%',
-    )
-    metrics_logger.info(
-        f'[PROCESS METRICS] Process CPU Usage: {metrics["cpu_percent_python"]:.1f}% | '
-        f'Process RAM Usage: {metrics["ram_used_python_mb"]:.1f} MB, '
-        f'{metrics["ram_used_python_percent"]:.1f}% | '
-        f'Private: {metrics.get("ram_private_mb", -1):.1f} MB',
+    return (
+        f'CPU Usage: {_field(cpu, ".1f", "%")} | '
+        f'RAM Available: {vmem.available / 1e9:.1f} GB | '
+        f'RAM Usage: {vmem.percent:.1f}% | uptime_hr={uptime_hr:.1f}'
     )
 
-    extra_disks = common_utils.get_extra_disks_info(exclude_path=path)
-    if extra_disks:
-        metrics_logger.info(f'[EXTRA DISKS] {extra_disks}')
 
-    # --- Long-run stability metrics ---
-    # Each block is grep-able and routed through metrics_logger to
-    # metrics.log so errors.log stays signal-only. Each count levels off
-    # in the first minutes of a run (threads within 30 s); a leak is a
-    # steady climb across successive hourly blocks.
+def _disk_line(tick: _Tick) -> str:
+    # The live folder as stored: the tick never creates it, and a folder it
+    # cannot read fails this line rather than reporting another volume.
+    disk = psutil.disk_usage(tick.live_folder)
+    free_mb = disk.free / _MIB
+    if free_mb < 1024:  # Less than 1 GB
+        logger.error(
+            f'Low disk space: {free_mb:.1f} MB remaining',
+        )
+    return f'Disk Free: {disk.free / 1024**3:.1f} GB | Disk Usage: {disk.percent:.1f}%'
 
+
+def _process_line(tick: _Tick) -> str:
+    proc = common_utils.self_process()
+    cpu = common_utils.process_cpu_percent()
+    mem = proc.memory_info()
+    # Private memory bytes (Windows-specific; falls back to RSS).
+    # Working Set / RSS underreports because Windows can trim it while the
+    # process still holds committed virtual memory. Private bytes is what
+    # Task Manager calls "Memory (private working set)" and is the actual
+    # leak indicator.
+    private = getattr(mem, 'private', mem.rss)
+    return (
+        f'Process CPU Usage: {_field(cpu, ".1f", "%")} | '
+        f'Process RAM Usage: {mem.rss / 1e6:.1f} MB, '
+        f'{proc.memory_percent():.1f}% | '
+        f'Private: {private / 1e6:.1f} MB'
+    )
+
+
+def _extra_disks_line(tick: _Tick) -> str | None:
+    return common_utils.get_extra_disks_info(exclude_path=tick.live_folder)
+
+
+# --- Long-run stability metrics ---
+# Each line is grep-able and routed through metrics_logger to
+# metrics.log so errors.log stays signal-only. Each count levels off
+# in the first minutes of a run (threads within 30 s); a leak is a
+# steady climb across successive hourly lines.
+
+
+def _gdi_line(tick: _Tick) -> str | None:
     # GDI / USER objects (Windows only). The #1 cause of "Windows feels
     # slow after 24 hours" -- process limit is 10k, desktop degrades at ~5k.
-    gdi = metrics.get('gdi_objects', -1)
-    if gdi >= 0:
-        metrics_logger.info(
-            f'[GDI METRICS] gdi={gdi} | user={metrics.get("user_objects", -1)}',
-        )
+    counts = common_utils.gui_resources()
+    if counts is None:
+        return None
+    gdi, user = counts
+    return f'gdi={gdi} | user={user}'
 
-    # OS handles + open files count. Watch for steady upward trend.
-    # Three states, three renderings: a count, -1 for a probe that ran and
-    # failed, and "off" for one nobody asked to run. Collapsing the last two
-    # onto -1 would make a deliberate configuration read as a malfunction in
-    # every log a reader ever opens.
-    handles = metrics.get('os_handles', -1)
-    open_files_measured = 'open_files_count' in metrics
-    open_files = metrics['open_files_count'] if open_files_measured else -1
-    if handles >= 0 or open_files >= 0:
-        metrics_logger.info(
-            f'[HANDLE METRICS] handles={handles} | '
-            f'open_files={open_files if open_files_measured else "off"}',
-        )
 
-    # Thread count. Should plateau ~20-25; growth means executor leak.
-    thread_count = metrics.get('thread_count', -1)
-    if thread_count >= 0:
-        thread_names = metrics.get('thread_names', [])
-        # Compact name summary: dedupe by stem (e.g. "ThreadPoolExecutor-3_4")
-        # so 8 executor pool threads collapse to one entry with count.
-        from collections import Counter
+def _handle_line(tick: _Tick) -> str:
+    # OS handles (Windows) / file descriptors (POSIX), and the open files.
+    # Windows caps process handles around 16M but typical apps run
+    # 500-2000. A steady climb of a few handles per minute is a leak
+    # of file/socket/thread handles. POSIX fds equivalent.
+    #
+    # The open-files count is opt-in, off unless a bench operator asks.
+    # It tells you which files are leaked when handles climb, but it costs
+    # one os.stat per open handle -- so it scales with the very quantity
+    # it exists to watch, and is most expensive during the leak it is
+    # meant to catch. On Windows it also enumerates through a
+    # C-extension call that holds the GIL, stalling every thread in the
+    # process, and a handle whose name query times out is silently
+    # skipped -- so the count reads LOW exactly when it matters. The
+    # flat-cost handle count is the trend indicator; this is the
+    # follow-up you switch on deliberately.
+    #
+    # Three states, three renderings: a count, unavailable for a probe that
+    # ran and failed, and "off" for one nobody asked to run. Each field
+    # fails alone, so neither reading hides the other.
+    proc = common_utils.self_process()
+    count = proc.num_handles if hasattr(proc, 'num_handles') else proc.num_fds
+    handles = _read(count)
+    if tick.collect_open_files:
+        open_files = _read(lambda: len(proc.open_files()))
+        open_files_field = _field(open_files, 'd')
+    else:
+        open_files = None
+        open_files_field = 'off'
+    return _leveled(
+        f'handles={_field(handles, "d")} | open_files={open_files_field}', handles, open_files
+    )
 
-        name_summary = Counter()
-        for n in thread_names:
-            stem = n.split('-')[0] if '-' in n else n
-            name_summary[stem] += 1
-        names_str = ', '.join(f'{k}={v}' for k, v in sorted(name_summary.items()))
-        metrics_logger.info(
-            f'[THREAD METRICS] count={thread_count} | {names_str}',
-        )
 
+def _thread_line(tick: _Tick) -> str:
+    # Thread count. Should plateau ~20-25 (8 executors * 2 threads +
+    # camera + main + a few Kivy); growth means an executor/handler is
+    # spawning without joining.
+    count = threading.active_count()
+    # Compact name summary: dedupe by stem (e.g. "ThreadPoolExecutor-3_4")
+    # so 8 executor pool threads collapse to one entry with count.
+    name_summary = collections.Counter(
+        t.name.split('-')[0] if '-' in t.name else t.name for t in threading.enumerate()
+    )
+    names_str = ', '.join(f'{k}={v}' for k, v in sorted(name_summary.items()))
+    return f'count={count} | {names_str}'
+
+
+def _thread_cpu_line(tick: _Tick) -> str | None:
     # Per-thread CPU over the interval -- which thread is hot (protocol vs
     # scope_display vs camera). Pairs with [THREAD METRICS] counts above; same
-    # names. Empty on the first tick (needs a baseline). Percentages are
-    # per-core (100 = one full core) so total tracks [PROCESS METRICS] CPU.
-    try:
-        thread_cpu = common_utils.thread_cpu_percentages()
-    except Exception:
-        thread_cpu = {}
-    if thread_cpu:
-        ranked = sorted(thread_cpu.items(), key=lambda kv: kv[1], reverse=True)
-        hot = ' '.join(f'{name}={pct:.1f}%' for name, pct in ranked if pct >= 0.1)
-        total = sum(thread_cpu.values())
-        metrics_logger.info(
-            f'[THREAD CPU] total={total:.1f}% | {hot if hot else "(all idle)"}',
-        )
+    # names. Absent until there is a baseline, and on a tick where no thread
+    # had one. Percentages are per-core (100 = one full core) so total tracks
+    # [PROCESS METRICS] CPU.
+    thread_cpu = common_utils.thread_cpu_percentages()
+    if not thread_cpu:
+        return None
+    ranked = sorted(thread_cpu.items(), key=lambda kv: kv[1], reverse=True)
+    hot = ' '.join(f'{name}={pct:.1f}%' for name, pct in ranked if pct >= 0.1)
+    total = sum(thread_cpu.values())
+    return f'total={total:.1f}% | {hot if hot else "(all idle)"}'
 
+
+def _gpu_line(tick: _Tick) -> str | None:
     # GPU utilization + memory (Windows, vendor-agnostic via PDH GPU Engine
-    # counters -- AMD / Intel / NVIDIA alike). Empty on non-Windows or if the
-    # counters are unavailable. 3D is the OpenGL/Kivy render engine; shared
-    # memory is the meaningful figure on an integrated GPU (no dedicated VRAM).
-    try:
-        gpu = common_utils.query_gpu_metrics()
-    except Exception:
-        gpu = {}
-    if gpu:
-        metrics_logger.info(
-            f'[GPU METRICS] util={gpu.get("gpu_util_total_percent", 0.0):.1f}% '
-            f'(3d={gpu.get("gpu_util_3d_percent", 0.0):.1f}%) | '
-            f'shared_mem={gpu.get("gpu_shared_mem_mb", 0.0):.0f} MB | '
-            f'dedicated_mem={gpu.get("gpu_dedicated_mem_mb", 0.0):.0f} MB',
-        )
+    # counters -- AMD / Intel / NVIDIA alike). 3D is the OpenGL/Kivy render
+    # engine; shared memory is the meaningful figure on an integrated GPU
+    # (no dedicated VRAM).
+    gpu = common_utils.query_gpu_metrics()
+    if gpu is None:
+        return None
+    return _leveled(
+        f'util={_field(gpu.util_total_percent, ".1f", "%")} '
+        f'(3d={_field(gpu.util_3d_percent, ".1f", "%")}) | '
+        f'shared_mem={_field(gpu.shared_mem_mb, ".0f", " MB")} | '
+        f'dedicated_mem={_field(gpu.dedicated_mem_mb, ".0f", " MB")}',
+        *gpu,
+    )
 
-    # Python heap blocks. Steady growth = closures or observers holding refs.
-    allocated_blocks = metrics.get('allocated_blocks', -1)
-    if allocated_blocks >= 0:
-        metrics_logger.info(
-            f'[GC METRICS] blocks={allocated_blocks} | '
-            f'gen0={metrics.get("gc_gen0_collections", -1)} '
-            f'gen1={metrics.get("gc_gen1_collections", -1)} '
-            f'gen2={metrics.get("gc_gen2_collections", -1)}',
-        )
 
+def _gc_line(tick: _Tick) -> str:
+    # Python heap (catches reference-cycle / closure-capture leaks).
+    # The count is of the memory blocks Python's allocator holds, which it
+    # keeps as a running total. Not len(gc.get_objects()): that list hands
+    # this thread every object the collector tracks, a tuple another thread
+    # is still building among them, and that thread's tuple() then raises
+    # SystemError -- a protocol run ended that way.
+    # Steady linear growth indicates accumulation, typically from
+    # observers/callbacks holding refs; the growth-rate thresholds are
+    # the allocated_blocks_growth_per_hr row in PERFORMANCE_BUDGETS.md.
+    blocks = sys.getallocatedblocks()
+    stats = gc.get_stats()
+    return (
+        f'blocks={blocks} | '
+        f'gen0={stats[0]["collections"]} '
+        f'gen1={stats[1]["collections"]} '
+        f'gen2={stats[2]["collections"]}'
+    )
+
+
+def _swap_line(tick: _Tick) -> str:
     # Swap pressure. "RAM looks low" doesn't catch page-file thrashing.
-    swap_pct = metrics.get('swap_percent', -1)
-    if swap_pct >= 0:
-        metrics_logger.info(
-            f'[SWAP METRICS] used={metrics.get("swap_used_gb", -1):.1f} GB ({swap_pct:.1f}%)',
-        )
+    swap = psutil.swap_memory()
+    return f'used={swap.used / 1e9:.1f} GB ({swap.percent:.1f}%)'
 
+
+def _process_io_line(tick: _Tick) -> str | None:
     # Per-process I/O bytes (cumulative + per-second rates).
-    # Cumulative distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
+    # Cumulative distinguishes "we wrote 50 GB this hour" from "Windows
+    # Defender did"; both counters reset only when the process restarts.
     # Rates give the steady-state save rate to compare against
     # camera_data_rate in [BUFFER METRICS] and Defender's read rate.
-    io_read = metrics.get('io_read_mb', -1)
-    io_write = metrics.get('io_write_mb', -1)
-    io_read_rate = metrics.get('io_read_mbps', -1)
-    io_write_rate = metrics.get('io_write_mbps', -1)
-    if io_read >= 0 or io_write >= 0:
-        rate_str = ''
-        if io_read_rate >= 0 or io_write_rate >= 0:
-            rate_str = f' | read_rate={io_read_rate:.2f} MB/s | write_rate={io_write_rate:.2f} MB/s'
-        metrics_logger.info(
-            f'[PROCESS IO] read={io_read:.1f} MB | write={io_write:.1f} MB{rate_str}',
-        )
+    # The rates are averages over the gap since the previous tick, so they
+    # mean different things at different cadences: at the 60 s engineering
+    # interval they read as MB/sec of TIFF writes; at the hourly production
+    # interval they are hour-averages and will flatten any burst.
+    proc = common_utils.self_process()
+    if not hasattr(proc, 'io_counters'):  # psutil has none on macOS
+        return None
+    io = proc.io_counters()
+    read_rate = _per(common_utils.delta_rate('proc_io_read', io.read_bytes), 1e6)
+    write_rate = _per(common_utils.delta_rate('proc_io_write', io.write_bytes), 1e6)
+    return (
+        f'read={io.read_bytes / 1e6:.1f} MB | write={io.write_bytes / 1e6:.1f} MB | '
+        f'read_rate={_field(read_rate, ".2f", " MB/s")} | '
+        f'write_rate={_field(write_rate, ".2f", " MB/s")}'
+    )
 
+
+# The memory record's page-fault count, by its name on each platform:
+# Windows, then macOS. Linux's record has none.
+_PAGE_FAULT_FIELDS = ('num_page_faults', 'pfaults')
+
+
+def _page_fault_line(tick: _Tick) -> str | None:
     # Page-fault rate.
-    # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging).
-    # If pf/sec stays low while standby grows, slowdown is not real paging.
-    pf_total = metrics.get('page_faults_total')
-    pf_rate = metrics.get('page_faults_per_sec')
-    if pf_total is not None or pf_rate is not None:
-        metrics_logger.info(
-            f'[PAGE FAULTS] total={pf_total} | rate={pf_rate:.1f}/s',
-        )
+    # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging
+    # working set in/out). If pf/sec stays low while standby grows, the
+    # slowdown is allocator/standby-cache, not real paging. If pf/sec
+    # spikes during slow state, real paging.
+    # That threshold only means anything at the sub-minute engineering
+    # cadence: averaged over an hour, a paging storm lasting minutes
+    # disappears into the mean.
+    mem = common_utils.self_process().memory_info()
+    field = next((f for f in _PAGE_FAULT_FIELDS if f in mem._fields), None)
+    if field is None:
+        return None
+    total = getattr(mem, field)
+    rate = common_utils.delta_rate('page_faults', total)
+    return f'total={total} | rate={_field(rate, ".1f", "/s")}'
 
+
+def _summed(parts: list):
+    """The parts' sum: a part's failure where one failed, None where one
+    has no reading."""
+    failed = next((p for p in parts if _failed(p)), None)
+    if failed is not None:
+        return failed
+    if any(p is None for p in parts):
+        return None
+    return sum(parts)
+
+
+def _pdh_line(tick: _Tick) -> str | None:
     # --- Windows PDH counters ---
     # Standby cache + nonpaged pool are the specific signals for
     # diagnosing buffer-churn / slow-onset memory growth on Windows.
@@ -690,130 +806,196 @@ def log_system_metrics(
     #   - Nonpaged pool growing -> kernel-side leak (Pylon DMA, drivers).
     #   - System cache (\Memory\Cache Bytes) is the file-system cache --
     #     overlaps with standby on Windows; track both for cross-check.
-    pdh_keys = [
-        'pdh_standby_normal_bytes',
-        'pdh_standby_reserve_bytes',
-        'pdh_standby_core_bytes',
-        'pdh_pool_nonpaged_bytes',
-        'pdh_pool_paged_bytes',
-        'pdh_system_cache_bytes',
-        'pdh_modified_page_bytes',
-        'pdh_free_zero_bytes',
-        'pdh_available_bytes',
-        'pdh_commit_bytes',
-        'pdh_commit_limit_bytes',
-    ]
-    if any(k in metrics for k in pdh_keys):
+    pdh = common_utils.query_windows_perf_counters()
+    if pdh is None:
+        return None
 
-        def _mb(key):
-            v = metrics.get(key)
-            return f'{v / (1024 * 1024):.0f}' if v is not None else 'NA'
+    def mb(key: str, unit: str = '') -> str:
+        return _field(_per(pdh.get(key), _MIB), '.0f', unit)
 
-        standby_total_mb = (
-            metrics.get('pdh_standby_normal_bytes', 0)
-            + metrics.get('pdh_standby_reserve_bytes', 0)
-            + metrics.get('pdh_standby_core_bytes', 0)
-        ) / (1024 * 1024)
-        metrics_logger.info(
-            f'[PDH METRICS] standby_total={standby_total_mb:.0f} MB '
-            f'(normal={_mb("pdh_standby_normal_bytes")} '
-            f'reserve={_mb("pdh_standby_reserve_bytes")} '
-            f'core={_mb("pdh_standby_core_bytes")}) | '
-            f'nonpaged_pool={_mb("pdh_pool_nonpaged_bytes")} MB | '
-            f'paged_pool={_mb("pdh_pool_paged_bytes")} MB | '
-            f'sys_cache={_mb("pdh_system_cache_bytes")} MB | '
-            f'modified={_mb("pdh_modified_page_bytes")} MB | '
-            f'free_zero={_mb("pdh_free_zero_bytes")} MB | '
-            f'available={_mb("pdh_available_bytes")} MB | '
-            f'commit={_mb("pdh_commit_bytes")}/{_mb("pdh_commit_limit_bytes")} MB',
-        )
+    standby_total = _summed(
+        [
+            pdh.get(k)
+            for k in ('standby_normal_bytes', 'standby_reserve_bytes', 'standby_core_bytes')
+        ]
+    )
+    return _leveled(
+        f'standby_total={_field(_per(standby_total, _MIB), ".0f", " MB")} '
+        f'(normal={mb("standby_normal_bytes")} '
+        f'reserve={mb("standby_reserve_bytes")} '
+        f'core={mb("standby_core_bytes")}) | '
+        f'nonpaged_pool={mb("pool_nonpaged_bytes", " MB")} | '
+        f'paged_pool={mb("pool_paged_bytes", " MB")} | '
+        f'sys_cache={mb("system_cache_bytes", " MB")} | '
+        f'modified={mb("modified_page_bytes", " MB")} | '
+        f'free_zero={mb("free_zero_bytes", " MB")} | '
+        f'available={mb("available_bytes", " MB")} | '
+        f'commit={mb("commit_bytes")}/{mb("commit_limit_bytes", " MB")}',
+        *pdh.values(),
+    )
 
+
+def _buffer_line(tick: _Tick) -> str:
     # --- Buffer-churn signals from the live capture path ---
     # What the camera delivered over the last second and the bytes it put on
     # the link, from the imaging API in every host. Each frame currently
     # allocates ~3 fresh OS-level buffers (camera copy, 12->8 LUT, tobytes()).
     # The standby-cache growth in [PDH METRICS] should track the data rate
     # roughly. The display's rate is the GUI's, logged only where one exists.
-    delivered = scope.imaging.delivered_rate()
+    delivered = tick.scope.imaging.delivered_rate()
     wire_frame_bytes = (
         delivered.bytes_per_s / delivered.frame_rate_fps if delivered.frame_rate_fps else 0.0
     )
-    display_field = f'display_fps={display.display_fps():.1f} | ' if display is not None else ''
-    metrics_logger.info(
-        f'[BUFFER METRICS] capture_fps={delivered.frame_rate_fps:.1f} | '
+    display_field = (
+        f'display_fps={tick.display.display_fps():.1f} | ' if tick.display is not None else ''
+    )
+    return (
+        f'capture_fps={delivered.frame_rate_fps:.1f} | '
         f'{display_field}'
         f'camera_data_rate={delivered.megabytes_per_s:.1f} MB/s | '
-        f'frame_size={wire_frame_bytes / 1000:.0f} KB',
+        f'frame_size={wire_frame_bytes / 1000:.0f} KB'
     )
-    if display is not None:
-        # Frame-interval percentiles -- consumer-stall detection.
-        # Spikes in p99/max correlate with main-thread congestion
-        # or worker-thread blocks; tracking these surfaces UI lock
-        # contention and IO scheduling issues.
-        pcts = display.frame_interval_percentiles_ms()
-        if pcts:
-            metrics_logger.info(
-                f'[FRAME INTERVAL] '
-                f'p50={pcts["p50"]:.1f} ms | '
-                f'p95={pcts["p95"]:.1f} ms | '
-                f'p99={pcts["p99"]:.1f} ms | '
-                f'max={pcts["max"]:.1f} ms | '
-                f'n={pcts["n"]}',
-            )
 
+
+def _frame_interval_line(tick: _Tick) -> str | None:
+    # Frame-interval percentiles -- consumer-stall detection.
+    # Spikes in p99/max correlate with main-thread congestion
+    # or worker-thread blocks; tracking these surfaces UI lock
+    # contention and IO scheduling issues.
+    if tick.display is None:
+        return None
+    pcts = tick.display.frame_interval_percentiles_ms()
+    if not pcts:
+        return None
+    return (
+        f'p50={pcts["p50"]:.1f} ms | '
+        f'p95={pcts["p95"]:.1f} ms | '
+        f'p99={pcts["p99"]:.1f} ms | '
+        f'max={pcts["max"]:.1f} ms | '
+        f'n={pcts["n"]}'
+    )
+
+
+def _defender_line(tick: _Tick) -> str | None:
     # --- Defender (MsMpEng.exe) metrics ---
     # Direct signal for the "Defender memory-maps every TIFF write"
-    # interaction. If defender_io_read_mbps tracks our io_write_mbps
-    # x ~1, Defender is the slowdown source. defender_private_mb
-    # growing alongside standby_total_mb is also implicating.
-    defender_private = metrics.get('defender_private_mb')
-    if defender_private is not None:
-        defender_rss = metrics.get('defender_rss_mb', -1)
-        defender_read = metrics.get('defender_io_read_mb_total', -1)
-        defender_read_rate = metrics.get('defender_io_read_mbps', -1)
-        metrics_logger.info(
-            f'[DEFENDER METRICS] private={defender_private:.0f} MB | '
-            f'rss={defender_rss:.0f} MB | '
-            f'io_read_total={defender_read:.0f} MB | '
-            f'io_read_rate={defender_read_rate:.2f} MB/s',
-        )
+    # interaction. If Defender's io_read_rate tracks our [PROCESS IO]
+    # write_rate x ~1, Defender is the slowdown source. Its private
+    # memory growing alongside [PDH METRICS] standby_total is also
+    # implicating.
+    defender = common_utils.query_defender_metrics()
+    if defender is None:
+        return None
+    return _leveled(
+        f'private={defender.private_mb:.0f} MB | '
+        f'rss={defender.rss_mb:.0f} MB | '
+        f'io_read_total={_field(defender.io_read_total_mb, ".0f", " MB")} | '
+        f'io_read_rate={_field(defender.io_read_mbps, ".2f", " MB/s")}',
+        defender.io_read_total_mb,
+        defender.io_read_mbps,
+    )
 
+
+def _gc_pressure_line(tick: _Tick) -> str:
     # --- GC pressure ---
-    # gc_count = current uncollected objects per generation (depth).
-    # gc_genN_collections (existing [GC METRICS] block) = collections-since-start
-    # (rate). Both together separate "lots of churn but clean steady state"
-    # from "real generation-2 leak."
-    g0 = metrics.get('gc_count_gen0')
-    g1 = metrics.get('gc_count_gen1')
-    g2 = metrics.get('gc_count_gen2')
-    if g0 is not None and g1 is not None and g2 is not None:
-        metrics_logger.info(
-            f'[GC PRESSURE] gen0_depth={g0} | gen1_depth={g1} | gen2_depth={g2}',
-        )
+    # gc.get_count() = current uncollected objects per generation (depth).
+    # [GC METRICS]' genN = collections-since-start (rate). Both together
+    # separate "lots of churn but clean steady state" from "real
+    # generation-2 leak."
+    g0, g1, g2 = gc.get_count()
+    return f'gen0_depth={g0} | gen1_depth={g1} | gen2_depth={g2}'
 
+
+def _queue_line(tick: _Tick) -> str:
     # --- Queue depth ---
     # Monotonic queue growth = save can't keep up, frames pile up
     # retaining 16-48 MB each. Direct mechanism for slow-onset
     # multi-hour memory growth on the save path. The session's own
     # executors, so every host logs it.
-    states = {**executors.snapshot(), **executors.thread_states()}
-    metrics_logger.info(
-        f'[QUEUE METRICS] {" | ".join(f"{name}={value}" for name, value in states.items())}',
-    )
+    states = {**tick.executors.snapshot(), **tick.executors.thread_states()}
+    return ' | '.join(f'{name}={value}' for name, value in states.items())
 
+
+def _futures_line(tick: _Tick) -> str:
     # Per-executor caller_futures alloc/pop/live counters. Sustained
     # drift between allocs and pops means Future entries are
     # accumulating in caller_futures; on Windows each orphan Future
     # leaves a Lock/Semaphore kernel handle open. Steady-state
     # invariant: alloc == pop within a few per cadence (each
     # in-flight task is one of the few "live" entries).
-    futures_parts = []
-    for name, executor in executors.queued_executors():
+    parts = []
+    for name, executor in tick.executors.queued_executors():
         allocs, pops, live = executor.caller_futures_stats()
-        futures_parts.append(f'{name}: alloc={allocs} pop={pops} live={live}')
-    metrics_logger.info(
-        f'[FUTURES METRICS] {" | ".join(futures_parts)}',
+        parts.append(f'{name}: alloc={allocs} pop={pops} live={live}')
+    return ' | '.join(parts)
+
+
+# The tick's lines, in the order they are written, each under the tag a
+# reader greps.
+_METRICS_LINES: tuple[tuple[str, typing.Callable[[_Tick], str | None]], ...] = (
+    ('SYSTEM METRICS', _system_line),
+    ('DISK METRICS', _disk_line),
+    ('PROCESS METRICS', _process_line),
+    ('EXTRA DISKS', _extra_disks_line),
+    ('GDI METRICS', _gdi_line),
+    ('HANDLE METRICS', _handle_line),
+    ('THREAD METRICS', _thread_line),
+    ('THREAD CPU', _thread_cpu_line),
+    ('GPU METRICS', _gpu_line),
+    ('GC METRICS', _gc_line),
+    ('SWAP METRICS', _swap_line),
+    ('PROCESS IO', _process_io_line),
+    ('PAGE FAULTS', _page_fault_line),
+    ('PDH METRICS', _pdh_line),
+    ('BUFFER METRICS', _buffer_line),
+    ('FRAME INTERVAL', _frame_interval_line),
+    ('DEFENDER METRICS', _defender_line),
+    ('GC PRESSURE', _gc_pressure_line),
+    ('QUEUE METRICS', _queue_line),
+    ('FUTURES METRICS', _futures_line),
+)
+
+
+def log_system_metrics(
+    settings: dict,
+    *,
+    scope: 'Lumascope',
+    executors: 'ExecutorBundle',
+    display: DisplayRates | None = None,
+) -> None:
+    """Log CPU, RAM, and disk metrics, the scope's camera delivery, the
+    session's executor queues and futures, and the display's rates when
+    the host has a display.
+
+    Each line is written on its own: a line whose probe fails is written
+    as ``[<TAG>] unavailable: <type>: <message>`` at WARNING, and every
+    other line is still written. A line whose group does not apply on
+    this host is left out.
+    """
+    # `is True`, not truthiness: nothing validates the settings files, so a
+    # hand-edited value of the STRING "false" would otherwise read truthy and
+    # switch on a probe that can stall the process for hundreds of ms a tick.
+    # Any non-boolean reads as off, which is the safe direction.
+    tick = _Tick(
+        live_folder=settings['live_folder'],
+        collect_open_files=settings['profiling']['open_files_enabled'] is True,
+        scope=scope,
+        executors=executors,
+        display=display,
     )
+    for tag, line in _METRICS_LINES:
+        try:
+            text = line(tick)
+        except Exception as failed:
+            message = str(failed)
+            metrics_logger.warning(
+                f'[{tag}] unavailable: {_named(failed)}' + (f': {message}' if message else '')
+            )
+            continue
+        if text is None:
+            continue
+        write = metrics_logger.warning if isinstance(text, _Warned) else metrics_logger.info
+        write(f'[{tag}] {text}')
 
 
 # ---------------------------------------------------------------------------

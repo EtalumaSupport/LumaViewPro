@@ -4,13 +4,11 @@ import csv
 import ctypes
 import dataclasses
 import enum
-import gc
 import numbers
 import os
 import pathlib
 import platform
 import re
-import sys
 import threading
 import time as _time
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
@@ -697,6 +695,51 @@ def max_decimal_precision(parameter: str) -> int:
 
 _IS_WINDOWS = platform.system() == 'Windows'
 
+# The PDH statuses whose value is usable: VALID_DATA and NEW_DATA.
+_PDH_VALID_STATUSES = (0, 1)
+
+
+class CounterFailed(NamedTuple):
+    """A performance counter the query added at its start whose read then
+    failed, with the PDH status the read returned."""
+
+    status: int
+
+
+class _PdhQueryOnce:
+    """A PDH query opened on its first call and kept for every later one.
+
+    A start that fails is kept and raised again by every later call, so a
+    failed query reads as failed on each tick rather than once, and costs
+    no retry.
+    """
+
+    _PDH_FMT_DOUBLE = 0x00000200
+    _ERROR_SUCCESS = 0
+
+    def __init__(self):
+        self._initialized = False
+        self._init_error: Exception | None = None
+        self._query = None
+
+    def _collected(self):
+        """Start the query if it has not started, then collect it.
+
+        Raises:
+            OSError: the start or the collect failed.
+        """
+        if self._init_error is not None:
+            raise self._init_error.with_traceback(None)
+        if not self._initialized:
+            try:
+                self._init()
+            except Exception as failed:
+                self._init_error = failed
+                raise
+        ret = self._PdhCollectQueryData(self._query)
+        if ret != self._ERROR_SUCCESS:
+            raise OSError(f'PdhCollectQueryData failed: 0x{ret & 0xFFFFFFFF:08x}')
+
 
 # ---------------------------------------------------------------------------
 # Windows perf-counter query (PDH) -- TEMPORARY INSTRUMENTATION (2026-04-30)
@@ -706,8 +749,8 @@ _IS_WINDOWS = platform.system() == 'Windows'
 # investigation. These counters are NOT in psutil. The PDH layer ("\Memory\..."
 # perf-counter paths) is the same data PowerShell `Get-Counter` returns.
 #
-# Lifetime: this entire `_PdhCountersOnce` helper plus the PDH fields injected
-# into `system_metrics()` are temporary. Remove once the buffer-reuse fixes
+# Lifetime: this entire `_PdhCountersOnce` helper plus the [PDH METRICS]
+# line built from it are temporary. Remove once the buffer-reuse fixes
 # land and the standby-cache trend is verified flat.
 #
 # Performance: PdhCollectQueryData is one syscall per counter, ~1 ms total.
@@ -715,12 +758,11 @@ _IS_WINDOWS = platform.system() == 'Windows'
 # ---------------------------------------------------------------------------
 
 
-class _PdhCountersOnce:
+class _PdhCountersOnce(_PdhQueryOnce):
     """Lazy-initialized PDH query for a fixed set of counters.
 
     Opens the PDH query on first call, caches the counter handles, and
-    re-collects on each subsequent call. On any failure, marks itself
-    disabled so subsequent calls return {} without retry overhead.
+    re-collects on each subsequent call.
     """
 
     # Counter paths -- match `Get-Counter` PowerShell paths exactly.
@@ -740,100 +782,94 @@ class _PdhCountersOnce:
         'commit_limit_bytes': r'\Memory\Commit Limit',
     }
 
-    # PDH return codes / format flags (winperf.h)
-    _PDH_FMT_DOUBLE = 0x00000200
-    _ERROR_SUCCESS = 0
-
     def __init__(self):
-        self._initialized = False
-        self._disabled = False
-        self._query = None
+        super().__init__()
         self._handles = {}  # name -> counter handle
 
     def _init(self):
-        try:
-            pdh = ctypes.WinDLL('pdh')
-            self._pdh = pdh
+        pdh = ctypes.WinDLL('pdh')
+        self._pdh = pdh
 
-            self._PdhOpenQueryW = pdh.PdhOpenQueryW
-            self._PdhAddCounterW = pdh.PdhAddCounterW
-            self._PdhCollectQueryData = pdh.PdhCollectQueryData
-            self._PdhGetFormattedCounterValue = pdh.PdhGetFormattedCounterValue
+        self._PdhOpenQueryW = pdh.PdhOpenQueryW
+        self._PdhAddCounterW = pdh.PdhAddCounterW
+        self._PdhCollectQueryData = pdh.PdhCollectQueryData
+        self._PdhGetFormattedCounterValue = pdh.PdhGetFormattedCounterValue
 
-            class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
-                _fields_ = [
-                    ('CStatus', ctypes.c_ulong),
-                    ('doubleValue', ctypes.c_double),
-                ]
+        class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
+            _fields_ = [
+                ('CStatus', ctypes.c_ulong),
+                ('doubleValue', ctypes.c_double),
+            ]
 
-            self._PDH_FMT_COUNTERVALUE = _PDH_FMT_COUNTERVALUE
+        self._PDH_FMT_COUNTERVALUE = _PDH_FMT_COUNTERVALUE
 
-            query = ctypes.c_void_p()
-            ret = self._PdhOpenQueryW(None, 0, ctypes.byref(query))
+        query = ctypes.c_void_p()
+        ret = self._PdhOpenQueryW(None, 0, ctypes.byref(query))
+        if ret != self._ERROR_SUCCESS:
+            raise OSError(f'PdhOpenQueryW failed: 0x{ret & 0xFFFFFFFF:08x}')
+        self._query = query
+
+        for name, path in self._COUNTERS.items():
+            handle = ctypes.c_void_p()
+            ret = self._PdhAddCounterW(query, path, 0, ctypes.byref(handle))
             if ret != self._ERROR_SUCCESS:
-                raise OSError(f'PdhOpenQueryW failed: 0x{ret:08x}')
-            self._query = query
+                # Some counters (e.g. Standby Cache Core) may be absent
+                # on older Windows builds -- mark this one missing and
+                # continue. PdhCollectQueryData still works on the rest.
+                continue
+            self._handles[name] = handle
 
-            for name, path in self._COUNTERS.items():
-                handle = ctypes.c_void_p()
-                ret = self._PdhAddCounterW(query, path, 0, ctypes.byref(handle))
-                if ret != self._ERROR_SUCCESS:
-                    # Some counters (e.g. Standby Cache Core) may be absent
-                    # on older Windows builds -- mark this one missing and
-                    # continue. PdhCollectQueryData still works on the rest.
-                    continue
-                self._handles[name] = handle
+        # First collect "primes" the counters; second collect gives real
+        # values. Some counters (rate-based) need 2 samples -- for the byte
+        # counters we use, a single collect is enough.
+        self._PdhCollectQueryData(query)
 
-            # First collect "primes" the counters; second collect gives real
-            # values. Some counters (rate-based) need 2 samples -- for the byte
-            # counters we use, a single collect is enough.
-            self._PdhCollectQueryData(query)
+        self._initialized = True
 
-            self._initialized = True
-        except Exception:
-            self._disabled = True
+    def query(self) -> dict[str, float | CounterFailed]:
+        """Collect every counter this Windows build has.
 
-    def query(self):
-        """Return {field: bytes_value} for all counters that are working.
+        Returns:
+            {field: bytes} for each counter added at the start, a counter
+            whose read failed as its CounterFailed; a counter this build
+            lacks is absent.
 
-        Returns {} if PDH unavailable or initialization failed.
+        Raises:
+            OSError: the query's start or its collect failed; a failed
+                start is raised again on every call.
         """
-        if self._disabled:
-            return {}
-        if not self._initialized:
-            self._init()
-            if self._disabled:
-                return {}
-
-        try:
-            ret = self._PdhCollectQueryData(self._query)
-            if ret != self._ERROR_SUCCESS:
-                return {}
-
-            out = {}
-            for name, handle in self._handles.items():
-                value = self._PDH_FMT_COUNTERVALUE()
-                ret = self._PdhGetFormattedCounterValue(
-                    handle, self._PDH_FMT_DOUBLE, None, ctypes.byref(value)
-                )
-                if ret == self._ERROR_SUCCESS:
-                    out[name] = float(value.doubleValue)
-            return out
-        except Exception:
-            return {}
+        self._collected()
+        out = {}
+        for name, handle in self._handles.items():
+            value = self._PDH_FMT_COUNTERVALUE()
+            ret = self._PdhGetFormattedCounterValue(
+                handle, self._PDH_FMT_DOUBLE, None, ctypes.byref(value)
+            )
+            out[name] = (
+                float(value.doubleValue)
+                if ret == self._ERROR_SUCCESS
+                else CounterFailed(ret & 0xFFFFFFFF)
+            )
+        return out
 
 
 _pdh_counters_singleton = _PdhCountersOnce() if _IS_WINDOWS else None
 
 
-def query_windows_perf_counters():
+def query_windows_perf_counters() -> dict[str, float | CounterFailed] | None:
     """One-shot snapshot of selected Windows memory perf counters.
 
-    Returns dict mapping field name to bytes value. Returns {} on non-Windows
-    or if PDH is unavailable. TEMPORARY -- see `_PdhCountersOnce` docstring.
+    TEMPORARY -- see `_PdhCountersOnce`'s comment.
+
+    Returns:
+        {field: bytes} as ``_PdhCountersOnce.query`` answers it; None off
+        Windows, where the counters do not exist.
+
+    Raises:
+        OSError: as ``_PdhCountersOnce.query``.
     """
     if _pdh_counters_singleton is None:
-        return {}
+        return None
     return _pdh_counters_singleton.query()
 
 
@@ -857,83 +893,95 @@ def query_windows_perf_counters():
 _PDH_MORE_DATA = 0x800007D2
 
 
-class _GpuPdhCountersOnce:
+class GpuReading(NamedTuple):
+    """This process's GPU use. A field is None where this Windows build
+    lacks its counter, and its CounterFailed where one of this process's
+    instances failed its read."""
+
+    util_total_percent: float | CounterFailed | None
+    util_3d_percent: float | CounterFailed | None
+    shared_mem_mb: float | CounterFailed | None
+    dedicated_mem_mb: float | CounterFailed | None
+
+
+class _GpuPdhCountersOnce(_PdhQueryOnce):
     _UTIL_PATH = r'\GPU Engine(*)\Utilization Percentage'
     _SHARED_MEM_PATH = r'\GPU Process Memory(*)\Shared Usage'
     _DEDICATED_MEM_PATH = r'\GPU Process Memory(*)\Dedicated Usage'
 
-    _PDH_FMT_DOUBLE = 0x00000200
-    _ERROR_SUCCESS = 0
-
     def __init__(self):
-        self._initialized = False
-        self._disabled = False
-        self._query = None
+        super().__init__()
         self._counters = {}  # name -> counter handle
         self._pid_tag = f'pid_{os.getpid()}_'
 
     def _init(self):
-        try:
-            pdh = ctypes.WinDLL('pdh')
-            self._PdhOpenQueryW = pdh.PdhOpenQueryW
-            self._PdhAddCounterW = pdh.PdhAddCounterW
-            self._PdhCollectQueryData = pdh.PdhCollectQueryData
-            self._PdhGetFormattedCounterArrayW = pdh.PdhGetFormattedCounterArrayW
+        pdh = ctypes.WinDLL('pdh')
+        self._PdhOpenQueryW = pdh.PdhOpenQueryW
+        self._PdhAddCounterW = pdh.PdhAddCounterW
+        self._PdhCollectQueryData = pdh.PdhCollectQueryData
+        self._PdhGetFormattedCounterArrayW = pdh.PdhGetFormattedCounterArrayW
 
-            class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
-                _fields_ = [
-                    ('CStatus', ctypes.c_ulong),
-                    ('doubleValue', ctypes.c_double),
-                ]
+        class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
+            _fields_ = [
+                ('CStatus', ctypes.c_ulong),
+                ('doubleValue', ctypes.c_double),
+            ]
 
-            class _PDH_FMT_COUNTERVALUE_ITEM_W(ctypes.Structure):
-                _fields_ = [
-                    ('szName', ctypes.c_wchar_p),
-                    ('FmtValue', _PDH_FMT_COUNTERVALUE),
-                ]
+        class _PDH_FMT_COUNTERVALUE_ITEM_W(ctypes.Structure):
+            _fields_ = [
+                ('szName', ctypes.c_wchar_p),
+                ('FmtValue', _PDH_FMT_COUNTERVALUE),
+            ]
 
-            self._ITEM = _PDH_FMT_COUNTERVALUE_ITEM_W
+        self._ITEM = _PDH_FMT_COUNTERVALUE_ITEM_W
 
-            query = ctypes.c_void_p()
-            ret = self._PdhOpenQueryW(None, 0, ctypes.byref(query))
-            if ret != self._ERROR_SUCCESS:
-                raise OSError(f'PdhOpenQueryW failed: 0x{ret & 0xFFFFFFFF:08x}')
-            self._query = query
+        query = ctypes.c_void_p()
+        ret = self._PdhOpenQueryW(None, 0, ctypes.byref(query))
+        if ret != self._ERROR_SUCCESS:
+            raise OSError(f'PdhOpenQueryW failed: 0x{ret & 0xFFFFFFFF:08x}')
+        self._query = query
 
-            for name, path in (
-                ('util', self._UTIL_PATH),
-                ('shared_mem', self._SHARED_MEM_PATH),
-                ('dedicated_mem', self._DEDICATED_MEM_PATH),
-            ):
-                handle = ctypes.c_void_p()
-                ret = self._PdhAddCounterW(query, path, 0, ctypes.byref(handle))
-                if ret == self._ERROR_SUCCESS:
-                    self._counters[name] = handle
+        for name, path in (
+            ('util', self._UTIL_PATH),
+            ('shared_mem', self._SHARED_MEM_PATH),
+            ('dedicated_mem', self._DEDICATED_MEM_PATH),
+        ):
+            handle = ctypes.c_void_p()
+            ret = self._PdhAddCounterW(query, path, 0, ctypes.byref(handle))
+            if ret == self._ERROR_SUCCESS:
+                self._counters[name] = handle
 
-            if not self._counters:
-                raise OSError('no GPU PDH counters available')
+        if not self._counters:
+            raise OSError('no GPU PDH counters available')
 
-            # Prime: utilization is rate-based and needs two collects before
-            # the first real value.
-            self._PdhCollectQueryData(query)
-            self._initialized = True
-        except Exception:
-            self._disabled = True
+        # Prime: utilization is rate-based and needs two collects before
+        # the first real value.
+        self._PdhCollectQueryData(query)
+        self._initialized = True
 
-    def _read_array(self, handle):
-        """Return [(instance_name, value), ...] for a wildcard counter."""
+    def _read_array(self, handle) -> list[tuple[str, int, float]]:
+        """Every instance of a wildcard counter, as (name, status, value).
+
+        Raises:
+            OSError: either call of the read failed.
+        """
         size = ctypes.c_ulong(0)
         count = ctypes.c_ulong(0)
         # First pass with a null buffer reports the required size.
-        ret = self._PdhGetFormattedCounterArrayW(
-            handle,
-            self._PDH_FMT_DOUBLE,
-            ctypes.byref(size),
-            ctypes.byref(count),
-            None,
+        ret = (
+            self._PdhGetFormattedCounterArrayW(
+                handle,
+                self._PDH_FMT_DOUBLE,
+                ctypes.byref(size),
+                ctypes.byref(count),
+                None,
+            )
+            & 0xFFFFFFFF
         )
-        if (ret & 0xFFFFFFFF) != _PDH_MORE_DATA or size.value == 0:
-            return []
+        if ret == self._ERROR_SUCCESS or (ret == _PDH_MORE_DATA and size.value == 0):
+            return []  # no instance of the counter exists
+        if ret != _PDH_MORE_DATA:
+            raise OSError(f'PdhGetFormattedCounterArrayW failed: 0x{ret:08x}')
         buf = (ctypes.c_byte * size.value)()
         ret = self._PdhGetFormattedCounterArrayW(
             handle,
@@ -943,65 +991,105 @@ class _GpuPdhCountersOnce:
             ctypes.cast(buf, ctypes.POINTER(self._ITEM)),
         )
         if ret != self._ERROR_SUCCESS:
-            return []
+            raise OSError(f'PdhGetFormattedCounterArrayW failed: 0x{ret & 0xFFFFFFFF:08x}')
         items = ctypes.cast(buf, ctypes.POINTER(self._ITEM * count.value)).contents
-        out = []
-        for it in items:
-            # CStatus 0 (VALID_DATA) / 1 (NEW_DATA) both carry a usable value.
-            if it.FmtValue.CStatus in (0, 1):
-                out.append((it.szName or '', float(it.FmtValue.doubleValue)))
-        return out
+        return [
+            (it.szName or '', it.FmtValue.CStatus, float(it.FmtValue.doubleValue)) for it in items
+        ]
 
-    def query(self):
-        """Return GPU metrics dict for this process, or {} if unavailable."""
-        if self._disabled:
-            return {}
-        if not self._initialized:
-            self._init()
-            if self._disabled:
-                return {}
-        try:
-            if self._PdhCollectQueryData(self._query) != self._ERROR_SUCCESS:
-                return {}
-            out = {}
-            if 'util' in self._counters:
-                util_total = 0.0
-                util_3d = 0.0
-                for name, val in self._read_array(self._counters['util']):
-                    if self._pid_tag in name:
-                        util_total += val
-                        if name.endswith('engtype_3D'):
-                            util_3d += val
-                out['gpu_util_total_percent'] = util_total
-                out['gpu_util_3d_percent'] = util_3d
-            for key, field in (
-                ('shared_mem', 'gpu_shared_mem_mb'),
-                ('dedicated_mem', 'gpu_dedicated_mem_mb'),
-            ):
-                if key in self._counters:
-                    total = sum(
-                        v for n, v in self._read_array(self._counters[key]) if self._pid_tag in n
-                    )
-                    out[field] = total / (1024 * 1024)
-            return out
-        except Exception:
-            return {}
+    def _this_process(self, counter: str) -> list[tuple[str, int, float]] | None:
+        """This process's instances of ``counter``; None where this build
+        lacks the counter."""
+        if counter not in self._counters:
+            return None
+        return [
+            item for item in self._read_array(self._counters[counter]) if self._pid_tag in item[0]
+        ]
+
+    @staticmethod
+    def _summed(items, engine: str = '', unit: float = 1.0) -> float | CounterFailed | None:
+        """The instances' sum in ``unit``, over those of ``engine`` when it
+        is named; the first failed instance's CounterFailed instead."""
+        if items is None:
+            return None
+        total = 0.0
+        for name, status, value in items:
+            if not name.endswith(engine):
+                continue
+            if status not in _PDH_VALID_STATUSES:
+                return CounterFailed(status)
+            total += value
+        return total / unit
+
+    def query(self) -> GpuReading:
+        """This process's GPU use, summed over its instances.
+
+        A process with no instance of a counter reads 0.0 there.
+
+        Raises:
+            OSError: the query's start, its collect or a counter's read
+                failed; a failed start is raised again on every call.
+        """
+        self._collected()
+        util = self._this_process('util')
+        mib = 1024 * 1024
+        return GpuReading(
+            util_total_percent=self._summed(util),
+            util_3d_percent=self._summed(util, engine='engtype_3D'),
+            shared_mem_mb=self._summed(self._this_process('shared_mem'), unit=mib),
+            dedicated_mem_mb=self._summed(self._this_process('dedicated_mem'), unit=mib),
+        )
 
 
 _gpu_pdh_singleton = _GpuPdhCountersOnce() if _IS_WINDOWS else None
 
 
-def query_gpu_metrics():
+def query_gpu_metrics() -> GpuReading | None:
     """Vendor-agnostic GPU utilization + memory for this process.
 
-    Returns {} on non-Windows or if GPU PDH counters are unavailable. Keys when
-    present: gpu_util_total_percent, gpu_util_3d_percent, gpu_shared_mem_mb,
-    gpu_dedicated_mem_mb. Works for AMD / Intel / NVIDIA via the WDDM GPU Engine
-    counters (the source Task Manager's GPU column reads).
+    Works for AMD / Intel / NVIDIA via the WDDM GPU Engine counters (the
+    source Task Manager's GPU column reads).
+
+    Returns:
+        This process's GpuReading; None off Windows, where the counters
+        do not exist.
+
+    Raises:
+        OSError: as ``_GpuPdhCountersOnce.query``.
     """
     if _gpu_pdh_singleton is None:
-        return {}
+        return None
     return _gpu_pdh_singleton.query()
+
+
+def gui_resources() -> tuple[int, int] | None:
+    """This process's GDI and USER object counts; None off Windows, where
+    they do not exist.
+
+    GDI is what causes Windows-wide slowdown after 24h+ runs. Every
+    `Texture.create()` and unclosed matplotlib figure adds a GDI handle.
+    Process limit is 10,000; Windows desktop degrades around 5,000.
+    """
+    if not _IS_WINDOWS:
+        return None
+    GR_GDIOBJECTS = 0
+    GR_USEROBJECTS = 1
+    kernel32 = ctypes.windll.kernel32
+    user32 = ctypes.windll.user32
+    # Declare argtypes / restype so the 64-bit Windows HANDLE
+    # is passed without truncation. Default ctypes types are
+    # c_int (4 bytes signed), which silently truncates a 64-bit
+    # pseudo-handle and causes GetGuiResources to return 0 -- a
+    # broken metric that masquerades as "no GDI usage" in
+    # metrics.log on healthy systems. (Repeated assignments are
+    # idempotent, so doing this each call is safe.)
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    user32.GetGuiResources.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+    user32.GetGuiResources.restype = ctypes.c_uint
+    handle = kernel32.GetCurrentProcess()
+    return user32.GetGuiResources(handle, GR_GDIOBJECTS), user32.GetGuiResources(
+        handle, GR_USEROBJECTS
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1014,21 +1102,91 @@ def query_gpu_metrics():
 
 _rate_state = {}  # {key: (last_value, last_ts)}
 
+# The shortest gap over which an interval reading is taken: under it a
+# rate would divide by next to nothing.
+_MIN_INTERVAL_S = 0.5
 
-def _delta_rate(key, current_value, now=None):
-    """Return per-second rate for a cumulative counter. Returns 0.0 on first
-    call or if time delta is too small to be meaningful."""
+
+def delta_rate(key: str, current_value: float, now: float | None = None) -> float | None:
+    """The per-second rate of a cumulative counter since its last reading.
+
+    Returns:
+        The rate; None with no earlier reading of ``key``, or one under
+        half a second ago.
+    """
     if now is None:
         now = _time.monotonic()
     prev = _rate_state.get(key)
     _rate_state[key] = (current_value, now)
     if prev is None:
-        return 0.0
+        return None
     last_value, last_ts = prev
     dt = now - last_ts
-    if dt < 0.5:  # avoid divide-by-near-zero on rapid back-to-back calls
-        return 0.0
+    if dt < _MIN_INTERVAL_S:
+        return None
     return (current_value - last_value) / dt
+
+
+# The one psutil handle for THIS process, so every reading of it is taken
+# through the same object.
+_SELF_PROC = None
+
+
+def self_process() -> psutil.Process:
+    """This process's one psutil handle."""
+    global _SELF_PROC
+    if _SELF_PROC is None:
+        _SELF_PROC = psutil.Process(os.getpid())
+    return _SELF_PROC
+
+
+def process_cpu_percent() -> float | None:
+    """This process's CPU since the previous call; 100.0 is one full core.
+
+    The same figure psutil's ``Process.cpu_percent`` gives, from a baseline
+    this module holds, so the first call answers that it has none rather
+    than psutil's 0.0.
+
+    Returns:
+        The percent; None on the first call, or one under half a second
+        after the previous.
+    """
+    times = self_process().cpu_times()
+    rate = delta_rate('process_cpu_s', times.user + times.system)
+    return None if rate is None else rate * 100.0
+
+
+# The system's CPU times at the previous call. psutil's own cpu_percent()
+# keeps its baseline per calling thread, and the metrics tick runs on a
+# fresh timer thread each time, so a thread with no baseline read 0.0.
+_system_cpu_last = {}  # {'times': psutil cpu_times}
+
+# What psutil counts as idle, and the guest time Linux also counts in user.
+_IDLE_CPU_FIELDS = ('idle', 'iowait')
+_GUEST_CPU_FIELDS = ('guest', 'guest_nice')
+
+
+def system_cpu_percent() -> float | None:
+    """The whole host's CPU busy since the previous call, in percent.
+
+    Computed as psutil's ``cpu_percent`` computes it, from one baseline
+    whatever thread calls.
+
+    Returns:
+        The percent; None on the first call, or where no CPU time has
+        passed since the previous.
+    """
+    now = psutil.cpu_times()
+    last = _system_cpu_last.get('times')
+    _system_cpu_last['times'] = now
+    if last is None:
+        return None
+    deltas = {field: max(0.0, getattr(now, field) - getattr(last, field)) for field in now._fields}
+    total = sum(v for field, v in deltas.items() if field not in _GUEST_CPU_FIELDS)
+    if total <= 0.0:
+        return None
+    idle = sum(deltas[field] for field in _IDLE_CPU_FIELDS if field in deltas)
+    return (total - idle) / total * 100.0
 
 
 # ---------------------------------------------------------------------------
@@ -1049,61 +1207,50 @@ def _delta_rate(key, current_value, now=None):
 # entry -- acceptable, since the deployment + bench target is Windows.
 # ---------------------------------------------------------------------------
 
-_thread_cpu_state = {}  # {tid: (cpu_seconds, wall_ts)}
+_thread_cpu_state = {'ts': None, 'cpu': {}}  # the previous call's wall time and {tid: cpu_seconds}
 
 
-def thread_cpu_percentages(proc=None, now=None):
+def thread_cpu_percentages(
+    proc: psutil.Process | None = None, now: float | None = None
+) -> dict[str, float] | None:
     """Per-thread CPU percent averaged over the interval since the last call.
 
-    Returns {thread_label: percent}. Empty on the first call (no baseline yet)
-    or on error. Same-named threads (e.g. pool workers) are summed under one
-    label. 100.0 means one full logical core; the sum across threads can
-    exceed 100 on a multi-core host.
+    Same-named threads (e.g. pool workers) are summed under one label.
+    100.0 means one full logical core; the sum across threads can exceed
+    100 on a multi-core host.
+
+    Returns:
+        {thread_label: percent} for each thread that had a reading at the
+        previous call: a thread born since, or whose id a new thread took,
+        has none. None on the first call, or one under half a second after
+        the previous.
+
+    Raises:
+        psutil.Error: the process's threads could not be read.
     """
     if proc is None:
-        proc = psutil.Process(os.getpid())
+        proc = self_process()
     if now is None:
         now = _time.monotonic()
-    try:
-        threads = proc.threads()
-    except Exception:
-        return {}
+    cpu_now = {th.id: th.user_time + th.system_time for th in proc.threads()}
+    last_ts, cpu_last = _thread_cpu_state['ts'], _thread_cpu_state['cpu']
+    # Replaced whole, so a thread that exited leaves no state behind.
+    _thread_cpu_state['ts'], _thread_cpu_state['cpu'] = now, cpu_now
+    if last_ts is None or now - last_ts < _MIN_INTERVAL_S:
+        return None
+    dt = now - last_ts
 
     # native_id -> python thread name; native threads with no Python wrapper
     # fall back to tid_<id>.
-    name_by_tid = {}
-    try:
-        for t in threading.enumerate():
-            nid = getattr(t, 'native_id', None)
-            if nid is not None:
-                name_by_tid[nid] = t.name
-    except Exception:
-        pass
+    name_by_tid = {t.native_id: t.name for t in threading.enumerate() if t.native_id is not None}
 
     out = {}
-    seen = set()
-    for th in threads:
-        tid = th.id
-        seen.add(tid)
-        cpu = th.user_time + th.system_time
-        prev = _thread_cpu_state.get(tid)
-        _thread_cpu_state[tid] = (cpu, now)
-        if prev is None:
+    for tid, cpu in cpu_now.items():
+        last_cpu = cpu_last.get(tid)
+        if last_cpu is None or cpu < last_cpu:
             continue
-        last_cpu, last_ts = prev
-        dt = now - last_ts
-        if dt < 0.5:  # avoid divide-by-near-zero on rapid back-to-back calls
-            continue
-        pct = (cpu - last_cpu) / dt * 100.0
-        if pct < 0.0:  # counter reset or tid reuse -- treat as no sample
-            pct = 0.0
         label = name_by_tid.get(tid, f'tid_{tid}')
-        out[label] = out.get(label, 0.0) + pct
-
-    # Drop state for threads that exited so the cache can't grow unbounded.
-    for dead in [tid for tid in _thread_cpu_state if tid not in seen]:
-        del _thread_cpu_state[dead]
-
+        out[label] = out.get(label, 0.0) + (cpu - last_cpu) / dt * 100.0
     return out
 
 
@@ -1114,80 +1261,72 @@ def thread_cpu_percentages(proc=None, now=None):
 # If MsMpEng's IO read rate climbs proportional to our save rate, that's
 # the smoking gun for Defender being on the slowdown's critical path.
 #
-# Cache the PID across calls (psutil.process_iter is expensive). Re-resolve
-# only if the cached PID has died.
+# Cache the process across calls (psutil.process_iter is expensive).
+# Re-resolve only if the cached one has died.
 # ---------------------------------------------------------------------------
 
-_defender_pid_cache = {'pid': None, 'process': None}
+_defender_process_cache = {'process': None}
 
 
-def query_defender_metrics():
-    """Return MsMpEng.exe metrics dict, or {} if not running / not Windows.
+class DefenderReading(NamedTuple):
+    """MsMpEng.exe's memory and the bytes it has read. Its I/O fields are
+    the refusal where Windows refuses this process a read of its I/O, and
+    the rate is None with no earlier reading."""
 
-    Cumulative IO read MB is included; the caller is expected to also call
-    _delta_rate for the per-sec rate.
+    private_mb: float
+    rss_mb: float
+    io_read_total_mb: float | psutil.AccessDenied
+    io_read_mbps: float | psutil.AccessDenied | None
+
+
+def _defender_process() -> psutil.Process | None:
+    """The running MsMpEng.exe, or None when none is running."""
+    proc = _defender_process_cache['process']
+    if proc is not None and proc.is_running():
+        return proc
+    _defender_process_cache['process'] = None
+    for p in psutil.process_iter(['name']):
+        if (p.info['name'] or '').lower() == 'msmpeng.exe':
+            _defender_process_cache['process'] = p
+            return p
+    return None
+
+
+def query_defender_metrics() -> DefenderReading | None:
+    """MsMpEng.exe's memory and I/O.
+
+    Returns:
+        Its DefenderReading; None off Windows, or with MsMpEng not running.
+
+    Raises:
+        psutil.Error: its memory could not be read; a process that has
+            exited is resolved again on the next call.
     """
     if not _IS_WINDOWS:
-        return {}
-
-    proc = _defender_pid_cache.get('process')
-    try:
-        if proc is None or not proc.is_running():
-            for p in psutil.process_iter(['pid', 'name']):
-                try:
-                    if p.info['name'] and p.info['name'].lower() == 'msmpeng.exe':
-                        proc = psutil.Process(p.info['pid'])
-                        _defender_pid_cache['pid'] = proc.pid
-                        _defender_pid_cache['process'] = proc
-                        break
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-            else:
-                _defender_pid_cache['pid'] = None
-                _defender_pid_cache['process'] = None
-                return {}
-    except Exception:
-        return {}
-
+        return None
+    proc = _defender_process()
+    if proc is None:
+        return None
     try:
         mem = proc.memory_info()
-        out = {
-            'defender_private_mb': getattr(mem, 'private', mem.rss) / (1024 * 1024),
-            'defender_rss_mb': mem.rss / (1024 * 1024),
-        }
-        try:
-            io = proc.io_counters()
-            out['defender_io_read_mb_total'] = io.read_bytes / (1024 * 1024)
-            out['defender_io_read_mbps'] = _delta_rate('defender_io_read', io.read_bytes) / (
-                1024 * 1024
-            )
-        except (psutil.AccessDenied, AttributeError):
-            pass
-        return out
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        _defender_pid_cache['pid'] = None
-        _defender_pid_cache['process'] = None
-        return {}
-    except Exception:
-        return {}
-
-
-# A single persistent Process handle for THIS process. psutil's
-# Process.cpu_percent() reports CPU since the PRIOR call on the SAME object, so a
-# fresh Process per snapshot always reads 0.0 -- no reference point -- which made
-# the [PROCESS METRICS] process-CPU figure log 0.0% on every snapshot. Caching
-# the handle (and priming it once on creation) makes each snapshot's process CPU
-# the average over the inter-snapshot interval, the way the module-level
-# psutil.cpu_percent() already reports the system figure.
-_SELF_PROC = None
-
-
-def _self_process():
-    global _SELF_PROC
-    if _SELF_PROC is None:
-        _SELF_PROC = psutil.Process(os.getpid())
-        _SELF_PROC.cpu_percent()  # prime the delta reference (this first read is 0.0)
-    return _SELF_PROC
+    except psutil.NoSuchProcess:
+        _defender_process_cache['process'] = None
+        raise
+    mib = 1024 * 1024
+    try:
+        io = proc.io_counters()
+    except psutil.AccessDenied as refused:
+        io_read_total_mb, io_read_mbps = refused, refused
+    else:
+        io_read_total_mb = io.read_bytes / mib
+        rate = delta_rate('defender_io_read', io.read_bytes)
+        io_read_mbps = None if rate is None else rate / mib
+    return DefenderReading(
+        private_mb=getattr(mem, 'private', mem.rss) / mib,
+        rss_mb=mem.rss / mib,
+        io_read_total_mb=io_read_total_mb,
+        io_read_mbps=io_read_mbps,
+    )
 
 
 class HostBoot(NamedTuple):
@@ -1206,241 +1345,6 @@ def host_boot() -> HostBoot:
     """
     boot_epoch_s = psutil.boot_time()
     return HostBoot(boot_epoch_s=boot_epoch_s, uptime_hr=(_time.time() - boot_epoch_s) / 3600.0)
-
-
-def system_metrics(path: str = '/', *, collect_open_files: bool) -> dict:
-    """Return a one-shot snapshot of process and host resource state.
-
-    Used by `log_system_metrics()`. Failures on individual metrics
-    return -1 / None / 0.0 so callers can log "this metric isn't
-    available on this platform" without the whole snapshot blowing up.
-
-    `collect_open_files` has no default on purpose. The per-handle
-    enumeration it controls is expensive enough to stall the whole
-    process (see its block below), so every caller states its choice
-    rather than inheriting one -- a silent default is how that
-    enumeration came to run unconditionally in the first place.
-
-    Long-run leak detection: GDI/handle/thread/GC counts should plateau
-    in steady state. A steady upward trend across successive snapshots
-    indicates a leak; GDI is the one to watch first on Windows, where the
-    desktop degrades near 5,000 objects and a process is capped at 10,000.
-    """
-    proc = _self_process()
-    disk = psutil.disk_usage(path)
-    vmem = psutil.virtual_memory()
-
-    metrics = {
-        # CPU
-        'cpu_percent_total': psutil.cpu_percent(),
-        'cpu_percent_python': proc.cpu_percent(),
-        'cpu_cores_logical': psutil.cpu_count(logical=True),
-        'cpu_cores_physical': psutil.cpu_count(logical=False),
-        # RAM
-        'ram_available_gb': vmem.available / 1e9,
-        'ram_percent_total': vmem.percent,
-        'ram_used_python_percent': proc.memory_percent(),
-        'ram_used_python_mb': proc.memory_info().rss / 1e6,
-        'ram_used_total_mb': vmem.used / 1e6,
-        # Disk
-        'disk_free_gb': disk.free / 1024**3,
-        'disk_used_percent': disk.percent,
-    }
-
-    # --- Private memory bytes (Windows-specific; falls back to RSS) ---
-    # Working Set / RSS underreports because Windows can trim it while the
-    # process still holds committed virtual memory. Private bytes is what
-    # Task Manager calls "Memory (private working set)" and is the actual
-    # leak indicator.
-    try:
-        mem = proc.memory_info()
-        private = getattr(mem, 'private', mem.rss)
-        metrics['ram_private_mb'] = private / 1e6
-    except Exception:
-        metrics['ram_private_mb'] = -1
-
-    # --- System swap (catches page-file pressure even when "RAM looks low") ---
-    try:
-        swap = psutil.swap_memory()
-        metrics['swap_percent'] = swap.percent
-        metrics['swap_used_gb'] = swap.used / 1e9
-    except Exception:
-        metrics['swap_percent'] = -1
-        metrics['swap_used_gb'] = -1
-
-    # --- OS handles (Windows) / file descriptors (POSIX) ---
-    # Windows caps process handles around 16M but typical apps run
-    # 500-2000. A steady climb of a few handles per minute is a leak
-    # of file/socket/thread handles. POSIX fds equivalent.
-    try:
-        if _IS_WINDOWS:
-            metrics['os_handles'] = proc.num_handles()
-        else:
-            metrics['os_handles'] = proc.num_fds()
-    except Exception:
-        metrics['os_handles'] = -1
-
-    # --- Open files count (opt-in; off unless a bench operator asks) ---
-    # Tells you which files are leaked when handles climb, but it costs
-    # one os.stat per open handle -- so it scales with the very quantity
-    # it exists to watch, and is most expensive during the leak it is
-    # meant to catch. On Windows it also enumerates through a
-    # C-extension call that holds the GIL, stalling every thread in the
-    # process, and a handle whose name query times out is silently
-    # skipped -- so the count reads LOW exactly when it matters. The
-    # flat-cost `os_handles` above is the trend indicator; this is the
-    # follow-up you switch on deliberately.
-    #
-    # Absent when off, never -1: -1 already means "ran and failed", and
-    # a chosen configuration must not be indistinguishable from a broken
-    # probe.
-    if collect_open_files:
-        try:
-            metrics['open_files_count'] = len(proc.open_files())
-        except Exception:
-            metrics['open_files_count'] = -1
-
-    # --- Process I/O bytes (cumulative + rates, per-process) ---
-    # Distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
-    # Both bytes counters reset only when the process restarts.
-    # The rates are averages over the gap since the previous tick, so they
-    # mean different things at different cadences: at the 60 s engineering
-    # interval they read as MB/sec of TIFF writes and can be cross-referenced
-    # against the Defender IO read rate; at the hourly production interval
-    # they are hour-averages and will flatten any burst.
-    try:
-        io = proc.io_counters()
-        metrics['io_read_mb'] = io.read_bytes / 1e6
-        metrics['io_write_mb'] = io.write_bytes / 1e6
-        metrics['io_read_mbps'] = _delta_rate('proc_io_read', io.read_bytes) / 1e6
-        metrics['io_write_mbps'] = _delta_rate('proc_io_write', io.write_bytes) / 1e6
-    except Exception:
-        metrics['io_read_mb'] = -1
-        metrics['io_write_mb'] = -1
-        metrics['io_read_mbps'] = -1
-        metrics['io_write_mbps'] = -1
-
-    # --- Page faults (rate) ---
-    # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging
-    # working set in/out). Useful as a sanity signal -- if pf/sec stays low
-    # while standby grows, the slowdown is allocator/standby-cache, not
-    # real paging. If pf/sec spikes during slow state, real paging.
-    # That threshold only means anything at the sub-minute engineering
-    # cadence: averaged over an hour, a paging storm lasting minutes
-    # disappears into the mean.
-    try:
-        mem = proc.memory_info()
-        pf = getattr(mem, 'pfaults', None) or getattr(mem, 'num_page_faults', None)
-        if pf is not None:
-            metrics['page_faults_total'] = pf
-            metrics['page_faults_per_sec'] = _delta_rate('page_faults', pf)
-    except Exception:
-        pass
-
-    # --- GDI / USER objects (Windows only -- main long-run-stability concern) ---
-    # GDI is what causes Windows-wide slowdown after 24h+ runs. Every
-    # `Texture.create()` and unclosed matplotlib figure adds a GDI handle.
-    # Process limit is 10,000; Windows desktop degrades around 5,000.
-    if _IS_WINDOWS:
-        try:
-            GR_GDIOBJECTS = 0
-            GR_USEROBJECTS = 1
-            kernel32 = ctypes.windll.kernel32
-            user32 = ctypes.windll.user32
-            # Declare argtypes / restype so the 64-bit Windows HANDLE
-            # is passed without truncation. Default ctypes types are
-            # c_int (4 bytes signed), which silently truncates a 64-bit
-            # pseudo-handle and causes GetGuiResources to return 0 -- a
-            # broken metric that masquerades as "no GDI usage" in
-            # metrics.log on healthy systems. (Repeated assignments are
-            # idempotent, so doing this each call is safe.)
-            kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-            user32.GetGuiResources.argtypes = [ctypes.c_void_p, ctypes.c_uint]
-            user32.GetGuiResources.restype = ctypes.c_uint
-            handle = kernel32.GetCurrentProcess()
-            metrics['gdi_objects'] = user32.GetGuiResources(handle, GR_GDIOBJECTS)
-            metrics['user_objects'] = user32.GetGuiResources(handle, GR_USEROBJECTS)
-        except Exception:
-            metrics['gdi_objects'] = -1
-            metrics['user_objects'] = -1
-    else:
-        metrics['gdi_objects'] = -1
-        metrics['user_objects'] = -1
-
-    # --- Thread count + names ---
-    # Should plateau within ~30s of startup at ~20-25 (8 executors * 2
-    # threads + camera + main + a few Kivy). Steady growth means an
-    # executor/handler is spawning without joining.
-    try:
-        metrics['thread_count'] = threading.active_count()
-        metrics['thread_names'] = sorted(t.name for t in threading.enumerate())
-    except Exception:
-        metrics['thread_count'] = -1
-        metrics['thread_names'] = []
-
-    # --- Python heap (catches reference-cycle / closure-capture leaks) ---
-    # The count is of the memory blocks Python's allocator holds, which it
-    # keeps as a running total. Not len(gc.get_objects()): that list hands
-    # this thread every object the collector tracks, a tuple another thread
-    # is still building among them, and that thread's tuple() then raises
-    # SystemError -- a protocol run ended that way.
-    # Steady linear growth indicates accumulation, typically from
-    # observers/callbacks holding refs; the growth-rate thresholds are
-    # the allocated_blocks_growth_per_hr row in PERFORMANCE_BUDGETS.md.
-    try:
-        metrics['allocated_blocks'] = sys.getallocatedblocks()
-        gc_stats = gc.get_stats()
-        metrics['gc_gen0_collections'] = gc_stats[0]['collections']
-        metrics['gc_gen1_collections'] = gc_stats[1]['collections']
-        metrics['gc_gen2_collections'] = gc_stats[2]['collections']
-    except Exception:
-        metrics['allocated_blocks'] = -1
-        metrics['gc_gen0_collections'] = -1
-        metrics['gc_gen1_collections'] = -1
-        metrics['gc_gen2_collections'] = -1
-
-    # --- Windows PDH memory counters ---
-    # Standby cache + nonpaged pool are the specific signals for
-    # diagnosing buffer-churn / slow-onset memory growth on Windows.
-    try:
-        pdh = query_windows_perf_counters()
-        for k, v in pdh.items():
-            metrics[f'pdh_{k}'] = v
-    except Exception:
-        pass
-
-    # --- Defender (MsMpEng.exe) metrics ---
-    try:
-        for k, v in query_defender_metrics().items():
-            metrics[k] = v
-    except Exception:
-        pass
-
-    # --- Live GC depth (uncollected objects per generation) ---
-    # Existing gc_genN_collections counts collections-since-start (a counter).
-    # gc.get_count() is the CURRENT depth -- pairs with the counter to show
-    # both rate (collections/min) and steady-state pressure (depth growing
-    # = generation 2 leaks).
-    try:
-        c = gc.get_count()
-        if len(c) >= 3:
-            metrics['gc_count_gen0'] = c[0]
-            metrics['gc_count_gen1'] = c[1]
-            metrics['gc_count_gen2'] = c[2]
-    except Exception:
-        pass
-
-    return metrics
-
-
-def check_disk_space(path='/') -> float:
-    """
-    Returns free disk space in MB
-    """
-
-    disk = psutil.disk_usage(path)
-    free_space_mb = disk.free / (1024**2)
-    return free_space_mb
 
 
 def read_video_config(step) -> dict:
@@ -1544,41 +1448,38 @@ def check_disk_space_ok(path: str | os.PathLike, required_mb: float) -> tuple[bo
 
 
 def get_extra_disks_info(exclude_path: str = '/') -> str | None:
-    """
-    Returns formatted disk information for extra disks (excluding the disk containing exclude_path).
-    Returns None if only the excluded disk exists or no extra disks are found.
-    Returns formatted string like: "D: 250.5 GB free (15.2% used) | E: 100.3 GB free (8.5% used)"
-    """
-    try:
-        import psutil
+    """The free space of every disk but the one holding ``exclude_path``.
 
-        disk_partitions = psutil.disk_partitions(all=False)
+    A partition whose usage cannot be read is left out.
 
-        # Find which partition contains the exclude_path
-        excluded_device = None
+    Returns:
+        A string like "D: 250.5 GB free (15.2% used) | E: 100.3 GB free
+        (8.5% used)"; None when no other disk is mounted.
+
+    Raises:
+        OSError: the partitions could not be listed.
+    """
+    disk_partitions = psutil.disk_partitions(all=False)
+
+    # Find which partition contains the exclude_path
+    excluded_device = None
+    for partition in disk_partitions:
+        if exclude_path.startswith(partition.mountpoint):
+            excluded_device = partition.device
+            break
+
+    disk_info_list = []
+    for partition in disk_partitions:
+        # Skip the excluded device/path
+        if excluded_device and partition.device == excluded_device:
+            continue
+
         try:
-            for partition in disk_partitions:
-                if exclude_path.startswith(partition.mountpoint):
-                    excluded_device = partition.device
-                    break
-        except Exception:
-            pass
+            usage = psutil.disk_usage(partition.mountpoint)
+        except OSError:
+            continue
+        disk_info_list.append(
+            f'{partition.device}: {usage.free / (1024**3):.1f} GB free ({usage.percent:.1f}% used)'
+        )
 
-        disk_info_list = []
-        for partition in disk_partitions:
-            # Skip the excluded device/path
-            if excluded_device and partition.device == excluded_device:
-                continue
-
-            try:
-                usage = psutil.disk_usage(partition.mountpoint)
-                disk_info_list.append(
-                    f'{partition.device}: {usage.free / (1024**3):.1f} GB free ({usage.percent:.1f}% used)'
-                )
-            except (PermissionError, OSError):
-                continue
-
-        return ' | '.join(disk_info_list) if disk_info_list else None
-
-    except Exception:
-        return None
+    return ' | '.join(disk_info_list) if disk_info_list else None

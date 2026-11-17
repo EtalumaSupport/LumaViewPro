@@ -9,7 +9,7 @@ Tests for the GUI-independent scope API modules:
 Uses mock objects + Lumascope(simulate=True) -- no hardware or Kivy needed.
 """
 
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 
@@ -300,35 +300,6 @@ class TestGetCurrentPlatePosition:
             result = session.plate_position()
             z = session.scope.motion.get_current_position('Z')
         assert result.z_um == pytest.approx(z, abs=0.01)
-
-
-class TestLogSystemMetrics:
-    def test_calls_system_metrics(self, sim_scope):
-        settings = complete_settings(live_folder='/tmp')
-        with (
-            patch('_lumascope.modules.common_utils.system_metrics') as mock_metrics,
-            patch('_lumascope.modules.common_utils.check_disk_space') as mock_disk,
-            patch('_lumascope.modules.common_utils.get_extra_disks_info') as mock_extra,
-        ):
-            mock_metrics.return_value = {
-                'cpu_percent_total': 25.0,
-                'ram_available_gb': 8.0,
-                'ram_percent_total': 50.0,
-                'disk_free_gb': 100.0,
-                'disk_used_percent': 30.0,
-                'cpu_percent_python': 5.0,
-                'ram_used_python_mb': 200.0,
-                'ram_used_python_percent': 2.5,
-            }
-            mock_disk.return_value = 100000  # plenty of space
-            mock_extra.return_value = None
-            config_helpers.log_system_metrics(
-                settings, scope=sim_scope, executors=real_executor_bundle()
-            )
-            import pathlib
-
-            expected_path = str(pathlib.Path('/tmp').resolve())
-            mock_metrics.assert_called_once_with(path=expected_path, collect_open_files=False)
 
 
 # ===========================================================================

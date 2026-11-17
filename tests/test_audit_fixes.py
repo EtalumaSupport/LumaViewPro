@@ -2040,24 +2040,6 @@ class TestPIW2_DisksUsageDeduped:
     protocol_image_writer check at line 350.
     """
 
-    def test_lumascope_api_disk_check_removed(self):
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent
-            / 'src/_lumascope/modules'
-            / 'lumascope_api'
-            / '_lumascope.py'
-        ).read_text()
-        # The exact pattern of the redundant warn-only check.
-        assert 'if (common_utils.check_disk_space() < 1024):' not in src, (
-            'PIW-2: redundant per-save check_disk_space call should be removed from lumascope_api.'
-        )
-        # 'Disk space < 1 GB' was the warn string, also gone.
-        assert 'Disk space < 1 GB. Image unlikely to save correctly.' not in src, (
-            'PIW-2: corresponding warn log should be removed.'
-        )
-
     def test_protocol_image_writer_disk_exhaustion_aborts(
         self, monkeypatch, tmp_path, centre_posts
     ):

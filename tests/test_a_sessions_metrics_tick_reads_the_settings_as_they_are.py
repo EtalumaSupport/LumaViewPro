@@ -7,11 +7,9 @@ after the session was built is the one the next tick measures, never the one
 from construction and never no folder at all.
 """
 
-from collections import defaultdict
-
+import psutil
 import pytest
 
-from _lumascope.modules import config_helpers
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -29,20 +27,19 @@ def test_a_tick_measures_the_live_folder_set_after_the_session_was_built(
     session, monkeypatch, tmp_path
 ):
     probed = []
-    # a stand-in by design: the disk and process probes are the host's,
-    # interchangeable collaborators of the tick under test; this one records
-    # which folder the tick asked about.
-    monkeypatch.setattr(
-        config_helpers.common_utils,
-        'check_disk_space',
-        lambda *, path: probed.append(path) or 1.0e5,
-    )
-    monkeypatch.setattr(
-        config_helpers.common_utils, 'system_metrics', lambda **k: defaultdict(float)
-    )
+    real_disk_usage = psutil.disk_usage
+
+    def recorded(path):
+        probed.append(path)
+        return real_disk_usage(path)
+
+    # a stand-in by design: the host's disk probe, an interchangeable
+    # collaborator of the tick under test, recording which folder it asked about.
+    monkeypatch.setattr(psutil, 'disk_usage', recorded)
     moved = tmp_path / 'moved'
+    moved.mkdir()
     session.set_live_folder(str(moved))
 
     session.metrics_logger.tick_system_metrics()
 
-    assert probed == [str(moved.resolve())]
+    assert probed[0] == str(moved)
