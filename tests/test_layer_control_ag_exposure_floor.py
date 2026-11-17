@@ -38,7 +38,7 @@ from tests.stock_channels import LED0
 
 class TestExposureFloorSourceStructure:
     """Source-level lock on the AG-feedback floor logic in
-    ScopeSession._write_channel_fields, the one channel write's store."""
+    ScopeSession._channel_writing, what the one channel write stores."""
 
     def test_the_per_class_floors_live_beside_the_ag_ae_ceiling(self):
         """The floors live beside the AG/AE ceiling in config_helpers: 0.1 ms
@@ -53,7 +53,7 @@ class TestExposureFloorSourceStructure:
         REST caller storing the same result gets the same value. A
         hand-written per-class branch in the GUI is how the BF AG ->
         0.03 ms -> warning-spam path came back once before."""
-        body = inspect.getsource(ScopeSession._write_channel_fields)
+        body = inspect.getsource(ScopeSession._channel_writing)
         assert 'stored_exposure_ms' in body
         assert 'get_ag_ae_min_exposure_ms' not in body
         assert 'FLUORESCENCE_MIN_EXPOSURE_MS' not in body

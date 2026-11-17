@@ -490,9 +490,9 @@ channel on.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a row it would apply holds a value outside its channel setting's range, or an illumination above the attached LED board's maximum, each named by channel, column and bound. A loaded protocol's ranges were judged at load; the board's maximum is judged here, since a file may be for another board.
 - `ArgumentRefusedError`: `'gain_range_inverted'`, a row turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum.
 - `HardwareCommandRefusedError`: `'exclusive_activity_running'`, a home holds the scope and the shown channel's row would change its camera or LED; or the shown channel's LED is lit at 0 mA, its row raises it, and a manual recording runs. Its camera refusals are `apply_channel_camera`'s.
-- `CameraSettingRejected`: the camera did not take a setting of the shown channel; every row is stored.
+- `CameraSettingRejected`: the camera did not take a setting of the shown channel.
 
-Nothing is changed on any refusal but the camera's.
+Nothing is stored on any refusal.
 
 **Refusals by REST status**
 
@@ -2913,9 +2913,10 @@ field not written, and null is the value.
 Every field is judged before any is stored: its range, the LED
 board's maximum for a current, Z's travel for a focus, and the
 stored auto-gain range for auto-gain turned on. Then, for the shown
-channel, an illumination goes on its lit LED before it is stored,
-and the camera takes the stored gain, exposure and auto-gain when
-this returns. `auto_gain` False named with a gain or an exposure
+channel, the camera takes the gain, exposure and auto-gain, and an
+illumination goes on its lit LED, before anything is stored, so a
+value the camera or the LED refuses is not stored and the earlier
+one stays. `auto_gain` False named with a gain or an exposure
 means those values, the loop off; named alone, it keeps what the
 loop reached (the lock, read by `channel_auto_gain_lock`).
 Setting a channel to acquire stops it stimulating. While a run or a
@@ -2954,6 +2955,7 @@ The channel's settings as stored once the write is done, the lock's values and t
 - `SettingRefusedError`: `'not_offered'`, a field this channel does not carry (stimulation on a channel that does not stimulate); `'wrong_kind'` or `'out_of_range'`, a value its setting does not take, a focus that is not finite and an illumination above the LED board's maximum among them.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope does not have `channel` and the write sets it to acquire, turns its auto-gain on or saves its focus; `'exclusive_activity_running'`, as described above, or the write is the shown channel's illumination, its LED is lit at 0 mA, the value is above 0 mA, and a manual recording runs (a recording keeps the light it started under). Nothing is stored.
+- `CameraSettingRejected`: the shown channel's camera did not take its gain, exposure or auto-gain. Nothing is stored.
 - `ProtocolRunRefusedError`: `'positions_unreachable'`, a focus on a scope with no Z axis.
 - `PositionOutOfRangeError`: a focus outside Z's travel.
 
@@ -2961,7 +2963,7 @@ The channel's settings as stored once the write is done, the lock's values and t
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`SettingRefusedError`](#SettingRefusedError): `not_offered`, `wrong_kind`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_unreachable`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
 <a id="ScopeSession.set_engineering_mode"></a>
@@ -4015,29 +4017,33 @@ settings has a path.
 **Raises**
 
 - `SettingRefusedError`: `'has_member'`, `path` is owned by a member (named by its path from the session: `scope.camera.set_frame_size` for the camera's); `'host_only'`, its member is in-process, so only the application hosting the scope changes it (`live_folder`, `protocol.filepath`); `'installation_only'`, it is set only by the installation; `'not_a_setting'`, it is not a setting; `'block'`, it names a block; `'wrong_kind'`, `value` is not the setting's kind; `'out_of_range'`, it is outside its range (a `protocol.period` or `protocol.duration` no protocol can run among them). Nothing is written.
-- `ConfigurationDefectError`: `'channels_unresolved'`, the write is an auto-gain bound the shown channel's camera takes and this scope's channels could not be resolved; the value is stored, and the camera is not changed.
+- `ConfigurationDefectError`: `'channels_unresolved'`, the write is an auto-gain bound the shown channel's camera takes and this scope's channels could not be resolved. Nothing is stored, and the camera is not changed.
+- `ArgumentRefusedError`: `'gain_range_inverted'`, the write is an auto-gain bound the shown channel's camera takes and leaves the minimum gain above the maximum. Nothing is stored, and the camera keeps its arm.
+- `CameraSettingRejected`: the shown channel's camera did not take the auto-gain bound. Nothing is stored.
 - `HardwareCommandRefusedError`: `'exclusive_activity_running'`, a home holds the scope and the shown channel's camera would take the write. Nothing is stored.
 
 A numpy scalar in `value`, at any depth, is stored as the Python
 value it holds.
 
 While the shown channel is on auto-gain, a write to the auto-gain
-bounds is on the camera when this returns, unless a run or a
-diagnostic holds the scope, whose end puts the shown channel on;
+bounds goes on the camera before it is stored, so a bound the camera
+refuses is not stored; while a run or a diagnostic holds the scope
+it is stored only, and the activity's end puts the shown channel on;
 while a home holds the scope it is refused. Such a write waits on
-the camera lane, so a caller on the UI thread hands it to a worker.
-Each auto-gain bound is stored alone; a minimum left above the maximum is refused
-when auto-gain is armed with them (`ArgumentRefusedError`,
-`'gain_range_inverted'`), so this write raises it after the store
-while the shown channel is on auto-gain, and the camera keeps its arm.
+the camera lane, so a caller on
+the UI thread hands it to a worker. Each auto-gain bound is stored
+alone; a minimum left above the maximum is refused when auto-gain is
+armed with them (`ArgumentRefusedError`, `'gain_range_inverted'`),
+so this write refuses it while the shown channel is on auto-gain,
+and stores it otherwise, to be judged at the next arm.
 The log level and the autofocus score log (`'logging.*'`) take
 effect as they are written.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`SettingRefusedError`](#SettingRefusedError): `has_member`, `host_only`, `installation_only`, `not_a_setting`, `block`, `wrong_kind`, `out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 422: [`SettingRefusedError`](#SettingRefusedError): `has_member`, `host_only`, `installation_only`, `not_a_setting`, `block`, `wrong_kind`, `out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
 <a id="ScopeSession.update_step"></a>

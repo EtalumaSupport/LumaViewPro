@@ -14,7 +14,9 @@ after a diagnostic. ``ScopeSession`` now has one channel write: every field
 is judged before any is stored, and the channel shown when the write ends is
 on the camera, and on its LED when lit. A write held back during a run or a
 diagnostic is applied at its end; one to the shown channel's hardware during
-a home is refused, as every other request during a home is.
+a home is refused, as every other request during a home is. The shown
+channel's camera and LED take a write before it is stored, so a value either
+refuses is not stored.
 """
 
 from __future__ import annotations
@@ -26,16 +28,20 @@ import pandas as pd
 import pytest
 
 from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.drivers.exceptions import BoardPortFailedError
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
+    CameraSettingRejected,
     HardwareCommandRefusedError,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
 )
 from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from _lumascope.modules.protocol import ChannelSettings, Protocol
+from _lumascope.modules.scope_session import ScopeSession
 from tests.protocol_fixtures import protocol_of
 from tests.scope_fakes import channel_reading
+from tests.settings_fixtures import complete_settings
 from tests.test_adding_a_step_is_an_api_capability import session  # noqa: F401 -- pytest fixture
 from tests.test_a_home_holds_the_scope import HOME_S, _HeldHome
 from tests.test_going_to_a_step_is_the_sessions_move import _PLATE, _objective_of, _step
@@ -297,3 +303,106 @@ def test_an_auto_gain_bound_the_shown_camera_takes_during_a_home_is_refused(sess
         home.exception(timeout=HOME_S)
 
     assert session.setting('protocol.autogain.max_gain_db') == before
+
+
+def _shown_bf_at(session, gain_db=9.0, exposure_ms=30.0):
+    """BF shown, the camera holding it at the given gain and exposure, auto-gain off."""
+    session.show_channel('BF')
+    session.set_channel_settings('BF', auto_gain=False, gain_db=gain_db, exposure_ms=exposure_ms)
+
+
+class TestAValueTheCameraRefusesIsNotStored:
+    """Rule 9: the shown channel's camera is asked before the store.
+
+    Stored first, a value the camera refused stayed in the channel, so the
+    box, the settings file and every later still of the channel held a value
+    the camera never took, and each still asked for it again.
+    """
+
+    @pytest.mark.parametrize(
+        ('node', 'field', 'refused'),
+        [('gain', 'gain_db', 12.0), ('exposure', 'exposure_ms', 45.0)],
+        ids=['gain', 'exposure'],
+    )
+    def test_the_channel_keeps_the_earlier_value_and_the_next_still_is_taken_at_it(
+        self, session, node, field, refused
+    ):
+        # parametrize-justified: each refusal is armed on its own camera node.
+        _shown_bf_at(session)
+        earlier = getattr(session.channel_settings('BF'), field)
+        before = session.settings_snapshot()
+        session.scope.simulation.refuse_camera_write(node, 'raise')
+
+        with pytest.raises(CameraSettingRejected) as rejected:
+            session.set_channel_settings('BF', **{field: refused})
+
+        assert rejected.value.reason == 'camera_rejected'
+        assert getattr(session.channel_settings('BF'), field) == earlier
+        assert session.settings_snapshot() == before
+        record = session.scope.imaging.capture_still('BF', accept_dark=True).record
+        assert getattr(record, field) == pytest.approx(earlier)
+
+    def test_a_write_whose_gain_alone_is_refused_stores_neither_value(self, session):
+        _shown_bf_at(session)
+        before = session.settings_snapshot()
+        session.scope.simulation.refuse_camera_write('gain', 'raise')
+
+        with pytest.raises(CameraSettingRejected):
+            session.set_channel_settings('BF', gain_db=12.0, exposure_ms=45.0)
+
+        assert session.settings_snapshot() == before
+
+    def test_a_loaded_layer_the_camera_refuses_stores_no_row(self, session):
+        _shown_bf_at(session)
+        before = session.settings_snapshot()
+        session.scope.simulation.refuse_camera_write('gain', 'raise')
+
+        with pytest.raises(CameraSettingRejected):
+            session.apply_channel_settings(
+                _layers(BF=_row(gain_db=2.5, exposure_ms=12.0, auto_gain=False))
+            )
+
+        assert session.settings_snapshot() == before
+
+    def test_an_auto_gain_bound_the_camera_refuses_is_not_stored(self, session):
+        session.show_channel('BF')
+        session.set_channel_settings('BF', auto_gain=True)
+        before = session.settings_snapshot()
+        session.scope.simulation.refuse_camera_write('auto_gain', 'raise')
+
+        with pytest.raises(CameraSettingRejected):
+            session.update_settings(
+                'protocol.autogain.max_gain_db',
+                session.setting('protocol.autogain.max_gain_db') - 1.0,
+            )
+
+        assert session.settings_snapshot() == before
+
+
+@pytest.fixture
+def ls620():
+    # The FX2's LED board is the simulated one that takes a refused write.
+    built = ScopeSession.create(
+        complete_settings(microscope='LS620'), simulate=True, warn_pre_release=False
+    )
+    yield built
+    built.shutdown()
+
+
+def test_a_light_the_led_refuses_after_the_camera_took_the_write_stores_nothing_and_puts_the_camera_back(
+    ls620,
+):
+    channel = ls620.shown_channel.channel
+    ls620.set_channel_settings(channel, auto_gain=False, gain_db=3.0, illumination_ma=10.0)
+    ls620.light_shown_channel(True)
+    camera = ls620.scope.camera
+    held_gain = camera.read_gain_db()  # the FX2's step nearest the 3.0 asked
+    before = ls620.settings_snapshot()
+    ls620.scope.simulation.refuse_led_write()
+
+    with pytest.raises(BoardPortFailedError):
+        ls620.set_channel_settings(channel, gain_db=6.0, illumination_ma=20.0)
+
+    assert ls620.settings_snapshot() == before
+    assert camera.read_gain_db() == pytest.approx(held_gain)
+    assert camera.get_held_channel() == channel

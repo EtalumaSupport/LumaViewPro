@@ -310,18 +310,18 @@ def test_a_layer_exposure_or_gain_above_the_camera_is_stored_as_the_intent(sessi
     assert session.settings[LED0]['gain_db'] == 60.0
 
 
-def test_a_minimum_gain_left_above_the_maximum_is_stored_and_refused_at_the_arm(tmp_path):
+def test_a_minimum_gain_left_above_the_maximum_is_refused_at_the_arm_and_not_stored(tmp_path):
     # Each bound is written alone, so the pair is judged where auto-gain is
-    # armed with it: the shown layer's arm, here, after the store.
+    # armed with it: the shown layer's arm, here, before the store.
     s = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
     try:
         layer = s.shown_channel.channel
         s.set_channel_settings(layer, auto_gain=True)
+        earlier = s.setting('protocol.autogain.min_gain_db')
         with pytest.raises(ArgumentRefusedError) as refused:
             s.update_settings('protocol.autogain.min_gain_db', 30.0)
         assert refused.value.reason == 'gain_range_inverted'
-        assert s.settings['protocol']['autogain']['min_gain_db'] == 30.0
-        s.update_settings('protocol.autogain.max_gain_db', 40.0)
+        assert s.setting('protocol.autogain.min_gain_db') == earlier
     finally:
         s.shutdown()
 

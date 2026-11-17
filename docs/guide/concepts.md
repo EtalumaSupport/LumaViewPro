@@ -331,7 +331,10 @@ channel not shown is stored only, and is used the next time that channel is
 shown or captured. One made while a run or a diagnostic holds the scope is
 stored only, and the shown channel is put on the camera and its LED when that
 ends; while a home holds the scope, a write the shown channel's camera or LED
-would take is refused.
+would take is refused. Through this member or a Load, the shown channel's
+camera and LED take a write before it is stored, so a value either refuses is
+not stored: the write raises (`CameraSettingRejected` for the camera's), and
+the channel keeps the value it had.
 
 ```python
 bf = session.set_channel_settings('BF', illumination_ma=5, gain_db=2.0)

@@ -2666,9 +2666,9 @@ class ScopeSession:
                 its row raises it, and a manual recording runs. Its camera
                 refusals are ``apply_channel_camera``'s.
             CameraSettingRejected: the camera did not take a setting of the
-                shown channel; every row is stored.
+                shown channel.
 
-        Nothing is changed on any refusal but the camera's.
+        Nothing is stored on any refusal.
         """
         self.scope.protocols.refuse_channel_settings_out_of_range(
             protocol, led_max_ma=self.scope.capabilities.led_max_ma
@@ -2833,9 +2833,10 @@ class ScopeSession:
         Every field is judged before any is stored: its range, the LED
         board's maximum for a current, Z's travel for a focus, and the
         stored auto-gain range for auto-gain turned on. Then, for the shown
-        channel, an illumination goes on its lit LED before it is stored,
-        and the camera takes the stored gain, exposure and auto-gain when
-        this returns. ``auto_gain`` False named with a gain or an exposure
+        channel, the camera takes the gain, exposure and auto-gain, and an
+        illumination goes on its lit LED, before anything is stored, so a
+        value the camera or the LED refuses is not stored and the earlier
+        one stays. ``auto_gain`` False named with a gain or an exposure
         means those values, the loop off; named alone, it keeps what the
         loop reached (the lock, read by ``channel_auto_gain_lock``).
         Setting a channel to acquire stops it stimulating. While a run or a
@@ -2891,6 +2892,8 @@ class ScopeSession:
                 0 mA, the value is above 0 mA, and a manual recording runs (a
                 recording keeps the light it started under). Nothing is
                 stored.
+            CameraSettingRejected: the shown channel's camera did not take
+                its gain, exposure or auto-gain. Nothing is stored.
             ProtocolRunRefusedError: ``'positions_unreachable'``, a focus on a
                 scope with no Z axis.
             PositionOutOfRangeError: a focus outside Z's travel.
@@ -4731,8 +4734,14 @@ class ScopeSession:
                 Nothing is written.
             ConfigurationDefectError: ``'channels_unresolved'``, the write is
                 an auto-gain bound the shown channel's camera takes and this
-                scope's channels could not be resolved; the value is stored,
+                scope's channels could not be resolved. Nothing is stored,
                 and the camera is not changed.
+            ArgumentRefusedError: ``'gain_range_inverted'``, the write is an
+                auto-gain bound the shown channel's camera takes and leaves
+                the minimum gain above the maximum. Nothing is stored, and
+                the camera keeps its arm.
+            CameraSettingRejected: the shown channel's camera did not take
+                the auto-gain bound. Nothing is stored.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``, a
                 home holds the scope and the shown channel's camera would take
                 the write. Nothing is stored.
@@ -4741,14 +4750,16 @@ class ScopeSession:
         value it holds.
 
         While the shown channel is on auto-gain, a write to the auto-gain
-        bounds is on the camera when this returns, unless a run or a
-        diagnostic holds the scope, whose end puts the shown channel on;
+        bounds goes on the camera before it is stored, so a bound the camera
+        refuses is not stored; while a run or a diagnostic holds the scope
+        it is stored only, and the activity's end puts the shown channel on;
         while a home holds the scope it is refused. Such a write waits on
-        the camera lane, so a caller on the UI thread hands it to a worker.
-        Each auto-gain bound is stored alone; a minimum left above the maximum is refused
-        when auto-gain is armed with them (``ArgumentRefusedError``,
-        ``'gain_range_inverted'``), so this write raises it after the store
-        while the shown channel is on auto-gain, and the camera keeps its arm.
+        the camera lane, so a caller on
+        the UI thread hands it to a worker. Each auto-gain bound is stored
+        alone; a minimum left above the maximum is refused when auto-gain is
+        armed with them (``ArgumentRefusedError``, ``'gain_range_inverted'``),
+        so this write refuses it while the shown channel is on auto-gain,
+        and stores it otherwise, to be judged at the next arm.
         The log level and the autofocus score log (``'logging.*'``) take
         effect as they are written.
         """
@@ -4768,15 +4779,14 @@ class ScopeSession:
         settings_paths.check_write(self.scope.settings_template, path, value)
         preference = path in settings_paths.PREFERENCES
         with contextlib.nullcontext() if preference else a_guarded_write(self._activity_claim):
-            camera = self._a_bound_the_shown_camera_takes(path)
-            if camera:
+            if self._a_bound_the_shown_camera_takes(path):
                 self._refuse_during_a_home('update_settings')
+                if not self._an_activity_holds_the_scope() and self.scope.camera_connected:
+                    self.scope.camera.hold_channel_writing(self._shown_channel, {path: value})
             with self.settings_lock:
                 self._store_setting(path, value)
                 if path.startswith('logging.'):
                     _apply_logging(self._settings)
-            if camera and not self._an_activity_holds_the_scope():
-                self.apply_channel_camera(self._shown_channel)
 
     def _an_activity_holds_the_scope(self) -> bool:
         """Whether a run, a diagnostic or a home holds the scope: a channel
@@ -4845,23 +4855,29 @@ class ScopeSession:
     def _write_channels(
         self, fields: Mapping[str, Mapping[str, object]], *, member: str, then_camera: bool
     ) -> None:
-        """The one channel write: ``fields`` judged whole, stored, and the shown channel applied.
+        """The one channel write: ``fields`` judged whole, put on the shown channel's hardware, then stored.
 
         ``fields`` maps each channel to its values by key under the channel
         (``'gain_db'``, ``'stim_config.frequency'``), each number already
         judged by its door's ranges. In order, so a refusal stores nothing:
         the Session's own rules (``_judge_channel_fields``); a home refuses a
-        value the shown channel's camera or LED would take; the shown
-        channel's illumination goes on its lit LED before it is stored, so a
-        light the LED refuses stores nothing; auto-gain turned off with no
-        gain or exposure beside it locks the camera's arm, its values stored
-        as the channel's (with them, they are the channel's, the loop off);
-        when the camera holds no channel's settings (a raw write's), it is
-        left as it is.
-        Then every value is stored (``_write_channel_fields``) and, with
-        ``then_camera``, the shown channel goes on the camera. While a run or
-        a diagnostic holds the scope the values are stored only, and its end
-        puts the shown channel on (``_apply_shown_channel``).
+        value the shown channel's camera or LED would take; auto-gain turned
+        off with no gain or exposure beside it locks the camera's arm, its
+        values stored as the channel's (with them, they are the channel's,
+        the loop off); when the camera holds no channel's settings (a raw
+        write's), it is left as it is. Then, with ``then_camera``, the shown
+        channel's camera takes what the write will store
+        (``CameraAPI.hold_channel_writing``), so a value the camera refuses
+        is never stored; then its illumination goes on its lit LED, so a
+        light the LED refuses stores nothing, and the camera is put back on
+        the stored values (``apply_channel_camera``). Then every value is
+        stored (``_write_channel_fields``). While a run or a diagnostic holds
+        the scope the values are stored only, and its end puts the shown
+        channel on (``_apply_shown_channel``).
+
+        An auto-gain lock taken before a refusal is not undone: the camera
+        stays at the locked values, the loop off, until the next hold of the
+        channel arms it again.
 
         ``then_camera`` is False only for a caller that puts the channel on
         the camera itself once it is shown: going to a step, whose write runs
@@ -4869,9 +4885,12 @@ class ScopeSession:
         no camera or LED takes goes through ``_store_channel_fields``.
 
         Raises:
-            What ``_judge_channel_fields``, ``_refuse_during_a_home``, the
-            LED, ``CameraAPI.lock_auto_gain`` and ``apply_channel_camera``
-            raise; only the camera's comes after the store.
+            What ``_judge_channel_fields``, ``_refuse_during_a_home``,
+            ``CameraAPI.lock_auto_gain``, ``CameraAPI.hold_channel_writing``
+            and the LED raise; nothing is stored. When the LED refuses after
+            the camera took the values and putting the stored values back is
+            refused too, the camera's refusal is raised, the LED's its
+            context.
         """
         from _lumascope.modules.lumascope_api.camera import AutoGainLock
 
@@ -4881,9 +4900,6 @@ class ScopeSession:
         if shown_keys & _HARDWARE_FIELDS:
             self._refuse_during_a_home(member)
         held = self._an_activity_holds_the_scope()
-        illumination = fields.get(shown, {}).get('illumination_ma')
-        if illumination is not None and not held and self._channel_lit(shown):
-            self._show_leds_at(shown, illumination, True)
         locks = {}
         camera_owed = bool(shown_keys & _CAMERA_FIELDS)
         for channel, values in fields.items():
@@ -4896,10 +4912,20 @@ class ScopeSession:
                     # No arm of this channel's to lock: the camera holds a raw
                     # write's values, which stand.
                     camera_owed = False
+        writing = self._channel_writing(fields, locks)
+        asked = then_camera and not held and camera_owed and self.scope.camera_connected
+        if asked:
+            self.scope.camera.hold_channel_writing(shown, writing)
+        illumination = fields.get(shown, {}).get('illumination_ma')
+        if illumination is not None and not held and self._channel_lit(shown):
+            try:
+                self._show_leds_at(shown, illumination, True)
+            except Exception:
+                if asked:
+                    self.apply_channel_camera(shown)
+                raise
         with self.settings_lock:
-            self._write_channel_fields(fields, locks=locks)
-        if then_camera and not held and camera_owed:
-            self.apply_channel_camera(shown)
+            self._write_channel_fields(writing, locks=locks)
 
     def _store_channel_fields(self, fields: Mapping[str, Mapping[str, object]]) -> None:
         """The one channel write for fields no camera or LED takes (an acquire mode, a focus): judged, then stored.
@@ -4919,35 +4945,51 @@ class ScopeSession:
         if hardware:
             raise RuntimeError(f'{hardware} go on the hardware: write them through _write_channels')
         judged = self._judge_channel_fields(fields)
+        writing = self._channel_writing(judged, {})
         with self.settings_lock:
-            self._write_channel_fields(judged, locks={})
+            self._write_channel_fields(writing, locks={})
 
-    def _write_channel_fields(
-        self, fields: Mapping[str, Mapping[str, object]], *, locks: Mapping[str, 'AutoGainLock']
-    ) -> None:
-        """Under ``settings_lock``: store judged channel ``fields`` and the auto-gain ``locks`` taken for them.
+    def _channel_writing(
+        self, fields: Mapping[str, Mapping[str, object]], locks: Mapping[str, 'AutoGainLock']
+    ) -> dict[str, object]:
+        """What a channel write of judged ``fields`` and the auto-gain ``locks`` taken for them stores, by dotted path.
 
-        The one store of a channel's fields; ``_store_setting`` refuses one
-        stored anywhere else. A lock that reached a gain stores it and its
-        exposure as the channel's, rounded to the 0.1 dB and 0.01 ms the
-        settings carry; a channel set to acquire stops stimulating, since
-        one channel does not capture and stimulate at once.
+        Built once, so the camera is asked for what the store then holds
+        (``CameraAPI.hold_channel_writing``). A lock that reached a gain
+        stores it and its exposure as the channel's, rounded to the 0.1 dB
+        and 0.01 ms the settings carry; a channel set to acquire stops
+        stimulating, since one channel does not capture and stimulate at
+        once.
         """
-        with self._channel_store_opened():
+        writing: dict[str, object] = {}
+        with self.settings_lock:
             for channel, values in fields.items():
                 lock = locks.get(channel)
                 if lock is not None and lock.gain_db is not None:
-                    self._store_setting(f'{channel}.gain_db', round(lock.gain_db, 1))
-                    self._store_setting(f'{channel}.exposure_ms', round(lock.stored_exposure_ms, 2))
+                    writing[f'{channel}.gain_db'] = round(lock.gain_db, 1)
+                    writing[f'{channel}.exposure_ms'] = round(lock.stored_exposure_ms, 2)
                 for key, value in values.items():
-                    self._store_setting(f'{channel}.{key}', value)
+                    writing[f'{channel}.{key}'] = value
                 if (
                     values.get('acquire') is not None
                     and self._settings[channel].get('stim_config') is not None
                 ):
-                    self._store_setting(f'{channel}.stim_config.enabled', False)
-                if lock is not None:
-                    self._auto_gain_locks[channel] = lock
+                    writing[f'{channel}.stim_config.enabled'] = False
+        return writing
+
+    def _write_channel_fields(
+        self, writing: Mapping[str, object], *, locks: Mapping[str, 'AutoGainLock']
+    ) -> None:
+        """Under ``settings_lock``: store a channel write (``_channel_writing``) and the auto-gain ``locks`` taken for it.
+
+        The one store of a channel's fields; ``_store_setting`` refuses one
+        stored anywhere else.
+        """
+        with self._channel_store_opened():
+            for path, value in writing.items():
+                self._store_setting(path, value)
+            for channel, lock in locks.items():
+                self._auto_gain_locks[channel] = lock
 
     @contextlib.contextmanager
     def _channel_store_opened(self) -> Iterator[None]:

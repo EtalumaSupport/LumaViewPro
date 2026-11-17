@@ -18,6 +18,7 @@ import functools
 import logging as _logging
 import threading
 import time
+import types
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -167,8 +168,10 @@ class _AutoGainArm:
 class ChannelCameraRequest:
     """A channel's stored camera settings, read from its store, for the camera to take.
 
-    Built only by ``CameraAPI._channel_request``, from the channel alone, so
-    no caller hands the camera settings the channel does not have stored.
+    Built only by ``CameraAPI._channel_request``, from the channel's store,
+    or from the store as a channel write is about to leave it
+    (``hold_channel_writing``), so no caller hands the camera settings the
+    channel does not have, or is not about to have, stored.
 
     Attributes:
         gain_db: The channel's stored gain, in dB.
@@ -574,6 +577,30 @@ _AUTO_GAIN_SETTINGS_KEYS = (
     'max_exposure_ms',
     'min_exposure_ms',
 )
+
+
+# What a hold's request reads over the store when no write is about to land.
+_NOTHING_WRITTEN: Mapping[str, object] = types.MappingProxyType({})
+
+
+def _read_as_written(scope: Any, path: str, writing: Mapping[str, object]) -> Any:
+    """The setting at ``path`` as it reads once ``writing`` is stored.
+
+    ``writing`` maps dotted settings paths to the values a write is about to
+    store; one at ``path`` replaces the setting, and one under it replaces
+    that key inside the copy read.
+    """
+    value = scope.read_setting(path)
+    for written, new in writing.items():
+        if written == path:
+            value = new
+        elif written.startswith(f'{path}.'):
+            *keys, leaf = written[len(path) + 1 :].split('.')
+            block = value
+            for key in keys:
+                block = block[key]
+            block[leaf] = new
+    return value
 
 
 def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
@@ -4519,7 +4546,34 @@ class CameraAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    def _channel_request(self, channel: str, member: str) -> ChannelCameraRequest:
+    def hold_channel_writing(self, channel: str, writing: Mapping[str, object]) -> dict | None:
+        """Put ``channel``'s settings on the camera as a write is about to store them, and wait.
+
+        ``hold_channel`` for the settings a channel write is about to store:
+        ``writing`` maps dotted settings paths (``'BF.gain_db'``,
+        ``'protocol.autogain.min_gain_db'``) to the values the write stores,
+        read over the store (``_channel_request``). The camera is asked
+        before the store, so a value it refuses is never stored. The caller
+        stores ``writing`` itself once this returns, so the camera holds
+        ``channel`` at what the store then holds.
+
+        Not API: only the Session's channel writes call it
+        (``tests/guards/test_only_a_channel_write_asks_ahead_of_its_store.py``).
+
+        Raises:
+            As ``hold_channel`` says.
+        """
+        request = self._channel_request(channel, 'hold_channel_writing', writing)
+        return self._dispatch_camera(
+            self._hold_channel_impl,
+            'hold_channel_writing',
+            args=(channel, request),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _channel_request(
+        self, channel: str, member: str, writing: Mapping[str, object] = _NOTHING_WRITTEN
+    ) -> ChannelCameraRequest:
         """``channel``'s stored gain, exposure and auto-gain, with the auto-gain
         bounds its channel class and the installation's override give it.
 
@@ -4527,7 +4581,10 @@ class CameraAPI:
         channel's block is read in one call, so its gain, exposure and
         auto-gain come from one moment; the bounds are judged only for a
         channel that arms auto-gain, as ``apply`` judges them: a channel with
-        auto-gain off never hands the camera these settings.
+        auto-gain off never hands the camera these settings. Each setting is
+        read as ``writing`` leaves it (``_read_as_written``), so a value
+        derived from a written one, the class's exposure ceiling among them,
+        derives from what is about to be stored.
 
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is no
@@ -4543,10 +4600,10 @@ class CameraAPI:
 
         scope = self._scope
         scope.channel_identity.refuse_unless_on_scope(channel, member, then='be held')
-        stored = scope.read_setting(channel)
-        auto_gain_settings = scope.read_setting('protocol.autogain')
+        stored = _read_as_written(scope, channel, writing)
+        auto_gain_settings = _read_as_written(scope, 'protocol.autogain', writing)
         auto_gain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
-            channel, scope.read_setting('ag_ae_max_exposure_ms')
+            channel, _read_as_written(scope, 'ag_ae_max_exposure_ms', writing)
         )
         # The floor rides beside the ceiling so an auto-gain lock can say
         # whether exposure bottomed out of the usable range (AT_MINIMUM).
