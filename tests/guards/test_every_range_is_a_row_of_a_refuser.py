@@ -21,6 +21,7 @@ _REFUSERS = frozenset(
     {
         settings_paths._refuse_outside,
         settings_paths._refuse_below,
+        settings_paths._refuse_non_count,
         settings_paths._refuse_unless_member,
         settings_paths._refuse_unknown_format,
         settings_paths._judged,

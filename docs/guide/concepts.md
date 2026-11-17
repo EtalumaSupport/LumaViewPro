@@ -371,15 +371,19 @@ session.remove_settings_listener(changed.append)
 when the hardware delivers less; the member that drives the hardware answers
 what it delivered. An LED board drives in steps -- whole milliamps on the
 EL-0940, about 3.29 mA on the FX2 models -- so `led_on` answers the current it
-commanded, the nearest step. A current above the LED board's maximum is refused
-when it is written. A camera snaps or quantizes a gain or an exposure, so
+commanded, the nearest step. A camera snaps or quantizes a gain or an exposure, so
 `set_gain_db` and `set_exposure_ms` answer the value now in effect. A stored
 gain or exposure outside the camera's range stays stored: what the camera would
 be given for it is `scope.camera.applied_gain_db_for(gain)`,
 `applied_exposure_ms_for(exposure)` and `applied_auto_gain_for(...)`, and
 bring-up reports a stored value it capped (`'channel_setting_capped'`). A gain
 asked of the camera directly outside its range is set at the range's end, and
-the call reports it (`'value_clamped'`).
+the call reports it (`'value_clamped'`). A channel's gain, exposure or current
+written past the camera's range or the LED board's maximum, or a sum above 100,
+is stored at the limit and reported the same way, once for the write; a run's
+step past one runs at the limit, its images and run folder record the value
+used, the protocol keeps what it says, and the run reports the steps once when
+it starts.
 
 ```python
 assert scope.illumination.led_on('BF', 10.37) == 10.0      # the board's step

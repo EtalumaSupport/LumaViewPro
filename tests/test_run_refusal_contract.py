@@ -756,10 +756,6 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_build_outside_the_travel_is_refused.py::'
         'test_a_stack_with_a_slice_outside_the_travel_is_refused'
     ),
-    'camera_setting_out_of_range': (
-        'tests/test_a_run_needs_camera_values_in_range.py'
-        '::test_a_gain_above_the_camera_maximum_is_refused_naming_the_step'
-    ),
     'camera_range_unread': (
         'tests/test_the_camera_range_follows_each_write.py'
         '::test_a_run_is_refused_while_the_range_is_unread'

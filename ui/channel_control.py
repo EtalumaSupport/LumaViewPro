@@ -153,10 +153,10 @@ class ChannelControl(BoxLayout):
         """Hand a typed channel value to the settings writer; True when the store changed.
 
         Parses the text and writes it through ``set_channel_settings``. The Session
-        decides what is stored: it refuses a value outside the setting's range
-        (an illumination past the LED board's maximum among them), telling
-        the person, and stores a gain or exposure past the camera's limit as
-        the intent, which the apply drives at the limit. The box and its
+        decides what is stored: it refuses a value outside the setting's range,
+        telling the person, and stores a value past the hardware's limit (a
+        gain, exposure, illumination or sum) at the limit, telling the person
+        that too. The box and its
         slider then show what is stored, whatever the call did; the slider's
         own range is display and never narrows what was typed.
 

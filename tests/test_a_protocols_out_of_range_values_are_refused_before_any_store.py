@@ -81,18 +81,18 @@ def test_a_file_whose_layer_settings_are_out_of_range_is_refused_at_load_naming_
     assert session.settings_snapshot() == before
 
 
-def test_a_file_whose_layer_settings_sum_more_than_100_frames_is_refused_at_load(session, tmp_path):
-    # Eric 2026-11-15: such a file is refused at load, as every out-of-range
-    # Layer Settings value is, rather than loaded with a notice.
+def test_a_file_whose_layer_settings_sum_more_than_100_frames_loads_and_applies_at_100(
+    session, tmp_path
+):
+    # The 100 frames a capture may sum is a ceiling, not a range: the file
+    # keeps what it says, and applying it stores 100, as a typed 101 does.
     edited = _edited(session, tmp_path, ('Layer', 'BF'), {'Sum': '101'})
-    before = session.settings_snapshot()
 
-    with pytest.raises(ProtocolRunRefusedError) as refused:
-        session.load_protocol(str(edited))
+    protocol = session.load_protocol(str(edited))
+    session.apply_channel_settings(protocol)
 
-    assert refused.value.reason == 'values_out_of_range'
-    assert 'BF Sum: it must be between 1 and 100, not 101' in str(refused.value)
-    assert session.settings_snapshot() == before
+    assert protocol.channel_settings()['BF'].frames_summed == 101
+    assert session.settings['BF']['sum'] == 100
 
 
 def test_a_protocol_built_in_memory_is_refused_by_the_apply_storing_nothing(session):

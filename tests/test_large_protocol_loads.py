@@ -203,7 +203,7 @@ def test_a_load_and_its_run_check_walk_no_step_as_a_pandas_row(tmp_path, monkeyp
 
     loaded = protocol_from_file(file_path=path)
     errors = loaded.validate_for_run(
-        objective_helper=ObjectiveLoader(), wellplate_loader=WellPlateLoader(), led_max_ma=1000
+        objective_helper=ObjectiveLoader(), wellplate_loader=WellPlateLoader()
     )
 
     assert list(loaded.steps()['Name']) == ['A1_BF_Z0', 'A1_BF_Z0', 'A2_BF_Z0']

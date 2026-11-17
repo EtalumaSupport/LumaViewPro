@@ -127,6 +127,8 @@ _EDITS = {
     'apply_zstack_group_focus': lambda s, p: p.apply_zstack_group_focus(0, 1234.0),
     'apply_zstacking': _stack_as_stored,
     'delete_step': lambda s, p: s.delete_step(p, 0),
+    # Every exposure is above 0.001 ms, so each step is held to it.
+    'hold_steps_to': lambda s, p: p.hold_steps_to({'exposure_ms': (None, 0.001)}),
     'insert_step': lambda s, p: s.add_step(p),
     'modify_autofocus': lambda s, p: p.modify_autofocus(
         step_index=0, enabled=not p.step_row(step_index=0)['Auto_Focus']

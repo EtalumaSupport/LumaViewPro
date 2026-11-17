@@ -23,8 +23,6 @@ from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.registry import led_registry
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.modules.exceptions import ArgumentRefusedError
-from _lumascope.modules.objectives_loader import ObjectiveLoader
-from _lumascope.modules.protocol import Protocol
 from _lumascope.modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
 from tests.case_walk import failing_cases
@@ -98,80 +96,6 @@ def test_the_api_guard_refuses_one_over_the_boards_cap(sim_scope):
     assert (refused.value.reason, refused.value.limits) == ('illumination_out_of_range', (0, 840))
     sim_scope.illumination.led_on(LED0, 840)
     sim_scope.illumination.led_off(LED0)
-
-
-# ---------------------------------------------------------------------------
-# The protocol validator judges by the cap its caller gives it
-# ---------------------------------------------------------------------------
-
-
-def _protocol_with(illumination) -> Protocol:
-    import pandas as pd
-
-    p = Protocol.__new__(Protocol)
-    p._config = {
-        'steps': pd.DataFrame(
-            [
-                {
-                    'Name': 'A1',
-                    'X': 10.0,
-                    'Y': 10.0,
-                    'Z': 100.0,
-                    'Auto_Focus': False,
-                    'channel': LED0,
-                    'False_Color': False,
-                    'Illumination': float(illumination),
-                    'Gain': 0.0,
-                    'Auto_Gain': False,
-                    'Exposure': 10.0,
-                    'Sum': 1,
-                    'Objective': '4x',
-                    'Tile': '',
-                    'Z-Slice': 0,
-                    'Well': 'A1',
-                    'Tile Group ID': 0,
-                    'Z-Stack Group ID': 0,
-                    'Custom Step': False,
-                    'Acquire': 'image',
-                }
-            ]
-        ),
-        'labware_id': '96 well microplate',
-    }
-    p._num_steps_cache = None
-    return p
-
-
-_CATALOGUE = ObjectiveLoader().objectives
-
-
-def test_a_step_above_the_cap_given_is_refused():
-    errors = _protocol_with(900).validate_steps(_CATALOGUE, led_max_ma=840)
-    assert any(
-        "Illumination: it must be at most 840 mA, this LED board's maximum" in e for e in errors
-    ), errors
-
-
-def test_a_step_at_the_cap_given_is_accepted():
-    errors = _protocol_with(840).validate_steps(_CATALOGUE, led_max_ma=840)
-    assert not any('Illumination' in e for e in errors), errors
-
-
-def test_a_negative_current_is_refused_under_any_cap():
-    errors = _protocol_with(-1).validate_steps(_CATALOGUE, led_max_ma=840)
-    assert any('Illumination: it must be at least 0' in e for e in errors), errors
-
-
-def test_the_protocol_carries_no_cap_of_its_own():
-    # A cap carried on the protocol was dropped by every copy made for a
-    # run, and the gate admitted a step the LED then refused: the cap is
-    # the scope's, and each validator asks its caller for it.
-    assert not hasattr(Protocol, '_led_max_ma')
-    assert 'led_max_ma' not in inspect.signature(Protocol).parameters
-    assert 'led_max_ma' not in inspect.signature(Protocol.from_file).parameters
-    for validator in (Protocol.validate_steps, Protocol.validate_for_run):
-        param = inspect.signature(validator).parameters['led_max_ma']
-        assert param.default is inspect.Parameter.empty, validator.__name__
 
 
 # ---------------------------------------------------------------------------

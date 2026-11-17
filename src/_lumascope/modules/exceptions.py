@@ -741,17 +741,25 @@ class ValueClampedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an e
 
     Attributes:
         clamped: ``(where, setting, asked, applied)`` for each value: what
-            was written to (``'camera'``), the setting, the value asked for
-            and the limit it was set at.
+            was written to (``'camera'``, a channel, or a run's step), the
+            setting, the value asked for and the limit it was set at. Every
+            value is here; the words name the first five and count the rest.
     """
 
     title = 'Set at the hardware limit'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'value_clamped': None}
 
     def __init__(self, clamped: list[tuple[str, str, float, float]]):
-        listed = '; '.join(
-            f'{where} {setting} {asked!r} was set to {applied!r}'
-            for where, setting, asked, applied in clamped
+        # Deferred: common_utils imports this module. A run's list grows
+        # with its protocol, so the words name the first few.
+        from _lumascope.modules.common_utils import first_few
+
+        listed = first_few(
+            [
+                f'{where} {setting} {asked!r} was set to {applied!r}'
+                for where, setting, asked, applied in clamped
+            ],
+            separator='; ',
         )
         super().__init__(
             f'These values are past what this scope can do, so each was set at its limit: {listed}.'
@@ -2198,10 +2206,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             stack fall outside Z's travel.
             ``'positions_outside_travel'`` -- steps of the protocol fall
             outside the stage's travel.
-            ``'camera_setting_out_of_range'`` -- a step's gain or exposure is
-            outside this camera's range. ``'camera_range_unread'`` -- the
+            ``'camera_range_unread'`` -- the
             camera's gain and exposure range could not be read after its last
-            readout change, so no step's value can be checked or sent; it is
+            readout change, so no step's value can be held to it; it is
             read again at the next binning, frame size or pixel format
             change. ``'positions_unreachable'`` -- the
             work needs motion on an axis this scope has no motor for.
@@ -2294,7 +2301,6 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'tiles_outside_travel': RefusalCause.REQUEST,
         'zslices_outside_travel': RefusalCause.REQUEST,
         'positions_outside_travel': RefusalCause.REQUEST,
-        'camera_setting_out_of_range': RefusalCause.REQUEST,
         'camera_range_unread': RefusalCause.STATE,
         'positions_unreachable': RefusalCause.REQUEST,
         'step_position_missing': RefusalCause.REQUEST,
@@ -2352,7 +2358,6 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'tiles_outside_travel': 'Tiles Outside Stage Travel',
         'zslices_outside_travel': 'Z-Stack Outside Z Travel',
         'positions_outside_travel': 'Positions Outside Stage Travel',
-        'camera_setting_out_of_range': 'Camera Setting Out of Range',
         'camera_range_unread': 'Camera Range Not Read',
         'positions_unreachable': 'Position Not Reachable',
         'step_position_missing': 'Step Has No Position',
@@ -5617,7 +5622,7 @@ class CameraSettingOutOfRangeError(Refusal, ValueError):
 
     # The range is the attached camera's, fixed for its life, so a value
     # outside it is refused every time it is sent.
-    title = ProtocolRunRefusedError.titles['camera_setting_out_of_range']
+    title = 'Camera Setting Out of Range'
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
         ('frame_width_out_of_range', 'frame_height_out_of_range'),
         RefusalCause.REQUEST,

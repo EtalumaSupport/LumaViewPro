@@ -36,7 +36,11 @@ from _lumascope.modules.notification_center import notifications
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.write_size as write_size
 import _lumascope.modules.path_utils as path_utils
-from _lumascope.modules.finite_number import is_finite_number, refuse_unless_finite_number
+from _lumascope.modules.finite_number import (
+    cap_stored_value,
+    is_finite_number,
+    refuse_unless_finite_number,
+)
 from _lumascope.modules.python_values import python_values
 from _lumascope.modules.channel_record import refuse_unknown_channel
 from _lumascope.modules.request_fields import key_path, refuse_unless_kind, required
@@ -1214,16 +1218,13 @@ _STEP_CHANNEL_VALUES = (
 _VIDEO_KEYS = ('duration',)
 
 
-def step_channel_values_refused(
-    step: Mapping, *, led_max_ma: float | None
-) -> list[tuple[str, SettingRefusedError]]:
+def step_channel_values_refused(step: Mapping) -> list[tuple[str, SettingRefusedError]]:
     """Each of a step's values the channel ranges refuse, with the column that holds it.
 
     The rules a write of them to the channel's settings holds
     (``settings_paths.refused_channel_values``): the step's exposure,
     illumination, gain and sum, and its video's length (required when it
-    records video). ``led_max_ma`` is the attached LED board's maximum, None
-    where no board is judged.
+    records video).
     """
     # Deferred: settings_paths imports this module.
     from _lumascope.modules.settings_paths import refused_channel_values
@@ -1239,19 +1240,17 @@ def step_channel_values_refused(
                 columns[f'video_config.{part}'] = f'Video Config {part}'
     return [
         (columns[r.path.partition('.')[2]], r)
-        for r in refused_channel_values(step['channel'], values, led_max_ma=led_max_ma)
+        for r in refused_channel_values(step['channel'], values)
     ]
 
 
 def channel_settings_values_refused(
-    rows: Mapping[str, ChannelSettings], *, led_max_ma: float | None
+    rows: Mapping[str, ChannelSettings],
 ) -> list[tuple[str, SettingRefusedError]]:
     """Each Layer Settings value the channel ranges refuse, with the channel and column holding it.
 
     ``rows`` are ``Protocol.channel_settings()``' records, or those of them
     a caller will apply. A blank cell holds no value and is not judged.
-    ``led_max_ma`` is the attached LED board's maximum, judged where the rows
-    are applied; None for a file's block, which may be for another board.
     """
     # Deferred: settings_paths imports this module.
     from _lumascope.modules.settings_paths import refused_channel_values
@@ -1267,7 +1266,7 @@ def channel_settings_values_refused(
         }
         refused.extend(
             (f'{name} {columns[r.path.partition(".")[2]]}', r)
-            for r in refused_channel_values(name, values, led_max_ma=led_max_ma)
+            for r in refused_channel_values(name, values)
         )
     return refused
 
@@ -2249,9 +2248,7 @@ class Protocol:
             }
         )
 
-    def validate_steps(
-        self, objectives: 'Mapping[str, Objective]', *, led_max_ma: int | None
-    ) -> list:
+    def validate_steps(self, objectives: 'Mapping[str, Objective]') -> list:
         """Validate all step fields and return a list of error strings.
 
         Not published: no caller needs a call of its own, and its argument
@@ -2262,13 +2259,6 @@ class Protocol:
         Args:
             objectives: The scope's objectives (``scope.objectives``); a step
                 naming an objective they lack is an error.
-            led_max_ma: The connected scope's LED current cap
-                (``capabilities.led_max_ma``). Asked of the caller, not
-                carried on the protocol: a copy made for a run would not
-                carry it, and the gate would admit a step the LED refuses.
-                None on a scope that came up without its LED board: there
-                is no cap to judge against, and a run on it is refused for
-                the missing LED controller.
 
         Returns an empty list if all steps are valid.
 
@@ -2311,10 +2301,10 @@ class Protocol:
 
             # Every cell is already its column's type (_set_steps); what is
             # judged here is whether the value is one the run can use, by the
-            # channel ranges the settings hold. The camera's own floor is
-            # checked when the run is prepared, against the connected body;
-            # the LED board's maximum is the connected board's.
-            for column, refused in step_channel_values_refused(step, led_max_ma=led_max_ma):
+            # channel ranges the settings hold. A value past the attached
+            # camera's or LED board's limit, or above the sum's top, is not
+            # an error: the run clamps its own copy when it is prepared.
+            for column, refused in step_channel_values_refused(step):
                 errors.append(f'{label}: {column}: {refused.detail}')
 
             # Name length
@@ -2329,7 +2319,6 @@ class Protocol:
         *,
         objective_helper: 'ObjectiveLoader',
         wellplate_loader: 'labware_loader.WellPlateLoader',
-        led_max_ma: int | None,
     ) -> list:
         """Validate that the protocol's steps are well-formed enough to run.
 
@@ -2342,8 +2331,6 @@ class Protocol:
         Args:
             objective_helper: The scope's objective catalogue.
             wellplate_loader: The scope's labware catalogue.
-            led_max_ma: The scope's LED current cap (``capabilities.led_max_ma``);
-                None with no LED board (see ``validate_steps``).
 
         Returns:
             List of error strings. Empty list if all checks pass.
@@ -2354,7 +2341,7 @@ class Protocol:
             return errors
 
         # Validate step field values first
-        errors.extend(self.validate_steps(objective_helper.objectives, led_max_ma=led_max_ma))
+        errors.extend(self.validate_steps(objective_helper.objectives))
 
         # Refuse a run whose steps would write identical files. Collisions
         # are caught here, loudly, before any hardware moves -- never left
@@ -2836,6 +2823,45 @@ class Protocol:
     def modify_step_z_height(self, step_index: int, z: float) -> None:
         self._refuse_unless_in_range(step_index)
         self._config['steps'].at[step_index, 'Z'] = self._measured_z(z)
+
+    def hold_steps_to(
+        self, limits: Mapping[str, tuple[float | None, float | None]]
+    ) -> list[tuple[str, str, float, float]]:
+        """Set each step's value past a hardware limit at that limit, and say which.
+
+        For a run's own copy (``copy_for_execution``), so the run and the
+        records it writes use what the hardware takes while the person's
+        protocol keeps what it says. ``limits`` maps a channel setting
+        (``'gain_db'``, ``'exposure_ms'``, ``'illumination_ma'``, ``'sum'``)
+        to its (floor, ceiling), an end None where the hardware declares
+        none; a setting not named is left as it is. The steps' kinds and
+        signs are already judged (``validate_steps``); a blank cell asks for
+        nothing and is left blank.
+
+        Returns:
+            ``(where, setting, asked, applied)`` for each value set at a
+            limit, in step order, as ``ValueClampedNotice`` lists them.
+
+        Raises:
+            Nothing.
+        """
+        steps = self._config['steps']
+        clamped = []
+        for column, key in _STEP_CHANNEL_VALUES:
+            if key not in limits:
+                continue
+            floor, ceiling = limits[key]
+            for idx, asked in enumerate(steps[column].tolist()):
+                if not is_finite_number(asked):
+                    continue
+                # As the column holds it: a whole-number ceiling held under a
+                # float column is a float, and a sum stays a whole number.
+                applied = self._typed_value(column, cap_stored_value(asked, floor, ceiling)[1])
+                if applied != asked:
+                    steps.at[idx, column] = applied
+                    where = f'step "{steps.at[idx, "Name"]}" ({steps.at[idx, "channel"]})'
+                    clamped.append((idx, where, key, asked, applied))
+        return [entry[1:] for entry in sorted(clamped, key=lambda entry: entry[0])]
 
     # What makes a step the one a focus was found for. Not the step-list
     # revision: an Update moves a step without changing the list.
@@ -3868,9 +3894,7 @@ class Protocol:
         )
 
         # Validate step fields -- reject protocol if any errors found
-        validation_errors = protocol.validate_steps(
-            objective_helper.objectives, led_max_ma=capabilities.led_max_ma
-        )
+        validation_errors = protocol.validate_steps(objective_helper.objectives)
         if validation_errors:
             raise ProtocolFormatError(
                 f'Protocol has {len(validation_errors)} validation error(s): {validation_errors[0]}'

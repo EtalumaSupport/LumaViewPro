@@ -449,7 +449,7 @@ class TestRoundTripBasic:
         assert isinstance(vc, dict)
         assert vc == {'duration': 8}, 'loader must keep the stored duration, and only it'
 
-        errors = proto.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
+        errors = proto.validate_steps(ObjectiveLoader().objectives)
         video_errors = [e for e in errors if 'Video Config' in e]
         assert video_errors == [], (
             f'legacy-format Video Config must not produce Video Config errors; got {video_errors}'
@@ -494,7 +494,6 @@ class TestRoundTripBasic:
         errors = proto.validate_for_run(
             objective_helper=ObjectiveLoader(),
             wellplate_loader=WellPlateLoader(),
-            led_max_ma=1000,
         )
         labware_errors = [e for e in errors if 'Labware' in e and 'not found' in e]
         assert labware_errors == [], (
@@ -1441,7 +1440,7 @@ class TestProtocolValidation:
 
     def test_sum_one_valid(self):
         proto = _build_protocol([_make_step(sum_count=1)])
-        errors = proto.validate_steps(ObjectiveLoader().objectives, led_max_ma=1000)
+        errors = proto.validate_steps(ObjectiveLoader().objectives)
         sum_errors = [e for e in errors if 'Sum' in e]
         assert sum_errors == []
 

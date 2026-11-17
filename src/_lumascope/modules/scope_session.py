@@ -88,6 +88,7 @@ from _lumascope.modules.exceptions import (
     SettingRefusedError,
     SettingsFileNotWrittenError,
     SettingsNotSavedNotice,
+    ValueClampedNotice,
 )
 from _lumascope.modules.scope_parts import Board, Part
 from _lumascope.modules.ui_queue import UiDispatcher
@@ -107,7 +108,11 @@ from _lumascope.modules.lumascope_api.illumination import (
     lit_other_than,
 )
 from _lumascope.modules.lumascope_api.motion import HomeTarget
-from _lumascope.modules.finite_number import refuse_unless_wait_s
+from _lumascope.modules.finite_number import (
+    SUM_COUNT_RANGE,
+    cap_stored_value,
+    refuse_unless_wait_s,
+)
 from _lumascope.modules.frame_validity import FrameValiditySource
 from _lumascope.modules.lumascope_api.camera import CameraAPI
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
@@ -2642,7 +2647,9 @@ class ScopeSession:
         its LED when lit, when this returns; auto-gain off with a gain or
         exposure beside it is those values with the camera's loop off, and
         alone keeps what the loop reached (``channel_auto_gain_lock``); a
-        channel set to acquire stops stimulating. While a run or a diagnostic
+        value past the hardware's limit is set at it and told
+        (``ValueClampedNotice``); a channel set to acquire stops stimulating.
+        While a run or a diagnostic
         holds the scope the rows are stored only, and its end puts the shown
         channel on.
 
@@ -2653,10 +2660,7 @@ class ScopeSession:
         Raises:
             ProtocolRunRefusedError: ``'values_out_of_range'``, a row it
                 would apply holds a value outside its channel setting's range,
-                or an illumination above the attached LED board's maximum,
-                each named by channel, column and bound. A loaded protocol's
-                ranges were judged at load; the board's maximum is judged
-                here, since a file may be for another board.
+                each named by channel, column and bound.
             ArgumentRefusedError: ``'gain_range_inverted'``, a row turns
                 auto-gain on while the stored auto-gain range has its minimum
                 gain above its maximum.
@@ -2670,9 +2674,7 @@ class ScopeSession:
 
         Nothing is stored on any refusal.
         """
-        self.scope.protocols.refuse_channel_settings_out_of_range(
-            protocol, led_max_ma=self.scope.capabilities.led_max_ma
-        )
+        self.scope.protocols.refuse_channel_settings_out_of_range(protocol)
         rows = protocol.channel_settings()
         channels = common_utils.get_channels()
         present = self._channels_on_scope()
@@ -2830,9 +2832,11 @@ class ScopeSession:
         shows the catalogue's colour). On the wire a key left out is a
         field not written, and null is the value.
 
-        Every field is judged before any is stored: its range, the LED
-        board's maximum for a current, Z's travel for a focus, and the
-        stored auto-gain range for auto-gain turned on. Then, for the shown
+        Every field is judged before any is stored: its range, Z's travel
+        for a focus, and the stored auto-gain range for auto-gain turned on.
+        A gain or exposure past the attached camera's range, a current above
+        the LED board's maximum, or a sum above 100 is then set at the limit,
+        stored so, and told once (``ValueClampedNotice``). Then, for the shown
         channel, the camera takes the gain, exposure and auto-gain, and an
         illumination goes on its lit LED, before anything is stored, so a
         value the camera or the LED refuses is not stored and the earlier
@@ -2852,7 +2856,8 @@ class ScopeSession:
             auto_gain: The camera's auto-gain is on.
             exposure_ms: The camera exposure, in ms.
             false_color: The channel's image is false-coloured.
-            frames_summed: How many frames a capture sums, 1 to 100.
+            frames_summed: How many frames a capture sums, at least 1; above
+                100 it is set at 100.
             focus_z_um: The Z saved as the channel's focus, in micrometres;
                 None clears it.
             autofocus: A step of the channel autofocuses.
@@ -2880,8 +2885,8 @@ class ScopeSession:
             SettingRefusedError: ``'not_offered'``, a field this channel
                 does not carry (stimulation on a channel that does not
                 stimulate); ``'wrong_kind'`` or ``'out_of_range'``, a value
-                its setting does not take, a focus that is not finite and an
-                illumination above the LED board's maximum among them.
+                its setting does not take, a focus that is not finite among
+                them.
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
                 channels could not be resolved.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope
@@ -2920,9 +2925,7 @@ class ScopeSession:
             path = f'{channel}.{key}'
             if key not in carried:
                 raise SettingRefusedError('not_offered', path, f'{channel} has no {field}')
-            settings_paths.check_value(
-                template, path, value, led_max_ma=self.scope.capabilities.led_max_ma
-            )
+            settings_paths.check_value(template, path, value)
             fields[key] = value
         if (
             fields.get('acquire') is not None
@@ -4049,9 +4052,9 @@ class ScopeSession:
                 no channel of the step's colour. Nothing changes.
             ProtocolRunRefusedError: ``'values_out_of_range'``, a value
                 the step would store in its channels is outside its channel
-                setting's range, or its illumination is above the attached
-                LED board's maximum, each named by column and bound. Nothing
-                changes.
+                setting's range, each named by column and bound. Nothing
+                changes. A value past the hardware's limit is stored at the
+                limit and told (``ValueClampedNotice``).
             ArgumentRefusedError: ``'gain_range_inverted'``, the step turns
                 auto-gain on while the stored auto-gain range has its minimum
                 gain above its maximum. Nothing changes.
@@ -4106,7 +4109,7 @@ class ScopeSession:
         # into its channels once the moves are under way, and judges them
         # again there as every channel write does.
         refuse_values_out_of_range(
-            step_channel_values_refused(step, led_max_ma=self.scope.capabilities.led_max_ma),
+            step_channel_values_refused(step),
             f'Step {step_index + 1}',
         )
         self._judge_channel_fields(self._step_channel_fields(step))
@@ -4820,10 +4823,10 @@ class ScopeSession:
     ) -> dict[str, dict[str, object]]:
         """Refuse a channel write by the rules only the Session can judge, before any of it is stored.
 
-        Each door has judged its numbers against the channel ranges and the
-        LED board's maximum in its own refusal's form (``set_channel_settings``'
-        ``settings_paths.check_value``; a protocol row's or a step's
-        ``'values_out_of_range'``). Judged here: a focus Z cannot reach, and
+        Each door has judged its numbers against the channel ranges, which
+        hold no hardware limit, in its own refusal's form
+        (``set_channel_settings``' ``settings_paths.check_value``; a protocol
+        row's or a step's ``'values_out_of_range'``). Judged here: a focus Z cannot reach, and
         auto-gain turned on while the stored range has its minimum gain above
         its maximum, which no arm can take, on any channel, since a channel
         stored so is refused at every later show and still.
@@ -4860,7 +4863,9 @@ class ScopeSession:
         ``fields`` maps each channel to its values by key under the channel
         (``'gain_db'``, ``'stim_config.frequency'``), each number already
         judged by its door's ranges. In order, so a refusal stores nothing:
-        the Session's own rules (``_judge_channel_fields``); a home refuses a
+        the Session's own rules (``_judge_channel_fields``); a value past the
+        hardware's limit set at the limit (``_clamp_channel_fields``), so the
+        camera, the LED and the store take the same value; a home refuses a
         value the shown channel's camera or LED would take; auto-gain turned
         off with no gain or exposure beside it locks the camera's arm, its
         values stored as the channel's (with them, they are the channel's,
@@ -4871,9 +4876,10 @@ class ScopeSession:
         is never stored; then its illumination goes on its lit LED, so a
         light the LED refuses stores nothing, and the camera is put back on
         the stored values (``apply_channel_camera``). Then every value is
-        stored (``_write_channel_fields``). While a run or a diagnostic holds
-        the scope the values are stored only, and its end puts the shown
-        channel on (``_apply_shown_channel``).
+        stored (``_write_channel_fields``), and the values set at a limit
+        are told once (``ValueClampedNotice``). While a run or a diagnostic
+        holds the scope the values are stored only, and its end puts the
+        shown channel on (``_apply_shown_channel``).
 
         An auto-gain lock taken before a refusal is not undone: the camera
         stays at the locked values, the loop off, until the next hold of the
@@ -4885,7 +4891,8 @@ class ScopeSession:
         no camera or LED takes goes through ``_store_channel_fields``.
 
         Raises:
-            What ``_judge_channel_fields``, ``_refuse_during_a_home``,
+            What ``_judge_channel_fields``, ``_clamp_channel_fields``,
+            ``_refuse_during_a_home``,
             ``CameraAPI.lock_auto_gain``, ``CameraAPI.hold_channel_writing``
             and the LED raise; nothing is stored. When the LED refuses after
             the camera took the values and putting the stored values back is
@@ -4894,7 +4901,7 @@ class ScopeSession:
         """
         from _lumascope.modules.lumascope_api.camera import AutoGainLock
 
-        fields = self._judge_channel_fields(fields)
+        fields, clamped = self._clamp_channel_fields(self._judge_channel_fields(fields))
         shown = self._shown_channel
         shown_keys = fields.get(shown, {}).keys()
         if shown_keys & _HARDWARE_FIELDS:
@@ -4926,6 +4933,61 @@ class ScopeSession:
                 raise
         with self.settings_lock:
             self._write_channel_fields(writing, locks=locks)
+        if clamped:
+            notifications.report_outcome(
+                ValueClampedNotice(clamped), solicited=True, category='Settings'
+            )
+
+    def _clamp_channel_fields(
+        self, fields: Mapping[str, Mapping[str, object]]
+    ) -> tuple[dict[str, dict[str, object]], list[tuple[str, str, float, float]]]:
+        """``fields`` with each value past the attached hardware's limit set at the limit, and which were.
+
+        The one place a channel write meets a hardware limit, after every
+        judge, so a value reaching it is a finite number of the right sign: a
+        gain or exposure is held to the camera's range at both ends
+        (``CameraAPI.applied_gain_db_for`` and kin, whose range is read only
+        when a camera field is written), a current to the LED board's
+        maximum, a sum to 100. With no camera, or no board, that limit is
+        unknown and the value goes on as written.
+
+        Returns:
+            The fields to write, and ``(channel, setting, asked, applied)``
+            for each value set at a limit.
+
+        Raises:
+            CameraReadFailedError: ``'camera_read_failed'``, a gain or
+                exposure is written while the camera's range is unread.
+        """
+        camera = self.scope.camera
+        held_to = {
+            'gain_db': lambda v: camera.applied_gain_db_for(v).applied_db,
+            'exposure_ms': lambda v: camera.applied_exposure_ms_for(v).applied_ms,
+            'illumination_ma': self._held_to_the_led_board,
+            'stim_config.illumination_ma': self._held_to_the_led_board,
+            'sum': lambda v: cap_stored_value(v, None, SUM_COUNT_RANGE[1])[1],
+        }
+        clamped = []
+        written = {}
+        for channel, values in fields.items():
+            values = dict(values)
+            for key, hold in held_to.items():
+                if values.get(key) is None:
+                    continue
+                applied = hold(values[key])
+                if applied != values[key]:
+                    clamped.append((channel, key, values[key], applied))
+                    values[key] = applied
+            written[channel] = values
+        return written, clamped
+
+    def _held_to_the_led_board(self, current_ma: float) -> float:
+        """``current_ma`` held to the attached LED board's maximum; as it is with no board.
+
+        A float, as the setting holds a current, whatever the board declares
+        its maximum as.
+        """
+        return float(cap_stored_value(current_ma, None, self.scope.capabilities.led_max_ma)[1])
 
     def _store_channel_fields(self, fields: Mapping[str, Mapping[str, object]]) -> None:
         """The one channel write for fields no camera or LED takes (an acquire mode, a focus): judged, then stored.

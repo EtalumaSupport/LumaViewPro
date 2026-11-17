@@ -75,6 +75,7 @@ from _lumascope.modules.exceptions import (
     RunIncompleteError,
     RunStartError,
     SingleScanNotice,
+    ValueClampedNotice,
     unknown_positions_sentence,
 )
 from _lumascope.modules.protocol import Protocol
@@ -310,6 +311,11 @@ class RunPlan:
     """
 
     protocol: Protocol
+    # Each step value the copy holds at a hardware limit instead of what the
+    # protocol says (``ProtocolsAPI.hold_run_copy_to_hardware``), told once
+    # by ``start()`` after the run has taken the scope, so a run refused at
+    # any gate never says it clamped.
+    clamped: list[tuple[str, str, float, float]]
     run_mode: SequencedCaptureRunMode
     started_by: Caller
     sequence_name: str
@@ -1352,7 +1358,6 @@ class SequencedCaptureRunner:
             validation_errors = protocol.validate_for_run(
                 objective_helper=self._scope.objective_helper,
                 wellplate_loader=self._scope.wellplate_loader,
-                led_max_ma=self._scope.capabilities.led_max_ma,
             )
         except Exception as ex:
             # validate_for_run raised before producing a validation_errors
@@ -1450,7 +1455,14 @@ class SequencedCaptureRunner:
         # Its mirror, on the axes the scope has: before the travel gate, which
         # would judge a step with no position as outside the travel.
         self._scope.protocols.refuse_missing_positions(protocol.steps())
-        self._scope.protocols.refuse_camera_values_out_of_range(protocol.steps())
+
+        # The run's own copy: it runs the steps at what the hardware takes,
+        # and the person's protocol keeps what it says. Lightweight -- it
+        # shares the read-only loaders and copies the steps frame, which the
+        # clamp and the autofocus Z updates write. From here on every read of
+        # a step's values, the disk sizing's sum among them, reads the copy.
+        execution_protocol = protocol.copy_for_execution()
+        clamped = self._scope.protocols.hold_run_copy_to_hardware(execution_protocol)
 
         # After the connection gate: a board that dropped reports its axes
         # unknown as a consequence, and the disconnect is the cause the user
@@ -1538,7 +1550,7 @@ class SequencedCaptureRunner:
         # the per-scan check stays as the backstop for space something else
         # takes during the run.
         n_scans = self._calculate_num_scans(
-            protocol=protocol, run_mode=run_mode, max_scans=max_scans
+            protocol=execution_protocol, run_mode=run_mode, max_scans=max_scans
         )
         frame_sizing = None
         if parent_dir is not None and enable_image_saving and not disable_saving_artifacts:
@@ -1556,7 +1568,7 @@ class SequencedCaptureRunner:
                         'write cannot be sized. Start its live image and try again.'
                     ),
                 )
-            scan_mb = protocol.estimate_write_mb(
+            scan_mb = execution_protocol.estimate_write_mb(
                 sizing=frame_sizing, video_as_frames=video_as_frames, video_fps=video_fps
             )
             required_mb = max(common_utils.MIN_REQUIRED_DISK_MB, scan_mb * n_scans)
@@ -1585,18 +1597,13 @@ class SequencedCaptureRunner:
                     ),
                 )
 
-        # Lightweight copy -- shares read-only loaders, copies only the
-        # mutable steps DataFrame (which AF modifies via
-        # modify_step_z_height). Much cheaper than deepcopy for large
-        # protocols.
-        execution_protocol = protocol.copy_for_execution()
-
         if parent_dir is None:
             disable_saving_artifacts = True
 
         plan = RunPlan(
             borrowed_claim=borrowed_claim,
             protocol=execution_protocol,
+            clamped=clamped,
             run_mode=run_mode,
             # Read here, on the starter's own thread, where its host stamped it.
             started_by=current_caller(),
@@ -1916,6 +1923,15 @@ class SequencedCaptureRunner:
 
             self._run_loop_future = None
             self._set_state(ProtocolState.RUNNING)
+
+        if plan.clamped:
+            # Once, now the run holds the scope, and outside the lock: the
+            # steps' values are the copy's from here, so no capture tells it.
+            from _lumascope.modules.notification_center import notifications
+
+            notifications.report_outcome(
+                ValueClampedNotice(plan.clamped), solicited=True, category='Protocol'
+            )
 
         # How a Stop accepted during the setup below ended the run; None
         # while no Stop has been seen, and for every dispatched run.

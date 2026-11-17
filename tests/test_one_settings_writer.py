@@ -299,17 +299,6 @@ def test_a_protocol_schedule_no_protocol_can_run_is_refused(session):
     assert session.settings['protocol']['period'] == before
 
 
-def test_a_layer_exposure_or_gain_above_the_camera_is_stored_as_the_intent(session):
-    # The camera's limit is the apply's to hold (applied_exposure_ms_for),
-    # with the stored value kept for a camera that can reach it.
-    assert session.scope.camera.setting_limits.exposure_max_ms == 1000.0
-    assert session.scope.camera.setting_limits.gain_max_db == 48.0
-    session.set_channel_settings(LED0, exposure_ms=1500.0)
-    session.set_channel_settings(LED0, gain_db=60.0)
-    assert session.settings[LED0]['exposure_ms'] == 1500.0
-    assert session.settings[LED0]['gain_db'] == 60.0
-
-
 def test_a_minimum_gain_left_above_the_maximum_is_refused_at_the_arm_and_not_stored(tmp_path):
     # Each bound is written alone, so the pair is judged where auto-gain is
     # armed with it: the shown layer's arm, here, before the store.

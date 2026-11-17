@@ -37,7 +37,7 @@ import _lumascope.modules.common_utils as common_utils
 from _lumascope.lvp_logger import logger
 import _lumascope.modules.path_utils as path_utils
 from _lumascope.modules.activity_claim import guarded_write
-from _lumascope.modules.finite_number import refuse_unless_finite_number
+from _lumascope.modules.finite_number import SUM_COUNT_RANGE, refuse_unless_finite_number
 from _lumascope.modules.coord_transformations import AxisLimits, PlateLocation, StageOffset
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
@@ -47,7 +47,6 @@ from _lumascope.modules.exceptions import (
     ProtocolStepsInvalidNotice,
     unknown_positions_sentence,
 )
-from _lumascope.modules.lumascope_api.camera import camera_range_words
 from _lumascope.modules.axes import Axis, AxisState, StageAxis
 from _lumascope.modules.zstack_config import ZStackReference
 from _lumascope.modules.lumascope_api.runtime_state import slots_holding
@@ -205,7 +204,7 @@ class ProtocolsAPI:
         # The file's own block alone: rows inferred from its steps are the
         # steps' values, lenient here and told below.
         if protocol.has_saved_channel_settings():
-            self.refuse_channel_settings_out_of_range(protocol, led_max_ma=None)
+            self.refuse_channel_settings_out_of_range(protocol)
         self._fill_turret_slots(protocol)
         # Unsolicited, as the loader's duplicate-filename notice is: a load
         # may be the startup adoption, which nobody asked for.
@@ -232,9 +231,7 @@ class ProtocolsAPI:
         """
         from _lumascope.modules.notification_center import notifications
 
-        errors = protocol.validate_steps(
-            self._scope.objectives, led_max_ma=self._scope.capabilities.led_max_ma
-        )
+        errors = protocol.validate_steps(self._scope.objectives)
         if errors:
             notifications.report_outcome(
                 ProtocolStepsInvalidNotice(errors=errors), solicited=solicited, category='Protocol'
@@ -965,9 +962,7 @@ class ProtocolsAPI:
                 ),
             )
 
-    def refuse_channel_settings_out_of_range(
-        self, protocol: Protocol, *, led_max_ma: float | None
-    ) -> None:
+    def refuse_channel_settings_out_of_range(self, protocol: Protocol) -> None:
         """Refuse a protocol whose Layer Settings hold a value no channel setting takes.
 
         Judged by the settings' channel ranges, for the rows a session applies:
@@ -975,11 +970,8 @@ class ProtocolsAPI:
         applied. Asked where a protocol's Layer Settings arrive: a loaded
         file's own block, and ``ScopeSession.apply_channel_settings`` before
         it stores anything, for a protocol built in memory or one whose rows
-        are inferred from its steps.
-
-        ``led_max_ma`` is the attached LED board's maximum, judged where the
-        rows are applied (``apply_channel_settings``); None at load, since a
-        file may be for another board.
+        are inferred from its steps. A value past the hardware's limit is not
+        refused: the channel write clamps it.
 
         A consult seam, not part of the L2 API surface: an L2 caller meets
         this refusal through ``ScopeSession.load_protocol`` and
@@ -997,7 +989,7 @@ class ProtocolsAPI:
         present = {record.key_name for record in self._scope.channel_identity.channels}
         rows = {name: row for name, row in protocol.channel_settings().items() if name in present}
         refuse_values_out_of_range(
-            channel_settings_values_refused(rows, led_max_ma=led_max_ma),
+            channel_settings_values_refused(rows),
             "The protocol's Layer Settings",
         )
 
@@ -1282,37 +1274,36 @@ class ProtocolsAPI:
                 ),
             )
 
-    def refuse_camera_values_out_of_range(self, steps: pd.DataFrame) -> None:
-        """Refuse a protocol whose steps ask the camera for a value it cannot take.
+    def hold_run_copy_to_hardware(self, protocol: Protocol) -> list[tuple[str, str, float, float]]:
+        """Set each step of a run's copy past this scope's limits at the limit; say which.
 
-        A step stores a gain and an exposure, and the run hands them to the
-        camera at every capture. A stored value outside this camera's range --
-        one saved on a camera that could reach it, or the old 48 dB Lumi
-        default a ``current.json`` still carries -- is refused by the camera
-        setter at every step, and the run would abandon scan after scan. So
-        the run is refused before it starts, naming each step, and the stored
-        values are left alone: the same value may be right on the next,
-        larger camera.
+        A step stores a gain, an exposure, a current and a sum, and the run
+        hands them to the hardware at every capture. One past a limit -- saved
+        on a camera or LED board that could reach it, or above the 100 frames
+        a capture may sum -- runs at the limit, as a value written to a
+        channel does. ``protocol`` is the run's own copy
+        (``Protocol.copy_for_execution``): the run, its images' records and
+        its folder's protocol file hold the values used, and the person's
+        protocol keeps what it says, since the same value may be right on the
+        next, larger camera.
 
-        The range is the camera's now (``camera.setting_limits``), at the
-        readout it holds. A limit the camera does not declare is not checked
-        (None): a missing floor is not a floor of zero.
+        The camera's range is the one it holds now (``camera.setting_limits``),
+        the LED board's maximum is ``capabilities.led_max_ma``; an end the
+        hardware does not declare narrows nothing.
 
         A consult seam, not part of the L2 API surface: an L2 caller meets
-        this rule by starting a run, which asks it here.
+        this rule by starting a run, which asks it here and reports the list
+        once the run has started.
 
-        Args:
-            steps: The protocol's steps table (``Protocol.steps()``).
+        Returns:
+            ``(where, setting, asked, applied)`` for each value set at a
+            limit, as ``ValueClampedNotice`` lists them.
 
         Raises:
-            ProtocolRunRefusedError: ``'camera_setting_out_of_range'``, a
-                step's gain or exposure is outside the camera's range;
-                ``'camera_range_unread'``, the camera's range could not be
-                read after its last readout change, so no step's value can
-                be checked or sent.
+            ProtocolRunRefusedError: ``'camera_range_unread'``, the camera's
+                range could not be read after its last readout change, so no
+                step's value can be held to it.
         """
-        from _lumascope.modules.protocol import rows_by_column
-
         try:
             limits = self._scope.camera.setting_limits
         except CameraReadFailedError as failed:
@@ -1320,42 +1311,20 @@ class ProtocolsAPI:
                 reason='camera_range_unread',
                 message=f'{failed} The run was not started.',
             )
-        checks = (
-            (
-                'Gain',
-                'gain',
-                'dB',
-                limits.gain_min_db if limits else None,
-                limits.gain_max_db if limits else None,
-            ),
-            (
-                'Exposure',
-                'exposure',
-                'ms',
-                limits.exposure_min_ms if limits else None,
-                limits.exposure_max_ms if limits else None,
-            ),
-        )
-        problems = []
-        for step in rows_by_column(steps):
-            for column, word, unit, low, high in checks:
-                value = float(step[column])
-                # A blank cell reads as NaN; it asks the camera for nothing.
-                if math.isnan(value):
-                    continue
-                if (low is not None and value < low) or (high is not None and value > high):
-                    problems.append(
-                        f'Step "{step["Name"]}" ({step["channel"]}): {word} {value:g} {unit} is '
-                        f"outside this camera's range, {camera_range_words(low, high, unit)}."
-                    )
-        if problems:
-            self._refuse(
-                reason='camera_setting_out_of_range',
-                message=(
-                    common_utils.first_few(problems, separator='\n')
-                    + '\n\nEdit these steps to values this camera can take, then run again.'
+        return protocol.hold_steps_to(
+            {
+                'gain_db': (
+                    limits.gain_min_db if limits else None,
+                    limits.gain_max_db if limits else None,
                 ),
-            )
+                'exposure_ms': (
+                    limits.exposure_min_ms if limits else None,
+                    limits.exposure_max_ms if limits else None,
+                ),
+                'illumination_ma': (None, self._scope.capabilities.led_max_ma),
+                'sum': (None, SUM_COUNT_RANGE[1]),
+            }
+        )
 
     def _live_turret_slot(self) -> int:
         """The slot in the light path, which a step made now records; -1 without a turret.

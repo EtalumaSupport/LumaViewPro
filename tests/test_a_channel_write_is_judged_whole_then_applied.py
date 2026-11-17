@@ -5,7 +5,8 @@ A channel's fields had several writers, each with its own subset of the
 rules: a protocol Load stored the shown channel's gain, exposure and
 illumination without putting them on the camera or the LED, so a still then
 recorded settings that were not used; a Load and a step stored an
-illumination above the LED board's maximum; a Load turned auto-gain off
+illumination above the LED board's maximum as asked, where the one write now
+stores it at the maximum and tells; a Load turned auto-gain off
 without the lock and left a channel acquiring and stimulating; Set All
 Bookmarks stored a focus past the travel check; auto-gain was stored on
 before the camera refused its inverted range; and a write held back while a
@@ -34,7 +35,7 @@ from _lumascope.modules.exceptions import (
     CameraSettingRejected,
     HardwareCommandRefusedError,
     PositionOutOfRangeError,
-    ProtocolRunRefusedError,
+    ValueClampedNotice,
 )
 from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from _lumascope.modules.protocol import ChannelSettings, Protocol
@@ -106,17 +107,19 @@ class TestALoadedLayerIsAppliedLikeAnyWrite:
         assert _bf_led_ma(session) == pytest.approx(37.0)
         assert camera.get_held_channel() == 'BF'
 
-    def test_a_layer_above_the_led_board_is_refused_and_nothing_changes(self, session):
-        # OP-62: the board refuses to drive it, and over-driving an LED is a damage mode.
+    def test_a_layer_above_the_led_board_is_stored_at_its_maximum_and_told(
+        self, session, centre_posts
+    ):
+        # The board does not drive past its maximum, so the layer's current is
+        # set at it, as a value typed into the box is.
         board_max = session.scope.capabilities.led_max_ma
-        before = session.settings_snapshot()
 
-        with pytest.raises(ProtocolRunRefusedError) as refused:
-            session.apply_channel_settings(_layers(BF=_row(illumination_ma=board_max + 1)))
+        session.apply_channel_settings(_layers(BF=_row(illumination_ma=board_max + 1)))
 
-        assert refused.value.reason == 'values_out_of_range'
-        assert "LED board's maximum" in str(refused.value)
-        assert session.settings_snapshot() == before
+        assert session.settings['BF']['illumination_ma'] == board_max
+        assert _clamp_notices(centre_posts) == [
+            str(ValueClampedNotice([('BF', 'illumination_ma', board_max + 1, float(board_max))]))
+        ]
 
     def test_auto_gain_off_with_its_values_is_those_values_with_the_loop_off(self, session):
         # OP-63: "these values, the loop off" -- no lock takes the loop's values over the row's.
@@ -158,19 +161,24 @@ class TestALoadedLayerIsAppliedLikeAnyWrite:
         assert session.settings[STIM_CHANNEL]['stim_config']['enabled'] is False
 
 
-def test_a_step_above_the_led_board_is_refused_and_nothing_changes(session):
-    # OP-62: a step's first visit stored a current the board will not drive.
+def test_a_step_above_the_led_board_is_stored_at_its_maximum_and_told(session, centre_posts):
+    # A step's visit writes its current into its channel through the one
+    # channel write, which sets it at the board's maximum.
     board_max = session.scope.capabilities.led_max_ma
     step = {**_step(60.0, 40.0, 5000.0, _objective_of(session)), 'Illumination': board_max + 1}
     protocol = _layers(step, BF=_row())
-    before = session.settings_snapshot()
 
-    with pytest.raises(ProtocolRunRefusedError) as refused:
-        session.go_to_step(protocol, 0)
+    session.go_to_step(protocol, 0)
 
-    assert refused.value.reason == 'values_out_of_range'
-    assert "LED board's maximum" in str(refused.value)
-    assert session.settings_snapshot() == before
+    assert session.settings['BF']['illumination_ma'] == board_max
+    assert protocol.step_row(step_index=0)['Illumination'] == board_max + 1
+    assert _clamp_notices(centre_posts) == [
+        str(ValueClampedNotice([('BF', 'illumination_ma', board_max + 1.0, float(board_max))]))
+    ]
+
+
+def _clamp_notices(centre_posts):
+    return [post.message for post in centre_posts if post.reason == ValueClampedNotice.reason]
 
 
 def test_set_all_bookmarks_refuses_a_z_outside_travel_and_stores_nothing(session):

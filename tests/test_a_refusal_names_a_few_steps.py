@@ -21,7 +21,7 @@ import pytest
 
 import _lumascope.modules.protocol as protocol_module
 from _lumascope.modules.coord_transformations import AxisLimits, StageOffset
-from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.exceptions import ProtocolRunRefusedError, ValueClampedNotice
 from _lumascope.modules.labware_loader import WellPlateLoader
 from _lumascope.modules.objectives_loader import ObjectiveLoader
 from tests.test_protocol_execution import _make_multi_step_protocol, scope  # noqa: F401
@@ -71,19 +71,18 @@ def test_a_stack_refusal_names_five_steps_in_protocol_order():
     assert names[5] not in message
 
 
-def test_a_camera_range_refusal_names_five_steps_then_the_rest(scope):
+def test_a_run_clamp_names_five_steps_then_the_rest(scope):
     maximum = scope.camera.setting_limits.gain_max_db
     proto = _make_multi_step_protocol(
         [{'name': f'Step {n}', 'gain_db': maximum + 10.0, 'well': f'A{n}'} for n in range(1, 9)]
-    )
+    ).copy_for_execution()
 
-    with pytest.raises(ProtocolRunRefusedError) as refusal:
-        scope.protocols.refuse_camera_values_out_of_range(proto.steps())
+    clamped = scope.protocols.hold_run_copy_to_hardware(proto)
 
-    lines = str(refusal.value).split('\n')
-    assert [line.split('"')[1] for line in lines[:5]] == [f'Step {n}' for n in range(1, 6)]
-    assert lines[5] == 'and 3 more'
-    assert 'Step 6' not in str(refusal.value)
+    told = str(ValueClampedNotice(clamped))
+    assert len(clamped) == 8
+    assert [f'Step {n}' in told for n in range(1, 9)] == [True] * 5 + [False] * 3
+    assert told.endswith('; and 3 more.')
 
 
 @pytest.fixture

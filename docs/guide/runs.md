@@ -108,7 +108,10 @@ step on a channel it does not have, with the reason a run would give
 a Layer Settings value no channel setting takes (`'values_out_of_range'`); and a
 schedule no run could keep (`ProtocolScheduleRefusedError`). A step's value is the one thing
 loading is lenient about: one no run could use is reported when the file is
-read, and refused when a run starts.
+read, and refused when a run starts. A step's gain, exposure or current past
+this scope's camera or LED board, or a `Sum` above 100, is not such a value: the
+run uses the limit, its images and folder record what it used, the protocol
+keeps what it says, and the run tells it once when it starts (`'value_clamped'`).
 
 **Runs.** A run is started by the session's protocol runner and returns an
 `Operation` at once:

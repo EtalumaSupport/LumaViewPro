@@ -21,7 +21,11 @@ from fastapi.testclient import TestClient
 
 from _lumascope.modules import common_utils
 from _lumascope.modules.acquire_mode import AcquireMode
-from _lumascope.modules.exceptions import HardwareCommandRefusedError, SettingRefusedError
+from _lumascope.modules.exceptions import (
+    HardwareCommandRefusedError,
+    SettingRefusedError,
+    ValueClampedNotice,
+)
 from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from _lumascope.modules.protocol import CHANNEL_SETTING_KEYS, ChannelSettings
 from _lumascope.modules.scope_session import ScopeSession
@@ -75,43 +79,80 @@ def test_a_write_with_one_value_refused_stores_none_of_them(session):
     assert session.settings_snapshot() == before
 
 
-def test_a_sum_of_more_than_100_frames_is_refused_and_100_is_stored(session):
-    before = session.settings_snapshot()
-
-    with pytest.raises(SettingRefusedError) as refused:
-        session.set_channel_settings('BF', frames_summed=101)
-
-    assert (refused.value.reason, refused.value.path) == ('out_of_range', 'BF.sum')
-    assert session.settings_snapshot() == before
-    assert session.set_channel_settings('BF', frames_summed=100).frames_summed == 100
-    session.set_channel_settings('BF', frames_summed=before['BF']['sum'])
+def _clamp_notices(centre_posts):
+    return [post.message for post in centre_posts if post.reason == ValueClampedNotice.reason]
 
 
-def test_an_illumination_above_the_led_board_is_refused_and_nothing_changes(session):
+def test_a_sum_above_100_frames_is_stored_at_100_and_told(session, centre_posts):
+    before = session.settings['BF']['sum']
+
+    assert session.set_channel_settings('BF', frames_summed=150).frames_summed == 100
+
+    assert session.settings['BF']['sum'] == 100
+    assert _clamp_notices(centre_posts) == [str(ValueClampedNotice([('BF', 'sum', 150, 100)]))]
+    session.set_channel_settings('BF', frames_summed=before)
+
+
+def test_an_illumination_above_the_led_board_is_stored_at_its_maximum_and_told(
+    session, centre_posts
+):
     board_max = session.scope.capabilities.led_max_ma
-    before = session.settings_snapshot()
 
-    with pytest.raises(SettingRefusedError) as refused:
-        session.set_channel_settings('BF', gain_db=4.0, illumination_ma=board_max + 1)
+    answered = session.set_channel_settings('BF', gain_db=4.0, illumination_ma=board_max + 1)
 
-    assert (refused.value.reason, refused.value.path) == ('out_of_range', 'BF.illumination_ma')
-    assert session.settings_snapshot() == before
+    assert (answered.gain_db, answered.illumination_ma) == (4.0, board_max)
+    assert _clamp_notices(centre_posts) == [
+        str(ValueClampedNotice([('BF', 'illumination_ma', board_max + 1.0, float(board_max))]))
+    ]
 
 
-def test_a_stimulation_current_above_the_led_board_is_refused_and_nothing_changes(session):
+def test_a_stimulation_current_above_the_led_board_is_stored_at_its_maximum(session, centre_posts):
     board_max = session.scope.capabilities.led_max_ma
-    before = session.settings_snapshot()
 
-    with pytest.raises(SettingRefusedError, match="LED board's maximum") as refused:
-        session.set_channel_settings(STIM_CHANNEL, stim_illumination_ma=board_max + 1)
+    session.set_channel_settings(STIM_CHANNEL, stim_illumination_ma=board_max + 1)
 
-    assert (refused.value.reason, refused.value.path) == (
-        'out_of_range',
-        f'{STIM_CHANNEL}.stim_config.illumination_ma',
-    )
-    assert session.settings_snapshot() == before
-    session.set_channel_settings(STIM_CHANNEL, stim_illumination_ma=board_max)
     assert session.channel_settings(STIM_CHANNEL).stim_illumination_ma == board_max
+    assert _clamp_notices(centre_posts) == [
+        str(
+            ValueClampedNotice(
+                [(STIM_CHANNEL, 'stim_config.illumination_ma', board_max + 1.0, float(board_max))]
+            )
+        )
+    ]
+
+
+def test_a_gain_and_exposure_past_the_camera_are_stored_and_run_at_its_limits_told_once(
+    session, centre_posts
+):
+    channel = session.shown_channel.channel
+    limits = session.scope.camera.setting_limits
+    gain_max, exposure_max = limits.gain_max_db, limits.exposure_max_ms
+
+    answered = session.set_channel_settings(
+        channel, gain_db=gain_max + 12.0, exposure_ms=exposure_max * 3
+    )
+
+    assert (answered.gain_db, answered.exposure_ms) == (gain_max, exposure_max)
+    camera = session.scope.camera
+    assert (camera.read_gain_db(), camera.read_exposure_ms()) == pytest.approx(
+        (gain_max, exposure_max)
+    )
+    assert _clamp_notices(centre_posts) == [
+        str(
+            ValueClampedNotice(
+                [
+                    (channel, 'gain_db', gain_max + 12.0, gain_max),
+                    (channel, 'exposure_ms', exposure_max * 3, exposure_max),
+                ]
+            )
+        )
+    ]
+
+
+def test_an_exposure_below_the_camera_floor_is_raised_to_it(session):
+    floor = session.scope.camera.setting_limits.exposure_min_ms
+
+    assert session.set_channel_settings('BF', exposure_ms=floor / 10).exposure_ms == floor
 
 
 def test_a_field_the_channel_does_not_carry_is_refused_and_read_none(session):
@@ -220,3 +261,11 @@ class TestOnTheWire:
         assert (
             client.get('/api/v1/channel_settings', params={'channel': 'BF'}).json() == answer.json()
         )
+
+    def test_a_gain_past_the_camera_is_answered_at_its_limit(self, client, session):
+        gain_max = session.scope.camera.setting_limits.gain_max_db
+
+        answer = client.put('/api/v1/channel_settings', json={'channel': 'BF', 'gain_db': 99.0})
+
+        assert answer.status_code == 200, answer.text
+        assert answer.json()['gain_db'] == gain_max

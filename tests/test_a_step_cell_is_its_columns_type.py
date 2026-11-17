@@ -250,6 +250,7 @@ def test_no_step_frame_write_sits_outside_the_typed_writers():
         'Protocol._regenerate_step_name',
         'Protocol.insert_step',
         'Protocol.set_turret_slot',
+        'Protocol.hold_steps_to',
     }
     writing = set()
     for qualname, node in walk_defs(parse_module('src/_lumascope/modules/protocol.py').body):

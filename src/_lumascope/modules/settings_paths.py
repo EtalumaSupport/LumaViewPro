@@ -32,7 +32,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.closed_sets import member_of
 from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
-from _lumascope.modules.finite_number import SUM_COUNT_RANGE, is_finite_number
+from _lumascope.modules.finite_number import is_finite_number
 from _lumascope.modules.channel_record import parse_display_color
 from _lumascope.modules.lumascope_api._constants import (
     ACCELERATION_PCT_MAX,
@@ -351,13 +351,16 @@ def _display_color(path: str, value: str | None) -> None:
 
 _NON_NEGATIVE = functools.partial(_refuse_below, floor=0, inclusive=True)
 _POSITIVE = functools.partial(_refuse_below, floor=0, inclusive=False)
+_COUNT = functools.partial(_refuse_non_count)
 
 
 # The range the writer owns for a setting: what any value of it must satisfy
-# whatever hardware is attached. A ceiling the attached hardware declares (a
-# camera's exposure or gain, an LED board's current) is not a range here: the
-# stored value is the person's intent, and the apply drives the hardware at
-# its limit with the intent kept (``CameraAPI.applied_gain_db_for`` and kin).
+# whatever hardware is attached. A limit the attached hardware declares (a
+# camera's exposure or gain, an LED board's current, the frames one capture
+# may sum) is not a range here: the channel write clamps a value written past
+# it and tells, and a loaded one is kept as the person's intent while the
+# apply drives the hardware at its limit (``CameraAPI.applied_gain_db_for``
+# and kin).
 # A member's setting is here too: its range is held at load as well, though a
 # write to it is refused for its member before the range is read. ``*`` stands
 # for any channel, as in ``SETTINGS_WITH_A_MEMBER``. Each rule takes the
@@ -423,7 +426,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     '*.exposure_ms': _POSITIVE,
     '*.gain_db': _NON_NEGATIVE,
     '*.illumination_ma': _NON_NEGATIVE,
-    '*.sum': functools.partial(_refuse_outside, limits=SUM_COUNT_RANGE, count=True),
+    '*.sum': _COUNT,
     '*.video_config.duration': functools.partial(
         _refuse_outside, limits=(0, VIDEO_STEP_DURATION_S_MAX), low_open=True
     ),
@@ -483,7 +486,7 @@ def nullable_kinds_for(path: str) -> tuple[str, ...] | None:
 
 
 def refused_channel_values(
-    channel: str, values: typing.Mapping[str, object], *, led_max_ma: float | None
+    channel: str, values: typing.Mapping[str, object]
 ) -> list[SettingRefusedError]:
     """Every one of a channel's values the channel rules refuse, each as its refusal.
 
@@ -492,10 +495,9 @@ def refused_channel_values(
     maps a ranged number under the channel (``'exposure_ms'``,
     ``'video_config.duration'``, ``'stim_config.frequency'``) to its value. The
     rule is the channel's whatever ``channel`` names, so a step whose colour is
-    no channel is still judged; ``channel`` names the refusal's path.
-    ``led_max_ma`` is the attached LED board's maximum, judged for a value
-    about to enter this scope's channels; None for a file's values, which may
-    be for another board.
+    no channel is still judged; ``channel`` names the refusal's path. No
+    hardware limit is judged: a value past one is clamped where it is
+    written to the channel or run.
 
     Returns:
         A ``SettingRefusedError`` for each refused value, in ``values``'
@@ -512,7 +514,6 @@ def refused_channel_values(
             if _kind(value) != 'number':
                 raise SettingRefusedError('wrong_kind', path, f'it must be a number, not {value!r}')
             _RANGES[f'*.{key}'](path, value)
-            _refuse_above_the_led_board(path, value, led_max_ma)
         except SettingRefusedError as e:
             refused.append(e)
     return refused
@@ -600,9 +601,7 @@ def check_write(template: dict, path: str, value: object) -> None:
     check_value(template, path, value)
 
 
-def check_value(
-    template: dict, path: str, value: object, *, led_max_ma: float | None = None
-) -> None:
+def check_value(template: dict, path: str, value: object) -> None:
     """Refuse a value the setting at ``path`` does not take, whoever its writer.
 
     ``check_write`` without its question of who writes: a member that owns
@@ -611,17 +610,12 @@ def check_value(
     ``template`` is the shipped ``settings.json``, which describes every
     setting there is. A leaf the template holds as null is one with no
     shipped value; it takes null or the kinds declared for it
-    (``_NULLABLE_KINDS``). ``led_max_ma`` is the current the
-    attached LED board declares it can drive, or None with no board: a
-    channel's illumination above it is refused, since the board refuses to
-    drive it and over-driving an LED is a damage mode; a camera's limits
-    are not checked here, since the apply drives the camera at its limit
-    with the stored intent kept.
+    (``_NULLABLE_KINDS``). No hardware limit is judged here: the channel
+    write clamps a value past one (``ScopeSession._write_channels``).
 
     Raises:
         SettingRefusedError: ``path`` is not a setting or names a block, or
-            ``value`` is not the setting's kind or is outside its range (an
-            illumination above the attached board's maximum among them).
+            ``value`` is not the setting's kind or is outside its range.
     """
     shipped: object = template
     for segment in path.split('.'):
@@ -633,29 +627,6 @@ def check_value(
             'block', path, 'it is a block of settings; change each by its own path'
         )
     _refuse_kind_or_range(shipped, path, value)
-    _refuse_above_the_led_board(path, value, led_max_ma)
-
-
-# A channel's fields that are an LED current, judged against the LED board's maximum.
-_LED_CURRENT_FIELDS = ('illumination_ma', 'stim_config.illumination_ma')
-
-
-def _refuse_above_the_led_board(path: str, value: object, led_max_ma: float | None) -> None:
-    """Refuse a current above the attached LED board's maximum; None is no board to judge.
-
-    Judged by the field whatever the channel names, as the ranges are: a
-    step whose colour is no channel is still told its current is too high.
-    """
-    if (
-        led_max_ma is not None
-        and path.partition('.')[2] in _LED_CURRENT_FIELDS
-        and value > led_max_ma
-    ):
-        raise SettingRefusedError(
-            'out_of_range',
-            path,
-            f"it must be at most {led_max_ma:g} mA, this LED board's maximum, not {value!r}",
-        )
 
 
 def _refuse_kind_or_range(shipped: object, path: str, value: object) -> None:

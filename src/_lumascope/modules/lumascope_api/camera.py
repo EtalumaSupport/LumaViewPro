@@ -785,7 +785,7 @@ def _refuse_unless_settable_auto_mode(mode: CameraAutoMode, argument: str) -> No
 def camera_range_words(low: float | None, high: float | None, unit: str) -> str:
     """A camera's range for a person, naming only the ends it declares.
 
-    The one wording of a range, shared by the setters' refusal and the run's.
+    The one wording of a range, for the setters' refusal.
     """
     if low is None:
         return f'at most {high:g} {unit}'

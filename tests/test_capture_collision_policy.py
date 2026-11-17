@@ -89,7 +89,6 @@ def test_validate_for_run_refuses_two_steps_renamed_to_one_label():
     errors = p.validate_for_run(
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
-        led_max_ma=1000,
     )
     collision_errors = [e for e in errors if 'would save captures' in e]
     assert len(collision_errors) == 1, errors
@@ -119,7 +118,6 @@ def test_validate_for_run_allows_image_and_video_step_sharing_name():
     errors = p.validate_for_run(
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
-        led_max_ma=1000,
     )
     assert not any('would save captures' in e for e in errors), errors
 
@@ -777,7 +775,6 @@ def test_labels_differing_only_in_stripped_chars_collide(tmp_path, centre_posts)
     errors = proto.validate_for_run(
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
-        led_max_ma=1000,
     )
     assert any('would save captures' in e for e in errors), errors
 
@@ -811,7 +808,6 @@ def test_same_base_different_objective_is_not_a_collision(tmp_path, centre_posts
     errors = p.validate_for_run(
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
-        led_max_ma=1000,
     )
     assert not any('would save captures' in e for e in errors), errors
 
@@ -826,7 +822,6 @@ def test_same_base_same_objective_still_refused_at_run_start():
     errors = p.validate_for_run(
         objective_helper=ObjectiveLoader(),
         wellplate_loader=WellPlateLoader(),
-        led_max_ma=1000,
     )
     collision_errors = [e for e in errors if 'would save captures' in e]
     assert len(collision_errors) == 1, errors

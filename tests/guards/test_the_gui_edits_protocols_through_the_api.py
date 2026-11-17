@@ -42,6 +42,7 @@ WRITERS = MemberNames(
         'apply_zstack_group_focus',
         'apply_zstacking',
         'delete_step',
+        'hold_steps_to',
         'insert_step',
         'modify_autofocus',
         'modify_autofocus_all_steps',

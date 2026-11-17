@@ -101,7 +101,7 @@ def refuse_unless_count(value: object, argument: str) -> None:
 
     The rule a stored count holds (``settings_paths``' ``*.sum``), asked
     where a caller hands the count in, so none is ever counted out short.
-    A sum's count is then held to ``SUM_COUNT_RANGE`` as well.
+    A capture's sum is then held to ``SUM_COUNT_RANGE`` as well.
 
     Raises:
         ArgumentRefusedError: ``'wrong_kind'``, naming ``argument``.
@@ -112,8 +112,8 @@ def refuse_unless_count(value: object, argument: str) -> None:
         )
 
 
-# The frames one capture may sum, ends included: the stored setting's range
-# (``settings_paths``' ``*.sum``) and a caller's ``sum_count`` alike. The
-# capture is asked for every frame it adds, so a sum with no top fills the
-# host's memory and pages it before it fails.
+# The frames one capture may sum, ends included: a channel's or a run step's
+# sum written above the top is set at it, and a caller's ``sum_count`` is held
+# to it. The capture is asked for every frame it adds, so a sum with no top
+# fills the host's memory and pages it before it fails.
 SUM_COUNT_RANGE = (1, 100)
