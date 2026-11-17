@@ -664,8 +664,11 @@ class IlluminationAPI:
         claim while it runs, so a recording cannot start under it; any other
         write is neither refused nor counted. Only a recording refuses it
         here: any other holder was asked when the lane admitted the write,
-        and one that took the scope since lets no recording start, so the
-        write is not counted. The camera's capture asks the same way
+        so a write under one that took the scope since is not counted. An
+        activity holding the scope lets no recording start; a control
+        session taken since lets its holder start one, and that recording
+        is not refused for this write, already under way when the session
+        was taken. The camera's capture asks the same way
         (``CameraAPI._hold_channel_for_capture``).
 
         Raises:
