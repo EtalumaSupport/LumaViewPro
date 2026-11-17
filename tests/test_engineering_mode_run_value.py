@@ -33,6 +33,7 @@ from _lumascope.modules.caller import Caller, calling
 from _lumascope.modules.exceptions import ControlSessionRefusedError
 from _lumascope.modules.protocol_image_writer import RunWriteBatch
 from _lumascope.modules.run_outcome import EndingLatch
+from tests.protocol_drives import a_frame_sizing
 
 
 def _turret_token(session) -> str:
@@ -163,6 +164,7 @@ class TestTheWriterIsHandedTheMode:
             'timestamp_overlay': True,
             'video_max_fps': 0,
             'video_sizing_fps': None,
+            'frame_sizing': a_frame_sizing(),
             'run_claim': lent_run_claim(),
             'labware': plate(),
             'to_plate': None,

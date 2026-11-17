@@ -33,7 +33,7 @@ from tests.scope_fakes import (
     give_capabilities_of_a_camera_without_auto_modes,
     led_reading,
 )
-from tests.protocol_drives import lent_run_claim
+from tests.protocol_drives import a_frame_sizing, lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
 from _lumascope.modules.protocol_image_writer import RunWriteBatch
 from _lumascope.modules.activity_claim import ActivityClaim
@@ -1762,6 +1762,7 @@ def _bare_protocol_writer(**overrides):
         'timestamp_overlay': True,
         'video_max_fps': 0,
         'video_sizing_fps': None,
+        'frame_sizing': a_frame_sizing(),
         'engineering_mode': False,
         'run_claim': lent_run_claim(),
         'labware': plate(),
@@ -1836,6 +1837,7 @@ def _protocol_step(**overrides):
         'Tile': '',
         'Illumination': 50.0,
         'False_Color': False,
+        'Sum': 1,
         'X': 0.0,
         'Y': 0.0,
         'Z': 0.0,
@@ -9145,91 +9147,11 @@ class TestGreaseRedistributionGateAlwaysReleased:
         )
 
 
-class TestStepWriteEstimateSingleOwner:
-    """F7 + F12: disk-write estimation has one owner (estimate_step_write_mb),
-    derived from duration x fps for video, shared by the pre-scan free-space
-    check and the per-write threshold so the two cannot drift. The old flat
-    per-video constant under-counted a long recording by orders of magnitude.
+class TestTheVideoConfigReaderIsShared:
+    """The Video Config reader the write-size estimate and the time estimate
+    share, so neither parses the cell its own way. The estimate's own tests
+    are its owner's, ``tests/test_write_size.py``.
     """
-
-    def test_image_step_uses_image_estimate(self):
-        from _lumascope.modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
-
-        assert (
-            estimate_step_write_mb({'Acquire': 'image'}, video_fps=30.0) == ESTIMATED_IMAGE_STEP_MB
-        )
-        # A step with no Acquire key is treated as an image step.
-        assert estimate_step_write_mb({}, video_fps=30.0) == ESTIMATED_IMAGE_STEP_MB
-
-    def test_short_video_floored_at_legacy_estimate(self):
-        from _lumascope.modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
-
-        step = {'Acquire': 'video', 'Video Config': {'duration': 1}}
-        assert estimate_step_write_mb(step, video_fps=30.0) == ESTIMATED_VIDEO_STEP_MB
-
-    def test_long_video_scales_with_duration(self):
-        from _lumascope.modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
-
-        short = {'Acquire': 'video', 'Video Config': {'duration': 5}}
-        long_clip = {'Acquire': 'video', 'Video Config': {'duration': 600}}
-        assert estimate_step_write_mb(long_clip, video_fps=30.0) > estimate_step_write_mb(
-            short, video_fps=30.0
-        )
-        assert estimate_step_write_mb(long_clip, video_fps=30.0) > ESTIMATED_VIDEO_STEP_MB
-
-    def test_video_as_frames_costs_one_image_per_frame(self):
-        from _lumascope.modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
-
-        step = {'Acquire': 'video', 'Video Config': {'duration': 10}}
-        # 10 s at a 30 fps sizing rate = 300 frames, each a full image when saved as frames.
-        assert (
-            estimate_step_write_mb(step, video_as_frames=True, video_fps=30.0)
-            == 300 * ESTIMATED_IMAGE_STEP_MB
-        )
-
-    def test_both_call_sites_use_the_shared_estimator(self):
-        import inspect
-        import pathlib
-
-        from _lumascope.modules.protocol import Protocol
-
-        root = pathlib.Path(__file__).resolve().parent.parent / 'src/_lumascope/modules'
-        run_loop = (root / 'protocol_run_loop.py').read_text()
-        writer = (root / 'protocol_image_writer.py').read_text()
-        # The single owner moved up a level: the pre-scan guard asks the
-        # protocol for its whole-protocol total instead of summing per-step
-        # itself, so a second consumer cannot grow a second summation. The
-        # per-write check still calls the per-step estimator directly.
-        assert 'estimate_write_mb' in run_loop, (
-            'pre-scan check must use the whole-protocol estimator'
-        )
-        assert 'estimate_step_write_mb' in writer, 'per-write check must use the shared estimator'
-        assert 'estimate_step_write_mb' in inspect.getsource(Protocol.estimate_write_mb), (
-            'the whole-protocol estimate must be built from the per-step estimator, not re-derived'
-        )
-        # The flat per-video constant must no longer drive the pre-scan loop.
-        assert 'ESTIMATED_VIDEO_STEP_MB' not in run_loop, (
-            'flat per-video constant should be gone from the run loop'
-        )
-
-    def test_estimator_is_total_on_malformed_step(self):
-        from _lumascope.modules.common_utils import (
-            ESTIMATED_IMAGE_STEP_MB,
-            ESTIMATED_VIDEO_STEP_MB,
-            estimate_step_write_mb,
-        )
-
-        # A None step (a parameter default at some call sites) must not raise --
-        # a raise here is swallowed by the disk-check except, silently skipping
-        # the free-space guard.
-        assert estimate_step_write_mb(None, video_fps=30.0) == ESTIMATED_IMAGE_STEP_MB
-        # A NaN Video Config cell (a truthy float from an unpopulated DataFrame
-        # row) must not raise; the video sizes to the floor, not a crash.
-        nan_cfg = {'Acquire': 'video', 'Video Config': float('nan')}
-        assert estimate_step_write_mb(nan_cfg, video_fps=30.0) == ESTIMATED_VIDEO_STEP_MB
-        # A non-numeric duration coerces to 0 (a missing dimension), floored.
-        bad_nums = {'Acquire': 'video', 'Video Config': {'duration': 'abc'}}
-        assert estimate_step_write_mb(bad_nums, video_fps=30.0) == ESTIMATED_VIDEO_STEP_MB
 
     def test_read_video_config_guards_every_non_dict(self):
         from _lumascope.modules.common_utils import read_video_config

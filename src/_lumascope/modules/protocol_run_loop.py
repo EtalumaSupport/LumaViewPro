@@ -175,7 +175,7 @@ class ProtocolRunLoop:
         # it, instead of re-walking every step on each scan's disk check. Stays
         # None (and unevaluated) until a scan with an output dir actually needs
         # it.
-        run_required_mb = None
+        scan_required_mb = None
         num_steps = 0
 
         # When the next scan is due (monotonic seconds), decided once the
@@ -251,26 +251,30 @@ class ProtocolRunLoop:
                 # Initialize per-scan state (curr_step, AF pointer).
                 p._reset_scan_state()
 
-                # Check disk space once per scan, against the per-run estimate
-                # summed once on the first check and reused thereafter.
+                # Check disk space once per scan, against one scan's estimate,
+                # summed on the first check and reused thereafter: prepare()
+                # refused a run whose whole size did not fit, and this is the
+                # backstop for space something else takes during the run. A
+                # run that saves no images is not sized.
                 # As with the connection probe: the handler computes the
                 # numbers, the abort happens outside it. The estimate is
                 # outside the catch: prepare() sized the run, so a failure of
                 # it is LumaViewPro's own and ends the run where it happens
                 # instead of switching the disk guard off.
                 disk_ok, free_mb = True, 0.0
-                if p._parent_dir is not None:
-                    if run_required_mb is None:
+                if p._parent_dir is not None and p._frame_sizing is not None:
+                    if scan_required_mb is None:
                         num_steps = p._protocol.num_steps()
-                        run_required_mb = max(
+                        scan_required_mb = max(
                             MIN_REQUIRED_DISK_MB,
                             p._protocol.estimate_write_mb(
+                                sizing=p._frame_sizing,
                                 video_as_frames=p._video_as_frames,
                                 video_fps=p._video_sizing_fps,
                             ),
                         )
                     try:
-                        disk_ok, free_mb = check_disk_space_ok(p._parent_dir, run_required_mb)
+                        disk_ok, free_mb = check_disk_space_ok(p._parent_dir, scan_required_mb)
                     except OSError as e:
                         # The probe's own failure: the folder's free space
                         # cannot be read, and the scan proceeds unguarded,
@@ -282,7 +286,7 @@ class ProtocolRunLoop:
                 if not disk_ok:
                     msg = (
                         f'Insufficient disk space: {free_mb:.0f} MB free, '
-                        f'need ~{run_required_mb:.0f} MB for {num_steps} steps.'
+                        f'need ~{scan_required_mb:.0f} MB for a scan of {num_steps} steps.'
                     )
                     logger.error(f'[PROTOCOL] {msg} -- aborting protocol')
                     # The funnel sets the abort this site used to set by hand,

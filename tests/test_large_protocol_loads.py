@@ -22,6 +22,7 @@ from _lumascope.modules import common_utils
 from _lumascope.modules.labware_loader import WellPlateLoader
 from _lumascope.modules.objectives_loader import ObjectiveLoader
 from _lumascope.modules.protocol import PROTOCOL_FILE_CEILING_BYTES, Protocol, ProtocolFormatError
+from tests.protocol_drives import a_frame_sizing
 from tests.protocol_fixtures import protocol_from_file
 from tests.scope_fakes import home_sim_scope
 from tests.test_protocol_roundtrip import (
@@ -63,9 +64,9 @@ def test_the_size_advisory_is_reachable_on_a_loaded_protocol(tmp_path):
     """Asserted at the API tier, where the advisory's threshold and sentence live."""
     reloaded = _reload(_large_protocol(), tmp_path)
 
-    advisory = reloaded.size_advisory(video_fps=VIDEO_FPS)
+    advisory = reloaded.size_advisory(sizing=a_frame_sizing(), video_fps=VIDEO_FPS)
 
-    assert advisory is not None
+    assert advisory is not None and advisory.scan_mb > 0
 
 
 PEAK_STEPS = 2_000

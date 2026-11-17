@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.wall_time as wall_time
 import _lumascope.modules.protocol_recording as protocol_recording
+import _lumascope.modules.write_size as write_size
 from _lumascope.lib import profile_trace
 from _lumascope.lvp_logger import protocol_logger as logger
 from _lumascope.lib.log_helpers import VERBOSE
@@ -766,6 +767,9 @@ class ProtocolImageWriter:
         # The rate the run sized its video steps at (RunPlan.video_sizing_fps);
         # None only for a run with no video step.
         video_sizing_fps: float | None,
+        # What one saved frame of the run takes on disk (RunPlan.frame_sizing);
+        # None only for a run that saves no images.
+        frame_sizing: write_size.FrameSizing | None,
         # Whether this run stamps the turret position into every filename.
         # A run value the caller states, like the two above: the flag's
         # live store is the GUI's, and reading it from here left every
@@ -808,6 +812,7 @@ class ProtocolImageWriter:
         self._timestamp_overlay = timestamp_overlay
         self._video_max_fps = video_max_fps
         self._video_sizing_fps = video_sizing_fps
+        self._frame_sizing = frame_sizing
         self._engineering_mode = engineering_mode
         self._channel_colors = channel_colors
         self._run_claim = run_claim
@@ -1592,6 +1597,7 @@ class ProtocolImageWriter:
                         timestamp_overlay=self._timestamp_overlay,
                         global_max_fps=self._video_max_fps,
                         video_sizing_fps=self._video_sizing_fps,
+                        frame_sizing=self._frame_sizing,
                         channel_colors=self._channel_colors,
                         autogain_settings=autogain_settings,
                         events=self._events,
@@ -1885,14 +1891,17 @@ class ProtocolImageWriter:
 
         # Check disk space before writing -- long protocols can fill disk.
         # Require headroom for THIS step's predicted write, never below the
-        # per-write minimum.
+        # per-write minimum. A write that saves no image is not sized, as
+        # prepare() sizes no run that saves none.
         # The estimate is outside the catch: prepare() sized the run, so a
         # failure of it is LumaViewPro's own and is raised where it happens
         # instead of switching the disk guard off.
-        if save_folder is not None:
+        if save_folder is not None and enable_image_saving:
             required_mb = max(
                 common_utils.MIN_PER_WRITE_DISK_MB,
-                common_utils.estimate_step_write_mb(step, video_fps=self._video_sizing_fps),
+                write_size.estimate_step_write_mb(
+                    step, sizing=self._frame_sizing, video_fps=self._video_sizing_fps
+                ),
             )
             try:
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)

@@ -12,8 +12,9 @@ computed nowhere until a run started -- the whole-protocol estimate was an
 expression inside one consumer. It is now a capability of a protocol, which
 is what lets a second consumer ask without growing a twin.
 
-Advisory only: nothing here refuses anything, and the run-start disk guard is
-unchanged.
+Advisory only: nothing here refuses anything. A run whose whole size does not
+fit its disk is refused at its start (``tests/test_write_size.py``); the
+advisory gives one scan's size and a full run's.
 
 Reuses the Protocol builders from test_protocol_roundtrip.
 """
@@ -26,10 +27,11 @@ import pytest
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules.common_utils import (
     PROTOCOL_SIZE_ADVISORY_STEPS,
-    estimate_step_write_mb,
     format_disk_size_mb,
 )
 from _lumascope.modules.scope_session import ControlsLock
+from _lumascope.modules.write_size import estimate_step_write_mb
+from tests.protocol_drives import a_frame_sizing
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from ui.protocol_settings import ProtocolSettings
 
@@ -51,9 +53,9 @@ def _mixed_steps():
             acquire='video',
             video_config={'duration': 600},
         ),
-        # Malformed Video Config and a malformed frame value: the per-step
-        # estimator sizes both to the single-image estimate rather than
-        # raising, and the whole-protocol total inherits that contract.
+        # A malformed duration and no Video Config: the per-step estimator
+        # sizes both at the MP4 floor, or one frame saved as frames, rather
+        # than raising, and the whole-protocol total inherits that contract.
         _make_step(name='A5_VID', acquire='video', video_config={'duration': 'nonsense'}),
         _make_step(name='A6_VID', acquire='video', video_config=None),
     ]
@@ -62,12 +64,16 @@ def _mixed_steps():
 # The rate a video step is sized at; any known rate, since the sum and the
 # total are asked at the same one.
 VIDEO_FPS = 40.0
+# The run's frame sizing; any, since the sum and the total are asked at the
+# same one.
+SIZING = a_frame_sizing()
 
 
 def _per_step_sum(protocol, *, video_as_frames, video_fps):
     return sum(
         estimate_step_write_mb(
             protocol.step_row(step_index=i),
+            sizing=SIZING,
             video_as_frames=video_as_frames,
             video_fps=video_fps,
         )
@@ -86,7 +92,7 @@ class TestTheWholeProtocolEstimateHasOneOwner:
     def test_total_equals_the_sum_of_its_steps(self, video_as_frames):
         protocol = _build_protocol(_mixed_steps())
         assert protocol.estimate_write_mb(
-            video_as_frames=video_as_frames, video_fps=VIDEO_FPS
+            sizing=SIZING, video_as_frames=video_as_frames, video_fps=VIDEO_FPS
         ) == _per_step_sum(protocol, video_as_frames=video_as_frames, video_fps=VIDEO_FPS)
 
 
@@ -103,26 +109,35 @@ class TestTheThresholdBoundary:
     )
     def test_advisory_only_above_the_threshold(self, n_steps, expect_advisory):
         protocol = _build_protocol([_make_step(name=f'S{i}') for i in range(n_steps)])
-        advisory = protocol.size_advisory(video_fps=None)
+        advisory = protocol.size_advisory(sizing=SIZING, video_fps=None)
         assert (advisory is not None) is expect_advisory
 
 
 class TestTheMessageNamesBothNumbers:
-    """T3: the sentence carries the step count and the projected size."""
+    """T3: the sentence carries the step count, one scan's size and a full
+    run's (M6: one scan was given as the protocol's)."""
 
-    def test_the_message_names_the_count_and_the_size(self):
+    def test_the_message_names_the_count_a_scan_and_the_full_run(self):
         n_steps = PROTOCOL_SIZE_ADVISORY_STEPS + 1
-        protocol = _build_protocol([_make_step(name=f'S{i}') for i in range(n_steps)])
-        advisory = protocol.size_advisory(video_fps=None)
+        # 48 h at a 20 min period: 144 scans.
+        protocol = _build_protocol(
+            [_make_step(name=f'S{i}') for i in range(n_steps)], period_min=20, duration_hrs=48
+        )
+        advisory = protocol.size_advisory(sizing=SIZING, video_fps=None)
 
         assert advisory.num_steps == n_steps
+        assert advisory.scan_mb == protocol.estimate_write_mb(sizing=SIZING, video_fps=None)
+        assert advisory.run_mb == 144 * advisory.scan_mb
         assert f'{n_steps:,}' in advisory.message
-        assert format_disk_size_mb(advisory.projected_mb) in advisory.message
+        assert f'{format_disk_size_mb(advisory.scan_mb)} of images a scan' in advisory.message
+        assert f'{format_disk_size_mb(advisory.run_mb)} for the full run of 144 scans' in (
+            advisory.message
+        )
 
-    def test_video_steps_unsized_while_the_camera_delivers_nothing_are_named(self):
+    def test_a_video_step_with_no_rate_leaves_the_protocol_unsized(self):
         # No limit set and nothing delivered: the rate a video step records
-        # at is not known. The advisory sizes the still steps and says the
-        # video steps are not sized, never sizing them at a rate of 0.
+        # at is not known. The advisory gives no figure rather than one that
+        # leaves the video out or sizes it at a rate of 0.
         n_steps = PROTOCOL_SIZE_ADVISORY_STEPS + 2
         steps = [_make_step(name=f'S{i}') for i in range(n_steps - 2)]
         steps += [
@@ -131,12 +146,19 @@ class TestTheMessageNamesBothNumbers:
         ]
         protocol = _build_protocol(steps)
 
-        advisory = protocol.size_advisory(video_fps=None)
+        advisory = protocol.size_advisory(sizing=SIZING, video_fps=None)
 
-        assert advisory.projected_mb == (n_steps - 2) * estimate_step_write_mb(None, video_fps=None)
-        assert 'Its 2 video steps are not sized while the camera is not delivering frames.' in (
-            advisory.message
-        )
+        assert advisory.scan_mb is None and advisory.run_mb is None
+        assert 'not sized while the camera is not delivering frames' in advisory.message
+
+    def test_an_unknown_frame_size_leaves_the_protocol_unsized(self):
+        n_steps = PROTOCOL_SIZE_ADVISORY_STEPS + 1
+        protocol = _build_protocol([_make_step(name=f'S{i}') for i in range(n_steps)])
+
+        advisory = protocol.size_advisory(sizing=None, video_fps=None)
+
+        assert advisory.scan_mb is None and advisory.run_mb is None
+        assert "not sized while the camera's frame size is not known" in advisory.message
 
     def test_the_reported_disk_figure_is_binary(self):
         # The literal the issue's protocol produces. Pinned so the acceptance
@@ -182,7 +204,7 @@ class TestTheGuiRendersAndDecidesNothing:
         # The sentence is the session's, verbatim -- the GUI does not compose,
         # reformat or threshold it. A deliberately odd message makes that
         # impossible to pass by accident.
-        advisory = SimpleNamespace(num_steps=1, projected_mb=1.0, message='SESSION SENTENCE')
+        advisory = SimpleNamespace(num_steps=1, scan_mb=1.0, run_mb=1.0, message='SESSION SENTENCE')
         fake = self._fake_self()
         monkeypatch.setattr(_app_ctx, 'ctx', self._fake_ctx(advisory=advisory))
 
@@ -249,7 +271,7 @@ class TestTheGuiRendersAndDecidesNothing:
             raise AssertionError('the size advisory must not raise a popup')
 
         monkeypatch.setattr(ps_module, 'show_notification_popup', _explode, raising=False)
-        advisory = SimpleNamespace(num_steps=1, projected_mb=1.0, message='x')
+        advisory = SimpleNamespace(num_steps=1, scan_mb=1.0, run_mb=1.0, message='x')
         fake = self._fake_self()
         monkeypatch.setattr(_app_ctx, 'ctx', self._fake_ctx(advisory=advisory))
 
@@ -271,19 +293,19 @@ class TestTheEstimateSizesEveryShape:
                 for i in range(3)
             ]
         )
-        assert protocol.estimate_write_mb(video_fps=VIDEO_FPS) > 0
+        assert protocol.estimate_write_mb(sizing=SIZING, video_fps=VIDEO_FPS) > 0
 
     def test_a_video_step_with_no_rate_is_refused_not_sized(self):
         protocol = _build_protocol(
             [_make_step(name='V0', acquire='video', video_config={'duration': 5})]
         )
         with pytest.raises(ValueError, match='without the rate it records at'):
-            protocol.estimate_write_mb(video_fps=None)
+            protocol.estimate_write_mb(sizing=SIZING, video_fps=None)
 
     def test_an_empty_protocol_estimates_zero(self):
         protocol = _build_protocol([_make_step(name='A1_BF')])
         protocol.delete_step(0)
-        assert protocol.estimate_write_mb(video_fps=None) == 0.0
+        assert protocol.estimate_write_mb(sizing=SIZING, video_fps=None) == 0.0
 
     def test_an_execution_copy_estimates(self):
         # copy_for_execution's object is what the run loop actually holds, and
@@ -291,8 +313,8 @@ class TestTheEstimateSizesEveryShape:
         # absent there.
         protocol = _build_protocol(_mixed_steps())
         assert protocol.copy_for_execution().estimate_write_mb(
-            video_fps=VIDEO_FPS
-        ) == protocol.estimate_write_mb(video_fps=VIDEO_FPS)
+            sizing=SIZING, video_fps=VIDEO_FPS
+        ) == protocol.estimate_write_mb(sizing=SIZING, video_fps=VIDEO_FPS)
 
 
 class TestTheEstimateTracksAnInPlaceEdit:
@@ -307,14 +329,14 @@ class TestTheEstimateTracksAnInPlaceEdit:
 
     def test_flipping_a_step_to_video_moves_the_estimate(self):
         protocol = _build_protocol([_make_step(name='A1_BF'), _make_step(name='A2_BF')])
-        before = protocol.estimate_write_mb(video_fps=VIDEO_FPS)
+        before = protocol.estimate_write_mb(sizing=SIZING, video_fps=VIDEO_FPS)
 
         # The stored frame, edited in place as an in-place writer edits it.
         steps = protocol._config['steps']
         steps.at[1, 'Acquire'] = 'video'
         steps.at[1, 'Video Config'] = {'duration': 600}
 
-        after = protocol.estimate_write_mb(video_fps=VIDEO_FPS)
+        after = protocol.estimate_write_mb(sizing=SIZING, video_fps=VIDEO_FPS)
         assert after > before
         assert protocol.num_steps() == 2, 'the step count is unchanged; only the size moved'
 

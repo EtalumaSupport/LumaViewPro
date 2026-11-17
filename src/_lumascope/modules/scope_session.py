@@ -127,6 +127,7 @@ from _lumascope.modules.protocol import (
 )
 from _lumascope.modules.axes import StageAxis
 from _lumascope.modules.video_cadence import video_sizing_fps
+import _lumascope.modules.write_size as write_size
 from _lumascope.modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
 from _lumascope.modules.plugins import PLUGIN_API_LEVEL, PluginRegistry
 from _lumascope.modules.python_values import python_values
@@ -4573,14 +4574,15 @@ class ScopeSession:
     def protocol_size_advisory(self, protocol: 'Protocol') -> 'ProtocolSizeAdvisory | None':
         """Ask a protocol whether it is large enough to warn the user about.
 
-        The one size estimate a client asks for: the two settings the
-        estimate needs (whether video is saved as frames, and the global FPS
-        limit) are the session's, resolved the way the run path resolves
-        them, and a video step is sized at the limit, else at the rate the
-        camera is delivering now, as the run's start sizes it.
+        The one size estimate a client asks for: the settings the estimate
+        needs (the image mode and output format, whether video is saved as
+        frames, and the global FPS limit) are the session's, resolved the way
+        the run path resolves them; a frame is sized at the camera's frame
+        size and depth now, and a video step at the limit, else at the rate
+        the camera is delivering now, as the run's start sizes them.
 
         Args:
-            protocol: The protocol sized, as a full run of it would be.
+            protocol: The protocol sized, a scan of it and a full run of it.
 
         Raises:
             Nothing.
@@ -4592,6 +4594,12 @@ class ScopeSession:
             self._settings, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL
         )
         return protocol.size_advisory(
+            sizing=write_size.FrameSizing.for_camera(
+                self.scope.camera.frame_size,
+                self.scope.capabilities,
+                run_settings['image_capture_config'],
+                self.channel_colors(),
+            ),
             video_as_frames=run_settings['video_as_frames'],
             video_fps=video_sizing_fps(
                 run_settings['video_max_fps'],

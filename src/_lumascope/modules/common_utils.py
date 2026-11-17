@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 import psutil
 
-from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.exceptions import Refusal
 
 if TYPE_CHECKING:
@@ -1444,14 +1443,6 @@ def check_disk_space(path='/') -> float:
     return free_space_mb
 
 
-# Per-step disk-write estimates (MB). An image step writes one file; a video
-# step scales with its recording length, so a flat per-video figure under-counts
-# a long capture by orders of magnitude.
-ESTIMATED_IMAGE_STEP_MB = 8  # ~1900x1900 16-bit TIFF (~7.2 MB) + metadata
-ESTIMATED_VIDEO_STEP_MB = 50  # floor for a short compressed MP4
-_MP4_COMPRESSION_FRACTION = 0.1  # MP4 ~ a tenth of the raw per-frame bytes
-
-
 def read_video_config(step) -> dict:
     """Return a step's Video Config as a dict, or {} when absent or malformed.
 
@@ -1475,71 +1466,6 @@ def read_video_config(step) -> dict:
         return {}
     video_config = get('Video Config')
     return video_config if isinstance(video_config, dict) else {}
-
-
-def _coerce_positive_float(value) -> float:
-    """Coerce a Video Config numeric to a float >= 0, defaulting bad input to 0.
-
-    Video Config values come from a user-edited protocol and may be a
-    non-numeric string or a NaN; float() raises on the former and NaN poisons
-    the frame-count arithmetic. Both collapse to 0 (a missing dimension), which
-    floors the estimate rather than raising and disabling the disk guard.
-    """
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return 0.0
-    # NaN != NaN; a NaN duration means "unknown", treated as 0.
-    return result if result == result and result > 0 else 0.0
-
-
-def estimate_step_write_mb(
-    step: 'pd.Series | Mapping[str, object] | None',
-    *,
-    video_as_frames: bool = False,
-    video_fps: float | None,
-) -> float:
-    """Estimate the disk a single protocol step will write, in MB.
-
-    One owner for write-size estimation, shared by the pre-scan free-space check
-    and the per-write threshold so the two cannot drift. An image step writes
-    one file. A video step scales with the recording: the frame count is
-    duration_s * the rate the recording is sized at (``video_sizing_fps``: the
-    global limit, else the camera's delivered rate), and each frame costs
-    about one image when saved as individual TIFFs (video_as_frames) or a
-    compressed fraction of that in an MP4.
-
-    A None / malformed step or Video Config sizes to the single-image
-    estimate.
-
-    Args:
-        step: A protocol step (pandas Series / dict / None); reads Acquire +
-            Video Config.
-        video_as_frames: Run-level flag -- video saved as individual frames
-            rather than a compressed MP4.
-        video_fps: The rate a video step is sized at
-            (``video_cadence.video_sizing_fps``); None when it is not known,
-            which only a protocol with no video step may pass.
-
-    Returns:
-        Estimated megabytes the step will write to disk.
-
-    Raises:
-        ValueError: ``step`` is a video step and ``video_fps`` is None.
-    """
-    get = getattr(step, 'get', None)
-    if get is None or get('Acquire') != AcquireMode.VIDEO:
-        return ESTIMATED_IMAGE_STEP_MB
-    if video_fps is None:
-        raise ValueError('A video step cannot be sized without the rate it records at.')
-    video_config = read_video_config(step)
-    duration_s = _coerce_positive_float(video_config.get('duration'))
-    frames = max(1, int(duration_s * video_fps))
-    if video_as_frames:
-        return frames * ESTIMATED_IMAGE_STEP_MB
-    return max(
-        ESTIMATED_VIDEO_STEP_MB, frames * ESTIMATED_IMAGE_STEP_MB * _MP4_COMPRESSION_FRACTION
-    )
 
 
 # Free-space floor (2 GB) below which capture work refuses to start and

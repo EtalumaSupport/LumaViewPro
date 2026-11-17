@@ -71,6 +71,7 @@ from tests.scope_fakes import (
 )
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
+from tests.protocol_drives import a_frame_sizing
 
 
 class ScriptedCameraDriver:
@@ -317,6 +318,7 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(
         timestamp_overlay=True,
         video_max_fps=0,
         video_sizing_fps=None,
+        frame_sizing=a_frame_sizing(),
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),
@@ -342,7 +344,16 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(
             position=unpositioned(),
             fallback_focus=None,
         ),
-        step={'Name': 's', 'channel': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
+        step={
+            'Name': 's',
+            'Acquire': 'image',
+            'channel': 'BF',
+            'False_Color': False,
+            'Sum': 1,
+            'X': 0.0,
+            'Y': 0.0,
+            'Z': 0.0,
+        },
         name='s_BF',
         save_folder=str(tmp_path),
         output_format='TIFF',

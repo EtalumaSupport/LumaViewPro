@@ -2152,6 +2152,11 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             a video step and no Recording max FPS, and no delivered rate
             of the camera's was measured within the run start's wait, so
             the disk the step will write cannot be sized.
+            ``'frame_size_unknown'`` -- the run saves images and the
+            camera's frame size or depth is not known, so what it will
+            write cannot be sized. ``'disk_space_insufficient'`` -- what the
+            whole run will write does not fit in the free space of its save
+            folder.
             ``'position_unknown'`` -- an axis this scope has does not know
             its position, so the scope has to be homed first; the axes are
             ``axes_without_position``. ``'lid_open_before_motion'`` -- the stage's lid is
@@ -2266,6 +2271,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'position_unknown': RefusalCause.STATE,
         'lid_open_before_motion': RefusalCause.STATE,
         'capture_location_unusable': RefusalCause.STATE,
+        'frame_size_unknown': RefusalCause.STATE,
+        'disk_space_insufficient': RefusalCause.STATE,
         'no_acquiring_channel': RefusalCause.STATE,
         'channel_already_in_add': RefusalCause.REQUEST,
         'composite_two_transmitted_channels': RefusalCause.REQUEST,
@@ -2320,6 +2327,8 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
         'position_unknown': 'Scope Not Homed',
         'lid_open_before_motion': INTERLOCK_TITLES['lid_open'],
         'capture_location_unusable': 'Save Location Unusable',
+        'frame_size_unknown': 'Frame Size Not Known',
+        'disk_space_insufficient': 'Not Enough Disk Space',
         'no_acquiring_channel': 'No Channel Set to Acquire',
         'channel_already_in_add': 'Step Not Saved',
         'composite_two_transmitted_channels': 'One Transmitted Channel',

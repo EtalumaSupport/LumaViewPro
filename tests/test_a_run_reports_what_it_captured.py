@@ -308,8 +308,9 @@ class TestTheFileCountCountsImages:
             _reports_of(RunImagesNotSavedError) as lost,
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
         ):
-            # The run loop binds its own name for the check at import; this
-            # replaces only the per-write floor the writer reads.
+            # The run's start and its loop bind their own name for the check
+            # at import; this replaces only the per-write floor the writer
+            # reads, a disk that fills once the run has started.
             import _lumascope.modules.protocol_run_loop  # noqa: F401
 
             monkeypatch.setattr(common_utils, 'check_disk_space_ok', lambda path, mb: (False, 1.0))

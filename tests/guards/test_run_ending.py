@@ -500,7 +500,7 @@ class TestTheRunLoopsOwnEndings:
         into the next step on a full disk.
         """
         import _lumascope.modules.protocol_run_loop as prl
-        from tests.protocol_drives import protocol_step, run_loop_ready_runner
+        from tests.protocol_drives import a_frame_sizing, protocol_step, run_loop_ready_runner
 
         runner = run_loop_ready_runner(protocol_step())
         runner._parent_dir = '/tmp'
@@ -509,9 +509,10 @@ class TestTheRunLoopsOwnEndings:
         # under test.
         runner._protocol.estimate_write_mb.return_value = 500.0
         runner._protocol.num_steps.return_value = 1
-        # start() always sets this from the run's plan; the bare harness does
-        # not, and the run loop reads it to size the run.
+        # start() always sets these from the run's plan; the bare harness
+        # does not, and the run loop reads them to size the run.
         runner._video_sizing_fps = 30.0
+        runner._frame_sizing = a_frame_sizing()
         monkeypatch.setattr(prl, 'check_disk_space_ok', lambda folder, needed: (False, 12.0))
 
         runner._run_loop_executor.run_loop(runner._last_run())

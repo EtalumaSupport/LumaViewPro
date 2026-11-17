@@ -130,6 +130,26 @@ def wait_for_run_end(done: threading.Event, heartbeat: StepHeartbeat) -> bool:
     return True
 
 
+def a_frame_sizing(**overrides):
+    """A run's frame sizing, as ``prepare()`` reads it from a brought-up
+    scope: a 1400x1400 frame from a 12-bit mono camera saved in the 8-bit
+    mode, in the release's colours, as plain TIFFs."""
+    from _lumascope.modules.scope_capabilities import FrameSize
+    from _lumascope.modules.write_size import FrameSizing
+
+    fields = {
+        'frame': FrameSize(1400, 1400),
+        'camera_bits': 12,
+        'color_native': False,
+        'capture_depth': 8,
+        'save_encoding': '8bit',
+        'channel_colors': release_colors(),
+        'stacked': False,
+    }
+    fields.update(overrides)
+    return FrameSizing(**fields)
+
+
 def protocol_step(**overrides):
     """A scan_iterate-shaped step dict (plain dict, not pandas Series)."""
     step = {

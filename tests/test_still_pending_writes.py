@@ -33,6 +33,7 @@ from tests.scope_fakes import spec_scope
 
 from _lumascope.modules.run_outcome import EndingLatch
 from _lumascope.modules.channel_record import release_colors
+from tests.protocol_drives import a_frame_sizing
 
 
 def _writer(file_io_executor=None):
@@ -52,6 +53,7 @@ def _writer(file_io_executor=None):
         timestamp_overlay=False,
         video_max_fps=0,
         video_sizing_fps=None,
+        frame_sizing=a_frame_sizing(),
         engineering_mode=False,
         run_claim=lent_run_claim(),
         labware=plate(),

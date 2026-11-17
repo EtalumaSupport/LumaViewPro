@@ -43,11 +43,11 @@ from _lumascope.modules.common_utils import (
     MIN_PER_WRITE_DISK_MB,
     MIN_REQUIRED_DISK_MB,
     check_disk_space_ok,
-    estimate_step_write_mb,
 )
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.wall_time as wall_time
 import _lumascope.modules.channel_record as channel_record
+from _lumascope.modules.write_size import FrameSizing, estimate_step_write_mb
 from _lumascope.modules.coord_transformations import PlatePosition
 from _lumascope.modules.labware import Labware
 from _lumascope.modules.exceptions import (
@@ -124,6 +124,8 @@ class ProtocolVideoStep:
         video_sizing_fps: The rate the run sized its video steps at
             (``RunPlan.video_sizing_fps``), which the step's disk pre-flight
             sizes it at too, so the run's and the step's checks agree.
+        frame_sizing: What one saved frame of the run takes on disk
+            (``RunPlan.frame_sizing``), the run's sizing for the same reason.
         autogain_settings: The runner's autogain settings dict.
         events: The run's events; this step sends its ``video_progress``.
         aborted_event: The run's abort event; checked every wait tick.
@@ -171,6 +173,7 @@ class ProtocolVideoStep:
         timestamp_overlay: bool,
         global_max_fps: float,
         video_sizing_fps: float | None,
+        frame_sizing: FrameSizing,
         channel_colors: channel_record.ChannelColors,
         autogain_settings: dict,
         events: RunEvents,
@@ -196,6 +199,7 @@ class ProtocolVideoStep:
         self._timestamp_overlay = timestamp_overlay
         self._global_max_fps = global_max_fps
         self._video_sizing_fps = video_sizing_fps
+        self._frame_sizing = frame_sizing
         # Whether the finished step kept and wrote every frame it selected,
         # with its backlog saved, not discarded: what the run's end needs to
         # say "every frame was kept" when it waited for the step's saving.
@@ -298,13 +302,14 @@ class ProtocolVideoStep:
         duration_s = float(video_config['duration'])
         fps = effective_recording_fps(self._global_max_fps)
 
-        # Per-step disk pre-flight at the run's sizing rate: the whole-run
-        # estimate ran at scan start, but a long recording must re-check
-        # against what is free NOW, before frames start landing.
+        # Per-step disk pre-flight at the run's sizing: the run was sized at
+        # its start and each scan at the scan's, but a long recording must
+        # re-check against what is free NOW, before frames start landing.
         required_mb = max(
             MIN_PER_WRITE_DISK_MB,
             estimate_step_write_mb(
                 step,
+                sizing=self._frame_sizing,
                 video_as_frames=self._video_as_frames,
                 video_fps=self._video_sizing_fps,
             ),

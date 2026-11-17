@@ -18,12 +18,14 @@ from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.protocol_recording import ProtocolVideoStep
 from _lumascope.modules.run_events import RunEvents
 from tests.frame_records import plate
-from tests.protocol_drives import lent_run_claim
+from tests.protocol_drives import a_frame_sizing, lent_run_claim
 from tests.stock_channels import LED0
 
 # A one-second step at 5 fps, manual gain, as the protocol editor writes it.
 VIDEO_STEP = {
+    'Acquire': 'video',
     'Video Config': {'duration': 1},
+    'Sum': 1,
     'channel': LED0,
     'False_Color': False,
     'Auto_Gain': False,
@@ -64,6 +66,7 @@ def video_step_on(
         'timestamp_overlay': True,
         'global_max_fps': 0,
         'video_sizing_fps': 30.0,
+        'frame_sizing': a_frame_sizing(),
         'autogain_settings': {},
         'events': RunEvents(),
         'aborted_event': threading.Event(),

@@ -33,6 +33,8 @@ from _lumascope.modules.axes import Axis, AxisState
 from _lumascope.modules.scope_parts import Board
 
 import _lumascope.modules.common_utils as common_utils
+from _lumascope.modules.common_utils import check_disk_space_ok
+import _lumascope.modules.write_size as write_size
 import _lumascope.modules.image_mode as image_mode
 
 from _lumascope.modules.acquire_mode import AcquireMode
@@ -342,6 +344,10 @@ class RunPlan:
     # at prepare (video_cadence.video_sizing_fps); None only when the run has
     # no video step to size.
     video_sizing_fps: float | None
+    # What one saved frame of the run takes on disk, read once at prepare
+    # from the camera and the image mode, so every disk check of the run
+    # sizes with the same facts; None only when the run saves no images.
+    frame_sizing: write_size.FrameSizing | None
     # Whether the run names its files with the turret position. Stated by
     # the caller from the store its world owns -- the GUI's live flag, or
     # the mode a headless session was built in -- so the engine never
@@ -1480,12 +1486,12 @@ class SequencedCaptureRunner:
         stage_offset = self._scope.runtime_state.stage_offset()
         ag_ae_max_exposure_ms = self._scope.read_setting('ag_ae_max_exposure_ms')
 
-        # The last gate, and the only one about where the run SAVES rather
-        # than about the instrument. Without it a bad save location is
+        # A gate about where the run SAVES rather than about the instrument,
+        # after every instrument gate. Without it a bad save location is
         # discovered after the run has committed, moved the stage and taken
         # images -- a failed run for a request that could have been turned
-        # away. It is last so that it cannot reorder any refusal that was
-        # already reachable.
+        # away. It follows the instrument gates so that it cannot reorder any
+        # refusal that was already reachable.
         #
         # parent_dir None means the run writes nowhere at all (a
         # non-engineering standalone autofocus), so it has no location to
@@ -1525,6 +1531,60 @@ class SequencedCaptureRunner:
                 ),
             )
 
+        # The last gate, after the location and name gates: with no usable
+        # folder there is nothing to size against. The whole run is sized
+        # here, before it commits, so a run too big for its disk is turned
+        # away instead of stopping hours in at the scan that no longer fits;
+        # the per-scan check stays as the backstop for space something else
+        # takes during the run.
+        n_scans = self._calculate_num_scans(
+            protocol=protocol, run_mode=run_mode, max_scans=max_scans
+        )
+        frame_sizing = None
+        if parent_dir is not None and enable_image_saving and not disable_saving_artifacts:
+            frame_sizing = write_size.FrameSizing.for_camera(
+                self._scope.camera.frame_size,
+                self._scope.capabilities,
+                image_capture_config,
+                self._read_channel_colors(),
+            )
+            if frame_sizing is None:
+                self._refuse(
+                    reason='frame_size_unknown',
+                    message=(
+                        "The camera's frame size is not known, so the disk this run will "
+                        'write cannot be sized. Start its live image and try again.'
+                    ),
+                )
+            scan_mb = protocol.estimate_write_mb(
+                sizing=frame_sizing, video_as_frames=video_as_frames, video_fps=video_fps
+            )
+            required_mb = max(common_utils.MIN_REQUIRED_DISK_MB, scan_mb * n_scans)
+            try:
+                fits, free_mb = check_disk_space_ok(parent_dir, required_mb)
+            except OSError as e:
+                # The probe's own failure: the folder's free space cannot be
+                # read, and the run starts unguarded, said where it is seen;
+                # each scan's check probes again.
+                logger.warning(
+                    f'[SeqCapExec] Free disk at {parent_dir} could not be read '
+                    f'(starting without the run-size check): {e}'
+                )
+                fits = True
+            if not fits:
+                self._refuse(
+                    reason='disk_space_insufficient',
+                    message=(
+                        f'Cannot start the run: it will write about '
+                        f'{common_utils.format_disk_size_mb(required_mb)} '
+                        f'({n_scans:,} scan{"" if n_scans == 1 else "s"} of about '
+                        f'{common_utils.format_disk_size_mb(scan_mb)}), and '
+                        f'{common_utils.format_disk_size_mb(free_mb)} is free at '
+                        f'{parent_dir}. Free space or choose another save location, '
+                        'then try again.'
+                    ),
+                )
+
         # Lightweight copy -- shares read-only loaders, copies only the
         # mutable steps DataFrame (which AF modifies via
         # modify_step_z_height). Much cheaper than deepcopy for large
@@ -1551,11 +1611,7 @@ class SequencedCaptureRunner:
                 copy.deepcopy(autogain_settings) if autogain_settings is not None else {}
             ),
             events=events if events is not None else RunEvents(),
-            n_scans=self._calculate_num_scans(
-                protocol=execution_protocol,
-                run_mode=run_mode,
-                max_scans=max_scans,
-            ),
+            n_scans=n_scans,
             parent_dir=parent_dir,
             enable_image_saving=enable_image_saving,
             separate_folder_per_channel=separate_folder_per_channel,
@@ -1569,6 +1625,7 @@ class SequencedCaptureRunner:
             timestamp_overlay=timestamp_overlay,
             video_max_fps=video_max_fps,
             video_sizing_fps=video_fps,
+            frame_sizing=frame_sizing,
             ag_ae_max_exposure_ms=ag_ae_max_exposure_ms,
             composite_thresholds_percent=composite_thresholds_percent,
             engineering_mode=engineering_mode,
@@ -1774,6 +1831,7 @@ class SequencedCaptureRunner:
             self._timestamp_overlay = plan.timestamp_overlay
             self._video_max_fps = plan.video_max_fps
             self._video_sizing_fps = plan.video_sizing_fps
+            self._frame_sizing = plan.frame_sizing
             self._ag_ae_max_exposure_ms = plan.ag_ae_max_exposure_ms
             self._engineering_mode = plan.engineering_mode
             self._stage_offset = plan.stage_offset
@@ -1902,6 +1960,7 @@ class SequencedCaptureRunner:
                 timestamp_overlay=self._timestamp_overlay,
                 video_max_fps=self._video_max_fps,
                 video_sizing_fps=self._video_sizing_fps,
+                frame_sizing=self._frame_sizing,
                 engineering_mode=self._engineering_mode,
                 channel_colors=self._channel_colors,
                 run_claim=self._held_claim.lend(),

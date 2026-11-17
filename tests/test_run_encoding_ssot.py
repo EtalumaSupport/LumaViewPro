@@ -67,6 +67,7 @@ FILES_WAIT_S = 60
 from _lumascope.modules.run_outcome import EndingLatch
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
+from tests.protocol_drives import a_frame_sizing
 
 
 def _make_step(color='BF'):
@@ -291,6 +292,7 @@ class TestOneRunOneEncoding:
             timestamp_overlay=True,
             video_max_fps=0,
             video_sizing_fps=None,
+            frame_sizing=a_frame_sizing(),
             engineering_mode=False,
             run_claim=lent_run_claim(),
             labware=plate(),
@@ -316,8 +318,10 @@ class TestOneRunOneEncoding:
 
         step = {
             'Name': 'A1_BF',
+            'Acquire': 'image',
             'channel': 'BF',
             'False_Color': False,
+            'Sum': 1,
             'X': 0.0,
             'Y': 0.0,
             'Z': 0.0,

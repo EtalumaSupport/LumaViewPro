@@ -67,7 +67,9 @@ A protocol is edited only through the session (`add_step`, `update_step`,
 `point_steps_at_turret_slot`, ...), and each edit is a write, refused under
 another's control session. Its records (`step_records()`) are read-only, and a
 run works on its own copy. `protocol_size_advisory(protocol)` says, before a
-run, whether it is large enough to warn about, and
+run, whether it is large enough to warn about, with one scan's size and a full
+run's (a run whose whole size does not fit its save folder's free space is
+refused at its start, `disk_space_insufficient`), and
 `start_go_to_step(protocol, step_index)` moves the scope to a step: its
 objective, its X, Y and Z.
 

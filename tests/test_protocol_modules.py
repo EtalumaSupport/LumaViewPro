@@ -42,6 +42,7 @@ from _lumascope.modules.run_outcome import EndingLatch, RunEnding
 from tests.scope_fakes import swap_lanes
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.coord_transformations import PlateLocation
+from tests.protocol_drives import a_frame_sizing
 
 
 class TestSequencedCaptureRunMode:
@@ -575,6 +576,7 @@ class TestProtocolImageWriterWriteCapture:
             timestamp_overlay=True,
             video_max_fps=0,
             video_sizing_fps=None,
+            frame_sizing=a_frame_sizing(),
             engineering_mode=False,
             run_claim=lent_run_claim(),
             labware=plate(),

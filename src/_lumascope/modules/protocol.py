@@ -34,6 +34,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.notification_center import notifications
 
 import _lumascope.modules.common_utils as common_utils
+import _lumascope.modules.write_size as write_size
 import _lumascope.modules.path_utils as path_utils
 from _lumascope.modules.finite_number import is_finite_number, refuse_unless_finite_number
 from _lumascope.modules.python_values import python_values
@@ -1370,7 +1371,7 @@ def schedule_from_units(
     return schedule
 
 
-@api_fields('message', 'num_steps', 'projected_mb')
+@api_fields('message', 'num_steps', 'run_mb', 'scan_mb')
 @dataclasses.dataclass(frozen=True)
 class ProtocolSizeAdvisory:
     """A protocol big enough that the user should be told before running it.
@@ -1381,15 +1382,18 @@ class ProtocolSizeAdvisory:
 
     Attributes:
         num_steps: How many steps the protocol has.
-        projected_mb: About how many megabytes of images the protocol's
-            steps write. When its video steps cannot be sized (the camera
-            delivering no frames and no rate limit set), the still steps only.
+        scan_mb: About how many megabytes one scan of the protocol writes;
+            None when it cannot be sized (the camera's frame size or depth
+            not known, or a video step with no rate to size it at).
+        run_mb: About how many megabytes a full run writes, every scan of
+            it; None when ``scan_mb`` is.
         message: The advisory in words a person reads: the step count, the
-            size, any video steps left unsized, and to check free disk.
+            sizes or why there are none, and to check free disk.
     """
 
     num_steps: int
-    projected_mb: float
+    scan_mb: float | None
+    run_mb: float | None
     message: str
 
 
@@ -2582,14 +2586,22 @@ class Protocol:
         """
         return self._config['steps'].copy()
 
-    def estimate_write_mb(self, *, video_as_frames: bool = False, video_fps: float | None) -> float:
-        """Estimate the disk this whole protocol will write, in MB.
+    def estimate_write_mb(
+        self,
+        *,
+        sizing: write_size.FrameSizing,
+        video_as_frames: bool = False,
+        video_fps: float | None,
+    ) -> float:
+        """Estimate the disk one scan of this protocol writes, in MB.
 
-        One owner for "how big is this protocol", so the pre-run free-space
-        guard and anything that wants to tell the user up front cannot drift
-        apart. Lives on Protocol because the estimate has to know the steps
-        frame schema, and Protocol is what guarantees that schema at any row
-        count.
+        One owner for "how big is a scan of this protocol", so the run's disk
+        checks and the advisory cannot drift apart; a run's whole size is
+        this times its scan count. Lives on Protocol because the estimate has
+        to know the steps frame schema, and Protocol is what guarantees that
+        schema at any row count. A hyperstack run counts every TIFF twice:
+        the stacks are built after the run beside the files they read, which
+        stay.
 
         Stateless by design -- no cached total. A cache here has to be
         invalidated by every mutator, and the in-place ones (modify_step
@@ -2604,6 +2616,7 @@ class Protocol:
         three-step protocol.
 
         Args:
+            sizing: The frame sizing the run saves at.
             video_as_frames: Run-level flag -- video saved as individual
                 frames rather than a compressed MP4.
             video_fps: The rate a video step is sized at
@@ -2611,58 +2624,70 @@ class Protocol:
                 known, which only a protocol with no video step may pass.
 
         Returns:
-            Estimated megabytes the whole protocol will write.
+            Estimated megabytes one scan writes.
 
         Raises:
             ValueError: the protocol has a video step and ``video_fps`` is
                 None.
         """
         steps = self._config['steps']
-        n_steps = len(steps)
-        if n_steps == 0:
+        if len(steps) == 0:
             return 0.0
 
-        # Every non-video step costs the same constant, so they are counted
-        # with one mask and multiplied; only video rows have to be visited.
-        # The mask matches the per-step estimator's own `!= 'video'` test --
-        # NaN, missing and 'image' all compare False.
+        # A still step's size follows only its channel, sum and false colour,
+        # so the stills are sized once per distinct triple and multiplied;
+        # only video rows have to be visited one by one.
         video_mask = (steps['Acquire'] == AcquireMode.VIDEO).to_numpy()
-        n_video = int(video_mask.sum())
-        image_mb = common_utils.estimate_step_write_mb(
-            None, video_as_frames=video_as_frames, video_fps=video_fps
-        )
-        total = float((n_steps - n_video) * image_mb)
+        tiff_mb = 0.0
+        for _, group in steps.loc[~video_mask].groupby(
+            ['channel', 'Sum', 'False_Color'], sort=False
+        ):
+            tiff_mb += len(group) * write_size.estimate_step_write_mb(
+                group.iloc[0], sizing=sizing, video_fps=video_fps
+            )
+        video_mb = 0.0
         # Positional, matching step()'s own .iloc, so this total and a
         # per-step sum over the same protocol agree exactly.
         for pos in np.flatnonzero(video_mask):
-            total += common_utils.estimate_step_write_mb(
+            video_mb += write_size.estimate_step_write_mb(
                 steps.iloc[pos],
+                sizing=sizing,
                 video_as_frames=video_as_frames,
                 video_fps=video_fps,
             )
-        return total
+        if video_as_frames:
+            tiff_mb, video_mb = tiff_mb + video_mb, 0.0
+        return tiff_mb * (2 if sizing.stacked else 1) + video_mb
 
     def size_advisory(
-        self, *, video_as_frames: bool = False, video_fps: float | None
+        self,
+        *,
+        sizing: write_size.FrameSizing | None,
+        video_as_frames: bool = False,
+        video_fps: float | None,
     ) -> ProtocolSizeAdvisory | None:
         """Describe this protocol if it is large enough to warn about, else None.
 
         The threshold and the sentence live here rather than in the GUI, and
         a client asks through ``ScopeSession.protocol_size_advisory``, which
-        passes the two run settings this takes: the GUI and a REST caller
-        get the same answer, and the GUI's job is to render what comes back.
+        passes the run settings this takes: the GUI and a REST caller get the
+        same answer, and the GUI's job is to render what comes back. It gives
+        one scan's size and a full run's (``num_scans``).
 
         Advisory only. Nothing here refuses anything -- a legitimate large
-        protocol runs untouched, and the run-start disk guard is unchanged.
+        protocol runs untouched; a run too big for its disk is refused at
+        its start.
 
         Args:
+            sizing: The frame sizing a run would save at; None when the
+                camera's frame size or depth is not known, and the advisory
+                then says the protocol is not sized.
             video_as_frames: True when the run saves a video step as individual frames
                 rather than one compressed file, which writes more.
             video_fps: The rate a video step is sized at
                 (``video_cadence.video_sizing_fps``); None when it is not
                 known (no limit set and the camera delivering nothing), and
-                the advisory then sizes the still steps and says the video
-                steps are not sized.
+                the advisory then says the protocol is not sized.
 
         Raises:
             Nothing.
@@ -2671,31 +2696,37 @@ class Protocol:
         if num_steps <= common_utils.PROTOCOL_SIZE_ADVISORY_STEPS:
             return None
 
-        n_video = int((self._config['steps']['Acquire'] == AcquireMode.VIDEO).sum())
-        if video_fps is None and n_video:
-            projected_mb = float(
-                (num_steps - n_video)
-                * common_utils.estimate_step_write_mb(
-                    None, video_as_frames=video_as_frames, video_fps=None
-                )
+        has_video = bool((self._config['steps']['Acquire'] == AcquireMode.VIDEO).any())
+        if sizing is None or (video_fps is None and has_video):
+            reason = (
+                'the camera is not delivering frames'
+                if sizing is not None
+                else "the camera's frame size is not known"
             )
-            unsized = (
-                f' Its {n_video:,} video step{"" if n_video == 1 else "s"} '
-                f'{"is" if n_video == 1 else "are"} not sized while the camera '
-                'is not delivering frames.'
+            return ProtocolSizeAdvisory(
+                num_steps=num_steps,
+                scan_mb=None,
+                run_mb=None,
+                message=(
+                    f'{num_steps:,} steps, not sized while {reason}. '
+                    'Check free disk before running.'
+                ),
             )
-        else:
-            projected_mb = self.estimate_write_mb(
-                video_as_frames=video_as_frames, video_fps=video_fps
-            )
-            unsized = ''
+        scan_mb = self.estimate_write_mb(
+            sizing=sizing, video_as_frames=video_as_frames, video_fps=video_fps
+        )
+        num_scans = self.num_scans()
+        run_mb = scan_mb * num_scans
         return ProtocolSizeAdvisory(
             num_steps=num_steps,
-            projected_mb=projected_mb,
+            scan_mb=scan_mb,
+            run_mb=run_mb,
             message=(
                 f'{num_steps:,} steps, about '
-                f'{common_utils.format_disk_size_mb(projected_mb)} of images.{unsized} '
-                f'Check free disk before running.'
+                f'{common_utils.format_disk_size_mb(scan_mb)} of images a scan, '
+                f'{common_utils.format_disk_size_mb(run_mb)} for the full run of '
+                f'{num_scans:,} scan{"" if num_scans == 1 else "s"}. '
+                'Check free disk before running.'
             ),
         )
 

@@ -838,6 +838,12 @@ RUNNER_REFUSAL_COVERAGE = {
         'tests/test_a_run_name_is_a_name.py::'
         'test_a_name_that_is_a_path_is_refused_and_nothing_is_written_or_posted'
     ),
+    'disk_space_insufficient': (
+        'tests/test_write_size.py::test_a_run_too_big_for_its_disk_is_refused_at_its_start'
+    ),
+    'frame_size_unknown': (
+        'tests/test_write_size.py::test_a_run_whose_camera_frame_size_is_unknown_is_refused'
+    ),
 }
 
 
