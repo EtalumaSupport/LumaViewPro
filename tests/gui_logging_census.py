@@ -37,6 +37,7 @@ import re
 from collections import defaultdict
 
 from tests.ast_seams import REPO_ROOT, tracked_files
+from ui import setting_controls
 
 # Kivy events only a person raises. Excludes lifecycle hooks (on_open,
 # on_dismiss) and layout callbacks (on_size), which fire without anyone
@@ -378,6 +379,16 @@ def _blocks(label, text):
     return out
 
 
+# A toggle bound as ``root.toggle_control('<id>')`` records under its row's
+# name in ui/setting_controls.py, which the handler reads at run time.
+TABLE_TOGGLE_HANDLER = 'toggle_control'
+_TABLE_TOGGLE_RECORDS = {
+    row.widget: row.record
+    for row in setting_controls.ALL
+    if isinstance(row, setting_controls.Toggle)
+}
+
+
 def census():
     """``identity -> {'static', 'derived', 'unresolved', 'file'}`` for every control.
 
@@ -407,6 +418,9 @@ def census():
             for owner, method in pairs:
                 if owner is None or _resolve(owner, method)[1] is None:
                     unresolved.add(f'{owner}.{method}')
+                    continue
+                if method == TABLE_TOGGLE_HANDLER:
+                    static.add(_TABLE_TOGGLE_RECORDS[block['args'][0]])
                     continue
                 for name in _reached_emitters(owner, method):
                     if re.fullmatch(r'[A-Z][A-Z0-9_]*', name):

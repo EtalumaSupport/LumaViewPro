@@ -28,7 +28,14 @@ import _lumascope.modules.post_processing as post_processing
 import _lumascope.modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
 import _lumascope.modules.app_context as _app_ctx
-from ui.ui_helpers import BRIEF_HOLD_S, run_reported, run_unasked, submit_reported
+from ui.setting_controls import QUICK_ENHANCE
+from ui.ui_helpers import (
+    BRIEF_HOLD_S,
+    SettingControls,
+    run_reported,
+    run_unasked,
+    submit_reported,
+)
 
 logger = logging.getLogger('LVP.ui.post_processing')
 
@@ -75,8 +82,10 @@ def _run_build(build, popup, label: str, on_done=None) -> None:
     submit_reported(_build, _show, label, lane=_app_ctx.ctx.session.post_processing.lane)
 
 
-class QuickEnhanceControls(BoxLayout):
+class QuickEnhanceControls(BoxLayout, SettingControls):
     """GUI shell for the non-destructive Quick Enhance derived-file path."""
+
+    setting_controls = QUICK_ENHANCE
 
     done = BooleanProperty(False)
     busy = BooleanProperty(False)
@@ -84,26 +93,6 @@ class QuickEnhanceControls(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         _app_ctx.register_early('quick_enhance_controls', self)
-
-    def show_switches(self) -> None:
-        """Show each step's switch as the settings store holds it.
-
-        Each switch's checkbox has the id of the setting it shows under
-        ``quick_enhance``.
-        """
-        for field, enabled in _app_ctx.ctx.settings['quick_enhance'].items():
-            self.ids[field].active = enabled
-
-    def set_switch(self, field: str, enabled: bool) -> None:
-        """Write the step's switch the person set; the switches then show what is stored."""
-        label = f'QUICK_ENHANCE_{field.upper()}'
-        gui_logger.toggle(label, enabled)
-        ctx = _app_ctx.ctx
-        run_reported(
-            lambda: ctx.update_settings(f'quick_enhance.{field}', enabled),
-            self.show_switches,
-            label,
-        )
 
     def set_source(self, path) -> None:
         """Enhance the image or folder at ``path``; the API says which it is."""

@@ -27,10 +27,17 @@ from _lumascope.lvp_logger import logger
 from _lumascope.modules import gui_logger
 from _lumascope.modules.config_helpers import get_manual_video_max_duration
 from _lumascope.modules.settings_paths import LIVE_VIEW_FPS_LIMIT, VIDEO_MAX_FPS_LIMIT
-from ui.ui_helpers import run_reported, show_on_slider, submit_reported, typed_number
+from ui.setting_controls import ADVANCED_SETTINGS
+from ui.ui_helpers import (
+    SettingControls,
+    run_reported,
+    show_on_slider,
+    submit_reported,
+    typed_number,
+)
 
 
-class AdvancedSettings(Popup):
+class AdvancedSettings(Popup, SettingControls):
     """Modal container for the advanced settings rows.
 
     Opened from a button in the Microscope Settings panel. Rows are grouped
@@ -68,6 +75,8 @@ class AdvancedSettings(Popup):
     # fills from the store when it opens.
     shown = False
 
+    setting_controls = ADVANCED_SETTINGS
+
     def on_open(self):
         """Populate every row from the settings store when the modal opens."""
         self.shown = True
@@ -91,23 +100,11 @@ class AdvancedSettings(Popup):
         self.xy_stage_supported = caps.has_xy_stage
         self._show_camera_modes()
 
-        video_settings = settings['video']
         for slider_id in self._FPS_LIMITS:
             self._show_fps_limit(slider_id)
         self._show_capture_shown()
         self.ids['video_max_duration_input'].text = str(get_manual_video_max_duration(settings))
-        self.ids['video_timestamp_overlay_id'].active = video_settings['timestamp_overlay']
-        self.ids['restore_after_home_id'].active = settings['motion']['restore_after_home']
-
-        self.ids['separate_folder_per_channel_id'].state = (
-            'down' if settings['separate_folder_per_channel'] else 'normal'
-        )
-
-        self.ids['protocol_led_on_btn'].state = 'down' if settings['protocol_led_on'] else 'normal'
-
-        self.ids['keep_led_between_steps_btn'].state = (
-            'down' if settings['keep_led_between_steps'] else 'normal'
-        )
+        self.show_controls()
 
         # Setting the slider value drives the text via the kv binding
         # (text: format(acceleration_pct_slider.value)).
@@ -124,18 +121,6 @@ class AdvancedSettings(Popup):
         self.ids['scope_spinner'].text = settings['microscope']
 
         self.stim_supported = _app_ctx.ctx.scope.capabilities.has_firmware_stim
-        self.ids['stimulation_settings_btn'].state = (
-            'down' if settings['stimulation_enabled'] else 'normal'
-        )
-
-        # Populating the spinner fires on_text -> update_tiling_overlap, which
-        # early-returns because the value already matches the setting (so the
-        # load does not log a phantom user selection).
-        self.ids['tiling_overlap_spinner'].text = f'{int(settings["tiling_overlap_percent"])}%'
-
-        # Setting .active does not fire on_release (a user-press event), so this
-        # populate does not re-run the handler -- no phantom toggle on open.
-        self.ids['show_step_locations_id'].active = settings['show_step_locations']
 
     def _show_camera_modes(self):
         """Show the stored conversion gain and line-noise filter, where the camera has them."""
@@ -264,70 +249,6 @@ class AdvancedSettings(Popup):
         if value is not None:
             run_reported(lambda: ctx.update_settings(path, value), show_stored, label)
         return widget.text != typed
-
-    def update_restore_after_home(self):
-        ctx = _app_ctx.ctx
-        restore = self.ids['restore_after_home_id'].active
-        gui_logger.toggle('RESTORE_AFTER_HOME', restore)
-        run_reported(
-            lambda: ctx.update_settings('motion.restore_after_home', restore),
-            self._show_stored_restore_after_home,
-            'RESTORE_AFTER_HOME',
-        )
-
-    def _show_stored_restore_after_home(self):
-        self.ids['restore_after_home_id'].active = _app_ctx.ctx.settings['motion'][
-            'restore_after_home'
-        ]
-
-    def update_video_timestamp_overlay(self):
-        state = self.ids['video_timestamp_overlay_id'].active
-        gui_logger.toggle('VIDEO_TIMESTAMP_OVERLAY', state)
-        _app_ctx.ctx.update_settings('video.timestamp_overlay', state)
-
-    def update_separate_folders_per_channel(self):
-        state = self.ids['separate_folder_per_channel_id'].state == 'down'
-        gui_logger.toggle('SEPARATE_FOLDERS', state)
-        _app_ctx.ctx.update_settings('separate_folder_per_channel', state)
-
-    def update_protocol_led_on(self):
-        enabled = self.ids['protocol_led_on_btn'].state == 'down'
-        gui_logger.toggle('PROTOCOL_LED_ON', enabled)
-        _app_ctx.ctx.update_settings('protocol_led_on', enabled)
-
-    def update_keep_led_between_steps(self):
-        enabled = self.ids['keep_led_between_steps_btn'].state == 'down'
-        gui_logger.toggle('KEEP_LED_BETWEEN_STEPS', enabled)
-        _app_ctx.ctx.update_settings('keep_led_between_steps', enabled)
-
-    def update_stimulation_settings(self):
-        ctx = _app_ctx.ctx
-        enabled = self.ids['stimulation_settings_btn'].state == 'down'
-        gui_logger.toggle('STIMULATION_ENABLED', enabled)
-        ctx.update_settings('stimulation_enabled', enabled)
-        # The microscope panel owns the per-channel stim sync; the startup load
-        # re-uses the same owner, so the toggle and load stay in lockstep.
-        ctx.motion_settings.ids['microscope_settings_id'].apply_stimulation_support()
-
-    def update_tiling_overlap(self):
-        ctx = _app_ctx.ctx
-        overlap = float(self.ids['tiling_overlap_spinner'].text.strip().rstrip('%'))
-        # on_open populates the spinner with the stored value; that programmatic
-        # write is not a user change, so skip the redundant write.
-        if overlap == ctx.settings['tiling_overlap_percent']:
-            return
-        run_reported(
-            lambda: ctx.update_settings('tiling_overlap_percent', overlap),
-            None,
-            'TILING_OVERLAP',
-        )
-
-    def update_show_step_locations(self):
-        ctx = _app_ctx.ctx
-        enabled = bool(self.ids['show_step_locations_id'].active)
-        gui_logger.toggle('SHOW_STEP_LOCATIONS', enabled)
-        ctx.update_settings('show_step_locations', enabled)
-        ctx.stage.show_protocol_steps(enable=enabled)
 
     def load_scopes(self):
         # The scope's own model catalogue, read once at its construction.
@@ -574,7 +495,7 @@ kv = Builder.load_string(
                         size_hint_x: None
                         width: '25dp'
                         active: False
-                        on_release: root.update_restore_after_home()
+                        on_release: root.toggle_control('restore_after_home_id')
 
                 # Hidden when firmware lacks stim. The toggle's OWN height
                 # collapses with the row, so the invisible button cannot overlap
@@ -605,7 +526,7 @@ kv = Builder.load_string(
                         valign: 'middle'
                         background_normal: build_file('data/icons/ToggleL.png')
                         background_down: build_file('data/icons/ToggleRW.png')
-                        on_release: root.update_stimulation_settings()
+                        on_release: root.toggle_control('stimulation_settings_btn')
                         state: 'normal'
 
             # Full width, outside the two-column grid: an address and its
@@ -813,7 +734,7 @@ kv = Builder.load_string(
                         size_hint_x: None
                         width: '25dp'
                         active: True
-                        on_release: root.update_video_timestamp_overlay()
+                        on_release: root.toggle_control('video_timestamp_overlay_id')
 
             SectionHeader:
                 text: 'Protocol'
@@ -845,7 +766,7 @@ kv = Builder.load_string(
                         valign: 'middle'
                         background_normal: build_file('data/icons/ToggleL.png')
                         background_down: build_file('data/icons/ToggleRW.png')
-                        on_release: root.update_protocol_led_on()
+                        on_release: root.toggle_control('protocol_led_on_btn')
 
                 BoxLayout:
                     orientation: 'horizontal'
@@ -868,7 +789,7 @@ kv = Builder.load_string(
                         valign: 'middle'
                         background_normal: build_file('data/icons/ToggleL.png')
                         background_down: build_file('data/icons/ToggleRW.png')
-                        on_release: root.update_keep_led_between_steps()
+                        on_release: root.toggle_control('keep_led_between_steps_btn')
 
                 BoxLayout:
                     orientation: 'horizontal'
@@ -894,11 +815,9 @@ kv = Builder.load_string(
                         size_hint_x: None
                         width: '100dp'
                         option_cls: 'SpinnerOption0'
-                        text_autoupdate: True
-                        values: ('0%', '10%', '15%', '20%')
                         log_name: 'TILING_OVERLAP'
                         text_follows_pick: True
-                        on_text: root.update_tiling_overlap()
+                        on_text: root.pick_control('tiling_overlap_spinner')
                     # Kivy sizes a Spinner's dropdown to the Spinner itself, so
                     # the 65dp this carried clipped the option list rather than
                     # the closed control. The sibling scope spinner above sets
@@ -924,7 +843,7 @@ kv = Builder.load_string(
                         width: '30dp'
                         active: False
                         tooltip_text: 'Display yellow cross for each Step'
-                        on_release: root.update_show_step_locations()
+                        on_release: root.toggle_control('show_step_locations_id')
 
                 BoxLayout:
                     orientation: 'horizontal'
@@ -947,7 +866,7 @@ kv = Builder.load_string(
                         valign: 'middle'
                         background_normal: build_file('data/icons/ToggleL.png')
                         background_down: build_file('data/icons/ToggleRW.png')
-                        on_release: root.update_separate_folders_per_channel()
+                        on_release: root.toggle_control('separate_folder_per_channel_id')
                         state: 'normal'
 
         Button:

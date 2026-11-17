@@ -42,8 +42,8 @@ from _lumascope.modules.exceptions import SettingRefusedError
 from _lumascope.modules.settings_paths import _RANGES
 from tests.ast_seams import REPO_ROOT, tracked_files
 from ui.image_settings import _drawer_title
-from ui.microscope_settings import IMAGE_MODE_LABELS, OUTPUT_FORMAT_LABELS
-from ui.zstack import ZSTACK_REFERENCE_LABELS
+from ui.microscope_settings import IMAGE_MODE_LABELS
+from ui.setting_controls import ALL as SETTING_CONTROLS, Picker
 
 MANUAL = 'docs/manual'
 
@@ -88,7 +88,7 @@ def _literal_texts(node):
 
 def _ui_labels():
     """Every literal ``text`` or ``title`` the UI sets, ``\\n`` read as a
-    space, and the label tables' values. Kv rules are read from the ``.kv``
+    space, the image modes' labels and every setting picker's choices. Kv rules are read from the ``.kv``
     files and from the kv strings a module hands ``Builder.load_string``
     (Advanced Settings is one)."""
     labels = set()
@@ -123,9 +123,10 @@ def _ui_labels():
             )
             if sets_a_label:
                 labels.update(_literal_texts(node.value))
-    labels.update(
-        IMAGE_MODE_LABELS.values(), OUTPUT_FORMAT_LABELS.values(), ZSTACK_REFERENCE_LABELS.values()
-    )
+    labels.update(IMAGE_MODE_LABELS.values())
+    for row in SETTING_CONTROLS:
+        if isinstance(row, Picker):
+            labels.update(row.label(choice) for choice in row.choices)
     return {' '.join(label.split()) for label in labels}
 
 

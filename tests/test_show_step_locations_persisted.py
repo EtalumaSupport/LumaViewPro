@@ -4,15 +4,15 @@
 The "Show step locations" toggle used to be transient -- it wrote no
 setting and called ctx.stage.show_protocol_steps() directly, so it reset
 to off every launch. It is now promoted to settings['show_step_locations']
-and the toggle itself lives in the Advanced Settings modal: that handler
-writes the setting, and load_settings re-applies the saved view to the
-stage at startup (the modal repopulates its checkbox from the setting on
-open).
+and the toggle itself lives in the Advanced Settings modal, a row of
+ui/setting_controls.py (its write is pinned in
+test_a_setting_control_is_one_row.py); load_settings re-applies the saved
+view to the stage at startup.
 
 Guards:
   - the key ships in the tracked settings.json schema default, so the
     settings_init default-merge backfills every user's current.json;
-  - the Advanced-modal toggle handler writes the setting;
+  - the stage's view follows the stored setting, whoever wrote it;
   - load_settings re-applies the saved view to the stage at startup.
 """
 
@@ -24,7 +24,6 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-ADVANCED_SETTINGS_SRC = REPO / 'ui' / 'advanced_settings.py'
 MICROSCOPE_SETTINGS_SRC = REPO / 'ui' / 'microscope_settings.py'
 
 
@@ -48,15 +47,24 @@ def test_show_step_locations_in_settings_schema():
     )
 
 
-def test_toggle_handler_persists_setting():
-    """The Advanced-modal toggle handler writes the user's choice to the setting."""
-    source = _method_source(ADVANCED_SETTINGS_SRC, 'AdvancedSettings', 'update_show_step_locations')
-    assert "update_settings('show_step_locations', enabled)" in source, (
-        'update_show_step_locations must persist the toggle to settings'
+def test_the_stage_view_follows_the_stored_setting():
+    """A change to the setting, the toggle's or a REST client's, redraws the stage's step crosses."""
+    from types import SimpleNamespace
+
+    from ui.listener_bridge import _routed
+
+    shown = []
+    # a stand-in by design: the stage is a Kivy widget; the subject is the follower's route
+    ctx = SimpleNamespace(
+        settings={'show_step_locations': True},
+        stage=SimpleNamespace(show_protocol_steps=lambda enable: shown.append(enable)),
+        motion_settings=SimpleNamespace(
+            ids={'microscope_settings_id': SimpleNamespace(advanced_settings_shown=lambda: None)}
+        ),
     )
-    assert 'show_protocol_steps' in source, (
-        'update_show_step_locations must still apply the change to the stage view'
-    )
+    for redraw, _channel in _routed('show_step_locations'):
+        redraw(ctx, 'show_step_locations')
+    assert shown == [True]
 
 
 def test_load_settings_restores_saved_state():

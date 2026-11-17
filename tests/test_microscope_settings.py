@@ -711,14 +711,14 @@ class TestTheImageModeSelectorRendersTheApi:
             assert LABEL_TO_IMAGE_MODE[label] == mode
 
     def test_every_output_format_has_one_label_and_reads_back_from_it(self):
-        """Every format has a label, and the label maps back to it, so a pick
-        stores the format the selector showed."""
+        """The sequenced selector offers every format, and each label reads
+        back to its format, so a pick stores the format the selector showed."""
         from _lumascope.modules.image_mode import OutputFormat
-        from ui.microscope_settings import LABEL_TO_OUTPUT_FORMAT, OUTPUT_FORMAT_LABELS
+        from ui.setting_controls import MICROSCOPE_SETTINGS
 
-        assert set(OUTPUT_FORMAT_LABELS) == set(OutputFormat)
-        for fmt, label in OUTPUT_FORMAT_LABELS.items():
-            assert LABEL_TO_OUTPUT_FORMAT[label] == fmt
+        (row,) = [r for r in MICROSCOPE_SETTINGS if r.path == 'image_output_format.sequenced']
+        assert set(row.choices) == set(OutputFormat)
+        assert [row.value_of(row.label(fmt)) for fmt in row.choices] == list(row.choices)
 
     def test_the_mode_labels_differ_in_their_first_word(self):
         """A spinner shortens text too wide for it from the right, so labels that
@@ -757,46 +757,44 @@ class TestTheImageModeSelectorRendersTheApi:
         fn(panel)
         assert panel.jpg_depth_hint_active is shown
 
-    @pytest.mark.parametrize(
-        ('handler', 'spinner'),
-        [
-            ('select_live_image_output_format', 'live_image_output_format_spinner'),
-            ('select_sequenced_image_output_format', 'sequenced_image_output_format_spinner'),
-        ],
+
+def test_a_stored_format_redraws_the_jpg_hint(monkeypatch):
+    """The JPG hint follows the stored formats, whoever wrote them: a format's
+    change routes to the capture redraw, which asks the API's predicate again."""
+    from types import SimpleNamespace
+
+    import ui.listener_bridge as listener_bridge
+    from ui.microscope_settings import MicroscopeSettings
+
+    refreshed = []
+
+    class _Capture(MicroscopeSettings):
+        def __init__(self):
+            # a stand-in by design: Kivy is stubbed in the test process; the subject is the redraw
+            self.ids = {
+                'jpg_quality_slider': SimpleNamespace(value=None),
+                'jpg_quality_value_label': SimpleNamespace(text=''),
+                'enable_scale_bar_btn': SimpleNamespace(state=''),
+            }
+
+        def show_controls(self):
+            pass
+
+        def _refresh_jpg_depth_hint(self):
+            refreshed.append(True)
+
+    panel = _Capture()
+    settings = {'jpg_quality': 90, 'scale_bar': {'enabled': False}, 'show_tooltips': True}
+    ctx = SimpleNamespace(
+        settings=settings, motion_settings=SimpleNamespace(ids={'microscope_settings_id': panel})
     )
-    def test_a_format_pick_refreshes_the_jpg_hint(self, handler, spinner):
-        from types import SimpleNamespace
+    import _lumascope.modules.app_context as _app_ctx
 
-        import _lumascope.modules.image_mode as image_mode_real
-        from ui.microscope_settings import LABEL_TO_OUTPUT_FORMAT
-
-        settings = {'image_output_format': {'live': 'TIFF', 'sequenced': 'TIFF'}}
-        refreshed = []
-
-        def update_settings(path, value):
-            section, key = path.split('.')
-            settings[section][key] = value
-
-        fn = _compile_ms_method(
-            handler,
-            {
-                '_app_ctx': SimpleNamespace(
-                    ctx=SimpleNamespace(settings=settings, update_settings=update_settings)
-                ),
-                'gui_logger': SimpleNamespace(select=lambda *a: None),
-                'image_mode': image_mode_real,
-                'LABEL_TO_OUTPUT_FORMAT': LABEL_TO_OUTPUT_FORMAT,
-                'run_reported': lambda fn, on_done, name: fn(),
-            },
-        )
-        fn(
-            SimpleNamespace(
-                ids={spinner: SimpleNamespace(text='JPG')},
-                _refresh_jpg_depth_hint=lambda: refreshed.append(True),
-                show_capture_settings=lambda: None,
-            )
-        )
-        assert refreshed == [True]
+    monkeypatch.setattr(_app_ctx, 'ctx', ctx)
+    for path in ('image_output_format.live', 'image_output_format.sequenced'):
+        for redraw, _channel in listener_bridge._routed(path):
+            redraw(ctx, path)
+    assert refreshed == [True, True]
 
 
 def test_a_mode_redraw_refreshes_the_jpg_hint():

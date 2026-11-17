@@ -13,7 +13,8 @@ binning re-drove the camera, the labware, the z-stack position, the JPG
 quality and the video format each wrote the setting -- and under a client's
 control session each write would be refused and shown to the operator as a
 refusal of a change they never made. Each now takes the stored value as no
-pick.
+pick; the z-stack position and the video format are rows of the setting
+controls table, whose show is pinned in test_a_setting_control_is_one_row.py.
 
 Kivy is stubbed in the test process: each handler is driven on a stand-in
 shaped like its panel, against a simulated session holding a client's
@@ -30,12 +31,13 @@ import pytest
 import _lumascope.modules.app_context as _app_ctx
 import ui.microscope_settings as microscope_settings
 from _lumascope.modules import ui_queue
+from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from ui.listener_bridge import UIListenerBridge
 from ui.microscope_settings import MicroscopeSettings
 from ui.protocol_settings import ProtocolSettings
-from ui.zstack import ZSTACK_REFERENCE_LABELS, ZStack
+from ui.setting_controls import OUTPUT_FORMAT_LABELS
 
 
 @pytest.fixture
@@ -91,9 +93,6 @@ def test_each_widget_a_redraw_sets_to_the_stored_value_writes_nothing(session, h
             ),
             'binning_spinner': _box(settings['binning']['size']),
             'jpg_quality_value_label': _box(''),
-            'video_recording_format_spinner': _box(
-                'Frames' if settings['video_as_frames'] else 'mp4'
-            ),
         },
         _redraw_image_mode=lambda: None,
         _redraw_framing=lambda: None,
@@ -101,12 +100,6 @@ def test_each_widget_a_redraw_sets_to_the_stored_value_writes_nothing(session, h
     MicroscopeSettings.select_image_mode(panel)
     MicroscopeSettings.select_binning_size(panel)
     MicroscopeSettings.update_jpg_quality(panel, settings['jpg_quality'])
-    MicroscopeSettings.select_video_recording_format(panel)
-    ZStack.set_position(
-        SimpleNamespace(
-            ids={'zstack_spinner': _box(ZSTACK_REFERENCE_LABELS[settings['zstack']['position']])}
-        )
-    )
     ProtocolSettings.select_labware(
         SimpleNamespace(
             ids={'labware_spinner': _box(settings['protocol']['labware'])}, _protocol=None
@@ -118,29 +111,34 @@ def test_each_widget_a_redraw_sets_to_the_stored_value_writes_nothing(session, h
     assert [p.title for p in held.posts] == []
 
 
-def _capture_settings_panel(settings):
-    """A stand-in shaped like the panel's capture-settings rows, shown from the store."""
-    panel = SimpleNamespace(
-        ids={
-            'live_image_output_format_spinner': _box(''),
-            'sequenced_image_output_format_spinner': _box(''),
+class _CaptureSettings(MicroscopeSettings):
+    """The real panel, holding only its capture-settings rows."""
+
+    def __init__(self):
+        # a stand-in by design: Kivy is stubbed in the test process; the subject is the handlers
+        self.ids = {
+            'live_image_output_format_spinner': _spinner('LIVE_IMAGE_OUTPUT_FORMAT'),
+            'sequenced_image_output_format_spinner': _spinner('SEQUENCED_IMAGE_OUTPUT_FORMAT'),
             'jpg_quality_slider': SimpleNamespace(value=None),
             'jpg_quality_value_label': _box(''),
-            'video_recording_format_spinner': _box(''),
+            'video_recording_format_spinner': _spinner('VIDEO_RECORDING_FORMAT'),
             'enable_scale_bar_btn': SimpleNamespace(state=''),
             'show_tooltips_btn': SimpleNamespace(state=''),
-        },
-        _refresh_jpg_depth_hint=lambda: None,
-    )
-    panel.show_capture_settings = lambda: MicroscopeSettings.show_capture_settings(panel)
-    panel.show_capture_settings()
-    return panel
+        }
+
+    def _refresh_jpg_depth_hint(self):
+        pass
+
+
+def _spinner(log_name):
+    return SimpleNamespace(text='', values=[], log_name=log_name)
 
 
 def test_a_refused_capture_setting_pick_shows_the_stored_value_again(session, held):
     """Each capture-settings control a client's control session refuses goes back to the store."""
     settings = session.settings
-    panel = _capture_settings_panel(settings)
+    panel = _CaptureSettings()
+    panel.show_capture_settings()
     shown = {
         name: (getattr(widget, 'state', None), getattr(widget, 'text', None))
         for name, widget in panel.ids.items()
@@ -150,22 +148,21 @@ def test_a_refused_capture_setting_pick_shows_the_stored_value_again(session, he
 
     ids['live_image_output_format_spinner'].text = next(
         label
-        for fmt, label in microscope_settings.OUTPUT_FORMAT_LABELS.items()
-        if fmt in microscope_settings.LIVE_OUTPUT_FORMATS
-        and fmt != settings['image_output_format']['live']
+        for fmt, label in OUTPUT_FORMAT_LABELS.items()
+        if fmt in LIVE_OUTPUT_FORMATS and fmt != settings['image_output_format']['live']
     )
-    MicroscopeSettings.select_live_image_output_format(panel)
+    panel.pick_control('live_image_output_format_spinner')
     ids['sequenced_image_output_format_spinner'].text = next(
         label
-        for fmt, label in microscope_settings.OUTPUT_FORMAT_LABELS.items()
+        for fmt, label in OUTPUT_FORMAT_LABELS.items()
         if fmt != settings['image_output_format']['sequenced']
     )
-    MicroscopeSettings.select_sequenced_image_output_format(panel)
-    MicroscopeSettings.update_jpg_quality(panel, settings['jpg_quality'] - 5)
+    panel.pick_control('sequenced_image_output_format_spinner')
+    panel.update_jpg_quality(settings['jpg_quality'] - 5)
     ids['video_recording_format_spinner'].text = 'mp4' if settings['video_as_frames'] else 'Frames'
-    MicroscopeSettings.select_video_recording_format(panel)
+    panel.pick_control('video_recording_format_spinner')
     ids['enable_scale_bar_btn'].state = 'normal' if settings['scale_bar']['enabled'] else 'down'
-    MicroscopeSettings.update_scale_bar_state(panel)
+    panel.update_scale_bar_state()
 
     assert held.stored == []
     assert len(held.posts) == 5, [p.title for p in held.posts]

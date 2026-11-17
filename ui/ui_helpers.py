@@ -23,6 +23,7 @@ from _lumascope.modules.caller import Caller, calling
 from _lumascope.modules.ui_queue import schedule_ui as _schedule_ui
 from _lumascope.modules.run_events import VideoPhase
 from ui.scope_display import HeldFrame
+from ui.setting_controls import SettingControl, Toggle
 
 import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.common_utils as common_utils
@@ -389,6 +390,65 @@ def show_on_slider(slider, value: float) -> None:
     if getattr(slider, 'user_interacting', False):
         return
     slider.value = value
+
+
+class SettingControls:
+    """A panel's setting toggles and pickers, from its rows in ``ui/setting_controls.py``.
+
+    The panel names its rows in ``setting_controls``; its kv binds a
+    toggle's release to ``toggle_control`` and a picker's text to
+    ``pick_control``, each with the widget's id. What follows a stored
+    change -- a redraw elsewhere, the stage's step locations, the tooltips
+    -- is the settings follower's (``ui/listener_bridge.py``), whoever
+    wrote it, so nothing here repeats it.
+    """
+
+    setting_controls: typing.ClassVar[tuple[SettingControl, ...]] = ()
+
+    def toggle_control(self, widget_id: str) -> None:
+        """Record and write the toggle a person released."""
+        control = self._setting_control(widget_id)
+        enabled = self.ids[widget_id].state == 'down'
+        gui_logger.toggle(control.record, enabled)
+        self._write_setting_control(control, enabled, control.record)
+
+    def pick_control(self, widget_id: str) -> None:
+        """Write the choice a picker shows, unless it shows the stored value.
+
+        Bound to the text, which a show sets as well as a pick, so the
+        stored value's label is no pick and writes nothing; and nothing is
+        recorded here, since a value change is not a person's: the
+        PickSpinner records the pick itself.
+        """
+        control = self._setting_control(widget_id)
+        widget = self.ids[widget_id]
+        if widget.text == control.label(_app_ctx.ctx.session.setting(control.path)):
+            return
+        self._write_setting_control(control, control.value_of(widget.text), widget.log_name)
+
+    def show_controls(self) -> None:
+        """Show each row's stored value: a toggle's state, a picker's choices then its text.
+
+        The choices go first: a picker's text set from the store is the
+        stored value's label, which ``pick_control`` takes as no pick.
+        """
+        session = _app_ctx.ctx.session
+        for control in self.setting_controls:
+            widget = self.ids[control.widget]
+            stored = session.setting(control.path)
+            if isinstance(control, Toggle):
+                widget.state = 'down' if stored else 'normal'
+            else:
+                widget.values = [control.label(choice) for choice in control.choices]
+                widget.text = control.label(stored)
+
+    def _setting_control(self, widget_id: str) -> SettingControl:
+        return next(c for c in self.setting_controls if c.widget == widget_id)
+
+    def _write_setting_control(self, control: SettingControl, value: object, label: str) -> None:
+        """Hand the value to the settings writer; the controls then show what is stored."""
+        ctx = _app_ctx.ctx
+        run_reported(lambda: ctx.update_settings(control.path, value), self.show_controls, label)
 
 
 def typed_number(

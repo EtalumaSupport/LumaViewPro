@@ -13,8 +13,10 @@ from _lumascope.modules import gui_logger, path_utils
 from _lumascope.modules.ui_queue import schedule_ui_latest
 from _lumascope.modules.notification_center import notifications
 import _lumascope.modules.image_mode as image_mode
-from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
+from _lumascope.modules.image_mode import ImageMode
+from ui.setting_controls import MICROSCOPE_SETTINGS
 from ui.ui_helpers import (
+    SettingControls,
     refused_in_this_input,
     run_reported,
     show_on_slider,
@@ -54,20 +56,6 @@ IMAGE_MODE_LABELS = {
 }
 
 LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
-
-# The output-format selectors' labels, in selector order. A label is display:
-# the settings, the run and REST keep the OutputFormat values, so a label is
-# renamed with no migration. The hyperstack's stored spelling is too wide for
-# the closed selector, which would shorten it mid-word. The labels must stay
-# distinct, because LABEL_TO_OUTPUT_FORMAT inverts this map.
-OUTPUT_FORMAT_LABELS = {
-    OutputFormat.TIFF: 'TIFF',
-    OutputFormat.OME_TIFF: 'OME-TIFF',
-    OutputFormat.HYPERSTACK: 'Hyperstack',
-    OutputFormat.JPG: 'JPG',
-}
-
-LABEL_TO_OUTPUT_FORMAT = {label: fmt for fmt, label in OUTPUT_FORMAT_LABELS.items()}
 
 
 class _CoalescingApplier:
@@ -140,12 +128,14 @@ class _CoalescingApplier:
             raise failure
 
 
-class MicroscopeSettings(BoxLayout):
+class MicroscopeSettings(BoxLayout, SettingControls):
     # The model the scope runs as, and a model saved for the next start,
     # shown read-only in the panel. The selector lives in Advanced Settings;
     # both are the API's answers, set in show_scope_model.
     current_scope_model = StringProperty('')
     next_start_model = StringProperty('')
+
+    setting_controls = MICROSCOPE_SETTINGS
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -230,7 +220,7 @@ class MicroscopeSettings(BoxLayout):
 
         ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id'].show_settings()
 
-        ctx.quick_enhance_controls.show_switches()
+        ctx.quick_enhance_controls.show_controls()
 
         # Stimulation is firmware-gated. The enable toggle lives in
         # Advanced Settings now; startup just establishes the setting and
@@ -262,31 +252,16 @@ class MicroscopeSettings(BoxLayout):
         """
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        self.ids['live_image_output_format_spinner'].values = [
-            label for fmt, label in OUTPUT_FORMAT_LABELS.items() if fmt in LIVE_OUTPUT_FORMATS
-        ]
-        self.ids['sequenced_image_output_format_spinner'].values = list(
-            OUTPUT_FORMAT_LABELS.values()
-        )
-        self.ids['live_image_output_format_spinner'].text = OUTPUT_FORMAT_LABELS[
-            settings['image_output_format']['live']
-        ]
+        self.show_controls()
         # JPG quality slider reflects the saved preference; its row shows
         # and enables with the live format declaratively in the kv.
         jpg_quality = int(settings['jpg_quality'])
         show_on_slider(self.ids['jpg_quality_slider'], jpg_quality)
         self.ids['jpg_quality_value_label'].text = str(jpg_quality)
-        self.ids['sequenced_image_output_format_spinner'].text = OUTPUT_FORMAT_LABELS[
-            settings['image_output_format']['sequenced']
-        ]
-        self.ids['video_recording_format_spinner'].text = (
-            'Frames' if settings['video_as_frames'] else 'mp4'
-        )
-        # A toggle's state is not a press: these run their handlers on release only.
+        # A toggle's state is not a press: it runs its handler on release only.
         self.ids['enable_scale_bar_btn'].state = (
             'down' if settings['scale_bar']['enabled'] else 'normal'
         )
-        self.ids['show_tooltips_btn'].state = 'down' if settings['show_tooltips'] else 'normal'
         ctx.show_tooltips = settings['show_tooltips']
         self._refresh_jpg_depth_hint()
 
@@ -384,22 +359,6 @@ class MicroscopeSettings(BoxLayout):
         self._refresh_binning_depth_hint()
         self._refresh_jpg_depth_hint()
 
-    def select_live_image_output_format(self):
-        fmt = LABEL_TO_OUTPUT_FORMAT[self.ids['live_image_output_format_spinner'].text]
-        # The settings load sets the spinner from the store, which fires this
-        # too; that is not a pick, so nothing is written.
-        if fmt == _app_ctx.ctx.settings['image_output_format']['live']:
-            return
-        run_reported(
-            lambda: _app_ctx.ctx.update_settings('image_output_format.live', fmt),
-            self.show_capture_settings,
-            'LIVE_IMAGE_OUTPUT_FORMAT',
-        )
-        self._refresh_jpg_depth_hint()
-        # The JPG-quality row's visibility (and disabled state) follows the
-        # selected format declaratively in lumaviewpro.kv (jpg_quality_row binds
-        # to live_image_output_format_spinner.text), so no toggle is needed here.
-
     def update_jpg_quality(self, value):
         quality = int(value)
         # The label follows the slider first, so a refused value's redraw
@@ -423,29 +382,6 @@ class MicroscopeSettings(BoxLayout):
         landed loses nothing.
         """
         gui_logger.slider('JPG_QUALITY', int(value))
-
-    def select_sequenced_image_output_format(self):
-        fmt = LABEL_TO_OUTPUT_FORMAT[self.ids['sequenced_image_output_format_spinner'].text]
-        # As the live format: a spinner set from the store writes nothing.
-        if fmt == _app_ctx.ctx.settings['image_output_format']['sequenced']:
-            return
-        run_reported(
-            lambda: _app_ctx.ctx.update_settings('image_output_format.sequenced', fmt),
-            self.show_capture_settings,
-            'SEQUENCED_IMAGE_OUTPUT_FORMAT',
-        )
-        self._refresh_jpg_depth_hint()
-
-    def select_video_recording_format(self) -> None:
-        as_frames = self.ids['video_recording_format_spinner'].text != 'mp4'
-        # The spinner set from the store fires this too; that is not a pick.
-        if as_frames == _app_ctx.ctx.settings['video_as_frames']:
-            return
-        run_reported(
-            lambda: _app_ctx.ctx.update_settings('video_as_frames', as_frames),
-            self.show_capture_settings,
-            'VIDEO_RECORDING_FORMAT',
-        )
 
     def update_scale_bar_state(self):
         enabled = self.ids['enable_scale_bar_btn'].state == 'down'
@@ -472,13 +408,6 @@ class MicroscopeSettings(BoxLayout):
         gui_logger.toggle('LIVE_HISTOGRAM_EQUALIZATION', enabled)
         ctx.scope_display.use_live_image_histogram_equalization = enabled
         ctx.live_histo_setting = enabled
-
-    def update_show_tooltips(self):
-        ctx = _app_ctx.ctx
-        enabled = self.ids['show_tooltips_btn'].state == 'down'
-        gui_logger.toggle('SHOW_TOOLTIPS', enabled)
-        ctx.show_tooltips = enabled
-        ctx.update_settings('show_tooltips', enabled)
 
     def apply_stimulation_support(self):
         """Show or hide every channel's stimulation controls.

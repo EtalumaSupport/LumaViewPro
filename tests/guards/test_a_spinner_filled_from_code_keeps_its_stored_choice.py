@@ -15,6 +15,7 @@ environment, so the kv source is the contract.
 import re
 
 from tests.ast_seams import REPO_ROOT, tracked_files
+from ui.setting_controls import ALL as SETTING_CONTROLS, Picker
 
 _FILLED = re.compile(r"ids(?:\['(\w+)'\]|\.(\w+))\.values\s*=")
 _ID = re.compile(r'^(\s*)id:\s*(\w+)\s*$')
@@ -22,7 +23,8 @@ _AUTOUPDATE = re.compile(r'^(\s*)text_autoupdate:\s*True\b')
 
 
 def _filled_from_code() -> set[str]:
-    filled = set()
+    """Each spinner whose choices code sets: by its id, or as a picker row the panels' show fills."""
+    filled = {row.widget for row in SETTING_CONTROLS if isinstance(row, Picker)}
     for path in [REPO_ROOT / rel for rel in tracked_files(('ui',))]:
         for match in _FILLED.finditer(path.read_text(encoding='utf-8')):
             filled.add(match.group(1) or match.group(2))
@@ -47,7 +49,7 @@ def _autoupdating() -> dict[str, str]:
 
 def test_no_spinner_filled_from_code_picks_its_first_choice():
     filled = _filled_from_code()
-    assert 'zstack_spinner' in filled, 'the scan of ui/ lost its way'
+    assert {'zstack_spinner', 'image_mode_spinner'} <= filled, 'the scan of ui/ lost its way'
     offenders = sorted(
         f'{widget} ({where})' for widget, where in _autoupdating().items() if widget in filled
     )

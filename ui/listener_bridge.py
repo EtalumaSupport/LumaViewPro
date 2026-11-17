@@ -107,7 +107,7 @@ def _apply_live_view_fps(ctx, path: str) -> None:
 
 
 def _redraw_quick_enhance(ctx, path: str) -> None:
-    ctx.quick_enhance_controls.show_switches()
+    ctx.quick_enhance_controls.show_controls()
 
 
 def _redraw_advanced(ctx, path: str) -> None:

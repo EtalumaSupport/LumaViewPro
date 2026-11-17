@@ -43,7 +43,6 @@ def panel(monkeypatch):
     zstack.ids = {
         'zstack_stepsize_id': SimpleNamespace(text='5'),
         'zstack_range_id': SimpleNamespace(text='50'),
-        'zstack_spinner': SimpleNamespace(text='Current Position at Center'),
         'zstack_steps_id': SimpleNamespace(text=''),
     }
     return zstack, settings
@@ -94,29 +93,3 @@ def test_a_number_taken_stays_as_typed_and_records_no_put_back(panel, monkeypatc
     assert zstack.ids['zstack_stepsize_id'].text == '5'
     assert zstack.ids['zstack_range_id'].text == '50'
     assert recorded == []
-
-
-def test_a_reference_picked_is_stored_as_its_value_not_its_label(panel):
-    zstack, settings = panel
-    zstack.ids['zstack_spinner'].text = 'Current Position at Top'
-    zstack.set_position()
-    assert settings['zstack']['position'] == 'top'
-
-
-def test_the_placeholder_before_the_first_redraw_stores_nothing(panel):
-    zstack, settings = panel
-    zstack.ids['zstack_spinner'].text = 'Z Stack'
-    zstack.set_position()
-    assert settings['zstack']['position'] == 'center'
-
-
-def test_the_redraw_offers_every_reference_and_shows_the_stored_ones_label(panel):
-    zstack, settings = panel
-    settings['zstack']['position'] = 'bottom'
-    zstack.show_settings()
-    assert zstack.ids['zstack_spinner'].values == [
-        'Current Position at Top',
-        'Current Position at Center',
-        'Current Position at Bottom',
-    ]
-    assert zstack.ids['zstack_spinner'].text == 'Current Position at Bottom'

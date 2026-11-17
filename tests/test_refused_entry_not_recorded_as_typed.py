@@ -161,14 +161,14 @@ class _Microscope(ms.MicroscopeSettings):
         self.ids = {
             'image_mode_spinner': _Spinner('Select', self.select_image_mode),
             'live_image_output_format_spinner': _Spinner(
-                'Select', self.select_live_image_output_format
+                'Select', lambda: self.pick_control('live_image_output_format_spinner')
             ),
             'sequenced_image_output_format_spinner': _Spinner(
-                'Select', self.select_sequenced_image_output_format
+                'Select', lambda: self.pick_control('sequenced_image_output_format_spinner')
             ),
-            # kv text 'Select' with text_autoupdate, which takes the first
-            # value on construction: the spinner reads 'mp4' before any restore.
-            'video_recording_format_spinner': _Spinner('mp4', self.select_video_recording_format),
+            'video_recording_format_spinner': _Spinner(
+                'Select', lambda: self.pick_control('video_recording_format_spinner')
+            ),
             'binning_spinner': _Spinner('Select', self.select_binning_size),
             'jpg_quality_slider': SimpleNamespace(value=0),
             'jpg_quality_value_label': SimpleNamespace(text=''),
@@ -198,6 +198,22 @@ class _Microscope(ms.MicroscopeSettings):
         pass
 
 
+class _ZStack(ZStack):
+    """The real z-stack panel, its boxes and reference spinner as the kv starts them."""
+
+    def __init__(self):
+        # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
+        self.ids = {
+            name: SimpleNamespace(focus=False, text='', values=[])
+            for name in (
+                'zstack_spinner',
+                'zstack_stepsize_id',
+                'zstack_range_id',
+                'zstack_steps_id',
+            )
+        }
+
+
 @pytest.fixture
 def cold_start(tmp_path, monkeypatch, caplog):
     """Run the panel's settings load as the app's start does, and return
@@ -208,18 +224,7 @@ def cold_start(tmp_path, monkeypatch, caplog):
         ids={'gain_slider': SimpleNamespace(max=0), 'exp_slider': SimpleNamespace(max=0)},
         sync_widgets_from_settings=lambda: None,
     )
-    zstack = SimpleNamespace(
-        ids={
-            name: SimpleNamespace(focus=False, text='')
-            for name in (
-                'zstack_spinner',
-                'zstack_stepsize_id',
-                'zstack_range_id',
-                'zstack_steps_id',
-            )
-        }
-    )
-    zstack.show_settings = lambda: ZStack.show_settings(zstack)
+    zstack = _ZStack()
     # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
     ctx = SimpleNamespace(
         session=session,
@@ -244,7 +249,7 @@ def cold_start(tmp_path, monkeypatch, caplog):
             channel_control_lookup=lambda channel: layer_widget,
             sync_camera_capability_ranges=lambda: None,
         ),
-        quick_enhance_controls=SimpleNamespace(show_switches=lambda: None),
+        quick_enhance_controls=SimpleNamespace(show_controls=lambda: None),
     )
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     microscope = _Microscope()

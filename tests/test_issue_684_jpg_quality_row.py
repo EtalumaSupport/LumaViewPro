@@ -36,12 +36,6 @@ def _jpg_row_block() -> str:
     return _KV[start : start + 1400]
 
 
-def _select_format_handler() -> str:
-    start = _MS.index('def select_live_image_output_format')
-    end = _MS.index('\n    def ', start + 1)
-    return _MS[start:end]
-
-
 def test_row_visibility_binds_to_jpg_selection():
     block = _jpg_row_block()
     # Part 2: height + opacity gate on JPG; disabled when not JPG.
@@ -58,14 +52,11 @@ def test_slider_matches_sibling_styling():
     assert 'value_track:' in block
 
 
-def test_handler_no_longer_toggles_disabled_imperatively():
-    handler = _select_format_handler()
-    # Single source: the kv owns visibility/disabled now; the handler must not
-    # also poke jpg_quality_slider.disabled (a second, conflicting source).
-    assert 'jpg_quality_slider' not in handler
-    assert '.disabled' not in handler
-    # The handler still records the chosen format.
-    assert "update_settings('image_output_format.live', fmt)" in handler
+def test_no_python_toggles_the_row_imperatively():
+    # Single source: the kv owns the row's visibility and disabled state; the
+    # panel must not also write them (a second, conflicting source).
+    assert "ids['jpg_quality_row']" not in _MS
+    assert "ids['jpg_quality_slider'].disabled" not in _MS
 
 
 def test_the_quality_slider_spans_the_values_the_store_accepts():

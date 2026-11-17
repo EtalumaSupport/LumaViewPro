@@ -12,7 +12,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from _lumascope.modules.operation import Operation
 from _lumascope.modules.run_events import RunEvents
+from ui.setting_controls import ZSTACK
 from ui.ui_helpers import (
+    SettingControls,
     run_reported,
     show_captured_frame,
     show_video_progress,
@@ -24,19 +26,10 @@ from _lumascope.modules.zstack_config import ZStackConfig, ZStackReference
 
 logger = logging.getLogger('LVP.ui.zstack')
 
-# The reference spinner's labels, in its order. A label is display: the store,
-# the API and a protocol hold the ZStackReference value, so a label is renamed
-# with no migration.
-ZSTACK_REFERENCE_LABELS = {
-    ZStackReference.TOP: 'Current Position at Top',
-    ZStackReference.CENTER: 'Current Position at Center',
-    ZStackReference.BOTTOM: 'Current Position at Bottom',
-}
 
-LABEL_TO_ZSTACK_REFERENCE = {label: ref for ref, label in ZSTACK_REFERENCE_LABELS.items()}
+class ZStack(FloatLayout, SettingControls):
+    setting_controls = ZSTACK
 
-
-class ZStack(FloatLayout):
     # The handle this button's last start returned: what its Stop names.
     # The engine answers whether it is still the live run.
     _zstack_run: 'Operation | None' = None
@@ -116,20 +109,11 @@ class ZStack(FloatLayout):
         """
         gui_logger.text_input(name, self.ids[widget_id].text)
 
-    def set_position(self) -> None:
-        position = LABEL_TO_ZSTACK_REFERENCE.get(self.ids['zstack_spinner'].text)
-        # The placeholder before the first redraw names no reference, and the
-        # spinner set from the store fires this too; neither is a pick.
-        if position is None or position == _app_ctx.ctx.settings['zstack']['position']:
-            return
-        _app_ctx.ctx.update_settings('zstack.position', position)
-
     def show_settings(self) -> None:
         """Show the stored z-stack: its reference, step, range and the steps they make."""
         settings = _app_ctx.ctx.settings['zstack']
         reference = ZStackReference(settings['position'])
-        self.ids['zstack_spinner'].values = list(ZSTACK_REFERENCE_LABELS.values())
-        self.ids['zstack_spinner'].text = ZSTACK_REFERENCE_LABELS[reference]
+        self.show_controls()
         self.ids['zstack_stepsize_id'].text = str(settings['step_size'])
         self.ids['zstack_range_id'].text = str(settings['range'])
         zstack_config = ZStackConfig(

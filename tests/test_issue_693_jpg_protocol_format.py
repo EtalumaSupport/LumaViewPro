@@ -33,11 +33,13 @@ def _jpg_row_block() -> str:
 
 
 def test_sequenced_format_offers_jpg():
-    # The sequenced spinner's values are every label of the panel's table,
-    # built at the load rather than repeated in the kv.
-    from ui.microscope_settings import OUTPUT_FORMAT_LABELS
+    # The sequenced spinner's choices are its row's in the setting controls
+    # table, shown by the panel's show rather than repeated in the kv.
+    from ui.setting_controls import MICROSCOPE_SETTINGS
 
-    assert OUTPUT_FORMAT_LABELS[OutputFormat.JPG] == 'JPG'
+    (row,) = [r for r in MICROSCOPE_SETTINGS if r.path == 'image_output_format.sequenced']
+    assert OutputFormat.JPG in row.choices
+    assert row.label(OutputFormat.JPG) == 'JPG'
 
 
 def test_quality_row_shared_across_live_and_sequenced():

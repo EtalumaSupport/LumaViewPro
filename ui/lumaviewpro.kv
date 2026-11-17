@@ -947,7 +947,7 @@
 			disabled: app.lock.controls_locked
 			log_name: 'ZSTACK_REFERENCE_POSITION'
 			text_follows_pick: True
-			on_text: root.set_position()
+			on_text: root.pick_control('zstack_spinner')
 
 		RoundedToggleButton:
 			id: zstack_aqr_btn
@@ -2121,7 +2121,7 @@
 			id: auto_levels_enabled
 			size_hint_x: None
 			width: '25dp'
-			on_release: root.set_switch('auto_levels_enabled', self.active)
+			on_release: root.toggle_control('auto_levels_enabled')
 
 	BoxLayout:
 		orientation: 'horizontal'
@@ -2140,7 +2140,7 @@
 			id: gamma_enabled
 			size_hint_x: None
 			width: '25dp'
-			on_release: root.set_switch('gamma_enabled', self.active)
+			on_release: root.toggle_control('gamma_enabled')
 
 	BoxLayout:
 		orientation: 'horizontal'
@@ -2159,7 +2159,7 @@
 			id: illumination_correction_enabled
 			size_hint_x: None
 			width: '25dp'
-			on_release: root.set_switch('illumination_correction_enabled', self.active)
+			on_release: root.toggle_control('illumination_correction_enabled')
 
 	BoxLayout:
 		orientation: 'horizontal'
@@ -2178,7 +2178,7 @@
 			id: denoise_enabled
 			size_hint_x: None
 			width: '25dp'
-			on_release: root.set_switch('denoise_enabled', self.active)
+			on_release: root.toggle_control('denoise_enabled')
 
 	BoxLayout:
 		orientation: 'horizontal'
@@ -2197,7 +2197,7 @@
 			id: sharpen_enabled
 			size_hint_x: None
 			width: '25dp'
-			on_release: root.set_switch('sharpen_enabled', self.active)
+			on_release: root.toggle_control('sharpen_enabled')
 
 <QuickEnhanceUtilityButton@RoundedButton>:
 	font_size: '12sp'
@@ -2623,7 +2623,7 @@
 						option_cls: "SpinnerOption0"
 						log_name: 'LIVE_IMAGE_OUTPUT_FORMAT'
 						text_follows_pick: True
-						on_text: root.select_live_image_output_format()
+						on_text: root.pick_control('live_image_output_format_spinner')
 
 				BoxLayout:
 					orientation: 'horizontal'
@@ -2644,7 +2644,7 @@
 						option_cls: "SpinnerOption0"
 						log_name: 'SEQUENCED_IMAGE_OUTPUT_FORMAT'
 						text_follows_pick: True
-						on_text: root.select_sequenced_image_output_format()
+						on_text: root.pick_control('sequenced_image_output_format_spinner')
 
 				BoxLayout:
 					id: jpg_quality_row
@@ -2703,11 +2703,9 @@
 						text: 'Select'
 						font_size:'12sp'
 						option_cls: "SpinnerOption0"
-						text_autoupdate: True
 						log_name: 'VIDEO_RECORDING_FORMAT'
 						text_follows_pick: True
-						on_text: root.select_video_recording_format()
-						values: ('mp4', 'Frames')
+						on_text: root.pick_control('video_recording_format_spinner')
 
 				BoxLayout:
 					orientation: 'horizontal'
@@ -2890,7 +2888,7 @@
 						valign: 'middle'
 						background_normal: build_file('data/icons/ToggleL.png')
 						background_down: build_file('data/icons/ToggleRW.png')
-						on_release: root.update_show_tooltips()
+						on_release: root.toggle_control('show_tooltips_btn')
 						state: 'normal'
 			
 				BoxLayout:

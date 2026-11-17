@@ -4,8 +4,8 @@
 Tile overlap used to live only in the protocol panel's overlap spinner
 and was read straight off the widget at scan time, so it reset to 0%
 every launch. It is now promoted to settings['tiling_overlap_percent']:
-the spinner is just the editor (writes the setting via
-update_tiling_overlap), and scan/apply read the persisted value (a scan
+the spinner is just the editor (a row of ui/setting_controls.py, whose
+show and pick are pinned in test_a_setting_control_is_one_row.py), and scan/apply read the persisted value (a scan
 through the sequenced-capture config, Apply through
 ``ScopeSession.apply_tiling``).
 
@@ -54,42 +54,6 @@ def test_tiling_overlap_percent_in_settings_schema():
         'data/settings.json must define tiling_overlap_percent so the '
         'default-merge backfills it and the persisted read does not KeyError'
     )
-
-
-def test_the_modal_populating_the_overlap_is_not_a_pick(monkeypatch, caplog):
-    """Opening Advanced Settings writes the stored overlap into the spinner,
-    which runs its handler; that writes nothing and records nothing. A
-    different overlap is stored, and the handler records nothing either: a
-    person's pick is recorded by the spinner itself, from the pick."""
-    import logging
-    from types import SimpleNamespace
-
-    import _lumascope.modules.app_context as _app_ctx
-    from tests.settings_fixtures import complete_settings, settings_writer
-    from ui.advanced_settings import AdvancedSettings
-
-    settings = complete_settings(tiling_overlap_percent=10.0)
-    monkeypatch.setattr(
-        _app_ctx,
-        'ctx',
-        SimpleNamespace(settings=settings, update_settings=settings_writer(settings)),
-    )
-    spinner = SimpleNamespace(text='10%')
-    # a stand-in by design: Kivy is stubbed in the test process; the subject is the handler's record
-    panel = SimpleNamespace(ids={'tiling_overlap_spinner': spinner})
-
-    def _recorded():
-        return [r.getMessage() for r in caplog.records if r.name == 'LVP.gui_interactions']
-
-    with caplog.at_level(logging.INFO, logger='LVP.gui_interactions'):
-        AdvancedSettings.update_tiling_overlap(panel)
-        assert _recorded() == [], 'the populate was recorded as a pick'
-
-        spinner.text = '20%'
-        AdvancedSettings.update_tiling_overlap(panel)
-
-    assert _recorded() == []
-    assert settings['tiling_overlap_percent'] == 20.0
 
 
 def test_scan_config_carries_the_persisted_overlap():
