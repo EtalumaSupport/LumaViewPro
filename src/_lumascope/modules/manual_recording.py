@@ -989,7 +989,7 @@ class ManualRecordingController:
         self._last_disk_check_ts = now
         try:
             ok, free_mb = check_disk_space_ok(config.output_dir, MIN_REQUIRED_DISK_MB)
-        except Exception as e:
+        except OSError as e:
             logger.warning(f'[ManualRecord] Disk-floor probe failed: {e}')
             return
         if not ok and self._engine is not None and self._engine.is_recording:

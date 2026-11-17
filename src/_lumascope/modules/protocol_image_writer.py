@@ -1886,14 +1886,19 @@ class ProtocolImageWriter:
         # Check disk space before writing -- long protocols can fill disk.
         # Require headroom for THIS step's predicted write, never below the
         # per-write minimum.
+        # The estimate is outside the catch: prepare() sized the run, so a
+        # failure of it is LumaViewPro's own and is raised where it happens
+        # instead of switching the disk guard off.
         if save_folder is not None:
+            required_mb = max(
+                common_utils.MIN_PER_WRITE_DISK_MB,
+                common_utils.estimate_step_write_mb(step, video_fps=self._video_sizing_fps),
+            )
             try:
-                required_mb = max(
-                    common_utils.MIN_PER_WRITE_DISK_MB,
-                    common_utils.estimate_step_write_mb(step, video_fps=self._video_sizing_fps),
-                )
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
-            except Exception as e:
+            except OSError as e:
+                # The probe's own failure: the folder's free space cannot be
+                # read, and the write proceeds unguarded, said where it is seen.
                 logger.warning(f'[Protocol-Writer] Disk space check failed (proceeding): {e}')
                 ok = True
             if not ok:
