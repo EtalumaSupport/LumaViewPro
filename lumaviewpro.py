@@ -1391,21 +1391,12 @@ class LumaViewProApp(TooltipMixin, App):
             crash_guard.started = True
 
         def startup_motion_settled(done: concurrent.futures.Future) -> None:
-            from _lumascope.modules.exceptions import LaneCallStillRunningError, SessionClosingError
-
             # The window's close began, in this tick or an earlier one.
             if self._closing_begun:
                 return
             # The app is closing: the close found the motion unstarted, began
             # before it took the scope, or closed its lane while it ran.
-            exception = done.exception()
-            if isinstance(exception, SessionClosingError) or (
-                isinstance(exception, LaneCallStillRunningError)
-                and exception.reason == 'lane_closed'
-            ):
-                return
-            live = ctx.session.live_work
-            if live.closing or live.closed:
+            if ctx.session.startup_motion_ended_by_the_close(done):
                 return
             # Raised here, on this thread, where the app's one exception
             # handler takes it, as it took it from on_start when the motion

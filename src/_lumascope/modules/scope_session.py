@@ -74,6 +74,7 @@ from _lumascope.modules.exceptions import (
     HARDWARE_STATE_REASONS,
     HardwareCommandRefusedError,
     HomingFailedError,
+    LaneCallStillRunningError,
     LiveFolderFileNotWrittenError,
     LiveFolderPathRefusedError,
     MissingPart,
@@ -85,6 +86,7 @@ from _lumascope.modules.exceptions import (
     RemedyName,
     ScopeDisconnectError,
     ScopeModelDeferredNotice,
+    SessionClosingError,
     SettingRefusedError,
     SettingsFileNotWrittenError,
     SettingsNotSavedNotice,
@@ -7335,6 +7337,26 @@ class ScopeSession:
             release_if_unrun()
             raise
         return Operation.following(waiter, stop=stop, first=release_if_unrun)
+
+    def startup_motion_ended_by_the_close(self, done: concurrent.futures.Future) -> bool:
+        """Whether the session's close ended the settled startup motion, rather than the motion.
+
+        The close found the motion unstarted or began before it took the
+        scope (``SessionClosingError``), closed its lane while it ran
+        (``LaneCallStillRunningError`` ``'lane_closed'``), or has begun or
+        finished by the time the motion's end is read. A home, a reported
+        failed home, a skip, STOP and a defect are the motion's own ends.
+
+        Args:
+            done: The settled operation ``start_application_session`` returned.
+        """
+        exception = done.exception()
+        if isinstance(exception, SessionClosingError) or (
+            isinstance(exception, LaneCallStillRunningError) and exception.reason == 'lane_closed'
+        ):
+            return True
+        live = self.live_work
+        return live.closing or live.closed
 
     @api(in_process=True)
     def run_application_session(

@@ -147,3 +147,45 @@ def test_a_stop_refused_during_its_home_cancels_the_legs_after_it(session, monke
     homed_z = driver.steps_to_position('Z', driver.motorconfig.position_after_home_usteps('Z'))
     assert session.scope._camera_driver.get_nominal_focal_z() != pytest.approx(homed_z, abs=1.0)
     assert motion.get_current_position('Z') == pytest.approx(homed_z, abs=1.0)
+
+
+def _settled(*, result=None, raised: BaseException | None = None) -> concurrent.futures.Future:
+    done: concurrent.futures.Future = concurrent.futures.Future()
+    if raised is None:
+        done.set_result(result)
+    else:
+        done.set_exception(raised)
+    return done
+
+
+def test_a_startup_motion_the_close_ended_is_told_apart_from_one_that_ended(session):
+    """The close's own ends are the close's; a home, a skip and a defect are the motion's."""
+    from _lumascope.modules.exceptions import LaneCallStillRunningError, SessionClosingError
+
+    closed = {
+        'the close found it unstarted': _settled(raised=SessionClosingError('home')),
+        'its lane closed while it ran': _settled(
+            raised=LaneCallStillRunningError('lane_closed', 'start_application_session')
+        ),
+    }
+    ended = {
+        'homed': _settled(),
+        'a defect': _settled(raised=ValueError('a defect')),
+        'its own bound ran out': _settled(
+            raised=LaneCallStillRunningError('call_overran', 'start_application_session', 5.0)
+        ),
+    }
+
+    told = {name: session.startup_motion_ended_by_the_close(done) for name, done in closed.items()}
+    told |= {name: session.startup_motion_ended_by_the_close(done) for name, done in ended.items()}
+
+    assert told == dict.fromkeys(closed, True) | dict.fromkeys(ended, False)
+
+
+def test_a_startup_motion_that_settles_after_the_close_is_the_closes():
+    s = ScopeSession.create(
+        complete_settings(microscope='LS850T'), simulate=True, warn_pre_release=False
+    )
+    s.shutdown()
+
+    assert s.startup_motion_ended_by_the_close(_settled()) is True
