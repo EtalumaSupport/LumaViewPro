@@ -12,7 +12,10 @@ report state the same versions the driver publishes.
 
 Run against the real pypylon in a child process: the claim is what the SDK
 answers, which the test process's stub (``tests/pypylon_stub.py``) cannot
-show. Skipped where pypylon is not installed.
+show. The claim is the SDK's, not a camera's: the driver is built without
+its connect, as the suite's driver fakes are, so the test never opens an
+attached camera (a held one would refuse it; a free one would be configured
+by a unit test). Skipped where pypylon is not installed.
 """
 
 from __future__ import annotations
@@ -35,7 +38,8 @@ except ImportError:
 from _lumascope.drivers.pyloncamera import PylonCamera
 from _lumascope.modules.app_environment import camera_sdk_probe
 from _lumascope.modules.tech_support_report import _collect_system_info
-print(json.dumps({'sdk': True, 'info': PylonCamera().get_sdk_info(),
+driver = PylonCamera.__new__(PylonCamera)  # no connect: no attached camera is opened
+print(json.dumps({'sdk': True, 'info': driver.get_sdk_info(),
                   'binding': pylon.__version__,
                   'banner': camera_sdk_probe()[0],
                   'report': _collect_system_info().get('pylon_version')}))
