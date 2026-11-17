@@ -219,9 +219,12 @@ class TestScopeCapabilitiesPlumbing:
         """Driver without supports_firmware_stim() -- the realistic
         AttributeError pre-rollout scenario -- gets False via _probe's
         AttributeError fallback (per the Rule 8 capability-probe corollary)."""
-        old_led = MagicMock(spec=['available_channels'])
-        # spec= restricts attrs: supports_firmware_stim raises AttributeError
+        old_led = MagicMock(spec=['available_channels', 'max_ma'])
+        # spec= restricts attrs: supports_firmware_stim raises AttributeError.
+        # max_ma is every LED driver's (test_led_cap_published_by_driver.py),
+        # read without a fallback, so the stand-in answers it.
         old_led.available_channels = MagicMock(return_value=())
+        old_led.max_ma = MagicMock(return_value=1000)
 
         caps = capabilities_of(led=old_led)
         assert caps.has_firmware_stim is False

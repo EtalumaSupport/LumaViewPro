@@ -354,8 +354,8 @@ class ScopeCapabilities:
             identity, so a scope that came up without its LED board still
             names its model's LEDs.
         led_max_ma: The most current, in mA, the connected LED board
-            drives a channel at; 0 when the board does not answer; None when
-            the scope came up without its LED board.
+            drives a channel at; None when the scope came up without its
+            LED board.
         camera_model: The model the camera reports at connect; None with no
             camera, or one that did not say.
         camera_serial_number: The serial number the camera reports at
@@ -575,11 +575,10 @@ class ScopeCapabilities:
             failed=False,
         )
         # The cap is the driver's to publish; there is no value to assume
-        # in its place. A driver that does not answer leaves no legal
-        # current above zero.
-        led_max_ma = (
-            _probe('led.max_ma', lambda: int(led.max_ma()), 0, failed=0) if led_present else None
-        )
+        # in its place. It is read, not probed: each driver's answer is a
+        # constant of its class, and a stand-in for a failed read would be
+        # a limit no board declared, every light above it set at it.
+        led_max_ma = int(led.max_ma()) if led_present else None
 
         # Camera
         camera_model: str | None = None

@@ -772,21 +772,22 @@ class StoredSettingReplacedNotice(Notice, Exception):  # noqa: N818 -- a notice,
 
 
 class ChannelSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """Saved channel gains or exposures outside this camera's range; each runs at the camera's limit.
+    """Saved channel gains, exposures or currents outside this scope's range; each runs at the limit.
 
-    The saved value is the person's intent and is kept: a camera that can
-    reach it applies it again. One notice names every capped channel value
+    The saved value is the person's intent and is kept: a camera or an LED
+    board that can reach it applies it again. One notice names every capped channel value
     one bring-up found, as ``StoredSettingReplacedNotice`` names every
     replaced one, since the notification centre shows one notice of a kind
     at a time.
 
     Attributes:
         capped: ``(channel, setting, stored, applied)`` for each capped value:
-            the channel, ``'gain_db'`` or ``'exposure_ms'``, the saved value
-            and the camera's limit it runs at.
+            the channel, ``'gain_db'``, ``'exposure_ms'`` or
+            ``'illumination_ma'``, the saved value and the limit it runs at,
+            the camera's or the LED board's.
     """
 
-    title = "Saved channel settings outside the camera's range"
+    title = "Saved channel settings outside this scope's range"
     causes: ClassVar[dict[str, RefusalCause | None]] = {'channel_setting_capped': None}
 
     def __init__(self, capped: list[tuple[str, str, float, float]]):
@@ -795,8 +796,8 @@ class ChannelSettingCappedNotice(Notice, Exception):  # noqa: N818 -- a notice, 
             for channel, setting, stored, applied in capped
         )
         super().__init__(
-            'This camera cannot reach these saved channel settings, so each runs at the '
-            f"camera's limit; the saved value is kept for a camera that can: {listed}."
+            'This scope cannot reach these saved channel settings, so each runs at its '
+            f'limit; the saved value is kept for a scope that can: {listed}.'
         )
         self.capped = capped
 
@@ -4408,8 +4409,9 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'led_address_unknown'`` -- an LED address that is not one of
               the attached LED board's addresses (``offered``). A ``bool`` is
               not an address.
-            - ``'illumination_out_of_range'`` -- an LED current outside
-              ``limits``, 0 to the attached LED board's maximum, in mA.
+            - ``'illumination_out_of_range'`` -- an LED current below 0 mA;
+              ``limits`` is 0 to the attached LED board's maximum, in mA,
+              and a current above it is lit at it (``ValueClampedNotice``).
             - ``'missing_key'`` -- a dictionary argument lacks a key its
               member reads; ``argument`` names the key's path.
             - ``'wrong_kind'`` -- an argument, or a value in a dictionary

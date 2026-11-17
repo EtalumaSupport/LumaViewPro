@@ -15,6 +15,7 @@ drivers answer from the hardware that is actually attached.
 
 import ast
 
+from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from _lumascope.modules.channel_record import UNRESOLVED
@@ -33,7 +34,7 @@ DUPLICATED_FLAGS = Words({'XYStage', 'Turret', 'Focus'})
 def _caps_for(motion):
     return ScopeCapabilities.from_drivers(
         motion=motion,
-        led=None,
+        led=NullLEDBoard(),
         camera=None,
         channel_identity=UNRESOLVED,
         scope_models={},

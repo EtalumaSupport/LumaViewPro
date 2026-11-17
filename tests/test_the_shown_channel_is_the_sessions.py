@@ -62,7 +62,7 @@ def test_a_lit_shown_channel_moves_its_light_to_the_next_layer(session):
 
 def test_a_refused_light_turns_nothing_off(session):
     """The diff judges its whole target before it writes: BF stays lit
-    when the light that would replace it is out of the board's range."""
+    when the light that would replace it is refused (a current below zero)."""
     session.light_shown_channel(True)
     illumination = session.scope.illumination
     with pytest.raises(ArgumentRefusedError) as refused:
@@ -70,7 +70,7 @@ def test_a_refused_light_turns_nothing_off(session):
             LedTransition.MANUAL_STEP,
             LedTransitionCtx(
                 led_address=illumination.led_address_of(LED0),
-                illumination_ma=session.scope.capabilities.led_max_ma + 1,
+                illumination_ma=-1,
                 preview_on=True,
             ),
         )

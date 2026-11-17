@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A saved layer gain or exposure the camera cannot reach is kept, run at the limit, and told once.
+"""A saved layer gain, exposure or current the hardware cannot reach is kept, run at the limit, and told once.
 
 The API capped a stored layer value to the attached camera's range at
 every apply and logged it there, and nobody was told: a configuration
@@ -94,5 +94,35 @@ def test_a_camera_that_reaches_every_saved_value_is_told_nothing(tmp_path):
     try:
         assert _notices(heard) == []
         assert session.capped_channels() == ()
+    finally:
+        session.shutdown()
+
+
+def test_a_saved_current_above_the_led_board_is_kept_lit_at_the_maximum_and_told_once(
+    tmp_path,
+):
+    """A saved current above the board's maximum is the person's intent: it is
+    kept, named in the bring-up notice, and the channel lights at the maximum
+    with nothing more told, since the light is the API's own stored value."""
+    from _lumascope.modules.exceptions import ValueClampedNotice
+
+    heard = []
+    session = _session(tmp_path, heard, BF={'illumination_ma': 5000.0})
+    try:
+        maximum = session.scope.capabilities.led_max_ma
+        assert maximum < 5000.0, 'the test needs a board below the saved current'
+        (notice,) = _notices(heard)
+        assert notice.message == str(
+            ChannelSettingCappedNotice([('BF', 'illumination_ma', 5000.0, maximum)])
+        )
+        assert session.capped_channels() == ('BF',)
+
+        session.light_shown_channel(True)
+
+        address = session.scope.illumination.led_address_of('BF')
+        (reading,) = [r for r in session.scope.illumination.led_states() if r.address == address]
+        assert reading.illumination_ma == maximum
+        assert session.settings['BF']['illumination_ma'] == 5000.0, 'the saved value is the intent'
+        assert [n for n in heard if n.reason == ValueClampedNotice.reason] == []
     finally:
         session.shutdown()

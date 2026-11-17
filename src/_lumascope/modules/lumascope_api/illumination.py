@@ -26,13 +26,14 @@ from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.lib import profile_trace
 from _lumascope.lib.log_helpers import VERBOSE
 from _lumascope.lib.lumascope_error import Fault
-from _lumascope.modules.finite_number import refuse_unless_finite_number
+from _lumascope.modules.finite_number import cap_stored_value, refuse_unless_finite_number
 from _lumascope.modules.activity_claim import ActivityHolder, acts_for_the_holder, current_taking
 from _lumascope.modules.live_work import WorkKind
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
     MissingPart,
+    ValueClampedNotice,
 )
 from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.channel_record import IdentitySource, refuse_unknown_channel
@@ -786,9 +787,8 @@ class IlluminationAPI:
         Raises:
             ArgumentRefusedError: ``'not_a_number'``, ``illumination_ma`` is
                 not a finite number; ``'illumination_out_of_range'``, it is
-                outside 0 to the attached board's maximum (``limits``);
-                ``'led_address_unknown'``, ``address`` is not on the attached
-                board's table.
+                below 0 (``limits``); ``'led_address_unknown'``, ``address``
+                is not on the attached board's table.
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
                 controller connected; ``'not_on_this_scope'`` for an address this
                 model does not drive; ``'exclusive_activity_running'`` while
@@ -869,7 +869,10 @@ class IlluminationAPI:
 
         Judged on every path that lights an LED, not at the door: a
         snapshot or a diff's target hands this a caller's addresses and
-        currents.
+        currents. A current above the attached board's maximum is commanded
+        at the maximum, silently: a show, a run's lease and a restore light
+        through here with stored or held currents, and only the members a
+        caller hands a current to tell it (``_tell_clamped_light``).
 
         Raises:
             ArgumentRefusedError: ``'led_address_unknown'``, ``'not_a_number'``
@@ -880,14 +883,36 @@ class IlluminationAPI:
         self._refuse_unless_lightable(address, member)
         refuse_unless_finite_number(illumination_ma, 'illumination_ma')
         led_max_ma = self._scope.capabilities.led_max_ma
-        if illumination_ma < 0 or illumination_ma > led_max_ma:
+        if illumination_ma < 0:
             raise ArgumentRefusedError(
                 'illumination_out_of_range',
                 argument='illumination_ma',
                 value=illumination_ma,
                 limits=(0, led_max_ma),
             )
-        return self._driver.commanded_ma(illumination_ma)
+        held = cap_stored_value(illumination_ma, None, led_max_ma)[1]
+        return self._driver.commanded_ma(held)
+
+    def _tell_clamped_light(self, where: str, illumination_ma: float) -> None:
+        """Report, once its light has landed, a caller's current above the board's maximum.
+
+        ``where`` names what was lit (a channel, or an LED board address).
+        The current is judged by then, so it is a finite number. A current
+        on the board's step but not above its maximum is not a clamp and is
+        not told. Solicited: it answers the call that asked.
+        """
+        led_max_ma = self._scope.capabilities.led_max_ma
+        if led_max_ma is None or illumination_ma <= led_max_ma:
+            return
+        from _lumascope.modules.notification_center import notifications
+
+        notifications.report_outcome(
+            ValueClampedNotice(
+                [(where, 'illumination_ma', float(illumination_ma), float(led_max_ma))]
+            ),
+            solicited=True,
+            category='Illumination',
+        )
 
     def _led_off_impl(self, address: int, *, member: str, _lease: LedLease | None = None) -> None:
         """Turn off an LED address.
@@ -1156,15 +1181,17 @@ class IlluminationAPI:
         board's lane, waited for. The board lights at the nearest current its step can
         deliver, and a request above zero but below one step at one step;
         that commanded current, not the request, is what is stored and
-        returned. 0 mA leaves the channel on at 0 mA, which the board treats
-        as off. A channel lit for a capture of it is lit at its stored
-        current, once it is shown (``ScopeSession.show_channel``), by
+        returned. A current above the attached board's maximum is lit at the
+        maximum and told once the light has landed (``ValueClampedNotice``).
+        0 mA leaves the channel on at 0 mA, which the board treats as off.
+        A channel lit for a capture of it is lit at its stored current, once
+        it is shown (``ScopeSession.show_channel``), by
         ``ScopeSession.light_shown_channel(True)``.
 
         Args:
             channel: The channel to light, by its name in this release.
-            illumination_ma: The current in mA, from 0 to the attached
-                board's maximum (``limits``).
+            illumination_ma: The current in mA, 0 or above; one above the
+                attached board's maximum is lit at the maximum.
 
         Returns:
             The commanded current in mA.
@@ -1174,7 +1201,7 @@ class IlluminationAPI:
                 channel of this release, refused at the door whatever the
                 scope is doing; ``'not_a_number'``, ``illumination_ma`` is
                 not a finite number; ``'illumination_out_of_range'``, it is
-                outside 0 to the attached board's maximum. Nothing was sent.
+                below 0. Nothing was sent.
             HardwareCommandRefusedError: ``'not_connected'`` with no LED
                 controller connected; ``'not_on_this_scope'`` for a channel
                 whose LED this model does not drive;
@@ -1189,11 +1216,13 @@ class IlluminationAPI:
                 the LED is believed as it was before the write.
         """
         refuse_unknown_channel(channel, argument='channel')
-        return self._dispatch_led(
+        commanded_ma = self._dispatch_led(
             self._led_on_by_name_impl,
             'led_on',
             args=(channel, illumination_ma),
         )
+        self._tell_clamped_light(channel, illumination_ma)
+        return commanded_ma
 
     def _led_on_by_name_impl(self, channel: str, illumination_ma: float) -> float:
         """``led_on``'s body for a name: its address, then the address lane."""
@@ -1250,13 +1279,14 @@ class IlluminationAPI:
         other caller lights a channel by its name (``led_on``). The address
         is lit on the lane ``led_on`` lights a name's address on, judged in
         the same order, and read back and reported by its address as a
-        name's is. The current is commanded on the board's step, as
-        ``led_on`` says.
+        name's is. The current is commanded on the board's step, and one
+        above the board's maximum at the maximum and told, as ``led_on``
+        says.
 
         Args:
             address: The LED board address.
-            illumination_ma: The current in mA, from 0 to the attached
-                board's maximum (``limits``).
+            illumination_ma: The current in mA, 0 or above; one above the
+                attached board's maximum is lit at the maximum.
 
         Returns:
             The commanded current in mA.
@@ -1279,11 +1309,13 @@ class IlluminationAPI:
                 the LED is believed as it was before the write.
         """
         self._refuse_not_a_board_address(address, 'address')
-        return self._dispatch_led(
+        commanded_ma = self._dispatch_led(
             self._led_on_by_address_impl,
             'led_on_by_address',
             args=(address, illumination_ma),
         )
+        self._tell_clamped_light(f'LED address {address}', illumination_ma)
+        return commanded_ma
 
     def _led_on_by_address_impl(self, address: int, illumination_ma: float) -> float:
         """``led_on_by_address``'s body: the recording's question, then the address lane."""

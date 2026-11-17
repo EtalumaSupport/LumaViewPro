@@ -730,14 +730,16 @@ def capped_channels(self) -> tuple[str, ...]
 
 Marks: in-process; reads (changes nothing).
 
-This scope's channels whose stored gain or exposure the attached camera cannot reach.
+This scope's channels whose stored gain, exposure or current the attached hardware cannot reach.
 
 A stored value outside the camera's range is kept as stored and
 applied at the camera's limit (`CameraAPI.applied_gain_db_for` and
-kin), so a display shows the stored value beside the one in force.
-In the scope's channel order. Empty with no camera, and while the
-camera's range is not known (`CameraAPI.known_setting_limits`): no
-limit is known to cap against.
+kin), and a stored current above the LED board's maximum is lit at
+the maximum, so a display shows the stored value beside the one in
+force. In the scope's channel order. A limit not known caps nothing:
+no camera, or the camera's range not read
+(`CameraAPI.known_setting_limits`), for gain and exposure; no LED
+board, for current.
 
 **Raises**
 
@@ -1701,7 +1703,7 @@ The shown channel now.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'illumination_out_of_range'`, the channel's stored current is outside the attached board's range.
+- `ArgumentRefusedError`: `'illumination_out_of_range'`, the channel's stored current is below 0.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no shown channel; `'not_connected'`, naming the LED controller the light needs; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or `lit` is True while a manual recording runs and the channel's LED is not lit above 0 mA (a recording keeps the light it started under; nothing is changed). One lit above 0 mA is put at the stored current.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `CameraSettingRejected`: the camera did not take a setting of the channel (its `reason` says how); its LED is already lit or dark.
@@ -3367,7 +3369,7 @@ The shown channel now.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'illumination_out_of_range'`, its stored current is outside the attached board's range.
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'illumination_out_of_range'`, its stored current is below 0.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the LED controller the light needs, or the camera when it leaves during the call; or `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and `channel` is not the shown one, or its LED would be lit from dark or 0 mA (a recording keeps one channel and the light it started under; nothing is changed).
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `CameraSettingRejected`: the camera did not take a setting of the channel (its `reason` says how); its LEDs are already shown.
@@ -6883,15 +6885,17 @@ The channel is lit at its LED's address, as one command on the LED
 board's lane, waited for. The board lights at the nearest current its step can
 deliver, and a request above zero but below one step at one step;
 that commanded current, not the request, is what is stored and
-returned. 0 mA leaves the channel on at 0 mA, which the board treats
-as off. A channel lit for a capture of it is lit at its stored
-current, once it is shown (`ScopeSession.show_channel`), by
+returned. A current above the attached board's maximum is lit at the
+maximum and told once the light has landed (`ValueClampedNotice`).
+0 mA leaves the channel on at 0 mA, which the board treats as off.
+A channel lit for a capture of it is lit at its stored current, once
+it is shown (`ScopeSession.show_channel`), by
 `ScopeSession.light_shown_channel(True)`.
 
 **Args**
 
 - `channel`: The channel to light, by its name in this release.
-- `illumination_ma`: The current in mA, from 0 to the attached board's maximum (`limits`).
+- `illumination_ma`: The current in mA, 0 or above; one above the attached board's maximum is lit at the maximum.
 
 **Returns**
 
@@ -6899,7 +6903,7 @@ The commanded current in mA.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; `'not_a_number'`, `illumination_ma` is not a finite number; `'illumination_out_of_range'`, it is outside 0 to the attached board's maximum. Nothing was sent.
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel of this release, refused at the door whatever the scope is doing; `'not_a_number'`, `illumination_ma` is not a finite number; `'illumination_out_of_range'`, it is below 0. Nothing was sent.
 - `HardwareCommandRefusedError`: `'not_connected'` with no LED controller connected; `'not_on_this_scope'` for a channel whose LED this model does not drive; `'exclusive_activity_running'`, another activity holds the scope or the LEDs, or a manual recording runs and `illumination_ma` is above 0 mA while the LED is not lit above 0 mA (a recording keeps the light it started under; a lit LED's current may change). Nothing was sent.
 - `BoardNoReplyError`: the board did not answer; whether the LED is lit is unknown.
 - `BoardPortFailedError`: the board's port failed during the write; the LED is believed as it was before the write.
@@ -13298,7 +13302,7 @@ tuple.
 - <a id="ScopeCapabilities.is_color_native"></a>`is_color_native`: `bool` -- True when the camera delivers 3-channel color frames; False for a mono camera, as every shipped one is, and when the camera is unknown.
 - <a id="ScopeCapabilities.led_addresses"></a>`led_addresses`: `tuple[int, ...] | None` -- The LED board addresses the installed board drives: 0 to 7 on an EL-0940's board, 0 to 3 on a Classic's; None when the scope came up without its LED board.
 - <a id="ScopeCapabilities.led_channels"></a>`led_channels`: `tuple[str, ...]` -- The channels of this model that light an LED, from its identity, so a scope that came up without its LED board still names its model's LEDs.
-- <a id="ScopeCapabilities.led_max_ma"></a>`led_max_ma`: `int | None` -- The most current, in mA, the connected LED board drives a channel at; 0 when the board does not answer; None when the scope came up without its LED board.
+- <a id="ScopeCapabilities.led_max_ma"></a>`led_max_ma`: `int | None` -- The most current, in mA, the connected LED board drives a channel at; None when the scope came up without its LED board.
 - <a id="ScopeCapabilities.lens_focal_length_mm"></a>`lens_focal_length_mm`: `float | None` -- The tube lens focal length in mm, from the motor board's optics configuration, else the installation's model entry; with `pixel_size_um` and an objective's focal length it gives that objective's um per pixel. None when neither says; never a default.
 - <a id="ScopeCapabilities.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The camera's pixel size in um, from the motor board's optics configuration, else the installation's model entry (a Classic), else the camera's own pitch; None when none says, and then the scope measures nothing (field of view, scale bar, plate coordinates). Never a default: a guessed pixel size is written into every image and cannot be told from a measured one.
 
@@ -15097,7 +15101,7 @@ replaces were, so a caller catching a bad argument keeps working.
 
 **Attributes**
 
-- `reason`: One of: - `'not_offered'` -- a value of a closed set (a `StrEnum`) that is not one of `offered`: not a member, nor a member's plain string, or a member the taker does not take. Values are exact: `'off'` is not `'Off'`. - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it. - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y). - `'well_unknown'` -- a well label the selected plate (`plate`) does not have. - `'out_of_range'` -- a number outside the `limits` its member takes. - `'fan_duty_out_of_range'` -- a fan duty outside 0 to 100 percent. - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalogue). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here. - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalogue). - `'led_address_unknown'` -- an LED address that is not one of the attached LED board's addresses (`offered`). A `bool` is not an address. - `'illumination_out_of_range'` -- an LED current outside `limits`, 0 to the attached LED board's maximum, in mA. - `'missing_key'` -- a dictionary argument lacks a key its member reads; `argument` names the key's path. - `'wrong_kind'` -- an argument, or a value in a dictionary argument, is not of the kind its member reads (`takes`, in words). - `'protocol_source_ambiguous'` -- not exactly one of the protocol sources `offered` was given. - `'not_a_setting'` -- a dotted path that names no setting. The same fact a write is refused for as `SettingRefusedError('not_a_setting')`; this type says a read asked it. - `'has_member'` -- a dotted path to a setting that has a read of its own, named in `member` by its path from the session, so one setting has one read. - `'needs_simulated_scope'` -- an argument that exists only on a simulated scope, given for a real one. - `'needs_simulated_camera'` -- an argument that exists only on the simulated camera, given for a model simulated with an FX2. - `'needs_simulated_firmware'` -- an argument that exists only on the simulated motor firmware (the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board), given for a simulated scope whose motor board, named in `board`, does not run it. - `'exposure_not_recorded'` -- a frame the simulated camera holds no exposure record for: one it did not deliver, or one older than the records it keeps. - `'not_an_installation'` -- a folder the caller named that holds no settings template, so it is not an LVP installation root. - `'binning_size_invalid'` -- a binning label that is not a positive square `NxN`. - `'fault_unknown'` -- a simulated fault's board, or a device's hardware ID, that is not one of `offered`: sets this scope's boards and this machine's devices decide. - `'fault_bound'` -- a simulated fault's count, fraction or time outside what it takes (`takes`, in words). - `'not_injectable_on_board'` -- a simulated fault the board that would present it cannot produce; `argument` names the `scope.simulation` member, `board` the board. - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument. - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it). - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant. - `'objective_not_on_turret'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order). - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot. - `'gain_range_inverted'` -- an auto-gain settings dictionary whose `min_gain_db` is above its `max_gain_db`; `value` holds the two. - `'key_unknown'` -- a key a dictionary argument does not take (`offered`: the keys it takes).
+- `reason`: One of: - `'not_offered'` -- a value of a closed set (a `StrEnum`) that is not one of `offered`: not a member, nor a member's plain string, or a member the taker does not take. Values are exact: `'off'` is not `'Off'`. - `'not_a_number'` -- a number was needed and the value is not a finite one: NaN, an infinity, a `bool` or not a number at all. Every comparison with NaN is False, so a range check alone passes it. - `'plate_frame_axis'` -- a plate coordinate for an axis the plate frame does not define (`offered`: X and Y). - `'well_unknown'` -- a well label the selected plate (`plate`) does not have. - `'out_of_range'` -- a number outside the `limits` its member takes. - `'fan_duty_out_of_range'` -- a fan duty outside 0 to 100 percent. - `'channel_unknown'` -- the name is not one of this release's channels (`offered`, the catalogue). Names are exact: `'bf'` is not `'BF'`. A channel this model lacks is a name, and is refused as absent hardware, not here. - `'no_channel_selected'` -- the member needs a channel and was given None (`offered`, the catalogue). - `'led_address_unknown'` -- an LED address that is not one of the attached LED board's addresses (`offered`). A `bool` is not an address. - `'illumination_out_of_range'` -- an LED current below 0 mA; `limits` is 0 to the attached LED board's maximum, in mA, and a current above it is lit at it (`ValueClampedNotice`). - `'missing_key'` -- a dictionary argument lacks a key its member reads; `argument` names the key's path. - `'wrong_kind'` -- an argument, or a value in a dictionary argument, is not of the kind its member reads (`takes`, in words). - `'protocol_source_ambiguous'` -- not exactly one of the protocol sources `offered` was given. - `'not_a_setting'` -- a dotted path that names no setting. The same fact a write is refused for as `SettingRefusedError('not_a_setting')`; this type says a read asked it. - `'has_member'` -- a dotted path to a setting that has a read of its own, named in `member` by its path from the session, so one setting has one read. - `'needs_simulated_scope'` -- an argument that exists only on a simulated scope, given for a real one. - `'needs_simulated_camera'` -- an argument that exists only on the simulated camera, given for a model simulated with an FX2. - `'needs_simulated_firmware'` -- an argument that exists only on the simulated motor firmware (the `firmware` and `realistic` simulator tiers, on a model with an EL-0940 motor board), given for a simulated scope whose motor board, named in `board`, does not run it. - `'exposure_not_recorded'` -- a frame the simulated camera holds no exposure record for: one it did not deliver, or one older than the records it keeps. - `'not_an_installation'` -- a folder the caller named that holds no settings template, so it is not an LVP installation root. - `'binning_size_invalid'` -- a binning label that is not a positive square `NxN`. - `'fault_unknown'` -- a simulated fault's board, or a device's hardware ID, that is not one of `offered`: sets this scope's boards and this machine's devices decide. - `'fault_bound'` -- a simulated fault's count, fraction or time outside what it takes (`takes`, in words). - `'not_injectable_on_board'` -- a simulated fault the board that would present it cannot produce; `argument` names the `scope.simulation` member, `board` the board. - `'argument_not_on_board'` -- an argument of a simulated fault the board cannot take; `board` names the board, `takes` what it takes for that argument. - `'slot_not_holding_objective'` -- a turret slot given for steps naming an objective the slot does not hold now (`offered`: the slots that hold it). - `'objective_in_several_slots'` -- an objective to turn the turret to that two or more slots hold (`offered`: the slots), so no one slot is meant. - `'objective_not_on_turret'` -- an objective to turn the turret to that no slot holds (`offered`: the objectives the slots hold, in slot order). - `'slot_required'` -- an objective confirmed on a turret scope with no slot named; the confirmation records the glass in a slot. - `'gain_range_inverted'` -- an auto-gain settings dictionary whose `min_gain_db` is above its `max_gain_db`; `value` holds the two. - `'key_unknown'` -- a key a dictionary argument does not take (`offered`: the keys it takes).
 - `argument`: The name of the argument refused.
 - `value`: What was given, as given.
 - `offered`: The values the argument takes, where it takes a list; None otherwise.
@@ -16079,17 +16083,17 @@ one notice.
 
 A notice; bases `Notice`, `Exception`.
 
-Saved channel gains or exposures outside this camera's range; each runs at the camera's limit.
+Saved channel gains, exposures or currents outside this scope's range; each runs at the limit.
 
-The saved value is the person's intent and is kept: a camera that can
-reach it applies it again. One notice names every capped channel value
+The saved value is the person's intent and is kept: a camera or an LED
+board that can reach it applies it again. One notice names every capped channel value
 one bring-up found, as `StoredSettingReplacedNotice` names every
 replaced one, since the notification centre shows one notice of a kind
 at a time.
 
 **Attributes**
 
-- `capped`: `(channel, setting, stored, applied)` for each capped value: the channel, `'gain_db'` or `'exposure_ms'`, the saved value and the camera's limit it runs at.
+- `capped`: `(channel, setting, stored, applied)` for each capped value: the channel, `'gain_db'`, `'exposure_ms'` or `'illumination_ma'`, the saved value and the limit it runs at, the camera's or the LED board's.
 
 | Reason | Cause | REST status |
 |---|---|---|

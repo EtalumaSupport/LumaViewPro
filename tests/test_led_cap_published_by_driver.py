@@ -5,7 +5,7 @@ parameter with a module-constant default that no production call site
 passed, so every scope advertised 1000 mA -- including the Classic, whose
 peripheral's full scale is 840. The API's range guard, the illumination
 sliders and the protocol validator each carried their own copy of the
-number. Now each LED driver answers ``max_ma()``, capabilities probes it,
+number. Now each LED driver answers ``max_ma()``, capabilities reads it,
 and every bound reads capabilities.
 """
 
@@ -13,21 +13,16 @@ from __future__ import annotations
 
 import ast
 import inspect
-from dataclasses import replace
-
-import pytest
 
 from _lumascope.drivers import fx2driver
 from _lumascope.drivers.ledboard import FIRMWARE_LED_CH_MAX_MA, LEDBoard
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.registry import led_registry
 from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
-from _lumascope.modules.exceptions import ArgumentRefusedError
 from _lumascope.modules.scope_capabilities import ScopeCapabilities
 from tests.ast_seams import find_def, parse_module
 from tests.case_walk import failing_cases
 from tests.scope_fakes import capabilities_of
-from tests.stock_channels import LED0
 
 # ---------------------------------------------------------------------------
 # Every registered LED driver publishes a cap (the build-failing guard)
@@ -69,10 +64,6 @@ def test_capabilities_reports_the_connected_drivers_cap():
     assert _caps_with(NullLEDBoard()).led_max_ma is None
 
 
-def test_a_driver_that_does_not_answer_leaves_no_legal_current():
-    assert _caps_with(None).led_max_ma == 0
-
-
 def test_from_drivers_has_no_led_cap_parameter():
     params = inspect.signature(ScopeCapabilities.from_drivers).parameters
     assert 'led_max_ma' not in params
@@ -82,20 +73,6 @@ def test_the_module_constant_is_gone():
     import _lumascope.modules.scope_capabilities as caps_module
 
     assert not hasattr(caps_module, 'LED_MAX_MA')
-
-
-# ---------------------------------------------------------------------------
-# The API guard reads the capability
-# ---------------------------------------------------------------------------
-
-
-def test_the_api_guard_refuses_one_over_the_boards_cap(sim_scope):
-    sim_scope.capabilities = replace(sim_scope.capabilities, led_max_ma=840)
-    with pytest.raises(ArgumentRefusedError) as refused:
-        sim_scope.illumination.led_on(LED0, 841)
-    assert (refused.value.reason, refused.value.limits) == ('illumination_out_of_range', (0, 840))
-    sim_scope.illumination.led_on(LED0, 840)
-    sim_scope.illumination.led_off(LED0)
 
 
 # ---------------------------------------------------------------------------

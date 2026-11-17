@@ -25,7 +25,8 @@ in a settings path).
 answers the current commanded ([State and settings](concepts.md#state-and-settings));
 `led_off(channel)` and `leds_off()` turn them off. A current above zero but
 below one of the board's steps is raised to one step, and one above the board's
-ceiling, `scope.capabilities.led_max_ma`, is refused
+ceiling, `scope.capabilities.led_max_ma`, is lit at the ceiling and told
+(`ValueClampedNotice`); one below zero is refused
 (`'illumination_out_of_range'`). A channel this scope lacks, or one with no LED
 (`Lumi`), is refused `'not_on_this_scope'`; one the release does not know,
 `'channel_unknown'`. A write the LED board does not answer raises
