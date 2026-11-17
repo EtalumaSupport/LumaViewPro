@@ -172,3 +172,29 @@ def test_a_value_no_range_makes_sense_of_is_refused_and_nothing_is_sent(
     assert wrong == []
     assert sent == [], 'a refused value reaches no camera'
     assert _clamp_notices(centre_posts) == []
+
+
+@pytest.mark.parametrize(
+    ('node', 'setter', 'past'),
+    [('gain', 'set_gain_db', 5.0), ('exposure', 'set_exposure_ms', 3.0)],
+    ids=['gain', 'exposure'],
+)
+def test_a_clamped_value_the_camera_took_but_could_not_read_back_is_told(
+    sim_scope, centre_posts, node, setter, past
+):
+    # parametrize-justified: each fault is armed on its own camera node.
+    # The write lands and answers nothing, and the read after it fails, so
+    # the value in effect is not known: the clamp was still sent, and is told.
+    camera = sim_scope.camera
+    limits = camera.setting_limits
+    maximum = limits.gain_max_db if node == 'gain' else limits.exposure_max_ms
+    asked = maximum + past if node == 'gain' else maximum * past
+    sim_scope.simulation.refuse_camera_write(node, 'unreported')
+    sim_scope.simulation.refuse_camera_read(node, 'failed')
+
+    assert getattr(camera, setter)(asked) is None
+
+    setting = 'gain_db' if node == 'gain' else 'exposure_ms'
+    assert _clamp_notices(centre_posts) == [
+        str(ValueClampedNotice([('camera', setting, asked, maximum)]))
+    ]

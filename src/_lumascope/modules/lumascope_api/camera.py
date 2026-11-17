@@ -1467,7 +1467,7 @@ class CameraAPI:
         return self._driver is not None and self._driver.is_device_removed()
 
     # --- Setters ---
-    def _set_gain_db_impl(self, gain_db: float) -> float | None:
+    def _set_gain_db_impl(self, gain_db: float, *, asked: float | None = None) -> float | None:
         """Set the camera gain, and answer with the gain now in effect.
 
         The composition primitive the auto-gain lock, the exposure ceiling,
@@ -1479,6 +1479,10 @@ class CameraAPI:
 
         Args:
             gain_db: Gain value in dB.
+            asked: The caller's gain that ``set_gain_db`` held to the range
+                as ``gain_db``: a clamp is told once the write has landed,
+                whether or not the gain could be read back. None for the
+                composition callers, which tell their own.
 
         Returns:
             float | None: The gain in dB now in effect -- the driver's own
@@ -1529,12 +1533,16 @@ class CameraAPI:
         )
         applied = self._landed_value(ok, 'gain_db')
         self._commit_camera_writes({'gain_db': applied})
+        if asked is not None:
+            _tell_clamped(('gain_db', asked, gain_db))
         if applied is not None and (prior is None or abs(applied - prior) >= 0.001):
             _api_log.log(VERBOSE, f'set_gain_db {applied}dB')
             self._fire_gain_listeners(applied)
         return applied
 
-    def _set_exposure_ms_impl(self, exposure_ms: float) -> float | None:
+    def _set_exposure_ms_impl(
+        self, exposure_ms: float, *, asked: float | None = None
+    ) -> float | None:
         """Set the camera exposure time, and answer with the exposure now in
         effect.
 
@@ -1543,6 +1551,9 @@ class CameraAPI:
 
         Args:
             exposure_ms: Exposure time in milliseconds.
+            asked: The caller's exposure that ``set_exposure_ms`` held to
+                the range as ``exposure_ms``, told as ``_set_gain_db_impl``
+                tells its gain.
 
         Returns:
             float | None: The exposure in milliseconds now in effect --
@@ -1592,6 +1603,8 @@ class CameraAPI:
         )
         applied = self._landed_value(ok, 'exposure_ms', scale=0.001)
         self._commit_camera_writes({'exposure_ms': applied})
+        if asked is not None:
+            _tell_clamped(('exposure_ms', asked, exposure_ms))
         if applied is not None and (prior is None or abs(applied - prior) >= 0.001):
             _api_log.log(VERBOSE, f'set_exposure {applied}ms')
             self._fire_exposure_listeners(applied)
@@ -1904,15 +1917,13 @@ class CameraAPI:
             limits.gain_min_db if limits else None,
             limits.gain_max_db if limits else None,
         )
-        in_effect = self._dispatch_camera(
+        return self._dispatch_camera(
             self._no_channels_write(self._set_gain_db_impl),
             'set_gain_db',
             args=(sent,),
+            kwargs={'asked': gain_db},
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
-        if in_effect is not None:
-            _tell_clamped(('gain_db', gain_db, sent))
-        return in_effect
 
     @api(sets='exposure_ms', admitted_by=(Admission.LANE_CALL,))
     def set_exposure_ms(self, exposure_ms: float) -> float | None:
@@ -1964,15 +1975,13 @@ class CameraAPI:
             limits.exposure_min_ms if limits else None,
             limits.exposure_max_ms if limits else None,
         )
-        in_effect = self._dispatch_camera(
+        return self._dispatch_camera(
             self._no_channels_write(self._set_exposure_ms_impl),
             'set_exposure_ms',
             args=(sent,),
+            kwargs={'asked': exposure_ms},
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
-        if in_effect is not None:
-            _tell_clamped(('exposure_ms', exposure_ms, sent))
-        return in_effect
 
     @api(admitted_by=(Admission.LANE_CALL,))
     def set_auto_gain(
