@@ -20,6 +20,7 @@ import numpy as np
 
 from _lumascope.modules.finite_number import (
     SUM_COUNT_RANGE,
+    cap_stored_value,
     refuse_outside,
     refuse_unless_count,
     refuse_unless_wait_s,
@@ -42,6 +43,7 @@ from _lumascope.modules.exceptions import (
     CaptureFailedError,
     FrameHandlerRemovedError,
     HardwareCommandRefusedError,
+    ValueClampedNotice,
 )
 from _lumascope.modules.frame_validity import (
     Change,
@@ -1409,6 +1411,10 @@ class ImagingAPI:
         camera-lane task, so a still is held at no settings but its channel's;
         given None, it captures with the camera as set.
 
+        A ``sum_count`` above 100 (``SUM_COUNT_RANGE``) sums 100 frames, the
+        record's ``frames_summed`` says 100, and the capture, once taken,
+        reports one ``ValueClampedNotice``.
+
         Args:
             channel: The channel whose stored settings the camera holds for
                 the grab, or None for the camera as set.
@@ -1450,8 +1456,7 @@ class ImagingAPI:
 
         Raises:
             ArgumentRefusedError: ``'wrong_kind'``, ``sum_count`` is not a
-                whole number of at least 1; ``'out_of_range'``, it is above
-                100 (``SUM_COUNT_RANGE``); ``'not_a_number'`` or
+                whole number of at least 1; ``'not_a_number'`` or
                 ``'out_of_range'``, a time is not a wait from 0 to 30 days, or
                 the wait for the capture and every frame of its sum together
                 is longer. Nothing reached the camera.
@@ -1483,6 +1488,8 @@ class ImagingAPI:
                 one of its settings (its ``reason`` says how); nothing was
                 captured.
         """
+        refuse_unless_count(sum_count, 'sum_count')
+        asked_sum, sum_count = sum_count, self._sum_held_to_range(sum_count)
         wait_s = self._capture_wait_s(
             exclude_sources,
             timeout_s,
@@ -1502,21 +1509,47 @@ class ImagingAPI:
             'exposed_after_call': exposed_after_call,
         }
         if channel is None:
-            return self._camera._dispatch_camera(
+            still = self._camera._dispatch_camera(
                 self._capture_still_impl,
                 'capture_still',
                 kwargs={'member': 'capture_still', **capture},
                 timeout_s=wait_s,
             )
-        request = self._camera._channel_request(channel, 'capture_still')
-        # The hold's writes run in the same task, ahead of the capture.
-        return self._camera._dispatch_camera(
-            self._capture_holding,
-            'capture_still',
-            args=(channel, request, 'capture_still'),
-            kwargs=capture,
-            timeout_s=wait_s + self._camera._CAMERA_WRITE_TIMEOUT_S,
-        )
+        else:
+            request = self._camera._channel_request(channel, 'capture_still')
+            # The hold's writes run in the same task, ahead of the capture.
+            still = self._camera._dispatch_camera(
+                self._capture_holding,
+                'capture_still',
+                args=(channel, request, 'capture_still'),
+                kwargs=capture,
+                timeout_s=wait_s + self._camera._CAMERA_WRITE_TIMEOUT_S,
+            )
+        self._tell_clamped_sum(asked_sum, sum_count)
+        return still
+
+    @staticmethod
+    def _sum_held_to_range(sum_count: int) -> int:
+        """A caller's ``sum_count``, at most ``SUM_COUNT_RANGE``'s 100.
+
+        ``sum_count`` is judged by then (``refuse_unless_count``), so it is
+        a whole number of at least 1, and the 100 keeps it one.
+        """
+        return cap_stored_value(sum_count, None, SUM_COUNT_RANGE[1])[1]
+
+    @staticmethod
+    def _tell_clamped_sum(asked: int, summed: int) -> None:
+        """Report, once its capture is taken, a caller's sum held at 100.
+
+        Solicited: it answers the call that asked. A capture that raised
+        tells nothing, as a refused write does not.
+        """
+        if summed != asked:
+            notifications.report_outcome(
+                ValueClampedNotice([('camera', 'sum_count', float(asked), float(summed))]),
+                solicited=True,
+                category='Camera',
+            )
 
     def _capture_wait_s(
         self,
@@ -1536,7 +1569,7 @@ class ImagingAPI:
 
         Raises:
             ArgumentRefusedError: ``'wrong_kind'``, ``'not_a_number'`` or
-                ``'out_of_range'``, as ``capture_still`` says.
+                ``'out_of_range'``, as ``submit_still`` says.
         """
         refuse_unless_count(sum_count, 'sum_count')
         refuse_outside(sum_count, 'sum_count', SUM_COUNT_RANGE)
@@ -2110,6 +2143,9 @@ class ImagingAPI:
         so the frame may not reflect a just-changed gain, exposure, LED or
         stage position.
 
+        A ``sum_count`` above 100 (``SUM_COUNT_RANGE``) sums 100 frames, and
+        the grab, once taken, reports one ``ValueClampedNotice``.
+
         Args:
             force_to_8bit: True for an 8-bit image; False for the camera's
                 own depth, in a uint16 array for a 12- or 16-bit camera.
@@ -2134,8 +2170,7 @@ class ImagingAPI:
 
         Raises:
             ArgumentRefusedError: ``'wrong_kind'``, ``sum_count`` is not a
-                whole number of at least 1; ``'out_of_range'``, it is above
-                100 (``SUM_COUNT_RANGE``); ``'not_a_number'`` or
+                whole number of at least 1; ``'not_a_number'`` or
                 ``'out_of_range'``, a time is not a wait from 0 to 30 days, or
                 the wait for every frame of the sum together is longer.
                 Nothing reached the camera.
@@ -2146,7 +2181,7 @@ class ImagingAPI:
                 camera, absent at the call or removed during the grab.
         """
         refuse_unless_count(sum_count, 'sum_count')
-        refuse_outside(sum_count, 'sum_count', SUM_COUNT_RANGE)
+        asked_sum, sum_count = sum_count, self._sum_held_to_range(sum_count)
         for name, value in (
             ('timeout_s', timeout_s),
             ('sum_delay_s', sum_delay_s),
@@ -2177,6 +2212,7 @@ class ImagingAPI:
         )
         if isinstance(grabbed, _NoFrame):
             raise grabbed.error('capture_image')
+        self._tell_clamped_sum(asked_sum, sum_count)
         return grabbed.image
 
     @api(in_process=True, reads=True)

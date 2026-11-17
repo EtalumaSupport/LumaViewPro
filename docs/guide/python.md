@@ -263,7 +263,8 @@ channel (another is refused `'channel_not_shown'`), and another LED lit is
 refused `'other_led_lit'`; `capture_still()` with no channel takes the frame
 with the camera and the LEDs as they are. The image is 8-bit unless
 `force_to_8bit=False` keeps the depth the image mode captures, and `sum_count`
-sums 1 to 100 frames; `still.significant_bits` is the image's depth. The record's
+sums 1 to 100 frames (one above 100 sums 100 and reports `'value_clamped'`);
+`still.significant_bits` is the image's depth. The record's
 `illumination_ma` is keyed by LED board address; `scope.channel_identity` maps
 a channel to its addresses.
 

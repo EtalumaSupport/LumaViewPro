@@ -805,7 +805,7 @@ bytes; a Python caller is handed the array.
 - `exclude_sources`: Hardware changes to ignore for validity, e.g. `(FrameValiditySource.Z_MOVE,)`. The frame returned can predate an excluded change, so a frame that is measured or recorded never excludes one.
 - `all_ones_check`: Measure the frame's saturation: a blown frame is grabbed again once and, blown again, kept; the record carries the fraction either way. False leaves both None.
 - `timeout_s`: How long, in seconds, each grab keeps taking frames for one that passes its checks, from 0 to 30 days.
-- `sum_count`: How many frames are summed into the image.
+- `sum_count`: How many frames are summed into the image; above 100 (`SUM_COUNT_RANGE`), 100 are, the record's `frames_summed` says 100, and the capture, once taken, reports one `ValueClampedNotice`.
 - `sum_delay_s`: The wait, in seconds, between summed frames.
 - `sum_iteration_callback`: Called with no arguments after each summed frame; None calls nothing.
 - `exposed_after_call`: True keeps only a frame exposed after this call, for a caller that changed what the camera sees outside LVP (its own light or shutter) and waited for it to settle. False (the default) waits for LVP's own changes only, so the frame can predate a change made outside LVP.
@@ -816,7 +816,7 @@ CapturedStill: The image and the instrument's record of its frame.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'wrong_kind'`, `sum_count` is not a whole number of at least 1; `'out_of_range'`, it is above 100; `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer. Nothing is captured.
+- `ArgumentRefusedError`: `'channel_unknown'`, `channel` is not a channel; `'wrong_kind'`, `sum_count` is not a whole number of at least 1; `'not_a_number'` or `'out_of_range'`, a time is not a wait from 0 to 30 days, or the wait for the capture and every frame of its sum together is longer. Nothing is captured.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no `channel`; `'not_connected'`, naming the camera, with none connected or one removed during the capture; `'camera_not_streaming'`, its feed is stopped; `'channel_not_shown'`, `channel` is not the shown channel, nothing captured; `'other_led_lit'`, given `channel`, an LED other than its own is lit before the grab (nothing captured) or lit the frame; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope and this call is not made under it.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing is captured.
 - `CaptureFailedError`: `'no_frame'`, the camera delivered none within its grab window; `'deadline_expired'`, changes kept landing until the deadline passed; `'no_fresh_frame'`, frames came but none within the grab's bound counted for the `setting` changed; `'chunk_rejected'`, frames counted but none at the `setting` asked; `'record_read_failed'`, a frame came but the camera did not answer a read of the gain, exposure or black level its record needs, so it was not kept.
@@ -825,7 +825,7 @@ CapturedStill: The image and the instrument's record of its frame.
 **Refusals**
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `camera_not_streaming`, `channel_not_shown`, `other_led_lit`, `exclusive_activity_running`, `not_on_this_scope`, `not_connected`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `wrong_kind`, `out_of_range`, `not_a_number`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `wrong_kind`, `not_a_number`, `out_of_range`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
 - [`CaptureFailedError`](#CaptureFailedError): `no_frame`, `deadline_expired`, `no_fresh_frame`, `chunk_rejected`, `record_read_failed`
 - [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`

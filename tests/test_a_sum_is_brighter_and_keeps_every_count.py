@@ -21,6 +21,7 @@ an 8-bit camera was offered only the 8-bit image mode.
 
 from __future__ import annotations
 
+import concurrent.futures
 import datetime
 import pathlib
 import tracemalloc
@@ -31,7 +32,11 @@ import pytest
 import tifffile as tf
 
 from _lumascope.modules import image_mode, image_utils, zprojection
-from _lumascope.modules.exceptions import ArgumentRefusedError, FrameDepthError
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    FrameDepthError,
+    ValueClampedNotice,
+)
 from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.modules.stack_builder import StackBuilder
 from _lumascope.modules.zprojector import ZProjector
@@ -178,20 +183,59 @@ def test_a_sum_of_fewer_than_one_frame_is_refused(sim_camera):
     assert len(taken) == 4
 
 
-def test_a_sum_of_more_than_100_frames_is_refused_by_its_range(sim_camera):
-    """A sum holds 1 to 100 frames, as a stored sum does; above it, both
-    capture members refuse the count by name and range."""
-    imaging = sim_camera('Mono12').imaging
-    taken = {}
-    for name in ('capture_still', 'capture_image'):
-        try:
-            getattr(imaging, name)(sum_count=101, force_to_8bit=False)
-        except ArgumentRefusedError as refusal:
-            taken[name] = (refusal.reason, refusal.argument, refusal.limits)
-        else:
-            taken[name] = 'taken'
-    assert taken == dict.fromkeys(
-        ('capture_still', 'capture_image'), ('out_of_range', 'sum_count', (1, 100))
+def _clamp_notices(centre_posts):
+    return [post.message for post in centre_posts if post.reason == ValueClampedNotice.reason]
+
+
+_SUM_HELD = str(ValueClampedNotice([('camera', 'sum_count', 101.0, 100.0)]))
+
+
+def test_a_still_asked_for_more_than_100_frames_sums_100_and_is_told(sim_camera, centre_posts):
+    """A sum holds 1 to 100 frames, as a stored sum does; a caller's count
+    above it is summed at 100, the record says so, and the still tells it once."""
+    still = sim_camera('Mono8').imaging.capture_still(
+        sum_count=101, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+    )
+    assert still.record.frames_summed == 100
+    assert int(still.image.max()) == 100 * WHITE['Mono8']
+    assert _clamp_notices(centre_posts) == [_SUM_HELD]
+
+
+def test_an_image_asked_for_more_than_100_frames_sums_100_and_is_told(sim_camera, centre_posts):
+    image = sim_camera('Mono8').imaging.capture_image(sum_count=101, force_to_8bit=False)
+    assert int(image.max()) == 100 * WHITE['Mono8']
+    assert _clamp_notices(centre_posts) == [_SUM_HELD]
+
+
+def test_a_refused_capture_of_more_than_100_frames_tells_no_clamp(sim_camera, centre_posts):
+    """The sum is held before the waits are judged, so a still refused by
+    its wait was held and never taken: nothing says it was set at 100."""
+    with pytest.raises(ArgumentRefusedError) as refused:
+        sim_camera('Mono8').imaging.capture_still(sum_count=101, timeout_s=-1.0)
+    assert (refused.value.reason, refused.value.argument) == ('out_of_range', 'timeout_s')
+    assert _clamp_notices(centre_posts) == []
+
+
+def test_a_lane_still_of_more_than_100_frames_is_refused_by_its_range(sim_camera):
+    """``submit_still``'s count is a channel's stored sum, which a write
+    already holds at 100; one above it from a hand-edited file is refused
+    (Eric 2026-11-17, "Keep refusing"), never summed short and untold."""
+    waiter = concurrent.futures.Future()
+    waiter.set_running_or_notify_cancel()
+    with pytest.raises(ArgumentRefusedError) as refused:
+        sim_camera('Mono8').imaging.submit_still(
+            lambda: None,
+            'submit_still',
+            waiter=waiter,
+            timeout_s=0.0,
+            sum_count=101,
+            sum_delay_s=0.0,
+            write_bound_s=1.0,
+        )
+    assert (refused.value.reason, refused.value.argument, refused.value.limits) == (
+        'out_of_range',
+        'sum_count',
+        (1, 100),
     )
 
 

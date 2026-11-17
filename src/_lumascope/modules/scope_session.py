@@ -3056,7 +3056,10 @@ class ScopeSession:
                 the fraction either way. False leaves both None.
             timeout_s: How long, in seconds, each grab keeps taking frames
                 for one that passes its checks, from 0 to 30 days.
-            sum_count: How many frames are summed into the image.
+            sum_count: How many frames are summed into the image; above 100
+                (``SUM_COUNT_RANGE``), 100 are, the record's ``frames_summed``
+                says 100, and the capture, once taken, reports one
+                ``ValueClampedNotice``.
             sum_delay_s: The wait, in seconds, between summed frames.
             sum_iteration_callback: Called with no arguments after each
                 summed frame; None calls nothing.
@@ -3072,8 +3075,7 @@ class ScopeSession:
         Raises:
             ArgumentRefusedError: ``'channel_unknown'``, ``channel`` is not a
                 channel; ``'wrong_kind'``, ``sum_count`` is not a whole number
-                of at least 1; ``'out_of_range'``, it is above 100;
-                ``'not_a_number'`` or ``'out_of_range'``, a time is not a wait
+                of at least 1; ``'not_a_number'`` or ``'out_of_range'``, a time is not a wait
                 from 0 to 30 days, or the wait for the capture
                 and every frame of its sum together is longer. Nothing is
                 captured.
