@@ -10,7 +10,7 @@ shown only where the scope answers ``capabilities.camera_supports_auto_gain``.
     ``ChannelControl.camera_autogain_support`` on every layer, an orthogonal
     runtime gate AND-ed in the kv with the per-layer static
     ``autogain_support``, so Lumi stays hidden regardless. It runs in the
-    capability-sync grouping ``ImageSettings._init_ui`` runs on connect.
+    capability-sync grouping ``MicroscopeSettings.load_settings`` runs at start.
   - The effective enable is the API's answer, read NON-DESTRUCTIVELY at the
     consumption point (``ChannelControl.effective_auto_gain`` reads
     ``imaging.applied_auto_gain_for``), used by ``apply_settings`` for the
@@ -181,14 +181,4 @@ class TestUiWiring:
         assert _calls_named(method, 'effective_auto_gain'), (
             'show_as_shown must derive the box (and so the slider-disable) from '
             'effective_auto_gain(), not the raw stored auto_gain.'
-        )
-
-    def test_init_ui_applies_autogain_support_on_connect(self):
-        # _init_ui applies the gate via the sync_camera_capability_ranges
-        # grouping (which calls set_channel_autogain_support -- see
-        # test_reconnect_camera_resync).
-        method = _method_node(IMAGE_SETTINGS_PATH, '_init_ui')
-        assert _calls_named(method, 'sync_camera_capability_ranges'), (
-            'ImageSettings._init_ui must apply the autogain gate (via the '
-            'sync_camera_capability_ranges grouping) on connect.'
         )

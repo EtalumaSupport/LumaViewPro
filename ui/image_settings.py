@@ -200,7 +200,6 @@ class ImageSettings(BoxLayout):
             self.accordion_item_lookup(channel=channel).person_opened = functools.partial(
                 self._show_channel_for_person, channel
             )
-        self.sync_camera_capability_ranges()
         self.enable_image_stats_if_needed()
 
     def enable_image_stats_if_needed(self):
@@ -312,27 +311,30 @@ class ImageSettings(BoxLayout):
         ctx.motion_settings.ids['microscope_settings_id'].camera_connected = connected
 
     def sync_camera_capability_ranges(self):
-        """Resync every per-channel camera control from the live camera caps.
+        """Set every per-channel camera control from the live camera caps.
 
-        The single grouping of the per-channel capability setters, so the connect
-        path (_init_ui) and the reconnect path apply the SAME set and can't
-        drift to a subset (reconnect previously refreshed only exposure ranges).
+        The single grouping of the per-channel capability setters, run once at
+        start by load_settings before the stored values are shown, so a slider
+        is sized before its value lands and the start sets each control in one
+        place.
 
         The setters run with every channel marked initializing. Narrowing a
         slider's max makes Kivy clamp its value, which fires on_value into the
-        channel's handler; by the time this runs, load_settings has already
-        cleared the flag, so without this the app's own bound-application would
-        be recorded as a user drag and would overwrite the stored value with
-        the bound. Every other programmatic widget write in ChannelControl takes
-        the same flag for the same reason.
+        channel's handler; unmarked, the app's own bound-application would be
+        recorded as a user drag and would overwrite the stored value with the
+        bound. Each channel's flag is restored as it was found, not cleared, so
+        a channel still initializing from its construction keeps its guard
+        until its values are shown. Every other programmatic widget write in
+        ChannelControl takes the same flag for the same reason.
 
-        reconcile_channels_to_camera_caps stays OUTSIDE the flag: it delivers to
-        the camera through each channel's apply, and that apply returns early on
-        exactly this flag -- inside, it would render and push nothing.
+        reconcile_channels_to_camera_caps runs after the setters, once every
+        slider carries its maximum: it renders each capped channel, and its
+        render keeps the flag as it found it.
         """
         channel_controls = [
             self.channel_control_lookup(channel=channel) for channel in common_utils.get_channels()
         ]
+        were_initializing = [channel_control._initializing for channel_control in channel_controls]
         for channel_control in channel_controls:
             channel_control._initializing = True
         try:
@@ -343,8 +345,8 @@ class ImageSettings(BoxLayout):
             self.set_channel_illumination_ranges()
             self.set_channel_autogain_support()
         finally:
-            for channel_control in channel_controls:
-                channel_control._initializing = False
+            for channel_control, was in zip(channel_controls, were_initializing, strict=True):
+                channel_control._initializing = was
         shown = channel_controls[0]
         ctx = _app_ctx.ctx
         limits = ctx.scope.camera.known_setting_limits
@@ -359,7 +361,7 @@ class ImageSettings(BoxLayout):
         self.reconcile_channels_to_camera_caps()
 
     def reconcile_channels_to_camera_caps(self):
-        """Render every channel the attached camera cannot fully reach, and re-apply the open one.
+        """Render every channel the attached camera cannot fully reach.
 
         A camera swap can leave a channel's persisted gain_db/exposure_ms above
         the new body's maximum. The stored value is the user's committed

@@ -346,16 +346,18 @@ class TestTheReconcileRendersWithoutTouchingTheStore:
             'bring-up has put the shown layer there: the reconcile applies nothing.'
         )
 
-    def test_load_settings_reconciles_before_anything_renders(self):
+    def test_load_settings_sets_the_controls_before_anything_renders(self):
         """Ordering invariant: a value the camera cannot honor must never be
-        rendered as if it were a legitimate policy divergence."""
+        rendered as if it were a legitimate policy divergence. load_settings
+        reaches the reconcile through the grouping that sizes the sliders
+        (sync_camera_capability_ranges), which must run before the fill."""
         fn = _func(MS_PATH, 'load_settings')
         reconcile_lines = [
             n.lineno
             for n in ast.walk(fn)
             if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
-            and n.func.attr == 'reconcile_channels_to_camera_caps'
+            and n.func.attr == 'sync_camera_capability_ranges'
         ]
         render_lines = [
             n.lineno
@@ -364,10 +366,10 @@ class TestTheReconcileRendersWithoutTouchingTheStore:
             and isinstance(n.func, ast.Attribute)
             and n.func.attr in ('sync_widgets_from_settings', RENDERER)
         ]
-        assert reconcile_lines, 'load_settings must still delegate to the reconcile owner.'
+        assert reconcile_lines, 'load_settings must still run the grouping that reconciles.'
         assert render_lines, 'load_settings must still fill the widgets.'
         assert max(reconcile_lines) < min(render_lines), (
-            'reconcile_channels_to_camera_caps must run BEFORE the widgets are filled; '
+            'sync_camera_capability_ranges must run BEFORE the widgets are filled; '
             f'reconcile at {reconcile_lines}, render at {render_lines}.'
         )
 

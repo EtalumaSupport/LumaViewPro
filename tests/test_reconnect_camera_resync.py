@@ -15,18 +15,18 @@ The fix:
   - The gain and exposure sliders' maxima are the session's answer
     (ScopeSession.channel_slider_maxima, its gain maximum resolved by
     config_helpers.camera_max_gain_for_ui: the camera's cap, or None with
-    none known, where the slider keeps its own), which load_settings and the resync both
-    read through set_channel_gain_ranges and set_channel_exposure_ranges, so
-    the two paths cannot size them two ways.
+    none known, where the slider keeps its own), read through
+    set_channel_gain_ranges and set_channel_exposure_ranges.
   - ImageSettings.sync_camera_capability_ranges groups the per-layer setters
-    (exposure + gain ranges + autogain gate) AND reconcile_channels_to_camera_caps,
-    which re-renders and re-applies each layer the attached camera cannot
-    fully reach. The blackout fix lives on the APPLY -- the API caps what it
-    writes to hardware -- so the stored value is never narrowed; _init_ui
-    (connect) calls that grouping. A scope swap (the auto-reconnect item)
-    re-runs it and re-applies the shown layer (the Session's shown
-    channel), never a hardcoded channel -- its acceptance list lives with
-    that item.
+    (exposure, gain and illumination ranges, the LED, camera and autogain
+    gates) AND reconcile_channels_to_camera_caps, which re-renders each layer
+    the attached camera cannot fully reach. The blackout fix lives on the
+    APPLY -- the API caps what it writes to hardware -- so the stored value is
+    never narrowed. load_settings runs that grouping once at start, before the
+    values are shown, and _init_ui runs none of it, so the start sets each
+    control in one place. A scope swap (the auto-reconnect item) re-runs it
+    and re-applies the shown layer (the Session's shown channel), never a
+    hardcoded channel -- its acceptance list lives with that item.
 
 The UI modules touch Kivy widgets and cannot be imported under the test mocks
 (see test_ids_native_roi_sync_binning), so the wiring is pinned with AST
@@ -88,13 +88,16 @@ class TestCapResolvers:
 
 
 class TestSyncGrouping:
-    """sync_camera_capability_ranges groups all three per-layer setters."""
+    """sync_camera_capability_ranges groups every per-layer setter and the reconcile."""
 
     def test_grouping_calls_all_setters_and_reconcile(self):
         method = _method_node(IMAGE_SETTINGS_PATH, 'sync_camera_capability_ranges')
         for setter in (
             'set_channel_exposure_ranges',
             'set_channel_gain_ranges',
+            'set_channel_illumination_ranges',
+            'set_channel_led_controller_support',
+            'set_camera_controls_support',
             'set_channel_autogain_support',
             'reconcile_channels_to_camera_caps',
         ):
@@ -123,35 +126,51 @@ class TestSyncGrouping:
             'the value sent to the camera, not on the value kept for the user.'
         )
 
-    def test_init_ui_uses_the_grouping(self):
-        method = _method_node(IMAGE_SETTINGS_PATH, '_init_ui')
+
+class TestTheStartSetsTheControlsOnce:
+    """The start sets each layer's camera controls in one place: load_settings.
+
+    load_settings runs the grouping before the values are shown (the guard
+    ``test_load_settings_sets_the_controls_before_anything_renders`` pins the
+    order); _init_ui, a Clock frame later, ran the gain and exposure sizing
+    and the reconcile a second time, so a change to one pass and not the
+    other went unseen.
+    """
+
+    _START_SETTERS = frozenset(
+        {
+            'sync_camera_capability_ranges',
+            'set_channel_exposure_ranges',
+            'set_channel_gain_ranges',
+            'set_channel_illumination_ranges',
+            'set_channel_led_controller_support',
+            'set_camera_controls_support',
+            'set_channel_autogain_support',
+            'reconcile_channels_to_camera_caps',
+        }
+    )
+
+    def test_load_settings_runs_the_grouping(self):
+        method = _method_node(MS_PATH, 'load_settings')
         assert _attr_calls(method, 'sync_camera_capability_ranges'), (
-            'ImageSettings._init_ui must resync via sync_camera_capability_ranges.'
+            'load_settings must set the controls through sync_camera_capability_ranges.'
         )
 
+    def test_init_ui_sets_none_of_them(self):
+        method = _method_node(IMAGE_SETTINGS_PATH, '_init_ui')
+        called = {
+            n.func.attr
+            for n in ast.walk(method)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        }
+        assert not called & self._START_SETTERS, (
+            'ImageSettings._init_ui must not set the camera controls a second time; '
+            f'it calls {sorted(called & self._START_SETTERS)}.'
+        )
 
-class TestLoadSettingsResync:
-    """load_settings resolves the caps and the reconcile through the shared owners."""
-
-    def test_load_settings_uses_the_cap_resolvers(self):
-        # The de-fragmentation: load_settings resolves caps through the same
-        # helpers, not its own inline `or DEFAULT`.
+    def test_load_settings_writes_no_stored_gain_or_exposure(self):
+        # The store is the user's intent and no load path narrows it.
         method = _method_node(MS_PATH, 'load_settings')
-        assert _attr_calls(method, 'set_channel_exposure_ranges'), (
-            'load_settings must size the exposure sliders via set_channel_exposure_ranges.'
-        )
-        assert _attr_calls(method, 'set_channel_gain_ranges'), (
-            'load_settings must size the gain sliders via set_channel_gain_ranges, '
-            "the session's answer."
-        )
-
-    def test_load_settings_delegates_the_reconcile_not_inline(self):
-        # De-dup: load_settings reconciles an unreachable stored value via the
-        # single reconcile_channels_to_camera_caps owner, never inline.
-        method = _method_node(MS_PATH, 'load_settings')
-        assert _attr_calls(method, 'reconcile_channels_to_camera_caps'), (
-            'load_settings must delegate to reconcile_channels_to_camera_caps.'
-        )
         inline = [
             t
             for node in ast.walk(method)
@@ -171,36 +190,37 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
     """The app's own bound-application must not read back as a user drag.
 
     Narrowing a slider's max makes Kivy clamp its value, which fires on_value
-    into ChannelControl's handler. By the time sync_camera_capability_ranges
-    runs, load_settings has already cleared the per-layer _initializing flag
-    (it clears it in sync_widgets_from_settings' finally), so the handler is
-    live: it rewrote settings[layer][...] with the bound and emitted a SLIDER
-    record crediting the user. Measured in the simulator with nobody touching
-    the app -- a stored BF illumination of 500 became 50 in current.json, and
-    a stored DF exposure of 500 became 200, each with a matching SLIDER line.
+    into ChannelControl's handler. Unguarded, the handler rewrote
+    settings[layer][...] with the bound and emitted a SLIDER record crediting
+    the user. Measured in the simulator with nobody touching the app -- a
+    stored BF illumination of 500 became 50 in current.json, and a stored DF
+    exposure of 500 became 200, each with a matching SLIDER line.
 
-    reconcile_channels_to_camera_caps must stay outside the flag: it delivers to
-    the camera through each layer's apply_settings, and that apply returns
-    early on exactly this flag -- inside, it would push nothing.
+    The grouping marks every layer initializing around its setters and
+    restores each flag as it found it: load_settings runs it while the layers
+    are still initializing from their construction, and clearing the flag
+    there would end that guard before the values are shown. The reconcile
+    runs after the setters, once every slider carries its maximum.
     """
 
     def _sync_method(self):
         return _method_node(IMAGE_SETTINGS_PATH, 'sync_camera_capability_ranges')
 
-    def test_setters_run_under_the_initializing_flag(self):
-        method = self._sync_method()
-        try_nodes = [n for n in ast.walk(method) if isinstance(n, ast.Try)]
-        assert try_nodes, (
-            'sync_camera_capability_ranges must run its setters inside try/finally '
-            'so the _initializing flag is cleared even if a setter raises.'
+    def _the_try(self):
+        try_nodes = [n for n in ast.walk(self._sync_method()) if isinstance(n, ast.Try)]
+        assert len(try_nodes) == 1, (
+            'sync_camera_capability_ranges must run its setters inside one try/finally '
+            'so the _initializing flag is restored even if a setter raises.'
         )
+        return try_nodes[0]
+
+    def test_setters_run_under_the_initializing_flag(self):
         guarded = {
             n.func.attr
-            for try_node in try_nodes
-            for n in ast.walk(try_node)
+            for n in ast.walk(self._the_try())
             if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
-            and n.func.attr.startswith('set_channel_')
+            and n.func.attr.startswith('set_')
         }
         for setter in (
             'set_channel_exposure_ranges',
@@ -213,46 +233,43 @@ class TestCapabilitySyncDoesNotImpersonateTheUser:
                 'the Kivy max-clamp reaches the layer handler and is recorded as a drag.'
             )
 
-    def test_the_flag_is_set_and_cleared(self):
-        method = self._sync_method()
+    def test_the_flag_is_set_and_restored_as_found(self):
         writes = [
             n
-            for n in ast.walk(method)
+            for n in ast.walk(self._sync_method())
             if isinstance(n, ast.Assign)
             for t in n.targets
             if isinstance(t, ast.Attribute) and t.attr == '_initializing'
         ]
-        values = {n.value.value for n in writes if isinstance(n.value, ast.Constant)}
-        assert values == {True, False}, (
-            'sync_camera_capability_ranges must both set and clear _initializing; '
-            f'found {values or "no writes"}.'
+        assert any(isinstance(n.value, ast.Constant) and n.value.value is True for n in writes), (
+            'sync_camera_capability_ranges must mark every layer initializing.'
         )
-        finallys = [n for n in ast.walk(method) if isinstance(n, ast.Try) and n.finalbody]
-        cleared_in_finally = any(
-            isinstance(n, ast.Assign)
-            and isinstance(n.value, ast.Constant)
-            and n.value.value is False
-            for try_node in finallys
-            for stmt in try_node.finalbody
+        restores = [
+            n
+            for stmt in self._the_try().finalbody
             for n in ast.walk(stmt)
+            if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Attribute) and t.attr == '_initializing' for t in n.targets)
+        ]
+        assert restores, 'The flag must be put back in the finally, not on the happy path.'
+        assert not [n for n in restores if isinstance(n.value, ast.Constant)], (
+            'The finally must restore each flag as it was found, not set a constant: '
+            'under load_settings the layers are still initializing from construction.'
         )
-        assert cleared_in_finally, 'The flag must be cleared in a finally, not on the happy path.'
 
-    def test_the_reconcile_stays_outside_the_guard(self):
-        method = self._sync_method()
-        in_try = any(
-            isinstance(n, ast.Call)
+    def test_the_reconcile_runs_after_the_setters(self):
+        the_try = self._the_try()
+        reconciles = [
+            n
+            for n in ast.walk(self._sync_method())
+            if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
             and n.func.attr == 'reconcile_channels_to_camera_caps'
-            for try_node in [x for x in ast.walk(method) if isinstance(x, ast.Try)]
-            for n in ast.walk(try_node)
-        )
-        assert not in_try, (
-            'reconcile_channels_to_camera_caps must stay OUTSIDE the _initializing guard '
-            '-- apply_settings returns early on that flag, so inside it pushes nothing.'
-        )
-        assert _attr_calls(method, 'reconcile_channels_to_camera_caps'), (
-            'sync_camera_capability_ranges must still run the reconcile.'
+        ]
+        assert reconciles, 'sync_camera_capability_ranges must still run the reconcile.'
+        assert all(n.lineno > the_try.end_lineno for n in reconciles), (
+            'reconcile_channels_to_camera_caps must run after the setters, once every '
+            'slider carries its maximum.'
         )
 
 

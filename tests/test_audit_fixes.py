@@ -5680,35 +5680,6 @@ class TestManualVideoSpinners:
         )
 
 
-class TestBfIlluminationCapAtStartup:
-    """Transmitted-layer slider caps (BF / PC / DF -> 50 mA) are applied at
-    startup by the same per-layer capability grouping that sizes the gain
-    and exposure sliders, which `_init_ui` runs on the first Clock tick --
-    before `complete_initialization` (scheduled at 0.3 s) applies the
-    default BF layer. The .kv ships ill_slider at max=500 as the
-    pre-connect placeholder; the setter is the one owner.
-    """
-
-    def _src(self):
-        import pathlib
-
-        return pathlib.Path('ui/image_settings.py').read_text(encoding='utf-8')
-
-    def test_the_capability_grouping_sets_the_illumination_ranges(self):
-        src = self._src()
-        idx = src.find('def sync_camera_capability_ranges')
-        assert idx >= 0
-        body = src[idx : src.find('\n    def ', idx + 1)]
-        assert 'self.set_channel_illumination_ranges()' in body
-
-    def test_init_ui_runs_the_grouping(self):
-        src = self._src()
-        idx = src.find('def _init_ui')
-        assert idx >= 0
-        body = src[idx : src.find('\n    def ', idx + 1)]
-        assert 'self.sync_camera_capability_ranges()' in body
-
-
 class TestModSliderScrollWheel:
     """ModSlider must accept mouse-wheel events to adjust value by
     step. Default Kivy Slider ignores scroll, so users could only

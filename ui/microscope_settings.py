@@ -238,21 +238,16 @@ class MicroscopeSettings(BoxLayout):
         # owner (which forces it off on unsupported firmware).
         self.apply_stimulation_support()
 
-        # Size the sliders to the camera caps BEFORE the values land (the
-        # Kivy slider clamps the displayed value to its max). A stored value
-        # above the cap stays in the store and is pinned on the slider; the
-        # box keeps the real number.
-        ctx.image_settings.set_channel_gain_ranges()
-        ctx.image_settings.set_channel_exposure_ranges()
-
-        # Render and re-apply any channel the camera cannot fully reach --
-        # the single owner, shared with the capability resync. Ordering:
-        # this runs BEFORE the widgets are filled, so the pinned slider and
-        # the stored value agree the first time they are drawn. Its
-        # explicit apply is a no-op here (the channels are still initializing
-        # from construction); the startup push to the camera is bring-up's
+        # Set every channel's camera controls BEFORE the values land: the
+        # sliders sized to the session's maxima (the Kivy slider clamps the
+        # displayed value to its max), the camera, LED and auto-gain gates,
+        # and each channel the camera cannot fully reach rendered, so the
+        # pinned slider and the stored value agree the first time they are
+        # drawn. A stored value above the cap stays in the store and is
+        # pinned on the slider; the box keeps the real number. Nothing goes
+        # to the camera here: the startup push is bring-up's
         # (ScopeSession.create's bring-up applies BF).
-        ctx.image_settings.reconcile_channels_to_camera_caps()
+        ctx.image_settings.sync_camera_capability_ranges()
 
         for channel in common_utils.get_channels():
             ctx.image_settings.channel_control_lookup(channel=channel).sync_widgets_from_settings()
