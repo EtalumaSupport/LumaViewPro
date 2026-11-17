@@ -1181,7 +1181,26 @@ def system_cpu_percent() -> float | None:
     _system_cpu_last['times'] = now
     if last is None:
         return None
-    deltas = {field: max(0.0, getattr(now, field) - getattr(last, field)) for field in now._fields}
+    return cpu_busy_percent(last, now)
+
+
+def cpu_busy_percent(before: NamedTuple, after: NamedTuple) -> float | None:
+    """The whole host's CPU busy between two ``psutil.cpu_times()`` readings, in percent.
+
+    Computed as psutil's ``cpu_percent`` computes it: each field's delta
+    floored at zero, the guest fields left out of the total and iowait
+    counted idle where the host has it.
+
+    Args:
+        before: The earlier reading.
+        after: The later reading, of the same host.
+
+    Returns:
+        The percent; None where no CPU time passed between the two.
+    """
+    deltas = {
+        field: max(0.0, getattr(after, field) - getattr(before, field)) for field in after._fields
+    }
     total = sum(v for field, v in deltas.items() if field not in _GUEST_CPU_FIELDS)
     if total <= 0.0:
         return None

@@ -32,3 +32,32 @@ def test_the_system_cpu_baseline_is_kept_whatever_thread_reads_it(monkeypatch):
         reader.start()
         reader.join()
     assert readings == [None, 12.3]
+
+
+_LinuxCpuTimes = namedtuple('_LinuxCpuTimes', 'user nice system idle iowait guest guest_nice')
+
+
+def test_the_busy_percent_of_two_readings_is_their_busy_share():
+    before = _CpuTimes(100.0, 0.0, 50.0, 850.0)
+    after = _CpuTimes(200.0, 0.0, 73.0, 1727.0)
+    assert round(common_utils.cpu_busy_percent(before, after), 1) == 12.3
+
+
+def test_a_field_that_ran_backwards_counts_as_no_time():
+    # Each field's own delta is floored at zero, as psutil floors it: a
+    # counter read lower than before adds nothing, busy or idle.
+    before = _CpuTimes(100.0, 5.0, 50.0, 850.0)
+    after = _CpuTimes(150.0, 0.0, 50.0, 900.0)
+    assert common_utils.cpu_busy_percent(before, after) == 50.0
+
+
+def test_guest_time_is_left_out_and_iowait_is_idle():
+    # Linux counts guest time inside user already, and iowait as idle.
+    before = _LinuxCpuTimes(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    after = _LinuxCpuTimes(30.0, 0.0, 10.0, 40.0, 20.0, 30.0, 5.0)
+    assert common_utils.cpu_busy_percent(before, after) == 40.0
+
+
+def test_two_readings_with_no_time_between_have_no_busy_percent():
+    times = _CpuTimes(100.0, 0.0, 50.0, 850.0)
+    assert common_utils.cpu_busy_percent(times, times) is None
