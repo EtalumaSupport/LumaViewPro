@@ -2016,8 +2016,8 @@ class CameraAPI:
                 neither time, and ``'camera_read_failed'`` for one not sent
                 because a read it needs failed, the camera keeping its
                 previous value.
-            CameraSettingUnsupportedError: Turning auto-gain on for a camera
-                without it.
+            CameraSettingUnsupportedError: ``'auto_gain_unsupported'``,
+                turning auto-gain on for a camera without it.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, for turning auto-gain on with no camera connected or
                 one removed during the write; turning it off is satisfied
@@ -2065,8 +2065,9 @@ class CameraAPI:
                 hardware auto-gain never had, nor with no camera active.
 
         Raises:
-            CameraSettingUnsupportedError: Turning auto-gain on for a camera
-                without it. Nothing reaches the camera.
+            CameraSettingUnsupportedError: ``'auto_gain_unsupported'``,
+                turning auto-gain on for a camera without it. Nothing
+                reaches the camera.
             CameraSettingRejected: The write did not apply (``_camera_write``).
                 Its reason is ``'camera_rejected'`` for a refusal,
                 ``'camera_no_answer'`` for a write the camera answered
@@ -2432,8 +2433,8 @@ class CameraAPI:
                 neither time, and ``'camera_read_failed'`` for one not sent
                 because a read it needs failed, the camera keeping its
                 previous value.
-            CameraSettingUnsupportedError: Turning auto-exposure on for a
-                camera without it.
+            CameraSettingUnsupportedError: ``'auto_exposure_unsupported'``,
+                turning auto-exposure on for a camera without it.
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, for turning auto-exposure on with no camera connected
                 or one removed during the write; turning it off is satisfied
@@ -2459,8 +2460,9 @@ class CameraAPI:
                 refused any other.
 
         Raises:
-            CameraSettingUnsupportedError: Turning auto-exposure on for a
-                camera without it. Nothing reaches the camera.
+            CameraSettingUnsupportedError: ``'auto_exposure_unsupported'``,
+                turning auto-exposure on for a camera without it. Nothing
+                reaches the camera.
             CameraSettingRejected: The write did not apply
                 (``_camera_write``); the cache is not resynced.
                 Its reason is ``'camera_rejected'`` for a refusal,
@@ -3430,9 +3432,10 @@ class CameraAPI:
         Raises:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera, with none connected or one removed during the write.
-            CameraSettingUnsupportedError: This camera has no black level
-                setting (``capabilities.camera_supports_black_level`` is
-                False). Nothing reached the camera.
+            CameraSettingUnsupportedError: ``'black_level_unsupported'``,
+                this camera has no black level setting
+                (``capabilities.camera_supports_black_level`` is False).
+                Nothing reached the camera.
             ArgumentRefusedError: ``'not_a_number'``, ``level`` is not a
                 finite number; ``'wrong_kind'``, it is below 0. Nothing was
                 sent to the camera.

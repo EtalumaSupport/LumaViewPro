@@ -730,7 +730,7 @@ class SimulationAPI:
                 scope with no motor board; ``'not_injectable_on_board'`` on
                 the fast motor board, which runs no firmware to fail a home;
                 ``'argument_not_on_board'`` for a ``how`` the TMCM-6110
-                cannot show (it has ``'switch_never_trips'``).
+                cannot show (it has ``how='switch_never_trips'``).
         """
         self._refuse_unless_simulated('fail_home')
         target = self._board('fail_home', Board.MOTOR)

@@ -64,34 +64,29 @@ _CODE_TOKEN = re.compile(r"``'?([a-z][a-z0-9_]*)'?``")
 # The section of a member that raises nothing a caller handles.
 _NOTHING = '    Nothing.'
 
-# Refusal entries that do not yet say which reason; finished after W0
-# (NEXT_PRIMARY). A pair leaves this set when its entry names its reason.
+# The run starters' refusals, which state the whole class. What a run is
+# refused for is what SequencedCaptureRunner.prepare() checks, most of the
+# class for every kind of run, and it changes as prepare() does; a list of
+# reasons here would be a copy of prepare() that nothing holds to it, and
+# the first check added or removed there would publish a wrong list. An
+# entry that quotes none is published as every reason of its class, which
+# is never wrong. The set only shrinks: a pair leaves it when its entry
+# names its reasons from a source that cannot drift from prepare().
 _REASON_UNNAMED_PINNED = frozenset(
     {
-        ('DiagnosticsAPI.exit_led_engineering_mode', 'HardwareCommandRefusedError'),
-        ('CameraAPI.set_auto_exposure', 'CameraSettingUnsupportedError'),
-        ('CameraAPI.set_auto_gain', 'CameraSettingUnsupportedError'),
-        ('CameraAPI.set_black_level', 'CameraSettingUnsupportedError'),
-        ('ManualRecordingController.start', 'ObjectiveUnknownError'),
-        ('MotionAPI.jog_step_um', 'ObjectiveUnknownError'),
         ('ProtocolRunner.start_autofocus', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.start_autofocus_all_steps', 'ProtocolRunRefusedError'),
-        ('ProtocolRunner.run_composite', 'ProtocolRunRefusedError'),
-        # Each run_ waiting form refuses as its start does, and names its
-        # reasons when its start does.
+        ('ProtocolRunner.start_composite', 'ProtocolRunRefusedError'),
+        ('ProtocolRunner.start_protocol', 'ProtocolRunRefusedError'),
+        ('ProtocolRunner.start_single_scan', 'ProtocolRunRefusedError'),
+        ('ProtocolRunner.start_zstack', 'ProtocolRunRefusedError'),
+        # Each run_ waiting form refuses as its start does.
         ('ProtocolRunner.run_autofocus', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.run_autofocus_all_steps', 'ProtocolRunRefusedError'),
+        ('ProtocolRunner.run_composite', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.run_protocol', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.run_single_scan', 'ProtocolRunRefusedError'),
         ('ProtocolRunner.run_zstack', 'ProtocolRunRefusedError'),
-        ('ProtocolRunner.start_protocol', 'ProtocolRunRefusedError'),
-        ('ProtocolRunner.start_single_scan', 'ProtocolRunRefusedError'),
-        ('ProtocolRunner.start_zstack', 'ObjectiveUnknownError'),
-        ('ProtocolRunner.start_zstack', 'ProtocolRunRefusedError'),
-        ('ProtocolRunner.start_composite', 'ProtocolRunRefusedError'),
-        ('ScopeSession.apply_tiling', 'ProtocolRunRefusedError'),
-        ('ScopeSession.run_application_session', 'HardwareCommandRefusedError'),
-        ('ScopeSession.start_go_to_step', 'ProtocolRunRefusedError'),
     }
 )
 
@@ -154,6 +149,72 @@ def _unread_reasons(sections) -> list[str]:
     return found
 
 
+def _own_reasons(name: str) -> frozenset[str]:
+    """The reasons the class *name* can carry, its ``causes``; none for a class outside the root or without a table."""
+    return frozenset(getattr(_ROOT.get(name), 'causes', {}))
+
+
+def _foreign_reasons(sections) -> list[str]:
+    """Each quoted reason that is not its entry's class's own, which the description publishes as the class's."""
+    found = []
+    for member, section in sections:
+        for name, words in _ENTRY.findall(section or ''):
+            own = _own_reasons(name)
+            foreign = sorted({a or b for a, b in _QUOTED_REASON.findall(words)} - own)
+            if own and foreign:
+                found.append(f'{member}: {name} {foreign}')
+    return found
+
+
+def _doc(entry: Marked) -> str:
+    return inspect.getdoc(_function_of(entry.value)) or ''
+
+
+def _published(doc: str) -> dict[str, frozenset[str]]:
+    """Each class *doc*'s section names, with the reasons published for it: those its entries quote, or every reason of the class when an entry quotes none."""
+    published = {}
+    for name, quoted in raises_of(doc):
+        reasons = frozenset(quoted) if quoted else _own_reasons(name)
+        published[name] = published.get(name, frozenset()) | reasons
+    return published
+
+
+def _waiting_pairs(marked: dict[str, Marked]) -> list[tuple[str, str]]:
+    """``(waiting form, start)`` for every ``start_X`` with a waiting form ``X`` or ``run_X`` on its class.
+
+    A waiting form starts as its start does and waits, so it raises what
+    its start raises. A start whose body calls the bare form hands that
+    form to a lane as the operation's work: the start raises only what
+    refuses the hand-off, the bare form's raises reach the operation, and
+    neither section covers the other, so that pair is not one.
+    """
+    pairs = []
+    for name, entry in sorted(marked.items()):
+        owner, _, member = name.rpartition('.')
+        if entry.field or not member.startswith('start_'):
+            continue
+        bare = member.removeprefix('start_')
+        if re.search(rf'\bself\.{bare}\b', inspect.getsource(_function_of(entry.value))):
+            continue
+        pairs.extend(
+            (waiting, name)
+            for waiting in (f'{owner}.run_{bare}', f'{owner}.{bare}')
+            if waiting in marked and not marked[waiting].field
+        )
+    return pairs
+
+
+def _uncovered(marked: dict[str, Marked]) -> list[str]:
+    found = []
+    for waiting, start in _waiting_pairs(marked):
+        has = _published(_doc(marked[waiting]))
+        for name, reasons in _published(_doc(marked[start])).items():
+            lacking = 'the class' if name not in has else sorted(reasons - has[name])
+            if lacking:
+                found.append(f'{waiting} lacks what {start} raises: {name} {lacking}')
+    return found
+
+
 def test_every_section_is_a_list_of_entries():
     prose = _prose(_sections())
     assert prose == [], 'indent it under its entry, or make it one:\n' + '\n'.join(prose)
@@ -209,6 +270,27 @@ def test_every_reason_is_quoted_as_it_is_read():
     assert unread == [], "quote each as 'not_connected':\n" + '\n'.join(unread)
 
 
+def test_every_quoted_reason_is_its_class_own():
+    foreign = _foreign_reasons(_sections())
+    assert foreign == [], (
+        "a quoted name is published as the entry's class's reason; give it its own "
+        'entry, or write it unquoted:\n' + '\n'.join(foreign)
+    )
+
+
+def test_a_waiting_form_names_what_its_start_raises():
+    marked = {name: entry for name, entry in marked_set().items() if not entry.field}
+    pairs = _waiting_pairs(marked)
+    assert ('ProtocolRunner.run_zstack', 'ProtocolRunner.start_zstack') in pairs, (
+        'the walk lost the run_ forms'
+    )
+    assert ('ScopeSession.go_to_step', 'ScopeSession.start_go_to_step') in pairs, (
+        'the walk lost the bare waiting forms'
+    )
+    uncovered = _uncovered(marked)
+    assert uncovered == [], 'name in the first what the second raises:\n' + '\n'.join(uncovered)
+
+
 class _Planted:
     """Marked members the checks above must tell apart."""
 
@@ -251,6 +333,64 @@ class _Planted:
                 slot asked.
         """
 
+    @api(reads=True)
+    def a_foreign_reason(self) -> None:
+        """Quotes, under one class, a reason of another.
+
+        Raises:
+            MoveFaultError: ``'stalled'``, the motor stalled; a park refused
+                first is ``'monitor_ended'``.
+        """
+
+    @api(reads=True)
+    def start_drift(self) -> None:
+        """A start whose waiting form has drifted from it.
+
+        Raises:
+            ObjectiveUnknownError: ``'none_selected'``, no objective is chosen.
+        """
+
+    @api(reads=True)
+    def run_drift(self) -> None:
+        """Waits for ``start_drift`` and says less than it.
+
+        Raises:
+            Nothing.
+        """
+
+    @api(reads=True)
+    def start_whole(self) -> None:
+        """A start quoting one reason.
+
+        Raises:
+            ObjectiveUnknownError: ``'none_selected'``, no objective is chosen.
+        """
+
+    @api(reads=True)
+    def run_whole(self) -> None:
+        """Waits for ``start_whole``, stating the whole class, which covers it.
+
+        Raises:
+            ObjectiveUnknownError: no objective is known.
+        """
+
+    @api(reads=True)
+    def start_handing(self) -> None:
+        """Hands its bare form to a lane, whose raises reach the operation, not this call.
+
+        Raises:
+            Nothing.
+        """
+        return self.handing()
+
+    @api(reads=True)
+    def handing(self) -> None:
+        """The work ``start_handing`` puts on a lane.
+
+        Raises:
+            ObjectiveUnknownError: ``'slot_unknown'``, the turret is lost.
+        """
+
 
 def test_the_checks_name_what_they_refuse():
     planted = list(_sections(marked_members({'_Planted': _Planted})))
@@ -263,4 +403,15 @@ def test_the_checks_name_what_they_refuse():
     ]
     assert _unread_reasons(planted) == [
         "_Planted.unread_and_read: ObjectiveUnknownError ['none_selected']"
+    ]
+    assert _foreign_reasons(planted) == [
+        "_Planted.a_foreign_reason: MoveFaultError ['monitor_ended']"
+    ]
+    planted_marked = marked_members({'_Planted': _Planted})
+    assert _waiting_pairs(planted_marked) == [
+        ('_Planted.run_drift', '_Planted.start_drift'),
+        ('_Planted.run_whole', '_Planted.start_whole'),
+    ]
+    assert _uncovered(planted_marked) == [
+        '_Planted.run_drift lacks what _Planted.start_drift raises: ObjectiveUnknownError the class'
     ]

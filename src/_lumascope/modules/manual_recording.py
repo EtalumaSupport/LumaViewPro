@@ -372,7 +372,11 @@ class ManualRecordingController:
                 else holds the control session. Nothing is committed.
             ObjectiveUnknownError: No one can say which objective is in the
                 light path, so the recording's frames would carry no scale.
-                Nothing is committed.
+                On a turret scope ``'slot_unknown'``, ``'slot_unassigned'``
+                or ``'not_in_catalogue'``: the slot in the light path is not
+                known, has no objective, or has one the catalogue lacks.
+                Without a turret ``'none_selected'``: no objective has been
+                confirmed. Nothing is committed.
             CameraReadFailedError: The camera did not answer the read of its
                 frame size, or the latch of its clock the recording maps
                 every frame through. Nothing is committed.

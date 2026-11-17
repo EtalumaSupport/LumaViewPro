@@ -1558,7 +1558,10 @@ class DiagnosticsAPI:
         actually transitions out of eng mode.
 
         Raises:
-            HardwareCommandRefusedError: as ``enter_led_engineering_mode``.
+            HardwareCommandRefusedError: ``'not_connected'`` (the LED
+                controller) or ``'not_on_this_scope'`` (a controller without
+                the handshake), as ``enter_led_engineering_mode``. Nothing
+                was sent.
             LedFirmwareWedgedError: ``'led_firmware_wedged'``, Q failed and
                 the board's soft reset did not bring its firmware back; it
                 needs a power cycle.

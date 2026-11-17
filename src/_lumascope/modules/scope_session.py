@@ -3929,11 +3929,15 @@ class ScopeSession:
                 ``'3x3'``.
 
         Raises:
-            ProtocolRunRefusedError: ``tiling`` is not a grid this
-                installation offers, the protocol is already tiled, a step's
-                objective is not in the catalogue, the scope has no X/Y
-                motor, or a tile falls outside the stage's travel. Nothing
-                changes.
+            ProtocolRunRefusedError: ``'tiling_unknown'``, ``tiling`` is not
+                a grid this installation offers; ``'already_tiled'``, the
+                protocol is; ``'step_position_missing'``, a step has no
+                position on an axis the tiles move; ``'objective_not_in_catalogue'``,
+                a step's objective is not in the catalogue;
+                ``'tiling_scale_unknown'``, the optics give no field of view
+                to space the tiles by; ``'positions_unreachable'``, the scope
+                has no X/Y motor; ``'tiles_outside_travel'``, a tile falls
+                outside the stage's travel. Nothing changes.
             CatalogueNameRefusedError: ``'labware_unknown'``, the protocol's plate is
                 not in the catalogue. Nothing changes.
         """
@@ -3992,13 +3996,28 @@ class ScopeSession:
         Both waits run in this caller's thread, so the IO lane takes other
         work meanwhile.
 
-        It raises what ``start_go_to_step`` raises, and the following.
-
         Args:
             protocol: The protocol whose step is gone to.
             step_index: The step gone to, counted from 0.
 
         Raises:
+            StepNotFoundError: as ``start_go_to_step``. Nothing changes.
+            ProtocolRunRefusedError: ``'step_position_missing'``,
+                ``'turret_objectives_unassigned'``, ``'turret_slot_reassigned'``,
+                ``'turret_slot_ambiguous'``, ``'objective_not_mounted'`` or
+                ``'values_out_of_range'``, as ``start_go_to_step``. Nothing
+                changes.
+            ArgumentRefusedError: ``'channel_unknown'`` or
+                ``'gain_range_inverted'``, as ``start_go_to_step``. Nothing
+                changes.
+            HardwareCommandRefusedError: ``'not_on_this_scope'``,
+                ``'not_connected'`` or ``'exclusive_activity_running'``, as
+                ``start_go_to_step``. Nothing changes.
+            ConfigurationDefectError: ``'channels_unresolved'``, as
+                ``start_go_to_step``. Nothing changes.
+            AxisStateUnknownError: as ``start_go_to_step``. Nothing changes.
+            PositionOutOfRangeError: as ``start_go_to_step``; the axes
+                before it have moved, nothing else changes.
             MoveFaultError: ``'driver_failed'``, the board did not take a
                 command; or an axis did not arrive and is UNKNOWN, the motion
                 monitor's ``'stalled'``, ``'board_lost'``,
@@ -4072,8 +4091,14 @@ class ScopeSession:
         Raises:
             StepNotFoundError: ``step_index`` is not a step of ``protocol``.
                 Nothing changes.
-            ProtocolRunRefusedError: this scope cannot put the step's
-                objective in the light path. Nothing changes.
+            ProtocolRunRefusedError: ``'step_position_missing'``, the step
+                has no position on an axis the scope drives. This scope cannot
+                put the step's objective in the light path: on a turret scope
+                ``'turret_objectives_unassigned'``, no slot carries it, or
+                ``'turret_slot_reassigned'`` or ``'turret_slot_ambiguous'``,
+                the slot the step meant is no longer one slot carrying it;
+                without a turret ``'objective_not_mounted'``, it is not the
+                selected objective. Nothing changes.
             ArgumentRefusedError: ``'channel_unknown'``, the step's colour is
                 not a channel. Nothing changes.
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
@@ -4092,11 +4117,11 @@ class ScopeSession:
                 its position. Nothing changes.
             HardwareCommandRefusedError: ``'not_connected'``, this scope's
                 motor controller or camera is not connected, or its LED
-                controller is not and the step's preview would light; or a
-                run, a diagnostic or a home holds the
-                scope, or a manual recording runs and the step's channel is not
-                the shown one or its preview would light an LED not lit above
-                0 mA. Nothing changes.
+                controller is not and the step's preview would light;
+                ``'exclusive_activity_running'``, a run, a diagnostic or a
+                home holds the scope, or a manual recording runs and the
+                step's channel is not the shown one or its preview would
+                light an LED not lit above 0 mA. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
                 the axes before it have moved, nothing else changes.
             MoveFaultError: ``'driver_failed'``, the board did not take an
@@ -7467,7 +7492,11 @@ class ScopeSession:
                 form a worker uses. Still a ``RuntimeError``.
                 ``'wait_on_ui_thread'``, called on the UI thread, whose form
                 is ``start_application_session`` too. Nothing was started.
-            HardwareCommandRefusedError: as ``start_application_session``.
+            HardwareCommandRefusedError: ``'home_in_flight'`` or
+                ``'exclusive_activity_running'``, as
+                ``start_application_session``; nothing was taken.
+                ``'scope_disconnected'``, the scope shut down before or
+                during the startup motion.
         """
         refuse_blocking_on_a_worker('run_application_session')
         refuse_waiting_on_ui_thread('run_application_session')

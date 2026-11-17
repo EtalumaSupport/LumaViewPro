@@ -1666,7 +1666,12 @@ class MotionAPI:
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is not 'X',
                 'Y' or 'Z': the turret has no jog.
             ObjectiveUnknownError: The objective in the light path is
-                unknown; no step is guessed, so nothing should move.
+                unknown; no step is guessed, so nothing should move. On a
+                turret scope ``'slot_unknown'``, ``'slot_unassigned'`` or
+                ``'not_in_catalogue'``: the slot in the light path is not
+                known, has no objective, or has one the catalogue lacks.
+                Without a turret ``'none_selected'``: no objective has been
+                confirmed.
         """
         _, objective = self._scope.runtime_state.resolve_current_objective()
         if axis == StageAxis.Z:
@@ -3876,7 +3881,10 @@ class MotionAPI:
                 has not ended; or ``'lid_open_before_motion'``, the stage's
                 lid is open, and nothing moves. After a home that succeeded,
                 the put-back's move refused before it drove
-                (``'lid_open_before_motion'``, ``'monitor_ended'``).
+                (``'lid_open_before_motion'``, ``'monitor_ended'``). For
+                ``'T'``, the Z park before the turret's home refused before
+                Z moved (``'monitor_ended'``, or an interlock reason), the
+                turret as it was.
             HomingFaultError: the home was driven and did not establish
                 a reference: ``'error'``, the driver raised;
                 ``'board_lost'``, the motor board is no longer connected;
@@ -3891,9 +3899,8 @@ class MotionAPI:
             MoveFaultError: for ``'T'``, the Z park before the turret's home
                 or the Z restore after it failed; the turret keeps its state
                 and slot when it was never driven, else it is UNKNOWN. A
-                park refused before Z moved is a ``HardwareCommandRefusedError``
-                (``'monitor_ended'``, or an interlock reason), the turret as
-                it was. After a home that succeeded, the put-back's turret
+                park refused before Z moved is a ``HardwareCommandRefusedError``,
+                above. After a home that succeeded, the put-back's turret
                 change or Z move did not arrive; every homed axis keeps the
                 position the home established.
             MoveStoppedError: for ``'T'``, a Stop ended the Z park or the Z

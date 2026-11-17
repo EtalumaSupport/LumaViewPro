@@ -886,6 +886,8 @@ class PostProcessingAPI:
                 skipped, never raised.
             PostProcessingFailedError: the build that stopped the call did not
                 produce everything; its ``operation`` names it.
+            SessionClosingError: ``'session_closing'``, the session's close
+                is running or has finished; nothing was started.
         """
         return self._build(
             folder,
@@ -1244,6 +1246,8 @@ class PostProcessingAPI:
                 a file that is not an image Quick Enhance can read; reason
                 ``no_data``, a folder that holds none.
             PostProcessingFailedError: a file could not be enhanced.
+            SessionClosingError: ``'session_closing'``, the session's close
+                is running or has finished; nothing was started.
         """
         return self._enhance_on_lane(
             target, on_progress=on_progress, on_derived_image=on_derived_image, waiter=None
@@ -1526,6 +1530,8 @@ class PostProcessingAPI:
             PostProcessingFailedError: the results or the method could not
                 be written, or some images could not be counted; the results
                 hold every image that was, and the error names the rest.
+            SessionClosingError: ``'session_closing'``, the session's close
+                is running or has finished; nothing was started.
         """
         return self._count_cells_on_lane(
             folder, method=method, channel=channel, on_progress=on_progress, waiter=None

@@ -200,6 +200,16 @@ class ProtocolRunner:
             AxisMovingError: ``'axis_moving'``, an axis is moving, so the
                 position the run is built around is a place it is passing
                 through. Nothing is started.
+            HardwareCommandRefusedError: ``'not_connected'``, the motor
+                controller is not connected, so the position the run is
+                built around cannot be read. Nothing is started.
+            ObjectiveUnknownError: The objective in the light path is
+                unknown, so no frame could say what it was taken with. On a
+                turret scope ``'slot_unknown'``, ``'slot_unassigned'`` or
+                ``'not_in_catalogue'``: the slot in the light path is not
+                known, has no objective, or has one the catalogue lacks.
+                Without a turret ``'none_selected'``: no objective has been
+                confirmed. Nothing is started.
             ProtocolRunRefusedError: Fewer than two channels are set to
                 capture an image, so nothing could be merged; or the
                 runner refused the run itself (already running, files
@@ -308,6 +318,16 @@ class ProtocolRunner:
             ArgumentRefusedError: ``'channel_unknown'``, or
                 ``'no_channel_selected'`` for None; asked before anything
                 is read from the scope.
+            HardwareCommandRefusedError: ``'not_connected'``, the motor
+                controller is not connected, so the position the run is
+                built around cannot be read. Nothing is started.
+            ObjectiveUnknownError: The objective in the light path is
+                unknown, so the focus could not say what it was found with.
+                On a turret scope ``'slot_unknown'``, ``'slot_unassigned'``
+                or ``'not_in_catalogue'``: the slot in the light path is not
+                known, has no objective, or has one the catalogue lacks.
+                Without a turret ``'none_selected'``: no objective has been
+                confirmed. Nothing is started.
             ProtocolRunRefusedError: The runner refused the request
                 (already running, files still writing, hardware not
                 connected); no state was committed.
@@ -473,8 +493,16 @@ class ProtocolRunner:
             ArgumentRefusedError: ``'channel_unknown'``, or
                 ``'no_channel_selected'`` for None; asked before anything
                 is read from the scope.
+            HardwareCommandRefusedError: ``'not_connected'``, the motor
+                controller is not connected, so the position the run is
+                built around cannot be read. Nothing is started.
             ObjectiveUnknownError: The objective in the light path is
-                unknown, so no slice could say what it was taken with.
+                unknown, so no slice could say what it was taken with. On a
+                turret scope ``'slot_unknown'``, ``'slot_unassigned'`` or
+                ``'not_in_catalogue'``: the slot in the light path is not
+                known, has no objective, or has one the catalogue lacks.
+                Without a turret ``'none_selected'``: no objective has been
+                confirmed. Nothing is started.
             ProtocolRunRefusedError: The runner refused the request
                 (already running, files still writing, hardware not
                 connected); no state was committed.
@@ -662,8 +690,16 @@ class ProtocolRunner:
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
-                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
-                started.
+                ``timeout_s`` is not a wait from 0 to 30 days; or
+                ``'channel_unknown'``, or ``'no_channel_selected'`` for
+                None, as ``start_autofocus``. Nothing was started.
+            AxisMovingError: ``'axis_moving'``, as ``start_autofocus``.
+                Nothing was started.
+            HardwareCommandRefusedError: ``'not_connected'``, as
+                ``start_autofocus``. Nothing was started.
+            ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
+                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``start_autofocus``. Nothing was started.
             ProtocolRunRefusedError: As ``start_autofocus``; nothing was started.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
                 UI thread, whose form is ``start_autofocus``. Nothing was started.
@@ -756,8 +792,16 @@ class ProtocolRunner:
 
         Raises:
             ArgumentRefusedError: ``'not_a_number'`` or ``'out_of_range'``,
-                ``timeout_s`` is not a wait from 0 to 30 days. Nothing was
-                started.
+                ``timeout_s`` is not a wait from 0 to 30 days; or
+                ``'channel_unknown'``, or ``'no_channel_selected'`` for
+                None, as ``start_zstack``. Nothing was started.
+            AxisMovingError: ``'axis_moving'``, as ``start_zstack``.
+                Nothing was started.
+            HardwareCommandRefusedError: ``'not_connected'``, as
+                ``start_zstack``. Nothing was started.
+            ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
+                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``start_zstack``. Nothing was started.
             ProtocolRunRefusedError: As ``start_zstack``; nothing was started.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on the
                 UI thread, whose form is ``start_zstack``. Nothing was started.
@@ -847,6 +891,13 @@ class ProtocolRunner:
                 capture an image, so nothing could be merged; or the
                 runner refused the run itself (already running, files
                 still writing, hardware not connected).
+            AxisMovingError: ``'axis_moving'``, as ``start_composite``.
+                Nothing was started.
+            HardwareCommandRefusedError: ``'not_connected'``, as
+                ``start_composite``. Nothing was started.
+            ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
+                ``'not_in_catalogue'`` or ``'none_selected'``, as
+                ``start_composite``. Nothing was started.
             CompositeFailedError: The run finished but produced no composite. The
                 error names the machine-readable reason, so a caller can
                 tell an aborted run from a failed merge.

@@ -605,14 +605,13 @@ overlap, laid out on the protocol's own plate.
 
 **Raises**
 
-- `ProtocolRunRefusedError`: `tiling` is not a grid this installation offers, the protocol is already tiled, a step's objective is not in the catalogue, the scope has no X/Y motor, or a tile falls outside the stage's travel. Nothing changes.
+- `ProtocolRunRefusedError`: `'tiling_unknown'`, `tiling` is not a grid this installation offers; `'already_tiled'`, the protocol is; `'step_position_missing'`, a step has no position on an axis the tiles move; `'objective_not_in_catalogue'`, a step's objective is not in the catalogue; `'tiling_scale_unknown'`, the optics give no field of view to space the tiles by; `'positions_unreachable'`, the scope has no X/Y motor; `'tiles_outside_travel'`, a tile falls outside the stage's travel. Nothing changes.
 - `CatalogueNameRefusedError`: `'labware_unknown'`, the protocol's plate is not in the catalogue. Nothing changes.
 
 **Refusals by REST status**
 
-- 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
-- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`
+- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `tiling_unknown`, `already_tiled`, `step_position_missing`, `objective_not_in_catalogue`, `tiling_scale_unknown`, `positions_unreachable`, `tiles_outside_travel`; [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
 
 <a id="ScopeSession.apply_zstacking"></a>
 ### `ScopeSession.apply_zstacking`
@@ -1523,8 +1522,6 @@ refuses.
 Both waits run in this caller's thread, so the IO lane takes other
 work meanwhile.
 
-It raises what `start_go_to_step` raises, and the following.
-
 **Args**
 
 - `protocol`: The protocol whose step is gone to.
@@ -1532,6 +1529,13 @@ It raises what `start_go_to_step` raises, and the following.
 
 **Raises**
 
+- `StepNotFoundError`: as `start_go_to_step`. Nothing changes.
+- `ProtocolRunRefusedError`: `'step_position_missing'`, `'turret_objectives_unassigned'`, `'turret_slot_reassigned'`, `'turret_slot_ambiguous'`, `'objective_not_mounted'` or `'values_out_of_range'`, as `start_go_to_step`. Nothing changes.
+- `ArgumentRefusedError`: `'channel_unknown'` or `'gain_range_inverted'`, as `start_go_to_step`. Nothing changes.
+- `HardwareCommandRefusedError`: `'not_on_this_scope'`, `'not_connected'` or `'exclusive_activity_running'`, as `start_go_to_step`. Nothing changes.
+- `ConfigurationDefectError`: `'channels_unresolved'`, as `start_go_to_step`. Nothing changes.
+- `AxisStateUnknownError`: as `start_go_to_step`. Nothing changes.
+- `PositionOutOfRangeError`: as `start_go_to_step`; the axes before it have moved, nothing else changes.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first. The channel and the preview are the step's.
 - `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how), raised once the stage has arrived; see `apply_channel_camera`.
@@ -1539,10 +1543,16 @@ It raises what `start_go_to_step` raises, and the following.
 
 **Refusals**
 
+- [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`, `step_position_missing`, `values_out_of_range`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `not_on_this_scope`, `activity_ended`, `not_connected`, `scope_disconnected`
+- [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
 - [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`
-- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `activity_ended`, `scope_disconnected`
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- [`StepNotFoundError`](#StepNotFoundError): `no_such_step`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`
+- [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
 - [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
@@ -2543,11 +2553,11 @@ standard startup orchestration without copy-pasting from the App.
 **Raises**
 
 - `BlockingCallRefusedError`: `'blocking_on_worker'`, called from an executor's worker. The motion runs on the diagnostics worker and waits on the io lane, so a worker waiting for it can be waiting on itself; `start_application_session` is the form a worker uses. Still a `RuntimeError`. `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_application_session` too. Nothing was started.
-- `HardwareCommandRefusedError`: as `start_application_session`.
+- `HardwareCommandRefusedError`: `'home_in_flight'` or `'exclusive_activity_running'`, as `start_application_session`; nothing was taken. `'scope_disconnected'`, the scope shut down before or during the startup motion.
 
 **Refusals**
 
-- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`, `capture_in_flight`, `home_in_flight`, `home_not_stoppable`, `position_unread`, `lid_open_before_motion`, `stage_unpowered_before_motion`, `camera_not_streaming`, `other_led_lit`, `channel_not_shown`, `axis_absent`, `not_on_this_scope`, `activity_ended`, `not_the_activity`, `scope_disconnected`, `monitor_ended`, `not_connected`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `home_in_flight`, `exclusive_activity_running`, `scope_disconnected`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `wait_on_ui_thread`
 
 <a id="ScopeSession.save_all_bookmarks"></a>
@@ -3681,14 +3691,14 @@ it is refused on the UI thread; a click calls it from a worker.
 **Raises**
 
 - `StepNotFoundError`: `step_index` is not a step of `protocol`. Nothing changes.
-- `ProtocolRunRefusedError`: this scope cannot put the step's objective in the light path. Nothing changes.
+- `ProtocolRunRefusedError`: `'step_position_missing'`, the step has no position on an axis the scope drives. This scope cannot put the step's objective in the light path: on a turret scope `'turret_objectives_unassigned'`, no slot carries it, or `'turret_slot_reassigned'` or `'turret_slot_ambiguous'`, the slot the step meant is no longer one slot carrying it; without a turret `'objective_not_mounted'`, it is not the selected objective. Nothing changes.
 - `ArgumentRefusedError`: `'channel_unknown'`, the step's colour is not a channel. Nothing changes.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no channel of the step's colour. Nothing changes.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes. A value past the hardware's limit is stored at the limit and told (`ValueClampedNotice`).
 - `ArgumentRefusedError`: `'gain_range_inverted'`, the step turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
-- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; or a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
+- `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
 - `PositionOutOfRangeError`: the step lies outside an axis's travel; the axes before it have moved, nothing else changes.
 - `MoveFaultError`: `'driver_failed'`, the board did not take an axis's command; or the turret's move to the step's slot did not arrive; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'` or `'superseded'`, the turret's move to the step's slot was ended.
@@ -3697,10 +3707,10 @@ it is refused on the UI thread; a click calls it from a worker.
 
 **Refusals by REST status**
 
-- 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
+- 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_missing`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ScopeSession.start_make_logs_zip"></a>
 ### `ScopeSession.start_make_logs_zip`
@@ -4396,7 +4406,7 @@ The recording's `Operation`: done once its frames, MP4 close and any hyperstack 
 - `RecordingRefusedError`: The start cannot proceed, and nothing is committed: `'recording_active'`, a previous recording is still recording, draining or finishing; `'exclusive_activity_running'`, another exclusive activity is running; `'post_processing_running'`, a build is on the post-processing lane; `'falsifying_change_in_flight'`, a turret, frame or light change is under way; `'other_led_lit'`, an LED other than the shown channel's is lit; `'camera_holds_another_channel'`, the camera holds another channel's settings than the shown one's; `'camera_exposure_unknown'`, the camera has no known exposure; `'changes_not_in_force'`, a change the scope recorded did not come into force within a capture's limit, whether the feed is dead or the change never settles; `'capture_location_unusable'`, the save location cannot be used; `'names_exhausted'`, the recording's name and every numbered variant are taken there; `'insufficient_disk'`, free disk is below the floor.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown. Nothing is committed.
 - `ControlSessionRefusedError`: `'control_session_held'`, someone else holds the control session. Nothing is committed.
-- `ObjectiveUnknownError`: No one can say which objective is in the light path, so the recording's frames would carry no scale. Nothing is committed.
+- `ObjectiveUnknownError`: No one can say which objective is in the light path, so the recording's frames would carry no scale. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'`: the slot in the light path is not known, has no objective, or has one the catalogue lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is committed.
 - `CameraReadFailedError`: The camera did not answer the read of its frame size, or the latch of its clock the recording maps every frame through. Nothing is committed.
 
 **Refusals by REST status**
@@ -4495,12 +4505,14 @@ the members one by one.
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *folder*; `'not_a_folder'`, a file is.
 - `PostProcessingRefusedError`: `'invalid_setting'`, no build is chosen, or a chosen build's setting is one its own member refuses, before anything is queued; or the refusal of the build that stopped the call, its `operation` naming it: `'protocol_data_unreadable'`, `'no_images'`, `'unsupported_source_format'`, `'output_outside_folder'`, `'collision'`, `'excluded_inputs'` or `'names_exhausted'`. A build with nothing to do is skipped, never raised.
 - `PostProcessingFailedError`: the build that stopped the call did not produce everything; its `operation` names it.
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
 
 **Refusals**
 
 - [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `invalid_setting`, `protocol_data_unreadable`, `no_images`, `unsupported_source_format`, `output_outside_folder`, `collision`, `excluded_inputs`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
+- [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="PostProcessingAPI.cell_count_size_scale"></a>
 ### `PostProcessingAPI.cell_count_size_scale`
@@ -4582,6 +4594,7 @@ The results table, the method file, how many images were counted, each image lef
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *folder*; `'not_a_folder'`, a file is.
 - `PostProcessingRefusedError`: reason `method_invalid`, a *method* sent as its fields holds what `CellCountMethod` refuses; `'protocol_data_unreadable'`, the run's record, its protocol or its post-processing record cannot be read, or the protocol is gone; `'names_exhausted'`, every numbered name for the results is taken; or the folder has nothing to count (reason `no_data`).
 - `PostProcessingFailedError`: the results or the method could not be written, or some images could not be counted; the results hold every image that was, and the error names the rest.
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
 
 **Refusals**
 
@@ -4589,6 +4602,7 @@ The results table, the method file, how many images were counted, each image lef
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
+- [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="PostProcessingAPI.default_cell_count_method"></a>
 ### `PostProcessingAPI.default_cell_count_method`
@@ -4692,12 +4706,14 @@ Each derived file, the folder they are in, and the outcome in words.
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *target*.
 - `PostProcessingRefusedError`: reason `unreadable`, *target* is a file that is not an image Quick Enhance can read; reason `no_data`, a folder that holds none.
 - `PostProcessingFailedError`: a file could not be enhanced.
+- `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
 
 **Refusals**
 
 - [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`, `unreadable`, `no_data`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
+- [`SessionClosingError`](#SessionClosingError): `session_closing`
 
 <a id="PostProcessingAPI.graph"></a>
 ### `PostProcessingAPI.graph`
@@ -6217,13 +6233,13 @@ never had, with nothing written.
 
 - `ArgumentRefusedError`: `'not_offered'`, for any other `mode`: a one-shot is `auto_gain_once`'s. Nothing is sent.
 - `CameraSettingRejected`: The camera refused the change; nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
-- `CameraSettingUnsupportedError`: Turning auto-exposure on for a camera without it.
+- `CameraSettingUnsupportedError`: `'auto_exposure_unsupported'`, turning auto-exposure on for a camera without it.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, for turning auto-exposure on with no camera connected or one removed during the write; turning it off is satisfied either way.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_exposure_unsupported`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6262,14 +6278,14 @@ that channel uses, is `ScopeSession.set_channel_settings`' `auto_gain`.
 **Raises**
 
 - `CameraSettingRejected`: The camera refused the change. Nothing was recorded, and nothing is shown here. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
-- `CameraSettingUnsupportedError`: Turning auto-gain on for a camera without it.
+- `CameraSettingUnsupportedError`: `'auto_gain_unsupported'`, turning auto-gain on for a camera without it.
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, for turning auto-gain on with no camera connected or one removed during the write; turning it off is satisfied either way.
 - `ArgumentRefusedError`: `'missing_key'`, `settings` lacks a key the write reads; `'wrong_kind'` or `'not_a_number'`, it or one of its values is not of the kind read; `'key_unknown'`, it holds a key the write does not take; `'gain_range_inverted'`, its minimum gain is above its maximum.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `wrong_kind`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `missing_key`, `wrong_kind`, `not_a_number`, `key_unknown`, `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -6346,14 +6362,14 @@ float | None: The black level now in effect, which differs from the request when
 **Raises**
 
 - `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected or one removed during the write.
-- `CameraSettingUnsupportedError`: This camera has no black level setting (`capabilities.camera_supports_black_level` is False). Nothing reached the camera.
+- `CameraSettingUnsupportedError`: `'black_level_unsupported'`, this camera has no black level setting (`capabilities.camera_supports_black_level` is False). Nothing reached the camera.
 - `ArgumentRefusedError`: `'not_a_number'`, `level` is not a finite number; `'wrong_kind'`, it is below 0. Nothing was sent to the camera.
 - `CameraSettingRejected`: The camera refused it, as a camera holding its black level automatically does, or raised from the write (chained). Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `auto_gain_unsupported`, `auto_exposure_unsupported`, `binning_unsupported`, `black_level_unsupported`, `conversion_gain_mode_unsupported`, `line_noise_reduction_unsupported`, `camera_node_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`CameraSettingUnsupportedError`](#CameraSettingUnsupportedError): `black_level_unsupported`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -7730,11 +7746,11 @@ answering; either ends it in `HomingFaultError`.
 
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread; nothing was started (`start_home` is the form for a button).
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is not `'Z'`, `'T'` or `'ALL'`; nothing was asked of the scope.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller, or no Z or turret to home (see `refuse_absent`); `'exclusive_activity_running'`, a run, a diagnostic or a recording holds the scope; `'home_in_flight'`, a home asked earlier, by any caller, has not ended; or `'lid_open_before_motion'`, the stage's lid is open, and nothing moves. After a home that succeeded, the put-back's move refused before it drove (`'lid_open_before_motion'`, `'monitor_ended'`).
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller, or no Z or turret to home (see `refuse_absent`); `'exclusive_activity_running'`, a run, a diagnostic or a recording holds the scope; `'home_in_flight'`, a home asked earlier, by any caller, has not ended; or `'lid_open_before_motion'`, the stage's lid is open, and nothing moves. After a home that succeeded, the put-back's move refused before it drove (`'lid_open_before_motion'`, `'monitor_ended'`). For `'T'`, the Z park before the turret's home refused before Z moved (`'monitor_ended'`, or an interlock reason), the turret as it was.
 - `HomingFaultError`: the home was driven and did not establish a reference: `'error'`, the driver raised; `'board_lost'`, the motor board is no longer connected; `'unread'`, a homed axis's position could not be read; `'lid_open'` or `'stage_unpowered'`, an interlock opened while the home moved. The axes it names are UNKNOWN.
 - `HomingStoppedError`: a Stop ended the home. The axes it names are UNKNOWN; none, when the Stop landed before the home was driven.
 - `AxisStateUnknownError`: for `'T'`, an axis of the scope has no known position; nothing was driven. `'ALL'` recovers it.
-- `MoveFaultError`: for `'T'`, the Z park before the turret's home or the Z restore after it failed; the turret keeps its state and slot when it was never driven, else it is UNKNOWN. A park refused before Z moved is a `HardwareCommandRefusedError` (`'monitor_ended'`, or an interlock reason), the turret as it was. After a home that succeeded, the put-back's turret change or Z move did not arrive; every homed axis keeps the position the home established.
+- `MoveFaultError`: for `'T'`, the Z park before the turret's home or the Z restore after it failed; the turret keeps its state and slot when it was never driven, else it is UNKNOWN. A park refused before Z moved is a `HardwareCommandRefusedError`, above. After a home that succeeded, the put-back's turret change or Z move did not arrive; every homed axis keeps the position the home established.
 - `MoveStoppedError`: for `'T'`, a Stop ended the Z park or the Z restore, the turret as for `MoveFaultError`; or a Stop ended the put-back after a home that succeeded, every homed axis keeping the position the home established.
 - `ConfigurationDefectError`: `'scope_not_composed'`, `put_back` is None on a scope no session composes, which has no setting to read; nothing was asked of the scope.
 
@@ -7754,7 +7770,7 @@ as that activity's work and takes no claim of its own.
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`
 - [`HomingFaultError`](#HomingFaultError): `error`, `board_lost`, `unread`, `lid_open`, `stage_unpowered`
-- [`MoveFaultError`](#MoveFaultError): `monitor_ended`
+- [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
@@ -7819,7 +7835,7 @@ record answers: `jog_z_coarse_um` / `jog_z_fine_um` for Z,
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is not 'X', 'Y' or 'Z': the turret has no jog.
-- `ObjectiveUnknownError`: The objective in the light path is unknown; no step is guessed, so nothing should move.
+- `ObjectiveUnknownError`: The objective in the light path is unknown; no step is guessed, so nothing should move. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'`: the slot in the light path is not known, has no objective, or has one the catalogue lacks. Without a turret `'none_selected'`: no objective has been confirmed.
 
 **Refusals by REST status**
 
@@ -9549,11 +9565,11 @@ Route: `POST /api/v1/scope/simulation/fail_home`.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'not_offered'` for `axis` or `how`; `'needs_simulated_scope'`; `'fault_unknown'` for a scope with no motor board; `'not_injectable_on_board'` on the fast motor board, which runs no firmware to fail a home; `'argument_not_on_board'` for a `how` the TMCM-6110 cannot show (it has `'switch_never_trips'`).
+- `ArgumentRefusedError`: `'not_offered'` for `axis` or `how`; `'needs_simulated_scope'`; `'fault_unknown'` for a scope with no motor board; `'not_injectable_on_board'` on the fast motor board, which runs no firmware to fail a home; `'argument_not_on_board'` for a `how` the TMCM-6110 cannot show (it has `how='switch_never_trips'`).
 
 **Refusals by REST status**
 
-- 409: [`ArgumentRefusedError`](#ArgumentRefusedError): `switch_never_trips`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`, `needs_simulated_scope`, `fault_unknown`, `not_injectable_on_board`, `argument_not_on_board`
 
 <a id="SimulationAPI.hold_axis"></a>
@@ -12390,17 +12406,23 @@ A run that ends any way returns its outcome, a stopped one included.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `timeout_s` is not a wait from 0 to 30 days. Nothing was started.
+- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `timeout_s` is not a wait from 0 to 30 days; or `'channel_unknown'`, or `'no_channel_selected'` for None, as `start_autofocus`. Nothing was started.
+- `AxisMovingError`: `'axis_moving'`, as `start_autofocus`. Nothing was started.
+- `HardwareCommandRefusedError`: `'not_connected'`, as `start_autofocus`. Nothing was started.
+- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `start_autofocus`. Nothing was started.
 - `ProtocolRunRefusedError`: As `start_autofocus`; nothing was started.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_autofocus`. Nothing was started.
 - `RunWaitExpiredError`: `'still_running'`, a `TimeoutError`: `timeout_s` ran out; its `operation` holds the run, still going.
 
 **Refusals**
 
+- [`AxisMovingError`](#AxisMovingError): `axis_moving`
+- [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`
 - [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`, `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`, `not_connected`
 - [`RunWaitExpiredError`](#RunWaitExpiredError): `still_running`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`, `channel_unknown`, `no_channel_selected`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="ProtocolRunner.run_autofocus_all_steps"></a>
 ### `ProtocolRunner.run_autofocus_all_steps`
@@ -12491,6 +12513,9 @@ The run's RunOutcome: `merged` True, `artifact_path` the merged composite, `stat
 **Raises**
 
 - `ProtocolRunRefusedError`: Fewer than two channels are set to capture an image, so nothing could be merged; or the runner refused the run itself (already running, files still writing, hardware not connected).
+- `AxisMovingError`: `'axis_moving'`, as `start_composite`. Nothing was started.
+- `HardwareCommandRefusedError`: `'not_connected'`, as `start_composite`. Nothing was started.
+- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `start_composite`. Nothing was started.
 - `CompositeFailedError`: The run finished but produced no composite. The error names the machine-readable reason, so a caller can tell an aborted run from a failed merge.
 - `RunWaitExpiredError`: `'still_running'`, a `TimeoutError`: `timeout_s` ran out before the run or its merge ended; its `operation` holds the run, still going.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_composite`. Nothing was started.
@@ -12499,10 +12524,13 @@ The run's RunOutcome: `merged` True, `artifact_path` the merged composite, `stat
 **Refusals**
 
 - [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`, `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`, `not_connected`
+- [`AxisMovingError`](#AxisMovingError): `axis_moving`
+- [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`
 - [`RunWaitExpiredError`](#RunWaitExpiredError): `still_running`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
 - [`CompositeFailedError`](#CompositeFailedError): `run_not_completed`, `no_run_dir`, `no_composite_config`, `merge_failed`, `merge_error`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="ProtocolRunner.run_protocol"></a>
 ### `ProtocolRunner.run_protocol`
@@ -12631,17 +12659,23 @@ A run that ends any way returns its outcome, a stopped one included.
 
 **Raises**
 
-- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `timeout_s` is not a wait from 0 to 30 days. Nothing was started.
+- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `timeout_s` is not a wait from 0 to 30 days; or `'channel_unknown'`, or `'no_channel_selected'` for None, as `start_zstack`. Nothing was started.
+- `AxisMovingError`: `'axis_moving'`, as `start_zstack`. Nothing was started.
+- `HardwareCommandRefusedError`: `'not_connected'`, as `start_zstack`. Nothing was started.
+- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `start_zstack`. Nothing was started.
 - `ProtocolRunRefusedError`: As `start_zstack`; nothing was started.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_zstack`. Nothing was started.
 - `RunWaitExpiredError`: `'still_running'`, a `TimeoutError`: `timeout_s` ran out; its `operation` holds the run, still going.
 
 **Refusals**
 
+- [`AxisMovingError`](#AxisMovingError): `axis_moving`
+- [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`
 - [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`, `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`, `not_connected`
 - [`RunWaitExpiredError`](#RunWaitExpiredError): `still_running`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`, `channel_unknown`, `no_channel_selected`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`
+- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="ProtocolRunner.start_autofocus"></a>
 ### `ProtocolRunner.start_autofocus`
@@ -12707,14 +12741,16 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 
 - `AxisMovingError`: `'axis_moving'`, an axis is moving, so the position the run is built around is a place it is passing through. Nothing is started.
 - `ArgumentRefusedError`: `'channel_unknown'`, or `'no_channel_selected'` for None; asked before anything is read from the scope.
+- `HardwareCommandRefusedError`: `'not_connected'`, the motor controller is not connected, so the position the run is built around cannot be read. Nothing is started.
+- `ObjectiveUnknownError`: The objective in the light path is unknown, so the focus could not say what it was found with. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'`: the slot in the light path is not known, has no objective, or has one the catalogue lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is started.
 - `ProtocolRunRefusedError`: The runner refused the request (already running, files still writing, hardware not connected); no state was committed.
 
 **Refusals by REST status**
 
-- 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `no_channel_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`
 
 <a id="ProtocolRunner.start_autofocus_all_steps"></a>
 ### `ProtocolRunner.start_autofocus_all_steps`
@@ -12804,14 +12840,16 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 **Raises**
 
 - `AxisMovingError`: `'axis_moving'`, an axis is moving, so the position the run is built around is a place it is passing through. Nothing is started.
+- `HardwareCommandRefusedError`: `'not_connected'`, the motor controller is not connected, so the position the run is built around cannot be read. Nothing is started.
+- `ObjectiveUnknownError`: The objective in the light path is unknown, so no frame could say what it was taken with. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'`: the slot in the light path is not known, has no objective, or has one the catalogue lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is started.
 - `ProtocolRunRefusedError`: Fewer than two channels are set to capture an image, so nothing could be merged; or the runner refused the run itself (already running, files still writing, hardware not connected).
 
 **Refusals by REST status**
 
-- 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`
 
 <a id="ProtocolRunner.start_protocol"></a>
 ### `ProtocolRunner.start_protocol`
@@ -12956,7 +12994,8 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 
 - `AxisMovingError`: `'axis_moving'`, an axis is moving, so the position the run is built around is a place it is passing through. Nothing is started.
 - `ArgumentRefusedError`: `'channel_unknown'`, or `'no_channel_selected'` for None; asked before anything is read from the scope.
-- `ObjectiveUnknownError`: The objective in the light path is unknown, so no slice could say what it was taken with.
+- `HardwareCommandRefusedError`: `'not_connected'`, the motor controller is not connected, so the position the run is built around cannot be read. Nothing is started.
+- `ObjectiveUnknownError`: The objective in the light path is unknown, so no slice could say what it was taken with. On a turret scope `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'`: the slot in the light path is not known, has no objective, or has one the catalogue lacks. Without a turret `'none_selected'`: no objective has been confirmed. Nothing is started.
 - `ProtocolRunRefusedError`: The runner refused the request (already running, files still writing, hardware not connected); no state was committed.
 
 **Refusals by REST status**
@@ -12964,7 +13003,7 @@ The run's operation, to wait on or to ignore; its result() is the run's outcome.
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `no_channel_selected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`
 
 <a id="ProtocolSizeAdvisory"></a>
 ## `lumascope.ProtocolSizeAdvisory`
