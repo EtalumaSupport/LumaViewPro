@@ -7,6 +7,7 @@ import os
 import queue
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from typing import Any, ClassVar
 
@@ -3801,8 +3802,9 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                     self._worker.enqueue('frame', owned, self.hand_over())
                     _outcome = 'success_enqueued_frame'
                 except queue.Full:
-                    # Stage B is wedged; drop this frame rather than
-                    # block the native thread. Bench-monitored via the
+                    # Stage B is wedged and the queue holds only failed
+                    # grabs, which a frame never displaces; drop this frame
+                    # rather than block the native thread. Bench-monitored via the
                     # pylon_stage_a_worker_queue_full_per_min budget, read
                     # from the worker's drop-burst summaries.
                     _outcome = 'queue_full_dropped_frame'
@@ -3963,14 +3965,20 @@ class _PylonImageGrabWorker:
     native grab thread; it does only the enqueue + fail-fast work and
     hands the grab-result smart pointer to Stage B (this worker) for
     the heavy memcpy + chunk parsing + callback fanout. Handoff is via
-    the bounded `_worker_queue`.
+    the bounded `_items`, under `_cond`.
+
+    A full handoff drops its oldest queued frame for the new item, so
+    the frames Stage B delivers after a stall are the newest; a failed
+    grab is never dropped for a frame, since the failed-grab cascade
+    counts it, and a handoff holding only failed grabs drops the new
+    item.
 
     Single-thread invariant on the SDK's `CGrabResultData`: Stage A is
     the SOLE reader of `GrabSucceeded()` (and `GetErrorCode()` /
-    `GetErrorDescription()` on the failure branch). After `put_nowait`
+    `GetErrorDescription()` on the failure branch). After `enqueue`
     Stage B becomes the SOLE reader of `GetArray()` + the chunk
-    node-map accessors. The put / get pair provides happens-before; no
-    lock required.
+    node-map accessors. The condition's lock, taken by the append and
+    the pop, provides happens-before.
 
     Per `class_pylon_1_1_c_grab_result_ptr.html`: cross-thread smart-
     pointer retention is officially supported provided the result is
@@ -3985,16 +3993,10 @@ class _PylonImageGrabWorker:
 
     # Bounded queue depth. 8 gives ~264 ms of headroom at 30 FPS, large
     # enough that brief Stage B stalls (16 MB memcpy + chunk reads +
-    # callback fanout) don't trip Stage A's queue.Full drop path, small
-    # enough that a stalled consumer can't OOM the host. Bench-tunable
+    # callback fanout) don't drop a frame, small enough that a stalled
+    # consumer can't OOM the host. Bench-tunable
     # via the queue_depth kwarg to __init__.
     _DEFAULT_QUEUE_DEPTH = 8
-
-    # Poll interval inside _run's get(). Bounds the wakeup latency for
-    # a stop() that loses the sentinel-enqueue race (queue.Full at stop
-    # time). At 0.5 s the worst-case stop latency is ~0.5 s + per-item
-    # processing time, well under the 1.0 s default join timeout.
-    _GET_POLL_TIMEOUT_S = 0.5
 
     def __init__(
         self,
@@ -4008,8 +4010,11 @@ class _PylonImageGrabWorker:
         self._parent = parent  # PylonCamera instance
         self._base = base  # ImageHandlerBase instance
         self._frame_queue = frame_queue  # legacy maxsize=1 consumer queue
-        depth = self._DEFAULT_QUEUE_DEPTH if queue_depth is None else int(queue_depth)
-        self._worker_queue: queue.Queue = queue.Queue(maxsize=depth)
+        self._depth = self._DEFAULT_QUEUE_DEPTH if queue_depth is None else int(queue_depth)
+        # (kind, grabResult, handed_over), oldest first; read and written
+        # under _cond alone.
+        self._items: deque[tuple[str, pylon.GrabResult, HandOver | None]] = deque()
+        self._cond = threading.Condition()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         # The drops of the stall in progress; None while the queue takes every grab.
@@ -4044,17 +4049,20 @@ class _PylonImageGrabWorker:
     ) -> None:
         """Hand a Stage A item off to Stage B.
 
-        Raises `queue.Full` if the worker queue is at capacity -- Stage A
-        catches this and drops the frame rather than blocking the native
+        At capacity, the oldest queued frame is dropped and the new item
+        taken, and this returns normally. Raises `queue.Full` when the
+        queue is at capacity with failed grabs alone -- the new item is
+        dropped, and Stage A records that rather than blocking the native
         grab thread. Returns silently if the worker is shutting down
         (stop_event already set); the caller's `grabResult` local will
         release the SDK buffer when Stage A returns.
 
-        The drops are logged as bursts: a burst's first drop is said once,
-        later drops are counted, and the first grab the queue takes once it
-        has gone ``_DropBurst.QUIET_S`` without a drop closes the burst with
-        one summary (its frames, its failed grabs by error code, its length
-        from first drop to last).
+        The drops are logged as bursts, each drop counted as the item
+        dropped (the evicted frame, or the new item): a burst's first drop
+        is said once, later drops are counted, and the first grab the
+        queue takes without a drop once it has gone ``_DropBurst.QUIET_S``
+        without one closes the burst with one summary (its frames, its
+        failed grabs by error code, its length from first drop to last).
 
         Args:
             kind: 'frame' for a successful grab, 'fail' for a failure
@@ -4071,19 +4079,33 @@ class _PylonImageGrabWorker:
         """
         if self._stop_event.is_set():
             return
-        try:
-            self._worker_queue.put_nowait((kind, grabResult, handed_over))
-        except queue.Full:
-            now = self._clock()
-            if self._drop_burst is None:
-                self._drop_burst = _DropBurst(now)
-                _log_safely(
-                    f'Stage A: worker queue full -- dropping a '
-                    f'{"frame" if kind == "frame" else "failed grab"}; further drops '
-                    f'are counted until the queue goes {_DropBurst.QUIET_S:.1f} s without one'
+        # The item dropped to make room, as (kind, error_code); None when
+        # the queue had room.
+        dropped = None
+        evicted = None
+        with self._cond:
+            if len(self._items) >= self._depth:
+                oldest_frame = next(
+                    (i for i, item in enumerate(self._items) if item[0] == 'frame'), None
                 )
-            self._drop_burst.add(kind, error_code, now)
-            raise
+                if oldest_frame is None:
+                    dropped = (kind, error_code)
+                else:
+                    evicted = self._items[oldest_frame]
+                    del self._items[oldest_frame]
+                    dropped = ('frame', None)
+            if dropped is None or evicted is not None:
+                self._items.append((kind, grabResult, handed_over))
+                self._cond.notify()
+        if dropped is not None:
+            self._count_drop(*dropped)
+            if evicted is None:
+                raise queue.Full
+            # The evicted frame's grab result is released here, on Stage
+            # A's thread and outside the lock, as a dropped new item's is
+            # when Stage A returns.
+            del evicted
+            return
         if self._drop_burst is not None and self._drop_burst.is_over(self._clock()):
             _log_safely(
                 self._drop_burst.summary(
@@ -4092,8 +4114,20 @@ class _PylonImageGrabWorker:
             )
             self._drop_burst = None
 
+    def _count_drop(self, kind: str, error_code: int | str | None) -> None:
+        """Count one dropped item in the burst, opening the burst with its one line."""
+        now = self._clock()
+        if self._drop_burst is None:
+            self._drop_burst = _DropBurst(now)
+            _log_safely(
+                f'Stage A: worker queue full -- dropping a '
+                f'{"frame" if kind == "frame" else "failed grab"}; further drops '
+                f'are counted until the queue goes {_DropBurst.QUIET_S:.1f} s without one'
+            )
+        self._drop_burst.add(kind, error_code, now)
+
     def stop(self, timeout: float = 1.0) -> None:
-        """Signal stop, post sentinel, join with bounded timeout.
+        """Signal stop, wake the worker, join with bounded timeout.
 
         Ordering contract: the caller MUST invoke `camera.StopGrabbing()`
         BEFORE this so the SDK stops firing callbacks, and MUST invoke
@@ -4114,47 +4148,29 @@ class _PylonImageGrabWorker:
         if self._drop_burst is not None:
             _log_safely(self._drop_burst.summary('the worker stopped with a burst still open'))
             self._drop_burst = None
-        self._stop_event.set()
-        try:
-            self._worker_queue.put_nowait(('stop', None, None))
-        except queue.Full:
-            # Sentinel doesn't fit; the event flag plus the
-            # _GET_POLL_TIMEOUT_S inside _run ensures exit within one
-            # poll interval after the next item is processed.
-            logger.debug(
-                '[CAM Class ] worker.stop: queue full, sentinel dropped; '
-                'exit will run via stop_event fallback'
-            )
+        with self._cond:
+            self._stop_event.set()
+            self._cond.notify_all()
         if self._thread is not None:
             self._thread.join(timeout=timeout)
 
     def _run(self) -> None:
-        # Loop structure: always drain a pending item before checking
-        # the stop event. The event check at the *top* of the while loop
-        # would race with the producer -- if stop() set the event AFTER
-        # Stage A enqueued the last batch but BEFORE the worker came
-        # back from processing the previous item, the next iteration
-        # would exit without draining the rest. The SDK input queue
-        # would then underrun on the next connect cycle per
+        # Loop structure: always take a pending item before checking the
+        # stop event. Exiting on the event while items remain -- stop()
+        # setting it AFTER Stage A enqueued the last batch but BEFORE the
+        # worker came back from processing the previous item -- would
+        # leave the rest unreleased, and the SDK input queue would then
+        # underrun on the next connect cycle per
         # `class_pylon_1_1_c_grab_result_ptr.html`: "grabbing will stop
         # with an input queue underrun, when the grab results are never
-        # released." Only consult the event when get() comes back empty.
+        # released." The event is consulted only once the queue is empty.
         while True:
-            try:
-                kind, grabResult, handed_over = self._worker_queue.get(
-                    timeout=self._GET_POLL_TIMEOUT_S
-                )
-            except queue.Empty:
-                if self._stop_event.is_set():
-                    # Sentinel was dropped (queue.Full at stop time) or
-                    # never enqueued. Nothing left to drain.
+            with self._cond:
+                while not self._items and not self._stop_event.is_set():
+                    self._cond.wait()
+                if not self._items:
                     return
-                continue
-            if kind == 'stop':
-                # Drain remaining items + release their grabResults so
-                # the SDK input queue doesn't underrun on shutdown.
-                self._drain_and_release()
-                return
+                kind, grabResult, handed_over = self._items.popleft()
             try:
                 if self._parent._device_removed:
                     # Drop quietly; the finally below releases the
@@ -4328,21 +4344,6 @@ class _PylonImageGrabWorker:
         _cam_log.error('[CAM Class ] Too many grab failures; the camera is removed')
         self._parent._mark_disconnected()
         self._parent._schedule_async_teardown()
-
-    def _drain_and_release(self) -> None:
-        """Drain the worker queue and release each grabResult.
-
-        Called only from the stop-sentinel branch in `_run`. Per
-        CGrabResultPtr docs the SDK input queue underruns if results
-        are never released; this loop satisfies the release contract
-        on shutdown.
-        """
-        while True:
-            try:
-                _, gr, _ = self._worker_queue.get_nowait()
-                del gr
-            except queue.Empty:
-                return
 
 
 # Handle camera removal events to flag device disconnect

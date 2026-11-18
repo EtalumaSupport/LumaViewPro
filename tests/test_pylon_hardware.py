@@ -276,12 +276,12 @@ class TestPylon(unittest.TestCase):
         average stays below the catch-up threshold."""
         # Let grabbing settle.
         time.sleep(1.0)
-        worker_queue = self.camera.cam_image_handler._worker._worker_queue
+        worker = self.camera.cam_image_handler._worker
         samples = []
         start = time.monotonic()
         # 3-second sampling window at 50 Hz; sufficient signal at 30 FPS.
         while time.monotonic() - start < 3.0:
-            samples.append(worker_queue.qsize())
+            samples.append(len(worker._items))
             time.sleep(0.02)
         avg_depth = sum(samples) / len(samples) if samples else 0
         max_depth = max(samples) if samples else 0
@@ -301,7 +301,7 @@ class TestPylon(unittest.TestCase):
         connect cycle per `class_pylon_1_1_c_grab_result_ptr.html`.
 
         After disconnect the worker thread must be gone and the worker
-        queue must be empty (drain_and_release happened).
+        queue must be empty (every pending item taken and released).
         """
         worker = self.camera.cam_image_handler._worker
         worker_thread = worker._thread
@@ -316,9 +316,8 @@ class TestPylon(unittest.TestCase):
                 worker_thread.is_alive(), 'worker thread did not exit within 2s of disconnect'
             )
         self.assertTrue(
-            worker._worker_queue.empty(),
-            f'worker_queue should be empty after disconnect; '
-            f'has {worker._worker_queue.qsize()} item(s)',
+            not worker._items,
+            f'worker_queue should be empty after disconnect; has {len(worker._items)} item(s)',
         )
         # Reconnect for tearDown's disconnect.
         self.camera.connect()

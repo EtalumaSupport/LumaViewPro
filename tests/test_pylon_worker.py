@@ -3,19 +3,20 @@
 
 Pure-mock tests -- no hardware flag, no real Pylon SDK. Exercise the
 worker lifecycle (start / stop / restart / daemon flag) plus the
-per-item processing paths (_process_frame, _process_failure,
-_drain_and_release) by injecting items directly into the worker queue.
+per-item processing paths (_process_frame, _process_failure) by
+handing items to the worker through Stage A's door, ``enqueue``.
 
 The cross-thread smart-pointer release contract (per
 class_pylon_1_1_c_grab_result_ptr.html: "grabbing will stop with an
 input queue underrun, when the grab results are never released") is
-the load-bearing invariant -- _drain_and_release plus the per-item
-`finally: del grabResult` in _run are the mechanism. Tests assert
-those refs are released after stop().
+the load-bearing invariant -- _run taking every pending item before it
+exits, plus the per-item `finally: del grabResult`, are the mechanism.
+Tests assert those refs are released after stop().
 """
 
 import logging
 import queue
+import threading
 import time
 import unittest
 import weakref
@@ -120,8 +121,8 @@ class TestWorkerLifecycle(unittest.TestCase):
         worker.stop(timeout=2.0)
         elapsed = time.monotonic() - t0
         self.assertFalse(worker._thread.is_alive())
-        # Stop should be quick (well under timeout) because the sentinel
-        # wakes the get() immediately. Real-world margin in test env.
+        # Stop should be quick (well under timeout) because its notify
+        # wakes the waiting worker immediately. Real-world margin in test env.
         self.assertLess(elapsed, 1.5, f'stop took {elapsed:.2f}s')
 
     def test_stop_idempotent(self):
@@ -149,18 +150,56 @@ class TestWorkerLifecycle(unittest.TestCase):
             worker.stop()
 
 
-class TestWorkerQueueDepth(unittest.TestCase):
-    def test_default_queue_depth(self):
-        worker, _, _, _ = _make_worker()
-        self.assertEqual(worker._worker_queue.maxsize, 8)
+def _stage_b_order(worker, base, count):
+    """Start the worker on what is queued; what Stage B handled, in order.
 
-    def test_kwarg_override_queue_depth(self):
-        worker, _, _, _ = _make_worker(queue_depth=16)
-        self.assertEqual(worker._worker_queue.maxsize, 16)
+    A frame is its hand-over ``seq``, a failed grab ``'fail'``; returned
+    once ``count`` items are handled, with the worker stopped.
+    """
+    order = []
+    handled = threading.Event()
 
-    def test_none_kwarg_falls_back_to_default(self):
-        worker, _, _, _ = _make_worker(queue_depth=None)
-        self.assertEqual(worker._worker_queue.maxsize, 8)
+    def note(entry):
+        order.append(entry)
+        if len(order) == count:
+            handled.set()
+
+    base._store_frame.side_effect = lambda img, **kw: note(kw['handed_over'].seq)
+    base._record_failure.side_effect = lambda: note('fail') or False
+    worker.start()
+    try:
+        assert handled.wait(2.0), order
+    finally:
+        worker.stop()
+    return order
+
+
+# parametrize-justified: the default depth and an override are each the depth a worker keeps
+@pytest.mark.parametrize('queue_depth, holds', [(None, 8), (16, 16)])
+def test_a_full_handoff_of_frames_drops_its_oldest_frame_for_the_new_one(queue_depth, holds):
+    """After a stall Stage B delivers the newest frames: the full handoff
+    used to drop the new frame and deliver the stale ones."""
+    worker, _, base, _ = _make_worker(queue_depth=queue_depth)
+    for seq in range(1, holds + 2):
+        worker.enqueue('frame', _FakeGrabResult(), HandOver(seq, 0, 0))
+
+    assert _stage_b_order(worker, base, holds) == list(range(2, holds + 2))
+
+
+def test_a_failed_grab_is_never_dropped_for_a_frame(caplog):
+    """The oldest frame leaves, not the older failed grab, which the
+    failed-grab cascade counts; the burst counts the frame dropped."""
+    caplog.set_level(logging.WARNING, logger='LVP.camera')
+    worker, _, base, _ = _make_worker(queue_depth=3)
+    worker.enqueue('fail', _FakeGrabResult(err_code=999, err_desc='x'), None, error_code=999)
+    worker.enqueue('frame', _FakeGrabResult(), HandOver(1, 0, 0))
+    worker.enqueue('frame', _FakeGrabResult(), HandOver(2, 0, 0))
+    worker.enqueue('frame', _FakeGrabResult(), HandOver(3, 0, 0))
+
+    assert _stage_b_order(worker, base, 3) == ['fail', 2, 3]
+    lines = _stage_a_lines(caplog)
+    assert lines[0].startswith('[CAM Class ] Stage A: worker queue full -- dropping a frame;')
+    assert lines[1].endswith('dropped 1 frame(s) and 0 failed grab(s)'), lines
 
 
 class TestProcessFrame(unittest.TestCase):
@@ -306,7 +345,7 @@ class TestRunLoop(unittest.TestCase):
         worker, _, base, _frame_queue = _make_worker()
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
+            worker.enqueue('frame', _FakeGrabResult(), HandOver(1, 0, 0))
             deadline = time.monotonic() + 1.5
             while time.monotonic() < deadline:
                 if base._store_frame.called:
@@ -320,9 +359,7 @@ class TestRunLoop(unittest.TestCase):
         worker, _, base, _ = _make_worker()
         worker.start()
         try:
-            worker._worker_queue.put_nowait(
-                ('fail', _FakeGrabResult(err_code=999, err_desc='x'), None)
-            )
+            worker.enqueue('fail', _FakeGrabResult(err_code=999, err_desc='x'), None)
             deadline = time.monotonic() + 1.5
             while time.monotonic() < deadline:
                 if base._record_failure.called:
@@ -337,7 +374,7 @@ class TestRunLoop(unittest.TestCase):
         parent._device_removed = True
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
+            worker.enqueue('frame', _FakeGrabResult(), HandOver(1, 0, 0))
             # Worker should consume but NOT call _process_frame.
             time.sleep(0.2)
             base._store_frame.assert_not_called()
@@ -349,11 +386,11 @@ class TestRunLoop(unittest.TestCase):
         base._store_frame.side_effect = RuntimeError('boom')
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
+            worker.enqueue('frame', _FakeGrabResult(), HandOver(1, 0, 0))
             time.sleep(0.2)
             self.assertTrue(worker._thread.is_alive())
             base._store_frame.side_effect = None
-            worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
+            worker.enqueue('frame', _FakeGrabResult(), HandOver(1, 0, 0))
             deadline = time.monotonic() + 1.5
             while time.monotonic() < deadline:
                 if base._store_frame.call_count >= 2:
@@ -364,34 +401,31 @@ class TestRunLoop(unittest.TestCase):
             worker.stop()
 
 
-class TestDrainAndRelease(unittest.TestCase):
-    def test_drain_releases_items(self):
-        worker, _, _, _ = _make_worker()
-        worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
-        worker._worker_queue.put_nowait(('fail', _FakeGrabResult(err_code=1), None))
-        worker._drain_and_release()
-        self.assertTrue(worker._worker_queue.empty())
-
-    def test_stop_sentinel_drains_pending_items(self):
-        """Stop must drain whatever Stage A enqueued before SDK teardown.
+class TestStopReleasesWhatIsPending(unittest.TestCase):
+    def test_stop_releases_every_pending_item(self):
+        """Stop must release whatever Stage A enqueued before SDK teardown.
 
         Otherwise grabResult smart pointers leak past disconnect and the
         SDK input queue underruns on the next connect cycle.
         """
+        import gc
+
         worker, parent, _, _ = _make_worker()
-        # Block processing by flagging device_removed -- items will be
-        # consumed-and-released without calling _process_* mocks.
+        # Flagging device_removed has the worker take and release each item
+        # without calling the _process_* mocks.
         parent._device_removed = True
+        pending = [_FakeGrabResult(), _FakeGrabResult(err_code=1), _FakeGrabResult()]
+        refs = [weakref.ref(gr) for gr in pending]
+        worker.enqueue('frame', pending[0], HandOver(1, 0, 0))
+        worker.enqueue('fail', pending[1], None)
+        worker.enqueue('frame', pending[2], HandOver(2, 0, 0))
+        del pending
         worker.start()
-        try:
-            for _ in range(3):
-                worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), HandOver(1, 0, 0)))
-        finally:
-            worker.stop()
+        worker.stop()
+
         self.assertFalse(worker._thread.is_alive())
-        # Whatever the worker didn't drain pre-stop should have been
-        # drained by the stop-sentinel handler.
-        self.assertTrue(worker._worker_queue.empty())
+        gc.collect()
+        self.assertEqual([r() for r in refs], [None, None, None])
 
 
 class TestGrabResultRelease(unittest.TestCase):
@@ -424,7 +458,7 @@ class TestGrabResultRelease(unittest.TestCase):
         ref = weakref.ref(gr)
         worker.start()
         try:
-            worker._worker_queue.put_nowait(('fail', gr, None))
+            worker.enqueue('fail', gr, None)
             # Wait for processing.
             time.sleep(0.2)
         finally:
@@ -453,10 +487,11 @@ class _Clock:
 
 
 def _full_worker(caplog, clock):
-    """A worker whose queue (depth 1, never started) is full after one grab."""
+    """A worker whose queue (depth 1, never started) holds one failed grab,
+    which no new item displaces, so each new item is dropped."""
     caplog.set_level(logging.WARNING, logger='LVP.camera')
     worker, _, _, _ = _make_worker(queue_depth=1, clock=clock)
-    worker.enqueue('frame', _FakeGrabResult(), None)
+    worker.enqueue('fail', _FakeGrabResult(), None)
     return worker
 
 
@@ -466,9 +501,9 @@ def _drop(worker, kind, error_code=None):
 
 
 def _take(worker):
-    """Stage B takes the one grab queued, and the queue takes the next."""
-    worker._worker_queue.get_nowait()
-    worker.enqueue('frame', _FakeGrabResult(), None)
+    """Stage B takes the one failed grab queued, and the queue takes the next."""
+    worker._items.popleft()
+    worker.enqueue('fail', _FakeGrabResult(), None)
 
 
 def test_a_drop_burst_is_said_at_its_start_and_summarized_once_the_queue_goes_quiet(caplog):
