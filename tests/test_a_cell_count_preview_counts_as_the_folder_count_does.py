@@ -22,7 +22,7 @@ import pytest
 import ui.post_processing as panel_module
 from _lumascope.modules import image_utils
 from _lumascope.modules.cell_count_method import CellCountFilters, CellCountMethod, FilterBounds
-from _lumascope.modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
 from _lumascope.modules.channel_record import release_color
 from _lumascope.modules.post_processing import read_cell_count_image
 from _lumascope.modules.scope_session import ScopeSession
@@ -109,6 +109,23 @@ def test_an_image_with_no_scale_is_counted_in_pixels_and_refuses_a_size_filter(s
             _FIELD, _METHOD, significant_bits=8, pixel_size_um=None
         )
     assert refused.value.reason == 'no_scale'
+
+
+def test_a_depth_no_frame_has_is_refused_with_its_limits(session):
+    twelve_bit = _FIELD.astype(np.uint16) * 16
+    refused = {}
+    for depth in (-1, 0, 17):
+        with pytest.raises(ArgumentRefusedError) as raised:
+            session.post_processing.preview_cell_count(
+                twelve_bit, CellCountMethod(), significant_bits=depth, pixel_size_um=None
+            )
+        refused[depth] = (raised.value.reason, raised.value.limits)
+
+    assert refused == dict.fromkeys((-1, 0, 17), ('out_of_range', (1, 16)))
+    counts = session.post_processing.preview_cell_count(
+        twelve_bit, CellCountMethod(), significant_bits=12, pixel_size_um=None
+    ).counts
+    assert counts.num_cells == 2
 
 
 def test_the_panel_shows_the_sessions_preview(session, monkeypatch):

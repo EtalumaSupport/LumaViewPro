@@ -527,7 +527,7 @@ def test_a_file_that_states_no_white_renders_at_its_depth(tmp_path):
 
 
 def test_a_white_above_its_depth_is_refused(tmp_path):
-    with pytest.raises(ValueError, match='white at 14 bits lies above the 12-bit payload'):
+    with pytest.raises(ValueError, match='white at 14 bits lies outside 1 to the 12-bit payload'):
         _write(tmp_path / 'bad.tiff', np.zeros((4, 4), np.uint16), 12, 'right_aligned', white=14)
 
 

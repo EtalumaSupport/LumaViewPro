@@ -20,7 +20,11 @@ import numpy as np
 import tifffile as tf
 
 from _lumascope.modules.api_surface import api_fields, fields_of
-from _lumascope.modules.exceptions import FrameDepthError, InputFramesUnusableError
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    FrameDepthError,
+    InputFramesUnusableError,
+)
 from _lumascope.modules.channel_record import GREY, Color, stored_key
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
@@ -427,6 +431,48 @@ def _collapse_legacy_false_color(img: np.ndarray, path: pathlib.Path) -> np.ndar
     return img
 
 
+# The depths, in bits, a frame has: every frame LVP takes, sums or saves fits a
+# 16-bit container. A depth past them sizes convert_to_8bit's table at 2**depth
+# entries -- 40 bits kills the process, 32 builds a 32 GB table -- and 17 to
+# about 30 render dark with no error, so a depth is judged against them where
+# it enters: a file's at its read, a caller's at the member that takes it.
+FRAME_DEPTH_BITS = (1, 16)
+
+
+def _is_frame_depth(bits: int) -> bool:
+    low, high = FRAME_DEPTH_BITS
+    return low <= bits <= high
+
+
+def refuse_unusable_depth(significant_bits: int) -> None:
+    """Refuse a payload depth no frame has: outside FRAME_DEPTH_BITS.
+
+    A negative depth raised from the shift that builds full scale, and 0
+    made full scale 0, so every pixel read as saturated. A depth that is
+    not an int is the API door's to refuse.
+
+    Raises:
+        ArgumentRefusedError: ``'out_of_range'``, with FRAME_DEPTH_BITS as
+            its limits.
+    """
+    if not _is_frame_depth(significant_bits):
+        raise ArgumentRefusedError(
+            'out_of_range',
+            argument='significant_bits',
+            value=significant_bits,
+            limits=FRAME_DEPTH_BITS,
+        )
+
+
+def white_fits_depth(white_bits: int, significant_bits: int) -> bool:
+    """Whether a white lies within the depth it renders: 1 to that depth.
+
+    A white above the depth names a full scale the payload cannot hold, and
+    a white of 0 puts full scale at 0, so every value divides by zero.
+    """
+    return 1 <= white_bits <= significant_bits
+
+
 # Private TIFF tag carrying the payload's significant-bit count on outputs that
 # have no OME-XML to hold it (plain + ImageJ TIFFs). In the TIFF private-tag
 # range (32768-65535); FIJI / ImageJ / Windows Preview ignore unknown tags.
@@ -619,9 +665,14 @@ def read_tiff_significant_bits(path: pathlib.Path) -> int:
     (itemsize * 8) for files that carry neither -- including older files whose
     stored values were left-justified to fill the container, for which
     container-width scaling is the correct interpretation.
+
+    Raises:
+        InputFramesUnusableError: ``'unreadable'``, the file cannot be
+            decoded, or the depth it resolves to lies outside
+            FRAME_DEPTH_BITS.
     """
     with _open_saved_tiff(path) as tif:
-        return _significant_bits_from_open(tif)
+        return _significant_bits_from_open(tif, path)
 
 
 def _unreadable(path: pathlib.Path, detail: str = '') -> InputFramesUnusableError:
@@ -660,34 +711,58 @@ def _open_saved_tiff(path: pathlib.Path):
         yield tif
 
 
-def _significant_bits_from_open(tif: 'tf.TiffFile') -> int:
+def _significant_bits_from_open(tif: 'tf.TiffFile', path: pathlib.Path) -> int:
     """Resolve significant bits from an already-open TiffFile handle.
 
     Split out from read_tiff_significant_bits so load_pixels can read the depth
     from the same handle it decodes the pixels with, instead of opening the
     file a second time just for the tag. See read_tiff_significant_bits for the
     OME -> private-tag -> container-width resolution order and rationale.
+
+    Whatever its source, the depth is judged against FRAME_DEPTH_BITS: a file
+    another program wrote, or a damaged one, can state any number, and a float
+    or 32-bit image that states none resolves to 32 or 64. A present tag is
+    judged whatever its value, so a tag of 0 is refused rather than read as no
+    tag.
     """
+    depth = _stated_significant_bits(tif)
+    if not _is_frame_depth(depth):
+        low, high = FRAME_DEPTH_BITS
+        raise _unreadable(path, f'its depth of {depth} bits lies outside {low} to {high}')
+    return depth
+
+
+def _stated_significant_bits(tif: 'tf.TiffFile') -> int:
     ome = tif.ome_metadata
     if ome:
         match = re.search(r'SignificantBits="(\d+)"', ome)
         if match:
             return int(match.group(1))
     tag = tif.pages[0].tags.get(_TIFF_TAG_SIGNIFICANT_BITS)
-    if tag is not None and tag.value:
+    if tag is not None:
         return int(tag.value)
     return tif.pages[0].dtype.itemsize * 8
 
 
-def _white_bits_from_open(tif: 'tf.TiffFile') -> int | None:
+def _white_bits_from_open(
+    tif: 'tf.TiffFile', path: pathlib.Path, significant_bits: int
+) -> int | None:
     """The white a file states for its stored pixels, or None when it states none.
 
     None is a file written before the white was recorded, or one whose values
     were remapped; either renders at its payload depth, as convert_to_8bit
-    does by default.
+    does by default. A stated white outside 1 to the file's depth is refused,
+    as the depth is.
     """
     tag = tif.pages[0].tags.get(_TIFF_TAG_WHITE_BITS)
-    return int(tag.value) if tag is not None else None
+    if tag is None:
+        return None
+    white = int(tag.value)
+    if not white_fits_depth(white, significant_bits):
+        raise _unreadable(
+            path, f'its white of {white} bits lies outside 1 to its {significant_bits}-bit depth'
+        )
+    return white
 
 
 def load_pixels(
@@ -809,8 +884,8 @@ def _load_pixels_and_timestamp(
                 # RuntimeError subclass, and tifffile a TiffFileError (a
                 # ValueError) for an LZW strip that cannot be reshaped.
                 raise _unreadable(path, str(ex)) from ex
-            sig = _significant_bits_from_open(tif)
-            white = _white_bits_from_open(tif)
+            sig = _significant_bits_from_open(tif, path)
+            white = _white_bits_from_open(tif, path, sig)
             if read_timestamp:
                 timestamp = stated_frame_time(_record_from_open(tif))
         if collapse_legacy_false_color:
@@ -833,6 +908,9 @@ def _load_pixels_and_timestamp(
     if image is None:
         raise _unreadable(path)
     sig = image.dtype.itemsize * 8
+    if not _is_frame_depth(sig):
+        low, high = FRAME_DEPTH_BITS
+        raise _unreadable(path, f'its {image.dtype} pixels lie outside {low} to {high} bits')
     logger.debug(
         f'[ImageLoad cv2] {path.name} dtype={image.dtype} shape={image.shape} '
         f'color={is_color_image(image)} significant_bits={sig} '
@@ -1423,7 +1501,7 @@ def read_tiff_depth_and_record(path: pathlib.Path) -> tuple[int, dict | None]:
     stated_frame_time gives the record's capture time.
     """
     with _open_saved_tiff(path) as tif:
-        return _significant_bits_from_open(tif), _record_from_open(tif)
+        return _significant_bits_from_open(tif, path), _record_from_open(tif)
 
 
 def agreed_facts(records: Iterable[dict | None]) -> dict:
@@ -2104,9 +2182,10 @@ def convert_to_8bit(
         return image
     significant_bits = int(significant_bits)
     white_bits = significant_bits if white_bits is None else int(white_bits)
-    if white_bits > significant_bits:
+    if not white_fits_depth(white_bits, significant_bits):
         raise ValueError(
-            f'white at {white_bits} bits lies above the {significant_bits}-bit range it renders'
+            f'white at {white_bits} bits lies outside 1 to the {significant_bits}-bit range it '
+            'renders'
         )
     lut = _lut_to_8bit(significant_bits, white_bits)
     # The LUT has exactly one entry per in-range value, so a payload above the
@@ -2385,9 +2464,10 @@ def write_tiff(
     # that drops the white reopens about N times dimmer than it was taken.
     # Required, None for a file whose values were remapped (a composite, an
     # enhanced image) and so are shown at their depth.
-    if white_bits is not None and white_bits > significant_bits:
+    if white_bits is not None and not white_fits_depth(white_bits, significant_bits):
         raise ValueError(
-            f'white at {white_bits} bits lies above the {significant_bits}-bit payload it describes'
+            f'white at {white_bits} bits lies outside 1 to the {significant_bits}-bit payload it '
+            'describes'
         )
 
     # Depth travels with the pixels. A uint16 frame stored right-aligned

@@ -788,17 +788,19 @@ def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
     The cube build silently CAST the mismatched plane into the stack dtype,
     producing wrong data with a success status. The one mixture a stack
     promotes is uint8 beside uint16 (a sum beside an unsummed channel);
-    anything else -- here a float32 frame beside a uint8 one -- is refused,
-    and leaves no file behind (#722)."""
+    anything else -- here a signed 16-bit frame beside a uint8 one -- is
+    refused, and leaves no file behind (#722). A frame wider than 16 bits
+    (a float32 one) is refused before this, unreadable at its read
+    (``tests/test_a_saved_depth_outside_1_to_16_is_unreadable.py``)."""
     from _lumascope.modules.exceptions import CaptureError
 
     plate_pos = {'x': 1.0, 'y': 2.0}
     _write_structured_input(
         tmp_path / 'frame_s0.tiff', channel=LED1, plate_pos_mm=plate_pos, z_pos_um=10.0
     )
-    # A bare float32 TIFF simulates a foreign frame landing in the same well
-    # folder.
-    tf.imwrite(tmp_path / 'frame_s1.tiff', np.full((4, 4), 40.0, dtype=np.float32))
+    # A bare signed 16-bit TIFF simulates a foreign frame landing in the same
+    # well folder: its depth reads as 16, so only its pixel type is wrong.
+    tf.imwrite(tmp_path / 'frame_s1.tiff', np.full((4, 4), 40, dtype=np.int16))
 
     rows = [
         {

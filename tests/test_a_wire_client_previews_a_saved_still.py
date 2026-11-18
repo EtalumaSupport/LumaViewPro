@@ -14,6 +14,7 @@ import pathlib
 import cv2
 import numpy as np
 import pytest
+import tifffile as tf
 from fastapi.testclient import TestClient
 
 import _lumascope.modules.image_mode as image_mode
@@ -101,3 +102,19 @@ def test_a_name_that_is_no_file_or_no_image_is_refused(summed):
     assert missing.status_code == 404
     assert unreadable.json()['reason'] == 'unreadable', unreadable.json()
     assert outside.json()['reason'] == 'outside_live_folder', outside.json()
+
+
+def test_a_file_stating_a_depth_no_frame_has_is_refused_and_the_server_keeps_answering(summed):
+    # Another program's file: a 16-bit container tagged 20 bits in LVP's private depth tag.
+    session, client, (still,) = summed
+    tf.imwrite(
+        pathlib.Path(session.setting('live_folder')) / 'other.tif',
+        np.zeros((8, 8), np.uint16),
+        extratags=[(65123, 'H', 1, 20, True)],
+    )
+
+    refused = client.get('/api/v1/previews/other.tif')
+
+    assert refused.status_code == 422, refused.text
+    assert refused.json()['reason'] == 'unreadable', refused.json()
+    _jpeg(client.get(f'/api/v1/previews/{_name(session, still)}?max_width=100'))

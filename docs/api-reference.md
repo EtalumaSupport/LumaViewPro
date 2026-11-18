@@ -4872,10 +4872,12 @@ measure its file at: the method's *pixels_per_um*, else
 **Raises**
 
 - `PostProcessingRefusedError`: `'no_scale'`, the image is counted in pixels and *method* bounds an area or a perimeter, which are in microns; `'invalid_setting'`, *pixel_size_um* is not a positive number of microns.
+- `ArgumentRefusedError`: `'out_of_range'`, *significant_bits* is outside 1 to 16, the depths a frame's 16-bit container holds.
 
 **Refusals**
 
 - [`PostProcessingRefusedError`](#PostProcessingRefusedError): `no_scale`, `invalid_setting`
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `out_of_range`
 
 <a id="PostProcessingAPI.projection_methods"></a>
 ### `PostProcessingAPI.projection_methods`

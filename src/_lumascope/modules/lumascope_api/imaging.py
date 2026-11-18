@@ -227,19 +227,6 @@ def _capture_line(grabbed: _Grabbed, record: FrameRecord, previous_seq: int | No
     return ' | '.join(parts)
 
 
-def _refuse_unusable_depth(significant_bits: int) -> None:
-    """Refuse a payload depth no frame has: outside 1 to 16.
-
-    A negative depth raised from the shift that builds full scale, and 0
-    made full scale 0, so every pixel read as saturated. A depth that is
-    not an int is the API door's to refuse.
-    """
-    if not 1 <= significant_bits <= 16:
-        raise ArgumentRefusedError(
-            'out_of_range', argument='significant_bits', value=significant_bits, limits=(1, 16)
-        )
-
-
 @api_fields('bytes_per_s', 'frame_rate_fps')
 @dataclasses.dataclass(frozen=True)
 class DeliveredRate:
@@ -1636,7 +1623,7 @@ class ImagingAPI:
             ArgumentRefusedError: ``'out_of_range'``, *significant_bits* is
                 outside 1 to 16, the depths a frame's 16-bit container holds.
         """
-        _refuse_unusable_depth(significant_bits)
+        image_utils.refuse_unusable_depth(significant_bits)
         if arr is None or arr.size == 0:
             return 0.0
         full_scale = (1 << significant_bits) - 1
@@ -1661,7 +1648,7 @@ class ImagingAPI:
         dtype -- the same depth rule as ``saturated_fraction``, and the same
         refusal of a depth no frame has.
         """
-        _refuse_unusable_depth(significant_bits)
+        image_utils.refuse_unusable_depth(significant_bits)
         if arr is None or arr.size == 0:
             return 0.0
         full_scale = (1 << significant_bits) - 1

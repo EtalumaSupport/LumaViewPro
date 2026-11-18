@@ -1459,9 +1459,13 @@ class PostProcessingAPI:
                 counted in pixels and *method* bounds an area or a
                 perimeter, which are in microns; ``'invalid_setting'``,
                 *pixel_size_um* is not a positive number of microns.
+            ArgumentRefusedError: ``'out_of_range'``, *significant_bits* is
+                outside 1 to 16, the depths a frame's 16-bit container holds.
         """
+        from _lumascope.modules import image_utils
         from _lumascope.modules.post_processing import PostProcessing, cell_count_scale
 
+        image_utils.refuse_unusable_depth(significant_bits)
         _refuse_unusable_image_scale(pixel_size_um)
         outlined, stats = PostProcessing().preview_cell_count(
             image,
