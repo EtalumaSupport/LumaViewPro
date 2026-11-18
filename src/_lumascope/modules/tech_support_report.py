@@ -40,6 +40,7 @@ from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from _lumascope.lib.real_numbers import is_finite_number, is_integer_number, whole_number_in
+from _lumascope.drivers import motorconfig
 from _lumascope.drivers.exceptions import CameraUsbLookupFailedError, HardwareError
 from _lumascope.drivers.usb_census import CensusDevice, read_device_list
 from _lumascope.drivers.usb_driver_binding import (
@@ -725,10 +726,15 @@ def _collect_usb_devices():
 def validate_motorconfig(config_data: bytes | str | dict) -> dict:
     """Validate motorconfig.json for syntax and sanity.
 
+    Each figure the file states is judged by the rules LVP reads it by
+    (``motorconfig.figure_problem``), and each refusal is an error; a
+    figure the file does not state is not judged.
+
     Args:
         config_data: bytes, str, or dict.
 
-    Returns dict: {'valid': bool, 'warnings': [], 'errors': [], 'parsed': dict|None}
+    Returns dict: {'valid': bool, 'warnings': [], 'errors': [], 'parsed': dict|None};
+    ``valid`` is False when there is any error.
     """
     result = {'valid': True, 'warnings': [], 'errors': [], 'parsed': None}
 
@@ -750,11 +756,13 @@ def validate_motorconfig(config_data: bytes | str | dict) -> dict:
         return result
 
     result['parsed'] = parsed
+    if not isinstance(parsed, dict):
+        result['valid'] = False
+        result['errors'].append(f'Not a JSON object: {type(parsed).__name__}')
+        return result
 
-    # Required keys
-    for key in ['Model', 'Serial Number']:
-        if key not in parsed:
-            result['warnings'].append(f"Missing expected key: '{key}'")
+    if 'Serial Number' not in parsed:
+        result['warnings'].append("Missing expected key: 'Serial Number'")
 
     sn = parsed.get('Serial Number', '')
     if sn and not isinstance(sn, str):
@@ -762,34 +770,33 @@ def validate_motorconfig(config_data: bytes | str | dict) -> dict:
     elif isinstance(sn, str) and len(sn) < 2:
         result['warnings'].append(f"Serial Number seems too short: '{sn}'")
 
-    # Axis configs
-    for axis_name in ['X Axis', 'Y Axis', 'Z Axis', 'Turret']:
-        axis = parsed.get(axis_name, {})
-        if not isinstance(axis, dict):
+    # Each figure the file states, by the rules LVP reads it by. A board's
+    # file states few of them; one it leaves out is the shipped default's.
+    for section in motorconfig.JUDGED_SECTIONS:
+        if section not in parsed:
             continue
-        for field in ['Steps Per mm', 'Steps Per Rev', 'Travel mm', 'Initial Position after home']:
-            val = axis.get(field)
-            if val is not None:
-                if not is_finite_number(val):
-                    result['errors'].append(
-                        f'{axis_name}.{field}: expected number, got {type(val).__name__}'
-                    )
-                elif val < 0 and field != 'Initial Position after home':
-                    result['warnings'].append(f'{axis_name}.{field}: negative ({val})')
-
-        travel = axis.get('Travel mm')
-        if is_finite_number(travel):
-            if axis_name in ('X Axis', 'Y Axis') and travel > 200:
-                result['warnings'].append(f'{axis_name}: Travel {travel}mm seems very large')
-            elif axis_name == 'Z Axis' and travel > 50:
-                result['warnings'].append(f'{axis_name}: Z Travel {travel}mm seems large')
-
-    # Fan
-    fan = parsed.get('Fan', {})
-    if isinstance(fan, dict):
-        fan_type = fan.get('Type', '')
-        if fan_type and fan_type not in ('PWM', 'HILO', 'HiLo'):
-            result['warnings'].append(f"Fan Type '{fan_type}' unrecognized")
+        figures = parsed[section]
+        if not isinstance(figures, dict):
+            result['errors'].append(f'{section}: not a mapping, got {type(figures).__name__}')
+            continue
+        for key, figure in figures.items():
+            problem = motorconfig.figure_problem(section, figure)
+            if problem is not None:
+                result['errors'].append(f'{section}.{key}: {problem}')
+    travel = parsed.get(motorconfig.TRAVEL)
+    margin = parsed.get(motorconfig.MARGIN)
+    if isinstance(travel, dict) and isinstance(margin, dict):
+        for axis in motorconfig.LIMITED_AXES:
+            if axis not in travel or axis not in margin:
+                continue
+            pair = (travel[axis], margin[axis])
+            # A figure refused alone is already written above.
+            if motorconfig.figure_problem(motorconfig.TRAVEL, pair[0]) is None and (
+                motorconfig.figure_problem(motorconfig.MARGIN, pair[1]) is None
+            ):
+                problem = motorconfig.unusable_travel(*pair)
+                if problem is not None:
+                    result['errors'].append(f'{axis} travel limit: {problem}')
 
     # Teststand should not be active on customer units
     ts = parsed.get('Teststand', {})
@@ -798,6 +805,7 @@ def validate_motorconfig(config_data: bytes | str | dict) -> dict:
             'Teststand mode is ENABLED -- should not be active on customer units'
         )
 
+    result['valid'] = not result['errors']
     return result
 
 

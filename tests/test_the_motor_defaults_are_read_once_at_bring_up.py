@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The shipped motor defaults are read once, from the install, at bring-up.
+"""The shipped motor defaults are read once, from the install, at bring-up, every figure judged.
 
 Every value a motor board does not report itself -- travel limits,
 microsteps per mm, ramp parameters -- comes from
@@ -18,7 +18,7 @@ import threading
 
 import pytest
 
-from _lumascope.drivers.motorconfig import MotorConfig
+from _lumascope.drivers.motorconfig import MICROSTEPS, MotorConfig
 from _lumascope.modules.exceptions import InstallationFileError
 from _lumascope.modules.scope_session import ScopeSession
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
@@ -86,15 +86,36 @@ def _defaults_with(section, axis, value):
         ('Axis Travel Margin', 'Z', None, "states no 'Axis Travel Margin' for Z"),
         ('Axis Travel Limit', 'Y', 0, 'gives Y no travel limit .*travel 0 is not a positive'),
         ('Axis Travel Margin', 'Y', True, 'gives Y no travel limit .*margin True is not a number'),
+        (MICROSTEPS, 'T', None, r"states no 'Axis Microsteps per mm / Objective' for T"),
+        (MICROSTEPS, 'Z', 0, 'Z: microsteps per mm 0 is not a whole number of 1 or more'),
+        (MICROSTEPS, 'X', 20157.5, 'X: microsteps per mm 20157.5 is not a whole number'),
+        (MICROSTEPS, 'Y', -20157, 'Y: microsteps per mm -20157 is not a whole number'),
+        ('TurretPosition', '2', -1, '2: position -1 is not a whole number of microsteps'),
+        ('Axis antibacklash', 'Z', -25, 'Z: antibacklash -25 is not a number of um'),
+        ('Optics', 'PixelSize', '2.0', "PixelSize: optics figure '2.0' is not a positive"),
+        ('Optics', 'LensFocalLength', 0, 'LensFocalLength: optics figure 0 is not a positive'),
     ],
-    ids=['margin-the-whole-travel', 'no-margin', 'no-travel', 'a-bool-margin'],
+    ids=[
+        'margin-the-whole-travel',
+        'no-margin',
+        'no-travel',
+        'a-bool-margin',
+        'no-turret-microsteps',
+        'zero-microsteps',
+        'fractional-microsteps',
+        'negative-microsteps',
+        'a-negative-turret-slot',
+        'negative-antibacklash',
+        'a-pixel-size-written-as-text',
+        'a-zero-focal-length',
+    ],
 )
-def test_a_travel_the_limit_cannot_be_computed_from_stops_the_bring_up(
-    tmp_path, section, axis, value, says
-):
-    """The limit is the travel less the margin; a pair that gives none is
-    the file's fault, refused where the file is read, before any driver
-    is built, naming the file, the axis and the key."""
+def test_a_figure_a_driver_cannot_use_stops_the_bring_up(tmp_path, section, axis, value, says):
+    """Every figure of the shipped defaults is judged by its section's rule
+    where the file is read, before any driver is built, and a figure a
+    driver reads must be there: a refused or missing one is the file's
+    fault, naming the file and the key. The travel limit is the travel
+    less the margin, so a pair that gives none is refused too."""
     root, path = _install_with_defaults(tmp_path, _defaults_with(section, axis, value))
 
     with pytest.raises(InstallationFileError, match=says) as refused:

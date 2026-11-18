@@ -14,7 +14,7 @@ from typing import ClassVar
 
 from _lumascope.drivers.exceptions import ConfigReadError, PartAbsentError
 from _lumascope.lib.log_helpers import logger
-from _lumascope.lib.real_numbers import is_finite_number
+from _lumascope.lib.real_numbers import is_count, is_finite_number
 
 
 # The axes whose travel bounds a move. The turret's T is a slot number, not
@@ -24,6 +24,11 @@ LIMITED_AXES = ('X', 'Y', 'Z')
 
 TRAVEL = 'Axis Travel Limit'
 MARGIN = 'Axis Travel Margin'
+MICROSTEPS = 'Axis Microsteps per mm / Objective'
+ANTIBACKLASH = 'Axis antibacklash'
+AFTER_HOME = 'Initial Position after home'
+TURRET = 'TurretPosition'
+OPTICS = 'Optics'
 
 
 def _travel_problem(travel_mm: object) -> str | None:
@@ -38,8 +43,62 @@ def _margin_problem(margin_mm: object) -> str | None:
     return None
 
 
-# What each figure of an axis's travel must be, by section.
-_FIGURE_PROBLEM = {TRAVEL: _travel_problem, MARGIN: _margin_problem}
+def _microsteps_problem(per_mm: object) -> str | None:
+    # Every position read back is divided by it, and its sign is the motor's.
+    if not is_count(per_mm) or per_mm < 1:
+        return f'microsteps per mm {per_mm!r} is not a whole number of 1 or more'
+    return None
+
+
+def _antibacklash_problem(um: object) -> str | None:
+    if not is_finite_number(um) or um < 0:
+        return f'antibacklash {um!r} is not a number of um of zero or more'
+    return None
+
+
+def _position_problem(usteps: object) -> str | None:
+    if not is_count(usteps) or usteps < 0:
+        return f'position {usteps!r} is not a whole number of microsteps of zero or more'
+    return None
+
+
+def _optics_problem(figure: object) -> str | None:
+    # The image scale in every saved file is computed from it.
+    if not is_finite_number(figure) or figure <= 0:
+        return f'optics figure {figure!r} is not a positive number'
+    return None
+
+
+# What every figure of each section must be, one rule a section: each entry
+# of the section is judged by it (an axis's, a turret slot's, an optics
+# key's). A figure is read only from a section with a row here
+# (`MotorConfig._figure`), so no figure is read without a rule.
+_FIGURE_PROBLEM = {
+    TRAVEL: _travel_problem,
+    MARGIN: _margin_problem,
+    MICROSTEPS: _microsteps_problem,
+    ANTIBACKLASH: _antibacklash_problem,
+    AFTER_HOME: _position_problem,
+    TURRET: _position_problem,
+    OPTICS: _optics_problem,
+}
+
+JUDGED_SECTIONS = tuple(_FIGURE_PROBLEM)
+
+
+def figure_problem(section: str, figure: object) -> str | None:
+    """Why ``figure`` cannot be a figure of motor-config ``section``, or None.
+
+    Raises:
+        LookupError: ``section`` has no rule; only ``JUDGED_SECTIONS`` do.
+    """
+    return _rule(section)(figure)
+
+
+def _rule(section: str):
+    if section not in _FIGURE_PROBLEM:
+        raise LookupError(f'motor-config section {section!r} has no rule for its figures')
+    return _FIGURE_PROBLEM[section]
 
 
 def unusable_travel(travel_mm: object, margin_mm: object) -> str | None:
@@ -125,12 +184,16 @@ class MotorConfig:
         value is rejected and the default is kept. A travel or travel margin
         the limit cannot be computed from is rejected the same way, alone
         and then as the pair the merge would give (`_keep_a_usable_travel`).
+        An optics figure the table refuses is removed, default and all
+        (`_merge_optics`).
 
         The wholesale keys (the LED/filterset block) are assigned whole,
         never deep-merged, whatever shape either side carries.
         """
         validated = self._validate_board_config(board_config)
         self._keep_a_usable_travel(validated)
+        if OPTICS in validated:
+            self._merge_optics(validated.pop(OPTICS))
         for key in self._WHOLESALE_KEYS:
             if key in validated:
                 self._config[key] = validated.pop(key)
@@ -157,22 +220,41 @@ class MotorConfig:
                         f'{validated[section].pop(axis)!r}: {problem}'
                     )
 
+    def _merge_optics(self, board_optics: object) -> None:
+        """Merge the board's optics, removing each figure the table refuses.
+
+        A refused figure is removed with the shipped one under it: the
+        shipped focal length is the nominal lens, each unit's is measured,
+        and a scale computed from the nominal figure would be wrong in every
+        file the unit saves. With no figure here, the scale comes from the
+        next source or is unknown. An ``Optics`` that is not a mapping
+        states neither figure.
+        """
+        if not isinstance(board_optics, dict):
+            logger.warning(
+                f'[MotorConfig] Rejecting board section {OPTICS}={board_optics!r} '
+                f'(type={type(board_optics).__name__}): not a mapping; '
+                f'the unit has no pixel size or lens focal length'
+            )
+            self._config.pop(OPTICS, None)
+            return
+        held = self._config.setdefault(OPTICS, {})
+        for key, figure in board_optics.items():
+            problem = figure_problem(OPTICS, figure)
+            if problem is None:
+                held[key] = figure
+            else:
+                logger.warning(
+                    f'[MotorConfig] Rejecting board value {OPTICS}.{key}={figure!r}: '
+                    f'{problem}; the unit has no {key}'
+                )
+                held.pop(key, None)
+
     # Sections where values must be numeric (int or float).
-    _NUMERIC_SECTIONS = frozenset(
-        {
-            'Axis Microsteps per mm / Objective',
-            TRAVEL,
-            MARGIN,
-            'Axis Present',
-            'Axis antibacklash',
-            'Axis Offset',
-            'Axis Timeout',
-            'Initial Position after home',
-        }
-    )
+    _NUMERIC_SECTIONS = frozenset({MICROSTEPS, TRAVEL, MARGIN, ANTIBACKLASH, AFTER_HOME})
     # Sections read by key: a board value that is not a mapping cannot be
     # read, so it is rejected and the default kept, as a non-numeric value is.
-    _MAPPING_SECTIONS = _NUMERIC_SECTIONS | {'TurretPosition', 'Optics'}
+    _MAPPING_SECTIONS = _NUMERIC_SECTIONS | {TURRET}
 
     def _validate_board_config(self, board_config: dict) -> dict:
         """Return a copy of board_config with invalid values removed."""
@@ -192,14 +274,14 @@ class MotorConfig:
                             f'[MotorConfig] Rejecting non-numeric board value '
                             f'{key}.{axis}={val!r} (type={type(val).__name__})'
                         )
-                    elif key in _FIGURE_PROBLEM and (problem := _FIGURE_PROBLEM[key](val)):
+                    elif key in (TRAVEL, MARGIN) and (problem := figure_problem(key, val)):
                         logger.warning(
                             f'[MotorConfig] Rejecting board value {key}.{axis}={val!r}: {problem}'
                         )
                     else:
                         valid_axes[axis] = val
                 cleaned[key] = valid_axes
-            elif key == 'TurretPosition' and isinstance(value, dict):
+            elif key == TURRET and isinstance(value, dict):
                 valid_pos = {}
                 for pos, val in value.items():
                     if is_finite_number(val):
@@ -209,16 +291,6 @@ class MotorConfig:
                             f'[MotorConfig] Rejecting non-numeric turret position {pos}={val!r}'
                         )
                 cleaned[key] = valid_pos
-            elif key == 'Optics' and isinstance(value, dict):
-                valid_optics = {}
-                for okey, oval in value.items():
-                    if isinstance(oval, (int, float, str)):
-                        valid_optics[okey] = oval
-                    else:
-                        logger.warning(
-                            f'[MotorConfig] Rejecting invalid optics value {okey}={oval!r}'
-                        )
-                cleaned[key] = valid_optics
             else:
                 cleaned[key] = value
         return cleaned
@@ -232,22 +304,28 @@ class MotorConfig:
             else:
                 base[key] = value
 
-    def _axis_lookup(self, section: str, axis: str, default=0):
-        sub = self._config.get(section)
-        if sub is None:
-            logger.warning(f"[MotorConfig] Section '{section}' not found")
-            return default
-        axis = axis.upper()
-        val = sub.get(axis)
-        if val is None:
-            logger.warning(f"[MotorConfig] Axis '{axis}' not in section '{section}'")
-            return default
-        return val
+    def _figure(self, section: str, key: str) -> object:
+        """The figure ``key`` of ``section``, as held.
+
+        Every numeric read goes through here, so a section read without a
+        row in the figure table fails on its first read.
+
+        Raises:
+            LookupError: ``section`` has no rule (``JUDGED_SECTIONS``).
+            KeyError: the config states no such figure.
+        """
+        _rule(section)
+        return self._config[section][key]
 
     # --- Axis properties ---
 
     def usteps_per_mm(self, axis: str) -> int:
-        return int(self._axis_lookup('Axis Microsteps per mm / Objective', axis, default=20157))
+        """The axis's microsteps per mm (T: per 90 degrees).
+
+        Raises:
+            KeyError: the config states none for ``axis``.
+        """
+        return int(self._figure(MICROSTEPS, axis.upper()))
 
     def travel_limit_mm(self, axis: str) -> float:
         """The axis's stated travel, end to end, in mm.
@@ -255,7 +333,7 @@ class MotorConfig:
         Raises:
             KeyError: the config states no travel for ``axis``.
         """
-        return float(self._config[TRAVEL][axis.upper()])
+        return float(self._figure(TRAVEL, axis.upper()))
 
     def travel_limit_um(self, axis: str) -> float:
         return self.travel_limit_mm(axis) * 1000.0
@@ -266,7 +344,7 @@ class MotorConfig:
         Raises:
             KeyError: the config states no travel margin for ``axis``.
         """
-        return float(self._config[MARGIN][axis.upper()])
+        return float(self._figure(MARGIN, axis.upper()))
 
     def limits_um(self, axis: str) -> dict[str, float]:
         """The travel a move of ``axis`` is held to, in um: from the home
@@ -277,11 +355,13 @@ class MotorConfig:
             'max': (self.travel_limit_mm(axis) - self.travel_margin_mm(axis)) * 1000.0,
         }
 
-    def axis_present(self, axis: str) -> bool:
-        return bool(self._axis_lookup('Axis Present', axis, default=True))
-
     def antibacklash_um(self, axis: str) -> int:
-        return int(self._axis_lookup('Axis antibacklash', axis, default=0))
+        """The axis's antibacklash overshoot, in um.
+
+        Raises:
+            KeyError: the config states none for ``axis``.
+        """
+        return int(self._figure(ANTIBACKLASH, axis.upper()))
 
     def position_after_home_usteps(self, axis: str) -> int:
         """Where the firmware's HOME leaves ``axis``, in microsteps.
@@ -293,7 +373,7 @@ class MotorConfig:
             KeyError: ``axis`` has no position after home (T: the turret
                 stays where its home leaves it).
         """
-        return int(self._config['Initial Position after home'][axis.upper()])
+        return int(self._figure(AFTER_HOME, axis.upper()))
 
     # --- Motion ramp parameters (TMC5072 6-point ramp) ---
 
@@ -359,21 +439,6 @@ class MotorConfig:
     def hardware_rev(self) -> str:
         return self._config.get('HardwareRev', 'Unknown')
 
-    # --- Image center offset ---
-
-    def image_center_offset(self) -> tuple[int, int]:
-        """Return (X, Y) optical-center offset in sensor pixels.
-
-        The collimator-measured offset of the sensor from the tube lens's
-        optical axis, taken with no objective so it is objective-independent.
-        Defaults to (0, 0) -- geometric center -- when the unit was never
-        characterized.
-        """
-        section = self._config.get('ImageCenter')
-        if section is None:
-            return (0, 0)
-        return (int(section.get('X', 0)), int(section.get('Y', 0)))
-
     # --- Turret ---
 
     def turret_position_usteps(self, position: int) -> int:
@@ -382,10 +447,10 @@ class MotorConfig:
         Raises:
             HardwareError: the config lists no such slot.
         """
-        section = self._config.get('TurretPosition')
-        if section is None or str(position) not in section:
-            raise PartAbsentError(f'turret slot {position}: not in the motor config')
-        return int(section[str(position)])
+        try:
+            return int(self._figure(TURRET, str(position)))
+        except KeyError as ex:
+            raise PartAbsentError(f'turret slot {position}: not in the motor config') from ex
 
     # --- Optics ---
 
@@ -401,8 +466,8 @@ class MotorConfig:
                 catches this and degrades the scale honestly.
         """
         try:
-            return float(self._config['Optics']['LensFocalLength'])
-        except (KeyError, TypeError, ValueError) as ex:
+            return float(self._figure(OPTICS, 'LensFocalLength'))
+        except KeyError as ex:
             raise ConfigReadError(
                 f'motorconfig declares no numeric Optics.LensFocalLength: {ex}'
             ) from ex
@@ -416,6 +481,6 @@ class MotorConfig:
                 malformed config rather than a normal state.
         """
         try:
-            return float(self._config['Optics']['PixelSize'])
-        except (KeyError, TypeError, ValueError) as ex:
+            return float(self._figure(OPTICS, 'PixelSize'))
+        except KeyError as ex:
             raise ConfigReadError(f'motorconfig declares no numeric Optics.PixelSize: {ex}') from ex

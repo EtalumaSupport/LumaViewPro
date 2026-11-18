@@ -20,7 +20,7 @@ import pytest
 
 from _lumascope.drivers.exceptions import ConfigReadError
 from _lumascope.drivers.motorboard import MotorBoard
-from _lumascope.drivers.motorconfig import MotorConfig
+from _lumascope.drivers.motorconfig import MotorConfig, figure_problem
 from _lumascope.modules.motor_defaults import read_motor_defaults
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 from tests.stock_channels import LED2
@@ -127,11 +127,13 @@ class TestLoaderRecordsProvenance:
         self, tmp_path, monkeypatch
     ):
         board = self._board_with_config(
-            tmp_path, monkeypatch, '{"Axis Present": 1, "Serial Number": "SN1"}'
+            tmp_path, monkeypatch, '{"Axis antibacklash": 1, "Serial Number": "SN1"}'
         )
-        board.motorconfig = make_config(tmp_path, {'Axis Present': {'X': False}})
         board._load_board_config()
-        assert board.motorconfig.axis_present('X') is False, 'the default stands'
+        assert (
+            board.motorconfig.antibacklash_um('Z')
+            == SHIPPED_MOTOR_DEFAULTS['Axis antibacklash']['Z']
+        ), 'the default stands'
         assert board.motorconfig.serial_number() == 'SN1', 'the rest of the config merges'
         assert board.motorconfig.board_config_read_ok is True, 'the board answered'
 
@@ -147,6 +149,42 @@ class TestLoaderRecordsProvenance:
         with pytest.raises(RuntimeError, match='cache rebuild failed'):
             board._load_board_config()
         assert board.motorconfig.board_config_read_ok is True, 'not recorded as the board unread'
+
+
+class TestBoardOptics:
+    """A board's optics figure the table refuses is removed, the shipped one
+    with it: the shipped figures are the nominal lens, each unit's are
+    measured, and the scale of every saved file is computed from them. With
+    none, the accessor raises and the capability builder takes the next
+    source or leaves the scale unknown."""
+
+    @pytest.mark.parametrize(
+        'figure', ['nan', 0, -2.0, '2.0'], ids=['text-nan', 'zero', 'negative', 'text']
+    )
+    def test_a_refused_figure_leaves_the_unit_none(self, tmp_path, figure):
+        config = make_config(tmp_path)
+        config.update_from_board({'Optics': {'PixelSize': figure, 'LensFocalLength': 47.92}})
+
+        with pytest.raises(ConfigReadError, match=r'Optics\.PixelSize'):
+            config.pixel_size()
+        assert config.lens_focal_length() == 47.92, 'the figure the table takes merges'
+
+    def test_an_optics_that_is_not_a_mapping_leaves_the_unit_neither(self, tmp_path):
+        config = make_config(tmp_path)
+        config.update_from_board({'Optics': None, 'Serial Number': 'SN1'})
+
+        with pytest.raises(ConfigReadError, match=r'Optics\.PixelSize'):
+            config.pixel_size()
+        with pytest.raises(ConfigReadError, match=r'Optics\.LensFocalLength'):
+            config.lens_focal_length()
+        assert config.serial_number() == 'SN1', 'the rest of the config merges'
+
+
+def test_a_section_with_no_rule_is_never_judged_as_one():
+    # Every numeric read on MotorConfig asks this table for its section's
+    # rule, so a section read without a row fails on its first read.
+    with pytest.raises(LookupError, match="'Axis Present' has no rule"):
+        figure_problem('Axis Present', 1)
 
 
 class TestFlagExistsEverywhere:

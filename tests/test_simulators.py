@@ -601,14 +601,6 @@ class TestMotorConfigDefaults:
         # X/Y unchanged
         assert mc.travel_limit_mm('X') == 120
 
-    def test_missing_section_returns_default(self):
-        from _lumascope.drivers.motorconfig import MotorConfig
-
-        mc = MotorConfig(SHIPPED_MOTOR_DEFAULTS)
-        # Non-existent section should return default without crashing
-        val = mc._axis_lookup('Nonexistent Section', 'X', default=42)
-        assert val == 42
-
     def test_optics_raises_when_no_optics_declared(self):
         import pytest
 
