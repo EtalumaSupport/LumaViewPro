@@ -27,6 +27,25 @@ def _run(code: str):
     return json.loads(done.stdout.strip().splitlines()[-1])
 
 
+def test_a_file_whose_index_is_no_whole_number_is_left_alone_and_the_logs_open(tmp_path):
+    # A superscript two is a digit to str.isdigit and not to int: read as an index, it
+    # raised before any log opened, at every launch while the file was there.
+    log_dir = tmp_path / 'logs' / 'LVP_Log'
+    log_dir.mkdir(parents=True)
+    (log_dir / 'lumaviewpro.\u00b2.log').write_text('x')
+    code = (
+        'import _lumascope.lvp_logger\n'
+        '_lumascope.lvp_logger.start_program_logging()\n'
+        "_lumascope.lvp_logger.logger.info('opened')\n"
+        'print(0)\n'
+    )
+
+    _run_with_data_root(tmp_path, code)
+
+    assert 'opened' in (log_dir / 'lumaviewpro.log').read_text(encoding='utf-8')
+    assert (log_dir / 'lumaviewpro.\u00b2.log').exists()
+
+
 def test_a_log_under_a_folder_named_with_log_keeps_its_backups_and_its_newest_record(tmp_path):
     log_dir = tmp_path / 'j.logan' / 'logs' / 'LVP_Log'
     log_dir.mkdir(parents=True)

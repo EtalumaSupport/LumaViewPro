@@ -40,6 +40,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import ClientDisconnect
 
+from _lumascope.lib.real_numbers import whole_number_in
 from _lumascope.modules import image_utils, wall_time, wire_encoding
 from _lumascope.modules.api_surface import api, markdown_of
 from _lumascope.modules.exceptions import (
@@ -679,11 +680,12 @@ def _max_width(request: fastapi.Request) -> int | None:
         return None
     if len(given) > 1:
         raise problems.invalid_request('Give max_width once.')
-    if not given[0].isdigit() or int(given[0]) < 1:
+    width = whole_number_in(given[0])
+    if width is None or width < 1:
         raise problems.invalid_request(
             f'max_width is a whole number of pixels above 0, not {given[0]!r}.'
         )
-    return int(given[0])
+    return width
 
 
 def _add_handle_routes(
@@ -1151,6 +1153,9 @@ def _add(
                 handed.append(job_of(value, said=said)['id'])
             return encoded(value)
 
+        # Every header is read before the call starts, so nothing about one
+        # can fail once the move or capture has begun.
+        wait = Wait.of(request.headers.get('prefer'))
         answered = jobs.run(lambda: _answered(work, request_id), name, request_id)
         if member.returns_job:
             await asyncio.wait({answered})
@@ -1158,7 +1163,6 @@ def _add(
             if not handed:
                 return reply.response()
             return JSONResponse(reply.body, status_code=202, headers=_job_headers(handed[0]))
-        wait = Wait.of(request.headers.get('prefer'))
         await asyncio.wait(
             {answered, closing.finished()},
             timeout=wait.seconds,

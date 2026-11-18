@@ -37,6 +37,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 
 import pydantic
 
+from _lumascope.lib.real_numbers import whole_number_in
 from _lumascope.modules import api_surface, wire_encoding
 from _lumascope.modules.notification_center import Notification, OutcomeKind
 from _lumascope.modules.run_events import RunEvents
@@ -358,8 +359,8 @@ def _frame(name: str, data: str, seq: int) -> str:
 def _resume_from(last_event_id: str | None) -> int | None:
     if last_event_id is None:
         return None
-    text = last_event_id.strip()
-    return int(text) if text.isdigit() else -1
+    seq = whole_number_in(last_event_id.strip())
+    return -1 if seq is None else seq
 
 
 def _fields(record: type) -> tuple[str, ...]:

@@ -41,6 +41,7 @@ _paused_threads = threading.local()
 # before. path_utils imports nothing that imports the logger, so this
 # import cannot reach back into it.
 from _lumascope.lib.build_files import build_root
+from _lumascope.lib.real_numbers import whole_number_in
 from _lumascope.modules.path_utils import (
     app_runtime,
     get_log_dir,
@@ -203,10 +204,10 @@ def _remove_backups_past(path: str, backups: int) -> None:
     folder, file_name = os.path.split(path)
     prefix = file_name.removesuffix('.log') + '.'
     for name in os.listdir(folder):
-        index = name.removeprefix(prefix).removesuffix('.log')
-        if not (name.startswith(prefix) and name.endswith('.log') and index.isdigit()):
+        index = whole_number_in(name.removeprefix(prefix).removesuffix('.log'))
+        if not (name.startswith(prefix) and name.endswith('.log') and index is not None):
             continue
-        if int(index) > backups:
+        if index > backups:
             try:
                 os.remove(os.path.join(folder, name))
             except FileNotFoundError:

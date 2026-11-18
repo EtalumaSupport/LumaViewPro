@@ -104,6 +104,19 @@ def test_a_name_that_is_no_file_or_no_image_is_refused(summed):
     assert outside.json()['reason'] == 'outside_live_folder', outside.json()
 
 
+def test_a_width_that_is_no_whole_number_of_pixels_is_refused_in_the_routes_words(summed):
+    # A superscript two, U+00B2 (sent percent-encoded), is a digit to str.isdigit that int will not
+    # read, and 5000 nines pass isdigit and are past int's digit cap: each
+    # answered 500.
+    session, client, (still,) = summed
+    name = _name(session, still)
+
+    answers = [client.get(f'/api/v1/previews/{name}?max_width={w}') for w in ('%C2%B2', '9' * 5000)]
+
+    assert [a.status_code for a in answers] == [422, 422], [a.text for a in answers]
+    assert all('max_width is a whole number of pixels above 0' in a.text for a in answers)
+
+
 def test_a_file_stating_a_depth_no_frame_has_is_refused_and_the_server_keeps_answering(summed):
     # Another program's file: a 16-bit container tagged 20 bits in LVP's private depth tag.
     session, client, (still,) = summed

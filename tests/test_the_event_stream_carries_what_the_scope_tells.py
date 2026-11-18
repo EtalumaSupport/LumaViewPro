@@ -469,6 +469,18 @@ def test_a_reconnect_past_what_is_held_is_sent_reset_then_status(session, monkey
     assert second['id'] == first['id']
 
 
+def test_a_reconnect_from_an_id_that_is_no_whole_number_is_sent_reset_then_status(client):
+    # '\xb2' arrives as U+00B2, a superscript two, a digit to str.isdigit that int will not read,
+    # and 5000 nines pass isdigit and are past int's digit cap: each ended
+    # the stream.
+    sent = {}
+    for last in (b'\xb2', '9' * 5000):
+        with _reading(client, **{'Last-Event-ID': last}) as stream:
+            sent[last] = (stream.next()['event'], stream.next()['event'])
+
+    assert sent == dict.fromkeys((b'\xb2', '9' * 5000), ('reset', 'status'))
+
+
 def test_a_quiet_stream_carries_a_comment(client, monkeypatch):
     monkeypatch.setattr(_lumascope.rest.events, 'KEEPALIVE_S', 0.05)
     with _reading(client) as stream:

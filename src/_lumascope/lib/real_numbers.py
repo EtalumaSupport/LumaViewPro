@@ -64,3 +64,22 @@ def is_count(value: object) -> bool:
     return is_finite_number(value) and (
         isinstance(value, numbers.Integral) or float(value).is_integer()
     )
+
+
+def whole_number_in(text: str) -> int | None:
+    """The whole number ``text`` spells in ASCII decimal digits, or None for any other text.
+
+    For a whole number written as text: a header, a query argument, a
+    file name's index, a board's or the OS's reply. ``str.isdigit`` is
+    true for digits ``int`` will not read (a superscript two, U+00B2), and ``int`` refuses a
+    decimal string longer than its digit cap (``sys.get_int_max_str_digits``),
+    so a check written as ``isdigit`` then ``int`` raises on text it
+    passed. Empty, signed or spaced text is None: each reader strips what
+    its format allows before it asks.
+    """
+    if not (text.isascii() and text.isdigit()):
+        return None
+    cap = sys.get_int_max_str_digits()
+    if cap and len(text) > cap:
+        return None
+    return int(text)

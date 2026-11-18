@@ -32,6 +32,7 @@ import time
 import weakref
 from collections.abc import Callable
 
+from _lumascope.lib.real_numbers import whole_number_in
 from _lumascope.modules import wall_time
 from _lumascope.modules.caller import Caller, calling
 from _lumascope.modules.exceptions import ServerRefusedError
@@ -83,8 +84,10 @@ class Wait:
             value = value.strip().strip('"')
             if name == 'respond-async':
                 return cls(0.0, 'respond-async')
-            if name == 'wait' and value.isdigit() and asked is None:
-                seconds = min(float(value), WAIT_CAP_S)
+            whole = whole_number_in(value)
+            if name == 'wait' and whole is not None and asked is None:
+                # Cut before converting: a long whole number has no float.
+                seconds = float(min(whole, WAIT_CAP_S))
                 asked = cls(seconds, f'wait={int(seconds)}')
         return asked or cls(WAIT_DEFAULT_S, None)
 

@@ -39,7 +39,7 @@ import zipfile
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
-from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
+from _lumascope.lib.real_numbers import is_finite_number, is_integer_number, whole_number_in
 from _lumascope.drivers.exceptions import CameraUsbLookupFailedError, HardwareError
 from _lumascope.drivers.usb_census import CensusDevice, read_device_list
 from _lumascope.drivers.usb_driver_binding import (
@@ -483,8 +483,9 @@ def _collect_system_info():
         info['ram_total'] = windows['ram_total']
     elif is_mac:
         mem = _run(['sysctl', '-n', 'hw.memsize'])
+        ram_bytes = whole_number_in(mem)
         info['ram_total_gb'] = (
-            f'{int(mem) / (1024**3):.1f} GB' if mem.isdigit() else f'not read: {mem}'
+            f'{ram_bytes / (1024**3):.1f} GB' if ram_bytes is not None else f'not read: {mem}'
         )
     else:
         try:

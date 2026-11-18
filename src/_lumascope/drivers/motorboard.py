@@ -7,6 +7,7 @@ import time
 from typing import ClassVar
 from collections.abc import Mapping
 from _lumascope.lib.log_helpers import logger
+from _lumascope.lib.real_numbers import whole_number_in
 
 from _lumascope.drivers.serialboard import CONNECT_FAILURES, SerialBoard
 from _lumascope.drivers.serial_backend import PYSERIAL, SerialBackend
@@ -551,7 +552,8 @@ class MotorBoard(SerialBoard):
         # Firmware that does not implement the query answers ERROR or text
         # that is not a register value: that is the board saying it has no
         # limit to report, so the default is its answer, and it is cached.
-        if resp.startswith('ERROR') or not resp.isdigit():
+        limit = whole_number_in(resp)
+        if resp.startswith('ERROR') or limit is None:
             logger.debug(
                 f'[XYZ Class ] MotorBoard.acceleration_limit({command}): firmware does not support '
                 f'({resp!r}), using default {DEFAULT_ACCELERATION_LIMIT}'
@@ -559,7 +561,7 @@ class MotorBoard(SerialBoard):
             value = DEFAULT_ACCELERATION_LIMIT
         else:
             logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp}')
-            value = int(resp)
+            value = limit
 
         # Cache the result
         if self._accel_cache is None:

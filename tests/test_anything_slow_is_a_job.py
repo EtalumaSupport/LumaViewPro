@@ -38,6 +38,7 @@ from _lumascope.rest import problems
 from _lumascope.rest.app import build_app
 from tests.scope_fakes import home_sim_scope
 from tests.settings_fixtures import complete_settings
+from tests.test_the_event_stream_carries_what_the_scope_tells import _serving
 
 
 @pytest.fixture
@@ -139,6 +140,31 @@ def test_a_call_asked_to_respond_async_is_answered_at_once_as_its_job(client, he
     assert accepted.headers['Preference-Applied'] == 'respond-async'
     held.set()
     client.get(accepted.headers['Location'], headers={'Prefer': 'wait=10'})
+
+
+def test_a_wait_that_is_no_whole_number_is_ignored_and_the_call_runs_once(session, monkeypatch):
+    # Sent as a raw latin-1 byte to a real server, which reads '\xb2' as
+    # U+00B2, a superscript two, a digit to str.isdigit that float will not
+    # read; the TestClient re-encodes it as two characters, U+00C2 then
+    # U+00B2, which no reader takes for a digit. Read after the
+    # call had started, it answered 500 and left the call running with no job.
+    calls = []
+    real = session.scope.illumination.leds_off
+
+    def leds_off():
+        calls.append(1)
+        return real()
+
+    monkeypatch.setattr(session.scope.illumination, 'leds_off', leds_off)
+
+    with _serving(session) as client:
+        answered = client.post(
+            '/api/v1/scope/illumination/leds_off', headers={'Prefer': b'wait=\xb2'}
+        )
+
+    assert answered.status_code == 200, answered.text
+    assert 'Preference-Applied' not in answered.headers
+    assert calls == [1]
 
 
 def test_a_call_inside_the_wait_is_answered_and_the_wait_is_capped(client):

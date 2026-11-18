@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""What counts as a number is ``lib/real_numbers``'s, and no production check restates it.
+"""What counts as a number, and a whole number written as text, is ``lib/real_numbers``'s.
 
 About eighty checks once wrote "a number" out by hand, and they disagreed:
 one let NaN through and another refused it, one took ``True`` as 1, one
@@ -13,6 +13,14 @@ excludes a bool.
 Two shapes are not a test of a number and pass: a type tuple that holds
 ``str`` beside the numbers asks which scalar kind a value is, and the
 functions named below each dispatch on an exact kind, with the reason.
+
+Text is read as a whole number by ``whole_number_in`` alone. Six readers
+each pre-checked with ``str.isdigit()`` and then called ``int()`` or
+``float()``: ``isdigit`` passes digits ``int`` will not read (U+00B2) and
+any number of ASCII digits past ``int``'s cap, so a REST header or query
+argument answered 500, an event stream ended, and a stray log file stopped
+logging from starting. A call to ``isdigit``, ``isnumeric`` or
+``isdecimal`` anywhere else in production code fails here.
 """
 
 from __future__ import annotations
@@ -105,6 +113,43 @@ def _hand_written_number_tests():
             for node in _own_nodes(body):
                 if _a_number_test(node):
                     yield f'{path}:{node.lineno} {qualname}: {ast.unparse(node)}'
+
+
+_DIGIT_TESTS = Words({'isdigit', 'isnumeric', 'isdecimal'})
+
+
+def _a_digit_test(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in _DIGIT_TESTS
+    )
+
+
+def _hand_written_digit_tests():
+    for path in [*tracked_files(('src', 'ui', 'tools')), 'lumaviewpro.py']:
+        if path == _HOME:
+            continue
+        for node in ast.walk(parse_module(path)):
+            if _a_digit_test(node):
+                yield f'{path}:{node.lineno}: {ast.unparse(node)}'
+
+
+def test_text_is_read_as_a_whole_number_by_whole_number_in_alone():
+    found = sorted(_hand_written_digit_tests())
+    assert found == [], 'ask lib/real_numbers.whole_number_in instead:\n' + '\n'.join(found)
+
+
+def test_the_guard_sees_a_hand_written_digit_check():
+    # The scan's known positive: each spelling it must catch, and a
+    # same-named attribute that is not a call.
+    tree = ast.parse(
+        'a = text.isdigit()\nb = str.isnumeric(text)\nc = s.strip().isdecimal()\nd = obj.isdigit\n'
+    )
+    caught = [ast.unparse(n) for n in ast.walk(tree) if _a_digit_test(n)]
+    assert sorted(caught) == sorted(
+        ['text.isdigit()', 'str.isnumeric(text)', 's.strip().isdecimal()']
+    )
 
 
 def test_every_numeric_check_asks_a_real_numbers_predicate():

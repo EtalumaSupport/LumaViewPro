@@ -1,14 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""What counts as a number, for each of the four kinds a check asks about.
+"""What counts as a number, for each of the four kinds a check asks about, and in text.
 
 An integer is by type (``2.0`` is not one), a count by value (``2.0`` is
 one), a finite number refuses NaN, the infinities and an integer past
 every float, and a real number takes NaN for the code that converts or
 prints a value rather than judging it. None of them takes a ``bool``,
-Python's or numpy's; numpy's numbers are numbers of their kind.
+Python's or numpy's; numpy's numbers are numbers of their kind. A whole
+number in text is ASCII decimal digits, no more than ``int`` converts.
 """
 
 import math
+import sys
 from decimal import Decimal
 from fractions import Fraction
 
@@ -19,6 +21,7 @@ from _lumascope.lib.real_numbers import (
     is_finite_number,
     is_integer_number,
     is_real_number,
+    whole_number_in,
 )
 
 # value: (integer, count, finite, real)
@@ -52,3 +55,13 @@ def test_each_value_is_a_number_of_the_kinds_its_row_names():
         if predicate(value) is not expected
     ]
     assert wrong == []
+
+
+def test_a_whole_number_in_text_is_ascii_digits_int_converts_and_nothing_else():
+    cap = sys.get_int_max_str_digits()
+    read = {'0': 0, '12': 12, '9' * cap: int('9' * cap)}
+    # A superscript two, and twelve in Arabic-Indic digits: digits to str.isdigit.
+    not_whole = ['', '-1', '+1', ' 1', '1 ', '1.0', '\u00b2', '\u0661\u0662', '9' * (cap + 1)]
+
+    assert {text: whole_number_in(text) for text in read} == read
+    assert [text for text in not_whole if whole_number_in(text) is not None] == []
