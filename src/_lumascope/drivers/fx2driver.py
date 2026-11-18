@@ -2471,9 +2471,6 @@ class FX2Camera(Camera):
         logger.info('[FX2 Cam   ] disconnected')
         return True
 
-    def is_connected(self) -> bool:
-        return self._active is not None and bool(self._active) and not self._device_removed
-
     # One second, deliberately: as long as these units need, and no longer.
     # The stream stays clean far past it (an LS620 ran to the register's
     # 65535 rows), but the API's fixed 5 s wait for a new capture and the

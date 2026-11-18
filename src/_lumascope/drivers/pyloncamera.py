@@ -1115,9 +1115,6 @@ class PylonCamera(Camera):
     def _is_grabbing(self) -> bool:
         """Return True if the camera is currently in a grab loop; False when not connected.
 
-        ``is_connected()`` is not asked, since it marks the camera
-        disconnected as it answers.
-
         Raises:
             CameraReadFailedError: The SDK did not answer the grab state.
                 The camera is kept.
@@ -2945,24 +2942,6 @@ class PylonCamera(Camera):
             return str(node.GetCurrentEntry(False, True).GetSymbolic())
         except Exception as e:
             raise CameraReadFailedError(f'{name} read failed: {type(e).__name__}: {e}') from e
-
-    def is_connected(self) -> bool:
-        """Return True if connected, from the removal flag and the open camera.
-
-        Asks the SDK nothing. A grab stop holds the camera's SDK lock for as
-        long as the camera takes to stop, which has been 11 s, and this is
-        asked from the UI thread and per displayed frame; any SDK call here
-        would wait that out. A removal is marked only on definite evidence:
-        the removal handler connect() requires, a grab result of
-        DEVICE_NOT_FOUND, and the consecutive failed-grab cascade.
-        """
-        if self._device_removed:
-            self._mark_disconnected()
-            return False
-        if self.active is None:
-            self._mark_disconnected()
-            return False
-        return True
 
     def gain(self, value: float) -> float | None:
         """Set Gain in dB, with GainSelector 'All' first where the body has

@@ -35,10 +35,6 @@ _DEFINITE_SITES = {
     ('src/_lumascope/drivers/pyloncamera.py', 'ImageHandler', 'OnImageGrabbed'): 2,
     # MAX_CONSECUTIVE_FAILURES failed grabs in a row.
     ('src/_lumascope/drivers/pyloncamera.py', '_PylonImageGrabWorker', '_count_failed_grab'): 1,
-    # Re-asserts a removal already latched, or a handle already released.
-    ('src/_lumascope/drivers/pyloncamera.py', 'PylonCamera', 'is_connected'): 2,
-    # The handle already released.
-    ('src/_lumascope/drivers/idscamera.py', 'IDSCamera', 'is_connected'): 1,
     # IDS's one removal owner: DeviceLost, the presence probe, the stall ceilings.
     ('src/_lumascope/drivers/idscamera.py', 'IDSCamera', '_handle_device_lost'): 1,
     # The FX2 grab loop's end of the stream: an unplug the bus confirmed,

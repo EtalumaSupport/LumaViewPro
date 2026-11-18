@@ -1008,18 +1008,20 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
     def is_connected(self) -> bool:
-        """Return whether the camera is currently connected.
+        """Return whether the camera is found and not removed.
 
         Read from the driver's own flags with no SDK call: the API's
         connection reads ask it per displayed frame, and a grab stop can
-        hold the SDK for seconds.
+        hold the SDK for seconds. Asking changes nothing: a removal is
+        marked only where its evidence is (``_mark_disconnected``), never
+        by a question.
 
         Returns:
-            bool: True if the SDK reports a live, attached camera.
+            bool: True when the driver holds an open camera (``found``)
+                not marked removed (``is_device_removed``).
         """
-        pass
+        return self.found and not self.is_device_removed()
 
     @contextlib.contextmanager
     def update_camera_config(self) -> Iterator[None]:

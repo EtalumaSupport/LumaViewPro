@@ -827,14 +827,6 @@ class IDSCamera(Camera):
     # the callback thread, so the close/destroy runs on the base's teardown
     # thread while _mark_disconnected runs inline.
 
-    def is_connected(self) -> bool:
-        if self.active in (False, None):
-            # A released handle; the flag is set only through the helper,
-            # which takes the state lock and logs the edge once.
-            self._mark_disconnected()
-            return False
-        return not self._device_removed
-
     def node_maps(self) -> tuple[str, ...]:
         """The remote device's nodemap and the data stream's (``Camera.node_maps``)."""
         # The device's transport-layer maps (``device.NodeMaps()``) are not

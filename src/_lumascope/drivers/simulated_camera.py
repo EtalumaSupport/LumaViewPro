@@ -682,16 +682,6 @@ class SimulatedCamera(Camera):
         self._defocused = {}
         return True
 
-    def is_connected(self) -> bool:
-        """Whether the simulated camera is currently connected.
-
-        Returns:
-            bool: True when active and the device-removed flag is clear.
-        """
-        if self.active in (False, None):
-            return False
-        return not self._device_removed
-
     # ------------------------------------------------------------------
     # Config
     # ------------------------------------------------------------------
