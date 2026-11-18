@@ -27,6 +27,7 @@ from __future__ import annotations
 import concurrent.futures
 import dataclasses
 import functools
+import math
 import pathlib
 import threading
 import time
@@ -37,7 +38,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from matplotlib.figure import Figure
 
-from _lumascope.lib.real_numbers import is_integer_number
+from _lumascope.lib.real_numbers import is_integer_number, is_real_number
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import channel_record, graph_analysis, live_work, path_utils
 from _lumascope.modules.activity_claim import ActivityHolder, the_holder_named
@@ -45,6 +46,7 @@ from _lumascope.modules.cell_count_method import CellCountMethod
 from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.modules.graph_analysis import Trendline
 from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
     ExcludedInput,
     LeftOutReason,
     PostProcessingFailedError,
@@ -219,6 +221,21 @@ class CellCountPreview:
     counts: CellCounts
 
 
+def _refuse_unless_two_numbers(pair: object, argument: str) -> None:
+    """Refuse a slider's pair that is not two numbers, or holds a NaN.
+
+    An infinity is a number past the last stop and answers that stop; a NaN
+    interpolates to NaN, a size or position nothing stands for.
+    """
+    if len(pair) != 2 or not all(is_real_number(value) for value in pair):
+        raise ArgumentRefusedError(
+            'wrong_kind', argument=argument, value=pair, takes='two numbers, low then high'
+        )
+    for index, value in enumerate(pair):
+        if math.isnan(value):
+            raise ArgumentRefusedError('not_a_number', argument=f'{argument}[{index}]', value=value)
+
+
 @api_fields('positions', 'sizes', 'reach')
 @dataclasses.dataclass(frozen=True)
 class SizeSliderStops:
@@ -245,10 +262,12 @@ class SizeSliderStops:
                 beyond the first or last stop stands for that stop's size.
 
         Raises:
-            Nothing.
+            ArgumentRefusedError: ``'wrong_kind'``, ``positions`` is not two
+                numbers; ``'not_a_number'``, one of them is NaN.
         """
         import numpy as np
 
+        _refuse_unless_two_numbers(positions, 'positions')
         low, high = np.interp(positions, self.positions, self.sizes)
         return float(low), float(high)
 
@@ -261,10 +280,12 @@ class SizeSliderStops:
                 the first or last stop is shown at that stop's position.
 
         Raises:
-            Nothing.
+            ArgumentRefusedError: ``'wrong_kind'``, ``sizes`` is not two
+                numbers; ``'not_a_number'``, one of them is NaN.
         """
         import numpy as np
 
+        _refuse_unless_two_numbers(sizes, 'sizes')
         low, high = np.interp(sizes, self.sizes, self.positions)
         return float(low), float(high)
 

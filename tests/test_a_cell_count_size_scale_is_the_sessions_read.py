@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from _lumascope.modules.cell_count_method import CellCountMethod
-from _lumascope.modules.exceptions import PostProcessingRefusedError
+from _lumascope.modules.exceptions import ArgumentRefusedError, PostProcessingRefusedError
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
@@ -94,6 +94,32 @@ def test_a_shape_or_scale_no_image_has_is_refused_not_answered(post_processing):
 
     assert refused == ['invalid_setting'] * 6
     assert preview.value.reason == 'invalid_setting'
+
+
+def test_a_slider_pair_that_is_not_two_numbers_is_refused_and_an_infinity_is_the_end_stop(
+    post_processing,
+):
+    # A NaN interpolated to a NaN size and a three-tuple failed to unpack;
+    # a position past the last stop stands for that stop's size.
+    stops = post_processing.cell_count_size_scale(
+        CellCountMethod(), shape=_SHAPE, pixel_size_um=_PIXEL_SIZE_UM
+    ).area
+    wrong = []
+    for member, pair, reason in (
+        (stops.size_at, (float('nan'), 50), 'not_a_number'),
+        (stops.positions_of, (0, float('nan')), 'not_a_number'),
+        (stops.size_at, (0, 50, 100), 'wrong_kind'),
+        (stops.positions_of, ('a', 'b'), 'wrong_kind'),
+    ):
+        try:
+            member(pair)
+        except ArgumentRefusedError as refused:
+            if refused.reason != reason:
+                wrong.append(f'{member.__name__}{pair}: {refused.reason!r}, not {reason!r}')
+        else:
+            wrong.append(f'{member.__name__}{pair}: was not refused')
+    assert not wrong, '\n'.join(wrong)
+    assert stops.size_at((0, float('inf'))) == (0.0, stops.reach)
 
 
 def test_with_no_preview_a_position_is_its_own_size(post_processing):
