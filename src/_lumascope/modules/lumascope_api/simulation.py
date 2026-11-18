@@ -270,7 +270,10 @@ class SimulatedScope:
         focal_spread_um: How far the simulated sample's focus may lie from
             where bring-up places the stage, drawn once per session, so
             every session needs a real autofocus; the simulated camera's
-            alone. 0 puts the sample in focus there.
+            alone. 0 puts the sample in focus there. Not a finite number of
+            0 or more, the record is not built: ``ArgumentRefusedError``
+            ``'not_a_number'`` or ``'fault_bound'``, naming
+            ``focal_spread_um``.
         file_stall: A stall for the session's file lane, so the scope shows
             a save drive that stops answering: ``after_s`` seconds after
             bring-up the lane's worker is held for ``for_s`` seconds. None
@@ -352,6 +355,15 @@ class SimulatedScope:
         return self.slide
 
     def __post_init__(self) -> None:
+        # An infinite spread draws a NaN focus, and a NaN spread is one; judged
+        # a number first, so the comparison below is one.
+        refuse_unless_finite_number(self.focal_spread_um, 'focal_spread_um')
+        SimulationAPI._bound(
+            'focal_spread_um',
+            self.focal_spread_um,
+            'a distance, 0 or more',
+            self.focal_spread_um >= 0,
+        )
         refuse_unless_finite_number(self.unidentified_usb_devices, 'unidentified_usb_devices')
         SimulationAPI._bound(
             'unidentified_usb_devices',

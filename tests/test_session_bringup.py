@@ -215,6 +215,26 @@ class TestTheSimulatorStartsWhereItsSampleIs:
             s.shutdown()
             s.scope.disconnect()
 
+    def test_a_focal_spread_that_is_no_distance_is_refused_as_the_record_is_built(self):
+        # An infinite spread drew a NaN focus for the sample; whichever host
+        # builds the record, the record is the one judge.
+        wrong = []
+        for spread, reason in (
+            (float('inf'), 'not_a_number'),
+            (float('nan'), 'not_a_number'),
+            ('25', 'not_a_number'),
+            (-5.0, 'fault_bound'),
+        ):
+            try:
+                SimulatedScope(focal_spread_um=spread)
+            except ArgumentRefusedError as refused:
+                if (refused.reason, refused.argument) != (reason, 'focal_spread_um'):
+                    wrong.append(f'{spread!r}: {refused.reason!r} {refused.argument!r}')
+            else:
+                wrong.append(f'{spread!r}: was not refused')
+        assert not wrong, '\n'.join(wrong)
+        assert SimulatedScope(focal_spread_um=0).focal_spread_um == 0
+
     def test_a_focal_spread_is_refused_on_a_real_scope(self, tmp_path):
         with pytest.raises(ArgumentRefusedError) as refused:
             ScopeSession.create(

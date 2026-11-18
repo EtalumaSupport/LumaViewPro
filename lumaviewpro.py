@@ -95,9 +95,8 @@ if __name__ == '__main__':
     try:
         _spread = take_sim_launch_value(sys.argv, 'sim-focal-spread', simulate=simulate_mode)
         if _spread is not None:
+            # A number here; its range is the simulated scope record's.
             sim_focal_spread_um = float(_spread)
-            if not 0 < sim_focal_spread_um < float('inf'):
-                raise ValueError(f'{_spread!r} is not a distance above 0')
     except ValueError as _spread_error:
         sys.exit(f'--sim-focal-spread=UM: {_spread_error}')
 
@@ -214,7 +213,8 @@ if __name__ == '__main__':
                 **sim_slide_fields,
             )
         except ValueError as _record_error:
-            sys.exit(f'{sim_slide_usage}: {_record_error}')
+            # The refusal names the field: the slide's pitch or the focal spread.
+            sys.exit(f'--simulate: {_record_error}')
     # --walk=<file> performs a walk's steps on the GUI once bring-up
     # has finished (ui/walk.py; what it waits on is _bring_up_owes
     # below), on the simulator or a real scope.
