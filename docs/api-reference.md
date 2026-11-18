@@ -401,10 +401,10 @@ slices when stacked.
 **Raises**
 
 - `AxisMovingError`: `'axis_moving'`, with no `at`, an axis is moving, so the live position is a place it is passing through. Nothing is added.
-- `ProtocolRunRefusedError`: `'step_position_unknown'`, an axis does not know its position; `'no_acquiring_channel'`, no channel acquires. With `use_zstacking`, also `'zstack_not_configured'`, `'positions_unreachable'` or `'zslices_outside_travel'`, as `apply_zstacking` refuses the stored stack. Nothing is added.
+- `ProtocolRunRefusedError`: `'step_position_unknown'`, an axis does not know its position; `'no_acquiring_channel'`, no channel acquires; `'positions_outside_travel'`, `at` lies outside the stage's travel. With `use_zstacking`, also `'zstack_not_configured'`, `'positions_unreachable'` or `'zslices_outside_travel'`, as `apply_zstacking` refuses the stored stack. Nothing is added.
 - `ObjectiveUnknownError`: the objective in the light path is unknown, as `ScopeSession.objective_id` refuses (`'slot_unassigned'`, the turret's current slot has no objective). Nothing is added.
 - `ConfigurationDefectError`: `'channels_unresolved'`, `channels` is given and this scope's channels could not be resolved. Nothing is added.
-- `ArgumentRefusedError`: `'channel_unknown'`, a name in `channels` is not a channel.
+- `ArgumentRefusedError`: `'channel_unknown'`, a name in `channels` is not a channel; `'not_a_number'`, an axis of `at` is NaN (None is no position on that axis).
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope has no channel named in `channels`; `'not_connected'`, with no `at`, the model's motor controller is not connected, so there is no live position. Nothing is added.
 - `StepNotFoundError`: `'no_such_step'`, an impossible `before_step_index` / `after_step_index`.
 - `StepEditRefusedError`: `'step_value_refused'`, both given.
@@ -412,7 +412,7 @@ slices when stacked.
 **Refusals by REST status**
 
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_unknown`, `no_acquiring_channel`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unassigned`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `zstack_not_configured`, `positions_unreachable`, `zslices_outside_travel`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`StepEditRefusedError`](#StepEditRefusedError): `step_value_refused`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_outside_travel`, `zstack_not_configured`, `positions_unreachable`, `zslices_outside_travel`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`StepEditRefusedError`](#StepEditRefusedError): `step_value_refused`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
@@ -10466,7 +10466,7 @@ Which regions a count keeps, each bound checked as the filters are built.
 
 **Raises**
 
-- `PostProcessingRefusedError`: reason `method_invalid`, a filter that is not a `FilterBounds`, a bound that is not a number or None, or a min above its max; the message names the filter.
+- `PostProcessingRefusedError`: reason `method_invalid`, a filter that is not a `FilterBounds`, a bound that is not a number or None, a sphericity bound outside 0 to 1 or an intensity bound outside 0 to 100, or a min above its max; the message names the filter.
 
 **Fields**
 
@@ -10492,7 +10492,7 @@ size filter, so an image that states none is counted in pixels.
 
 **Raises**
 
-- `PostProcessingRefusedError`: reason `method_invalid`, a *pixels_per_um* that is not a positive number or None (0 or below counts nothing, NaN writes NaN areas), a *fluorescent_mode* that is not True or False, a *threshold_pct* that is not a number, or *filters* that is not a `CellCountFilters`; the message names the field.
+- `PostProcessingRefusedError`: reason `method_invalid`, a *pixels_per_um* that is not a positive number or None (0 or below counts nothing, NaN writes NaN areas), a *fluorescent_mode* that is not True or False, a *threshold_pct* that is not a number from 0 to 100, or *filters* that is not a `CellCountFilters`; the message names the field.
 
 **Fields**
 
@@ -11445,7 +11445,11 @@ The centre of the well in column `i` and row `j`, in mm from the plate's top-lef
 
 **Raises**
 
-Nothing.
+- `ArgumentRefusedError`: `'well_unknown'`, `i` is not a column or `j` not a row of this plate (every index on a plate with no wells, the Blank labware): a centre computed past the grid is a place no well is.
+
+**Refusals**
+
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `well_unknown`
 
 <a id="Labware.well_size_mm"></a>
 ### `Labware.well_size_mm`
@@ -13057,12 +13061,13 @@ The run's operation. Its result() is the run's outcome -- the status, reason, ti
 
 **Raises**
 
-- `ProtocolRunRefusedError`: The run was refused before any state was committed; no operation is returned and no run is started.
+- `ProtocolRunRefusedError`: The run was refused before any state was committed; no operation is returned and no run is started; among the refusals, a step or `return_to_position` outside the stage's travel.
+- `ArgumentRefusedError`: `'not_a_number'`, an axis of `return_to_position` is NaN; no run is started.
 
 **Refusals by REST status**
 
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `already_running`, `exclusive_activity_running`, `recording_active`, `files_writing`, `files_writing_stalled`, `post_processing_running`, `autofocus_running`, `camera_not_streaming`, `camera_not_delivering`, `position_unknown`, `lid_open_before_motion`, `capture_location_unusable`, `frame_size_unknown`, `disk_space_insufficient`, `no_acquiring_channel`, `turret_slot_ambiguous`, `turret_slot_reassigned`, `step_position_unknown`, `turret_objectives_unassigned`, `objective_not_mounted`, `camera_range_unread`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `channel_already_in_add`, `composite_two_transmitted_channels`, `composite_video_channel`, `sequence_name_invalid`, `empty_protocol`, `validation_failed`, `composite_needs_two_channels`, `tiling_unknown`, `tiling_scale_unknown`, `zstack_not_configured`, `already_tiled`, `objective_not_in_catalogue`, `tiles_outside_travel`, `zslices_outside_travel`, `positions_outside_travel`, `positions_unreachable`, `step_position_missing`, `channel_not_on_scope`, `channel_unknown`, `objectives_require_turret`, `objective_not_given`, `focus_not_given`, `overlap_out_of_range`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `not_connected`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
@@ -13634,7 +13639,7 @@ is the declared scope with no fault. A fault is refused where the
 - <a id="SimulatedScope.conversion_gain_mode"></a>`conversion_gain_mode`: `bool` -- Whether the scope's camera has a switchable conversion gain, as an IDS on firmware 3.95 does, so the Advanced Settings toggle and a run in each mode are shown without one; the simulated camera's alone. False is the stock dart, which has none.
 - <a id="SimulatedScope.drift"></a>`drift`: `bool` -- Whether the slide drifts a pixel around a circle, a step a frame, so a running stream looks alive on a display. Both simulated cameras take it. False is a still slide, as a bench holds one: two frames made under the same settings at the same stage position are the same picture, which a measurement of what a change does to the frames needs. The GUI simulator asks for it; nothing else does.
 - <a id="SimulatedScope.file_stall"></a>`file_stall`: `SimulatedStall | None` -- A stall for the session's file lane, so the scope shows a save drive that stops answering: `after_s` seconds after bring-up the lane's worker is held for `for_s` seconds. None stalls nothing.
-- <a id="SimulatedScope.focal_spread_um"></a>`focal_spread_um`: `float` -- How far the simulated sample's focus may lie from where bring-up places the stage, drawn once per session, so every session needs a real autofocus; the simulated camera's alone. 0 puts the sample in focus there.
+- <a id="SimulatedScope.focal_spread_um"></a>`focal_spread_um`: `float` -- How far the simulated sample's focus may lie from where bring-up places the stage, drawn once per session, so every session needs a real autofocus; the simulated camera's alone. 0 puts the sample in focus there. Not a finite number of 0 or more, the record is not built: `ArgumentRefusedError` `'not_a_number'` or `'fault_bound'`, naming `focal_spread_um`.
 - <a id="SimulatedScope.model"></a>`model`: `str | None` -- The model the simulated scope is, when it is not the one the settings declare: a stored file that disagrees with the scope attached, which bring-up settles by the scope's answer. None is the declared model. With a `unit_config` it picks the LED board and the camera only; the motor board is the unit's.
 - <a id="SimulatedScope.model_answer"></a>`model_answer`: `SimulatedModelAnswer | None` -- The model the simulated motor board names as its own at bring-up, whatever it was built as (`answer_model`), until the scope's faults are cleared; the fast motor board's alone. None arms no answer.
 - <a id="SimulatedScope.refused_camera_reads"></a>`refused_camera_reads`: `tuple[SimulatedCameraReadRefusal, ...]` -- Camera reads the simulated camera fails from bring-up on (`refuse_camera_read`, each in turn), so bring-up's own reads meet them; not on the FX2. Empty fails none.
@@ -13712,7 +13717,11 @@ The slider positions that show two sizes.
 
 **Raises**
 
-Nothing.
+- `ArgumentRefusedError`: `'wrong_kind'`, `sizes` is not two numbers; `'not_a_number'`, one of them is NaN.
+
+**Refusals**
+
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`, `not_a_number`
 
 <a id="SizeSliderStops.size_at"></a>
 ### `SizeSliderStops.size_at`
@@ -13731,7 +13740,11 @@ The sizes a slider's two positions stand for.
 
 **Raises**
 
-Nothing.
+- `ArgumentRefusedError`: `'wrong_kind'`, `positions` is not two numbers; `'not_a_number'`, one of them is NaN.
+
+**Refusals**
+
+- [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`, `not_a_number`
 
 <a id="SkippedBuild"></a>
 ## `lumascope.SkippedBuild`
@@ -14163,7 +14176,7 @@ A video, as `build` takes it: each position's time series to one video.
 
 **Fields**
 
-- <a id="Video.frame_rate_fps"></a>`frame_rate_fps`: `float | str | None` -- The playback rate, a number of at least 1 or its text; None plays a recording at its own measured rate.
+- <a id="Video.frame_rate_fps"></a>`frame_rate_fps`: `float | str | None` -- The playback rate, a finite number of at least 1 or its text; None plays a recording at its own measured rate.
 - <a id="Video.timestamp_overlay"></a>`timestamp_overlay`: `bool` -- Whether each frame shows its time.
 
 <a id="VideoConfig"></a>
@@ -17889,7 +17902,7 @@ prints it prints what the GUI shows.
 
 **Attributes**
 
-- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session; the boards are `unconnected_parts`. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'frame_size_unknown'` -- the run saves images and the camera's frame size or depth is not known, so what it will write cannot be sized. `'disk_space_insufficient'` -- what the whole run will write does not fit in the free space of its save folder. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first; the axes are `axes_without_position`. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'composite_video_channel'` -- a composite run has a channel set to capture video; a composite merges still images. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective. `'step_position_unknown'` -- a step cannot be added or updated while an axis does not know its position; the axes are `axes_without_position`. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol fall outside the stage's travel. `'camera_range_unread'` -- the camera's gain and exposure range could not be read after its last readout change, so no step's value can be held to it; it is read again at the next binning, frame size or pixel format change. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'channel_not_on_scope'` -- steps take a channel this scope does not have, or this scope's channels could not be resolved. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a channel has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- channel settings the protocol would store hold values no channel setting takes; the message names each.
+- `reason`: Machine-readable refusal code for callers that map refusals to responses (REST status codes, UI branches). `'already_running'` -- a run already holds the scope. `'exclusive_activity_running'` -- another exclusive activity, such as a diagnostic, a home or a run, holds the scope, and the work asked for is not made under it. `'recording_active'` -- a video recording is in progress, or a previous one is still finishing. `'files_writing'` -- the last run is still writing its files. `'files_writing_stalled'` -- the last run's file writer has stopped making progress, and has to be recovered before a new run starts. `'post_processing_running'` -- a build is on the post-processing lane, and a capture never overlaps one. `'autofocus_running'` -- an autofocus sweep from a run that has ended did not stop, and still occupies the autofocus thread. `'not_connected'` -- a part the work needs is not connected, and none reconnects during a session; the boards are `unconnected_parts`. `'camera_not_streaming'` -- the camera is connected and delivers no frames. `'camera_not_delivering'` -- the run has a video step and no Recording max FPS, and no delivered rate of the camera's was measured within the run start's wait, so the disk the step will write cannot be sized. `'frame_size_unknown'` -- the run saves images and the camera's frame size or depth is not known, so what it will write cannot be sized. `'disk_space_insufficient'` -- what the whole run will write does not fit in the free space of its save folder. `'position_unknown'` -- an axis this scope has does not know its position, so the scope has to be homed first; the axes are `axes_without_position`. `'lid_open_before_motion'` -- the stage's lid is open, so the stage refuses to move. `'no_acquiring_channel'` -- no channel, or not the step's, is set to acquire, so there is no step to make. `'channel_already_in_add'` -- another step added with this one already takes the channel, and steps added together are one composite with one image per channel. `'composite_two_transmitted_channels'` -- a composite run has more than one transmitted channel set to capture. `'composite_video_channel'` -- a composite run has a channel set to capture video; a composite merges still images. `'turret_slot_ambiguous'` -- a step recorded no turret slot, and its objective is assigned to two or more. `'turret_slot_reassigned'` -- the turret slot a step recorded now holds another objective. `'step_position_unknown'` -- a step cannot be added or updated while an axis does not know its position; the axes are `axes_without_position`. `'turret_objectives_unassigned'` -- the protocol uses an objective no turret slot is assigned. `'objective_not_mounted'` -- on a scope with no turret, the protocol names an objective other than the selected one. `'sequence_name_invalid'` -- the run's name is a path: it holds a separator or a drive, or is `..`. `'empty_protocol'` -- the protocol has no steps. `'validation_failed'` -- the protocol's steps fail the pre-run validation; the message names the errors. `'composite_needs_two_channels'` -- a composite run has fewer than two channels set to capture. `'tiling_unknown'` -- the tile grid asked for is not one this installation offers. `'tiling_scale_unknown'` -- the scope cannot report its pixel size, so a tile grid's spacing is unknown. `'zstack_not_configured'` -- a z-stack's range or step size is not greater than zero. `'already_tiled'` -- the protocol is tiled already, and a second grid cannot be laid over it. `'tiles_outside_travel'` -- tiles of the grid fall outside the stage's travel. `'zslices_outside_travel'` -- z-slices of the stack fall outside Z's travel. `'positions_outside_travel'` -- steps of the protocol, a step being added, or a scan's return position fall outside the stage's travel. `'camera_range_unread'` -- the camera's gain and exposure range could not be read after its last readout change, so no step's value can be held to it; it is read again at the next binning, frame size or pixel format change. `'positions_unreachable'` -- the work needs motion on an axis this scope has no motor for. `'step_position_missing'` -- steps have no position on an axis this scope moves, having been recorded on a scope without it. `'channel_not_on_scope'` -- steps take a channel this scope does not have, or this scope's channels could not be resolved. `'objectives_require_turret'` -- the protocol changes objective between steps, and this scope has no turret to change it. `'objective_not_given'` -- a protocol with a channel set to acquire was built from a configuration that names no objective. `'focus_not_given'` -- a channel has no saved focus, and the configuration names no current Z to image it at. `'overlap_out_of_range'` -- the tile overlap is outside 0 to 50 percent. `'values_out_of_range'` -- channel settings the protocol would store hold values no channel setting takes; the message names each.
 - `title`: The heading shown above the sentence, the reason's.
 - `message`: The sentence; the same text as the exception's message.
 - `holder`: What holds the microscope at refusal time (the exclusive-activity claim's kind, or `AUTOFOCUS` for a sweep in flight), or None when the refusal is not holder-shaped (validation, hardware, file drain).
@@ -18680,7 +18693,7 @@ A settings write was refused; nothing was written.
 
 Raised by `ScopeSession.update_settings` and `set_live_folder`, by
 the members that own a ranged setting (`set_channel_settings`,
-`set_image_mode`, through `settings_paths.refuse_outside_range`) and
+`set_image_mode`, through `settings_paths.check_value`) and
 for a settings dict handed to a session, at `create`'s door
 (`settings_init.prepare_loaded`, through
 `settings_paths.refuse_handed_values`). A caller that maps refusals to
@@ -18693,6 +18706,7 @@ responses branches on `reason`; a person reads the message.
 - `detail`: Why, as a clause about the value (`'it must be above 0, not 0'`), for a caller that names the setting its own way: a protocol step's column.
 - `member`: The member that changes the setting, for `'has_member'` and `'host_only'`; otherwise None.
 - `limits`: The lowest and highest value the setting takes, for an `'out_of_range'` setting with both ends; otherwise None.
+- `takes`: The range the value is outside, as a clause (`'at least 0'`, `'above 0 and at most 1'`), for an `'out_of_range'` refused by a range's bound; otherwise None. A caller judging an argument by a setting's rule says it in the argument's own words.
 
 `path`, `member` and `limits` are published, so a REST problem
 names the setting refused, the member to call instead and the range,
