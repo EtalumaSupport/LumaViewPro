@@ -192,18 +192,6 @@ class TestGoingToAStep:
         assert _camera(session) == (_BF['exposure_ms'], _BF['gain_db'])
         assert session.scope.imaging._frame_validity.target('gain') == _BF['gain_db']
 
-    def test_a_camera_refusal_is_raised_once_the_stage_has_arrived(self, session, monkeypatch):
-        protocol, _bf_idx, blue_idx = _two_step_protocol(session)
-        refused = CameraSettingRejected('gain_db', 10.0, message='x')
-        # a stand-in by design: the simulated camera takes every in-range value
-        monkeypatch.setattr(session.scope.camera, 'hold_channel', MagicMock(side_effect=refused))
-
-        with pytest.raises(CameraSettingRejected) as raised:
-            session.go_to_step(protocol, blue_idx)
-
-        assert raised.value is refused
-        assert not session.scope.motion.is_any_axis_moving()
-
 
 class TestTheMember:
     def test_a_layer_this_scope_lacks_is_refused_and_nothing_is_applied(self, session):

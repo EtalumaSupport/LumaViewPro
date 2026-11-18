@@ -1450,6 +1450,7 @@ Move `axes` to the bookmark, and return once they have arrived.
 - `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
+- `MotorStopFailedError`: as `start_go_to_bookmark`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_go_to_bookmark`. Nothing was driven.
 
 **Refusals**
@@ -1462,6 +1463,7 @@ Move `axes` to the bookmark, and return once they have arrived.
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="ScopeSession.go_to_channel_focus"></a>
@@ -1519,7 +1521,7 @@ Go to step `step_index` of `protocol`; return once the camera holds the step's c
 What `start_go_to_step` does, then the started operation's
 `result()`: the step's channel goes on the camera while the stage
 travels; see `start_go_to_step` for what going to a step does and
-refuses.
+refuses. A refusal names `go_to_step`.
 Both waits run in this caller's thread, so the IO lane takes other
 work meanwhile.
 
@@ -1537,10 +1539,11 @@ work meanwhile.
 - `ConfigurationDefectError`: `'channels_unresolved'`, as `start_go_to_step`. Nothing changes.
 - `CameraSettingRejected`: `'camera_read_failed'`, as `start_go_to_step`. Nothing changes.
 - `AxisStateUnknownError`: as `start_go_to_step`. Nothing changes.
-- `PositionOutOfRangeError`: as `start_go_to_step`; the axes before it have moved, nothing else changes.
-- `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
+- `PositionOutOfRangeError`: as `start_go_to_step`; any move already started is stopped, nothing else changes.
+- `MoveFaultError`: `'driver_failed'`, the board did not take a command, and any move already started is stopped; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first. The channel and the preview are the step's.
-- `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how), raised once the stage has arrived; see `apply_channel_camera`.
+- `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how); the moves started are stopped; see `apply_channel_camera`.
+- `MotorStopFailedError`: a move already started could not be stopped, as `start_go_to_step`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_go_to_step`. Nothing was started.
 
 **Refusals**
@@ -1557,6 +1560,7 @@ work meanwhile.
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
 - [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`, `camera_rejected`, `camera_no_answer`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="ScopeSession.held_by_other"></a>
@@ -3589,15 +3593,16 @@ One `Operation` for the moves started, done once every one is.
 
 - `ArgumentRefusedError`: `'not_offered'`, a name in `axes` that is not X, Y or Z. Nothing was driven.
 - `HardwareCommandRefusedError`: `'not_connected'`, `'axis_absent'`, `'lid_open_before_motion'` or `'monitor_ended'`, as `MotionAPI.start_move_to_plate`. Nothing was driven.
-- `PositionOutOfRangeError`: The bookmark is outside what this stage can reach. Nothing was driven.
-- `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
-- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected.
+- `PositionOutOfRangeError`: The bookmark is outside what this stage can reach. Any move already started is stopped.
+- `AxisStateUnknownError`: An axis given does not know its position. Any move already started is stopped.
+- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. Any move already started is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
+- `MotorStopFailedError`: a move already started could not be stopped: the board did not take the STOP, or the move did not settle after it.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
 <a id="ScopeSession.start_go_to_channel_focus"></a>
@@ -3702,17 +3707,25 @@ it is refused on the UI thread; a click calls it from a worker.
 - `CameraSettingRejected`: `'camera_read_failed'`, the camera's gain and exposure range could not be read after its last readout change, naming the step's gain and exposure (`CameraAPI.applied_write_for`). Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
 - `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
-- `PositionOutOfRangeError`: the step lies outside an axis's travel; the axes before it have moved, nothing else changes.
-- `MoveFaultError`: `'driver_failed'`, the board did not take an axis's command; or the turret's move to the step's slot did not arrive; see `MotionAPI.start_move_z`.
+- `PositionOutOfRangeError`: the step lies outside an axis's travel; any move already started is stopped, nothing else changes.
+- `MoveFaultError`: `'driver_failed'`, the board did not take an axis's command, and any move already started is stopped; or the turret's move to the step's slot did not arrive; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'` or `'superseded'`, the turret's move to the step's slot was ended.
-- `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how); the moves are under way, and the channel and the preview are the step's.
+- `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how); the moves started are stopped, and the channel and the preview are the step's.
+- `MotorStopFailedError`: a move already started could not be stopped: the board did not take the STOP, or the move did not settle after it.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread. Nothing was started.
+
+Any other raise once the moves have started (the preview's LED
+command among them) stops them first, by one STOP that withholds no
+move asked before it, and the step is not counted as gone to: going
+to it again shows its preview. Where another activity holds the
+scope by then, or no STOP can be sent, nothing is sent and the
+raise goes on as it is.
 
 **Refusals by REST status**
 
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_missing`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`, `camera_rejected`, `camera_no_answer`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`, `camera_rejected`, `camera_no_answer`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ScopeSession.start_make_logs_zip"></a>
@@ -7956,6 +7969,7 @@ Move X and Y to `at` on the selected plate, and return once they have arrived.
 - `AxisStateUnknownError`: As `start_move_to_plate`.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `start_move_z`.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
+- `MotorStopFailedError`: as `start_move_to_plate`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_to_plate`. Nothing was driven.
 
 **Refusals**
@@ -7968,6 +7982,7 @@ Move X and Y to `at` on the selected plate, and return once they have arrived.
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.move_to_plate_nearest"></a>
@@ -8122,6 +8137,7 @@ Move X and Y to a place, in um, each that is given, and return once they have ar
 - `AxisStateUnknownError`: As `start_move_xy`.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `start_move_z`.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
+- `MotorStopFailedError`: as `start_move_xy`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_xy`. Nothing was driven.
 
 **Refusals**
@@ -8134,6 +8150,7 @@ Move X and Y to a place, in um, each that is given, and return once they have ar
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.move_xy_by"></a>
@@ -8162,6 +8179,7 @@ Move X and Y by a distance, in um, each that is given, and return once they have
 - `AxisStateUnknownError`: As `start_move_xy_by`.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `start_move_z`.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first.
+- `MotorStopFailedError`: as `start_move_xy_by`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_move_xy_by`. Nothing was driven.
 
 **Refusals**
@@ -8174,6 +8192,7 @@ Move X and Y by a distance, in um, each that is given, and return once they have
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
+- [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="MotionAPI.move_z"></a>
@@ -8425,13 +8444,14 @@ One `Operation` for the moves started, as `start_move_xy_by`'s.
 - `ObjectiveUnknownError`: The active objective is unknown, so no distance can be measured: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`. Nothing was driven.
 - `PixelSizeUnknownError`: `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`, the objective is known but no distance can be measured. Nothing was driven.
 - `PositionOutOfRangeError`: `'position_out_of_range'`, a target is outside the axis's travel. Nothing was driven.
-- `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected.
+- `MoveFaultError`: `'driver_failed'`, the board did not take the command; `'board_lost'`, the board is no longer connected. When it is Y's, the X already driving is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
+- `MotorStopFailedError`: Y's command failed after X was driven, and the board did not take that STOP or X did not settle after it.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`, `frame_size_unread`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
 <a id="MotionAPI.start_home"></a>
@@ -8559,13 +8579,14 @@ One `Operation` for the moves started, done once every one is; its `result()` ra
 - `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'lid_open_before_motion'`, the stage's lid is open; `'monitor_ended'`, the motion monitor has ended. Nothing was driven.
 - `PositionOutOfRangeError`: `'position_out_of_range'`, an axis given is outside the plate positions this stage can reach, in plate mm. Nothing was driven.
 - `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
-- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected.
+- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. When it is Y's, the X already driving is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
+- `MotorStopFailedError`: Y's command failed after X was driven, and the board did not take that STOP or X did not settle after it.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `plate_frame_axis`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
 <a id="MotionAPI.start_move_to_plate_nearest"></a>
@@ -8719,13 +8740,14 @@ One `Operation` for the axes given, done once every one is; its `result()` raise
 - `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'monitor_ended'`, the motion monitor has ended, so nothing would judge the move. Nothing was driven. `'lid_open_before_motion'`, the stage's lid is open: nothing was driven when it was open before the request; when it opened after X was commanded, the stage stopped X and Y was not driven.
 - `PositionOutOfRangeError`: `'position_out_of_range'`, an axis given is outside its configured travel and `ignore_limits` is False. Nothing was driven.
 - `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
-- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected.
+- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. When it is Y's, the X already driving is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
+- `MotorStopFailedError`: Y's command failed after X was driven, and the board did not take that STOP or X did not settle after it.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
 <a id="MotionAPI.start_move_xy_by"></a>
@@ -8759,13 +8781,14 @@ target is read and refused before either axis drives.
 - `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; `'position_unread'`, the board did not report a target to add to; `'monitor_ended'`, as `start_move_xy`. Nothing was driven. `'lid_open_before_motion'`, as `start_move_xy`.
 - `PositionOutOfRangeError`: `'position_out_of_range'`, a distance is beyond the safety limit or its target is outside the axis's travel. Nothing was driven.
 - `AxisStateUnknownError`: An axis given does not know its position. Nothing was driven.
-- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected.
+- `MoveFaultError`: `'driver_failed'`, the board did not take a command; `'board_lost'`, the board is no longer connected. When it is Y's, the X already driving is stopped first, by one STOP that withholds no move asked before it, and waited on until it settles.
+- `MotorStopFailedError`: Y's command failed after X was driven, and the board did not take that STOP or X did not settle after it.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `position_unread`, `lid_open_before_motion`, `exclusive_activity_running`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`MoveFaultError`](#MoveFaultError): `driver_failed`, `board_lost`; [`MotorStopFailedError`](#MotorStopFailedError): `motor_stop_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `monitor_ended`, `scope_disconnected`
 
 <a id="MotionAPI.start_move_z"></a>

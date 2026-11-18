@@ -3559,28 +3559,33 @@ class ScopeSession:
                 ``'axis_absent'``, ``'lid_open_before_motion'`` or ``'monitor_ended'``, as
                 ``MotionAPI.start_move_to_plate``. Nothing was driven.
             PositionOutOfRangeError: The bookmark is outside what this
-                stage can reach. Nothing was driven.
+                stage can reach. Any move already started is stopped.
             AxisStateUnknownError: An axis given does not know its
-                position. Nothing was driven.
+                position. Any move already started is stopped.
             MoveFaultError: ``'driver_failed'``, the board did not take a
                 command;
-                ``'board_lost'``, the board is no longer connected.
+                ``'board_lost'``, the board is no longer connected. Any move
+                already started is stopped first, by one STOP that withholds
+                no move asked before it, and waited on until it settles.
+            MotorStopFailedError: a move already started could not be
+                stopped: the board did not take the STOP, or the move did not
+                settle after it.
         """
         mark = self.bookmark
         motion = self.scope.motion
-        moves = []
-        if 'X' in axes or 'Y' in axes:
-            moves.append(
-                motion.start_move_to_plate(
-                    PlateLocation(
-                        x_mm=mark.x_mm if 'X' in axes else None,
-                        y_mm=mark.y_mm if 'Y' in axes else None,
-                        z_um=None,
+        with motion.starting_together() as moves:
+            if 'X' in axes or 'Y' in axes:
+                moves.append(
+                    motion.start_move_to_plate(
+                        PlateLocation(
+                            x_mm=mark.x_mm if 'X' in axes else None,
+                            y_mm=mark.y_mm if 'Y' in axes else None,
+                            z_um=None,
+                        )
                     )
                 )
-            )
-        if 'Z' in axes:
-            moves.append(motion.start_move_z(mark.z_um))
+            if 'Z' in axes:
+                moves.append(motion.start_move_z(mark.z_um))
         return Operation.all_of(tuple(moves))
 
     @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
@@ -3610,6 +3615,7 @@ class ScopeSession:
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``MotionAPI.start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
                 ``'superseded'``, another move or a home took an axis first.
+            MotorStopFailedError: as ``start_go_to_bookmark``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_go_to_bookmark``.
                 Nothing was driven.
@@ -4023,7 +4029,7 @@ class ScopeSession:
         What ``start_go_to_step`` does, then the started operation's
         ``result()``: the step's channel goes on the camera while the stage
         travels; see ``start_go_to_step`` for what going to a step does and
-        refuses.
+        refuses. A refusal names ``go_to_step``.
         Both waits run in this caller's thread, so the IO lane takes other
         work meanwhile.
 
@@ -4049,10 +4055,11 @@ class ScopeSession:
             CameraSettingRejected: ``'camera_read_failed'``, as
                 ``start_go_to_step``. Nothing changes.
             AxisStateUnknownError: as ``start_go_to_step``. Nothing changes.
-            PositionOutOfRangeError: as ``start_go_to_step``; the axes
-                before it have moved, nothing else changes.
+            PositionOutOfRangeError: as ``start_go_to_step``; any move
+                already started is stopped, nothing else changes.
             MoveFaultError: ``'driver_failed'``, the board did not take a
-                command; or an axis did not arrive and is UNKNOWN, the motion
+                command, and any move already started is stopped; or an axis
+                did not arrive and is UNKNOWN, the motion
                 monitor's ``'stalled'``, ``'board_lost'``,
                 ``'position_unread_after_move'``, ``'status_unread'`` or
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``MotionAPI.start_move_z``.
@@ -4060,25 +4067,15 @@ class ScopeSession:
                 ``'superseded'``, another move or a home took an axis first.
                 The channel and the preview are the step's.
             CameraSettingRejected: the camera did not take a setting of the
-                step's channel (its ``reason`` says how), raised once the
-                stage has arrived; see
-                ``apply_channel_camera``.
+                step's channel (its ``reason`` says how); the moves started
+                are stopped; see ``apply_channel_camera``.
+            MotorStopFailedError: a move already started could not be
+                stopped, as ``start_go_to_step``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_go_to_step``. Nothing
                 was started.
         """
-        refuse_waiting_on_ui_thread('go_to_step')
-        # Read before the start, as the start reads it: the step this call
-        # was made for, whatever the list holds once the lane has run.
-        channel = protocol.step_row(step_index=step_index)['channel']
-        with self._a_channel_change(channel, 'go_to_step'):
-            going = self._start_moving_to_step(protocol, step_index)
-            try:
-                self.apply_channel_camera(channel)
-            finally:
-                # A refused apply still waits out the travel it started, so
-                # the caller is never handed a raise with the stage still moving.
-                going.result()
+        self._start_go_to_step(protocol, step_index, 'go_to_step').result()
 
     @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
@@ -4160,24 +4157,49 @@ class ScopeSession:
                 step's channel is not the shown one or its preview would
                 light an LED not lit above 0 mA. Nothing changes.
             PositionOutOfRangeError: the step lies outside an axis's travel;
-                the axes before it have moved, nothing else changes.
+                any move already started is stopped, nothing else changes.
             MoveFaultError: ``'driver_failed'``, the board did not take an
-                axis's command; or the turret's move to the step's slot did
-                not arrive; see ``MotionAPI.start_move_z``.
+                axis's command, and any move already started is stopped; or
+                the turret's move to the step's slot did not arrive; see
+                ``MotionAPI.start_move_z``.
             MoveStoppedError: ``'stopped'`` or ``'superseded'``, the turret's
                 move to the step's slot was ended.
             CameraSettingRejected: the camera did not take a setting of the
-                step's channel (its ``reason`` says how); the moves are under
-                way, and the channel and the preview are the step's.
+                step's channel (its ``reason`` says how); the moves started
+                are stopped, and the channel and the preview are the step's.
+            MotorStopFailedError: a move already started could not be
+                stopped: the board did not take the STOP, or the move did not
+                settle after it.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread. Nothing was started.
+
+        Any other raise once the moves have started (the preview's LED
+        command among them) stops them first, by one STOP that withholds no
+        move asked before it, and the step is not counted as gone to: going
+        to it again shows its preview. Where another activity holds the
+        scope by then, or no STOP can be sent, nothing is sent and the
+        raise goes on as it is.
         """
-        refuse_waiting_on_ui_thread('start_go_to_step')
+        return self._start_go_to_step(protocol, step_index, 'start_go_to_step')
+
+    def _start_go_to_step(self, protocol: 'Protocol', step_index: int, member: str) -> Operation:
+        """``start_go_to_step``, its refusals naming ``member``: the one body of both go-to-step members."""
+        refuse_waiting_on_ui_thread(member)
+        # Read before the start, as the lane reads it: the step this call
+        # was made for, whatever the list holds once the lane has run.
         channel = protocol.step_row(step_index=step_index)['channel']
-        with self._a_channel_change(channel, 'start_go_to_step'):
-            going = self._start_moving_to_step(protocol, step_index)
-            self.apply_channel_camera(channel)
-        return going
+        with self._a_channel_change(channel, member):
+            try:
+                with self.scope.motion.starting_together() as started:
+                    started.append(self._start_moving_to_step(protocol, step_index))
+                    self.apply_channel_camera(channel)
+            except BaseException:
+                # The record the lane wrote names a step the stage did not reach.
+                last = self._last_step_gone_to
+                if last is not None and last[0] is protocol and last[1] == step_index:
+                    self._last_step_gone_to = None
+                raise
+        return started[0]
 
     def _start_moving_to_step(self, protocol: 'Protocol', step_index: int) -> Operation:
         """The IO-lane task of going to a step, and the operation of its moves."""
@@ -4261,24 +4283,26 @@ class ScopeSession:
         # while the stage axes still know theirs. One command, so a capture
         # asked while the turret turns waits for the step's moves rather
         # than taking the new objective at the previous step's position.
-        with motion.one_command(self.scope.capabilities.axes, then='go to the step'):
-            if targets.turret_slot is not None:
-                # The step's own Z move follows, so the turret need not put Z back.
-                motion.move_turret(targets.turret_slot, restore_z=False)
-            moves = (motion.start_move_xy(targets.x_um, targets.y_um),)
-            if targets.z_um is not None:
-                moves += (motion.start_move_z(targets.z_um),)
-        self._load_step_into_channel(asked)
-        self._last_step_gone_to = (protocol, step_index)
-        if not moves_light:
-            return moves
-        # After the step's moves are started, in the same task: a toggle the
-        # person makes while the stage travels lands after the step's preview.
-        # The step's values are now its channel's, so the channel lights at the
-        # step's current.
-        self._show_leds(step['channel'], lit)
-        self._show_channel(step['channel'], was_lit=was_lit)
-        return moves
+        # A raise once a move has started (the store's, the preview's) stops
+        # the moves started before it goes on.
+        with motion.starting_together() as moves:
+            with motion.one_command(self.scope.capabilities.axes, then='go to the step'):
+                if targets.turret_slot is not None:
+                    # The step's own Z move follows, so the turret need not put Z back.
+                    motion.move_turret(targets.turret_slot, restore_z=False)
+                moves.append(motion.start_move_xy(targets.x_um, targets.y_um))
+                if targets.z_um is not None:
+                    moves.append(motion.start_move_z(targets.z_um))
+            self._load_step_into_channel(asked)
+            self._last_step_gone_to = (protocol, step_index)
+            if moves_light:
+                # After the step's moves are started, in the same task: a toggle
+                # the person makes while the stage travels lands after the step's
+                # preview. The step's values are now its channel's, so the
+                # channel lights at the step's current.
+                self._show_leds(step['channel'], lit)
+                self._show_channel(step['channel'], was_lit=was_lit)
+        return tuple(moves)
 
     def _load_step_into_channel(self, asked: '_AskedChannelWrite') -> None:
         """The step's asked values into its channel's live settings, through the one channel write.

@@ -2954,11 +2954,8 @@ class MotionAPI:
         targets = tuple((axis, um) for axis, um in (('X', x_um), ('Y', y_um)) if um is not None)
         for axis, um in targets:
             self._refuse_absolute(member, axis, um, f'{axis.lower()}_um', ignore_limits)
-        return Operation.all_of(
-            tuple(
-                self._drive(member, axis, um, False, f'move_abs {axis}={um:.1f}um')
-                for axis, um in targets
-            )
+        return self._drive_xy(
+            member, tuple((axis, um, f'move_abs {axis}={um:.1f}um') for axis, um in targets)
         )
 
     def _move_xy_by_impl(self, dx_um: float | None, dy_um: float | None) -> Operation:
@@ -2972,12 +2969,21 @@ class MotionAPI:
             for axis, d in (('X', dx_um), ('Y', dy_um))
             if d is not None
         )
-        return Operation.all_of(
-            tuple(
-                self._drive('move_xy_by', axis, target, False, f'move_rel {axis}={d:+.1f}um')
-                for axis, d, target in targets
-            )
+        return self._drive_xy(
+            'move_xy_by',
+            tuple((axis, target, f'move_rel {axis}={d:+.1f}um') for axis, d, target in targets),
         )
+
+    def _drive_xy(self, member: str, legs: tuple[tuple[str, float, str], ...]) -> Operation:
+        """Drive each ``(axis, target, said)`` leg, refused already, X first; return the started moves.
+
+        One request: a leg whose drive raises stops the legs already
+        driving (``starting_together``) before the raise goes on.
+        """
+        with self.starting_together() as started:
+            for axis, target, said in legs:
+                started.append(self._drive(member, axis, target, False, said))
+        return Operation.all_of(tuple(started))
 
     def _move_z_impl(
         self, z_um: float, overshoot_enabled: bool | None, ignore_limits: bool
@@ -3022,6 +3028,13 @@ class MotionAPI:
     # tests/capability/motion_p11_stop_halts_and_progress_reads.py), 0.08 s in
     # the simulator, Z included.
     _MOVE_STALL_WINDOW_S = 2.0
+
+    # How long a request that raised waits for the moves it started to
+    # settle once it has stopped them (``starting_together``). Twice the
+    # stall window, so a move that does not answer the STOP is first given
+    # up by the monitor and settles with its fault. Per
+    # PERFORMANCE_BUDGETS.md row failed_start_stop_settle_s.
+    _STARTED_STOP_SETTLE_S = 2 * _MOVE_STALL_WINDOW_S
 
     def _dispatch_motion(
         self,
@@ -3105,7 +3118,12 @@ class MotionAPI:
                 Nothing was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take a
                 command;
-                ``'board_lost'``, the board is no longer connected.
+                ``'board_lost'``, the board is no longer connected. When it
+                is Y's, the X already driving is stopped first, by one STOP
+                that withholds no move asked before it, and waited on until
+                it settles.
+            MotorStopFailedError: Y's command failed after X was driven, and
+                the board did not take that STOP or X did not settle after it.
         """
         targets = _plate_axes_given(at)
         return self._start_plate_moves('start_move_to_plate', lambda: targets)
@@ -3135,6 +3153,7 @@ class MotionAPI:
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
                 ``'superseded'``, another move or a home took an axis first.
+            MotorStopFailedError: as ``start_move_to_plate``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_to_plate``.
                 Nothing was driven.
@@ -3385,7 +3404,12 @@ class MotionAPI:
                 Nothing was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take a
                 command;
-                ``'board_lost'``, the board is no longer connected.
+                ``'board_lost'``, the board is no longer connected. When it
+                is Y's, the X already driving is stopped first, by one STOP
+                that withholds no move asked before it, and waited on until
+                it settles.
+            MotorStopFailedError: Y's command failed after X was driven, and
+                the board did not take that STOP or X did not settle after it.
         """
         return self._dispatch_motion(
             self._move_xy_impl,
@@ -3426,6 +3450,7 @@ class MotionAPI:
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
                 ``'superseded'``, another move or a home took an axis first.
+            MotorStopFailedError: as ``start_move_xy``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_xy``. Nothing was
                 driven.
@@ -3467,7 +3492,12 @@ class MotionAPI:
                 Nothing was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take a
                 command;
-                ``'board_lost'``, the board is no longer connected.
+                ``'board_lost'``, the board is no longer connected. When it
+                is Y's, the X already driving is stopped first, by one STOP
+                that withholds no move asked before it, and waited on until
+                it settles.
+            MotorStopFailedError: Y's command failed after X was driven, and
+                the board did not take that STOP or X did not settle after it.
         """
         return self._dispatch_motion(
             self._move_xy_by_impl,
@@ -3502,6 +3532,7 @@ class MotionAPI:
                 ``'monitor_ended_mid_move'``, or ``'faulted'``; see ``start_move_z``.
             MoveStoppedError: ``'stopped'``, a stop ended a move;
                 ``'superseded'``, another move or a home took an axis first.
+            MotorStopFailedError: as ``start_move_xy_by``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
                 the UI thread, whose form is ``start_move_xy_by``. Nothing
                 was driven.
@@ -3819,6 +3850,11 @@ class MotionAPI:
                 is outside the axis's travel. Nothing was driven.
             MoveFaultError: ``'driver_failed'``, the board did not take the
                 command; ``'board_lost'``, the board is no longer connected.
+                When it is Y's, the X already driving is stopped first, by
+                one STOP that withholds no move asked before it, and waited
+                on until it settles.
+            MotorStopFailedError: Y's command failed after X was driven, and
+                the board did not take that STOP or X did not settle after it.
         """
         return self._dispatch_motion(
             self._center_on_impl,
@@ -4522,6 +4558,61 @@ class MotionAPI:
                 return self._current_move.get(move.axis) is move and move.outcome is None
 
         self._stop_motion_while(live, marks=True)
+
+    @contextlib.contextmanager
+    def starting_together(self) -> Iterator[list[Operation]]:
+        """Start several moves as one request: a raise inside stops the ones started, then goes on.
+
+        The starter appends each operation as it starts and, on a clean
+        exit, joins them (``Operation.all_of``). A raise inside the block
+        is handed back with the stage stopped, never while a move the
+        request started still travels with nothing to stop or wait on:
+        one STOP of the scope's own (``halt``'s kind, withholding nothing
+        asked before it), sent while one of them is still under way, then a
+        wait for every one to settle. Nested blocks send one STOP between
+        them: the inner block's moves have settled by the time the outer
+        one asks.
+
+        Nothing is sent, and the raise goes on as it is, when another
+        activity holds the scope (its holder owns the stage), or when no
+        STOP can be sent: no motor controller, or a home driving on a board
+        that cannot stop one.
+
+        A consult seam for the Session's starters, not part of the L2 API.
+
+        Raises:
+            MotorStopFailedError: the board did not take the STOP, or a
+                started move had not settled ``_STARTED_STOP_SETTLE_S``
+                after it; raised while the request's own raise is being
+                handled, so that raise is its ``__context__``.
+            Otherwise the block's own raise.
+        """
+        started: list[Operation] = []
+        try:
+            yield started
+        except BaseException:
+            self._stop_what_was_started(tuple(started))
+            raise
+
+    def _stop_what_was_started(self, started: tuple[Operation, ...]) -> None:
+        """``starting_together``'s stop and wait, for a request that raised with ``started`` begun."""
+
+        # An operation not yet done is still under way, or still telling its
+        # listeners that it ended; the STOP is board-wide either way.
+        def live() -> bool:
+            return any(not op.done() for op in started)
+
+        if not live():
+            return
+        claim = self._scope._activity_claim
+        if claim is not None and claim.holder is not None and not acts_for_the_holder(claim):
+            return
+        if self._controller_refusal('stop_motion') is not None or self._unstoppable_homes_driving:
+            return
+        self._stop_motion_while(live, marks=False)
+        _, unsettled = concurrent.futures.wait(started, timeout=self._STARTED_STOP_SETTLE_S)
+        if unsettled:
+            raise MotorStopFailedError()
 
     def _send_drive(self, axis: str, stop_generation: int, send, member: str) -> tuple[_Move, bool]:
         """Set ``axis`` MOVING and disarmed, then send its drive.
