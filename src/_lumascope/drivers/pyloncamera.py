@@ -809,6 +809,13 @@ class PylonCamera(Camera):
     # on a daA3840-45um took 14-71 ms; its stalled ones a near-constant 11 s.
     _SLOW_GRAB_STOP_S = 1.0
 
+    # The cap's share of the link (``_cap_the_frame_rate_under_the_link``).
+    # A 1.1.0 daA3840 held at 0.90-0.95 of its link-bound rate stopped
+    # without stalling, and stalled from the second stop at 0.99. The camera
+    # reaches 0.958-0.976 of limit / payload, so 0.92 of it is 0.94-0.96 of
+    # the rate it reaches, inside the clean band.
+    _LINK_RATE_SHARE = 0.92
+
     # The device transport layer's counters of timed-out and failed accesses
     # (Basler doc transport-layer-parameters.html). The stop's stalled wait is
     # inside a register write, so a timeout counter that rises across a slow
@@ -1023,7 +1030,9 @@ class PylonCamera(Camera):
         Idempotent: if grabbing already started (pypylon 26.4.x's
         ``AcquireContinuousConfiguration + Open()`` triggers an implicit
         StartGrabbing), this method returns early. Snapshots StreamGrabber
-        Status into the trace log per B23. Starts the optional stats
+        Status into the trace log per B23. Caps the frame rate under the
+        USB link before every start (``_cap_the_frame_rate_under_the_link``);
+        a cap not written fails the start. Starts the optional stats
         poller (no-op when profile_trace_enabled is false).
 
         Exception-tolerant: SDK failures are logged but not raised so
@@ -1067,6 +1076,9 @@ class PylonCamera(Camera):
                 'OneByOne': pylon.GrabStrategy_OneByOne,
             }
             _strategy = _strategy_map.get(_strategy_name, pylon.GrabStrategy_LatestImageOnly)
+            # A cap not written fails the start: a camera never runs uncapped,
+            # owing a stop that stalls.
+            self._cap_the_frame_rate_under_the_link(camera)
             # The counts at the start, against the pre-stop line's, give how
             # long the camera ran before its next stop and what it delivered.
             try:
@@ -1112,6 +1124,69 @@ class PylonCamera(Camera):
         except Exception as e:
             _cam_log.warning(f'pylon StartGrabbing FAILED: {e}')
             _cam_log.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
+
+    def _cap_the_frame_rate_under_the_link(self, camera) -> None:
+        """Enable ``AcquisitionFrameRate`` just under what the USB link carries, before a start.
+
+        A daA3840 on firmware 1.1.0, stopped under ``CompleteExposure`` while
+        it streams at its link limit, stalls the stop 11 s, and every stop
+        after it until a power cycle; held under the link for the whole grab,
+        it does not. So every start caps the rate at ``_LINK_RATE_SHARE`` x
+        ``DeviceLinkThroughputLimit`` / ``PayloadSize``, clamped to the
+        node's range. Where the sensor or the exposure binds, the cap sits
+        above the camera's own rate and changes nothing; where the link
+        binds, it costs about 5% of the frames. A start follows every payload
+        change (frame size, binning, pixel format), so the cap follows the
+        payload.
+
+        The cap is left on at a disconnect: the next connect loads the
+        ``Default`` user set, which replaces it.
+
+        A camera not on USB, or without ``AcquisitionFrameRate``, is told at
+        INFO and left as it is. A limit switched off is told at WARNING, and
+        the cap is computed from the limit's maximum, the most the camera
+        would send.
+
+        Raises:
+            HardwareError: A read the cap needs, or one of its writes, failed
+                or was not answered.
+        """
+        try:
+            transport = camera.GetDeviceInfo().GetDeviceClass()
+        except genicam.GenericException as e:
+            raise CameraReadFailedError(f'The camera did not give its device class: {e}') from e
+        if 'Usb' not in transport:
+            _cam_log.info(
+                f'[CAM Class ] AcquisitionFrameRate not capped: the camera is not on USB '
+                f'({transport})'
+            )
+            return
+        if not self._offers('AcquisitionFrameRate'):
+            _cam_log.info(
+                '[CAM Class ] AcquisitionFrameRate not offered by this camera; its frame rate '
+                'is not capped under the link'
+            )
+            return
+        payload = self._read_first_offered(('PayloadSize',))
+        if not payload:
+            raise CameraReadFailedError(f'PayloadSize read {payload!r}, not a frame size in bytes')
+        mode = self._read_first_offered(('DeviceLinkThroughputLimitMode',))
+        if mode == 'On':
+            limit = self._read_first_offered(('DeviceLinkThroughputLimit',))
+        else:
+            limit = self._bounds('DeviceLinkThroughputLimit')[1]
+            _cam_log.warning(
+                f'[CAM Class ] DeviceLinkThroughputLimitMode is {mode}: the frame rate is '
+                f'capped under the limit maximum, {limit} B/s'
+            )
+        low, high = self._bounds('AcquisitionFrameRate')
+        rate = min(max(self._LINK_RATE_SHARE * limit / payload, low), high)
+        _cam_log.info(
+            f'pylon AcquisitionFrameRate capped at {rate:.2f} fps under the link '
+            f'({self._LINK_RATE_SHARE} x {limit} B/s / {payload} B)'
+        )
+        self.write_node('AcquisitionFrameRate', rate)
+        self.write_node('AcquisitionFrameRateEnable', True)
 
     def _is_grabbing(self) -> bool:
         """Return True if the camera is currently in a grab loop; False when not connected.
@@ -1645,9 +1720,9 @@ class PylonCamera(Camera):
             ('exposure 10 ms', lambda: self.exposure_t(exposure_ms=10)),
             # 1900x1900: bench-witnessed driver-init default. Both
             # production cameras (a2A3536 ace 2 and daA3840 dart)
-            # support this size; the 2100x2100 production-max ROI
-            # lives at the UI input layer (data/scopes.json driven)
-            # not at the driver default. Falsify: if a future
+            # support this size. It is the default, not a ceiling:
+            # any size up to the full sensor can be set after
+            # bring-up. Falsify: if a future
             # camera body's sensor doesn't reach 1900 in either
             # axis, the SetValue will clamp + warn from set_frame_size.
             ('the 1900x1900 frame', lambda: self.set_frame_size(w=1900, h=1900)),
