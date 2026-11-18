@@ -1534,6 +1534,7 @@ work meanwhile.
 - `ArgumentRefusedError`: `'channel_unknown'` or `'gain_range_inverted'`, as `start_go_to_step`. Nothing changes.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, `'not_connected'` or `'exclusive_activity_running'`, as `start_go_to_step`. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, as `start_go_to_step`. Nothing changes.
+- `CameraReadFailedError`: `'camera_read_failed'`, as `start_go_to_step`. Nothing changes.
 - `AxisStateUnknownError`: as `start_go_to_step`. Nothing changes.
 - `PositionOutOfRangeError`: as `start_go_to_step`; the axes before it have moved, nothing else changes.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
@@ -1553,6 +1554,7 @@ work meanwhile.
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
+- [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
 - [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
@@ -3697,6 +3699,7 @@ it is refused on the UI thread; a click calls it from a worker.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes. A value past the hardware's limit is stored at the limit and told (`ValueClampedNotice`).
 - `ArgumentRefusedError`: `'gain_range_inverted'`, the step turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
+- `CameraReadFailedError`: `'camera_read_failed'`, the camera's gain and exposure range could not be read after its last readout change (`CameraAPI.setting_limits`). Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
 - `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
 - `PositionOutOfRangeError`: the step lies outside an axis's travel; the axes before it have moved, nothing else changes.
@@ -3709,7 +3712,7 @@ it is refused on the UI thread; a click calls it from a worker.
 
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_missing`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ScopeSession.start_make_logs_zip"></a>

@@ -351,6 +351,24 @@ def _tell_stored_replacements(pending: list[tuple[str, object, object]]) -> None
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class _AskedChannelWrite:
+    """A channel write asked and not yet made: built only by ``ScopeSession._ask_channel_write``.
+
+    The one channel write (``ScopeSession._write_channels``) takes only this,
+    so no write reaches the hardware or the store unjudged or past a limit.
+
+    Attributes:
+        fields: Each channel's values by key, judged and held to the
+            hardware's limits.
+        clamped: ``(channel, setting, asked, applied)`` for each value set at
+            a limit, told once the write is stored.
+    """
+
+    fields: dict[str, dict[str, object]]
+    clamped: tuple[tuple[str, str, float, float], ...]
+
+
 @api_fields('choices', 'proposed', 'turret_slot')
 @dataclasses.dataclass(frozen=True)
 class ObjectiveQuestion:
@@ -2726,7 +2744,9 @@ class ScopeSession:
                 for field, key in CHANNEL_SETTING_KEYS
                 if getattr(row, field) is not None
             }
-        self._write_channels(fields, member='apply_channel_settings', then_camera=True)
+        self._write_channels(
+            self._ask_channel_write(fields), member='apply_channel_settings', then_camera=True
+        )
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
@@ -2963,7 +2983,11 @@ class ScopeSession:
             self.scope.channel_identity.refuse_unless_on_scope(
                 channel, 'set_channel_settings', then='take these settings'
             )
-        self._write_channels({channel: fields}, member='set_channel_settings', then_camera=True)
+        self._write_channels(
+            self._ask_channel_write({channel: fields}),
+            member='set_channel_settings',
+            then_camera=True,
+        )
         return self.channel_settings(channel)
 
     def apply_channel_camera(self, channel: str) -> dict | None:
@@ -4017,6 +4041,8 @@ class ScopeSession:
                 ``start_go_to_step``. Nothing changes.
             ConfigurationDefectError: ``'channels_unresolved'``, as
                 ``start_go_to_step``. Nothing changes.
+            CameraReadFailedError: ``'camera_read_failed'``, as
+                ``start_go_to_step``. Nothing changes.
             AxisStateUnknownError: as ``start_go_to_step``. Nothing changes.
             PositionOutOfRangeError: as ``start_go_to_step``; the axes
                 before it have moved, nothing else changes.
@@ -4115,6 +4141,9 @@ class ScopeSession:
                 gain above its maximum. Nothing changes.
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
                 channels could not be resolved. Nothing changes.
+            CameraReadFailedError: ``'camera_read_failed'``, the camera's gain
+                and exposure range could not be read after its last readout
+                change (``CameraAPI.setting_limits``). Nothing changes.
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
             HardwareCommandRefusedError: ``'not_connected'``, this scope's
@@ -4160,14 +4189,13 @@ class ScopeSession:
         self.scope.channel_identity.refuse_unless_on_scope(
             step['channel'], 'go_to_step', then='be gone to'
         )
-        # Before the lane starts a move: the lane stores the step's values
-        # into its channels once the moves are under way, and judges them
-        # again there as every channel write does.
+        # The step's own refusal of its values, in the step's form, before
+        # the lane is asked; the lane asks the channel write's own before any
+        # move starts.
         refuse_values_out_of_range(
             step_channel_values_refused(step),
             f'Step {step_index + 1}',
         )
-        self._judge_channel_fields(self._step_channel_fields(step))
         # Every member inside bounds its own wait, so the task has no bound
         # of its own to add.
         moves = self.io_executor.call(
@@ -4218,6 +4246,11 @@ class ScopeSession:
             )
             if refusing is not None:
                 raise command_refused(refusing, 'go_to_step')
+        # The step's values are judged and held to the hardware's limits
+        # before anything moves, so their refusal (the camera's range unread
+        # among them) leaves the stage where it is; they are stored once the
+        # moves are under way, so a move's refusal stores nothing.
+        asked = self._ask_channel_write(self._step_channel_fields(step))
         # The turret included: a failed turret home leaves T unknown
         # while the stage axes still know theirs. One command, so a capture
         # asked while the turret turns waits for the step's moves rather
@@ -4229,7 +4262,7 @@ class ScopeSession:
             moves = (motion.start_move_xy(targets.x_um, targets.y_um),)
             if targets.z_um is not None:
                 moves += (motion.start_move_z(targets.z_um),)
-        self._load_step_into_channel(step)
+        self._load_step_into_channel(asked)
         self._last_step_gone_to = (protocol, step_index)
         if not moves_light:
             return moves
@@ -4241,17 +4274,15 @@ class ScopeSession:
         self._show_channel(step['channel'], was_lit=was_lit)
         return moves
 
-    def _load_step_into_channel(self, step) -> None:
-        """The step's values into its channel's live settings, through the one channel write.
+    def _load_step_into_channel(self, asked: '_AskedChannelWrite') -> None:
+        """The step's asked values into its channel's live settings, through the one channel write.
 
         A run never writes here: it reads its steps from the protocol, and
         the person's live-view configuration is theirs to keep across it.
         On the IO lane, which may not wait on the camera's: the caller puts
         the step's channel on the camera once it is shown.
         """
-        self._write_channels(
-            self._step_channel_fields(step), member='go_to_step', then_camera=False
-        )
+        self._write_channels(asked, member='go_to_step', then_camera=False)
 
     @staticmethod
     def _step_channel_fields(step) -> dict[str, dict[str, object]]:
@@ -4909,18 +4940,35 @@ class ScopeSession:
             judged[channel] = values
         return judged
 
-    def _write_channels(
-        self, fields: Mapping[str, Mapping[str, object]], *, member: str, then_camera: bool
-    ) -> None:
-        """The one channel write: ``fields`` judged whole, put on the shown channel's hardware, then stored.
+    def _ask_channel_write(
+        self, fields: Mapping[str, Mapping[str, object]]
+    ) -> '_AskedChannelWrite':
+        """The asking half of the one channel write: ``fields`` judged whole and held to the hardware's limits.
 
         ``fields`` maps each channel to its values by key under the channel
         (``'gain_db'``, ``'stim_config.frequency'``), each number already
-        judged by its door's ranges. In order, so a refusal stores nothing:
-        the Session's own rules (``_judge_channel_fields``); a value past the
-        hardware's limit set at the limit (``_clamp_channel_fields``), so the
-        camera, the LED and the store take the same value; a home refuses a
-        value the shown channel's camera or LED would take; auto-gain turned
+        judged by its door's ranges. The Session's own rules
+        (``_judge_channel_fields``), then each value past the hardware's
+        limit set at the limit (``_clamp_channel_fields``), so the camera,
+        the LED and the store take the same value. Nothing is touched, so a
+        caller that must refuse before it changes anything else (going to a
+        step, before the stage moves) asks first and writes after.
+
+        Raises:
+            What ``_judge_channel_fields`` and ``_clamp_channel_fields`` raise.
+        """
+        written, clamped = self._clamp_channel_fields(self._judge_channel_fields(fields))
+        return _AskedChannelWrite(fields=written, clamped=tuple(clamped))
+
+    def _write_channels(
+        self, asked: '_AskedChannelWrite', *, member: str, then_camera: bool
+    ) -> None:
+        """The one channel write: ``asked``'s fields put on the shown channel's hardware, then stored.
+
+        ``asked`` is what ``_ask_channel_write`` returned: the fields judged
+        whole and held to the hardware's limits. In order, so a refusal
+        stores nothing: a home refuses a value the shown channel's camera or
+        LED would take; auto-gain turned
         off with no gain or exposure beside it locks the camera's arm, its
         values stored as the channel's (with them, they are the channel's,
         the loop off); when the camera holds no channel's settings (a raw
@@ -4945,17 +4993,15 @@ class ScopeSession:
         no camera or LED takes goes through ``_store_channel_fields``.
 
         Raises:
-            What ``_judge_channel_fields``, ``_clamp_channel_fields``,
-            ``_refuse_during_a_home``,
-            ``CameraAPI.lock_auto_gain``, ``CameraAPI.hold_channel_writing``
-            and the LED raise; nothing is stored. When the LED refuses after
-            the camera took the values and putting the stored values back is
-            refused too, the camera's refusal is raised, the LED's its
-            context.
+            What ``_refuse_during_a_home``, ``CameraAPI.lock_auto_gain``,
+            ``CameraAPI.hold_channel_writing`` and the LED raise; nothing is
+            stored. When the LED refuses after the camera took the values and
+            putting the stored values back is refused too, the camera's
+            refusal is raised, the LED's its context.
         """
         from _lumascope.modules.lumascope_api.camera import AutoGainLock
 
-        fields, clamped = self._clamp_channel_fields(self._judge_channel_fields(fields))
+        fields, clamped = asked.fields, list(asked.clamped)
         shown = self._shown_channel
         shown_keys = fields.get(shown, {}).keys()
         if shown_keys & _HARDWARE_FIELDS:

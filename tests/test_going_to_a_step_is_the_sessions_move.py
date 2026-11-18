@@ -25,11 +25,13 @@ import logging
 import pandas as pd
 import pytest
 
+from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.exceptions import (
     AxisStateUnknownError,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
 )
+from _lumascope.modules.image_mode import ImageMode
 from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.protocol import Protocol, StepNotFoundError
 from _lumascope.modules.scope_session import ScopeSession
@@ -269,6 +271,31 @@ class TestTheRefusals:
             unhomed_session.go_to_step(protocol, 0)
 
         assert moves == []
+
+    # parametrize-justified: the two forms are two members, each its own surface.
+    @pytest.mark.parametrize('member', ['go_to_step', 'start_go_to_step'])
+    def test_a_camera_range_unread_is_refused_before_anything_moves(
+        self, session, monkeypatch, member
+    ):
+        """With the camera's gain and exposure range unread, either form is
+        refused ``'camera_read_failed'`` before the stage is sent anywhere, and
+        the step's values are not stored."""
+        camera = session.scope.camera
+        camera.set_image_mode(ImageMode.EIGHT_BIT)
+        session.scope.simulation.refuse_camera_read('minimum_exposure', 'failed', count=1)
+        camera.set_image_mode(ImageMode.SCIENTIFIC)
+        moves = _spy_moves(monkeypatch, session)
+        step = _step(60.0, 40.0, 5000.0, _objective_of(session))
+        step['Gain'] = 9.0
+        protocol = _protocol(_PLATE, step)
+        before = copy.deepcopy(session.settings['BF'])
+
+        with pytest.raises(CameraReadFailedError) as refused:
+            getattr(session, member)(protocol, 0)
+
+        assert refused.value.reason == 'camera_read_failed'
+        assert moves == []
+        assert session.settings['BF'] == before
 
     def test_glass_the_turret_does_not_carry_is_refused_before_anything_moves(
         self, turret_session, monkeypatch

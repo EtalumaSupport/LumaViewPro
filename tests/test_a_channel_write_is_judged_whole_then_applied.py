@@ -222,6 +222,22 @@ class TestAutoGainIsNotStoredOnWithARangeNoArmCanTake:
         assert refused.value.reason == 'gain_range_inverted'
         assert session.settings_snapshot() == before
 
+    def test_a_step_turning_it_on_is_refused_before_the_stage_moves(self, session):
+        # Going to a step asks the channel write before any move starts, so
+        # the refusal leaves the stage where it was as well as the store.
+        _invert_the_gain_range(session)
+        step = {**_step(60.0, 40.0, 5000.0, _objective_of(session)), 'Auto_Gain': True}
+        protocol = _layers(step, BF=_row())
+        before = session.settings_snapshot()
+        targets = session.scope.motion.target_positions()
+
+        with pytest.raises(ArgumentRefusedError) as refused:
+            session.start_go_to_step(protocol, 0)
+
+        assert refused.value.reason == 'gain_range_inverted'
+        assert session.scope.motion.target_positions() == targets
+        assert session.settings_snapshot() == before
+
 
 class TestAWriteHeldBackByAnActivityIsAppliedAtItsEnd:
     def test_a_diagnostic_ends_with_the_shown_channel_on_the_camera_and_led(self, session):
