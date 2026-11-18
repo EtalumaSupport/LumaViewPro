@@ -315,7 +315,9 @@ copy to fall out of step.
 **Settings by path.** A setting is named by its dotted path into the settings
 -- `video.max_fps`, `zstack.range` -- and read and written through the
 session. A write is judged before it is stored: a value outside its range is
-refused, never clamped, and the refusal names the path and the range.
+refused, and the refusal names the path and the range. A value past a limit of
+the attached hardware is set at that limit and reported instead ("Intent and
+what was delivered", below).
 
 ```python
 session.update_settings('video.max_fps', 30)
