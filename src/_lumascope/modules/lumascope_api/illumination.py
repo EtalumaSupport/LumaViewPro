@@ -882,15 +882,11 @@ class IlluminationAPI:
         """
         self._refuse_unless_lightable(address, member)
         refuse_unless_finite_number(illumination_ma, 'illumination_ma')
-        led_max_ma = self._scope.capabilities.led_max_ma
         if illumination_ma < 0:
             raise ArgumentRefusedError(
-                'illumination_out_of_range',
-                argument='illumination_ma',
-                value=illumination_ma,
-                limits=(0, led_max_ma),
+                'illumination_out_of_range', argument='illumination_ma', value=illumination_ma
             )
-        held = cap_stored_value(illumination_ma, None, led_max_ma)[1]
+        held = cap_stored_value(illumination_ma, None, self._scope.capabilities.led_max_ma)[1]
         return self._driver.commanded_ma(held)
 
     def _tell_clamped_light(self, where: str, illumination_ma: float) -> None:

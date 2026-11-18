@@ -135,11 +135,15 @@ def test_a_layer_the_model_lacks_is_a_name_and_keeps_its_answers(session):
     illumination.led_off('Lumi')
 
 
-def test_a_current_off_the_boards_range_is_refused_with_its_limits(session):
+def test_a_current_below_zero_is_refused_naming_its_floor_alone(session):
+    """The board's maximum is not a limit of the refusal: a current above
+    it is lit at it, so the words name only the floor and the refusal
+    carries no ``limits``."""
     refusal = _refused(
         lambda: session.scope.illumination.led_on('BF', -1), 'illumination_out_of_range'
     )
-    assert (refusal.argument, refusal.limits) == ('illumination_ma', (0, 1000))
+    assert (refusal.argument, refusal.limits) == ('illumination_ma', None)
+    assert str(refusal) == 'illumination_ma must be at least 0 mA; -1.0 is below it.'
     assert _lit(session) == []
 
 
@@ -173,6 +177,6 @@ def test_a_name_is_refused_whatever_the_scope_is_doing(tmp_path):
 
 def test_a_reason_takes_limits_exactly_when_its_words_name_them():
     with pytest.raises(TypeError):
-        ArgumentRefusedError('illumination_out_of_range', argument='illumination_ma', value=-1)
+        ArgumentRefusedError('out_of_range', argument='timeout_s', value=-1)
     with pytest.raises(TypeError):
         ArgumentRefusedError('not_a_number', argument='gain_db', value='x', limits=(0, 1))

@@ -4409,9 +4409,9 @@ class ArgumentRefusedError(Refusal, ValueError):
             - ``'led_address_unknown'`` -- an LED address that is not one of
               the attached LED board's addresses (``offered``). A ``bool`` is
               not an address.
-            - ``'illumination_out_of_range'`` -- an LED current below 0 mA;
-              ``limits`` is 0 to the attached LED board's maximum, in mA,
-              and a current above it is lit at it (``ValueClampedNotice``).
+            - ``'illumination_out_of_range'`` -- an LED current below 0 mA.
+              A current above the attached LED board's maximum is lit at
+              it (``ValueClampedNotice``), not refused.
             - ``'missing_key'`` -- a dictionary argument lacks a key its
               member reads; ``argument`` names the key's path.
             - ``'wrong_kind'`` -- an argument, or a value in a dictionary
@@ -4540,7 +4540,7 @@ class ArgumentRefusedError(Refusal, ValueError):
         ),
         'illumination_out_of_range': (
             'LED Current Not Set',
-            '{argument} must be from {low:g} to {high:g} mA on this LED board; {value!r} is outside it.',
+            '{argument} must be at least 0 mA; {value!r} is below it.',
         ),
         'missing_key': (
             'Value Missing',
