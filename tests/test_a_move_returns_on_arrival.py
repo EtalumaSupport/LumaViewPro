@@ -172,9 +172,13 @@ class TestTheWaitIsOffTheLane:
         assert still_travelling, 'the lane task waited for the move to arrive'
 
     def test_a_move_another_caller_supersedes_is_not_reported_arrived(self, session):
+        """The first move is held part of the way, so the second starts while
+        it travels however loaded the host; the new target ends the hold."""
         motion = session.scope.motion
         first_target = _z_target(motion)
+        halted = session.scope.simulation.hold_axis('Z')
         first = motion.start_move_z(first_target)
+        halted.result(_TRAVEL_WAIT_S)
         second = motion.start_move_z(first_target + 100.0)
 
         with pytest.raises(MoveNotCompletedError) as exc:
@@ -472,10 +476,15 @@ class TestAStartedMoveIsAnOperation:
         }
 
     def test_a_done_callback_of_a_move_superseded_on_the_lane_may_move_another_axis(self, session):
+        """The first move is held part of the way, so the second supersedes it
+        while it travels however loaded the host (unheld, a 50 um move could
+        arrive first and end with no exception); the new target ends the hold."""
         motion = session.scope.motion
         target = _z_target(motion)
         x_target = motion.get_current_position('X') + 500.0
+        halted = session.scope.simulation.hold_axis('Z')
         first = motion.start_move_z(target)
+        halted.result(_TRAVEL_WAIT_S)
 
         def then(op):
             ended = op.exception()
