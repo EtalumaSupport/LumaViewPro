@@ -20,7 +20,11 @@ import pytest
 
 import _lumascope.modules.config_helpers as config_helpers
 from _lumascope.modules.acquire_mode import AcquireMode
-from _lumascope.modules.exceptions import ObjectiveUnknownError, ProtocolRunRefusedError
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    ObjectiveUnknownError,
+    ProtocolRunRefusedError,
+)
 from _lumascope.modules.axes import AxisState
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
@@ -31,7 +35,8 @@ from tests.test_run_refusal_contract import _capture_notifications
 from _lumascope.modules.coord_transformations import PlateLocation
 from tests.stock_channels import LED0, LED1
 
-PLATE_POSITION = PlateLocation(x_mm=0.0, y_mm=0.0, z_um=5000.0)
+# A position on the plate inside the stage's travel: an add outside it is refused.
+PLATE_POSITION = PlateLocation(x_mm=20.0, y_mm=15.0, z_um=5000.0)
 # The active objective a step records: slot 1's, where the home leaves the turret.
 OBJECTIVE = TEST_TURRET_OBJECTIVES[1]
 
@@ -221,6 +226,45 @@ class TestAScriptAddsAStepThroughTheSession:
         assert steps['Acquire'].tolist() == ['image', 'image']
         assert steps[['X', 'Y', 'Z']].values.tolist() == [[20.0, 15.0, 6000.0]] * 2
         assert config_helpers.get_channel_configs(session.settings) == before
+
+    def test_a_step_at_a_position_off_the_stage_or_nan_is_refused_and_none_is_no_position(
+        self, session
+    ):
+        # X 1e9 mm was stored and refused only when a run started; a NaN was
+        # stored as no position. None on every axis is a step with no position.
+        _only_acquiring(session)
+        protocol = session.create_empty_protocol()
+        wrong = []
+        for at, refusal, reason in (
+            (
+                PlateLocation(x_mm=1e9, y_mm=15.0, z_um=6000.0),
+                ProtocolRunRefusedError,
+                'positions_outside_travel',
+            ),
+            (
+                PlateLocation(x_mm=20.0, y_mm=15.0, z_um=-500000.0),
+                ProtocolRunRefusedError,
+                'positions_outside_travel',
+            ),
+            (
+                PlateLocation(x_mm=float('nan'), y_mm=float('nan'), z_um=float('nan')),
+                ArgumentRefusedError,
+                'not_a_number',
+            ),
+        ):
+            try:
+                session.add_step(protocol, channels=('BF',), at=at)
+            except refusal as refused:
+                if refused.reason != reason:
+                    wrong.append(f'{at}: {refused.reason!r}, not {reason!r}')
+            else:
+                wrong.append(f'{at}: was not refused')
+        assert not wrong, '\n'.join(wrong)
+        assert protocol.num_steps() == 0
+
+        session.add_step(protocol, channels=('BF',), at=PlateLocation(None, None, None))
+
+        assert protocol.steps()[['X', 'Y', 'Z']].isna().all(axis=None)
 
     def test_the_session_forwards_the_refusal(self, session, centre_posts):
         _only_acquiring(session)

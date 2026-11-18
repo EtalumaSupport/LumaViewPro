@@ -30,7 +30,7 @@ import math
 import pathlib
 import time
 import typing
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING
 
 import _lumascope.modules.common_utils as common_utils
@@ -106,6 +106,24 @@ class TurretSlotQuestion:
     step_indexes: tuple[int, ...]
     reassigned_step_indexes: tuple[int, ...]
     choices: tuple[int, ...]
+
+
+def _plate_location_axes(position: PlateLocation, argument: str) -> dict[str, float | None]:
+    """A plate location's X, Y and Z by axis, refusing a NaN on any.
+
+    None is no position on that axis; NaN is no number at all, and a step
+    stores it as no position, so a caller's NaN is refused before it is
+    taken as one.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'``, naming the field under
+            ``argument``.
+    """
+    axes = {'X': position.x_mm, 'Y': position.y_mm, 'Z': position.z_um}
+    for field, value in zip(('x_mm', 'y_mm', 'z_um'), axes.values(), strict=True):
+        if value is not None:
+            refuse_unless_finite_number(value, f'{argument}.{field}')
+    return axes
 
 
 class ProtocolsAPI:
@@ -389,12 +407,16 @@ class ProtocolsAPI:
 
         Raises:
             ProtocolRunRefusedError: an axis does not know its position, or
-                no channel acquires. With ``zstack_params``, also what ``apply_zstacking`` refuses.
+                no channel acquires; ``'positions_outside_travel'``,
+                ``plate_position`` lies outside the stage's travel. With
+                ``zstack_params``, also what ``apply_zstacking`` refuses.
             ObjectiveUnknownError: the active objective is unknown, for the
                 reason ``runtime_state.resolve_current_objective`` gives (on a
                 turret scope, ``'slot_unassigned'`` for a slot with no
                 objective). Asked after the position.
-            ArgumentRefusedError: with ``zstack_params``, as
+            ArgumentRefusedError: ``'not_a_number'``, an axis of
+                ``plate_position`` is NaN (named under ``at``, the session's
+                argument it comes from); with ``zstack_params``, as
                 ``apply_zstacking``.
             ProtocolError: an impossible ``before_step_index`` / ``after_step_index``,
                 or both given (raised by the protocol).
@@ -403,6 +425,19 @@ class ProtocolsAPI:
 
         objective_id = self._recordable_objective(verb='add')
         self.refuse_no_acquiring_channel(channel_configs)
+        # Judged before the z-stack, so a base Z outside travel is one refusal.
+        outside = self._outside_travel(
+            [('the new step', _plate_location_axes(plate_position, 'at'))],
+            protocol.labware_id(),
+        )
+        if outside:
+            self._refuse(
+                reason='positions_outside_travel',
+                message=(
+                    f"The new step falls outside the stage's travel ({outside[0]}).\n\n"
+                    "Add it at a position inside the stage's travel."
+                ),
+            )
 
         ordered = [channel for channel in (channel_order or []) if channel in channel_configs]
         ordered += [channel for channel in channel_configs if channel not in ordered]
@@ -1224,6 +1259,39 @@ class ProtocolsAPI:
             ),
         )
 
+    def _outside_travel(
+        self, positions: list[tuple[str, Mapping[str, float | None]]], labware_key: str
+    ) -> list[str]:
+        """Each labelled position outside this scope's stage travel, with its axes, in order.
+
+        The one loop the run gate and an add judge positions with: on the axes the scope has, at the scope's stage
+        offset -- the one the run converts plate positions with -- on the
+        protocol's own plate. An axis with no position (None) is not judged.
+
+        Raises:
+            ConfigError: No session has bound the scope, so it has no
+                stage offset to judge X/Y with.
+        """
+        from _lumascope.modules.protocol import axes_outside_travel
+
+        axis_limits = self._travel_limits()
+        plate = {}
+        if {'X', 'Y'} & set(axis_limits):
+            plate = {
+                'labware': self._scope.wellplate_loader.get_plate(labware_id=labware_key),
+                'stage_offset': self._scope.runtime_state.stage_offset(),
+            }
+        outside = []
+        for label, position in positions:
+            axes = axes_outside_travel(
+                {axis: value for axis, value in position.items() if value is not None},
+                axis_limits,
+                **plate,
+            )
+            if axes:
+                outside.append(f'{label}: {", ".join(axes)}')
+        return outside
+
     def refuse_positions_outside_travel(self, steps: pd.DataFrame, labware_key: str) -> None:
         """Refuse a protocol whose steps lie outside this scope's stage travel.
 
@@ -1248,22 +1316,15 @@ class ProtocolsAPI:
             ConfigError: No session has bound the scope, so it has no
                 stage offset to judge X/Y with.
         """
-        from _lumascope.modules.protocol import axes_outside_travel, rows_by_column
+        from _lumascope.modules.protocol import rows_by_column
 
-        axis_limits = self._travel_limits()
-        plate = {}
-        if {'X', 'Y'} & set(axis_limits):
-            plate = {
-                'labware': self._scope.wellplate_loader.get_plate(labware_id=labware_key),
-                'stage_offset': self._scope.runtime_state.stage_offset(),
-            }
-        outside = []
-        for idx, step in zip(steps.index, rows_by_column(steps), strict=True):
-            axes = axes_outside_travel(
-                {axis: step[axis] for axis in StageAxis}, axis_limits, **plate
-            )
-            if axes:
-                outside.append(f'step {idx + 1} ({step["Name"]}): {", ".join(axes)}')
+        outside = self._outside_travel(
+            [
+                (f'step {idx + 1} ({step["Name"]})', {axis: step[axis] for axis in StageAxis})
+                for idx, step in zip(steps.index, rows_by_column(steps), strict=True)
+            ],
+            labware_key,
+        )
         if outside:
             self._refuse(
                 reason='positions_outside_travel',

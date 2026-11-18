@@ -3298,7 +3298,8 @@ class ScopeSession:
                 through. Nothing is added.
             ProtocolRunRefusedError: ``'step_position_unknown'``, an axis does
                 not know its position; ``'no_acquiring_channel'``, no channel
-                acquires. With ``use_zstacking``, also
+                acquires; ``'positions_outside_travel'``, ``at`` lies outside
+                the stage's travel. With ``use_zstacking``, also
                 ``'zstack_not_configured'``, ``'positions_unreachable'`` or
                 ``'zslices_outside_travel'``, as ``apply_zstacking`` refuses
                 the stored stack. Nothing is added.
@@ -3309,7 +3310,8 @@ class ScopeSession:
             ConfigurationDefectError: ``'channels_unresolved'``, ``channels`` is given
                 and this scope's channels could not be resolved. Nothing is added.
             ArgumentRefusedError: ``'channel_unknown'``, a name in ``channels``
-                is not a channel.
+                is not a channel; ``'not_a_number'``, an axis of ``at`` is NaN
+                (None is no position on that axis).
             HardwareCommandRefusedError: ``'not_on_this_scope'``, this scope has
                 no channel named in ``channels``; ``'not_connected'``, with no
                 ``at``, the model's motor controller is not connected, so
