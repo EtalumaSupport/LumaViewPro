@@ -82,6 +82,40 @@ def test_an_ids_step_not_taken_is_named_and_the_rest_run():
     cam._configure_free_run.assert_called_once_with()
 
 
+def test_an_fx2_step_not_taken_is_named_and_the_scope_comes_up(monkeypatch, centre_posts):
+    """A start-up gain write the FX2 camera did not take used to raise out of
+    connect(), so the LS620 came up with no camera; now the exposure step
+    still runs, the gain alone is named, and bring-up tells it once."""
+    from _lumascope.drivers.fx2driver import FX2Camera
+    from _lumascope.modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    # A stand-in by design: the simulated FX2 cannot refuse a register write
+    # (a simulator gap), so the first gain write, the start-up step's, fails.
+    real_gain = FX2Camera.gain
+    refusals = [CameraWriteFailedError('The gain register write failed')]
+
+    def refused_once(self, g):
+        if refusals:
+            raise refusals.pop()
+        return real_gain(self, g)
+
+    monkeypatch.setattr(FX2Camera, 'gain', refused_once)
+    settings = complete_settings()
+    settings['microscope'] = 'LS620'
+    s = ScopeSession.create(settings, simulate=True)
+    try:
+        cam = s.scope._camera_driver
+        assert isinstance(cam, FX2Camera)
+        assert s.scope.camera_connected
+        assert cam.config_not_applied == ('gain 0 dB',)
+        notices = [n for n in centre_posts if n.reason == 'camera_config_not_applied']
+        assert len(notices) == 1, centre_posts
+        assert 'gain 0 dB' in notices[0].message
+    finally:
+        s.shutdown()
+
+
 def test_bring_up_reports_the_steps_not_taken_once(monkeypatch, tmp_path, centre_posts):
     # A stand-in by design: the simulated camera's connect-time configuration
     # cannot be made to fail (a simulator gap), so its account is set.

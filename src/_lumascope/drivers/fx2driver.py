@@ -3095,9 +3095,21 @@ class FX2Camera(Camera):
     # -- Misc (no-op or trivial) ------------------------------------------
 
     def init_camera_config(self) -> None:
-        """Apply sensible defaults for exposure and gain on startup."""
-        self.exposure_t(self.DEFAULT_EXPOSURE_MS)
-        self.gain(0.0)  # 0 dB = 1x gain
+        """Apply the start-up exposure and gain.
+
+        Each step runs whatever the other did: a step the camera did not
+        take is logged and named in ``config_not_applied``, which bring-up
+        reports, and the camera stays connected with the rest applied.
+        """
+        self.config_not_applied = self._apply_config_steps(
+            [
+                (
+                    f'exposure {self.DEFAULT_EXPOSURE_MS:g} ms',
+                    lambda: self.exposure_t(self.DEFAULT_EXPOSURE_MS),
+                ),
+                ('gain 0 dB', lambda: self.gain(0.0)),  # 0 dB = 1x gain
+            ]
+        )
 
     def get_all_temperatures(self) -> dict:
         return {}  # MT9P031 has no temperature sensor
