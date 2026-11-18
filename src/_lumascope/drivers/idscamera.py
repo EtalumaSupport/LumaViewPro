@@ -2631,14 +2631,6 @@ class IDSCamera(Camera):
 
     # grab() and grab_new_capture() inherited from Camera base class
 
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> NoReturn:
-        raise no_hardware_auto_mode('IDS', 'update_auto_gain_target_brightness', 'auto-gain')
-
-    def update_auto_gain_min_max(
-        self, min_gain_db: float | None = None, max_gain_db: float | None = None
-    ) -> NoReturn:
-        raise no_hardware_auto_mode('IDS', 'update_auto_gain_min_max', 'auto-gain')
-
     def get_gain(self) -> float:
         """Return gain in dB; -1 when not connected. The IDS Gain node is a
         linear factor; convert via dB = 20 * log10(factor) (factor >= 1.0 on

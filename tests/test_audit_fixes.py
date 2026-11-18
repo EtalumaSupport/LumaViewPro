@@ -6424,14 +6424,14 @@ class TestImagingParamNamesUseUnitSuffix:
             )
 
     def test_driver_auto_gain_param_names(self):
-        """Driver-side auto_gain / auto_gain_once / update_auto_gain_min_max
+        """Driver-side auto_gain / auto_gain_once
         use ``min_gain_db`` / ``max_gain_db`` -- the abstract Camera contract
         plus all concrete drivers (Pylon, IDS, simulated, FX2). Caught by
         the U3 mechanical rename sweep."""
         import inspect
         from _lumascope.drivers.camera import Camera
 
-        for method_name in ('auto_gain', 'auto_gain_once', 'update_auto_gain_min_max'):
+        for method_name in ('auto_gain', 'auto_gain_once'):
             method = getattr(Camera, method_name)
             params = set(inspect.signature(method).parameters)
             assert 'min_gain_db' in params, f'Camera.{method_name} missing min_gain_db param'

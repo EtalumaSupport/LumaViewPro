@@ -763,14 +763,6 @@ class TestSimulatedCamera:
         cam.auto_gain_once(state=True, target_brightness=0.5, min_gain_db=2.0, max_gain_db=8.0)
         assert 2.0 <= cam.get_gain() <= 8.0
 
-    def test_update_auto_gain_target(self):
-        cam = SimulatedCamera()
-        cam.update_auto_gain_target_brightness(0.7)
-
-    def test_update_auto_gain_min_max(self):
-        cam = SimulatedCamera()
-        cam.update_auto_gain_min_max(min_gain_db=0.5, max_gain_db=15.0)
-
     # -- Pixel format --
 
     def test_default_pixel_format(self):

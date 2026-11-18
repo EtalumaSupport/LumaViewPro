@@ -1961,26 +1961,6 @@ class SimulatedCamera(Camera):
             logger.debug(f'[CAM Sim   ] Gain set to {value}')
         return float(value)
 
-    def init_auto_gain_focus(
-        self,
-        auto_target_brightness: float = 0.5,
-        min_gain: float | None = None,
-        max_gain: float | None = None,
-    ) -> None:
-        """Initialize auto-gain ROI and parameters (no-op in simulation).
-
-        Args:
-            auto_target_brightness: Normalized brightness target (0.0-1.0).
-            min_gain: Optional lower bound in dB.
-            max_gain: Optional upper bound in dB.
-        """
-        with self._lock:
-            self._auto_gain_target_brightness = auto_target_brightness
-            if min_gain is not None:
-                self._auto_gain_min = min_gain
-            if max_gain is not None:
-                self._auto_gain_max = max_gain
-
     def _converged_gain(self) -> float:
         """Return the gain the simulated auto-gain loop settles on.
 
@@ -2058,30 +2038,6 @@ class SimulatedCamera(Camera):
                 if max_gain_db is not None:
                     self._auto_gain_max = max_gain_db
                 self._gain = self._converged_gain()
-
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> None:
-        """Update the auto-gain target brightness.
-
-        Args:
-            auto_target_brightness: Normalized brightness target (0.0-1.0).
-        """
-        with self._lock:
-            self._auto_gain_target_brightness = auto_target_brightness
-
-    def update_auto_gain_min_max(
-        self, min_gain_db: float | None, max_gain_db: float | None
-    ) -> None:
-        """Update auto-gain bounds.
-
-        Args:
-            min_gain_db: Minimum gain in dB, or None to leave unchanged.
-            max_gain_db: Maximum gain in dB, or None to leave unchanged.
-        """
-        with self._lock:
-            if min_gain_db is not None:
-                self._auto_gain_min = min_gain_db
-            if max_gain_db is not None:
-                self._auto_gain_max = max_gain_db
 
     # ------------------------------------------------------------------
     # Test pattern

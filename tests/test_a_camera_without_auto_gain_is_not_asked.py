@@ -30,8 +30,6 @@ AG_SETTINGS = {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0
 _AUTO_MODE_MEMBERS = (
     'auto_gain',
     'auto_gain_once',
-    'update_auto_gain_target_brightness',
-    'update_auto_gain_min_max',
     'auto_exposure_t',
     'get_auto_gain_mode',
     'get_auto_exposure_mode',
@@ -242,8 +240,6 @@ def test_a_video_step_marked_auto_gain_records_manual_on_such_a_camera(
         lambda cam: cam.auto_exposure_t(True),
         lambda cam: cam.auto_gain(False),
         lambda cam: cam.auto_gain_once(True),
-        lambda cam: cam.update_auto_gain_target_brightness(0.5),
-        lambda cam: cam.update_auto_gain_min_max(0.0, 20.0),
     ],
 )
 def test_the_ids_driver_raises_rather_than_answer_for_a_write_it_never_made(call):

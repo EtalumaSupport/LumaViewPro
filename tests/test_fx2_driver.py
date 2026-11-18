@@ -467,7 +467,7 @@ class TestFX2FrameCallbackAdoption:
         assert _cb in cam.cam_image_handler._frame_callbacks
 
         # connect() rebuilds the handler (the reconnect path); the durable
-        # registry must be re-applied onto the fresh _FX2ImageHandler.
+        # registry must be re-applied onto the fresh handler.
         cam.connect()
         assert _cb in cam._registered_frame_callbacks
         assert _cb in cam.cam_image_handler._frame_callbacks
@@ -493,11 +493,10 @@ class TestFX2CameraProfile:
 
     def test_the_maximum_exposure_is_the_drivers_1000ms_cap(self, fake_fx2_conn):
         """The camera answers the driver's 1000 ms cap, not the static
-        MT9P031 register maximum the profile documents (~7,366 ms): the UI
+        MT9P031 register maximum (~7,366 ms): the UI
         exposure slider's maximum is the camera's, and the register maximum
         let users dial past the safe-frame ceiling."""
         cam = fx2driver.FX2Camera()
-        assert cam.profile.exposure_max_us == 7_366_000
         assert cam.max_exposure == 1000.0
 
     def test_pixel_format_is_mono8_only(self, fake_fx2_conn):
@@ -570,8 +569,6 @@ class TestFX2CameraProfile:
             lambda cam: cam.auto_exposure_t(True),
             lambda cam: cam.auto_gain(True),
             lambda cam: cam.auto_gain_once(True),
-            lambda cam: cam.update_auto_gain_target_brightness(0.5),
-            lambda cam: cam.update_auto_gain_min_max(0.0, 30.0),
         ],
     )
     def test_auto_features_raise_rather_than_answer(self, fake_fx2_conn, call):
@@ -903,7 +900,7 @@ def test_a_setting_write_the_fx2_does_not_answer_raises_no_answer(
     from _lumascope.drivers.exceptions import CameraNoAnswerError
 
     sim, cam = simulated_fx2_camera
-    # The twelve setting writers the API reaches, with a value each accepts.
+    # The eleven setting writers the API reaches, with a value each accepts.
     writers = {
         'gain': lambda: cam.gain(12.0),
         'exposure_t': lambda: cam.exposure_t(100.0),
@@ -915,7 +912,6 @@ def test_a_setting_write_the_fx2_does_not_answer_raises_no_answer(
         'set_conversion_gain_mode': lambda: cam.set_conversion_gain_mode('HCG'),
         'set_line_noise_reduction': lambda: cam.set_line_noise_reduction(True),
         'set_black_level': lambda: cam.set_black_level(0.0),
-        'update_auto_gain_target_brightness': lambda: cam.update_auto_gain_target_brightness(0.5),
         'auto_gain_once': lambda: cam.auto_gain_once(True),
     }
     offenders = {}

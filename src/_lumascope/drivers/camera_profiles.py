@@ -278,10 +278,11 @@ _simulated.gain = replace(_simulated.gain, total_min_db=0.0, total_max_db=48.0)
 # Aptina MT9P031 -- Lumascope Classic LS620 / LS560 / LS460 / LS720 via Cypress FX2
 # Native sensor is 2592x1944 but the driver crops/centers a 1900x1900
 # window. The gain range is the driver's, set at connect from the gain
-# settings it writes (0-42.144 dB, DS Table 15). The static max
-# exposure below is 65535 rows at a 0.1124 ms row, a clock model the sensor
-# does not follow (the data sheet gives 7934.6 ms at the full window); the
-# driver answers its own cap (fx2driver.py, max_exposure). The sensor's timing
+# settings it writes (0-42.144 dB, DS Table 15). The profile states no
+# maximum exposure: the driver answers its own cap (fx2driver.py,
+# max_exposure), and a static one (65535 rows at a 0.1124 ms row) would
+# follow a clock model the sensor does not follow (the data sheet gives
+# 7934.6 ms at the full window). The sensor's timing
 # is src/_lumascope/drivers/fx2driver.py's (row_time_s, exposure_s, frame_time_s).
 _MT9P031_LS620 = CameraProfile(
     model_name='MT9P031-LS620',
@@ -290,7 +291,6 @@ _MT9P031_LS620 = CameraProfile(
     shutter='rolling',
     native_resolution={'width': 1900, 'height': 1900},
     pixel_formats=['Mono8'],  # 12-bit sensor, FX2 streams top 8 bits
-    exposure_max_us=7_366_000,  # the driver answers its own cap (see above)
     binning_sizes=[1],  # driver doesn't wire up sensor binning
     binning_modes=['Sum'],
     gain=GainInfo(

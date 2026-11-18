@@ -429,16 +429,6 @@ class ImageHandlerBase:
         with self._frame_lock:
             return self._frames_stored, self._bytes_delivered
 
-    def _detached(self) -> bool:
-        """True when the buffered frame's device is no longer attached.
-
-        Every reader of the buffer consults this before it answers, so a frame
-        stored from a device that has since been removed is reported as absent
-        rather than as current. A driver whose handler can outlive its device
-        overrides this; the base handler is never detached.
-        """
-        return False
-
     def get_last_image(self) -> Frame | None:
         """The last stored frame, or None when there is none. Thread-safe.
 
@@ -453,8 +443,6 @@ class ImageHandlerBase:
         call (``wait_for_frame_after``), and a summed capture additionally requires each
         frame's arrival ordinal to exceed the one before it.
         """
-        if self._detached():
-            return None
         with self._frame_lock:
             return self._last_frame
 
@@ -1429,7 +1417,7 @@ class Camera(ABC):
 
         The override hook for the depth rule: the base implementation
         derives from the format name; drivers whose delivered depth does
-        not follow the format string (FX2 delivers Mono8 regardless; a
+        not follow the format string (IDS's packed wire names; a
         converting driver could deliver a fixed depth) override this so
         every depth consumer -- including the API layer, which calls this
         with its held format so a transient format read cannot change the
@@ -1511,15 +1499,6 @@ class Camera(ABC):
     def device_firmware(self) -> str | None:
         """The firmware version the camera reported at connect, or None."""
         return self._device_firmware
-
-    def get_model_name(self) -> str | None:
-        """Return the cached camera model name.
-
-        Returns:
-            str | None: Cached model identifier, or None if not yet
-                discovered.
-        """
-        return self.model_name
 
     @abstractmethod
     def get_all_temperatures(self) -> dict:
@@ -2128,46 +2107,6 @@ class Camera(ABC):
         if not handler.wait_for_frame_after(handler.delivered_counts[0], timeout_s):
             return None
         return self.grab()
-
-    @abstractmethod
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> None:
-        """Update the target brightness for the auto-gain loop.
-
-        Args:
-            auto_target_brightness: Normalized target brightness (0.0
-                to 1.0).
-
-        Raises:
-            CameraWriteFailedError: The camera does not offer it or did not
-                take it, or no camera is open.
-            CameraNoAnswerError: The camera did not answer a write, or a
-                read it needs.
-            CameraReadFailedError: A read the write needs failed; nothing
-                was written.
-        """
-        pass
-
-    @abstractmethod
-    def update_auto_gain_min_max(
-        self, min_gain_db: float | None, max_gain_db: float | None
-    ) -> None:
-        """Update the auto-gain bounds.
-
-        Args:
-            min_gain_db: Minimum gain in dB, or None for the camera's own
-                minimum.
-            max_gain_db: Maximum gain in dB, or None for the camera's own
-                maximum.
-
-        Raises:
-            CameraWriteFailedError: The camera does not offer it or did not
-                take it, or no camera is open.
-            CameraNoAnswerError: The camera did not answer a write, or a
-                read it needs.
-            CameraReadFailedError: A read the write needs failed; nothing
-                was written.
-        """
-        pass
 
     @abstractmethod
     def get_gain(self) -> float:

@@ -2244,34 +2244,6 @@ class _FX2Connection:
 
 
 # ---------------------------------------------------------------------------
-# _FX2ImageHandler -- frame buffering (inherits LVP's ImageHandlerBase)
-# ---------------------------------------------------------------------------
-
-
-class _FX2ImageHandler(ImageHandlerBase):
-    """Thread-safe frame buffer for FX2 camera.
-
-    The LVC reference driver carried a standalone fallback implementation
-    with its own ``_new``/``_failure_count`` state for running outside
-    LVP. We drop that here -- the 4.1.0-dev module only runs inside LVP,
-    so ``ImageHandlerBase`` is always available and its behavior is what
-    the rest of the camera stack expects.
-
-    The base class implements ``_store_frame`` / ``get_last_image`` /
-    ``_record_failure`` / ``reset``; this handler only says when its camera
-    has been removed, so a frame buffered before an unplug is not handed out
-    as current.
-    """
-
-    def __init__(self, camera: FX2Camera):
-        super().__init__()
-        self._camera = camera
-
-    def _detached(self) -> bool:
-        return self._camera._device_removed
-
-
-# ---------------------------------------------------------------------------
 # _UnplugWatch -- hearing an unplug in a stream that sends no error
 # ---------------------------------------------------------------------------
 
@@ -2367,10 +2339,6 @@ class FX2Camera(Camera):
     # treat FX2 frames as 8-bit from the start, matching IDSCamera.
     native_bit_depth = 8
 
-    def significant_bits_for_format(self, pixel_format: str | None) -> int:
-        """FX2 delivers 8-bit payloads regardless of any format string."""
-        return 8
-
     # How often to log streaming stats (seconds). Set to 0 to disable.
     STATS_LOG_INTERVAL = 10.0
 
@@ -2408,7 +2376,6 @@ class FX2Camera(Camera):
         # applies it, since connect() sets the window first.
         self._exposure_ms = self.DEFAULT_EXPOSURE_MS
         self._gain_reg = 0x0008  # default = 1.0x = 0 dB
-        self._pixel_format = 'Mono8'
 
         self.stream_stats = StreamStats()
 
@@ -2450,32 +2417,6 @@ class FX2Camera(Camera):
 
         atexit.register(_atexit_drain)
 
-    # -- Context manager support ------------------------------------------
-    # `with FX2Camera() as cam:` ensures stop_grabbing + disconnect run
-    # via __exit__ regardless of whether the body raises. This is the
-    # primary recommended cleanup pattern for ad-hoc scripts and tests
-    # -- the atexit hook above is a safety net for code that doesn't use
-    # the context manager (e.g., long-lived LVP UI sessions where the
-    # camera is held by the Lumascope object for the lifetime of the
-    # app, not inside a `with` block).
-
-    def __enter__(self) -> FX2Camera:
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        # Best-effort cleanup. Swallow exceptions in cleanup so the
-        # original exception (if any) propagates correctly.
-        try:
-            if self.is_grabbing():
-                self.stop_grabbing()
-        except Exception as e:
-            logger.warning('[FX2 Cam   ] __exit__ stop_grabbing failed: %s', e)
-        try:
-            self.disconnect()
-        except Exception as e:
-            logger.warning('[FX2 Cam   ] __exit__ disconnect failed: %s', e)
-        # Returning None / False propagates any exception from the with-body.
-
     # -- Connection --------------------------------------------------------
 
     def connect(self) -> bool:
@@ -2511,7 +2452,7 @@ class FX2Camera(Camera):
         )
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
-        self.cam_image_handler = _FX2ImageHandler(self)
+        self.cam_image_handler = ImageHandlerBase()
         # Fresh handler starts with an empty dispatch list; re-push any durable
         # listeners so a reconnect keeps delivering frames to recording / plugins.
         self._reapply_frame_callbacks()
@@ -3156,14 +3097,6 @@ class FX2Camera(Camera):
         ae_max_exposure_ms: float | None = None,
     ) -> NoReturn:
         raise no_hardware_auto_mode('FX2', 'auto_gain_once', 'auto-gain')
-
-    def update_auto_gain_target_brightness(self, auto_target_brightness: float) -> NoReturn:
-        raise no_hardware_auto_mode('FX2', 'update_auto_gain_target_brightness', 'auto-gain')
-
-    def update_auto_gain_min_max(
-        self, min_gain_db: float | None = None, max_gain_db: float | None = None
-    ) -> NoReturn:
-        raise no_hardware_auto_mode('FX2', 'update_auto_gain_min_max', 'auto-gain')
 
     # -- Misc (no-op or trivial) ------------------------------------------
 

@@ -26,7 +26,6 @@ _DRIVER_FACTS = MemberNames(
     ('src/_lumascope/drivers/camera.py', 'src/_lumascope/drivers/camera_profiles.py'),
     {
         'model_name',
-        'get_model_name',
         '_device_serial',
         'device_serial',
         '_device_firmware',

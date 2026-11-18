@@ -38,7 +38,6 @@ class TestEveryDriverHandlerIsAnImageHandlerBase:
         [
             ('_lumascope.drivers.pyloncamera', 'ImageHandler'),
             ('_lumascope.drivers.idscamera', 'ImageHandler'),
-            ('_lumascope.drivers.fx2driver', '_FX2ImageHandler'),
         ],
     )
     def test_handler_class_inherits_the_base(self, module_name, class_name):
