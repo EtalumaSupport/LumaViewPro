@@ -12,7 +12,7 @@ ended by them, however long its answer takes.
 
 Read from the builder's own server over raw sockets, the deadlines made
 short: only a socket can fall silent halfway. A connection's end is its
-EOF; a connection kept is one still open past the deadline, so those tests
+EOF, or a reset while the client is still sending; a connection kept is one still open past the deadline, so those tests
 wait out a short span by design.
 """
 
@@ -85,11 +85,19 @@ def _connected(port: int, sent: bytes = b'') -> socket.socket:
 
 
 def _until_closed(connection: socket.socket) -> bytes:
-    """Everything the server sends *connection* until it closes it; a timeout if it never does."""
+    """Everything the server sends *connection* until it ends it; a timeout if it never does.
+
+    An end is a close, or a reset: a byte the client sent that lands after
+    the server's last read makes its close a reset, which the kernel
+    chooses and the deadline does not.
+    """
     received = b''
     with connection:
-        while chunk := connection.recv(65536):
-            received += chunk
+        try:
+            while chunk := connection.recv(65536):
+                received += chunk
+        except ConnectionResetError:
+            pass
     return received
 
 
