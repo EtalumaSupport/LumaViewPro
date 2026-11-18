@@ -241,13 +241,6 @@ _PYLON_ERR_PAYLOAD_DISCARDED = 0xE2000212
 _PYLON_ERR_DEVICE_NOT_FOUND = 433
 
 
-# Build marker -- bumped whenever the OnImageGrabbed / disconnect
-# defensive layer changes. Grep this in lumaviewpro.log to verify
-# which Pylon-defense generation a bench build is running.
-# Generation 3: Stage A / Stage B split (OnImageGrabbed runs only the
-# native-thread fast path; heavy work moves to _PylonImageGrabWorker).
-_PYLON_DEFENSE_BUILD = 'pylon-defense-3'
-
 # MaxNumBuffer applied post-Open() in connect(). 10 is the pylon SDK /
 # Pylon Viewer default. A 3-buffer cap was tried to cut RAM, but on a slow
 # host the small pool let the grab worker fall behind under CPU load: the
@@ -279,8 +272,6 @@ _DEFAULT_GRAB_STRATEGY = 'LatestImageOnly'
 @camera_registry.register('pylon', priority=100)
 class PylonCamera(Camera):
     def __init__(self, **kwargs):
-        _log_cam('info', f'[CAM Class ] PylonCamera defense generation: {_PYLON_DEFENSE_BUILD}')
-
         if os.getenv('PYLON_CAMEMU', None) is not None:
             logger.info(
                 '[CAM Class ] PylonCamera.connect() detected request to use camera emulation'
@@ -564,10 +555,6 @@ class PylonCamera(Camera):
                 # Invalidate the PixelFormat cache; the next connect
                 # repopulates it via init_camera_config -> set_pixel_format.
                 self._pixel_format_cache = None
-                # Reset the connection-scoped self-validation flag so
-                # the next connect re-runs the StreamGrabber NodeMap
-                # walk against whatever camera attaches.
-                self._pylon_self_validation_done = False
                 # Clear the start gate + last-frame buffer so a same-instance
                 # reconnect starts clean (re-grabs, no stale image).
                 self._reset_lifecycle_state()
@@ -671,64 +658,6 @@ class PylonCamera(Camera):
         self._stats_poller_thread = None
 
     def _stats_poller_loop(self):
-        # Run the StreamGrabber NodeMap walk once per camera instance.
-        # The walk costs several seconds when it fails on certain
-        # SDK / transport combinations; each StartGrabbing spawns a new
-        # poller, so without the per-instance gate the walk runs on
-        # every restart and inflates startup time.
-        if not getattr(self, '_pylon_self_validation_done', False):
-            try:
-                cam = self.active
-                sg = cam.StreamGrabber if cam is not None else None
-                if sg is not None:
-                    # View 1: dir()
-                    dir_nodes = sorted(n for n in dir(sg) if 'tatistic' in n.lower())
-                    logger.info(f'[INSTR PYLON ] StreamGrabber dir() stat-like: {dir_nodes}')
-
-                    # View 2: NodeMap walk (authoritative)
-                    try:
-                        nm = sg.GetNodeMap()
-                        all_features = []
-                        try:
-                            for nd in nm.GetNodes():
-                                try:
-                                    nname = nd.GetNode().GetName()
-                                except Exception:
-                                    try:
-                                        nname = nd.GetName()
-                                    except Exception:
-                                        continue
-                                low = nname.lower()
-                                if any(
-                                    t in low
-                                    for t in (
-                                        'tatistic',
-                                        'nderrun',
-                                        'nderflow',
-                                        'issing',
-                                        'esync',
-                                        'ailed',
-                                        'otal_buf',
-                                    )
-                                ):
-                                    all_features.append(nname)
-                        except Exception as e2:
-                            logger.debug(f'[INSTR PYLON ] NodeMap iteration error: {e2}')
-                        logger.info(
-                            f'[INSTR PYLON ] StreamGrabber NodeMap stat-like: '
-                            f'{sorted(set(all_features))}'
-                        )
-                    except Exception as e:
-                        _cam_log.warning(f'[INSTR PYLON ] NodeMap walk failed: {e}')
-                else:
-                    _cam_log.warning('[INSTR PYLON ] start: active camera is None, no stat dump')
-            except Exception as e:
-                _cam_log.warning(f'[INSTR PYLON ] start: stat-node dump failed: {e}')
-            finally:
-                # Mark done regardless of success/failure -- don't retry
-                # the failing walk on every restart.
-                self._pylon_self_validation_done = True
-
         ev = self._stats_poller_stop
         while not ev.wait(self._STATS_POLLER_INTERVAL_S):
             ts_ms = int(time.time() * 1000)
@@ -2280,20 +2209,12 @@ class PylonCamera(Camera):
         """Return every PixelFormat the camera advertises; () when not connected.
 
         Raises:
-            CameraReadFailedError: The camera did not answer the read.
-        """
-        if not self.active:
-            return ()
-        return self._read_supported_pixel_formats()
-
-    def _read_supported_pixel_formats(self) -> tuple:
-        """Every PixelFormat the camera advertises.
-
-        Raises:
             CameraReadFailedError: The camera did not answer the read, a
                 timeout included. A write that needs the list is refused
                 for it, nothing sent.
         """
+        if not self.active:
+            return ()
         try:
             return self._node('PixelFormat').GetSymbolics()
         except genicam.GenericException as e:
@@ -3905,35 +3826,6 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
                     _outcome = 'queue_full_dropped_failure'
                 return
 
-            # H2/H3 diagnostic: Stage A is otherwise silent on the success
-            # enqueue path. Log the GrabSucceeded value + grabResult identity
-            # for the first 5 frames so a "GetArray() failed on worker"
-            # warning in Stage B (see _process_frame re-check) can be
-            # correlated against what Stage A saw at handoff. Capped to 5
-            # frames to keep the noise floor manageable on long runs; the
-            # cap is exposed via _stage_a_frame_count for future tuning.
-            try:
-                if getattr(self, '_stage_a_frame_count', 0) < 5:
-                    self._stage_a_frame_count = getattr(self, '_stage_a_frame_count', 0) + 1
-                    try:
-                        _bid = grabResult.GetBlockID()
-                    except Exception:
-                        _bid = None
-                    try:
-                        _gid = grabResult.GetID()
-                    except Exception:
-                        _gid = None
-                    _log_cam(
-                        'info',
-                        f'[CAM Class ] Stage A frame #{self._stage_a_frame_count}: '
-                        f'GrabSucceeded={grab_succeeded} BlockID={_bid} GrabID={_gid}',
-                    )
-            except Exception as _e_diag:
-                # Diagnostic logging must never break the callback path.
-                # _log_safely is the bench-safe logger for native-thread
-                # contexts (best-effort, swallows its own failures).
-                _log_safely(f'Stage A first-frame diagnostic raised: {_e_diag}')
-
             if grab_succeeded:
                 try:
                     # SWIG director hands OnImageGrabbed a non-owning wrapper
@@ -4048,21 +3940,6 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] handler reset queue-drain failed: {e}')
         ImageHandlerBase.reset(self)
-
-    def _detached(self) -> bool:
-        """True once the device is removed or its handle released.
-
-        The base's readers consult this before answering, so a frame or its
-        chunk metadata buffered from a no-longer-attached device is reported
-        as absent rather than handed out as current. A parent that cannot
-        answer the question is treated as detached.
-        """
-        try:
-            if self._parent._device_removed:
-                return True
-            return self._parent.active is None
-        except Exception:
-            return True
 
 
 def _error_code_words(code: int | str | None) -> str:
@@ -4355,14 +4232,12 @@ class _PylonImageGrabWorker:
             # .copy() would be a redundant second full-frame memmove per frame.
             img = grabResult.GetArray()
         except Exception as e:
-            # H2/H3 diagnostic: Stage A enqueued this with GrabSucceeded=True.
-            # Re-read GrabSucceeded + GetErrorCode/Description on Stage B's
-            # side. The re-check distinguishes (a) race conditions where SDK
-            # state flipped between threads (GrabSucceeded was True, now False
-            # or unreadable) from (b) Stage A misclassification (GrabSucceeded
-            # was wrong from the start). Also reads BlockID / GrabID if
-            # available so the failure can be matched to the Stage A
-            # first-frames diagnostic by frame identity.
+            # Stage A enqueued this with GrabSucceeded=True. Re-read
+            # GrabSucceeded + GetErrorCode/Description on Stage B's side. The
+            # re-check distinguishes (a) race conditions where SDK state
+            # flipped between threads (GrabSucceeded was True, now False or
+            # unreadable) from (b) Stage A misclassification (GrabSucceeded
+            # was wrong from the start). BlockID / GrabID name the frame.
             try:
                 _gs_now = grabResult.GrabSucceeded()
             except Exception as _ee:

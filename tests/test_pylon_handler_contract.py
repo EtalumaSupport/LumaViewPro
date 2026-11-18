@@ -61,12 +61,3 @@ class TestPylonHandlerBaseSurface:
         assert handler.get_last_image() is None
         _store_one(handler, chunks={'ExposureTime': 10000.0, 'Gain': 0.0})
         assert dict(handler.get_last_image().chunks) == {'ExposureTime': 10000.0, 'Gain': 0.0}
-
-    def test_detached_device_reports_no_frame(self):
-        from _lumascope.drivers.camera import Camera
-
-        handler, parent = bare_image_handler()
-        _store_one(handler, chunks={'ExposureTime': 10000.0})
-        Camera._mark_disconnected(parent)
-        assert parent._device_removed is True
-        assert handler.get_last_image() is None

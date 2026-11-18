@@ -3752,33 +3752,14 @@ class TestPylonInitCameraConfigStyleConsistency:
         )
 
 
-class TestPylonDisconnectResetsSelfValidationFlag:
-    """The _pylon_self_validation_done flag gates a one-shot
-    StreamGrabber NodeMap walk that runs on poller start. Without
-    reset on disconnect, a different camera attached on the next
-    connect re-uses the prior camera's validation state and skips
-    its own probe.
-    """
-
-    def test_disconnect_clears_self_validation_flag(self):
-        cam = _disconnectable_pylon_camera()
-        cam._pylon_self_validation_done = True
-        assert cam.disconnect() is True
-        assert cam._pylon_self_validation_done is False, (
-            'disconnect() must clear _pylon_self_validation_done so the '
-            'next connect re-runs the StreamGrabber probe.'
-        )
-
-
 class TestPylonUnderrunCounterSingleCanonical:
     """The stream-grabber underrun counter uses one canonical name per
     Basler doc stream-grabber-parameters.html. The earlier multi-name
     candidate resolver and its associated cache attribute were
     speculative -- no other names are documented. If a future SDK
-    renames the node, the one-shot StreamGrabber NodeMap walk on
-    poller start emits the actual stat-like nodes via the
-    [INSTR PYLON ] StreamGrabber NodeMap stat-like log line; the
-    rename is diagnosable from there without a brute-force probe.
+    renames the node, ``read_diagnostic_snapshot`` records the counter
+    as missing rather than raising, so the rename shows there without a
+    brute-force probe.
     """
 
     def _pyloncamera_source(self):

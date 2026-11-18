@@ -261,11 +261,9 @@ def nodemaps_answer_attributes(cam):
 
 def stats_poll_pylon_camera():
     """bare_pylon_camera prepared so one REAL _stats_poller_loop cycle
-    runs deterministically: the one-shot validation walk is skipped and
-    the live fps / temperature reads return plain values (tests override
-    per-node mocks as needed)."""
+    runs deterministically: the live fps / temperature reads return plain
+    values (tests override per-node mocks as needed)."""
     cam = nodemaps_answer_attributes(bare_pylon_camera())
-    cam._pylon_self_validation_done = True
     cam.active.BslResultingAcquisitionFrameRate.GetValue.return_value = 30.0
     cam.active.TemperatureState.GetValue.return_value = 'Ok'
     return cam
