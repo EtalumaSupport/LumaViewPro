@@ -1893,7 +1893,7 @@ class SettingRefusedError(Refusal, ConfigError):
 
     Raised by ``ScopeSession.update_settings`` and ``set_live_folder``, by
     the members that own a ranged setting (``set_channel_settings``,
-    ``set_image_mode``, through ``settings_paths.refuse_outside_range``) and
+    ``set_image_mode``, through ``settings_paths.check_value``) and
     for a settings dict handed to a session, at ``create``'s door
     (``settings_init.prepare_loaded``, through
     ``settings_paths.refuse_handed_values``). A caller that maps refusals to
@@ -1922,6 +1922,10 @@ class SettingRefusedError(Refusal, ConfigError):
             and ``'host_only'``; otherwise None.
         limits: The lowest and highest value the setting takes, for an
             ``'out_of_range'`` setting with both ends; otherwise None.
+        takes: The range the value is outside, as a clause (``'at least
+            0'``, ``'above 0 and at most 1'``), for an ``'out_of_range'``
+            refused by a range's bound; otherwise None. A caller judging an
+            argument by a setting's rule says it in the argument's own words.
 
     ``path``, ``member`` and ``limits`` are published, so a REST problem
     names the setting refused, the member to call instead and the range,
@@ -1954,6 +1958,7 @@ class SettingRefusedError(Refusal, ConfigError):
         *,
         member: str | None = None,
         limits: tuple[float, float] | None = None,
+        takes: str | None = None,
     ):
         # A detail may be another refusal's whole sentence, its period included.
         super().__init__(f'{path} was not changed: {detail.removesuffix(".")}.')
@@ -1962,6 +1967,7 @@ class SettingRefusedError(Refusal, ConfigError):
         self.detail = detail
         self.member = member
         self.limits = limits
+        self.takes = takes
 
 
 class SettingsFileNotReplacedError(Fault, ConfigError):

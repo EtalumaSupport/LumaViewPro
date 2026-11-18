@@ -16,7 +16,12 @@ from __future__ import annotations
 import pytest
 
 from _lumascope.modules.coord_transformations import StageOffset
-from _lumascope.modules.exceptions import ArgumentRefusedError, CameraSettingUnsupportedError
+from _lumascope.modules import settings_paths
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    CameraSettingUnsupportedError,
+    SettingRefusedError,
+)
 from _lumascope.modules.lumascope_api.camera import CameraAutoMode
 from _lumascope.modules.scope_session import ScopeSession
 from tests.scope_fakes import home_sim_scope
@@ -80,6 +85,41 @@ def _rows(session):
             'gain_range_inverted',
             lambda: scope.camera.set_auto_gain(
                 True, {**_AUTO_GAIN, 'min_gain_db': 25.0, 'max_gain_db': 20.0}
+            ),
+        ),
+        (
+            'set_auto_gain, a target above full scale',
+            ArgumentRefusedError,
+            'wrong_kind',
+            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'target_brightness': 5.0}),
+        ),
+        (
+            'set_auto_gain, a target of 0',
+            ArgumentRefusedError,
+            'wrong_kind',
+            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'target_brightness': 0}),
+        ),
+        (
+            'set_auto_gain, a negative minimum gain',
+            ArgumentRefusedError,
+            'wrong_kind',
+            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'min_gain_db': -10.0}),
+        ),
+        (
+            'set_auto_gain, an exposure ceiling of 0',
+            ArgumentRefusedError,
+            'wrong_kind',
+            lambda: scope.camera.set_auto_gain(True, {**_AUTO_GAIN, 'max_exposure_ms': 0}),
+        ),
+        (
+            'apply, a target above full scale',
+            ArgumentRefusedError,
+            'wrong_kind',
+            lambda: scope.camera.apply(
+                1.0,
+                5.0,
+                auto_gain=True,
+                auto_gain_settings={**_AUTO_GAIN, 'target_brightness': 5.0},
             ),
         ),
         (
@@ -168,6 +208,43 @@ def test_the_stored_auto_gain_settings_arm_the_camera(session):
     # auto-gain takes, so a stored settings file arms it unrefused.
     assert session.scope.camera.set_auto_gain(True, session.get_auto_gain_settings()) is not False
     assert session.scope.camera.auto_gain is CameraAutoMode.CONTINUOUS
+
+
+def test_an_auto_gain_argument_takes_what_the_stored_setting_takes(session):
+    # One rule for the stored ``protocol.autogain`` block and the dictionary a
+    # caller hands the arm: each value the setting's own range refuses is
+    # refused as an argument, in that range's words, and each it takes arms.
+    # A gain past the camera's own limit is in the setting's range; the
+    # camera's clamp of it is not this rule's.
+    template = complete_settings()
+    camera = session.scope.camera
+    cases = [
+        ('target_brightness', 1.0),
+        ('target_brightness', 1.5),
+        ('target_brightness', 0.0),
+        ('min_gain_db', 0.0),
+        ('min_gain_db', -0.5),
+        ('max_gain_db', 1000.0),
+        ('max_gain_db', -1.0),
+    ]
+    wrong = []
+    for key, value in cases:
+        try:
+            settings_paths.check_value(template, f'protocol.autogain.{key}', value)
+            stored = None
+        except SettingRefusedError as refused:
+            # The setting's clause, 'it must be <range>, not <value>', less its ends.
+            stored = refused.detail.removeprefix('it must be ').rsplit(', not ', 1)[0]
+        try:
+            camera.set_auto_gain(True, {**_AUTO_GAIN, key: value})
+            argued = None
+        except ArgumentRefusedError as refused:
+            argued = (refused.reason, str(refused))
+        if stored is None and argued is not None:
+            wrong.append(f'{key}={value}: the setting takes it, the argument {argued}')
+        elif stored is not None and (argued is None or stored not in argued[1]):
+            wrong.append(f'{key}={value}: the setting is {stored!r}, the argument {argued}')
+    assert not wrong, '\n'.join(wrong)
 
 
 def test_a_binning_this_camera_offers_is_still_previewed(session):

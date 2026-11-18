@@ -246,15 +246,18 @@ def _refuse_outside(
     low, high = limits
     if low_open:
         if not low < value <= high:
+            takes = f'above {low} and at most {high}'
             raise SettingRefusedError(
-                'out_of_range', path, f'it must be above {low} and at most {high}, not {value!r}'
+                'out_of_range', path, f'it must be {takes}, not {value!r}', takes=takes
             )
     elif not low <= value <= high:
+        takes = f'between {low} and {high}'
         raise SettingRefusedError(
             'out_of_range',
             path,
-            f'it must be between {low} and {high}, not {value!r}',
+            f'it must be {takes}, not {value!r}',
             limits=(low, high),
+            takes=takes,
         )
 
 
@@ -266,7 +269,9 @@ def _refuse_unless_int(path: str, value: float) -> None:
 def _refuse_below(path: str, value: float, floor: float, *, inclusive: bool) -> None:
     if not (value >= floor if inclusive else value > floor):
         bound = f'at least {floor}' if inclusive else f'above {floor}'
-        raise SettingRefusedError('out_of_range', path, f'it must be {bound}, not {value!r}')
+        raise SettingRefusedError(
+            'out_of_range', path, f'it must be {bound}, not {value!r}', takes=bound
+        )
 
 
 def _refuse_non_count(path: str, value: float) -> None:

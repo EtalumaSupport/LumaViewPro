@@ -49,6 +49,7 @@ from _lumascope.modules.exceptions import (
     ExposureAtMinimumNotice,
     HardwareCommandRefusedError,
     MissingPart,
+    SettingRefusedError,
     ValueClampedNotice,
 )
 from _lumascope.modules.scope_parts import Part
@@ -650,12 +651,21 @@ def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
     keys on the camera lane, where a missing one failed as the camera's
     rejection of a change it was never sent.
 
+    The three gain keys are judged by the rule the stored
+    ``protocol.autogain`` setting of the same name holds, so the dictionary
+    and the stored block take the same values. An exposure bound is a time,
+    above 0; None is no bound.
+
     Raises:
         ArgumentRefusedError: ``'wrong_kind'``, ``'missing_key'`` or
             ``'not_a_number'``, naming the key's path under ``argument``;
-            ``'key_unknown'``, a key the write does not take;
-            ``'gain_range_inverted'``, a minimum gain above the maximum.
+            ``'wrong_kind'`` too for a number outside its key's range, its
+            words that range; ``'key_unknown'``, a key the write does not
+            take; ``'gain_range_inverted'``, a minimum gain above the maximum.
     """
+    # By module, at the call: settings_paths imports what imports this module.
+    from _lumascope.modules import settings_paths
+
     refuse_unless_kind(settings, 'dict', argument)
     for key in settings:
         if key not in _AUTO_GAIN_SETTINGS_KEYS:
@@ -663,9 +673,21 @@ def _refuse_unless_auto_gain_settings(settings: object, argument: str) -> None:
                 'key_unknown', argument=argument, value=key, offered=_AUTO_GAIN_SETTINGS_KEYS
             )
     for key in ('target_brightness', 'min_gain_db', 'max_gain_db'):
-        refuse_unless_kind(required(settings, key, argument), 'number', key_path(argument, key))
+        value = required(settings, key, argument)
+        refuse_unless_kind(value, 'number', key_path(argument, key))
+        try:
+            settings_paths.refuse_outside_range(f'protocol.autogain.{key}', value)
+        except SettingRefusedError as e:
+            raise ArgumentRefusedError(
+                'wrong_kind', argument=key_path(argument, key), value=value, takes=e.takes
+            ) from e
     for key in ('max_exposure_ms', 'min_exposure_ms'):
-        refuse_unless_kind(settings.get(key), 'number', key_path(argument, key), nullable=True)
+        value = settings.get(key)
+        refuse_unless_kind(value, 'number', key_path(argument, key), nullable=True)
+        if value is not None and not value > 0:
+            raise ArgumentRefusedError(
+                'wrong_kind', argument=key_path(argument, key), value=value, takes='above 0'
+            )
     refuse_inverted_gain_range(settings, argument)
 
 
