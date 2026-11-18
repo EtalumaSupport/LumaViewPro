@@ -1265,9 +1265,13 @@ class SequencedCaptureRunner:
                 streaming, a video step with no Recording max FPS while
                 the camera delivers nothing (``'camera_not_delivering'``),
                 an axis position not
-                known, the stage's lid open, a save location that cannot
+                known, the stage's lid open, a step or the
+                ``return_to_position`` outside the stage's travel
+                (``'positions_outside_travel'``), a save location that cannot
                 be used, a sequence_name that is a path rather than a
                 name).
+            ArgumentRefusedError: ``'not_a_number'``, an axis of
+                ``return_to_position`` is NaN.
             RunCheckFailedError: the run's checks could not be asked:
                 ``'validation_crashed'``, the protocol's validation failed
                 inside LumaViewPro; ``'hardware_state_unknown'``, the scope's state could not
@@ -1499,6 +1503,10 @@ class SequencedCaptureRunner:
         self._scope.protocols.refuse_positions_outside_travel(
             protocol.steps(), protocol.labware_id()
         )
+        if return_to_position is not None:
+            self._scope.protocols.refuse_return_outside_travel(
+                return_to_position, protocol.labware_id()
+            )
         stage_offset = self._scope.runtime_state.stage_offset()
         ag_ae_max_exposure_ms = self._scope.read_setting('ag_ae_max_exposure_ms')
 

@@ -18,8 +18,10 @@ from __future__ import annotations
 import pytest
 
 from _lumascope.modules.scope_parts import Board
-from _lumascope.modules.exceptions import ProtocolRunRefusedError
+from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.exceptions import ArgumentRefusedError, ProtocolRunRefusedError
 from _lumascope.modules.protocol import ProtocolFormatError
+from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from tests.scope_fakes import bind_settings_like_a_session
 from tests.test_a_scope_with_no_z_takes_no_autofocus import _session
 from tests.test_issue_524_extra_z_step_on_objective_change import _empty_protocol_for_add
@@ -31,6 +33,8 @@ from tests.test_a_protocol_needs_its_objectives_on_the_turret import (
     _turret,
 )
 from tests.test_protocol_execution import (  # noqa: F401 -- pytest fixtures
+    _make_autogain_settings,
+    _make_image_capture_config,
     _make_multi_step_protocol,
     executor,
     executors,
@@ -89,6 +93,34 @@ def test_the_offset_judged_is_the_scopes(executor, scope, tmp_path):
     bind_settings_like_a_session(scope, stage_offset={'x': -50_000.0, 'y': 0.0})
     refusal = _refusal(executor, protocol, tmp_path)
     assert refusal.reason == OUTSIDE, refusal
+
+
+def test_a_return_position_off_the_stage_is_refused_before_the_scan(executor, scope, tmp_path):
+    # The return is the cleanup's move: one past the travel was found only
+    # after the whole scan, as a cleanup error on a run that otherwise ended.
+    # A step inside travel and a return outside it: the run does not start.
+    protocol = _make_multi_step_protocol([{'name': 'in_range'}])
+
+    def prepare(return_to_position):
+        return executor.prepare(
+            protocol=protocol,
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='return_position',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            return_to_position=return_to_position,
+        )
+
+    with pytest.raises(ProtocolRunRefusedError) as refusal:
+        prepare(PlateLocation(x_mm=20.0, y_mm=15.0, z_um=_past_z(scope)))
+    assert refusal.value.reason == OUTSIDE, refusal.value
+    assert 'return position' in str(refusal.value) and 'Z' in str(refusal.value)
+    with pytest.raises(ArgumentRefusedError) as nan:
+        prepare(PlateLocation(x_mm=float('nan'), y_mm=15.0, z_um=5000.0))
+    assert (nan.value.reason, nan.value.argument) == ('not_a_number', 'return_to_position.x_mm')
+    prepare(PlateLocation(x_mm=None, y_mm=None, z_um=5000.0))
 
 
 def test_a_blank_x_never_reaches_the_travel_check():

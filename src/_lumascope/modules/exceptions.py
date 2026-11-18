@@ -2283,8 +2283,9 @@ class ProtocolRunRefusedError(Refusal, ProtocolError):
             ``'tiles_outside_travel'`` -- tiles of the grid fall outside the
             stage's travel. ``'zslices_outside_travel'`` -- z-slices of the
             stack fall outside Z's travel.
-            ``'positions_outside_travel'`` -- steps of the protocol fall
-            outside the stage's travel.
+            ``'positions_outside_travel'`` -- steps of the protocol, a step
+            being added, or a scan's return position fall outside the
+            stage's travel.
             ``'camera_range_unread'`` -- the
             camera's gain and exposure range could not be read after its last
             readout change, so no step's value can be held to it; it is

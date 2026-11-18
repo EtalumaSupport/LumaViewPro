@@ -1264,7 +1264,8 @@ class ProtocolsAPI:
     ) -> list[str]:
         """Each labelled position outside this scope's stage travel, with its axes, in order.
 
-        The one loop the run gate and an add judge positions with: on the axes the scope has, at the scope's stage
+        The one loop the run gate, a scan's return position and an add judge
+        positions with: on the axes the scope has, at the scope's stage
         offset -- the one the run converts plate positions with -- on the
         protocol's own plate. An axis with no position (None) is not judged.
 
@@ -1332,6 +1333,32 @@ class ProtocolsAPI:
                     f"{len(outside)} of the {len(steps)} steps fall outside the stage's travel "
                     f'({common_utils.first_few(outside, separator="; ")}).\n\nMove those steps '
                     "inside the stage's travel."
+                ),
+            )
+
+    def refuse_return_outside_travel(self, position: PlateLocation, labware_key: str) -> None:
+        """Refuse a scan whose return position lies outside this scope's stage travel.
+
+        Judged with the steps, before the run starts: the return is the
+        run's cleanup's move, so one outside travel was found only after
+        the scan, as a cleanup error on a run that otherwise finished. A
+        consult seam, as ``refuse_positions_outside_travel`` is.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, an axis of ``position``
+                is NaN.
+            ProtocolRunRefusedError: ``positions_outside_travel``.
+            ConfigError: No session has bound the scope, so it has no
+                stage offset to judge X/Y with.
+        """
+        axes = _plate_location_axes(position, 'return_to_position')
+        outside = self._outside_travel([('the return position', axes)], labware_key)
+        if outside:
+            self._refuse(
+                reason='positions_outside_travel',
+                message=(
+                    f"The scan's return position falls outside the stage's travel "
+                    f"({outside[0]}).\n\nReturn to a position inside the stage's travel."
                 ),
             )
 

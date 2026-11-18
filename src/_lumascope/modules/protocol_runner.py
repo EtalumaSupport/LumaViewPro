@@ -106,7 +106,10 @@ class ProtocolRunner:
         Raises:
             ProtocolRunRefusedError: The run was refused before any state
                 was committed; no operation is returned and no run is
-                started.
+                started. ``'positions_outside_travel'`` among the reasons,
+                a step or ``return_to_position`` outside the stage's travel.
+            ArgumentRefusedError: ``'not_a_number'``, an axis of
+                ``return_to_position`` is NaN; no run is started.
         """
         return self._run(
             settings=self.session.settings_snapshot(),
