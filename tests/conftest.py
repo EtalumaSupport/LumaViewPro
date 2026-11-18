@@ -728,14 +728,17 @@ def _no_settings_replacement_outlives_its_test():
     yield
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope='session')
 def _no_test_reads_the_host_it_runs_on():
     """Every session's startup reading reads a PC with room to spare, never the one the test runs on.
 
     The development Mac's save drive is under the notice's free-space line,
-    so a real read would tell the notice at every test's startup motion. A
-    test of the reading replaces ``read_host`` itself, through its own
-    ``monkeypatch``, which is undone before this puts the real reader back.
+    so a real read would tell the notice at every test's startup motion.
+    Session-scoped, so a scope a module- or session-scoped fixture brings up
+    reads it too: a function-scoped one was set up after those fixtures,
+    whose sessions read the real PC. A test of the reading replaces
+    ``read_host`` itself, through its own ``monkeypatch``, which puts this
+    stand-in back; the real reader returns when the test session ends.
     Not through ``monkeypatch`` here: an autouse fixture that takes it sets
     it up before every other fixture of the test, so its undo would come
     after their teardown, and a test's own patches would outlive the
