@@ -56,6 +56,25 @@ OBJECTIVE = _args[_args.index('--objective') + 1] if '--objective' in _args else
 # driver logged them (``HH:MM:SS.mmm pylon Width.SetValue(...) ...``), made
 # again through the API at the same spacing.
 REPLAY = _args[_args.index('--replay') + 1] if '--replay' in _args else None
+# ``--frame-min WxH``: the smallest frame the series sets, in place of the
+# camera's published floor. LVP's smallest frame in use is 100x100 (Eric
+# 2026-11-18), where a daA3840 publishes 4x4.
+FRAME_MIN = (
+    tuple(int(v) for v in _args[_args.index('--frame-min') + 1].split('x'))
+    if '--frame-min' in _args
+    else None
+)
+
+
+def _smallest(scope):
+    """The smallest frame the series sets, each side rounded up to even: ``--frame-min``, else the camera's floor."""
+    if FRAME_MIN is not None:
+        width, height = FRAME_MIN
+    else:
+        floor = scope.capabilities.camera_limits.frame_min
+        width, height = floor.width, floor.height
+    return width + width % 2, height + height % 2
+
 
 # A person's pace: a setting changed, the image looked at, the next one
 # changed. Long enough that the API's delivered rate (published each 1 s
@@ -71,7 +90,7 @@ def _changes(scope):
     held_frame = cam.read_frame_size()
     held_mode = cam.image_mode
     largest = limits.frame_max
-    smallest = limits.frame_min
+    smallest = _smallest(scope)
     other_mode = ImageMode.SCIENTIFIC if held_mode == ImageMode.EIGHT_BIT else ImageMode.EIGHT_BIT
 
     def back():
@@ -84,12 +103,7 @@ def _changes(scope):
 
     return [
         ('binning_1_largest_frame', largest_frame),
-        (
-            'smallest_frame',
-            lambda: cam.set_frame_size(
-                smallest.width + smallest.width % 2, smallest.height + smallest.height % 2
-            ),
-        ),
+        ('smallest_frame', lambda: cam.set_frame_size(*smallest)),
         ('binning_2', lambda: cam.set_binning(2)),
         ('as_brought_up', back),
         (f'mode_{other_mode.value}', lambda: cam.set_image_mode(other_mode)),
@@ -133,6 +147,7 @@ def _measure(session):
     )
 
     figure('legs', LEGS)
+    figure('smallest_frame', _smallest(scope))
     figure('leg_B_gap_s', GAP_S)
     if 'A' in LEGS:
         paced = _leg(scope, 'A_paced', paced=True)
@@ -221,11 +236,7 @@ def _frame_only(scope, sizes=None, leg='F'):
     cam = scope.camera
     if sizes is None:
         held = cam.read_frame_size()
-        smallest = scope.capabilities.camera_limits.frame_min
-        sizes = (
-            (smallest.width + smallest.width % 2, smallest.height + smallest.height % 2),
-            (held.width, held.height),
-        )
+        sizes = (_smallest(scope), (held.width, held.height))
     for n in range(1, 31):
         for size in sizes:
             made = time.strftime('%H:%M:%S')
