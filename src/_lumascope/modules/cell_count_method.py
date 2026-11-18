@@ -40,6 +40,18 @@ _FILTER_PATHS = {
     'intensity_max_pct': ('intensity', 'max'),
 }
 
+# A percentage of full scale, as the threshold and the intensity filters state it.
+_PERCENT = (0, 100)
+
+# The range each bounded filter's value lies in, by its field; a bound
+# outside it keeps no region or keeps them all, never what was meant.
+_BOUND_RANGES = {
+    'sphericity': (0, 1),
+    'intensity_min_pct': _PERCENT,
+    'intensity_mean_pct': _PERCENT,
+    'intensity_max_pct': _PERCENT,
+}
+
 
 def _refuse_method(source: str, problem: str) -> NoReturn:
     raise PostProcessingRefusedError(
@@ -60,6 +72,13 @@ def _check_filters(filters: Mapping[str, object], source: str) -> None:
                 _refuse_method(
                     source, f'filters.{name}.{bound} must be a number or null, not {value!r}'
                 )
+            if value is not None and name in _BOUND_RANGES:
+                low, high = _BOUND_RANGES[name]
+                if not low <= value <= high:
+                    _refuse_method(
+                        source,
+                        f'filters.{name}.{bound} must be from {low} to {high}, not {value!r}',
+                    )
         if bounds.min is not None and bounds.max is not None and bounds.min > bounds.max:
             _refuse_method(
                 source, f'filters.{name}.min ({bounds.min}) is above its max ({bounds.max})'
@@ -84,6 +103,11 @@ def _check_method(
         _refuse_method(source, f'fluorescent_mode must be true or false, not {fluorescent_mode!r}')
     if not is_finite_number(threshold_pct):
         _refuse_method(source, f'threshold_pct must be a number, not {threshold_pct!r}')
+    low, high = _PERCENT
+    if not low <= threshold_pct <= high:
+        _refuse_method(
+            source, f'threshold_pct must be from {low} to {high} percent, not {threshold_pct!r}'
+        )
 
 
 @api_fields('min', 'max')
@@ -123,7 +147,9 @@ class CellCountFilters:
     Raises:
         PostProcessingRefusedError: reason ``method_invalid``, a filter
             that is not a ``FilterBounds``, a bound that is not a number or
-            None, or a min above its max; the message names the filter.
+            None, a sphericity bound outside 0 to 1 or an intensity bound
+            outside 0 to 100, or a min above its max; the message names the
+            filter.
     """
 
     area_um2: FilterBounds = FilterBounds()
@@ -162,7 +188,7 @@ class CellCountMethod:
             *pixels_per_um* that is not a positive number or None (0 or
             below counts nothing, NaN writes NaN areas), a
             *fluorescent_mode* that is not True or False, a *threshold_pct* that
-            is not a number, or *filters* that is not a
+            is not a number from 0 to 100, or *filters* that is not a
             ``CellCountFilters``; the message names the field.
     """
 

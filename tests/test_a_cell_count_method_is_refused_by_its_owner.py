@@ -76,6 +76,37 @@ def test_a_threshold_that_is_not_a_number_is_refused_naming_it(threshold):
     assert 'threshold' in str(refused.value)
 
 
+def test_a_percentage_or_sphericity_outside_its_range_is_refused_naming_it():
+    # A threshold of -50 counted the whole image as one cell and 500 counted
+    # none; a filter's min past its range keeps no region. Each end is taken.
+    refused_cases = [
+        ('threshold_pct', lambda: CellCountMethod(threshold_pct=-50)),
+        ('threshold_pct', lambda: CellCountMethod(threshold_pct=500)),
+        (
+            'filters.intensity_min_pct.min',
+            lambda: CellCountFilters(intensity_min_pct=FilterBounds(500, None)),
+        ),
+        (
+            'filters.intensity_mean_pct.max',
+            lambda: CellCountFilters(intensity_mean_pct=FilterBounds(None, -1)),
+        ),
+        ('filters.sphericity.max', lambda: CellCountFilters(sphericity=FilterBounds(0, 2))),
+    ]
+    wrong = []
+    for field, build in refused_cases:
+        try:
+            build()
+        except PostProcessingRefusedError as refused:
+            if refused.reason != 'method_invalid' or field not in str(refused):
+                wrong.append(f'{field}: {refused.reason!r} {refused}')
+        else:
+            wrong.append(f'{field}: was not refused')
+    assert not wrong, '\n'.join(wrong)
+    CellCountMethod(threshold_pct=0)
+    CellCountMethod(threshold_pct=100)
+    CellCountFilters(sphericity=FilterBounds(0, 1), intensity_max_pct=FilterBounds(0, 100))
+
+
 @pytest.mark.parametrize('bound', ['10', [1], True])
 def test_a_filter_bound_that_is_not_a_number_is_refused_naming_it(bound):
     with pytest.raises(PostProcessingRefusedError) as refused:
