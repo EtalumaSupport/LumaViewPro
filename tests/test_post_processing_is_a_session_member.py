@@ -140,6 +140,10 @@ def test_a_folder_with_nothing_to_stitch_is_refused(session, tmp_path):
         ('video', {'frame_rate_fps': 0.5}),
         ('video', {'frame_rate_fps': '-3'}),
         ('video', {'frame_rate_fps': 'fast'}),
+        # An infinite rate passed 'at least 1' and overflowed the encoder's rate.
+        ('video', {'frame_rate_fps': 'inf'}),
+        ('video', {'frame_rate_fps': '1e999'}),
+        ('video', {'frame_rate_fps': float('inf')}),
     ],
 )
 def test_a_setting_the_build_cannot_use_is_refused_not_adjusted(session, tmp_path, member, kwargs):

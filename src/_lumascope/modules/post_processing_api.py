@@ -348,7 +348,7 @@ class Video:
     """A video, as ``build`` takes it: each position's time series to one video.
 
     Attributes:
-        frame_rate_fps: The playback rate, a number of at least 1 or its
+        frame_rate_fps: The playback rate, a finite number of at least 1 or its
             text; None plays a recording at its own measured rate.
         timestamp_overlay: Whether each frame shows its time.
     """
@@ -789,7 +789,7 @@ class PostProcessingAPI:
         manual frames recording.
 
         Args:
-            frame_rate_fps: The playback rate, a number of at least 1 or its
+            frame_rate_fps: The playback rate, a finite number of at least 1 or its
                 text; None plays a recording at its own measured rate.
 
         Raises:
@@ -1925,13 +1925,14 @@ class PostProcessingAPI:
             rate = float(frame_rate_fps)
         except (TypeError, ValueError):
             rate = None
-        if rate is None or not rate >= 1:
+        # An infinity passes 'at least 1', and the encoder's rate is a fraction of it.
+        if rate is None or not is_finite_number(rate) or not rate >= 1:
             raise PostProcessingRefusedError(
                 operation=PostProcessingOperation.VIDEO,
                 reason='invalid_setting',
                 message=(
-                    f'{frame_rate_fps!r} is not a playback rate: give at least 1 frame '
-                    "per second, or nothing for the recording's own rate."
+                    f'{frame_rate_fps!r} is not a playback rate: give a number of at least 1 '
+                    "frame per second, or nothing for the recording's own rate."
                 ),
             )
         return rate
