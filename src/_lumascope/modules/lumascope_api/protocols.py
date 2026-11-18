@@ -434,7 +434,7 @@ class ProtocolsAPI:
             self._refuse(
                 reason='positions_outside_travel',
                 message=(
-                    f"The new step falls outside the stage's travel ({outside[0]}).\n\n"
+                    f"The new step falls outside the stage's travel on {outside[0][1]}.\n\n"
                     "Add it at a position inside the stage's travel."
                 ),
             )
@@ -1261,8 +1261,8 @@ class ProtocolsAPI:
 
     def _outside_travel(
         self, positions: list[tuple[str, Mapping[str, float | None]]], labware_key: str
-    ) -> list[str]:
-        """Each labelled position outside this scope's stage travel, with its axes, in order.
+    ) -> list[tuple[str, str]]:
+        """Each labelled position outside this scope's stage travel, with its axes in words, in order.
 
         The one loop the run gate, a scan's return position and an add judge
         positions with: on the axes the scope has, at the scope's stage
@@ -1290,7 +1290,7 @@ class ProtocolsAPI:
                 **plate,
             )
             if axes:
-                outside.append(f'{label}: {", ".join(axes)}')
+                outside.append((label, ', '.join(axes)))
         return outside
 
     def refuse_positions_outside_travel(self, steps: pd.DataFrame, labware_key: str) -> None:
@@ -1319,13 +1319,16 @@ class ProtocolsAPI:
         """
         from _lumascope.modules.protocol import rows_by_column
 
-        outside = self._outside_travel(
-            [
-                (f'step {idx + 1} ({step["Name"]})', {axis: step[axis] for axis in StageAxis})
-                for idx, step in zip(steps.index, rows_by_column(steps), strict=True)
-            ],
-            labware_key,
-        )
+        outside = [
+            f'{label}: {axes}'
+            for label, axes in self._outside_travel(
+                [
+                    (f'step {idx + 1} ({step["Name"]})', {axis: step[axis] for axis in StageAxis})
+                    for idx, step in zip(steps.index, rows_by_column(steps), strict=True)
+                ],
+                labware_key,
+            )
+        ]
         if outside:
             self._refuse(
                 reason='positions_outside_travel',
@@ -1357,8 +1360,8 @@ class ProtocolsAPI:
             self._refuse(
                 reason='positions_outside_travel',
                 message=(
-                    f"The scan's return position falls outside the stage's travel "
-                    f"({outside[0]}).\n\nReturn to a position inside the stage's travel."
+                    f"The scan's return position falls outside the stage's travel on "
+                    f"{outside[0][1]}.\n\nReturn to a position inside the stage's travel."
                 ),
             )
 
