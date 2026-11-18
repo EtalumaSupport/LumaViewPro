@@ -2815,20 +2815,6 @@ class IDSCamera(Camera):
     ) -> NoReturn:
         raise no_hardware_auto_mode('IDS', 'auto_gain_once', 'auto-gain')
 
-    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black') -> None:
-        """Apply the IDS TestPattern node: 'Off' when disabled, else the named
-        pattern. Bench-confirmed ReadWrite on the U3-34L0XCP-M with entries
-        Off / Black / White / ColorBar / ColorBarVertical / Gray / LightGrey;
-        a pattern outside that set is rejected by the SDK. Takes effect on
-        subsequent free-run frames.
-
-        Raises:
-            HardwareError: As ``write_node``.
-        """
-        entry = pattern if enabled else 'Off'
-        self.write_node('TestPattern', entry)
-        _cam_log.info(f'[CAM Class ] ids TestPattern.SetCurrentEntry({entry})')
-
 
 def _exc_is(exc: Exception, type_name: str, *substrings: str) -> bool:
     """True when `exc` is the named ids_peak exception type (if this SDK build

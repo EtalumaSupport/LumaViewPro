@@ -3128,8 +3128,16 @@ class FX2Camera(Camera):
     def get_binning_size(self) -> int:
         return 1
 
-    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
-        pass  # MT9P031 has a test pattern register but it's not wired up
+    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black') -> NoReturn:
+        """The MT9P031 has a test pattern register, but this driver does not
+        write it, so no pattern is offered.
+
+        Raises:
+            CameraWriteFailedError: Always; nothing was written.
+        """
+        raise CameraWriteFailedError(
+            'A test pattern is not offered (this camera has none wired); nothing was written'
+        )
 
 
 # ---------------------------------------------------------------------------

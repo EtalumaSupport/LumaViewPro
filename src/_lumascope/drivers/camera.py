@@ -2327,9 +2327,14 @@ class Camera(ABC):
         """
         pass
 
-    @abstractmethod
     def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black') -> None:
         """Enable or disable the SDK's test pattern generator.
+
+        Writes the ``TestPattern`` node: the named entry when enabled,
+        ``'Off'`` when not; the frames delivered after it carry it. The IDS
+        U3-34L0XCP-M offers Off / Black / White / ColorBar /
+        ColorBarVertical / Gray / LightGrey (bench-read); an entry the body
+        does not offer is refused by the SDK.
 
         Args:
             enabled: True to enable the pattern, False to disable.
@@ -2343,4 +2348,4 @@ class Camera(ABC):
             CameraReadFailedError: A read the write needs failed; nothing
                 was written.
         """
-        pass
+        self.write_node('TestPattern', pattern if enabled else 'Off')

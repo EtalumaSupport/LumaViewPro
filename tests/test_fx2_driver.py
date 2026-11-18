@@ -580,10 +580,17 @@ class TestFX2CameraProfile:
         with pytest.raises(NotImplementedError, match='no hardware auto-'):
             call(cam)
 
-    def test_features_without_hardware_are_noops(self, fake_fx2_conn):
+    def test_a_camera_without_a_temperature_sensor_reports_no_temperatures(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
-        cam.set_test_pattern(True, 'Black')
         assert cam.get_all_temperatures() == {}
+
+    def test_a_test_pattern_is_refused_and_nothing_written(self, fake_fx2_conn):
+        """The MT9P031's pattern register is not wired; a call that answered
+        would claim a pattern set or cleared that never was."""
+        cam = fx2driver.FX2Camera()
+        for enabled in (True, False):
+            with pytest.raises(CameraWriteFailedError, match='test pattern is not offered'):
+                cam.set_test_pattern(enabled, 'Black')
 
 
 # ---------------------------------------------------------------------------
