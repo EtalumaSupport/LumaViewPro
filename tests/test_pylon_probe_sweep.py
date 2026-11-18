@@ -250,18 +250,18 @@ def test_a_cell_sets_the_image_mode_and_frame_as_lvp_does(sim_scope):
     assert sim_scope.camera.read_frame_size() == largest
 
 
-def test_a_frame_the_scope_refuses_is_the_cells_record_and_the_cell_goes_on(sim_scope):
+def test_a_frame_past_the_largest_is_set_at_it_and_the_cell_records_what_was_delivered(
+    sim_scope,
+):
+    """The scope sets a side past its largest frame at it (and tells it), so
+    the cell's record is the frame delivered, not a refusal."""
     largest = sim_scope.capabilities.camera_limits.frame_max
     cell = {'image_mode': '8bit', 'resolution': (largest.width + 2, largest.height)}
 
     log = _apply_cell(sim_scope, 'unknown', cell)
 
-    assert log[0] == ('image_mode', 'Mono8')
-    assert log[1][0] == 'frame'
-    assert log[1][1].startswith('REJECTED: ')
-    # The record is the refusal's own words: the width asked and the camera's range.
-    assert f'Frame width {largest.width + 2} px is outside' in log[1][1]
-    assert sim_scope.camera.read_frame_size().width <= largest.width
+    assert log[:2] == [('image_mode', 'Mono8'), ('frame', f'{largest.width}x{largest.height}')]
+    assert sim_scope.camera.read_frame_size() == largest
 
 
 def test_a_sweep_on_a_camera_whose_transport_is_unknown_stops_before_any_cell(sim_scope, capsys):

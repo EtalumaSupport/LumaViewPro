@@ -6438,20 +6438,27 @@ not written again.
 - `width`: The frame's width in pixels, after binning.
 - `height`: The frame's height in pixels, after binning.
 
+A side below the camera's minimum frame or above the scope's maximum
+at the binning held (the sensor, or the model's smaller maximum,
+`capabilities.camera_limits`) is set at that limit, and the call,
+once the frame is saved, reports one `ValueClampedNotice`; an
+undeclared end narrows nothing. A side floored only to the camera's
+pixel grid is not told.
+
 **Returns**
 
-The frame the camera delivers: the request floored to even sides.
+The frame the camera delivers: the request, held to the limits, floored to even sides.
 
 **Raises**
 
+- `ArgumentRefusedError`: `'wrong_kind'`, a side is 0 or below. Nothing reaches the camera or is saved.
 - `HardwareCommandRefusedError`: A recording holds the scope: its frames are fitted to the geometry it started with. `'not_connected'`, naming the camera, with none connected or one removed during the write. Nothing is saved.
-- `CameraSettingOutOfRangeError`: `'frame_width_out_of_range'` or `'frame_height_out_of_range'`, the size, floored to even sides, is below the camera's minimum frame or above the scope's maximum at the binning held: the sensor, or the model's smaller maximum (`capabilities.camera_limits`). Nothing reaches the camera or is saved; an undeclared end is not checked.
 - `CameraSettingRejected`: The camera refused the frame. Nothing is saved. Its reason is `'camera_rejected'` for a refusal, `'camera_no_answer'` for a write the camera answered neither time, and `'camera_read_failed'` for one not sent because a read it needs failed, the camera keeping its previous value.
 
 **Refusals by REST status**
 
 - 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`CameraSettingOutOfRangeError`](#CameraSettingOutOfRangeError): `frame_width_out_of_range`, `frame_height_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
 - 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
@@ -15721,39 +15728,6 @@ The words carry the SDK's own text, so the person reads the title.
 | Reason | Cause | REST status |
 |---|---|---|
 | `camera_read_failed` | -- | 500 |
-
-<a id="CameraSettingOutOfRangeError"></a>
-### `lumascope.CameraSettingOutOfRangeError`
-
-A refusal; bases `Refusal`, `ValueError`.
-
-A frame side outside the range this camera declares was asked for.
-
-Declined before anything reaches the camera, the same on every camera: a
-body that would refuse the value and a body that would silently clamp it
-both answer this way, so a caller that does not read the return cannot
-record a value the camera never took. Nothing broke, and the caller can
-ask again inside the range, so a refusal rather than a fault. A
-`ValueError` too, for a caller that treats it as the bad argument it is.
-
-**Attributes**
-
-- `reason`: Machine-readable refusal code, `'<setting>_out_of_range'`. `'frame_width_out_of_range'` -- the frame width is outside the widths the camera declares. `'frame_height_out_of_range'` -- the frame height is outside the heights the camera declares.
-- `setting`: Machine-readable setting name ('frame_width', 'frame_height').
-- `requested`: The value asked for.
-- `limits`: The camera's declared floor and ceiling, in the setting's unit; either is None when the camera declares none, and is not checked.
-
-`limits` is published, so a client corrects the value without reading
-the words.
-
-**Fields**
-
-- <a id="CameraSettingOutOfRangeError.limits"></a>`limits`: `tuple[float | None, float | None]` -- The camera's declared floor and ceiling, in the setting's unit; either is None when the camera declares none, and is not checked.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `frame_height_out_of_range` | request | 422 |
-| `frame_width_out_of_range` | request | 422 |
 
 <a id="CameraSettingRejected"></a>
 ### `lumascope.CameraSettingRejected`

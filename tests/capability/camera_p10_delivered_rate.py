@@ -79,18 +79,15 @@ def _row(scope, label):
 
 
 def _largest_frame(scope, cam, label):
-    from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
-
     limits = scope.capabilities.camera_limits
     largest = limits.frame_max if limits is not None else None
     figure(f'{label}_frame_max', largest.to_dict() if largest else None)
     if largest is None:
         check(f'{label}: the scope publishes its largest frame', False)
         return
-    try:
-        cam.set_frame_size(1900, largest.height)
-    except CameraSettingOutOfRangeError as e:
-        check(f'{label}: the largest published height is accepted', False, str(e))
+    delivered = cam.set_frame_size(1900, largest.height)
+    if delivered is None or delivered.height != largest.height:
+        check(f'{label}: the largest published height is delivered', False, str(delivered))
         return
     _row(scope, label)
 

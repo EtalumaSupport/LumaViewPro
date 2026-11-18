@@ -5,14 +5,11 @@ LumaView Classic capped the LS560 and LS460 window at 1700: their lens has a
 shorter focal length than the LS620's, so its image covers less of the
 sensor. The model catalogue declares it (``MaxFrame``), the scope's frame
 maximum is the smaller of it and the camera's, and a frame above it is
-refused at the API, naming the range.
+set at it by the API.
 """
 
 from __future__ import annotations
 
-import pytest
-
-from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
 from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 from _lumascope.modules.scope_capabilities import FrameSize
@@ -31,14 +28,13 @@ def _session(tmp_path, microscope):
     )
 
 
-def test_the_ls560_refuses_a_frame_above_1700_and_takes_1700(tmp_path):
+def test_the_ls560_sets_a_frame_above_1700_at_1700(tmp_path):
     s = _session(tmp_path, 'LS560')
     try:
         camera = s.scope.camera
         # The simulated FX2 sensor delivers 1900 x 1900; the lens bounds both.
         assert s.scope.capabilities.camera_limits.frame_max == FrameSize(1700, 1700)
-        with pytest.raises(CameraSettingOutOfRangeError, match='1700'):
-            camera.set_frame_size(1704, 1000)
+        assert camera.set_frame_size(1704, 1000) == FrameSize(1700, 1000)
         assert camera.set_frame_size(1700, 1000) == FrameSize(1700, 1000)
     finally:
         s.shutdown()

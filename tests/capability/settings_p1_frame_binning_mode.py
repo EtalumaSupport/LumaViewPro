@@ -37,21 +37,16 @@ try:
     print('frame_size            :', im_camera.frame_size.to_dict())
 
     # --- frame size, OUT OF RANGE (the 13414 shape) ----------------------
-    from _lumascope.modules.exceptions import (
-        CameraSettingOutOfRangeError,
-        CameraSettingUnsupportedError,
-    )
+    from _lumascope.modules.exceptions import CameraSettingUnsupportedError
 
-    try:
-        out = im_camera.set_frame_size(13414, 13414)
-        print('set_frame_size(13414,13414) RETURNED:', out)
-        _common.check(
-            '13414 refused (not silently clamped)',
-            False,
-            f'clamped to {out} and returned as delivered -- no raise',
-        )
-    except CameraSettingOutOfRangeError as e:
-        _common.check('13414 refused (not silently clamped)', True, str(e))
+    largest = s.scope.capabilities.camera_limits.frame_max
+    out = im_camera.set_frame_size(13414, 13414)
+    print('set_frame_size(13414,13414) RETURNED:', out)
+    _common.check(
+        '13414 set at the largest frame',
+        out == im_camera.frame_size and out.width <= largest.width and out.height <= largest.height,
+        f'{out} against {largest}',
+    )
     print(
         'after oversize, read-back:',
         im_camera.read_frame_size().width,

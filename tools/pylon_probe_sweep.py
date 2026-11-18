@@ -50,7 +50,7 @@ sys.path.insert(0, str(_LVP_ROOT / 'src'))
 
 from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.lvp_logger import logger
-from _lumascope.modules.exceptions import CameraSettingOutOfRangeError, CameraSettingRejected
+from _lumascope.modules.exceptions import CameraSettingRejected
 from _lumascope.modules.image_mode import ImageMode
 from _lumascope.modules.path_utils import get_source_root
 from _lumascope.modules.scope_session import ScopeSession
@@ -275,7 +275,7 @@ def _apply_cell(scope, transport: str, cell: dict):
     try:
         delivered = scope.camera.set_frame_size(w, h)
         log.append(('frame', f'{delivered.width}x{delivered.height}'))
-    except (CameraSettingOutOfRangeError, CameraSettingRejected) as e:
+    except CameraSettingRejected as e:
         log.append(('frame', f'REJECTED: {e}'))
 
     # Transport-specific knobs.

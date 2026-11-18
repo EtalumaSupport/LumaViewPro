@@ -650,7 +650,6 @@ UNITLESS: dict[str, str] = {
     'Operation.exception parameter timeout': "the Future's name for a wait in seconds",
     'Operation.result parameter timeout': "the Future's name for a wait in seconds",
     'ArgumentRefusedError.limits field': "the refused argument's bounds, in that argument's unit",
-    'CameraSettingOutOfRangeError.limits field': "the camera's bounds, in the setting's unit",
     'CameraSettingRejected.requested field': "a camera setting's value, in the unit its setting names",
     'CameraSettingRejected.in_effect field': "a camera setting's value, in the unit its setting names",
     'PositionOutOfRangeError.limits field': "the bound's ends, in the refused quantity's unit",

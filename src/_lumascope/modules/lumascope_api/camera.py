@@ -42,7 +42,6 @@ from _lumascope.lib.log_helpers import VERBOSE
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     AutoGainNotSettledError,
-    CameraSettingOutOfRangeError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
     ControlSessionRefusedError,
@@ -466,6 +465,8 @@ _SIGN_TAKEN: dict[str, tuple[float, bool, str]] = {
     'gain_db': (0.0, True, 'a number of at least 0'),
     'exposure_ms': (0.0, False, 'a number above 0'),
     'black_level': (0.0, True, 'a number of at least 0'),
+    'width': (0.0, False, 'a number above 0'),
+    'height': (0.0, False, 'a number above 0'),
 }
 
 
@@ -474,9 +475,10 @@ def _held_to_range(
 ) -> float:
     """The value a write of ``setting`` sends: ``requested`` held to the camera's range.
 
-    Asked by every member that hands the camera a gain, an exposure or a
-    black level of its caller's, before anything is sent, so every camera
-    answers alike: a body that would refuse a value past its limit and one
+    Asked by every member that hands the camera a gain, an exposure, a
+    black level or a frame side of its caller's, before anything is sent,
+    so every camera answers alike: a body that would refuse a value past
+    its limit and one
     that would silently clamp it are both sent the limit. An undeclared end
     narrows nothing. The member tells the clamp (``_tell_clamped``) once its
     write has landed.
@@ -780,18 +782,6 @@ def _refuse_unless_settable_auto_mode(mode: CameraAutoMode, argument: str) -> No
             offering the settable modes.
     """
     refuse_unless_offered(CameraAutoMode, mode, argument, within=_SETTABLE_AUTO_MODES)
-
-
-def camera_range_words(low: float | None, high: float | None, unit: str) -> str:
-    """A camera's range for a person, naming only the ends it declares.
-
-    The one wording of a range, for the setters' refusal.
-    """
-    if low is None:
-        return f'at most {high:g} {unit}'
-    if high is None:
-        return f'at least {low:g} {unit}'
-    return f'{low:g} to {high:g} {unit}'
 
 
 # The camera settings a restore puts back beyond gain and exposure, in the
@@ -1825,43 +1815,6 @@ class CameraAPI:
             return _camera_not_connected(member)
         return None
 
-    def _refuse_out_of_range(
-        self,
-        setting: str,
-        requested: float,
-        minimum: float | None,
-        maximum: float | None,
-        *,
-        noun: str,
-        unit: str,
-    ) -> None:
-        """Refuse a frame side outside the camera's declared range.
-
-        Asked by the frame's write, so every camera answers alike: a body
-        that would refuse the side and one that would silently clamp it both
-        never see it. A gain, an exposure or a black level is held to its
-        range instead (``_held_to_range``). An undeclared end is not
-        checked.
-
-        Raises:
-            ArgumentRefusedError: ``'not_a_number'``, the request is not a
-                finite number, which no range admits.
-            CameraSettingOutOfRangeError: The request is outside the range.
-        """
-        refuse_unless_finite_number(requested, setting)
-        value = float(requested)
-        if (minimum is not None and value < minimum) or (maximum is not None and value > maximum):
-            raise CameraSettingOutOfRangeError(
-                setting,
-                value,
-                minimum,
-                maximum,
-                message=(
-                    f"{noun.capitalize()} {value:g} {unit} is outside this camera's range, "
-                    f'{camera_range_words(minimum, maximum, unit)}. The {noun} was not changed.'
-                ),
-            )
-
     @api(sets='gain_db', admitted_by=(Admission.LANE_CALL,))
     def set_gain_db(self, gain_db: float) -> float | None:
         """Set the camera gain, wait for it, and answer with the gain in effect.
@@ -2724,22 +2677,24 @@ class CameraAPI:
             width: The frame's width in pixels, after binning.
             height: The frame's height in pixels, after binning.
 
+        A side below the camera's minimum frame or above the scope's maximum
+        at the binning held (the sensor, or the model's smaller maximum,
+        ``capabilities.camera_limits``) is set at that limit, and the call,
+        once the frame is saved, reports one ``ValueClampedNotice``; an
+        undeclared end narrows nothing. A side floored only to the camera's
+        pixel grid is not told.
+
         Returns:
-            The frame the camera delivers: the request floored to even
-            sides.
+            The frame the camera delivers: the request, held to the limits,
+            floored to even sides.
 
         Raises:
+            ArgumentRefusedError: ``'wrong_kind'``, a side is 0 or below.
+                Nothing reaches the camera or is saved.
             HardwareCommandRefusedError: A recording holds the scope: its
                 frames are fitted to the geometry it started with.
                 ``'not_connected'``, naming the camera, with none connected
                 or one removed during the write. Nothing is saved.
-            CameraSettingOutOfRangeError: ``'frame_width_out_of_range'`` or
-                ``'frame_height_out_of_range'``, the size, floored to even
-                sides, is below the camera's minimum frame or above the
-                scope's maximum at the binning held: the sensor, or the
-                model's smaller maximum (``capabilities.camera_limits``).
-                Nothing reaches the camera or is saved; an undeclared end is
-                not checked.
             CameraSettingRejected: The camera refused the frame. Nothing is
                 saved.
                 Its reason is ``'camera_rejected'`` for a refusal,
@@ -2748,37 +2703,52 @@ class CameraAPI:
                 because a read it needs failed, the camera keeping its
                 previous value.
         """
-        return self._dispatch_camera(
+        delivered, held = self._dispatch_camera(
             self._frame_and_save_impl,
             'set_frame_size',
             args=(width, height),
             timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
             falsifies_recording=True,
         )
+        if delivered is not None:
+            _tell_clamped(
+                ('frame_width', width, held['width']), ('frame_height', height, held['height'])
+            )
+        return delivered
 
-    def _frame_and_save_impl(self, width: int, height: int) -> FrameSize | None:
-        """On the camera lane: frame at ``width`` x ``height`` at the binning held, and save it."""
+    def _frame_and_save_impl(
+        self, width: int, height: int
+    ) -> tuple[FrameSize | None, dict[str, float]]:
+        """On the camera lane: frame at ``width`` x ``height`` at the binning held, and save it.
+
+        Returns the frame delivered and each side as held to the camera's
+        limits at that binning (``_held_to_range``), which the caller tells.
+        """
+        # The range is the connected camera's: with none, or the scope
+        # disconnected, that is the answer, not a range it no longer has.
+        self.refuse_camera_not_connected('set_frame_size')
         factor = self._read_a_write_needs(
             'set_frame_size',
             'frame_size',
             {'width': width, 'height': height},
             lambda: self._held_or_read('binning'),
         )
-        asked = {'width': width * factor, 'height': height * factor}
-        # The frame is worked out, and refused out of range, from the region
-        # as asked; the region saved is capped at what the scope delivers, so
-        # a binning change worked out from it never asks for a frame the
-        # sensor does not have. With no maximum known nothing is capped, as
-        # nothing is refused (_refuse_frame_out_of_range).
-        target = binning.native_to_displayed(asked, factor, self.pixel_alignment())
-        maximum = self._max_frame_unbinned()
-        if maximum is None:
-            native = asked
-        else:
-            native = binning.displayed_to_native(
-                {'width': width, 'height': height}, factor, maximum
+        limits = self._scope.capabilities.camera_limits
+        minimum = limits.frame_min if limits else None
+        maximum = limits.frame_max if limits else None
+        held = {
+            axis: _held_to_range(
+                axis,
+                requested,
+                getattr(minimum, axis) if minimum else None,
+                getattr(maximum, axis) // factor if maximum else None,
             )
-        return self._apply_frame_impl(native, target)
+            for axis, requested in (('width', width), ('height', height))
+        }
+        # The region saved is the held request, unbinned, so a binning change
+        # worked out from it never asks for a frame the sensor does not have.
+        native = {axis: int(side) * factor for axis, side in held.items()}
+        return self._apply_frame_impl(native, self._target_frame(native, factor)), held
 
     @api(reads=True)
     def frame_at_binning(self, size: int) -> dict:
@@ -2845,8 +2815,8 @@ class CameraAPI:
         follows from the region alone. It is raised to the camera's
         minimum: a Pylon camera floors only to its maximum and refuses a
         smaller request outright, and no one asked for this frame -- a
-        binning change derives it, so there is no request to refuse. A frame
-        a person asks for is refused out of range instead (``set_frame_size``).
+        binning change derives it, so there is no request to tell. A frame
+        a person asks for is held to the limits first (``set_frame_size``).
         """
         target = binning.native_to_displayed(native, factor, self.pixel_alignment())
         limits = self._scope.capabilities.camera_limits
@@ -2857,38 +2827,6 @@ class CameraAPI:
                 'height': max(target['height'], minimum.height),
             }
         return target
-
-    def _refuse_frame_out_of_range(self, target: dict) -> None:
-        """Refuse a displayed frame outside the camera's range at the binning it holds.
-
-        Raises:
-            HardwareCommandRefusedError: ``'not_connected'``, naming the
-                camera, with none connected; ``'scope_disconnected'`` after
-                the scope's shutdown.
-            CameraSettingOutOfRangeError: A width or height below the
-                camera's minimum frame, or above the scope's maximum at the
-                current binning.
-            CameraSettingRejected: ``'camera_read_failed'``, the binning is
-                not held and its read failed; nothing was sent.
-        """
-        # The range is the connected camera's: with none, or the scope
-        # disconnected, that is the answer, not a range it no longer has.
-        self.refuse_camera_not_connected('set_frame_size')
-        limits = self._scope.capabilities.camera_limits
-        minimum = limits.frame_min if limits else None
-        maximum = limits.frame_max if limits else None
-        factor = self._read_a_write_needs(
-            'set_frame_size', 'frame_size', target, lambda: self._held_or_read('binning')
-        )
-        for axis in ('width', 'height'):
-            self._refuse_out_of_range(
-                f'frame_{axis}',
-                target[axis],
-                getattr(minimum, axis) if minimum else None,
-                getattr(maximum, axis) // factor if maximum else None,
-                noun=f'frame {axis}',
-                unit='px',
-            )
 
     def _apply_frame_impl(self, native: dict, target: dict) -> FrameSize | None:
         """On the camera lane: apply the displayed ``target``, then save it and the
@@ -2901,7 +2839,6 @@ class CameraAPI:
         if target == self._held('frame_size'):
             delivered = target
         else:
-            self._refuse_frame_out_of_range(target)
             delivered = self._set_frame_size_impl(target['width'], target['height'])
             if delivered is None:
                 return None

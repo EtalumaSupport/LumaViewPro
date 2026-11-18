@@ -1,32 +1,35 @@
 """Probe 8 -- where a typed frame size of 13414 actually goes.
 
-The API refuses a frame the camera cannot take
-(ImagingAPI.set_frame_size raises CameraSettingOutOfRangeError) rather than
-clamping it and reporting the clamp only in its return value.
+The API sets a frame side past the camera's limits at the limit
+(CameraAPI.set_frame_size), saves it, answers the frame delivered, and
+reports the clamp in one ValueClampedNotice, not in its return value alone.
 """
 
 import sys
 
 import harness as _common
 
-from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
+from _lumascope.modules.exceptions import ValueClampedNotice
+from _lumascope.modules.notification_center import Severity, notifications
 
 s, live = _common.make_session()
 try:
     im = s.scope.imaging
     im_camera = s.scope.camera
-    before = im_camera.frame_size.to_dict()
-    print('largest frame     :', s.scope.capabilities.camera_limits.frame_max)
-    try:
-        delivered = im_camera.set_frame_size(13414, 13414)
-        _common.ok('13414 is REFUSED by the API', False, f'delivered {delivered}')
-    except CameraSettingOutOfRangeError as e:
-        _common.ok('13414 is REFUSED by the API', True, str(e))
+    largest = s.scope.capabilities.camera_limits.frame_max
+    print('largest frame     :', largest)
+    told = []
+    notifications.add_listener(told.append, min_severity=Severity.DEBUG)
+    delivered = im_camera.set_frame_size(13414, 13414)
     _common.ok(
-        'a refused frame leaves the frame as it was',
-        im_camera.frame_size.to_dict() == before,
-        f'{before} -> {im_camera.frame_size.to_dict()}',
+        '13414 is set at the largest frame',
+        delivered == im_camera.frame_size
+        and delivered.width <= largest.width
+        and delivered.height <= largest.height,
+        f'delivered {delivered} against {largest}',
     )
+    clamps = [post for post in told if getattr(post, 'reason', None) == ValueClampedNotice.reason]
+    _common.ok('the clamp is told once', len(clamps) == 1, f'{len(clamps)} clamp notices')
 except Exception:
     import traceback
 

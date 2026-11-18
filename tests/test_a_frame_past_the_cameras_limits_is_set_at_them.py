@@ -1,22 +1,22 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""A frame outside what the camera can deliver is refused, never capped.
+"""A frame side past what the camera can deliver is set at the limit and told.
 
-The frame writer capped a request at the sensor and raised one below the
-camera's minimum up to it, so a caller asking for 5000 px got the sensor's
-width with nothing said, and one asking for 10 px got the minimum. The frame
-is now checked where the other camera setting bounds are -- the public
-``CameraAPI.set_frame_size`` -- and a width or height outside
-[the camera's minimum, the sensor at the current binning] is refused with
-the range, before anything reaches the camera or the settings. A size inside
-the range is delivered exactly: the camera acquires the next window up on its
-grid and crops back.
+The frame writer refused a width or height outside [the camera's minimum,
+the scope's maximum at the binning held] with ``CameraSettingOutOfRangeError``,
+while a gain, an exposure, an LED current and a sum past their limits were set
+at them and told: one kind of fact met two rules by the setting it was. Now
+``CameraAPI.set_frame_size`` holds each side to those limits through the one
+camera routine (``_held_to_range``), frames and saves the held size, and
+reports one ``ValueClampedNotice``; a side of 0 or below is still refused,
+with nothing written or saved. A size inside the range is delivered exactly:
+the camera acquires the next window up on its grid and crops back.
 """
 
 import copy
 
 import pytest
 
-from _lumascope.modules.exceptions import CameraSettingOutOfRangeError
+from _lumascope.modules.exceptions import ArgumentRefusedError, ValueClampedNotice
 from _lumascope.modules.scope_capabilities import FrameSize
 from tests.scope_fakes import home_sim_scope, set_camera_limits
 
@@ -47,59 +47,86 @@ def _camera_writes(monkeypatch, camera):
     return writes
 
 
+def _clamp_notices(centre_posts):
+    return [post.message for post in centre_posts if post.reason == ValueClampedNotice.reason]
+
+
+# A minimum above the camera's 4 px grid, as a Pylon camera declares: the
+# sim's minimum is one grid step, which the grid snap alone meets.
+_MINIMUM = FrameSize(width=48, height=64)
+
+
 class TestTheFrameWriter:
     @pytest.mark.parametrize(
-        ('width', 'height', 'setting'),
-        [(5000, 800, 'frame_width'), (1000, 5000, 'frame_height'), (1000, 20, 'frame_height')],
+        ('asked', 'held', 'clamped'),
+        [
+            ((5000, 800), (3840, 800), [('frame_width', 5000.0, 3840)]),
+            ((1000, 5000), (1000, 2160), [('frame_height', 5000.0, 2160)]),
+            ((1000, 20), (1000, 64), [('frame_height', 20.0, 64)]),
+        ],
         ids=['over the sensor width', 'over the sensor height', 'under the minimum height'],
     )
-    def test_it_is_refused_with_the_range_and_nothing_moves(
-        self, session, monkeypatch, width, height, setting
+    def test_a_side_past_a_limit_is_set_at_it_saved_and_told(
+        self, session, monkeypatch, centre_posts, asked, held, clamped
     ):
         camera = session.scope.camera
-        # A minimum above the camera's 4 px grid, as a Pylon camera declares:
-        # the sim's minimum is one grid step, which the grid snap alone meets.
-        set_camera_limits(monkeypatch, session.scope, frame_min=FrameSize(width=48, height=64))
+        set_camera_limits(monkeypatch, session.scope, frame_min=_MINIMUM)
+        writes = _camera_writes(monkeypatch, camera)
+
+        delivered = camera.set_frame_size(*asked)
+
+        assert delivered == FrameSize(*held) == camera.frame_size
+        assert writes == [held]
+        frame = session.settings['frame']
+        assert (frame['width'], frame['height']) == held
+        assert (frame['native_width'], frame['native_height']) == held
+        assert _clamp_notices(centre_posts) == [
+            str(ValueClampedNotice([('camera', *row) for row in clamped]))
+        ]
+
+    @pytest.mark.parametrize('width', [0, -2], ids=['zero', 'negative'])
+    def test_a_side_with_no_size_is_refused_and_nothing_moves(
+        self, session, monkeypatch, centre_posts, width
+    ):
+        camera = session.scope.camera
         before = copy.deepcopy(session.settings['frame'])
         delivered_before = camera.frame_size.to_dict()
         writes = _camera_writes(monkeypatch, camera)
 
-        with pytest.raises(CameraSettingOutOfRangeError) as refused:
-            session.scope.camera.set_frame_size(width, height)
+        with pytest.raises(ArgumentRefusedError) as refused:
+            camera.set_frame_size(width, 800)
 
-        assert refused.value.setting == setting
-        minimum, maximum = refused.value.limits
-        assert minimum is not None and maximum is not None
-        assert str(maximum) in str(refused.value) or (f'{maximum:g}' in str(refused.value)), (
-            'the refusal states the range'
-        )
+        assert (refused.value.reason, refused.value.argument) == ('wrong_kind', 'width')
         assert writes == []
         assert session.settings['frame'] == before
         assert camera.frame_size.to_dict() == delivered_before
+        assert _clamp_notices(centre_posts) == []
 
-    def test_the_ceiling_follows_the_binning(self, session):
+    def test_the_ceiling_follows_the_binning(self, session, centre_posts):
         session.scope.camera.set_binning(2)
         width = session.scope.capabilities.camera_limits.frame_max.width
-        with pytest.raises(CameraSettingOutOfRangeError) as refused:
-            session.scope.camera.set_frame_size(width, 400)
-        assert refused.value.limits[1] == width // 2
+        delivered = session.scope.camera.set_frame_size(width, 400)
+        assert delivered == FrameSize(width // 2, 400)
+        assert _clamp_notices(centre_posts) == [
+            str(ValueClampedNotice([('camera', 'frame_width', float(width), width // 2)]))
+        ]
 
-    def test_an_in_range_size_is_delivered_exactly(self, session):
+    def test_an_in_range_size_is_delivered_exactly_and_told_nothing(self, session, centre_posts):
         delivered = session.scope.camera.set_frame_size(1000, 802)
         assert delivered == session.scope.camera.frame_size
         assert delivered.to_dict() == {'width': 1000, 'height': 802}
+        assert _clamp_notices(centre_posts) == []
 
-    def test_an_unknown_maximum_leaves_the_ceiling_unchecked(self, session, monkeypatch):
+    def test_an_unknown_maximum_leaves_the_ceiling_unheld(self, session, monkeypatch, centre_posts):
         camera = session.scope.camera
         set_camera_limits(monkeypatch, session.scope, frame_max=None)
         writes = _camera_writes(monkeypatch, camera)
-        try:
-            session.scope.camera.set_frame_size(5000, 800)
-        except CameraSettingOutOfRangeError:
-            pytest.fail('with no known maximum there is no ceiling to refuse against')
-        except Exception:
-            pass  # what the camera itself makes of it is the driver's answer
-        assert writes, 'the request reaches the camera when no ceiling is declared'
+
+        camera.set_frame_size(5000, 800)
+
+        # What the camera itself makes of 5000 is the driver's answer.
+        assert writes == [(5000, 800)]
+        assert _clamp_notices(centre_posts) == []
 
 
 class TestBringUpStoresTheDeliveredFrame:

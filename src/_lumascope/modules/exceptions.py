@@ -5665,59 +5665,6 @@ class CameraNodeNotReadableError(Refusal, Exception):
         self.node_map = node_map
 
 
-@api_fields('limits')
-class CameraSettingOutOfRangeError(Refusal, ValueError):
-    """A frame side outside the range this camera declares was asked for.
-
-    Declined before anything reaches the camera, the same on every camera: a
-    body that would refuse the value and a body that would silently clamp it
-    both answer this way, so a caller that does not read the return cannot
-    record a value the camera never took. Nothing broke, and the caller can
-    ask again inside the range, so a refusal rather than a fault. A
-    ``ValueError`` too, for a caller that treats it as the bad argument it is.
-
-    Attributes:
-        reason: Machine-readable refusal code, ``'<setting>_out_of_range'``.
-            ``'frame_width_out_of_range'`` -- the frame width is outside the
-            widths the camera declares. ``'frame_height_out_of_range'`` --
-            the frame height is outside the heights the camera declares.
-        setting: Machine-readable setting name ('frame_width',
-            'frame_height').
-        requested: The value asked for.
-        limits: The camera's declared floor and ceiling, in the setting's
-            unit; either is None when the camera declares none, and is not
-            checked.
-
-    ``limits`` is published, so a client corrects the value without reading
-    the words.
-    """
-
-    limits: tuple[float | None, float | None]
-
-    # The range is the attached camera's, fixed for its life, so a value
-    # outside it is refused every time it is sent.
-    title = 'Camera Setting Out of Range'
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
-        ('frame_width_out_of_range', 'frame_height_out_of_range'),
-        RefusalCause.REQUEST,
-    )
-
-    def __init__(
-        self,
-        setting: str,
-        requested: float,
-        minimum: float | None,
-        maximum: float | None,
-        *,
-        message: str,
-    ):
-        super().__init__(message)
-        self.reason = f'{setting}_out_of_range'
-        self.setting = setting
-        self.requested = requested
-        self.limits = (minimum, maximum)
-
-
 class FrameDepthError(Fault, Exception):
     """A frame carries a payload value above its declared significant-bits depth.
 

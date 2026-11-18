@@ -30,7 +30,6 @@ import pytest
 
 from _lumascope.lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
 from _lumascope.modules.exceptions import (
-    CameraSettingOutOfRangeError,
     CellCountScaleDroppedNotice,
     CompositeFailedError,
     FrameHandlerRemovedError,
@@ -325,9 +324,6 @@ _BUILT_WITH = {
         'n', reason, budget_ms=1, drop_k=1
     ),
     'CompositeFailedError': lambda reason: CompositeFailedError('m', reason),
-    'CameraSettingOutOfRangeError': lambda reason: CameraSettingOutOfRangeError(
-        reason, 1.0, 0.0, 2.0, message='m'
-    ),
 }
 
 
