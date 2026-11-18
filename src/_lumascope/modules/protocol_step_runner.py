@@ -27,6 +27,7 @@ from _lumascope.modules.exceptions import (
     AutofocusOutOfTravelError,
     AxisStateUnknownError,
     CameraSettingRejected,
+    MoveStoppedError,
 )
 from _lumascope.modules.lumascope_api.illumination import (
     FIRE_AND_FORGET_TRANSITIONS,
@@ -138,6 +139,10 @@ class ProtocolStepRunner:
             # fault, so it stays at debug.
             p._af_result_consumed = True
             _af_exc = p._af_future.exception()
+            # A sweep a STOP cut is not a fault to capture past at the
+            # fallback Z: the run ends on it as a person's Stop ends it.
+            if isinstance(_af_exc, MoveStoppedError):
+                raise _af_exc
             _af_step = p._protocol.step_row(step_index=p._curr_step)
             if isinstance(_af_exc, AutofocusAborted):
                 logger.debug(f'[PROTOCOL] Autofocus aborted at step {p._curr_step + 1}')
@@ -249,6 +254,7 @@ class ProtocolStepRunner:
                 # The run whose only job is this autofocus ends on its
                 # failure, so the autofocus tells that failure as the ending.
                 ends_its_run=p._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+                run_ending=p._ending,
             )
             return
 
@@ -357,6 +363,9 @@ class ProtocolStepRunner:
         lost_axes = p._scope.motion.axes_without_position()
         if lost_axes:
             raise AxisStateUnknownError(lost_axes)
+        # After the lost-position check: a stall's own STOP ends every other
+        # moving axis 'stopped', and the run ends on the lost position.
+        self._raise_a_stopped_move()
 
         # A found focus is written into the run's own copy of the protocol,
         # whatever the run, so the step's next interval starts its sweep from
@@ -526,13 +535,34 @@ class ProtocolStepRunner:
         capture wherever the last move left the stage; a refusal of either
         axis moves neither. X, Y and Z are started one after another and
         travel together; the run's tick waits for them by polling
-        ``is_any_axis_moving``.
+        ``is_any_axis_moving`` and judges them before the step commits
+        (``_raise_a_stopped_move``).
         """
-        self._p._scope.motion.start_move_xy(x_um, y_um)
+        move = self._p._scope.motion.start_move_xy(x_um, y_um)
+        self._p._step_moves.append(move)
 
     def _move_z_through_io(self, z_um: float) -> None:
         """Start Z moving on the io lane, as ``_move_xy_through_io`` starts X and Y."""
-        self._p._scope.motion.start_move_z(z_um)
+        move = self._p._scope.motion.start_move_z(z_um)
+        self._p._step_moves.append(move)
+
+    def _raise_a_stopped_move(self) -> None:
+        """Raise the error of a move made since the last step committed that a STOP cut.
+
+        A move a STOP cut stands still with its position known, so the motion
+        gate cannot tell it from one that arrived, and the step would capture
+        where the stage stopped. Any STOP: a client's stop of its own move, or
+        a press whose tell found no run yet, which the run never hears. Each
+        move is waited, not polled: its operation settles after its axis
+        reads idle and its listeners have run. A move superseded or failed
+        otherwise is left to the checks that judge those.
+        """
+        p = self._p
+        moves, p._step_moves = p._step_moves, []
+        for move in moves:
+            failure = move.exception()
+            if isinstance(failure, MoveStoppedError) and failure.reason == 'stopped':
+                raise failure
 
     def _move_turret_through_io(self, slot: int) -> None:
         """Turn the turret to ``slot`` on the io lane and wait for it.

@@ -30,7 +30,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def _step_runner():
     motion = MagicMock()
-    parent = SimpleNamespace(_io_executor=MagicMock(), _scope=SimpleNamespace(motion=motion))
+    parent = SimpleNamespace(
+        _io_executor=MagicMock(), _scope=SimpleNamespace(motion=motion), _step_moves=[]
+    )
     return ProtocolStepRunner(parent), parent, motion
 
 

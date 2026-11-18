@@ -28,6 +28,7 @@ def _runner_capturing_moves(captured: list):
         _scope=SimpleNamespace(
             motion=SimpleNamespace(start_move_xy=start_move_xy, start_move_z=start_move_z)
         ),
+        _step_moves=[],
     )
     return ProtocolStepRunner(parent)
 

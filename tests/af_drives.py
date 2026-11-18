@@ -14,6 +14,8 @@ import contextlib
 import threading
 import time
 
+from _lumascope.modules.run_outcome import EndingLatch
+
 
 def park_z(scope, z: float) -> None:
     """Move a simulated scope's Z to ``z`` and wait for it to arrive.
@@ -95,6 +97,8 @@ def sweep(runner, scope, **overrides):
         'abort_event': threading.Event(),
         'led_color': 'BF',
         'led_illumination': 5.0,
+        # The run's ending, unrecorded: the sweep is in a live run.
+        'run_ending': EndingLatch(),
     }
     kwargs.update(overrides)
     if 'led_lease' in kwargs:

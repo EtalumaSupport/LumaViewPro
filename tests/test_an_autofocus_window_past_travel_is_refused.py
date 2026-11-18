@@ -24,6 +24,7 @@ from _lumascope.modules.autofocus_runner import AutofocusRunner
 from _lumascope.modules.autofocus_thread import AutofocusThread
 from _lumascope.modules.exceptions import AutofocusFailedError, CaptureError, RefusalCause
 from _lumascope.modules.notification_center import OutcomeKind, outcome_of
+from _lumascope.modules.run_outcome import EndingLatch
 from tests.af_drives import af_runner_on, park_z, sweep, z_asked
 from tests.protocol_drives import held_run_claim, run_identity
 from tests.scope_fakes import home_sim_scope
@@ -59,6 +60,7 @@ def _autofocus_from(scope, z, monkeypatch, peak):
             led_illumination=5.0,
             camera_gain=1.0,
             camera_exposure=50.0,
+            run_ending=EndingLatch(),
             led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),
         ).result(timeout=15.0)
     finally:

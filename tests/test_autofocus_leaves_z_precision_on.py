@@ -16,6 +16,7 @@ import pytest
 
 from _lumascope.modules.autofocus_runner import AutofocusRunner
 from _lumascope.modules.exceptions import AutofocusAborted
+from _lumascope.modules.run_outcome import EndingLatch
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
 from tests.scope_fakes import bind_settings_like_a_session, build_scope, home_sim_scope
@@ -55,6 +56,7 @@ def test_abort_path_restores_precision_on():
                 abort_event=abort_event,
                 led_color=None,
                 led_illumination=0.0,
+                run_ending=EndingLatch(),
                 led_lease=run_lease,
             )
         calls = [tuple(c.args) for c in mock_set.call_args_list]

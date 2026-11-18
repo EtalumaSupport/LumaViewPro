@@ -21,6 +21,7 @@ from _lumascope.modules.protocol_state_machine import ProtocolState
 from _lumascope.modules.exceptions import (
     INTERLOCK_REASONS,
     HardwareCommandRefusedError,
+    MoveStoppedError,
     describe_unknown_positions,
 )
 from _lumascope.modules.run_events import deliver
@@ -437,6 +438,18 @@ class ProtocolRunLoop:
                     )
                     p.end_run_fatally(ending)
                     return ending
+
+                # A move of the run that a STOP cut is not transient either:
+                # the STOP was someone's, heard by the run or not (a client's
+                # stop of its own move, a press whose tell found no run yet),
+                # and the run ends as a person's Stop ends it. Decided by the
+                # error's type and after the lost-position check: a stall's
+                # own STOP ends every other moving axis 'stopped', and that
+                # run ended on the lost position.
+                if isinstance(ex, MoveStoppedError) and ex.reason == 'stopped':
+                    logger.info(f'[Protocol] A move of the run was stopped: {ex}')
+                    p._end_the_live_run_for_stop()
+                    return p._ending.get()
 
                 # Transient: log warning, do NOT increment scan_count,
                 # do NOT break. The outer while loop's next iteration

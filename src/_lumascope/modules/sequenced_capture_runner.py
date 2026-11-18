@@ -614,6 +614,10 @@ class SequencedCaptureRunner:
         self._target_x_pos = -1
         self._target_y_pos = -1
         self._target_z_pos = -1
+        # The moves the run made since its last step committed, judged at the
+        # next commit (ProtocolStepRunner._raise_a_stopped_move). Per run: the
+        # end-of-run return adds to it after the last commit.
+        self._step_moves: list[Operation[None]] = []
         # _aborted is owned by protocol_thread; cleared there when a new
         # run is enqueued via run_protocol(). Do not clear here -- doing
         # so would race a concurrent abort() request that fired between

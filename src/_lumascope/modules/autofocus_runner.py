@@ -34,6 +34,7 @@ from _lumascope.modules.exceptions import (
     CameraSettingRejected,
     CaptureFailedError,
     FileWriterReplacedError,
+    MoveStoppedError,
     SessionClosingError,
 )
 from _lumascope.modules.lumascope_api.illumination import (
@@ -46,7 +47,9 @@ from _lumascope.modules.exceptions import RunWriteRefusedError
 
 if TYPE_CHECKING:
     from _lumascope.modules.lumascope_api.illumination import LedLease
+    from _lumascope.modules.operation import Operation
     from _lumascope.modules.protocol_image_writer import RunWriteBatch
+    from _lumascope.modules.run_outcome import EndingLatch
 
 _af_log = logging.getLogger('LVP.autofocus')
 
@@ -230,6 +233,10 @@ class AutofocusRunner:
         # Whether the sweep ended on a person's stop, read where it is
         # aborted: the restore then leaves Z where the stop left it.
         self._ended_by_a_stop = False
+        # Set by run(): the sweep's last move, and its run's ending, which
+        # together say whether a STOP that cut the move was the run's own.
+        self._last_move: Operation[None] | None = None
+        self._run_ending: EndingLatch | None = None
 
         self._af_in_progress = threading.Event()
 
@@ -329,6 +336,7 @@ class AutofocusRunner:
         led_lease: 'LedLease',
         write_batch: 'RunWriteBatch | None' = None,
         ends_its_run: bool = False,
+        run_ending: 'EndingLatch',
     ) -> float | None:
         """Run autofocus to completion synchronously on the caller's thread.
 
@@ -363,6 +371,10 @@ class AutofocusRunner:
                 Autofocus button's run, so its failure is how that run ended
                 and is reported as the run's ending. A scan step's sweep
                 failing is a step's failure; the run goes on.
+            run_ending: the ending of the run the sweep acts in. A STOP
+                that cuts a move of the sweep before it is recorded ends the
+                sweep as a person's stop does; one after it is the run's own
+                halt.
 
         Returns:
             best_focus_position (float): the focus the sweep chose.
@@ -373,6 +385,9 @@ class AutofocusRunner:
                 after the stage moved ('travel_exhausted'), or an unexpected
                 error ('unexpected_error', its cause chained).
             AutofocusStopped: abort_event was set during the run.
+            MoveStoppedError: a STOP cut a move of the sweep before its
+                run's ending was recorded; not reported here, since the run
+                ends on it and tells it.
             AutofocusRunEnded: the run it belongs to had ended before it
                 took its LEDs.
             AutofocusLedsHeldError: another lease on top of the run's holds
@@ -404,6 +419,7 @@ class AutofocusRunner:
         self._reset_state()
         self._abort_event = abort_event
         self._stay_put = stay_put
+        self._run_ending = run_ending
         self._led_color = led_color
         self._led_illumination = led_illumination
         self._camera_gain = camera_gain
@@ -553,6 +569,10 @@ class AutofocusRunner:
                 self._ended_by_a_stop = self._stay_put is not None and self._stay_put.is_set()
                 raise AutofocusStopped()
 
+            # The final move to the focus is started, not waited, in the
+            # sweep's last iteration; it is judged here, where the sweep
+            # returns the focus the step captures at.
+            self._raise_if_cut_by_a_stop()
             completed_successfully = True
             return self._best_focus_position
 
@@ -598,6 +618,10 @@ class AutofocusRunner:
             # fallback Z and the report is the record.
             if 'Z' in self._scope.motion.axes_without_position():
                 _af_log.info(f'[AF] {failed} -- on a lost Z, which was told, so not reported')
+            elif isinstance(failed, MoveStoppedError):
+                # A STOP cut the sweep's move: its run ends on it, as a
+                # person's Stop ends it, and tells it there, once.
+                _af_log.info(f'[AF] {failed} -- its run ends on it, so not reported here')
             elif _its_run_has_ended():
                 logger.warning(f'[AF] {failed} -- after its run ended, so not reported')
             else:
@@ -891,6 +915,8 @@ class AutofocusRunner:
             self._is_focusing_event.clear()
             return
 
+        self._raise_if_cut_by_a_stop()
+
         num_retries = 5
         for attempt in range(1, num_retries + 1):
             # accept_dark: AF consumes focus scores, not saved truth,
@@ -1133,8 +1159,33 @@ class AutofocusRunner:
 
     def _move_absolute_position(self, position):
         # Started, not waited: _iterate holds the next frame while the
-        # scope reports motion.
-        self._scope.motion.start_move_z(position)
+        # scope reports motion, then judges the move (_raise_if_cut_by_a_stop).
+        self._last_move = self._scope.motion.start_move_z(position)
+
+    def _raise_if_cut_by_a_stop(self) -> None:
+        """Raise the error of the sweep's last move when a STOP cut it and its run had not ended.
+
+        A move a STOP cut stands still with its position known, so the motion
+        gate cannot tell it from one that arrived: a cut final move framed
+        the step a few microns off the focus the sweep found. The STOP may
+        be one the run never heard (a client's stop of its own move, a press
+        whose tell found no run yet), so the sweep ends as a person's stop
+        ends it, Z left where the stop left it, and its run ends on the
+        raise. Once the run's ending is recorded, the STOP is the run's own
+        halt, and the abort that follows unwinds the sweep. Waited, not
+        polled: the move's operation settles after its axis reads idle.
+        """
+        move = self._last_move
+        if move is None:
+            return
+        failure = move.exception()
+        if (
+            isinstance(failure, MoveStoppedError)
+            and failure.reason == 'stopped'
+            and self._run_ending.get() is None
+        ):
+            self._ended_by_a_stop = True
+            raise failure
 
     def in_progress(self) -> bool:
         # Use _af_in_progress, not _is_focusing_event. _is_focusing_event
@@ -1282,6 +1333,7 @@ class AutofocusRunner:
     def _reset_state(self):
         self._objective = None
         self._ended_by_a_stop = False
+        self._last_move = None
         # Events are recreated each reset so a fresh AF run starts from
         # a known-clear state regardless of how the prior run exited.
         self._is_focusing_event = threading.Event()

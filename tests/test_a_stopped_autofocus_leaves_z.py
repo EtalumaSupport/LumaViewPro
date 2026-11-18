@@ -93,6 +93,44 @@ def test_an_autofocus_run_a_fault_ends_mid_sweep_puts_z_back(session, z_asked, c
 _SWEEP_WAIT_S = 30.0
 
 
+def test_the_runs_own_halt_of_a_sweep_move_is_not_a_stop_of_the_sweep(
+    session, z_asked, monkeypatch, centre_posts
+):
+    """A fault ends the run; its cleanup halts the sweep's move before it
+    aborts the sweep. The halt is the run's own, not a STOP the sweep ends
+    on: the sweep goes on until the abort, which puts Z back, and no "Move
+    Stopped" is told. Cleanup is held between the two until the sweep has
+    asked its next move."""
+    from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
+
+    run = start_an_autofocus_held_mid_sweep(session)
+    held_at = len(z_asked)
+    real_write_focus = SequencedCaptureRunner._write_focus
+    moved_on = threading.Event()
+
+    # A timing seam, not a stand-in: the step of cleanup between its halt and
+    # its abort of the sweep waits until the sweep asks its next Z move.
+    def write_focus_once_the_sweep_moved_on(self, *args, **kwargs):
+        moved_on.wait(_SWEEP_WAIT_S)
+        return real_write_focus(self, *args, **kwargs)
+
+    def watch(position, *args, _real=session.scope.motion.start_move_z, **kwargs):
+        move = _real(position, *args, **kwargs)
+        if threading.current_thread().name == 'autofocus_thread':
+            moved_on.set()
+        return move
+
+    monkeypatch.setattr(SequencedCaptureRunner, '_write_focus', write_focus_once_the_sweep_moved_on)
+    monkeypatch.setattr(session.scope.motion, 'start_move_z', watch)
+    fault_the_live_run(session, 'camera_failure', 'The camera failed.')
+    outcome = run.result(timeout=COMPLETION_TIMEOUT)
+
+    assert moved_on.is_set(), "the sweep ended on its run's own halt"
+    assert (outcome.status, outcome.reason) == ('failed', 'camera_failure')
+    assert ('move_z', 5000.0) in z_asked[held_at:], f'Z asked {z_asked}'
+    assert 'Move Stopped' not in [n.title for n in centre_posts if n.shown]
+
+
 def test_a_sweep_move_asked_after_a_stop_press_drives_nothing(session, monkeypatch):
     """The sweep's next Z move, asked after the press and before the sweep is aborted, is withheld."""
     motion = session.scope.motion

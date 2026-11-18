@@ -35,6 +35,7 @@ from tests.scope_fakes import (
 )
 from tests.protocol_drives import a_frame_sizing, lent_run_claim
 from tests.frame_records import frame_record, plate, unpositioned
+from _lumascope.modules.run_outcome import EndingLatch
 from _lumascope.modules.protocol_image_writer import RunWriteBatch
 from _lumascope.modules.activity_claim import ActivityClaim
 from _lumascope.modules.exceptions import (
@@ -883,6 +884,7 @@ class TestIssue602_AFExecutorLED:
                     abort_event=abort_event,
                     led_color='BF',
                     led_illumination=100.0,
+                    run_ending=EndingLatch(),
                     led_lease=run_lease,
                 )
             assert channel_reading(scope.illumination, 'BF').state is LedState.DARK, (

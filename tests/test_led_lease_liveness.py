@@ -20,6 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from _lumascope.modules.lumascope_api.illumination import LedState
+from _lumascope.modules.run_outcome import EndingLatch
 
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim
@@ -163,6 +164,7 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch, centre_posts):
             abort_event=threading.Event(),
             led_color=LED1,
             led_illumination=250.0,
+            run_ending=EndingLatch(),
             led_lease=ended_run,
         )
 
@@ -228,6 +230,7 @@ def test_af_under_a_live_run_whose_leds_another_holds_is_refused_and_says_so(sco
                 abort_event=threading.Event(),
                 led_color=LED1,
                 led_illumination=250.0,
+                run_ending=EndingLatch(),
                 led_lease=run,
             )
     finally:

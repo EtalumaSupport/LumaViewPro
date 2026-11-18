@@ -16,6 +16,7 @@ import pytest
 
 from _lumascope.modules.autofocus_thread import AutofocusThread
 from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.run_outcome import EndingLatch
 from tests.af_drives import park_z
 from tests.protocol_drives import held_run_claim, run_identity
 from tests.scope_fakes import home_sim_scope
@@ -37,6 +38,7 @@ def _autofocus(session) -> float:
             center_um=session.scope.motion.get_current_position('Z'),
             led_color='BF',
             led_illumination=5.0,
+            run_ending=EndingLatch(),
             led_lease=session.scope.illumination.acquire_led_lease(
                 'protocol', claim=held_run_claim()
             ),

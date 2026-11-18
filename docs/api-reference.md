@@ -18280,14 +18280,17 @@ the person expects. The run's outcome names the steps too.
 
 A notice; bases `Notice`, `Exception`.
 
-STOP was pressed while a run was live, so the run ended.
+STOP was pressed while a run was live, or a STOP cut a move of the run, so the run ended.
 
 The run's outcome carries it as status `'aborted'`, reason
 `'stage_stopped'`, in these words, and the person is told once when the
 run ends: the run's owner may not be the one who pressed STOP (a REST
-client, the GUI's button). The words say what was pressed, which is true
-whether or not the board took the STOP; a STOP it did not take is
-reported as that failure, where it was pressed.
+client, the GUI's button). A STOP the run never heard ends it the same
+way once it cuts a move the run made: a client's stop of an earlier move
+of its own, which halts every axis, or a press whose tell found no run
+yet. The words say what was pressed, which is true whether or not the
+board took the STOP; a STOP it did not take is reported as that failure,
+where it was pressed.
 
 | Reason | Cause | REST status |
 |---|---|---|

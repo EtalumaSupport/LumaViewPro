@@ -30,6 +30,7 @@ from tests.stock_channels import LED0, LED1, LED2
 
 
 from tests.protocol_drives import a_claim_its_scope_asks
+from _lumascope.modules.run_outcome import EndingLatch
 from _lumascope.modules.image_mode import ImageCaptureConfig
 from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.af_drives import park_z
@@ -592,6 +593,7 @@ class TestIntegrationAutofocus:
                 led_illumination=5.0,
                 camera_gain=1.0,
                 camera_exposure=2.0,
+                run_ending=EndingLatch(),
                 led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),
             )
             future.result(timeout=15.0)
@@ -948,6 +950,7 @@ class TestRestAPIPrep:
                     # were doing, so this read as a working sweep.
                     led_color='BF',
                     led_illumination=5.0,
+                    run_ending=EndingLatch(),
                     led_lease=session.scope.illumination.acquire_led_lease(
                         'protocol', claim=held_run_claim()
                     ),
@@ -984,6 +987,7 @@ class TestRestAPIPrep:
                     center_um=session.scope.motion.get_current_position('Z'),
                     led_color='BF',
                     led_illumination=100.0,
+                    run_ending=EndingLatch(),
                     led_lease=session.scope.illumination.acquire_led_lease(
                         'protocol', claim=held_run_claim()
                     ),
@@ -1040,6 +1044,7 @@ class TestAbortedAutofocusRestoresLeds:
                 led_illumination=20.0,
                 abort_event=abort,
                 keep_led_on=True,
+                run_ending=EndingLatch(),
                 led_lease=scope.illumination.acquire_led_lease('protocol', claim=held_run_claim()),
             )
 

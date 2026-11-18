@@ -85,7 +85,9 @@ fault, when the board failed, stalled or lost the axis, which leaves the axis
 unknown until homed again.
 
 **Stopping.** `stop_motion()` halts every axis at once, whoever started the
-move, and ends the live run (`'stage_stopped'`). No holder and no control
+move, and ends the live run (`'stage_stopped'`). Any STOP halts every axis, so
+a run whose move a STOP cut ends the same way whoever sent it, the `stop()` of
+an earlier move of your own included. No holder and no control
 session refuses a stop. It is refused on a scope with no motor controller
 (`'axis_absent'`, `'not_connected'`), and while a home drives on a board that
 cannot stop one (`'home_not_stoppable'`). A board that does not take the STOP
