@@ -534,12 +534,35 @@ def _held_to_range(
     return cap_stored_value(float(requested), minimum, maximum)[1]
 
 
-def _tell_clamped(*writes: tuple[str, float, float]) -> None:
+def _refuse_unless_restorable(snapshot: dict) -> None:
+    """Refuse a snapshot value its setter would refuse, before a restore writes anything.
+
+    The kind-and-sign half of ``_held_to_range`` over each gain, exposure,
+    black level and frame side the snapshot carries; the range half is met
+    at each write, against the range in force once the geometry is back.
+
+    Raises:
+        ArgumentRefusedError: ``'not_a_number'`` or ``'wrong_kind'``, naming
+            the setting, a frame side by its axis.
+    """
+    for setting in ('gain_db', 'exposure_ms', 'black_level'):
+        if snapshot.get(setting) is not None:
+            _held_to_range(setting, snapshot[setting], None, None)
+    frame = snapshot.get('frame_size')
+    if frame is not None:
+        for axis in ('width', 'height'):
+            _held_to_range(axis, frame[axis], None, None)
+
+
+def _tell_clamped(*writes: tuple[str, float, float], solicited: bool) -> None:
     """Report, as one notice, each value of a landed camera write that was held to the range.
 
     ``writes`` holds ``(setting, requested, sent)`` for each value the
     caller handed in; one sent as asked is not named, and with none held
-    nothing is reported. Solicited: it answers the call that asked.
+    nothing is reported. ``solicited`` is whether a person asked for the
+    write: a setter answers the call that asked; a restore puts back what a
+    run, an autofocus or a characterization saved, and its clamp is muted
+    with an unattended run as its refusals are.
     """
     clamped = [
         ('camera', setting, float(requested), sent)
@@ -547,7 +570,9 @@ def _tell_clamped(*writes: tuple[str, float, float]) -> None:
         if sent != float(requested)
     ]
     if clamped:
-        notifications.report_outcome(ValueClampedNotice(clamped), solicited=True, category='Camera')
+        notifications.report_outcome(
+            ValueClampedNotice(clamped), solicited=solicited, category='Camera'
+        )
 
 
 # What a refusal says the camera holds, by setting, once it was read after the
@@ -1584,7 +1609,7 @@ class CameraAPI:
         applied = self._landed_value(ok, 'gain_db')
         self._commit_camera_writes({'gain_db': applied})
         if asked is not None:
-            _tell_clamped(('gain_db', asked, gain_db))
+            _tell_clamped(('gain_db', asked, gain_db), solicited=True)
         if applied is not None and (prior is None or abs(applied - prior) >= 0.001):
             _api_log.log(VERBOSE, f'set_gain_db {applied}dB')
             self._fire_gain_listeners(applied)
@@ -1654,7 +1679,7 @@ class CameraAPI:
         applied = self._landed_value(ok, 'exposure_ms', scale=0.001)
         self._commit_camera_writes({'exposure_ms': applied})
         if asked is not None:
-            _tell_clamped(('exposure_ms', asked, exposure_ms))
+            _tell_clamped(('exposure_ms', asked, exposure_ms), solicited=True)
         if applied is not None and (prior is None or abs(applied - prior) >= 0.001):
             _api_log.log(VERBOSE, f'set_exposure {applied}ms')
             self._fire_exposure_listeners(applied)
@@ -2772,7 +2797,9 @@ class CameraAPI:
         )
         if delivered is not None:
             _tell_clamped(
-                ('frame_width', width, held['width']), ('frame_height', height, held['height'])
+                ('frame_width', width, held['width']),
+                ('frame_height', height, held['height']),
+                solicited=True,
             )
         return delivered
 
@@ -2787,8 +2814,29 @@ class CameraAPI:
         # The range is the connected camera's: with none, or the scope
         # disconnected, that is the answer, not a range it no longer has.
         self.refuse_camera_not_connected('set_frame_size')
+        factor, held = self._frame_held_to_limits('set_frame_size', width, height)
+        # The region saved is the held request, unbinned, so a binning change
+        # worked out from it never asks for a frame the sensor does not have.
+        native = {axis: int(side) * factor for axis, side in held.items()}
+        return self._apply_frame_impl(native, self._target_frame(native, factor)), held
+
+    def _frame_held_to_limits(
+        self, member: str, width: float, height: float
+    ) -> tuple[int, dict[str, float]]:
+        """The binning held, and ``width`` x ``height`` each held to the camera's limits at it.
+
+        On the camera lane. The one rule a frame side a caller hands in
+        meets (``_held_to_range``), for ``set_frame_size`` and for a
+        restore's saved frame alike.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'`` or ``'wrong_kind'``, a
+                side that is no size (``_held_to_range``).
+            CameraSettingRejected: ``'camera_read_failed'``, the binning
+                could not be read.
+        """
         factor = self._read_a_write_needs(
-            'set_frame_size',
+            member,
             'frame_size',
             {'width': width, 'height': height},
             lambda: self._held_or_read('binning'),
@@ -2805,10 +2853,7 @@ class CameraAPI:
             )
             for axis, requested in (('width', width), ('height', height))
         }
-        # The region saved is the held request, unbinned, so a binning change
-        # worked out from it never asks for a frame the sensor does not have.
-        native = {axis: int(side) * factor for axis, side in held.items()}
-        return self._apply_frame_impl(native, self._target_frame(native, factor)), held
+        return factor, held
 
     @api(reads=True)
     def frame_at_binning(self, size: int) -> dict:
@@ -3442,15 +3487,17 @@ class CameraAPI:
             self._set_black_level_impl,
             'set_black_level',
             args=(level,),
+            kwargs={'solicited': True},
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    def _set_black_level_impl(self, value: float) -> float | None:
+    def _set_black_level_impl(self, value: float, *, solicited: bool) -> float | None:
         """Set the black level; the refusals of ``set_black_level`` are raised
         here, and a level past the range is held to it and told here, on the
         camera lane, because the range is a live camera read, as the support
         probe is when bring-up's failed. A write that did not apply raises
-        ``CameraSettingRejected`` (``_camera_write``).
+        ``CameraSettingRejected`` (``_camera_write``). ``solicited`` is
+        whether a person asked for it, as ``_tell_clamped`` says.
         """
         driver = self._driver
         if not driver or not driver.active:
@@ -3485,7 +3532,7 @@ class CameraAPI:
         )
         held = self._landed_value(result, 'black_level')
         self._commit_camera_writes({'black_level': held})
-        _tell_clamped(('black_level', value, sent))
+        _tell_clamped(('black_level', value, sent), solicited=solicited)
         return held
 
     def _read_fresh(self, key: str) -> object:
@@ -4341,7 +4388,11 @@ class CameraAPI:
         it differs from the camera's value now, since a write of an unchanged
         one restarts grabbing for nothing; then the
         gain, the exposure and the auto-gain arm. A setting absent from the
-        snapshot, or recorded as None, is skipped and named in the log. The
+        snapshot, or recorded as None, is skipped and named in the log. A
+        gain, exposure, black level or frame size the snapshot carries meets
+        its setter's rule: one the setter refuses is refused before anything
+        is written, and one past the camera's range is put back at the
+        range's end and told (``ValueClampedNotice``, as unasked-for). The
         auto-gain loop goes back to the snapshot's state: re-armed when an
         arm was recorded, turned off first when none was and one stands now,
         untouched when the snapshot does not say. The restore is one command
@@ -4357,6 +4408,10 @@ class CameraAPI:
             HardwareCommandRefusedError: ``'not_connected'``, naming the
                 camera: none is connected and the snapshot holds a setting
                 to restore, or the restore found it removed.
+            ArgumentRefusedError: ``'not_a_number'`` or ``'wrong_kind'``, a
+                gain, exposure, black level or frame side in the snapshot
+                that its setter refuses, naming it (a frame side by its
+                axis). Nothing was written.
             CameraSettingRejected: the camera refused binning, frame size or
                 format, or its compare read failed (``'camera_read_failed'``);
                 the restore stops there, with what the camera holds saved.
@@ -4382,7 +4437,9 @@ class CameraAPI:
         and named in the log: either the caller deliberately trimmed them
         (autofocus keeps the values its run explicitly targeted) or they were
         unknown at save time -- save_camera_state already WARNed about the
-        latter.
+        latter. A present one meets its setter's rule: refused before any
+        write by its kind and sign (``_refuse_unless_restorable``), and held
+        to the range at its write.
         The auto-gain loop goes back to the snapshot's state: re-armed after
         the setters when an arm was recorded; disarmed before them when none
         was and one stands now (a run aborted between a step's arm and its
@@ -4413,24 +4470,13 @@ class CameraAPI:
             ) or (snapshot.get('auto_gain_arm') is not None):
                 raise _camera_not_connected('restore_camera_state')
             return
-        # An ABSENT field is a legitimate trim (skip quietly); a PRESENT
-        # field that fails validation is a caller bug -- the sanctioned
-        # producer only ever emits valid fields -- so that case warns.
+        # An absent field is a legitimate trim, skipped; a present one its
+        # setter would refuse is refused here, before anything is written.
+        _refuse_unless_restorable(snapshot)
         gain_db = snapshot.get('gain_db')
-        gain_known = common_utils.is_valid_gain_db(gain_db)
-        if not gain_known and snapshot.get('gain_db') is not None:
-            logger.warning(
-                f'[SCOPE API ] restore_camera_state tag={tag}: snapshot '
-                f'carries a non-physical gain ({gain_db!r}); gain left as-is'
-            )
+        gain_known = gain_db is not None
         exposure_ms = snapshot.get('exposure_ms')
-        exposure_known = common_utils.is_valid_exposure_ms(exposure_ms)
-        if not exposure_known and snapshot.get('exposure_ms') is not None:
-            logger.warning(
-                f'[SCOPE API ] restore_camera_state tag={tag}: snapshot '
-                f'carries a non-physical exposure ({exposure_ms!r}); '
-                f'exposure left as-is'
-            )
+        exposure_known = exposure_ms is not None
         # The log of record goes BEFORE the hardware writes: a setter may
         # raise a typed exception mid-restore, and the post-mortem then
         # needs the line stating what this restore was about to do (a
@@ -4459,13 +4505,30 @@ class CameraAPI:
         # it holds none.
         self._forget_held_channel()
         self._restore_camera_geometry_and_save(snapshot)
+
+        def _within_range(setting: str, value: float) -> None:
+            # Held by the rule a setter's value meets (_applied_write), the
+            # range read now the geometry is back; a clamp is told once the
+            # write has landed, as unasked-for.
+            if setting == 'gain_db':
+                sent = self._applied_write(
+                    'restore_camera_state', value, None, None
+                ).gain.applied_db
+                self._set_gain_db_impl(sent)
+            else:
+                sent = self._applied_write(
+                    'restore_camera_state', None, value, None
+                ).exposure.applied_ms
+                self._set_exposure_ms_impl(sent)
+            _tell_clamped((setting, value, sent), solicited=False)
+
         writes = []
         if arm_action == 'disarmed':
             writes.append(lambda: self._set_auto_gain_impl(False, dict(standing.settings)))
         if gain_known:
-            writes.append(lambda: self._set_gain_db_impl(gain_db))
+            writes.append(lambda: _within_range('gain_db', gain_db))
         if exposure_known:
-            writes.append(lambda: self._set_exposure_ms_impl(exposure_ms))
+            writes.append(lambda: _within_range('exposure_ms', exposure_ms))
         if arm_action == 're-armed':
             writes.append(
                 lambda: self._set_auto_gain_impl(
@@ -4541,6 +4604,13 @@ class CameraAPI:
             if wanted is None:
                 continue
             if key in ('binning', 'frame_size', 'pixel_format'):
+                if key == 'frame_size':
+                    # Held at the binning just restored, as set_frame_size holds it.
+                    asked = wanted
+                    _, held = self._frame_held_to_limits(
+                        'restore_camera_state', asked['width'], asked['height']
+                    )
+                    wanted = {axis: int(side) for axis, side in held.items()}
                 now = self._read_a_write_needs(
                     'restore_camera_state', key, wanted, lambda key=key: self._read_fresh(key)
                 )
@@ -4550,6 +4620,11 @@ class CameraAPI:
                     self._set_binning_impl(wanted)
                 elif key == 'frame_size':
                     self._set_frame_size_impl(wanted['width'], wanted['height'])
+                    _tell_clamped(
+                        ('frame_width', asked['width'], wanted['width']),
+                        ('frame_height', asked['height'], wanted['height']),
+                        solicited=False,
+                    )
                 else:
                     self._set_pixel_format_impl(wanted)
                 continue
@@ -4570,7 +4645,7 @@ class CameraAPI:
                 elif key == 'line_noise_reduction':
                     self._set_line_noise_reduction_impl(wanted)
                 else:
-                    self._set_black_level_impl(wanted)
+                    self._set_black_level_impl(wanted, solicited=False)
             except CameraSettingRejected as rejected:
                 self._report_refused_write(rejected)
 
@@ -4900,7 +4975,9 @@ class CameraAPI:
         )
         if in_effect is not None:
             _tell_clamped(
-                ('gain_db', gain_db, gain_sent), ('exposure_ms', exposure_ms, exposure_sent)
+                ('gain_db', gain_db, gain_sent),
+                ('exposure_ms', exposure_ms, exposure_sent),
+                solicited=True,
             )
         return in_effect
 
