@@ -5,7 +5,7 @@ import pathlib
 import pandas as pd
 
 import _lumascope.modules.common_utils as common_utils
-from _lumascope.modules.finite_number import is_finite_number
+from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.modules.composite_builder import (
     CompositeChannel,
     TransmittedBase,

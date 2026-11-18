@@ -23,7 +23,7 @@ from typing import NoReturn
 
 from _lumascope.modules.api_surface import api_fields
 from _lumascope.modules.exceptions import PostProcessingOperation, PostProcessingRefusedError
-from _lumascope.modules.finite_number import is_finite_number
+from _lumascope.lib.real_numbers import is_finite_number
 
 CELL_COUNT_OPERATION = PostProcessingOperation.CELL_COUNT
 

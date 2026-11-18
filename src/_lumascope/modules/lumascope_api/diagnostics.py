@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.drivers.camera import CameraNodeHasNoValue, CameraNodeValue
 from _lumascope.lvp_logger import log_dir, logger
 from _lumascope.modules.finite_number import refuse_outside, refuse_unless_wait_s
@@ -1775,7 +1776,7 @@ class DiagnosticsAPI:
         if isinstance(mode, str) and mode.lower() == 'off':
             return 'dltloff'
         value = config.get('dltl_value_bps')
-        if isinstance(value, (int, float)) and value > 0:
+        if is_finite_number(value) and value > 0:
             return f'dltl{round(value / 1_000_000)}M'
         return 'dltlunknown'
 

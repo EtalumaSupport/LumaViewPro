@@ -7,6 +7,7 @@ import typing
 from collections.abc import Mapping
 
 import _lumascope.modules.labware as labware
+from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
 from _lumascope.modules.exceptions import (
     CatalogueNameRefusedError,
     ConfigError,
@@ -54,7 +55,7 @@ def _number(entry: dict, path: tuple[str, ...], name: str, filepath: pathlib.Pat
         if not isinstance(value, dict) or key not in value:
             raise InstallationFileError(filepath, f'gives plate {name!r} no {".".join(path)!r}')
         value = value[key]
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if not is_finite_number(value):
         raise InstallationFileError(
             filepath, f'gives plate {name!r} a {".".join(path)!r} that is not a number'
         )
@@ -79,7 +80,7 @@ def _read_plate(name: str, entry: object, filepath: pathlib.Path) -> labware.Lab
         raise InstallationFileError(filepath, f'has a plate {name!r} that is not a plate')
     counts = {}
     for key in ('rows', 'columns'):
-        if isinstance(entry.get(key), bool) or not isinstance(entry.get(key), int):
+        if not is_integer_number(entry.get(key)):
             raise InstallationFileError(filepath, f'gives plate {name!r} no whole-number {key!r}')
         # 0 is the Blank plate's: no wells at all.
         if entry[key] < 0:

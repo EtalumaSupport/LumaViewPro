@@ -4,7 +4,6 @@ import csv
 import ctypes
 import dataclasses
 import enum
-import numbers
 import os
 import pathlib
 import platform
@@ -15,6 +14,7 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 import psutil
 
+from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
 from _lumascope.modules.exceptions import Refusal
 
 if TYPE_CHECKING:
@@ -403,7 +403,7 @@ def is_valid_gain_db(value: object) -> bool:
     own type guard. One shared predicate so every consumer validates the
     same way.
     """
-    return isinstance(value, numbers.Real) and value >= 0
+    return is_finite_number(value) and value >= 0
 
 
 def is_valid_exposure_ms(value: object) -> bool:
@@ -415,7 +415,7 @@ def is_valid_exposure_ms(value: object) -> bool:
     TypeError. One shared predicate so every consumer validates the same
     way.
     """
-    return isinstance(value, numbers.Real) and value > 0
+    return is_finite_number(value) and value > 0
 
 
 def is_valid_frame_size(value: object) -> bool:
@@ -430,12 +430,7 @@ def is_valid_frame_size(value: object) -> bool:
         return False
     width = value.get('width')
     height = value.get('height')
-    return (
-        isinstance(width, numbers.Real)
-        and isinstance(height, numbers.Real)
-        and width > 0
-        and height > 0
-    )
+    return is_finite_number(width) and is_finite_number(height) and width > 0 and height > 0
 
 
 def is_valid_pixel_format(value: object) -> bool:
@@ -454,7 +449,7 @@ def is_valid_binning_size(value: object) -> bool:
     Below 1 is never a binning a camera holds (a read that fails raises);
     binning is always at least 1x1 on real hardware.
     """
-    return isinstance(value, numbers.Real) and value >= 1
+    return is_integer_number(value) and value >= 1
 
 
 def get_channels() -> list[str]:

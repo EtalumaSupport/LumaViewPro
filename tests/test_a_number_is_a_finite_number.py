@@ -18,7 +18,7 @@ import math
 import numpy as np
 import pytest
 
-from _lumascope.modules.finite_number import is_finite_number
+from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.modules.exceptions import ArgumentRefusedError, RefusalCause
 from _lumascope.modules.labware_loader import WellPlateLoader
 from _lumascope.modules.lumascope_api.illumination import LedState

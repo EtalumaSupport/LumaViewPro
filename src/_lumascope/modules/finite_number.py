@@ -1,34 +1,15 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""The one test of "a number" every owner of a numeric argument asks before its range.
+"""The refusals every owner of a numeric argument asks before its range.
 
-A leaf: it imports nothing of the project but the refusal it raises, so
+What counts as a number is ``_lumascope.lib.real_numbers``'s. A leaf: it
+imports nothing of the project but that and the refusal it raises, so
 the modules low in the import graph that own a number (``labware``, whose
 importers ``common_utils`` reaches while it is still loading) can ask it.
 """
 
-import math
-import numbers
-import sys
-
+from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
 from _lumascope.modules.exceptions import ArgumentRefusedError
-
-
-def is_finite_number(value: object) -> bool:
-    """True when ``value`` is a real number that is finite as a float, and not a ``bool``.
-
-    A comparison with NaN is False, so ``value < low`` passes it, and a
-    ``bool`` is an ``int`` to Python. Numpy's numbers are real numbers;
-    ``np.bool_`` is not one. A Python ``int`` past the largest float is not
-    one either: every owner uses the number as a float, and ``math.isfinite``
-    raises ``OverflowError`` on it rather than answer. Numpy's fixed-width
-    integers always fit.
-    """
-    if not isinstance(value, numbers.Real) or isinstance(value, bool):
-        return False
-    if isinstance(value, int):
-        return abs(value) <= sys.float_info.max
-    return math.isfinite(value)
 
 
 def refuse_unless_finite_number(value: object, argument: str) -> None:
@@ -97,16 +78,15 @@ def refuse_unless_wait_s(value: object, argument: str) -> None:
 
 
 def refuse_unless_count(value: object, argument: str) -> None:
-    """Refuse ``value`` unless it is a count: a whole number of at least 1.
+    """Refuse ``value`` unless it is an integer of at least 1: ``2.0`` and ``True`` are refused.
 
-    The rule a stored count holds (``settings_paths``' ``*.sum``), asked
-    where a caller hands the count in, so none is ever counted out short.
-    A capture's sum is then held to ``SUM_COUNT_RANGE`` as well.
+    Asked where a caller hands the count in, so none is ever counted out
+    short. A capture's sum is then held to ``SUM_COUNT_RANGE`` as well.
 
     Raises:
         ArgumentRefusedError: ``'wrong_kind'``, naming ``argument``.
     """
-    if not (isinstance(value, numbers.Integral) and not isinstance(value, bool) and value >= 1):
+    if not (is_integer_number(value) and value >= 1):
         raise ArgumentRefusedError(
             'wrong_kind', argument=argument, value=value, takes='a whole number of at least 1'
         )

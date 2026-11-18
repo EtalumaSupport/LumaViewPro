@@ -83,6 +83,8 @@ def test_a_key_left_out_is_refused_naming_its_path(session, config, path, argume
         (('use_zstacking',), 'text', 'wrong_kind'),
         (('frame_dimensions',), 'big', 'wrong_kind'),
         (('binning_size',), True, 'wrong_kind'),
+        # Whole, but past every float: refused, not an OverflowError.
+        (('channel_configs', 'BF', 'sum'), 10**400, 'wrong_kind'),
         (('tiling_overlap_percent',), float('nan'), 'not_a_number'),
         (('channel_configs', 'BF', 'acquire'), 'imagee', 'not_offered'),
         (('channel_configs',), {'Purple': {'acquire': None}}, 'channel_unknown'),

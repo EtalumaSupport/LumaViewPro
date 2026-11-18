@@ -8,13 +8,13 @@ For driver-layer hardware exceptions (HardwareError), see src/_lumascope/drivers
 import datetime
 import errno
 import math
-import numbers
 import pathlib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
+from _lumascope.lib.real_numbers import is_integer_number, is_real_number
 from _lumascope.lib.lumascope_error import Fault, LumascopeError, RefusalCause, _Umbrella
 from _lumascope.lib.stage_interlock import INTERLOCK_TITLES, REFUSED_BEFORE_MOTION
 from _lumascope.drivers.camera import CameraNodeHasNoValue
@@ -4849,9 +4849,9 @@ def _as_stated(value: object) -> str:
     ``True`` would read as 1), is stated as given: a turret slot is refused
     whatever was sent for it.
     """
-    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+    if not is_real_number(value):
         return str(value)
-    if isinstance(value, numbers.Integral):
+    if is_integer_number(value):
         return str(int(value))
     number = float(value)
     if math.isfinite(number) and number.is_integer():

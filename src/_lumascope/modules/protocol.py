@@ -36,9 +36,9 @@ from _lumascope.modules.notification_center import notifications
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.write_size as write_size
 import _lumascope.modules.path_utils as path_utils
+from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.modules.finite_number import (
     cap_stored_value,
-    is_finite_number,
     refuse_unless_finite_number,
 )
 from _lumascope.modules.python_values import python_values

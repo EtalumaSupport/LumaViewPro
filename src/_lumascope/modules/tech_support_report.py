@@ -39,6 +39,7 @@ import zipfile
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
+from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
 from _lumascope.drivers.exceptions import CameraUsbLookupFailedError, HardwareError
 from _lumascope.drivers.usb_census import CensusDevice, read_device_list
 from _lumascope.drivers.usb_driver_binding import (
@@ -768,7 +769,7 @@ def validate_motorconfig(config_data: bytes | str | dict) -> dict:
         for field in ['Steps Per mm', 'Steps Per Rev', 'Travel mm', 'Initial Position after home']:
             val = axis.get(field)
             if val is not None:
-                if not isinstance(val, (int, float)):
+                if not is_finite_number(val):
                     result['errors'].append(
                         f'{axis_name}.{field}: expected number, got {type(val).__name__}'
                     )
@@ -776,7 +777,7 @@ def validate_motorconfig(config_data: bytes | str | dict) -> dict:
                     result['warnings'].append(f'{axis_name}.{field}: negative ({val})')
 
         travel = axis.get('Travel mm')
-        if isinstance(travel, (int, float)):
+        if is_finite_number(travel):
             if axis_name in ('X Axis', 'Y Axis') and travel > 200:
                 result['warnings'].append(f'{axis_name}: Travel {travel}mm seems very large')
             elif axis_name == 'Z Axis' and travel > 50:
@@ -874,7 +875,7 @@ def _driver_status(value) -> str:
     firmware does not offer it."""
     if value is None:
         return NOT_OFFERED
-    if isinstance(value, int):
+    if is_integer_number(value):
         return f'0x{value:08X}'
     return str(value)
 
@@ -2226,7 +2227,7 @@ class TechSupportReport:
                 label = key.replace('get_', '').replace('_', ' ').title()
                 f.write(f'  {label}: {val}\n')
                 # Flag hot cameras
-                if 'temperature' in key.lower() and isinstance(val, (int, float)):
+                if 'temperature' in key.lower() and is_finite_number(val):
                     if val > 60:
                         f.write(
                             f'    ** WARNING: sensor temperature {val}degC '

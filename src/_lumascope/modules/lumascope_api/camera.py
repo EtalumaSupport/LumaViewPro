@@ -27,9 +27,9 @@ import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 from _lumascope.modules.image_mode import ImageMode
 from _lumascope.modules.closed_sets import refuse_unless_offered
+from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.modules.finite_number import (
     cap_stored_value,
-    is_finite_number,
     refuse_unless_finite_number,
 )
 from _lumascope.modules.request_fields import key_path, refuse_unless_kind, required
@@ -384,7 +384,7 @@ class CameraSettingLimits:
 
 
 def _a_number(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if not is_finite_number(value):
         return None
     return float(value)
 
@@ -1302,7 +1302,7 @@ class CameraAPI:
         for source in invalidates:
             self._frame_validity.invalidate(source, began_ns=began_ns)
         for source, value in targets:
-            if source in target_from_result and isinstance(result, (int, float)):
+            if source in target_from_result and is_finite_number(result):
                 value = float(result)
             self._frame_validity.set_target(source, value)
         if cache_update:
@@ -1324,7 +1324,7 @@ class CameraAPI:
             key: The held key the write sets (``_LIVE_SETTING_READS``).
             scale: Multiplier from the driver's unit to the API's.
         """
-        if isinstance(result, (int, float)):
+        if is_finite_number(result):
             return float(result) * scale
         try:
             return self._read_fresh(key)
@@ -2206,7 +2206,7 @@ class CameraAPI:
             # No frame came under the arm: what the loop reached is not known.
             exp_ms: object = None
             gain = None
-        elif isinstance(exp_us, (int, float)) and isinstance(gain, (int, float)):
+        elif is_finite_number(exp_us) and is_finite_number(gain):
             exp_ms = exp_us / 1000.0
         else:
             exp_ms = self.exposure_ms

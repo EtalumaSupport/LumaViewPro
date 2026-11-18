@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.modules.finite_number import (
     SUM_COUNT_RANGE,
     cap_stored_value,
@@ -2271,7 +2272,7 @@ class ImagingAPI:
                 no stride when no session has bound this scope, so it has
                 no scale-bar setting to read.
         """
-        if isinstance(stride, bool) or not isinstance(stride, int) or stride < 1:
+        if not is_integer_number(stride) or stride < 1:
             raise ArgumentRefusedError(
                 'wrong_kind', argument='stride', value=stride, takes='a whole number, 1 or more'
             )

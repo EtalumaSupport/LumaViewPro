@@ -12,12 +12,12 @@ The board holds no per-unit config, so nothing here is read from the board
 and nothing is merged over the defaults.
 """
 
-import math
 import types
 from collections.abc import Mapping
 from typing import ClassVar
 
 from _lumascope.drivers import motion_units
+from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
 
 SECTION = 'TMCM-6110'
 AXES = ('X', 'Y', 'Z')
@@ -178,16 +178,12 @@ class Tmcm6110Config:
             self._usteps_per_mm[axis] = microsteps * steps * reduction / mm_per_rev
 
             direction = self._value('Axis Direction', axis)
-            if isinstance(direction, bool) or not isinstance(direction, int) or abs(direction) != 1:
+            if not is_integer_number(direction) or abs(direction) != 1:
                 raise ValueError(f'{SECTION}.Axis Direction.{axis} = {direction!r} is not 1 or -1')
             self._direction[axis] = direction
 
             index = self._value('Index Position', axis)
-            if (
-                isinstance(index, bool)
-                or not isinstance(index, (int, float))
-                or not math.isfinite(index)
-            ):
+            if not is_finite_number(index):
                 raise ValueError(f'{SECTION}.Index Position.{axis} = {index!r} is not a number')
             self._index_position_mm[axis] = float(index)
 
@@ -213,13 +209,13 @@ class Tmcm6110Config:
 
     def _positive(self, *path: str) -> float:
         value = self._value(*path)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        if not is_finite_number(value) or value <= 0:
             raise ValueError(f'{SECTION}.{".".join(path)} = {value!r} is not a positive number')
         return float(value)
 
     def _integer(self, low: int, high: int, *path: str) -> int:
         value = self._value(*path)
-        if not isinstance(value, int) or isinstance(value, bool):
+        if not is_integer_number(value):
             raise ValueError(f'{SECTION}.{".".join(path)} is not an integer')
         if not low <= value <= high:
             raise ValueError(f'{SECTION}.{".".join(path)} = {value} is outside {low}..{high}')
@@ -241,11 +237,7 @@ class Tmcm6110Config:
                     )
                 low, high = self._SPEED
                 for speed in speeds:
-                    if (
-                        isinstance(speed, bool)
-                        or not isinstance(speed, int)
-                        or not low <= speed <= high
-                    ):
+                    if not is_integer_number(speed) or not low <= speed <= high:
                         raise ValueError(
                             f'{SECTION}.Homing.{axis}.{phase}.Approach Speeds = {speeds!r} '
                             f'has a speed outside {low}..{high}'

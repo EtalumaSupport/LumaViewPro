@@ -138,8 +138,9 @@ def _labware_with(change) -> str:
         (lambda entry: entry['spacing'].pop('x'), "no 'spacing.x'"),
         (lambda entry: entry.update(rows='8'), "no whole-number 'rows'"),
         (lambda entry: entry['offset'].update(y=None), "a 'offset.y' that is not a number"),
+        (lambda entry: entry.update(rows=8.0), "no whole-number 'rows'"),
     ],
-    ids=['missing-key', 'rows-not-whole', 'not-a-number'],
+    ids=['missing-key', 'rows-not-whole', 'not-a-number', 'rows-a-float'],
 )
 def test_a_plate_entry_the_record_cannot_be_built_from_names_the_plate_and_key(
     tmp_path, change, words

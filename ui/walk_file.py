@@ -16,7 +16,7 @@ import json
 import os
 import pathlib
 
-from _lumascope.modules.finite_number import is_finite_number
+from _lumascope.lib.real_numbers import is_finite_number
 
 DEFAULT_SETTLE_S = 0.3
 

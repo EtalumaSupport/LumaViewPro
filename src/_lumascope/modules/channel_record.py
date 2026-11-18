@@ -30,6 +30,7 @@ import types
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, fields
 
+from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
 from _lumascope.lvp_logger import logger
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
@@ -519,7 +520,7 @@ def load_old_channel_names(
         if not isinstance(entry, dict) or set(entry) != {'led_address', 'stock_key'}:
             raise refuse('that is not an led_address and a stock_key')
         address = entry['led_address']
-        if not isinstance(address, int) or isinstance(address, bool) or address < 0:
+        if not is_integer_number(address) or address < 0:
             raise refuse(f'whose led_address {address!r} is not an LED address')
         if entry['stock_key'] not in fluorescence:
             raise refuse(
@@ -829,7 +830,7 @@ def _scope_model(
     if not isinstance(optics, dict) or set(optics) - set(_OPTICS_KEYS):
         raise refuse(f"an 'Optics' that holds other than {sorted(_OPTICS_KEYS)}")
     for key, value in optics.items():
-        if not _is_number(value) or value <= 0:
+        if not is_finite_number(value) or value <= 0:
             raise refuse(f'an Optics {key!r} that is not a positive number')
     max_frame = None
     if 'MaxFrame' in entry:
@@ -837,7 +838,7 @@ def _scope_model(
         if not (
             isinstance(raw, dict)
             and set(raw) == {'width', 'height'}
-            and all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in raw.values())
+            and all(is_integer_number(v) and v > 0 for v in raw.values())
         ):
             raise refuse("a 'MaxFrame' that is not a positive width and height in pixels")
         max_frame = FrameSize(width=raw['width'], height=raw['height'])
@@ -953,13 +954,11 @@ def _catalogue_channel(entry: object, path: str | os.PathLike) -> CatalogueChann
     if background is None:
         raise refuse(f'whose background is not one of {", ".join(Background)}')
     ceiling = entry['manual_max_exposure_ms']
-    if ceiling is not None and not (_is_number(ceiling) and ceiling > 0):
+    if ceiling is not None and not (is_finite_number(ceiling) and ceiling > 0):
         raise refuse('whose manual_max_exposure_ms is not a positive number or null')
     illumination_ceiling = entry['manual_max_illumination_ma']
     if illumination_ceiling is not None and not (
-        isinstance(illumination_ceiling, int)
-        and not isinstance(illumination_ceiling, bool)
-        and illumination_ceiling > 0
+        is_integer_number(illumination_ceiling) and illumination_ceiling > 0
     ):
         raise refuse('whose manual_max_illumination_ma is not a positive integer or null')
     try:
@@ -967,12 +966,12 @@ def _catalogue_channel(entry: object, path: str | os.PathLike) -> CatalogueChann
     except ValueError as e:
         raise refuse(f'whose display_color {e}') from e
     light = entry['sim_light_per_ma_s']
-    if light is not None and not (_is_number(light) and light > 0):
+    if light is not None and not (is_finite_number(light) and light > 0):
         raise refuse('whose sim_light_per_ma_s is not a positive number or null')
     power = entry['sim_light_magnification_power']
     if light is None and power is not None:
         raise refuse('whose sim_light_magnification_power is set on a channel with no light')
-    if light is not None and not _is_number(power):
+    if light is not None and not is_finite_number(power):
         raise refuse('whose sim_light_magnification_power is not a number')
     return CatalogueChannel(
         key=key,
@@ -984,10 +983,6 @@ def _catalogue_channel(entry: object, path: str | os.PathLike) -> CatalogueChann
         sim_light_per_ma_s=None if light is None else float(light),
         sim_light_magnification_power=None if power is None else float(power),
     )
-
-
-def _is_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _record(
@@ -1008,11 +1003,9 @@ def _record(
     raw_addresses = row.get('led_channel')
     if raw_addresses is None:
         led_addresses: tuple[int, ...] = ()
-    elif isinstance(raw_addresses, int) and not isinstance(raw_addresses, bool):
+    elif is_integer_number(raw_addresses):
         led_addresses = (raw_addresses,)
-    elif isinstance(raw_addresses, list) and all(
-        isinstance(a, int) and not isinstance(a, bool) for a in raw_addresses
-    ):
+    elif isinstance(raw_addresses, list) and all(is_integer_number(a) for a in raw_addresses):
         led_addresses = tuple(raw_addresses)
     else:
         return f'has malformed led_channel {raw_addresses!r}'
@@ -1021,7 +1014,7 @@ def _record(
     raw_nm = row.get('excitation_nm')
     if raw_nm is None:
         excitation: float | None = None
-    elif _is_number(raw_nm):
+    elif is_finite_number(raw_nm):
         excitation = float(raw_nm)
     else:
         return f'has malformed excitation_nm {raw_nm!r}'

@@ -8,8 +8,8 @@ the sub-API files.
 """
 
 import dataclasses
-import numbers
 
+from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.modules.exceptions import (
     AccelerationLimitRefusedError,
     ArgumentRefusedError,
@@ -64,8 +64,7 @@ def refuse_acceleration_pct(val_pct: object) -> None:
     # bool is excluded by name: True is an int. A fraction is refused: every
     # board takes a whole percent.
     if (
-        isinstance(val_pct, bool)
-        or not isinstance(val_pct, numbers.Integral)
+        not is_integer_number(val_pct)
         or not ACCELERATION_PCT_MIN <= val_pct <= ACCELERATION_PCT_MAX
     ):
         raise AccelerationLimitRefusedError(val_pct, ACCELERATION_PCT_MIN, ACCELERATION_PCT_MAX)
@@ -96,11 +95,7 @@ def is_turret_slot(slot: object) -> bool:
     A bool is excluded explicitly: it is an int in Python, so ``True``
     would otherwise pass as slot 1.
     """
-    return (
-        isinstance(slot, int)
-        and not isinstance(slot, bool)
-        and TURRET_SLOT_MIN <= slot <= TURRET_SLOT_MAX
-    )
+    return is_integer_number(slot) and TURRET_SLOT_MIN <= slot <= TURRET_SLOT_MAX
 
 
 def refuse_unless_turret_slot(slot: object) -> None:

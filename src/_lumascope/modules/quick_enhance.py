@@ -18,6 +18,7 @@ from collections.abc import Callable
 import cv2
 import numpy as np
 
+from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import image_mode, image_utils, path_utils, wall_time
 from _lumascope.modules.channel_record import GREY, ChannelColors, Color, stored_key
@@ -103,10 +104,7 @@ class QuickEnhancer:
         if dtype not in (np.dtype(np.uint8), np.dtype(np.uint16)):
             errors.append('Quick Enhance supports uint8 and uint16 images only.')
         container_bits = dtype.itemsize * 8
-        if (
-            not isinstance(significant_bits, (int, np.integer))
-            or not 1 <= significant_bits <= container_bits
-        ):
+        if not is_integer_number(significant_bits) or not 1 <= significant_bits <= container_bits:
             errors.append(f'Significant bits must be between 1 and {container_bits}.')
         if not 0 <= settings.low_percentile < settings.high_percentile <= 100:
             errors.append('Low percentile must be below high percentile, within 0 to 100.')
@@ -119,7 +117,7 @@ class QuickEnhancer:
         if not 0 <= settings.illumination_fit_excludes_upper_percentile < 100:
             errors.append('The illumination fit must exclude from 0 to below 100 percent.')
         if (
-            not isinstance(settings.illumination_fit_sample_target, (int, np.integer))
+            not is_integer_number(settings.illumination_fit_sample_target)
             or settings.illumination_fit_sample_target < 1
         ):
             errors.append(

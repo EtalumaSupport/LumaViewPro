@@ -41,6 +41,7 @@ from _lumascope.lib.log_helpers import log_to, logger
 from _lumascope.lib.log_helpers import VERBOSE
 
 from _lumascope.lib import profile_trace
+from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
 
 
 def _log_safely(message: str) -> None:
@@ -765,14 +766,14 @@ class PylonCamera(Camera):
             # actionable; the absolute count is just the running total.
             resync_value = stats.get(self._RESYNC_NODE_NAME)
             prev_resync = getattr(self, '_prev_resync_count', None)
-            if isinstance(resync_value, (int, float)) and isinstance(prev_resync, (int, float)):
+            if is_finite_number(resync_value) and is_finite_number(prev_resync):
                 delta = resync_value - prev_resync
                 if delta > 0:
                     _cam_log.warning(
                         f'[INSTR RESYNC] {self._RESYNC_NODE_NAME} delta={delta} '
                         f'(total={resync_value})'
                     )
-            if isinstance(resync_value, (int, float)):
+            if is_finite_number(resync_value):
                 self._prev_resync_count = resync_value
 
             # Missed frames: prominent marker on positive delta. Per
@@ -784,14 +785,14 @@ class PylonCamera(Camera):
             # bandwidth-stress signal.
             missed_value = stats.get(self._MISSED_FRAME_NODE_NAME)
             prev_missed = getattr(self, '_prev_missed_frame_count', None)
-            if isinstance(missed_value, (int, float)) and isinstance(prev_missed, (int, float)):
+            if is_finite_number(missed_value) and is_finite_number(prev_missed):
                 delta = missed_value - prev_missed
                 if delta > 0:
                     _cam_log.warning(
                         f'[INSTR MISSED] {self._MISSED_FRAME_NODE_NAME} delta={delta} '
                         f'(total={missed_value})'
                     )
-            if isinstance(missed_value, (int, float)):
+            if is_finite_number(missed_value):
                 self._prev_missed_frame_count = missed_value
 
             # Temperature state: per Basler doc temperature-state.html,
@@ -2177,7 +2178,7 @@ class PylonCamera(Camera):
                 refused the write.
             CameraNoAnswerError: The camera did not answer in time.
         """
-        if not isinstance(size_bytes, int) or size_bytes <= 0:
+        if not is_integer_number(size_bytes) or size_bytes <= 0:
             raise CameraWriteFailedError(
                 f'set_gev_packet_size: size_bytes must be a positive int, not {size_bytes!r}; '
                 f'nothing was written'
@@ -2197,7 +2198,7 @@ class PylonCamera(Camera):
                 it refused the write.
             CameraNoAnswerError: The camera did not answer in time.
         """
-        if not isinstance(delay_ticks, int) or delay_ticks < 0:
+        if not is_integer_number(delay_ticks) or delay_ticks < 0:
             raise CameraWriteFailedError(
                 f'set_gev_inter_packet_delay: delay_ticks must be a non-negative int, '
                 f'not {delay_ticks!r}; nothing was written'
@@ -3682,7 +3683,7 @@ class PylonCamera(Camera):
         for name in self._DIAG_STAT_COUNTERS:
             pre = result['stats_pre'].get(name)
             post = result['stats_post'].get(name)
-            if isinstance(pre, (int, float)) and isinstance(post, (int, float)):
+            if is_finite_number(pre) and is_finite_number(post):
                 result['deltas'][name] = post - pre
             else:
                 result['deltas'][name] = None
@@ -3692,15 +3693,15 @@ class PylonCamera(Camera):
         failed_d = result['deltas'].get('Statistic_Failed_Buffer_Count')
         resync_d = result['deltas'].get('Statistic_Resynchronization_Count')
         missed_d = result['deltas'].get('Statistic_Missed_Frame_Count')
-        if isinstance(total_d, (int, float)) and dt > 0:
+        if is_finite_number(total_d) and dt > 0:
             result['derived']['observed_fps'] = total_d / dt
-            if total_d > 0 and isinstance(failed_d, (int, float)):
+            if total_d > 0 and is_finite_number(failed_d):
                 result['derived']['fail_rate_pct'] = 100.0 * failed_d / total_d
-        if isinstance(failed_d, (int, float)) and dt > 0:
+        if is_finite_number(failed_d) and dt > 0:
             result['derived']['failures_per_second'] = failed_d / dt
-        if isinstance(resync_d, (int, float)) and dt > 0:
+        if is_finite_number(resync_d) and dt > 0:
             result['derived']['resyncs_per_second'] = resync_d / dt
-        if isinstance(missed_d, (int, float)) and dt > 0:
+        if is_finite_number(missed_d) and dt > 0:
             result['derived']['misses_per_second'] = missed_d / dt
 
         # Camera-side error log drain (capped to prevent runaway loop
@@ -4066,7 +4067,7 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
 
 def _error_code_words(code: int | str | None) -> str:
     """A failed grab's error code as Basler documents it: hex, or what stood in for one."""
-    if isinstance(code, int):
+    if is_integer_number(code):
         return f'0x{code:08X}'
     return 'unknown' if code is None else code
 

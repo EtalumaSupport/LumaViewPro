@@ -36,6 +36,7 @@ from collections.abc import Callable, Iterable, Mapping
 
 import numpy as np
 
+from _lumascope.lib.real_numbers import is_integer_number, is_real_number
 from _lumascope.modules import closed_sets, wire_encoding
 from _lumascope.modules.exceptions import ArgumentTypeRefusedError
 
@@ -75,17 +76,13 @@ def _names() -> dict[str, object]:
 
 
 def _float(value: object) -> object:
-    if type(value) is float:
-        return value
-    if isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, bool):
+    if is_real_number(value):
         return float(value)
     return _REFUSED
 
 
 def _int(value: object) -> object:
-    if type(value) is int:
-        return value
-    if isinstance(value, (int, np.integer)) and not isinstance(value, bool):
+    if is_integer_number(value):
         return int(value)
     return _REFUSED
 

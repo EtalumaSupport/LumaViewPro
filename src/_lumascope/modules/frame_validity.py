@@ -59,6 +59,7 @@ from typing import ClassVar
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Frame
 from _lumascope.lib import profile_trace
+from _lumascope.lib.real_numbers import is_count, is_finite_number, is_integer_number
 from _lumascope.modules.api_surface import api_fields
 
 # The camera timing record's version this release reads, and what its
@@ -70,11 +71,6 @@ TIMING_PROVENANCE = ('run_id', 'host', 'os', 'lvp_version', 'plugin_version', 'm
 # keeps an entry per microscope it was measured on, and the gate takes the
 # largest.
 TIMING_MICROSCOPE = 'microscope'
-
-
-def _is_amount(value) -> bool:
-    """Whether a timing record's measured number is a number, 0 or more."""
-    return isinstance(value, int | float) and not isinstance(value, bool) and value >= 0
 
 
 class FrameValiditySource(enum.StrEnum):
@@ -151,9 +147,7 @@ class FrameRule:
     provenance: Mapping[str, str] | None
 
     def __post_init__(self):
-        if not (
-            isinstance(self.count, int) and not isinstance(self.count, bool) and self.count >= 0
-        ):
+        if not (is_integer_number(self.count) and self.count >= 0):
             raise ValueError(f'a frame count of {self.count!r}, not a whole number 0 or more')
 
 
@@ -994,15 +988,15 @@ class FrameValidity:
         if not (
             isinstance(measured, dict)
             and set(measured) == {'p50', 'p95', 'max'}
-            and all(_is_amount(v) for v in measured.values())
+            and all(is_finite_number(v) and v >= 0 for v in measured.values())
         ):
             raise ValueError(f'{where}.{measures[0]} is not p50, p95 and max, each 0 or more')
-        elif not float(measured['max']).is_integer():
+        elif not is_count(measured['max']):
             raise ValueError(
                 f'{where}.delivered_frames.max is {measured["max"]!r}, not a whole number of frames'
             )
         trials = value.get('trials')
-        if not (isinstance(trials, int) and not isinstance(trials, bool) and trials > 0):
+        if not (is_integer_number(trials) and trials > 0):
             raise ValueError(f'{where} states no trials')
         provenance = value.get('provenance')
         if not isinstance(provenance, dict):

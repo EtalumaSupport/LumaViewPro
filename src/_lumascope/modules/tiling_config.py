@@ -8,6 +8,7 @@ import types
 import typing
 from typing import TYPE_CHECKING, ClassVar
 
+from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.lvp_logger import logger
 
 import _lumascope.modules.common_utils as common_utils
@@ -48,7 +49,8 @@ def _refuse_unless_whole(contents: dict, path: pathlib.Path) -> None:
         raise InstallationFileError(path, "has no 'data' object of tiling grids")
     for label, grid in grids.items():
         if not (
-            isinstance(grid, dict) and all(type(grid.get(field)) is int for field in ('m', 'n'))
+            isinstance(grid, dict)
+            and all(is_integer_number(grid.get(field)) for field in ('m', 'n'))
         ):
             raise InstallationFileError(
                 path, f"has a grid {label!r} without a whole-number 'm' and 'n'"

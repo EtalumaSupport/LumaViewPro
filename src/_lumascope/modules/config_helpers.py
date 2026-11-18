@@ -21,6 +21,7 @@ import _lumascope.modules.binning as binning
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.wall_time as wall_time
+from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.lvp_logger import logger, metrics_logger
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.api_surface import api
@@ -546,7 +547,7 @@ def _field(value, spec: str, unit: str = '') -> str:
 
 def _per(value, unit: float):
     """A reading in ``unit``; anything but a number passes through."""
-    return value / unit if isinstance(value, (int, float)) else value
+    return value / unit if is_finite_number(value) else value
 
 
 def _read(probe: typing.Callable[[], object]) -> object:

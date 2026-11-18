@@ -35,6 +35,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
@@ -260,7 +261,7 @@ def _unbinned(reported: tuple[int, int] | None, binning: object) -> tuple[int, i
     """
     if reported is None:
         return None
-    if isinstance(binning, bool) or not isinstance(binning, int) or binning < 1:
+    if not is_integer_number(binning) or binning < 1:
         logger.warning(
             f'[CAPABILITIES] binning read {binning!r} at connect: the maximum frame '
             f'the camera reported ({reported[0]}x{reported[1]}) is left out'

@@ -32,7 +32,7 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.closed_sets import member_of
 from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
-from _lumascope.modules.finite_number import is_finite_number
+from _lumascope.lib.real_numbers import is_count, is_finite_number, is_integer_number
 from _lumascope.modules.channel_record import parse_display_color
 from _lumascope.modules.lumascope_api._constants import (
     ACCELERATION_PCT_MAX,
@@ -259,8 +259,7 @@ def _refuse_outside(
 
 
 def _refuse_unless_int(path: str, value: float) -> None:
-    # bool is excluded by name: True is an int.
-    if isinstance(value, bool) or not isinstance(value, int):
+    if not is_integer_number(value):
         raise SettingRefusedError('out_of_range', path, f'it must be a whole number, not {value!r}')
 
 
@@ -271,7 +270,7 @@ def _refuse_below(path: str, value: float, floor: float, *, inclusive: bool) -> 
 
 
 def _refuse_non_count(path: str, value: float) -> None:
-    if not (float(value).is_integer() and value >= 1):
+    if not (is_count(value) and value >= 1):
         raise SettingRefusedError(
             'out_of_range', path, f'it must be a whole number of at least 1, not {value!r}'
         )
@@ -534,8 +533,10 @@ def refuse_outside_range(path: str, value: object) -> None:
 
 
 def _kind(value: object) -> str:
-    # bool first: True is an int. Exact types, so a numpy scalar -- a float
-    # subclass that json cannot save -- is its own kind and refused. NaN and
+    # bool first: True is an int. Exact types, so a numpy scalar (np.float64
+    # is a float subclass; np.int64 and np.float32, which json cannot save,
+    # are not) is its own kind and refused: the store holds plain Python
+    # values. A kind dispatch, not a test of a number. NaN and
     # an infinity are their own kind: every range compares, and a comparison
     # with NaN passes, so a leaf with no range would take them as numbers.
     if type(value) is bool:
@@ -683,6 +684,35 @@ def _values_the_writer_refuses(
             _refuse_kind_or_range(shipped, path, stored[leaf])
         except SettingRefusedError as refused:
             yield path, stored, leaf, shipped, refused
+
+
+def _is_a_count(path: str) -> bool:
+    """Whether the setting at ``path`` holds a count: its range row carries the count rule."""
+    rule = _range_for(path)
+    return isinstance(rule, functools.partial) and (
+        rule.func is _refuse_non_count or bool(rule.keywords.get('count'))
+    )
+
+
+def store_counts_as_integers(settings: dict, template: dict) -> None:
+    """Keep each count in ``settings`` as an ``int``: a ``2.0`` the count rule took is stored as 2.
+
+    The count rule is whole by value, since JSON and a caller's float may
+    write a count as ``2.0``; every reader after the store (a capture's
+    ``sum_count``, a ``range``) takes an integer, so the store holds one.
+    Called once the values are judged, so each count here is whole.
+    """
+    for path, _shipped in _leaf_paths(template):
+        if not _is_a_count(path):
+            continue
+        *parents, leaf = path.split('.')
+        stored = settings
+        for segment in parents:
+            stored = stored.get(segment)
+            if not isinstance(stored, dict):
+                break
+        if isinstance(stored, dict) and is_count(stored.get(leaf)):
+            stored[leaf] = int(stored[leaf])
 
 
 def replace_refused_stored_values(

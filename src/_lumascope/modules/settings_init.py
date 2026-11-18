@@ -7,6 +7,7 @@ import pathlib
 import time
 from typing import ClassVar
 
+from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.lib.lumascope_error import Fault, RefusalCause
 from _lumascope.modules import labware_loader
 from _lumascope.modules.exceptions import (
@@ -239,7 +240,7 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
             for field in ('width', 'height'):
                 if field not in frame:
                     logger.warning(f'[Settings ] {filepath}: "frame" missing "{field}"')
-                elif not isinstance(frame[field], int):
+                elif not is_integer_number(frame[field]):
                     logger.warning(
                         f'[Settings ] {filepath}: "frame.{field}" should be int, got {type(frame[field]).__name__}'
                     )
@@ -986,6 +987,7 @@ def prepare_loaded(
     from _lumascope.modules.settings_paths import (
         refuse_handed_values,
         replace_refused_stored_values,
+        store_counts_as_integers,
     )
 
     if handed:
@@ -994,6 +996,7 @@ def prepare_loaded(
         replaced = replace_refused_stored_values(loaded, template)
         if replaced is not None:
             _stored_replacements.append(replaced)
+    store_counts_as_integers(loaded, template)
     # A folder that cannot be created stays the person's: replacing it would
     # send their captures somewhere they will not look and save the
     # replacement over their choice. Captures into it are refused by the

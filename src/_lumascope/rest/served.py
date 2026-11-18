@@ -14,6 +14,7 @@ import dataclasses
 import ipaddress
 import socket
 
+from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.modules.exceptions import RestServerNotStartedError
 
 _PORT_RANGE = (1024, 65535)
@@ -106,8 +107,8 @@ def judged(section: object) -> Served:
         refused.append(('rest_api.enabled', f'it must be true or false, not {enabled!r}'))
     port = section.get('port')
     low, high = _PORT_RANGE
-    # A socket takes a whole port; bool is excluded by name: True is an int.
-    if type(port) is not int or not low <= port <= high:
+    # A socket takes a whole port.
+    if not is_integer_number(port) or not low <= port <= high:
         refused.append(
             ('rest_api.port', f'it must be a whole number from {low} to {high}, not {port!r}')
         )

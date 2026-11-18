@@ -176,3 +176,24 @@ def test_the_dict_handed_to_create_stays_the_callers(tmp_path):
         assert session.setting('live_folder') != handed['live_folder']
     finally:
         session.shutdown()
+
+
+def test_a_count_written_as_a_whole_float_is_stored_as_an_int_and_captured(tmp_path):
+    """A count the store's rule takes as ``2.0`` (JSON, or a MATLAB double) is stored as 2.
+
+    The rule is whole by value; every reader after the store takes an
+    integer, so a capture asked for the stored sum sums that many frames
+    rather than refusing a float count.
+    """
+    session = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), BF={'sum': 2.0}), simulate=True
+    )
+    try:
+        stored = session.settings['BF']['sum']
+        assert (stored, type(stored)) == (2, int)
+        record = session.capture_still(
+            sum_count=stored, force_to_8bit=False, accept_dark=True, timeout_s=2.0
+        ).record
+        assert record.frames_summed == 2
+    finally:
+        session.shutdown()

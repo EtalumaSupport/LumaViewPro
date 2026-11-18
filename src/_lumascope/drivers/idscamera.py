@@ -19,6 +19,7 @@ from ids_peak import ids_peak_ipl_extension
 from _lumascope.lib.log_helpers import camera_logger as _cam_log
 from _lumascope.lib.log_helpers import logger
 from _lumascope.lib.log_helpers import VERBOSE
+from _lumascope.lib.real_numbers import is_finite_number
 
 from _lumascope.drivers.camera import (
     Camera,
@@ -1246,7 +1247,7 @@ class IDSCamera(Camera):
         for name in _DIAG_STREAM_COUNTERS:
             pre = result['stats_pre'].get(name)
             post = result['stats_post'].get(name)
-            if isinstance(pre, (int, float)) and isinstance(post, (int, float)) and post >= pre:
+            if is_finite_number(pre) and is_finite_number(post) and post >= pre:
                 result['deltas'][name] = post - pre
             else:
                 result['deltas'][name] = None
@@ -1259,23 +1260,23 @@ class IDSCamera(Camera):
         lost_d = result['deltas'].get('StreamLostFrameCount')
         dropped_d = result['deltas'].get('StreamDroppedFrameCount')
         if duration_s > 0 and dt > 0:
-            if isinstance(delivered_d, (int, float)):
+            if is_finite_number(delivered_d):
                 result['derived']['observed_fps'] = delivered_d / dt
                 # A frame the host lost for want of a free buffer, or dropped,
                 # never reaches the delivered count: only a window with
                 # neither is the camera's own rate. None when either count was
                 # unread. (StreamUnderrunCount is not among them: the U3-34L
                 # has no such node.)
-                if isinstance(lost_d, (int, float)) and isinstance(dropped_d, (int, float)):
+                if is_finite_number(lost_d) and is_finite_number(dropped_d):
                     result['derived']['observed_fps_is_camera_rate'] = (
                         lost_d == 0 and dropped_d == 0
                     )
                 else:
                     result['derived']['observed_fps_is_camera_rate'] = None
-                total = delivered_d + lost_d if isinstance(lost_d, (int, float)) else None
-                if isinstance(total, (int, float)) and total > 0:
+                total = delivered_d + lost_d if is_finite_number(lost_d) else None
+                if is_finite_number(total) and total > 0:
                     result['derived']['loss_rate_pct'] = 100.0 * lost_d / total
-            if isinstance(lost_d, (int, float)):
+            if is_finite_number(lost_d):
                 result['derived']['losses_per_second'] = lost_d / dt
 
         return result

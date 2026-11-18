@@ -408,6 +408,14 @@ class TestRowParsing:
             ),
             pytest.param(_rows(row(LED1, None, 1, None)), 'no excitation_nm', id='no excitation'),
             pytest.param(
+                _rows(row(LED1, None, 1, float('inf'))),
+                'malformed excitation_nm',
+                id='an infinite excitation',
+            ),
+            pytest.param(
+                _with('Optics', {'PixelSize': float('nan')}), "'PixelSize'", id='optics NaN'
+            ),
+            pytest.param(
                 _rows(row('BF', 'BF', 3), row('PC', 'PC', 3)),
                 'BF and PC both name LED address 3',
                 id='two rows on one LED address',

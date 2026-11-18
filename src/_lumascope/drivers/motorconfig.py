@@ -8,13 +8,13 @@ for any missing keys.
 """
 
 import copy
-import math
 import types
 from collections.abc import Mapping
 from typing import ClassVar
 
 from _lumascope.drivers.exceptions import ConfigReadError, PartAbsentError
 from _lumascope.lib.log_helpers import logger
+from _lumascope.lib.real_numbers import is_finite_number
 
 
 # The axes whose travel bounds a move. The turret's T is a slot number, not
@@ -22,23 +22,18 @@ from _lumascope.lib.log_helpers import logger
 LIMITED_AXES = ('X', 'Y', 'Z')
 
 
-def _is_number(value: object) -> bool:
-    """Whether ``value`` is a finite int or float; a bool is not a number here."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-
-
 TRAVEL = 'Axis Travel Limit'
 MARGIN = 'Axis Travel Margin'
 
 
 def _travel_problem(travel_mm: object) -> str | None:
-    if not _is_number(travel_mm) or travel_mm <= 0:
+    if not is_finite_number(travel_mm) or travel_mm <= 0:
         return f'travel {travel_mm!r} is not a positive number of mm'
     return None
 
 
 def _margin_problem(margin_mm: object) -> str | None:
-    if not _is_number(margin_mm) or margin_mm < 0:
+    if not is_finite_number(margin_mm) or margin_mm < 0:
         return f'margin {margin_mm!r} is not a number of mm of zero or more'
     return None
 
@@ -192,7 +187,7 @@ class MotorConfig:
             if key in self._NUMERIC_SECTIONS and isinstance(value, dict):
                 valid_axes = {}
                 for axis, val in value.items():
-                    if not isinstance(val, (int, float)):
+                    if not is_finite_number(val):
                         logger.warning(
                             f'[MotorConfig] Rejecting non-numeric board value '
                             f'{key}.{axis}={val!r} (type={type(val).__name__})'
@@ -207,7 +202,7 @@ class MotorConfig:
             elif key == 'TurretPosition' and isinstance(value, dict):
                 valid_pos = {}
                 for pos, val in value.items():
-                    if isinstance(val, (int, float)):
+                    if is_finite_number(val):
                         valid_pos[pos] = val
                     else:
                         logger.warning(

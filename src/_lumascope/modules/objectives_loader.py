@@ -6,6 +6,7 @@ import types
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.modules.exceptions import (
     CatalogueNameRefusedError,
     InstallationFileError,
@@ -169,7 +170,7 @@ def _read_objective(objective_id: object, entry: object, filepath: pathlib.Path)
                 raise InstallationFileError(
                     filepath, f'gives objective {objective_id!r} a {key!r} that is not text'
                 )
-        elif isinstance(value, bool) or not isinstance(value, (int, float)):
+        elif not is_finite_number(value):
             raise InstallationFileError(
                 filepath, f'gives objective {objective_id!r} a {key!r} that is not a number'
             )

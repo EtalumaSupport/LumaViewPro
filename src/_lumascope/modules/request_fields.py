@@ -15,12 +15,11 @@ A leaf, like ``finite_number``: it imports nothing of the project but the
 refusal and that predicate.
 """
 
-import math
-import numbers
 from collections.abc import Mapping
 
 import numpy as np
 
+from _lumascope.lib.real_numbers import is_count
 from _lumascope.modules.exceptions import ArgumentRefusedError
 from _lumascope.modules.finite_number import refuse_unless_finite_number
 
@@ -30,15 +29,7 @@ _KINDS = {
     'dict': ('a dictionary', lambda v: isinstance(v, Mapping)),
     'list': ('a list', lambda v: isinstance(v, (list, tuple))),
     # The settings store's count rule: 2.0 is a whole number, 2.5 is not.
-    'whole': (
-        'a whole number',
-        lambda v: (
-            isinstance(v, numbers.Real)
-            and not isinstance(v, (bool, np.bool_))
-            and math.isfinite(v)
-            and float(v).is_integer()
-        ),
-    ),
+    'whole': ('a whole number', is_count),
 }
 
 

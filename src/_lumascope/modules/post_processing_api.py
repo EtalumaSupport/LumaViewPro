@@ -37,11 +37,12 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from matplotlib.figure import Figure
 
+from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import channel_record, graph_analysis, live_work, path_utils
 from _lumascope.modules.activity_claim import ActivityHolder, the_holder_named
 from _lumascope.modules.cell_count_method import CellCountMethod
-from _lumascope.modules.finite_number import is_finite_number
+from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.modules.graph_analysis import Trendline
 from _lumascope.modules.exceptions import (
     ExcludedInput,
@@ -1402,7 +1403,8 @@ class PostProcessingAPI:
         from _lumascope.modules.post_processing import cell_count_scale, size_slider_stops
 
         if shape is not None and (
-            len(shape) not in (2, 3) or not all(type(side) is int and side >= 1 for side in shape)
+            len(shape) not in (2, 3)
+            or not all(is_integer_number(side) and side >= 1 for side in shape)
         ):
             raise PostProcessingRefusedError(
                 operation=PostProcessingOperation.CELL_COUNT,
