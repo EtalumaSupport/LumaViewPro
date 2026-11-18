@@ -156,22 +156,77 @@ def test_a_window_with_no_length_has_no_shares():
     assert common_utils.program_cpu_shares(table, table, 0.0, 4, frozenset()) == []
 
 
+_times = namedtuple('pcputimes', 'user system')
+
+
+class _Process:
+    """One process as psutil gives it: each fact a getter, None where the OS denies it."""
+
+    def __init__(self, pid, name, created, cpu):
+        self.pid = pid
+        self._facts = {'name': name, 'create_time': created, 'cpu_times': cpu}
+
+    def __getattr__(self, fact):
+        value = self.__dict__['_facts'][fact]
+
+        def getter():
+            if isinstance(value, BaseException):
+                raise value
+            return value
+
+        return getter
+
+
+def _host_running(monkeypatch, *processes):
+    """psutil's process walk over ``processes``: each asked fact read as ``as_dict`` reads it.
+
+    A fact the OS denies reads None, as ``as_dict`` keeps an ``AccessDenied``;
+    any other error ends the walk, as ``process_iter`` lets it out.
+    """
+
+    def process_iter(attrs):
+        for proc in processes:
+            proc.info = {fact: getattr(proc, fact)() for fact in attrs}
+            yield proc
+
+    monkeypatch.setattr(common_utils.psutil, 'process_iter', process_iter)
+
+
 def test_a_process_the_os_will_not_read_is_counted_not_read(monkeypatch):
-    times = namedtuple('pcputimes', 'user system')
-
-    class _Process:
-        def __init__(self, pid, name, created, cpu):
-            self.pid = pid
-            self.info = {'name': name, 'create_time': created, 'cpu_times': cpu}
-
     # a stand-in by design: the host's process table, with a process the OS denies.
-    table = [
-        _Process(7, 'Updater.exe', 2.0, times(3.0, 2.0)),
+    _host_running(
+        monkeypatch,
+        _Process(7, 'Updater.exe', 2.0, _times(3.0, 2.0)),
         _Process(88, 'WindowServer', 1.0, None),
-    ]
-    monkeypatch.setattr(common_utils.psutil, 'process_iter', lambda attrs: iter(table))
+    )
 
     assert common_utils.process_cpu_seconds() == ({(7, 2.0): ('Updater.exe', 5.0)}, 1)
+
+
+def test_a_process_whose_name_psutil_cannot_give_is_counted_by_its_pid(monkeypatch):
+    """On macOS psutil reads a long-named process's command line for its full
+    name, and for a process the OS would not give it that read raised
+    ``SystemError`` once, which ends psutil's walk. The walk goes on;
+    that process is counted, named by its pid. Before, the error left the
+    startup reading and ``ScopeSession.create`` with it."""
+    # a stand-in by design: the host's process table, with the SystemError
+    # psutil 7.2.2's macOS command-line read raised, which no simulator makes.
+    cut = SystemError('<built-in function proc_cmdline> returned a result with an exception set')
+    _host_running(
+        monkeypatch,
+        _Process(7, 'Updater.exe', 2.0, _times(3.0, 2.0)),
+        _Process(41, cut, 3.0, _times(1.0, 0.5)),
+        _Process(90, 'Backup Helper', 4.0, _times(2.0, 2.0)),
+    )
+
+    assert common_utils.process_cpu_seconds() == (
+        {
+            (7, 2.0): ('Updater.exe', 5.0),
+            (41, 3.0): ('pid 41', 1.5),
+            (90, 4.0): ('Backup Helper', 4.0),
+        },
+        0,
+    )
 
 
 # ------------------------------------------------------------ the save drive

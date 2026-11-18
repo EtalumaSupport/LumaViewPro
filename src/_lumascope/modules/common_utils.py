@@ -1214,23 +1214,42 @@ def process_cpu_seconds() -> tuple[ProcessCpuSeconds, int]:
     A process that ends while the table is read is left out. One whose
     CPU time or start the OS keeps from this process is counted, not read:
     on macOS a non-root user cannot read about a third, ``WindowServer``
-    and ``kernel_task`` among them.
+    and ``kernel_task`` among them. One whose name the OS keeps is read
+    and named by its pid.
+
+    The walk asks psutil for no names: a name is read after it, one
+    process at a time (``_process_name``), so a name psutil cannot give
+    never ends the walk.
 
     Returns:
         ``({(pid, create_time): (name, user + system seconds)}, denied)``.
     """
     seconds: ProcessCpuSeconds = {}
     denied = 0
-    for proc in psutil.process_iter(['name', 'create_time', 'cpu_times']):
+    for proc in psutil.process_iter(['create_time', 'cpu_times']):
         times, created = proc.info['cpu_times'], proc.info['create_time']
         if times is None or created is None:
             denied += 1
             continue
-        seconds[(proc.pid, created)] = (
-            proc.info['name'] or f'pid {proc.pid}',
-            times.user + times.system,
-        )
+        seconds[(proc.pid, created)] = (_process_name(proc), times.user + times.system)
     return seconds, denied
+
+
+def _process_name(proc: psutil.Process) -> str:
+    """``proc``'s name, or ``pid N`` when psutil cannot give it.
+
+    On POSIX psutil reads a name of 15 characters or more through the
+    process's command line, and on macOS that read, refused for a process
+    the OS would not give it (seen once, in a test run full of processes
+    starting and ending), raised ``SystemError`` from psutil's own C code
+    (psutil 7.2.2) rather than ``AccessDenied``. Both mean the same here: the name is not this
+    process's to read.
+    """
+    try:
+        name = proc.name()
+    except (psutil.Error, SystemError):
+        return f'pid {proc.pid}'
+    return name or f'pid {proc.pid}'
 
 
 def program_cpu_shares(
