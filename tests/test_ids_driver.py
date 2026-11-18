@@ -32,8 +32,6 @@ from _lumascope.drivers.idscamera import (
     IDSCamera,
     _ids_delivery_significant_bits,
     _ids_delivery_target,
-    _ids_ipl_target,
-    ids_significant_bits,
 )
 from _lumascope.drivers.exceptions import (
     CameraReadFailedError,
@@ -108,58 +106,6 @@ class _RecordingNodemap:
         return self.nodes.setdefault(name, _RecordingNode())
 
 
-class TestSignificantBitsFromFormat:
-    @pytest.mark.parametrize(
-        'wire,expected',
-        [
-            ('Mono12g24IDS', 12),
-            ('Mono12p', 12),
-            ('Mono12', 12),
-            ('Mono10g40IDS', 10),
-            ('Mono10p', 10),
-            ('Mono10', 10),
-            ('Mono8', 8),
-            ('Mono8g', 8),
-            ('Mono16', 16),  # leading-bit-count fallback for an unprefixed name
-            ('BayerRG8', 8),  # no Mono token -> safe 8-bit default
-            ('', 8),
-        ],
-    )
-    def test_significant_bits(self, wire, expected):
-        assert ids_significant_bits(wire) == expected
-
-    def test_unrecognized_format_warns_but_defaults_8(self, caplog):
-        # A non-Mono (color/packed) name is unexpected on this mono-only driver:
-        # still default to 8, but WARN so it is loud rather than silently stamped.
-        with caplog.at_level(logging.WARNING):
-            assert ids_significant_bits('BayerRG12') == 8
-        assert len(_cam_lines(caplog, logging.WARNING)) == 1, caplog.messages
-
-    def test_recognized_mono_format_does_not_warn(self, caplog):
-        with caplog.at_level(logging.WARNING):
-            assert ids_significant_bits('Mono12') == 12
-        assert _cam_lines(caplog, logging.WARNING) == []
-
-    def test_empty_format_defaults_8_quietly(self, caplog):
-        # An empty/None format is no format read, not a color camera --
-        # default to 8 without the misleading "unrecognized color format" warning.
-        with caplog.at_level(logging.WARNING):
-            assert ids_significant_bits('') == 8
-            assert ids_significant_bits(None) == 8
-        assert _cam_lines(caplog, logging.WARNING) == []
-
-
-class TestIplTarget:
-    def test_mono12_unpacks_to_mono12(self):
-        assert _ids_ipl_target('Mono12g24IDS') is ids_peak_ipl.PixelFormatName_Mono12
-
-    def test_mono10_unpacks_to_mono10(self):
-        assert _ids_ipl_target('Mono10g40IDS') is ids_peak_ipl.PixelFormatName_Mono10
-
-    def test_mono8_stays_mono8(self):
-        assert _ids_ipl_target('Mono8') is ids_peak_ipl.PixelFormatName_Mono8
-
-
 class TestDeliveryTarget:
     """The production unpack delivers Mono10 (the 8-bit-mode wire) straight to
     8-bit in one ConvertTo pass; Mono12 (the 12-bit modes) stays native uint16."""
@@ -178,11 +124,6 @@ class TestDeliveryTarget:
         assert _ids_delivery_significant_bits('Mono10g40IDS') == 8
         assert _ids_delivery_significant_bits('Mono12g24IDS') == 12
         assert _ids_delivery_significant_bits('Mono8') == 8
-
-    def test_mono10_delivery_depth_differs_from_native_wire_depth(self):
-        # The Mono10 wire is 10-bit native but delivered as 8-bit in 8-bit mode.
-        assert ids_significant_bits('Mono10g40IDS') == 10
-        assert _ids_delivery_significant_bits('Mono10g40IDS') == 8
 
 
 class TestDepthContract:

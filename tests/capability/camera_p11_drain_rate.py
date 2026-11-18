@@ -7,7 +7,7 @@ splits the cause. Each size is read twice: the normal pipeline through the
 diagnostic probe (the stream's own delivered count over 10 s), then a drain
 in which the unpack worker is paused and a loop only waits for each finished
 buffer and hands it straight back to the camera (the driver's
-`_drain_finished_buffers`, the unpack benchmark's own loop), timed over
+`_drain_finished_buffers`), timed over
 DRAIN_FRAMES. A drain at 66 puts the gap in LumaViewPro's pipeline; a drain
 at the normal rate puts it in the stream's configuration.
 

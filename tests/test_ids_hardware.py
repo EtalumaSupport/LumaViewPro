@@ -24,7 +24,6 @@ import pytest
 # the tests at collection time.
 from _lumascope.drivers.exceptions import CameraWriteFailedError
 from _lumascope.drivers.idscamera import IDSCamera
-from _lumascope.modules.image_utils import convert_to_8bit
 
 
 @pytest.mark.ids_hardware
@@ -299,8 +298,7 @@ class TestIDS(unittest.TestCase):
         pixel fits in the low significant_bits of the uint16. If the SDK
         left-aligns instead, pixel values ride in the high bits and overflow
         that range -- the assertion below catches it, settling the #1
-        undocumented unpack unknown. src/_lumascope/drivers/ids_unpack.py is the cross-check
-        for the expected layout.
+        undocumented unpack unknown.
 
         Needs light on the sensor: a near-dark frame can't distinguish the two
         alignments (small values stay small either way), so the test skips
@@ -344,93 +342,6 @@ class TestIDS(unittest.TestCase):
             f'must shift. This is the alignment unknown the rebuild flagged.',
         )
         self.assertGreaterEqual(int(frame.min()), 0)
-
-    def test_unpack_benchmark(self):
-        """Head-to-head: the SDK ConvertTo unpack vs the numpy ids_unpack path,
-        on real packed frames. Two questions in one run:
-
-          1. Correctness -- ConvertTo is the oracle. A zero-mismatch result
-             proves the derived packed-bit layout (and right-alignment) is
-             correct, since IDS documents the layout only as a figure.
-          2. Speed -- the per-frame timings show whether the numpy unpack is
-             actually faster than ConvertTo on this host (the ~18 fps display
-             cap is the ConvertTo throughput).
-
-        Run with output visible:
-            pytest tests/test_ids_hardware.py -k unpack_benchmark --run-ids-hardware -s
-
-        Needs light on the sensor so a real (non-zero) image exercises the
-        full-scale bits; an all-dark frame would match trivially on both paths.
-        """
-        time.sleep(1)  # let acquisition settle
-        res = self.camera.benchmark_unpack(n_frames=200)
-
-        print('\n[IDS unpack benchmark]')
-        for k in (
-            'wire_format',
-            'width',
-            'height',
-            'available_formats',
-            'packed_dtype',
-            'n_compared',
-            'mismatches',
-            'first_mismatch',
-            'convert',
-            'numpy',
-            'icv',
-        ):
-            print(f'  {k}: {res.get(k)}')
-
-        self.assertGreater(res['n_compared'], 0, f'no frames were compared: {res.get("error")}')
-        self.assertEqual(
-            res['mismatches'],
-            0,
-            f'numpy unpack disagrees with ConvertTo on {res["mismatches"]}/'
-            f'{res["n_compared"]} frames -- the derived layout is wrong: '
-            f'{res.get("first_mismatch")}',
-        )
-
-    def test_afl_packed_process_acceptance(self):
-        """Bench probe: does ids_peak_afl.Manager.Process() accept a PACKED
-        image, or must it be fed an unpacked one?
-
-        The IMX676 body has no camera-side auto-exposure/gain; a host auto
-        routine must run through ids_peak_afl. Process() takes an IPL image,
-        but IDS does not document whether the packed Mono10g40IDS/Mono12g24IDS
-        wire formats are accepted. This answers it empirically so the future
-        auto routine knows whether it can feed the raw buffer or must unpack
-        each frame first. The probe also dumps the real ids_peak_afl API
-        surface (module/Manager/Controller) since the Python binding spelling
-        is not pinned. Informational -- reads the answer, does not pass/fail on
-        it.
-
-        Run with output visible:
-            pytest tests/test_ids_hardware.py -k afl_packed --run-ids-hardware -s --driver-log
-        """
-        time.sleep(1)  # let acquisition settle
-        res = self.camera.probe_afl_packed_acceptance()
-
-        print('\n[AFL packed-Process probe]')
-        for k in sorted(res):
-            print(f'  {k}: {res.get(k)}')
-
-        if not res.get('afl_importable'):
-            self.skipTest(f'ids_peak_afl not importable: {res.get("afl_import_errors")}')
-
-        # The headline datapoint: whether the PACKED image was accepted. Not an
-        # assertion -- either answer is valid and printed above. Fail only if the
-        # probe could not set up the manager at all (nothing was learned).
-        packed = res.get('packed')
-        print(
-            f'  ==> PACKED accepted: {packed.get("accepted") if packed else None} '
-            f'(exception={packed.get("exception") if packed else None}); '
-            f'UNPACKED accepted: {(res.get("unpacked") or {}).get("accepted")}'
-        )
-        self.assertTrue(
-            res.get('packed') is not None
-            or any(k in res for k in ('error', 'lib_init_error', 'manager_setup_error')),
-            f'AFL probe returned neither a packed result nor a recorded reason: {res}',
-        )
 
     def test_camera_capability_nodemap_probe(self):
         """Read-only bench probe: dump the presence/access/entries of the nodes
@@ -528,47 +439,6 @@ class TestIDS(unittest.TestCase):
 
         # Sanity: the remote nodemap read path works (PixelFormat is always there).
         self.assertTrue(remote.HasNode('PixelFormat'))
-
-    def test_8bit_direct_unpack_matches_rescale(self):
-        """Bench gate for the direct 10->8 delivery (8-bit mode): the SDK's
-        packed->Mono8 ConvertTo must match the prior native-then-host-rescale
-        within 1 LSB on real frames.
-
-        8-bit image mode now unpacks the Mono10 wire straight to 8-bit in one
-        pass (no uint16 intermediate, no display-thread downconvert). That trades
-        the host's exact linear rescale for the SDK's bit-shift; this asserts the
-        swap is <=1 LSB so saved/displayed 8-bit pixels are unchanged in practice.
-
-        Run on a Mono10 wire (8-bit mode) with light on the sensor:
-            pytest tests/test_ids_hardware.py -k 8bit_direct --run-ids-hardware -s
-        """
-        time.sleep(1)  # let acquisition settle
-        res = self.camera.crosscheck_8bit_unpack(convert_to_8bit, n_frames=100)
-
-        print('\n[IDS 8-bit direct-unpack cross-check]')
-        for k in (
-            'wire_format',
-            'skipped',
-            'n_compared',
-            'max_abs_diff',
-            'pixels_over_1lsb',
-            'error',
-        ):
-            print(f'  {k}: {res.get(k)}')
-
-        if res.get('skipped'):
-            self.skipTest(res['skipped'])  # not a Mono10/8-bit-mode wire
-
-        self.assertGreater(res['n_compared'], 0, f'no frames were compared: {res.get("error")}')
-        # max_abs_diff <= 1 already implies pixels_over_1lsb == 0, so one assertion
-        # covers the whole-frame bound.
-        self.assertLessEqual(
-            res['max_abs_diff'],
-            1,
-            f'direct ConvertTo(Mono8) drifts {res["max_abs_diff"]} LSB from the rescale '
-            f'oracle ({res["pixels_over_1lsb"]} pixels over 1 LSB) -- the SDK downconvert is '
-            f'not a simple bit-shift; keep the rescale path',
-        )
 
 
 class TestIDSPixelFormatResolver(unittest.TestCase):

@@ -341,17 +341,6 @@ def test_set_frame_size_on_phased_height_grid_2x_binning():
     assert cam.get_frame_size()['height'] == 948  # exact request delivered
 
 
-def test_optical_center_bias_is_neutral():
-    """The optical-center bias is (0,0) today -- the AOI centers geometrically
-    (correct for every unit). It is plumbed through plan_aoi so the upcoming
-    optical-center work implements only this method's body; it must never raise
-    on the neutral path (set_frame_size would swallow a raise into a silent
-    failure to resize)."""
-    cam = _ids_camera_with_aoi()
-    assert cam._optical_center_bias() == (0, 0)
-    assert cam.set_frame_size(1900, 1900) == {'width': 1900, 'height': 1900}
-
-
 def test_an_unpacked_frame_is_cropped_to_the_window_where_it_is_stored(monkeypatch):
     """The unpack worker hands on the whole converted frame, a contiguous copy;
     storing it crops it to the recorded window, so the frame that leaves the
@@ -364,7 +353,7 @@ def test_an_unpacked_frame_is_cropped_to_the_window_where_it_is_stored(monkeypat
     handler._parent = parent
 
     full = np.arange(1920 * 1900, dtype=np.uint16).reshape(1900, 1920)
-    target_fmt = idscamera._ids_ipl_target('Mono12g24IDS')
+    target_fmt = idscamera._ids_delivery_target('Mono12g24IDS')
     fake_img = MagicMock()
     fake_img.PixelFormat.return_value = target_fmt  # already target -> skip ConvertTo
     fake_img.get_numpy.return_value = full
@@ -401,7 +390,7 @@ def test_unpack_passes_the_whole_frame_through(monkeypatch):
 
     full = np.zeros((1900, 1920), dtype=np.uint16)
     fake_img = MagicMock()
-    fake_img.PixelFormat.return_value = idscamera._ids_ipl_target('Mono12g24IDS')
+    fake_img.PixelFormat.return_value = idscamera._ids_delivery_target('Mono12g24IDS')
     fake_img.get_numpy.return_value = full
     monkeypatch.setattr(idscamera.ids_peak_ipl_extension, 'BufferToImage', lambda buffer: fake_img)
 

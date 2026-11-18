@@ -29,8 +29,6 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 | pypylon | 26.10 | BSD-3-Clause (the wrapper; the wheel's metadata declares Other/Proprietary). It carries the Basler pylon runtime, below. | https://github.com/basler/pypylon |
 | ids-peak | 1.15.0.0.8 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak/ |
 | ids-peak-ipl | 1.17.2.0.7 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak-ipl/ |
-| ids-peak-icv | 1.3.0.9744 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak-icv/ |
-| ids-peak-afl | 2.0.1.0.6 | IDS license terms (proprietary) | https://pypi.org/project/ids-peak-afl/ |
 | PyAV (`av`) | 17.0.1 | BSD-3-Clause wrapper over LGPL-2.1 FFmpeg | https://github.com/PyAV-Org/PyAV |
 | FastAPI | 0.143.0 | MIT | https://github.com/fastapi/fastapi |
 | uvicorn | 0.54.0 | BSD-3-Clause | https://github.com/Kludex/uvicorn |
@@ -75,7 +73,7 @@ This NOTICE file is maintained by Etaluma, Inc. in accordance with Apache-2.0 §
 | tzdata | 2026.6 | Apache-2.0 | https://github.com/python/tzdata |
 | urllib3 | 2.8.0 | MIT | https://github.com/urllib3/urllib3 |
 
-The IDS license terms permit distributing the IDS software only in products that operate with IDS cameras. Each ids-peak wheel carries those terms (`LICENSE`) and the licenses of the open-source components inside it (`third_party_licenses.txt`, `third_party_copyrights.txt`; ids-peak's GenICam licenses under `genicam/`). The installation carries them where the wheels put them: `ids_peak-<version>.dist-info/licenses/`, and the same for `ids_peak_ipl`, `ids_peak_icv` and `ids_peak_afl`, in the installation folder.
+The IDS license terms permit distributing the IDS software only in products that operate with IDS cameras. Each ids-peak wheel carries those terms (`LICENSE`) and the licenses of the open-source components inside it (`third_party_licenses.txt`, `third_party_copyrights.txt`; ids-peak's GenICam licenses under `genicam/`). The installation carries them where the wheels put them: `ids_peak-<version>.dist-info/licenses/`, and the same for `ids_peak_ipl`, in the installation folder.
 
 ## C / C++ libraries bundled inside the imagecodecs wheel
 
@@ -109,7 +107,7 @@ These ship inside the application folder after PyInstaller builds the Windows in
 | GLEW | Modified BSD / MIT | http://glew.sourceforge.net/ | Bundled via `kivy_deps.glew`. |
 | OpenBLAS | BSD-3-Clause | https://www.openblas.net/ | Bundled inside NumPy/SciPy wheels. |
 | Basler pylon runtime (`PylonBase`, `PylonUtility`, the USB and GigE transport layers, the GenICam `GenApi` / `GCBase` libraries) | Proprietary, Basler's: the wheel's metadata declares Other/Proprietary and it carries no license text for them | https://www.baslerweb.com/pylon | Shipped inside the pypylon wheel and collected with it. |
-| IDS peak libraries (`ids_peak.dll`, `ids_peak_ipl.dll`, `ids_peak_icv.dll`, `ids_peak_afl.dll`, their GenICam libraries and TBB) | IDS license terms (proprietary); the open-source components' licenses as each wheel lists them | https://en.ids-imaging.com/ids-peak.html | Shipped inside the four ids-peak wheels, each collected whole. |
+| IDS peak libraries (`ids_peak.dll`, `ids_peak_ipl.dll`, their GenICam libraries and TBB) | IDS license terms (proprietary); the open-source components' licenses as each wheel lists them | https://en.ids-imaging.com/ids-peak.html | Shipped inside the two ids-peak wheels, each collected whole. |
 | libusb-1.0 (`libusb-1.0.dll` / `.dylib` / `.so`) | LGPL-2.1-or-later | https://libusb.info/ | The USB library the Lumascope Classic (LS460, LS560, LS620, LS720) drivers run on, through pyusb and python-libusb1. Shipped unmodified from the `libusb-package` wheel, in the application's `libusb_package/` folder, and loaded at run time, so it is user-replaceable per LGPL §6. |
 
 ## Installed by their own installers

@@ -1,10 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import atexit
 import math
-import re
 import threading
 import time
-from collections.abc import Callable
 from typing import Any, ClassVar, NoReturn
 
 # ids_peak_ipl first: its package __init__ registers the DLL directory the
@@ -162,71 +160,12 @@ def _ids_library_cleanup():
 atexit.register(_ids_library_cleanup)
 
 
-def ids_significant_bits(wire_format_name: str) -> int:
-    """Native payload depth of the given wire PixelFormat (the oracle counterpart
-    of _ids_ipl_target).
-
-    Derived from the GenICam format name so the depth tracks the sensor's
-    real format rather than the (16-bit) container the unpacked frame rides
-    in: Mono12* -> 12, Mono10* -> 10, Mono8* -> 8. Falls back to the leading
-    bit count in the name, then to 8. Pure logic -- no SDK call -- so it is
-    unit-testable without a camera.
-
-    NOTE: this is the WIRE's native depth, not necessarily what the production
-    unpack DELIVERS -- 8-bit mode delivers the Mono10 wire reduced to 8-bit (see
-    _ids_delivery_significant_bits). Use this for native-depth reasoning (the
-    unpack benchmark oracle); use the delivery helper for the depth stamp on a
-    live/still frame.
-    """
-    # Empty/None is a format not known (the API's held format before it is
-    # read), not a format: default to 8 QUIETLY (a warning here would misreport
-    # it as a color/packed camera). Also keeps the startswith calls below None-safe.
-    if not wire_format_name:
-        return 8
-    if wire_format_name.startswith('Mono12'):
-        return 12
-    if wire_format_name.startswith('Mono10'):
-        return 10
-    if wire_format_name.startswith('Mono8'):
-        return 8
-    match = re.search(r'Mono(\d+)', wire_format_name)
-    if match:
-        return int(match.group(1))
-    # A non-empty, non-Mono name. This driver's cameras are mono-only, so a
-    # color / packed name is unexpected -- and its trailing bit count does not map
-    # to significant bits the way Mono<N> does (IDS's own Mono12g24IDS packs 12
-    # significant bits into a 24-bit wire), so a naive "last digits" read would
-    # mislabel it. Default to 8 but WARN, so a color camera ever reaching here is
-    # loud rather than silently stamped 8-bit.
-    _cam_log.warning(
-        f'[CAM Class ] Unrecognized wire format {wire_format_name!r} for '
-        'significant-bits derivation; defaulting to 8 (mono formats expected)'
-    )
-    return 8
-
-
-def _ids_ipl_target(wire_format_name: str):
-    """IPL ConvertTo target that unpacks a wire format to its NATIVE depth.
-
-    Mono10/Mono12 unpack to a right-aligned uint16; Mono8 stays 8-bit. This is
-    the oracle target used by the unpack benchmark (it compares ConvertTo to the
-    numpy reference at full native depth); the production live/still unpack uses
-    _ids_delivery_target instead. The SDK does the unpack (faster than a
-    hand-unpacker and the alignment is the SDK's own); src/_lumascope/drivers/ids_unpack.py is
-    the bench cross-check for the target.
-    """
-    if wire_format_name.startswith('Mono12'):
-        return ids_peak_ipl.PixelFormatName_Mono12
-    if wire_format_name.startswith('Mono10'):
-        return ids_peak_ipl.PixelFormatName_Mono10
-    return ids_peak_ipl.PixelFormatName_Mono8
-
-
 def _ids_delivery_target(wire_format_name: str):
     """IPL ConvertTo target for the PRODUCTION live/still unpack.
 
-    Differs from _ids_ipl_target (native depth) for the Mono10 wire: this body
-    has no native Mono8 wire format, so 8-bit image mode captures the
+    The SDK does the unpack (faster than a hand-unpacker, and the alignment is
+    the SDK's own). For the Mono10 wire the target is not the native depth: this
+    body has no native Mono8 wire format, so 8-bit image mode captures the
     lowest-bandwidth native (Mono10) and reduces to 8-bit on the host (see
     _lumascope.modules.image_mode.select_capture_pixel_format). Mono10 is therefore only
     ever the 8-bit-mode wire, so unpack it straight to Mono8 in ONE ConvertTo
@@ -235,9 +174,9 @@ def _ids_delivery_target(wire_format_name: str):
     uint16 so the full depth survives to save/analysis.
 
     The Mono10->Mono8 reduction is the SDK's bit-shift, within <=1 LSB of the
-    host rescale LUT it replaces (tests/test_ids_hardware.py cross-checks this on
-    real frames). If a future image mode ever drives Mono10 wire while wanting
-    >8-bit output, this coupling must become an explicit delivered-depth the
+    host rescale LUT it replaces (cross-checked on real frames: 100 frames, max
+    difference 1 LSB, on the 2026-11-10 bench at beta47). If a future image
+    mode ever drives Mono10 wire while wanting >8-bit output, this coupling must become an explicit delivered-depth the
     camera config sets; no such mode exists today.
     """
     if wire_format_name.startswith('Mono12'):
@@ -266,6 +205,9 @@ def _unpack_buffer(buffer, wire_format_name: str, owed: OwedReverse):
     target = _ids_delivery_target(wire_format_name)
     img = ids_peak_ipl_extension.BufferToImage(buffer)
     if img.PixelFormat() != target:
+        # Bound to a name before get_numpy(): the view it returns does not keep
+        # the IPL image alive, so a chained ConvertTo(...).get_numpy() frees the
+        # converted buffer before the copy reads it (an access violation).
         img = img.ConvertTo(target)
     return copy_oriented(img.get_numpy(), owed)
 
@@ -406,15 +348,14 @@ class IDSCamera(Camera):
         # of the wrapper auto-deregisters the callback -- so they are held as
         # attrs. _device_key (the GenTL key captured at open) filters the
         # manager-wide DeviceLost down to our device; _async_teardown_started
-        # guards the one-shot deferred close/destroy off the SDK callback thread.
+        # (the base sets it) guards the one-shot deferred close/destroy off the
+        # SDK callback thread. _device_serial (the base sets it) is the stable
+        # device identity across re-enumeration (the GenTL descriptor/key are
+        # not): the unplug presence probe and a denied-open retry both re-match
+        # by it.
         self._device_key = None
         self._device_lost_callback = None
         self._device_lost_callback_handle = None
-        self._async_teardown_started = False
-        # _device_serial is the stable device identity across re-enumeration
-        # (the GenTL descriptor/key are not): the unplug presence probe and a
-        # denied-open retry both re-match by it.
-        self._device_serial = None
         # Capability values resolved live from the nodemap at connect, not
         # hardcoded per model: the analog GainSelector enum entry this body
         # actually exposes, and its maximum square binning factor. Defaults are
@@ -1433,14 +1374,11 @@ class IDSCamera(Camera):
                     logger.debug(f'[CAM Class ] Could not query binning range: {e}')
 
             # Two Pylon-parity capabilities are deliberately NOT resolved here:
-            # they are Basler-proprietary (Bsl*) nodes with no SFNC-standard (or
-            # IDS) equivalent the live nodemap advertises, so they are genuinely
-            # absent from the IDS surface -- a capability-derived absence, not a
-            # stubbed model assumption:
             #   - conversion-gain mode (pylon set_conversion_gain_mode /
             #     BslConversionGainMode): a dual high/low charge-to-voltage gain
-            #     select. The IMX676 exposes only the standard Gain node (resolved
-            #     above); there is no advertised conversion-gain selector to bind.
+            #     select. A 3.95-firmware body lists a HighConversionGain node;
+            #     what it does on this sensor has not been read, so nothing
+            #     binds it.
             #   - line-noise reduction (pylon set_line_noise_reduction /
             #     BslLineNoiseReductionEnable): a Basler readout-FPN filter. No
             #     equivalent IDS node, and the production unpack does no host-side
@@ -2004,11 +1942,10 @@ class IDSCamera(Camera):
         and hand each completed (non-incomplete) buffer's IPL image to
         per_frame(img); always re-queue the buffer and restore the grab pipeline.
 
-        Shared spine for the bench scaffolds (benchmark_unpack /
-        crosscheck_8bit_unpack): they differ only in the per-frame comparison,
-        so the worker-pause + WaitForFinishedBuffer drain + teardown lives here
-        once. The live unpack path is untouched. ``label`` tags the warning/debug
-        lines so a log shows which scaffold drove the stream.
+        The bench drain-rate script (``tests/capability/camera_p11_drain_rate.py``)
+        drives it to time the drain with the worker out of the loop. The live
+        unpack path is untouched. ``label`` tags the warning/debug lines so a log
+        shows what drove the stream.
         """
         # Pause the worker so this loop owns the finished-buffer flow, and clear
         # any KillWait the stop posted so the first wait is not aborted on arrival.
@@ -2038,414 +1975,11 @@ class IDSCamera(Camera):
             if handler is not None:
                 handler.start()
 
-    def probe_afl_packed_acceptance(self) -> dict:
-        """One-shot bench probe: does ids_peak_afl accept a PACKED image?
-
-        The IMX676 body has no camera-side auto-exposure/gain, so a future host
-        auto-brightness routine must run through ids_peak_afl. Its Process()
-        takes an IPL image, but IDS does not document whether the packed
-        Mono10g40IDS / Mono12g24IDS wire formats are accepted or must be
-        unpacked first. This drives one packed frame -- and its unpacked copy --
-        through afl Process() and records which the library accepts: the single
-        fact that decides whether the auto routine can feed the raw buffer or
-        must unpack every frame first (an INVALID_IMAGE_FORMAT on the packed
-        image is the "must unpack" answer).
-
-        Introspective and defensive: the ids_peak_afl surface (module, Manager,
-        Controller) is captured, and the controller-type enum is resolved by
-        trying the known binding spellings, so a wrong assumption still yields
-        the real API rather than a bare failure. ExposureTime is snapshot and
-        restored because Process() writes that node itself. The live unpack
-        worker is paused and restored by the shared drain spine; the display
-        path is untouched.
-        """
-        result = {
-            'afl_importable': False,
-            'afl_module': None,
-            'afl_version': None,
-            'afl_import_errors': [],
-            'wire_format': None,
-            'packed': None,
-            'unpacked': None,
-        }
-        if not self.active or not self.data_stream:
-            result['error'] = 'camera not connected / no data stream'
-            return result
-
-        # AFL is optional and not on the live path -- import lazily so a host
-        # without the auto-features library still loads the driver. The binding
-        # has shipped under more than one import path; try the known ones.
-        afl = None
-        for path in ('ids_peak_afl.ids_peak_afl', 'ids_peak_afl', 'ids_peak.ids_peak_afl'):
-            try:
-                afl = __import__(path, fromlist=['_'])
-                result['afl_module'] = path
-                break
-            except Exception as e:
-                result['afl_import_errors'].append(f'{path}: {type(e).__name__}: {e}')
-        if afl is None:
-            return result
-        result['afl_importable'] = True
-        result['afl_version'] = getattr(afl, '__version__', '?')
-        result['afl_module_names'] = [n for n in dir(afl) if not n.startswith('__')]
-
-        def _try_process(mgr, image, tag):
-            # Record acceptance, and on rejection the exact exception/status so
-            # a format rejection is distinguishable from an unrelated failure.
-            try:
-                mgr.Process(image)
-                return {'tag': tag, 'accepted': True}
-            except Exception as e:
-                info = {
-                    'tag': tag,
-                    'accepted': False,
-                    'exception': type(e).__name__,
-                    'message': str(e),
-                }
-                for attr in ('code', 'Code', 'status', 'Status'):
-                    member = getattr(e, attr, None)
-                    if member is None:
-                        continue
-                    try:
-                        info['status'] = member() if callable(member) else member
-                    except Exception:
-                        continue
-                    break
-                return info
-
-        # Snapshot exposure AND gain first: the brightness controller drives BOTH,
-        # so if either cannot be captured we must NOT run Process -- we could not
-        # put the camera back, and this probe must leave live state unchanged.
-        def _snap(node_name):
-            try:
-                return self.read_node(node_name, 'device').value
-            except Exception as e:
-                result.setdefault('snapshot_errors', {})[node_name] = f'{type(e).__name__}: {e}'
-                return None
-
-        exposure_before = _snap('ExposureTime')
-        gain_before = _snap('Gain')
-        if exposure_before is None or gain_before is None:
-            result['error'] = (
-                'could not snapshot exposure/gain; skipping Process to avoid '
-                'leaving the camera at an auto-nudged setting'
-            )
-            return result
-
-        lib_inited = False
-        try:
-            try:
-                afl.Library.Init()
-                lib_inited = True
-            except Exception as e:
-                # Do NOT proceed to Manager/Process on an uninitialized native
-                # library -- an unpinned binding may hard-crash rather than raise.
-                result['lib_init_error'] = f'{type(e).__name__}: {e}'
-                return result
-
-            mgr = None
-            try:
-                mgr = afl.Manager(self.remote_nodemap)
-                result['manager_names'] = [n for n in dir(mgr) if not n.startswith('_')]
-                ctype = None
-                for name in (
-                    'PEAK_AFL_CONTROLLER_TYPE_BRIGHTNESS',
-                    'CONTROLLER_TYPE_BRIGHTNESS',
-                    'ControllerType_Brightness',
-                ):
-                    if hasattr(afl, name):
-                        ctype = getattr(afl, name)
-                        result['controller_type_attr'] = name
-                        break
-                if ctype is not None:
-                    ctrl = mgr.CreateController(ctype)
-                    mgr.AddController(ctrl)
-                    result['controller_names'] = [n for n in dir(ctrl) if not n.startswith('_')]
-                else:
-                    # No controller means Process() would run on an empty Manager
-                    # and likely 'accept' without touching the pixel path -- a false
-                    # positive. Refuse to conclude rather than report a wrong answer.
-                    result['controller_type_attr'] = 'NONE_MATCHED'
-                    result['error'] = (
-                        'no brightness controller-type enum matched; cannot probe '
-                        '(Process without a controller would be a false positive)'
-                    )
-                    return result
-            except Exception as e:
-                result['manager_setup_error'] = f'{type(e).__name__}: {e}'
-
-            if mgr is None:
-                return result
-
-            wire = self.get_pixel_format()
-            result['wire_format'] = wire
-            target = _ids_ipl_target(wire)
-
-            # Probe only the FIRST complete frame (processing more frames would
-            # repeatedly nudge exposure/gain); within it, try the packed image then
-            # an unpacked copy. Both nudges are undone by the finally restore.
-            probed = {'done': False}
-
-            def _probe(img):
-                if probed['done']:
-                    return
-                probed['done'] = True
-                result['packed'] = _try_process(mgr, img, f'packed:{wire}')
-                try:
-                    unpacked = img.ConvertTo(target)
-                    result['unpacked'] = _try_process(mgr, unpacked, 'unpacked')
-                except Exception as e:
-                    result['unpacked'] = {
-                        'tag': 'unpacked',
-                        'error': f'convert failed: {type(e).__name__}: {e}',
-                    }
-
-            # Request several frames so an incomplete first buffer (which the
-            # drain spine skips) does not leave the probe with no frame.
-            self._drain_finished_buffers(5, _probe, label='afl-probe')
-            if not probed['done']:
-                result['error'] = 'no complete frame arrived to probe'
-        finally:
-            # Restore BOTH exposure and gain -- the brightness controller drives
-            # both, and this probe must leave live state unchanged.
-            for key, before, restore in (
-                (
-                    'exposure',
-                    exposure_before,
-                    lambda: self.write_node('ExposureTime', exposure_before),
-                ),
-                ('gain', gain_before, lambda: self.write_node('Gain', gain_before)),
-            ):
-                if before is not None:
-                    try:
-                        restore()
-                    except Exception as e:
-                        result[f'{key}_restore_error'] = f'{type(e).__name__}: {e}'
-            # Drop the Manager/Controller BEFORE Library.Exit() so their C++-backed
-            # destructors do not run against a torn-down library (use-after-free).
-            ctrl = None
-            mgr = None
-            if lib_inited:
-                try:
-                    afl.Library.Exit()
-                except Exception as e:
-                    logger.debug(f'[CAM Class ] afl-probe: Library.Exit unavailable: {e}')
-        # Emit the verdict through the driver log so it is captured by --driver-log
-        # (the returned dict is print()ed by the test, which the log bundle drops).
-        packed = result.get('packed') or {}
-        unpacked = result.get('unpacked') or {}
-        _cam_log.info(
-            '[CAM Class ] afl-probe RESULT: '
-            f'importable={result.get("afl_importable")} wire={result.get("wire_format")!r} '
-            f'PACKED_accepted={packed.get("accepted")} (exc={packed.get("exception")} '
-            f'status={packed.get("status")}) UNPACKED_accepted={unpacked.get("accepted")} '
-            f'reason={result.get("error") or result.get("manager_setup_error") or result.get("lib_init_error")}'
-        )
-        return result
-
-    def benchmark_unpack(self, n_frames: int = 200) -> dict:
-        """Decode each packed buffer by BOTH the SDK ConvertTo and the numpy
-        ids_unpack path, comparing them for correctness and speed.
-
-        The IMX676 body delivers packed Mono10g40IDS / Mono12g24IDS; every frame
-        must be unpacked to a right-aligned uint16 before anything can use it.
-        The SDK ConvertTo is the host throughput bottleneck that holds live
-        display below the sensor rate; a hand-rolled numpy unpack (src/_lumascope/drivers/
-        ids_unpack) is the candidate replacement. ConvertTo is the correctness
-        ORACLE: IDS gives the packed layout only as a figure with no per-bit
-        text, so the numpy decode is derived -- a bit-for-bit match against
-        ConvertTo on real frames proves the layout and the right-alignment. The
-        per-frame timings then say whether numpy is actually faster on this host.
-
-        Pauses the unpack worker and drives the data stream directly so each
-        finished buffer is decoded by both paths before it is re-queued, then
-        restores the normal grab pipeline. Returns a results dict; the live
-        unpack path is untouched.
-        """
-        import time
-
-        import numpy as np
-
-        from _lumascope.drivers import ids_unpack
-
-        results = {
-            'n_requested': n_frames,
-            'n_compared': 0,
-            'mismatches': 0,
-            'first_mismatch': None,
-            'packed_dtype': None,
-            'wire_format': None,
-            'width': None,
-            'height': None,
-            'available_formats': [],
-            'icv': {},
-        }
-        if not self.active or not self.data_stream:
-            results['error'] = 'camera not connected / no data stream'
-            return results
-        # The device's real PixelFormat menu: a newer SDK could expose an
-        # unpacked format that removes the need for any host unpack at all.
-        try:
-            results['available_formats'] = [
-                e.SymbolicValue() for e in self._node('PixelFormat').AvailableEntries()
-            ]
-        except Exception as e:
-            _cam_log.warning(f'[CAM Class ] benchmark: PixelFormat enum read failed: {e}')
-
-        # Yes/no datapoint on whether the newer IDS ICV conversion library is
-        # importable on this install -- not itself a benchmark.
-        for _icv_import in ('ids_peak_icv', 'ids_peak.ids_peak_icv'):
-            try:
-                mod = __import__(_icv_import, fromlist=['_'])
-                results['icv'] = {
-                    'importable': True,
-                    'as': _icv_import,
-                    'version': getattr(mod, '__version__', '?'),
-                }
-                break
-            except Exception as e:
-                results['icv'] = {'importable': False, 'error': f'{type(e).__name__}: {e}'}
-
-        wire = self.get_pixel_format()
-        frame = self.get_acquired_aoi()
-        width, height = frame['width'], frame['height']
-        results.update(wire_format=wire, width=width, height=height)
-        target = _ids_ipl_target(wire)
-
-        convert_ms, numpy_ms = [], []
-
-        def _compare(img):
-            # ConvertTo path (the current production unpack + the oracle).
-            # Bind the converted image to a local before get_numpy(): get_numpy()
-            # returns a view that does NOT keep the IPL image alive, so a chained
-            # ConvertTo(...).get_numpy().copy() frees the converted buffer the
-            # instant get_numpy() returns and copy() then reads freed memory
-            # (access violation). Use a SEPARATE name from img -- img stays the
-            # packed source the numpy path reads just below.
-            t0 = time.perf_counter()
-            conv_img = img.ConvertTo(target)
-            conv = conv_img.get_numpy().copy()
-            convert_ms.append((time.perf_counter() - t0) * 1000.0)
-
-            # numpy path: the raw packed wire bytes (uint8 since SDK 2.21)
-            # decoded by our own unpacker. ConvertTo does not mutate img, so the
-            # original is still the packed source here.
-            packed = img.get_numpy_1D()
-            if results['packed_dtype'] is None:
-                results['packed_dtype'] = str(packed.dtype)
-            t1 = time.perf_counter()
-            np_arr = ids_unpack.unpack(wire, packed, width, height)
-            numpy_ms.append((time.perf_counter() - t1) * 1000.0)
-
-            results['n_compared'] += 1
-            if not np.array_equal(conv, np_arr):
-                results['mismatches'] += 1
-                if results['first_mismatch'] is None:
-                    diff = np.argwhere(conv != np_arr)
-                    results['first_mismatch'] = {
-                        'differing_pixels': int(diff.shape[0]),
-                        'first_at': diff[0].tolist() if diff.shape[0] else None,
-                    }
-
-        self._drain_finished_buffers(n_frames, _compare, label='benchmark')
-
-        def _stat(xs):
-            if not xs:
-                return None
-            s = sorted(xs)
-            mean = sum(xs) / len(xs)
-            return {
-                'mean_ms': round(mean, 3),
-                'median_ms': round(s[len(s) // 2], 3),
-                'min_ms': round(s[0], 3),
-                'max_ms': round(s[-1], 3),
-                'implied_fps': round(1000.0 / mean, 1) if mean else None,
-            }
-
-        results['convert'] = _stat(convert_ms)
-        results['numpy'] = _stat(numpy_ms)
-        return results
-
-    def crosscheck_8bit_unpack(
-        self, reference_8bit: Callable[[Any, int], Any], n_frames: int = 100
-    ) -> dict:
-        """Bench gate for the direct 10->8 delivery: prove the SDK's
-        packed->Mono8 ConvertTo matches the prior native-then-rescale path.
-
-        The production unpack now delivers the 8-bit-mode Mono10 wire straight to
-        8-bit (one ConvertTo pass) instead of unpacking to native uint16 and
-        running the host rescale LUT. That swaps the host's exact linear rescale
-        (value/max*255) for the SDK's bit-shift, which should differ by <=1 LSB.
-        This loop verifies that on REAL frames before the direct path is trusted:
-
-          A (new): img.ConvertTo(Mono8)
-          B (old): reference_8bit(img.ConvertTo(native), native_significant_bits)
-
-        ``reference_8bit`` is the host's rescale (``_lumascope.modules.image_utils.
-        convert_to_8bit``), handed in by the caller: a driver imports nothing
-        from the layer above it.
-
-        Returns the per-pixel max abs diff and the count of pixels exceeding
-        1 LSB. The hardware test asserts max_abs_diff <= 1 and over_1lsb == 0.
-        Only meaningful on a packed Mono10/Mono12 wire (an already-8-bit wire is
-        a no-op match).
-        """
-        import numpy as np
-
-        results = {
-            'n_requested': n_frames,
-            'n_compared': 0,
-            'max_abs_diff': 0,
-            'pixels_over_1lsb': 0,
-            'wire_format': None,
-            'skipped': None,
-            'error': None,
-        }
-        if not self.active or not self.data_stream:
-            results['error'] = 'camera not connected / no data stream'
-            return results
-
-        wire = self.get_pixel_format()
-        results['wire_format'] = wire
-        direct_target = _ids_delivery_target(wire)
-        native_target = _ids_ipl_target(wire)
-        native_bits = ids_significant_bits(wire)
-
-        # Only the Mono10 wire reduces (direct Mono8 vs native Mono10): there the
-        # SDK bit-shift must match the host rescale. On Mono12/Mono8 the delivery
-        # target already equals the native target, so there is no 10->8 reduction
-        # to validate -- comparing a uint16 'direct' against an 8-bit oracle would
-        # be a guaranteed false mismatch. Skip rather than false-alarm.
-        if direct_target == native_target:
-            results['skipped'] = (
-                f'no 8-bit reduction on wire {wire!r} (delivery target == native); '
-                f'run in 8-bit mode (Mono10 wire) to exercise the cross-check'
-            )
-            return results
-
-        def _compare(img):
-            # Bind each ConvertTo result before get_numpy() (the view does not
-            # keep the IPL image alive) and copy out, same lifetime rule
-            # benchmark_unpack documents.
-            direct_img = img.ConvertTo(direct_target)
-            direct = direct_img.get_numpy().copy()
-            native_img = img.ConvertTo(native_target)
-            native = native_img.get_numpy().copy()
-            oracle = reference_8bit(native, native_bits)
-
-            diff = np.abs(direct.astype(np.int16) - oracle.astype(np.int16))
-            results['n_compared'] += 1
-            results['max_abs_diff'] = max(results['max_abs_diff'], int(diff.max()))
-            results['pixels_over_1lsb'] += int((diff > 1).sum())
-
-        self._drain_finished_buffers(n_frames, _compare, label='crosscheck')
-        return results
-
     def _frame_grid(self) -> FrameGrid | None:
         """The AOI nodes' grid at the current binning; None when not connected.
 
         The IMX676 AOI snaps to a coarse grid (48 px wide, 4 px tall), so the
-        base acquires the next legal AOI up, centred on the optical axis, and
+        base acquires the next legal AOI up, centred on the sensor, and
         crops back to the request. Each node's Minimum is the grid PHASE, not
         just a request floor: the legal set is Min + k*Inc, and a binned Height
         reports Min=418 with Inc=4 -- off the plain-multiple grid, so a
@@ -2480,7 +2014,6 @@ class IDSCamera(Camera):
             raise CameraReadFailedError(
                 f'The camera did not answer a read of the Width/Height/Offset grid: {e}'
             ) from e
-        bias = self._optical_center_bias()
         # The live Width/Height node bounds: min is the grid phase, inc the
         # alignment step, max the offset-zeroed sensor max. The 1x minimum is
         # otherwise only inferred from the delivered size -- logging it makes
@@ -2496,7 +2029,6 @@ class IDSCamera(Camera):
             size_min=size_min,
             offset_step=offset_step,
             offset_min=self._offset_min,
-            bias=bias,
         )
 
     def _set_hardware_window(self, plan) -> None:
@@ -2522,21 +2054,6 @@ class IDSCamera(Camera):
             f'[CAM Class ] set_frame_size acq={plan.acq_width}x{plan.acq_height} '
             f'off=({plan.offset_x},{plan.offset_y})'
         )
-
-    def _optical_center_bias(self) -> tuple[int, int]:
-        """The optical-center AOI offset bias, in displayed pixels.
-
-        Neutral (0, 0) today: the AOI centers geometrically, which is correct for
-        every unit. _frame_grid already hands the return value to plan_aoi as
-        ``bias``, so the optical-center work (planned ~2 weeks out)
-        implements only this method's body -- read the per-unit optical center
-        (motorconfig ImageCenter, sensor pixels), reorient it into the delivered
-        array frame (aoi_geometry.reorient_image_center, with the sensor's
-        mounted orientation pinned by a one-time bench collimator calibration),
-        and divide by the active binning. A raise here is a defect of ours
-        and leaves _frame_grid as itself, failing the resize.
-        """
-        return (0, 0)
 
     def get_min_frame_size(self) -> dict:
         if not self.active:
@@ -2763,14 +2280,6 @@ class IDSCamera(Camera):
         """Every PixelFormat the camera advertises; () when not connected.
 
         Raises:
-            CameraReadFailedError: The camera did not answer the read.
-        """
-        return self._read_supported_pixel_formats()
-
-    def _read_supported_pixel_formats(self) -> tuple:
-        """Every PixelFormat the camera advertises; () when not connected.
-
-        Raises:
             CameraReadFailedError: The camera did not answer the read, a
                 timeout included. A write that needs the list is refused for
                 it, nothing sent.
@@ -2807,7 +2316,6 @@ class IDSCamera(Camera):
         # no need for update_camera_config() stop/start cycle.
         us_value = float(exposure_ms) * 1000
         self.write_node('ExposureTime', us_value)
-        self._last_exposure_ms = us_value / 1000.0
         rate_note = ''
         if self.cam_image_handler:
             # Update grab timeout so long exposures don't cause perpetual timeouts.
@@ -2995,16 +2503,6 @@ class IDSCamera(Camera):
             return self._node('DeviceTemperature') is not None
         except Exception as e:
             raise CameraReadFailedError(f'Temperature probe failed: {type(e).__name__}: {e}') from e
-
-    def set_bandwidth_reserve_mode(self, mode: str) -> NoReturn:
-        """IDS does not offer Pylon's BandwidthReserveMode.
-
-        Raises:
-            CameraWriteFailedError: Always: the node is not offered.
-        """
-        raise CameraWriteFailedError(
-            'BandwidthReserveMode was not written: the camera does not offer it'
-        )
 
     def set_gev_packet_size(self, size_bytes: int) -> None:
         """Set GevSCPSPacketSize (GigE-Vision stream packet size / MTU).

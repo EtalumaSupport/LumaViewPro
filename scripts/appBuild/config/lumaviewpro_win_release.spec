@@ -99,15 +99,12 @@ if _os.path.exists('build_id.txt'):
     datas.append(('build_id.txt', '.'))
 
 # Every ids_peak* package is collected WHOLESALE, never left to inference:
-# afl/icv are reached only through runtime probes that build the import
-# path from strings (src/_lumascope/drivers/idscamera.py), so static analysis never sees
-# them at all; and for the graph-visible base packages, binary-dependency
-# inference is NON-DETERMINISTIC for secondary DLLs -- one build included
+# binary-dependency inference is NON-DETERMINISTIC for secondary DLLs -- one build included
 # ids_peak's log4cpp DLL and the next silently dropped it, which on a
 # client machine surfaces as a bare "DLL load failed" with no build-time
 # signal. collect_all mirrors each wheel's package dir exactly; the
 # content census in build.ps1 verifies the result name-by-name.
-for _ids_pkg in ('ids_peak', 'ids_peak_ipl', 'ids_peak_afl', 'ids_peak_icv'):
+for _ids_pkg in ('ids_peak', 'ids_peak_ipl'):
     _ids_datas, _ids_binaries, _ids_hidden = collect_all(_ids_pkg)
     datas += _ids_datas
     binaries += _ids_binaries

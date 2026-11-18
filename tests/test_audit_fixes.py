@@ -5086,18 +5086,23 @@ class TestGigeSetters:
         # body the GEV transport nodes are absent, so the write raises not
         # offered, and the bench sweep logs it and goes on (a GigE body would
         # resolve the node and write it). BandwidthReserveMode has no IDS
-        # equivalent node.
+        # equivalent node and no IDS setter: the API refuses it in its words.
         from _lumascope.drivers.exceptions import CameraWriteFailedError
 
         camera = _bare_ids_camera()
         camera.remote_nodemap.HasNode.return_value = False
         for write in (
-            lambda: camera.set_bandwidth_reserve_mode('Performance'),
             lambda: camera.set_gev_packet_size(9000),
             lambda: camera.set_gev_inter_packet_delay(0),
         ):
             with pytest.raises(CameraWriteFailedError, match='does not offer'):
                 write()
+        scope = self._make_scope_with_fake_camera(camera)
+        with pytest.raises(
+            CameraWriteFailedError,
+            match=r'^set_bandwidth_reserve_mode was not written: IDSCamera does not offer it$',
+        ):
+            scope.imaging._set_bandwidth_reserve_mode('Performance')
 
 
 class TestPylonCameraLineLengthCap:

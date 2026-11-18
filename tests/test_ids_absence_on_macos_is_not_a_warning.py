@@ -53,8 +53,6 @@ def test_requirements_pin_the_ids_libraries_on_exactly_the_hosts_they_have_wheel
     requirements = [Requirement(raw) for raw in lines.splitlines() if raw.startswith('ids-peak')]
     assert sorted(r.name for r in requirements) == [
         'ids-peak',
-        'ids-peak-afl',
-        'ids-peak-icv',
         'ids-peak-ipl',
     ]
     covered = [('win32', 'AMD64'), ('linux', 'x86_64'), ('linux', 'aarch64')]

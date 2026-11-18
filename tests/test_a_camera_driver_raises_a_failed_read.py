@@ -100,12 +100,9 @@ def test_an_ids_frame_grid_lets_a_defect_of_ours_out_as_itself():
     cam = bare_ids_camera()
     cam.remote_nodemap.FindNode.return_value.Maximum.return_value = 1000
     cam.remote_nodemap.FindNode.return_value.Minimum.return_value = 0
-    cam.remote_nodemap.FindNode.return_value.Increment.return_value = 4
-
-    def defect():
-        raise TypeError('scripted defect')
-
-    cam._optical_center_bias = defect
+    # A TypeError inside the grid's node reads is not the SDK's exception, so
+    # the read's catch must let it out as itself.
+    cam.remote_nodemap.FindNode.return_value.Increment.side_effect = TypeError('scripted defect')
     with pytest.raises(TypeError, match='scripted defect'):
         cam._frame_grid()
 

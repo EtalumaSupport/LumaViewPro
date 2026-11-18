@@ -46,10 +46,6 @@ _WRITTEN_FROM_TWO = {
     # maximum on.
     (_IDS, 'OffsetX'),
     (_IDS, 'OffsetY'),
-    # The afl bench probe puts back the values it found, which the probe's
-    # own Process() moved; nothing it holds goes stale.
-    (_IDS, 'ExposureTime'),
-    (_IDS, 'Gain'),
 }
 
 

@@ -989,7 +989,7 @@ foreach ($toc in Get-ChildItem ".\build\lumaviewpro\*.toc" -ErrorAction Silently
 # a client machine otherwise. Folder presence covers the binary halves;
 # the spec asserts the pure-Python halves inside the frozen archive.
 Write-Host "--- Dist camera-stack census (.\dist\lumaviewpro) ---"
-$critical_pkgs = @('pypylon', 'ids_peak', 'ids_peak_ipl', 'ids_peak_afl', 'ids_peak_icv')
+$critical_pkgs = @('pypylon', 'ids_peak', 'ids_peak_ipl')
 $census_missing = @()
 foreach ($pkg in $critical_pkgs) {
     if (Test-Path ".\dist\lumaviewpro\$pkg") {
@@ -1015,7 +1015,7 @@ if ($census_missing.Count -gt 0) {
 # pypylon is deliberately NOT content-checked: its PyInstaller hook prunes
 # files legitimately, so a venv diff would false-fail; folder presence
 # above still covers it.
-$content_pkgs = @('ids_peak', 'ids_peak_ipl', 'ids_peak_afl', 'ids_peak_icv')
+$content_pkgs = @('ids_peak', 'ids_peak_ipl')
 $content_bad = @()
 foreach ($pkg in $content_pkgs) {
     $src_dir = Join-Path $venv "Lib\site-packages\$pkg"
