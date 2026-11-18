@@ -488,9 +488,11 @@ class SimulatedCamera(Camera):
         self._auto_gain_max = 20.0
         self._auto_exposure_enabled = False
 
-        # The camera's clock: its own epoch, unrelated to the host's, so a
-        # mapping between the two has to be measured, as on a real body.
-        self._clock_offset_ns = random.randrange(10**12)
+        # The camera's clock: it counts from the camera's power-up, here its
+        # construction, as a real body's counts from its own, so it reads as
+        # the camera's uptime. That epoch is unrelated to the host's clock, so
+        # a mapping between the two still has to be measured, as on a body.
+        self._clock_offset_ns = -host_clock.steady_ns()
         # What the last latch_clock latched; 0, as a body's value node
         # reads before its first latch.
         self._latched_ticks = 0

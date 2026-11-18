@@ -1570,6 +1570,33 @@ class Lumascope:
             ),
         )
 
+    def _log_camera_uptime(self) -> None:
+        """Say once, at bring-up, how long the camera had been powered.
+
+        For whoever reads the log of a camera fault that survives a
+        reconnect, which only a power cycle or a reset clears: the uptime
+        says whether the camera had one. Bring-up is where a failed read's
+        flight stops, as for its camera writes: the latch is the one every
+        capture's clock mapping takes, so a camera that fails it here is
+        reported once and bring-up goes on. The read's body runs here and
+        now, as every bring-up write's does, not on the camera lane.
+        """
+        try:
+            uptime_s = self.diagnostics._read_camera_uptime_impl()
+        except CameraReadFailedError as fault:
+            notifications.report_outcome(fault, solicited=False, category='Camera')
+            return
+        if uptime_s is None:
+            logger.info(
+                '[SCOPE API ] camera uptime at bring-up: not read (the camera has no '
+                'clock latch, or its probe failed as the camera came up)'
+            )
+            return
+        logger.info(
+            f'[SCOPE API ] camera uptime at bring-up: {uptime_s:.1f} s '
+            '(since its last power-up or reset)'
+        )
+
     def initialize(self, config: 'ScopeInitConfig') -> None:
         """Configure scope from connected to ready-to-use.
 
@@ -1600,6 +1627,8 @@ class Lumascope:
         self._refuse_after_bring_up('initialize')
         self._motion_expected = config.expects_motion
         self._report_bring_up(config)
+        if self.camera_connected:
+            self._log_camera_uptime()
         if self.capabilities.has_turret:
             # The objective is the one assigned to the slot in the light
             # path, derived on every read. An assignment the catalogue does

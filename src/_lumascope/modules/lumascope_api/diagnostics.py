@@ -477,6 +477,44 @@ class DiagnosticsAPI:
         # fails here rather than going unpublished.
         return CameraLink(**driver.get_link_info())
 
+    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
+    def read_camera_uptime_s(self) -> float | None:
+        """Read how long the camera has been powered, live: the seconds since
+        its last power-up or reset.
+
+        The camera's own clock counts from its power-up, and a reset
+        (``DeviceReset``) restarts it; a reconnect does not. So a few seconds
+        at bring-up says the camera was just powered on, and minutes or hours
+        that it kept running from before. The clock is the one a capture maps
+        onto the host's (``imaging.map_camera_clock``), latched now.
+
+        Runs on the camera lane, admitted whatever holds the scope, like the
+        temperature read: the latch must not interleave with another camera
+        command, and a run does not stop it. It waits behind what is queued
+        there, up to 170 s, which a long summed capture or an engineering
+        diagnostic ahead of it can outlast.
+
+        Returns:
+            float | None: The seconds since the camera's last power-up or
+                reset. None for a camera without a clock latch
+                (``capabilities.camera_has_clock_latch``), and when the latch
+                probe failed as the camera came up; None when no camera is
+                connected, after the scope's shutdown too.
+
+        Raises:
+            CameraReadFailedError: ``'camera_read_failed'``, the latch or the
+                read of what it latched failed.
+        """
+        return self._scope.camera._read_on_lane(
+            self._read_camera_uptime_impl, 'read_camera_uptime_s', satisfied_when_absent=None
+        )
+
+    def _read_camera_uptime_impl(self) -> float | None:
+        mapping = self._scope.imaging._clock_mapping_for_record()
+        if mapping is None:
+            return None
+        return mapping.camera_ticks / mapping.tick_hz
+
     @api(in_process=True, reads=True, engineering=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_camera_node(self, name: str, node_map: str = 'device') -> CameraNodeValue | None:
         """Read one of the camera's settings by the camera's own name, live.

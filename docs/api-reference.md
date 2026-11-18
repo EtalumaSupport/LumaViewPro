@@ -6768,6 +6768,45 @@ dict[str, float] | None: Each sensor's temperature in degC, by the sensor's name
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
+<a id="DiagnosticsAPI.read_camera_uptime_s"></a>
+### `DiagnosticsAPI.read_camera_uptime_s`
+
+```python
+def read_camera_uptime_s(self) -> float | None
+```
+
+Marks: reads (changes nothing); enters: `lane_override`.  
+Route: `GET /api/v1/scope/diagnostics/read_camera_uptime_s`.
+
+Read how long the camera has been powered, live: the seconds since
+its last power-up or reset.
+
+The camera's own clock counts from its power-up, and a reset
+(`DeviceReset`) restarts it; a reconnect does not. So a few seconds
+at bring-up says the camera was just powered on, and minutes or hours
+that it kept running from before. The clock is the one a capture maps
+onto the host's (`imaging.map_camera_clock`), latched now.
+
+Runs on the camera lane, admitted whatever holds the scope, like the
+temperature read: the latch must not interleave with another camera
+command, and a run does not stop it. It waits behind what is queued
+there, up to 170 s, which a long summed capture or an engineering
+diagnostic ahead of it can outlast.
+
+**Returns**
+
+float | None: The seconds since the camera's last power-up or reset. None for a camera without a clock latch (`capabilities.camera_has_clock_latch`), and when the latch probe failed as the camera came up; None when no camera is connected, after the scope's shutdown too.
+
+**Raises**
+
+- `CameraReadFailedError`: `'camera_read_failed'`, the latch or the read of what it latched failed.
+
+**Refusals by REST status**
+
+- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
+
 <a id="DiagnosticsAPI.read_camera_usb_bindings"></a>
 ### `DiagnosticsAPI.read_camera_usb_bindings`
 
@@ -19004,6 +19043,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/diagnostics/motor_info` | [`DiagnosticsAPI.motor_info`](#DiagnosticsAPI.motor_info) |
 | `GET` | `/api/v1/scope/diagnostics/read_camera_link` | [`DiagnosticsAPI.read_camera_link`](#DiagnosticsAPI.read_camera_link) |
 | `GET` | `/api/v1/scope/diagnostics/read_camera_temperatures_degc` | [`DiagnosticsAPI.read_camera_temperatures_degc`](#DiagnosticsAPI.read_camera_temperatures_degc) |
+| `GET` | `/api/v1/scope/diagnostics/read_camera_uptime_s` | [`DiagnosticsAPI.read_camera_uptime_s`](#DiagnosticsAPI.read_camera_uptime_s) |
 | `GET` | `/api/v1/scope/diagnostics/read_camera_usb_bindings` | [`DiagnosticsAPI.read_camera_usb_bindings`](#DiagnosticsAPI.read_camera_usb_bindings) |
 | `GET` | `/api/v1/scope/diagnostics/read_usb_census` | [`DiagnosticsAPI.read_usb_census`](#DiagnosticsAPI.read_usb_census) |
 | `POST` | `/api/v1/scope/illumination/led_off` | [`IlluminationAPI.led_off`](#IlluminationAPI.led_off) |
