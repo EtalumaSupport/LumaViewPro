@@ -11,6 +11,7 @@ centres is off the grid and names none.
 
 import pytest
 
+from _lumascope.modules.exceptions import ArgumentRefusedError
 from _lumascope.modules.labware_loader import WellPlateLoader
 
 
@@ -21,6 +22,30 @@ def plate():
 
 def _centre(plate, i, j):
     return plate.well_position(i, j)
+
+
+def test_a_well_index_off_the_plate_is_refused_as_no_well(plate):
+    # A centre computed past the grid was a position for a well that does not
+    # exist; it is refused naming the plate, and every edge well is taken.
+    blank = WellPlateLoader().get_plate('Blank')
+    wrong = []
+    for where, i, j in (
+        (plate, -1, -1),
+        (plate, plate.columns, 0),
+        (plate, 0, plate.rows),
+        (plate, 999, 999),
+        (blank, 0, 0),
+    ):
+        try:
+            where.well_position(i, j)
+        except ArgumentRefusedError as refused:
+            if refused.reason != 'well_unknown' or where.name not in str(refused):
+                wrong.append(f'{where.name} ({i}, {j}): {refused.reason!r} {refused}')
+        else:
+            wrong.append(f'{where.name} ({i}, {j}): was not refused')
+    assert not wrong, '\n'.join(wrong)
+    plate.well_position(0, 0)
+    plate.well_position(plate.columns - 1, plate.rows - 1)
 
 
 def test_a_position_off_the_plate_has_no_well_index(plate):

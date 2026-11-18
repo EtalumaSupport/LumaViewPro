@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from _lumascope.modules.exceptions import ArgumentRefusedError
 from _lumascope.modules.finite_number import refuse_unless_finite_number
 from _lumascope.modules.api_surface import api, api_fields
 
@@ -92,8 +93,15 @@ class Labware:
             j: The well's row, counted from 0 at the top.
 
         Raises:
-            Nothing.
+            ArgumentRefusedError: ``'well_unknown'``, ``i`` is not a column
+                or ``j`` not a row of this plate (every index on a plate with
+                no wells, the Blank labware): a centre computed past the grid
+                is a place no well is.
         """
+        if not (0 <= i < self.columns and 0 <= j < self.rows):
+            raise ArgumentRefusedError(
+                'well_unknown', argument='(i, j)', value=(i, j), plate=self.name
+            )
         x = self.offset_x_mm + i * self.spacing_x_mm
         y = self.offset_y_mm + j * self.spacing_y_mm
         return x, y
