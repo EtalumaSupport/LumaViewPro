@@ -25,9 +25,9 @@ import logging
 import pandas as pd
 import pytest
 
-from _lumascope.drivers.exceptions import CameraReadFailedError
 from _lumascope.modules.exceptions import (
     AxisStateUnknownError,
+    CameraSettingRejected,
     PositionOutOfRangeError,
     ProtocolRunRefusedError,
 )
@@ -278,8 +278,9 @@ class TestTheRefusals:
         self, session, monkeypatch, member
     ):
         """With the camera's gain and exposure range unread, either form is
-        refused ``'camera_read_failed'`` before the stage is sent anywhere, and
-        the step's values are not stored."""
+        refused ``'camera_read_failed'``, in the words the camera's own writes
+        give it and naming the step's gain and exposure, before the stage is
+        sent anywhere, and the step's values are not stored."""
         camera = session.scope.camera
         camera.set_image_mode(ImageMode.EIGHT_BIT)
         session.scope.simulation.refuse_camera_read('minimum_exposure', 'failed', count=1)
@@ -290,10 +291,12 @@ class TestTheRefusals:
         protocol = _protocol(_PLATE, step)
         before = copy.deepcopy(session.settings['BF'])
 
-        with pytest.raises(CameraReadFailedError) as refused:
+        with pytest.raises(CameraSettingRejected) as refused:
             getattr(session, member)(protocol, 0)
 
         assert refused.value.reason == 'camera_read_failed'
+        assert refused.value.setting == 'gain_db,exposure_ms'
+        assert 'gain and exposure range could not be read' in str(refused.value)
         assert moves == []
         assert session.settings['BF'] == before
 

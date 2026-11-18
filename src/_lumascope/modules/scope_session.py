@@ -2716,7 +2716,9 @@ class ScopeSession:
                 its row raises it, and a manual recording runs. Its camera
                 refusals are ``apply_channel_camera``'s.
             CameraSettingRejected: the camera did not take a setting of the
-                shown channel.
+                shown channel; or any row carries a gain or exposure while the
+                camera's gain and exposure range is unread, naming them, none
+                sent (``CameraAPI.applied_write_for``).
 
         Nothing is stored on any refusal.
         """
@@ -2946,7 +2948,10 @@ class ScopeSession:
                 recording keeps the light it started under). Nothing is
                 stored.
             CameraSettingRejected: the shown channel's camera did not take
-                its gain, exposure or auto-gain. Nothing is stored.
+                its gain, exposure or auto-gain; or a gain or exposure, on any
+                channel, while the camera's gain and exposure range is unread,
+                naming them, none sent (``CameraAPI.applied_write_for``).
+                Nothing is stored.
             ProtocolRunRefusedError: ``'positions_unreachable'``, a focus on a
                 scope with no Z axis.
             PositionOutOfRangeError: a focus outside Z's travel.
@@ -4041,7 +4046,7 @@ class ScopeSession:
                 ``start_go_to_step``. Nothing changes.
             ConfigurationDefectError: ``'channels_unresolved'``, as
                 ``start_go_to_step``. Nothing changes.
-            CameraReadFailedError: ``'camera_read_failed'``, as
+            CameraSettingRejected: ``'camera_read_failed'``, as
                 ``start_go_to_step``. Nothing changes.
             AxisStateUnknownError: as ``start_go_to_step``. Nothing changes.
             PositionOutOfRangeError: as ``start_go_to_step``; the axes
@@ -4141,9 +4146,10 @@ class ScopeSession:
                 gain above its maximum. Nothing changes.
             ConfigurationDefectError: ``'channels_unresolved'``, this scope's
                 channels could not be resolved. Nothing changes.
-            CameraReadFailedError: ``'camera_read_failed'``, the camera's gain
+            CameraSettingRejected: ``'camera_read_failed'``, the camera's gain
                 and exposure range could not be read after its last readout
-                change (``CameraAPI.setting_limits``). Nothing changes.
+                change, naming the step's gain and exposure
+                (``CameraAPI.applied_write_for``). Nothing changes.
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
             HardwareCommandRefusedError: ``'not_connected'``, this scope's
@@ -5045,36 +5051,47 @@ class ScopeSession:
 
         The one place a channel write meets a hardware limit, after every
         judge, so a value reaching it is a finite number of the right sign: a
-        gain or exposure is held to the camera's range at both ends
-        (``CameraAPI.applied_gain_db_for`` and kin, whose range is read only
-        when a camera field is written), a current to the LED board's
-        maximum, a sum to 100. With no camera, or no board, that limit is
-        unknown and the value goes on as written.
+        gain or exposure is held to the camera's range at both ends, a
+        channel's two asked together as a write asks them
+        (``CameraAPI.applied_write_for``, whose range is read only when a
+        camera field is written), a current to the LED board's maximum, a sum
+        to 100. With no camera, or no board, that limit is unknown and the
+        value goes on as written.
 
         Returns:
             The fields to write, and ``(channel, setting, asked, applied)``
             for each value set at a limit.
 
         Raises:
-            CameraReadFailedError: ``'camera_read_failed'``, a gain or
-                exposure is written while the camera's range is unread.
+            CameraSettingRejected: ``'camera_read_failed'``, a gain or
+                exposure is written while the camera's range is unread, naming
+                each the channel carries.
+            HardwareCommandRefusedError: ``'not_connected'``, the camera was
+                declared removed by the time the range's read failed.
         """
         camera = self.scope.camera
+        clamped = []
+        written = {}
         held_to = {
-            'gain_db': lambda v: camera.applied_gain_db_for(v).applied_db,
-            'exposure_ms': lambda v: camera.applied_exposure_ms_for(v).applied_ms,
             'illumination_ma': self._held_to_the_led_board,
             'stim_config.illumination_ma': self._held_to_the_led_board,
             'sum': lambda v: cap_stored_value(v, None, SUM_COUNT_RANGE[1])[1],
         }
-        clamped = []
-        written = {}
         for channel, values in fields.items():
             values = dict(values)
+            held = {}
+            if values.get('gain_db') is not None or values.get('exposure_ms') is not None:
+                on_camera = camera.applied_write_for(
+                    gain_db=values.get('gain_db'), exposure_ms=values.get('exposure_ms')
+                )
+                if on_camera.gain is not None:
+                    held['gain_db'] = on_camera.gain.applied_db
+                if on_camera.exposure is not None:
+                    held['exposure_ms'] = on_camera.exposure.applied_ms
             for key, hold in held_to.items():
-                if values.get(key) is None:
-                    continue
-                applied = hold(values[key])
+                if values.get(key) is not None:
+                    held[key] = hold(values[key])
+            for key, applied in held.items():
                 if applied != values[key]:
                     clamped.append((channel, key, values[key], applied))
                     values[key] = applied
@@ -5366,6 +5383,7 @@ class ScopeSession:
             ConfigError: As ``load_protocol`` and ``apply_channel_settings``.
             HardwareCommandRefusedError: ``'exclusive_activity_running'``,
                 as ``load_protocol`` and ``apply_channel_settings``.
+            CameraSettingRejected: As ``apply_channel_settings``.
         """
         protocol = self.load_protocol(file_path)
         self.apply_channel_settings(protocol)

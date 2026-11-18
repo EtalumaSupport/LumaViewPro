@@ -29,6 +29,7 @@ import pandas as pd
 import pytest
 
 from _lumascope.modules.acquire_mode import AcquireMode
+from _lumascope.modules.image_mode import ImageMode
 from _lumascope.drivers.exceptions import BoardPortFailedError
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
@@ -400,6 +401,59 @@ class TestAValueTheCameraRefusesIsNotStored:
                 session.setting('protocol.autogain.max_gain_db') - 1.0,
             )
 
+        assert session.settings_snapshot() == before
+
+
+def _fail_the_range_read(session):
+    """The camera's gain and exposure range left unread: its re-read after a readout change fails."""
+    camera = session.scope.camera
+    camera.set_image_mode(ImageMode.EIGHT_BIT)
+    session.scope.simulation.refuse_camera_read('minimum_exposure', 'failed', count=1)
+    camera.set_image_mode(ImageMode.SCIENTIFIC)
+
+
+_RANGE_UNREAD_WORDS = (
+    "The camera's gain and exposure range could not be read, so the gain and exposure "
+    'changes were not sent. It is read again at the next change of binning, frame size '
+    'or pixel format, else when LumaViewPro restarts.'
+)
+
+
+class TestAWriteWithTheCameraRangeUnreadIsRefusedInItsWords:
+    """With the camera's range unread, a channel's gain and exposure are refused as the camera refuses them.
+
+    The channel write held them to the range through the camera's reads,
+    which raise the bare read failure, so the person was told only that the
+    operation did not complete; the camera's own writes say the range could
+    not be read, which settings were not sent, and what reads it again.
+    """
+
+    # parametrize-justified: the shown channel goes to the camera, one not shown only to the store.
+    @pytest.mark.parametrize('channel', ['BF', 'Lumi'])
+    def test_typing_a_gain_and_exposure_is_refused_and_nothing_is_stored(self, session, channel):
+        session.show_channel('BF')
+        _fail_the_range_read(session)
+        before = session.settings_snapshot()
+
+        with pytest.raises(CameraSettingRejected) as refused:
+            session.set_channel_settings(channel, gain_db=12.0, exposure_ms=45.0)
+
+        assert refused.value.reason == 'camera_read_failed'
+        assert str(refused.value) == _RANGE_UNREAD_WORDS
+        assert session.settings_snapshot() == before
+
+    def test_a_loaded_layer_is_refused_and_stores_no_row(self, session):
+        session.show_channel('BF')
+        _fail_the_range_read(session)
+        before = session.settings_snapshot()
+
+        with pytest.raises(CameraSettingRejected) as refused:
+            session.apply_channel_settings(
+                _layers(BF=_row(gain_db=2.5, exposure_ms=12.0, auto_gain=False))
+            )
+
+        assert refused.value.reason == 'camera_read_failed'
+        assert str(refused.value) == _RANGE_UNREAD_WORDS
         assert session.settings_snapshot() == before
 
 

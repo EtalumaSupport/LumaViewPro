@@ -36,6 +36,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`AppliedAutoGain`](#AppliedAutoGain)
 - [`AppliedExposure`](#AppliedExposure)
 - [`AppliedGain`](#AppliedGain)
+- [`AppliedWrite`](#AppliedWrite)
 - [`AutoGainLock`](#AutoGainLock)
 - [`AxisLimits`](#AxisLimits)
 - [`AxisPosition`](#AxisPosition)
@@ -494,7 +495,7 @@ channel on.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a row it would apply holds a value outside its channel setting's range, each named by channel, column and bound.
 - `ArgumentRefusedError`: `'gain_range_inverted'`, a row turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum.
 - `HardwareCommandRefusedError`: `'exclusive_activity_running'`, a home holds the scope and the shown channel's row would change its camera or LED; or the shown channel's LED is lit at 0 mA, its row raises it, and a manual recording runs. Its camera refusals are `apply_channel_camera`'s.
-- `CameraSettingRejected`: the camera did not take a setting of the shown channel.
+- `CameraSettingRejected`: the camera did not take a setting of the shown channel; or any row carries a gain or exposure while the camera's gain and exposure range is unread, naming them, none sent (`CameraAPI.applied_write_for`).
 
 Nothing is stored on any refusal.
 
@@ -1534,7 +1535,7 @@ work meanwhile.
 - `ArgumentRefusedError`: `'channel_unknown'` or `'gain_range_inverted'`, as `start_go_to_step`. Nothing changes.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, `'not_connected'` or `'exclusive_activity_running'`, as `start_go_to_step`. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, as `start_go_to_step`. Nothing changes.
-- `CameraReadFailedError`: `'camera_read_failed'`, as `start_go_to_step`. Nothing changes.
+- `CameraSettingRejected`: `'camera_read_failed'`, as `start_go_to_step`. Nothing changes.
 - `AxisStateUnknownError`: as `start_go_to_step`. Nothing changes.
 - `PositionOutOfRangeError`: as `start_go_to_step`; the axes before it have moved, nothing else changes.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
@@ -1554,9 +1555,8 @@ work meanwhile.
 - [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
-- [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+- [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`, `camera_rejected`, `camera_no_answer`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `stalled`, `board_lost`, `position_unread_after_move`, `status_unread`, `monitor_ended_mid_move`, `faulted`
-- [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 
 <a id="ScopeSession.held_by_other"></a>
@@ -2996,7 +2996,7 @@ The channel's settings as stored once the write is done, the lock's values and t
 - `SettingRefusedError`: `'not_offered'`, a field this channel does not carry (stimulation on a channel that does not stimulate); `'wrong_kind'` or `'out_of_range'`, a value its setting does not take, a focus that is not finite among them.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope does not have `channel` and the write sets it to acquire, turns its auto-gain on or saves its focus; `'exclusive_activity_running'`, as described above, or the write is the shown channel's illumination, its LED is lit at 0 mA, the value is above 0 mA, and a manual recording runs (a recording keeps the light it started under). Nothing is stored.
-- `CameraSettingRejected`: the shown channel's camera did not take its gain, exposure or auto-gain. Nothing is stored.
+- `CameraSettingRejected`: the shown channel's camera did not take its gain, exposure or auto-gain; or a gain or exposure, on any channel, while the camera's gain and exposure range is unread, naming them, none sent (`CameraAPI.applied_write_for`). Nothing is stored.
 - `ProtocolRunRefusedError`: `'positions_unreachable'`, a focus on a scope with no Z axis.
 - `PositionOutOfRangeError`: a focus outside Z's travel.
 
@@ -3699,7 +3699,7 @@ it is refused on the UI thread; a click calls it from a worker.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes. A value past the hardware's limit is stored at the limit and told (`ValueClampedNotice`).
 - `ArgumentRefusedError`: `'gain_range_inverted'`, the step turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
-- `CameraReadFailedError`: `'camera_read_failed'`, the camera's gain and exposure range could not be read after its last readout change (`CameraAPI.setting_limits`). Nothing changes.
+- `CameraSettingRejected`: `'camera_read_failed'`, the camera's gain and exposure range could not be read after its last readout change, naming the step's gain and exposure (`CameraAPI.applied_write_for`). Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
 - `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
 - `PositionOutOfRangeError`: the step lies outside an axis's travel; the axes before it have moved, nothing else changes.
@@ -3712,7 +3712,7 @@ it is refused on the UI thread; a click calls it from a worker.
 
 - 409: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `turret_objectives_unassigned`, `turret_slot_reassigned`, `turret_slot_ambiguous`, `objective_not_mounted`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`MoveStoppedError`](#MoveStoppedError): `stopped`, `superseded`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `step_position_missing`, `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `gain_range_inverted`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`, `activity_ended`; [`PositionOutOfRangeError`](#PositionOutOfRangeError): `position_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
+- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`; [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`, `camera_rejected`, `camera_no_answer`; [`MoveFaultError`](#MoveFaultError): `driver_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ScopeSession.start_make_logs_zip"></a>
@@ -5443,6 +5443,44 @@ how a user's setting gets destroyed by connecting a smaller body.
 
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
+
+<a id="CameraAPI.applied_write_for"></a>
+### `CameraAPI.applied_write_for`
+
+```python
+def applied_write_for(
+    self,
+    gain_db: float | None = None,
+    exposure_ms: float | None = None,
+) -> AppliedWrite
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/camera/applied_write_for`.
+
+What a write of this gain and exposure becomes on the attached camera, asked as the write asks.
+
+`applied_gain_db_for` and `applied_exposure_ms_for` answer for a
+display; this answers for a write about to be sent, so a range whose
+last read failed refuses it as the camera's own writes are refused,
+naming each setting asked for, and nothing is sent. Changes nothing.
+
+**Args**
+
+- `gain_db`: The gain the write carries, in dB; None for none.
+- `exposure_ms`: The exposure the write carries, in milliseconds; None for none.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'not_a_number'`, a value given is not a finite number.
+- `CameraSettingRejected`: `'camera_read_failed'`, the camera's range could not be read after its last readout change, naming every setting asked for.
+- `HardwareCommandRefusedError`: `'not_connected'`, the camera was declared removed by the time the range's read failed.
+
+**Refusals by REST status**
+
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
+- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
 <a id="CameraAPI.apply"></a>
 ### `CameraAPI.apply`
@@ -10092,7 +10130,8 @@ What a stored auto-gain preference becomes on the attached camera (`applied_auto
 ## `lumascope.AppliedExposure`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`CameraAPI.applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for).
+Returned by: [`CameraAPI.applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for).  
+Held in: [`AppliedWrite.exposure`](#AppliedWrite.exposure).
 
 What a stored exposure becomes on the attached camera, in ms (`applied_exposure_ms_for`).
 
@@ -10106,7 +10145,8 @@ What a stored exposure becomes on the attached camera, in ms (`applied_exposure_
 ## `lumascope.AppliedGain`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`CameraAPI.applied_gain_db_for`](#CameraAPI.applied_gain_db_for).
+Returned by: [`CameraAPI.applied_gain_db_for`](#CameraAPI.applied_gain_db_for).  
+Held in: [`AppliedWrite.gain`](#AppliedWrite.gain).
 
 What a stored gain becomes on the attached camera, in dB (`applied_gain_db_for`).
 
@@ -10115,6 +10155,19 @@ What a stored gain becomes on the attached camera, in dB (`applied_gain_db_for`)
 - <a id="AppliedGain.applied_db"></a>`applied_db`: `float` -- The gain the camera is given, in dB: `stored_db` held to the camera's gain range, or `stored_db` itself when no camera publishes one.
 - <a id="AppliedGain.capped"></a>`capped`: `bool` -- Whether `applied_db` differs from `stored_db`.
 - <a id="AppliedGain.stored_db"></a>`stored_db`: `float` -- The gain the channel stores, in dB, unchanged.
+
+<a id="AppliedWrite"></a>
+## `lumascope.AppliedWrite`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Returned by: [`CameraAPI.applied_write_for`](#CameraAPI.applied_write_for).
+
+What a write's gain and exposure become on the attached camera (`applied_write_for`).
+
+**Fields**
+
+- <a id="AppliedWrite.exposure"></a>`exposure`: `AppliedExposure | None` -- The exposure the write asked for, as the camera is given it; None when it asked for none.
+- <a id="AppliedWrite.gain"></a>`gain`: `AppliedGain | None` -- The gain the write asked for, as the camera is given it; None when it asked for none.
 
 <a id="AutoGainLock"></a>
 ## `lumascope.AutoGainLock`
@@ -18999,6 +19052,7 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/camera/applied_auto_gain_for` | [`CameraAPI.applied_auto_gain_for`](#CameraAPI.applied_auto_gain_for) |
 | `GET` | `/api/v1/scope/camera/applied_exposure_ms_for` | [`CameraAPI.applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for) |
 | `GET` | `/api/v1/scope/camera/applied_gain_db_for` | [`CameraAPI.applied_gain_db_for`](#CameraAPI.applied_gain_db_for) |
+| `GET` | `/api/v1/scope/camera/applied_write_for` | [`CameraAPI.applied_write_for`](#CameraAPI.applied_write_for) |
 | `POST` | `/api/v1/scope/camera/apply` | [`CameraAPI.apply`](#CameraAPI.apply) |
 | `GET` | `/api/v1/scope/camera/auto_exposure` | [`CameraAPI.auto_exposure`](#CameraAPI.auto_exposure) |
 | `PUT` | `/api/v1/scope/camera/auto_exposure` | [`CameraAPI.set_auto_exposure`](#CameraAPI.set_auto_exposure) |

@@ -350,6 +350,44 @@ class AppliedExposure:
         _refuse_a_contradicted_cap(self, self.stored_ms, self.applied_ms, self.capped)
 
 
+@api_fields('exposure', 'gain')
+@dataclasses.dataclass(frozen=True)
+class AppliedWrite:
+    """What a write's gain and exposure become on the attached camera (``applied_write_for``).
+
+    Attributes:
+        gain: The gain the write asked for, as the camera is given it; None
+            when it asked for none.
+        exposure: The exposure the write asked for, as the camera is given
+            it; None when it asked for none.
+    """
+
+    gain: AppliedGain | None
+    exposure: AppliedExposure | None
+
+
+def _applied_gain(stored_gain_db: float, limits: CameraSettingLimits | None) -> AppliedGain:
+    """``stored_gain_db`` held to ``limits``' gain range; as it is with no range."""
+    stored, applied = cap_stored_value(
+        float(stored_gain_db),
+        limits.gain_min_db if limits else None,
+        limits.gain_max_db if limits else None,
+    )
+    return AppliedGain(stored_db=stored, applied_db=applied, capped=applied != stored)
+
+
+def _applied_exposure(
+    stored_exposure_ms: float, limits: CameraSettingLimits | None
+) -> AppliedExposure:
+    """``stored_exposure_ms`` held to ``limits``' exposure range; as it is with no range."""
+    stored, applied = cap_stored_value(
+        float(stored_exposure_ms),
+        limits.exposure_min_ms if limits else None,
+        limits.exposure_max_ms if limits else None,
+    )
+    return AppliedExposure(stored_ms=stored, applied_ms=applied, capped=applied != stored)
+
+
 @api_fields(
     'gain_min_db', 'gain_max_db', 'analog_gain_max_db', 'exposure_min_ms', 'exposure_max_ms'
 )
@@ -3991,13 +4029,7 @@ class CameraAPI:
                 (``setting_limits``).
         """
         refuse_unless_finite_number(stored_gain_db, 'stored_gain_db')
-        limits = self.setting_limits
-        stored, applied = cap_stored_value(
-            float(stored_gain_db),
-            limits.gain_min_db if limits else None,
-            limits.gain_max_db if limits else None,
-        )
-        return AppliedGain(stored_db=stored, applied_db=applied, capped=applied != stored)
+        return _applied_gain(stored_gain_db, self.setting_limits)
 
     @api(reads=True)
     def applied_exposure_ms_for(self, stored_exposure_ms: float) -> AppliedExposure:
@@ -4017,13 +4049,65 @@ class CameraAPI:
                 (``setting_limits``).
         """
         refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
-        limits = self.setting_limits
-        stored, applied = cap_stored_value(
-            float(stored_exposure_ms),
-            limits.exposure_min_ms if limits else None,
-            limits.exposure_max_ms if limits else None,
+        return _applied_exposure(stored_exposure_ms, self.setting_limits)
+
+    @api(reads=True)
+    def applied_write_for(
+        self, gain_db: float | None = None, exposure_ms: float | None = None
+    ) -> AppliedWrite:
+        """What a write of this gain and exposure becomes on the attached camera, asked as the write asks.
+
+        ``applied_gain_db_for`` and ``applied_exposure_ms_for`` answer for a
+        display; this answers for a write about to be sent, so a range whose
+        last read failed refuses it as the camera's own writes are refused,
+        naming each setting asked for, and nothing is sent. Changes nothing.
+
+        Args:
+            gain_db: The gain the write carries, in dB; None for none.
+            exposure_ms: The exposure the write carries, in milliseconds;
+                None for none.
+
+        Raises:
+            ArgumentRefusedError: ``'not_a_number'``, a value given is not a
+                finite number.
+            CameraSettingRejected: ``'camera_read_failed'``, the camera's
+                range could not be read after its last readout change, naming
+                every setting asked for.
+            HardwareCommandRefusedError: ``'not_connected'``, the camera was
+                declared removed by the time the range's read failed.
+        """
+        for value, argument in ((gain_db, 'gain_db'), (exposure_ms, 'exposure_ms')):
+            if value is not None:
+                refuse_unless_finite_number(value, argument)
+        return self._applied_write('applied_write_for', gain_db, exposure_ms, None)
+
+    def _applied_write(
+        self,
+        member: str,
+        gain_db: float | None,
+        exposure_ms: float | None,
+        auto_gain: bool | None,
+    ) -> AppliedWrite:
+        """What a write of ``member`` sends for this gain and exposure, held to the range it asked.
+
+        The range is asked once, as a write asks it (``_range_a_write_needs``),
+        and both values are held to that answer, so a re-read failing between
+        an ask and a second read cannot reach the caller as a bare read. A
+        gain, an exposure and an arm's ceiling are each checked against the
+        range; turning auto-gain off alone needs none.
+
+        Raises:
+            What ``_range_a_write_needs`` raises.
+        """
+        limits = None
+        if gain_db is not None or exposure_ms is not None or auto_gain:
+            limits = self._range_a_write_needs(
+                member, _asked_of_apply(gain_db, exposure_ms, auto_gain)
+            )
+        return AppliedWrite(
+            gain=None if gain_db is None else _applied_gain(gain_db, limits),
+            exposure=None if exposure_ms is None else _applied_exposure(exposure_ms, limits),
         )
-        return AppliedExposure(stored_ms=stored, applied_ms=applied, capped=applied != stored)
 
     def _applied_ae_ceiling_ms(
         self, stored_ceiling_ms: float | None, *, member: str, state: bool
@@ -4867,10 +4951,6 @@ class CameraAPI:
         """
         if not self._driver or not self._driver.active:
             return None
-        # A gain, an exposure and an arm's ceiling are each checked against
-        # the range; turning auto-gain off alone needs none.
-        if gain_db is not None or exposure_ms is not None or auto_gain:
-            self._range_a_write_needs('apply', _asked_of_apply(gain_db, exposure_ms, auto_gain))
         # These arrive as the channel's STORED values, which a smaller camera
         # need not be able to reach. Capping here is what lets the store keep
         # the user's intent: the write below carries a value this body takes,
@@ -4878,8 +4958,12 @@ class CameraAPI:
         # at, and no driver is asked for a value it would refuse (pylon, IDS)
         # or silently self-clamp while reporting success (FX2) -- that
         # divergence is why the cap cannot be left to the driver.
-        gain = None if gain_db is None else self.applied_gain_db_for(gain_db)
-        exposure = None if exposure_ms is None else self.applied_exposure_ms_for(exposure_ms)
+        if gain_db is not None:
+            refuse_unless_finite_number(gain_db, 'stored_gain_db')
+        if exposure_ms is not None:
+            refuse_unless_finite_number(exposure_ms, 'stored_exposure_ms')
+        applied = self._applied_write('apply', gain_db, exposure_ms, auto_gain)
+        gain, exposure = applied.gain, applied.exposure
         auto = None if auto_gain is None else self.applied_auto_gain_for(auto_gain)
 
         def _write_mode():
