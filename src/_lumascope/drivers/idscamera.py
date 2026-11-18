@@ -2047,19 +2047,6 @@ class IDSCamera(Camera):
             f'off=({plan.offset_x},{plan.offset_y})'
         )
 
-    def get_min_frame_size(self) -> dict:
-        if not self.active:
-            return {}
-
-        # Oversize-then-crop delivers any aligned size BELOW the hardware AOI
-        # minimum (set_frame_size acquires the AOI floor and crops down), so the
-        # DELIVERABLE minimum is the alignment granularity -- the same deliverable
-        # space pixel_alignment reports -- NOT the Width/Height node Minimum
-        # (the smallest ACQUIRABLE AOI, e.g. 1056x418 at 2x binning). Reporting
-        # the AOI minimum made the UI clamp a half-resolution request up to it,
-        # delivering a non-square frame (1056x950 for a 950x950 request at 2x).
-        return dict(self.profile.alignment)
-
     def get_max_frame_size(self) -> dict:
         """The sensor's maximum frame; {} when not connected.
 

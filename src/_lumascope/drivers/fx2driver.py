@@ -2903,9 +2903,6 @@ class FX2Camera(Camera):
     def _hardware_frame_size(self):
         return {'width': self._width, 'height': self._height}
 
-    def get_min_frame_size(self):
-        return {'width': self.FRAME_SIZE_MIN, 'height': self.FRAME_SIZE_MIN}
-
     def get_max_frame_size(self):
         return {'width': IMG_WIDTH, 'height': IMG_HEIGHT}
 

@@ -1296,20 +1296,6 @@ class Camera(ABC):
         """
 
     @abstractmethod
-    def get_min_frame_size(self) -> dict:
-        """Return the minimum supported frame size.
-
-        Returns:
-            dict: ``{'width': int, 'height': int}``; ``{}`` when the camera
-                is not connected.
-
-        Raises:
-            CameraReadFailedError: The camera did not answer the read, a
-                timeout included. The camera is kept.
-        """
-        pass
-
-    @abstractmethod
     def get_max_frame_size(self) -> dict:
         """Return the maximum supported frame size.
 

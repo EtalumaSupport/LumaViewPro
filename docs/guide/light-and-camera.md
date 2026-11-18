@@ -141,7 +141,8 @@ range; every saved file records it.
 
 **Geometry and image mode.** `set_binning(size)` and
 `set_frame_size(width, height)` answer the `FrameSize` the camera delivers;
-a side below `camera_limits.frame_min` or above the largest frame at the
+a side below `camera_limits.frame_min` (the smallest frame the camera
+delivers, 2 x 2 on every camera) or above the largest frame at the
 binning held (`camera_limits.frame_max`, the unbinned maximum, divided by the
 binning) is set at that limit and reported (`'value_clamped'`), and the frame
 is floored to even sides; a side of 0 or below is refused `'wrong_kind'`.

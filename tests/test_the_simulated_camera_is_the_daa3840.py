@@ -54,8 +54,13 @@ def test_a_1900_frame_is_acquired_at_1900(scope):
     assert (camera._width, camera._height) == (1900, 1900)
 
 
-def test_the_smallest_frame_is_the_darts_4_by_4(scope):
-    assert scope._camera_driver.get_min_frame_size() == {'width': 4, 'height': 4}
+def test_a_2_by_2_frame_is_delivered_from_the_darts_smallest_window(scope):
+    """The dart's smallest window is 4 x 4; the published smallest frame is the
+    2 x 2 it delivers by cropping one."""
+    assert scope.capabilities.camera_limits.frame_min.to_dict() == {'width': 2, 'height': 2}
+    assert scope.camera.set_frame_size(2, 2).to_dict() == {'width': 2, 'height': 2}
+    camera = scope._camera_driver
+    assert (camera._width, camera._height) == (4, 4)
 
 
 def test_mono10_is_not_offered(scope):

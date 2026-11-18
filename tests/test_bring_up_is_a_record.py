@@ -641,9 +641,9 @@ class TestSubstitutions:
             # The LS560's lens images 1700 of the sensor (data/scopes.json
             # MaxFrame); the simulated sensor is 3840 x 2160.
             ('LS560', (1900, 1100), (1700, 1100)),
-            # The simulated camera's minimum frame is 4 x 4 and its grid even.
-            ('LS850', (0, 0), (4, 4)),
-            ('LS850', (3, 3), (4, 4)),
+            # The smallest frame delivered is 2 x 2 and the sides even.
+            ('LS850', (0, 0), (2, 2)),
+            ('LS850', (1, 1), (2, 2)),
             ('LS850', (101, 101), (100, 100)),
         ],
         ids=['above the maximum', 'zero', 'below the minimum', 'odd sides'],
@@ -684,14 +684,14 @@ class TestSubstitutions:
             again.shutdown()
             again.scope.disconnect()
 
-    def test_a_saved_binning_the_camera_lacks_rescales_the_frame_then_fits_it(
+    def test_a_saved_binning_the_camera_lacks_rescales_the_frame_told_once(
         self, monkeypatch, tmp_path, centre_posts
     ):
         # The simulated camera offers 1, 2 and 4: a 0 x 0 frame saved at 3x3
-        # rescales to the 2 x 2 the grid floors to at 1x1, which is below the
-        # minimum of 4. The binning's notice tells the change of scale, and
-        # the frame's the raise to the minimum; the record holds the frame
-        # saved beside the one that ran.
+        # rescales to the 2 x 2 the alignment floors to at 1x1, the smallest
+        # frame the camera delivers, so it runs as rescaled. The binning's
+        # notice tells the change of scale, and no frame refit is told: the
+        # rescale and the fit are the one arithmetic.
         s = _bring_up(
             monkeypatch,
             tmp_path,
@@ -703,14 +703,11 @@ class TestSubstitutions:
             record = s.bring_up_record()
             binned = _substitution(record, 'binning')
             assert (binned.saved, binned.used) == (3, 1)
-            framed = _substitution(record, 'frame')
-            assert (framed.saved, framed.used) == ((0, 0), (4, 4))
-            assert s.scope.camera.frame_size.to_dict() == {'width': 4, 'height': 4}
+            assert _substitution(record, 'frame') is None
+            assert s.scope.camera.frame_size.to_dict() == {'width': 2, 'height': 2}
             notices = _outcomes(centre_posts, OutcomeKind.NOTICE)
             assert [n.reason for n in notices].count(BinningSubstitutedNotice.reason) == 1
-            (refit,) = [n for n in notices if n.reason == 'frame_refitted']
-            assert '2x2 frame at 1x1 binning' in refit.message
-            assert 'runs at 4x4' in refit.message
+            assert [n for n in notices if n.reason == 'frame_refitted'] == []
         finally:
             s.shutdown()
             s.scope.disconnect()

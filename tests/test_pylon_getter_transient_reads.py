@@ -32,10 +32,6 @@ def _induce_frame_size(cam):
     cam.active.Width.GetValue.side_effect = _boom
 
 
-def _induce_min_frame_size(cam):
-    cam.active.Width.GetMin.side_effect = _boom
-
-
 def _induce_max_frame_size(cam):
     cam.active.Width.GetMax.side_effect = _boom
 
@@ -76,7 +72,6 @@ def _induce_nodemap(cam):
 # getter, how its read is failed, the words its raise carries
 _GETTERS = (
     ('get_frame_size', _induce_frame_size, 'transient node read failure'),
-    ('get_min_frame_size', _induce_min_frame_size, 'transient node read failure'),
     ('get_max_frame_size', _induce_max_frame_size, 'transient node read failure'),
     ('get_binning_size', _induce_binning, 'transient node read failure'),
     ('get_gain', _induce_gain, 'transient node read failure'),
@@ -90,7 +85,6 @@ _GETTERS = (
 # getter: its answer when the camera is not connected
 _NOT_CONNECTED = {
     'get_frame_size': None,
-    'get_min_frame_size': {},
     'get_max_frame_size': {},
     'get_binning_size': 1,
     'get_gain': -1,

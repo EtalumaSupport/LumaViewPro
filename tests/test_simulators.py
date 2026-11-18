@@ -712,13 +712,6 @@ class TestSimulatedCamera:
         assert delivered == {'width': 640, 'height': 482}
         assert delivered == cam.get_frame_size()
 
-    def test_min_max_frame_size(self):
-        cam = SimulatedCamera()
-        mins = cam.get_min_frame_size()
-        maxs = cam.get_max_frame_size()
-        assert mins['width'] < maxs['width']
-        assert mins['height'] < maxs['height']
-
     # -- Exposure --
 
     def test_set_get_exposure(self):

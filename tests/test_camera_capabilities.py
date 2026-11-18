@@ -122,6 +122,7 @@ class TestScopeCapabilitiesIntegration:
                 binning_sizes=(1,),
                 exposure_max_us=10000,
                 gain=GainInfo(),
+                alignment={'width': 2, 'height': 2},
             ),
             get_max_frame_size=lambda: {'width': 1024, 'height': 768},
         )

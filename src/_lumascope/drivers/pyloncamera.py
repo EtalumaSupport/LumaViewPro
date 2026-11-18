@@ -2817,28 +2817,6 @@ class PylonCamera(Camera):
             self.write_node('BslCenterY', self.RUN)
         _log_cam('info', f'[CAM Class ] Frame size set to {width}x{height}')
 
-    def get_min_frame_size(self) -> dict:
-        """Return min frame dims as {'width': int, 'height': int}; {} when not connected.
-
-        Raises:
-            CameraReadFailedError: The camera did not answer the read, a
-                timeout included. The camera is kept.
-        """
-        if not self.active:
-            return {}
-        try:
-            return {
-                'width': self._node('Width').GetMin(),
-                'height': self._node('Height').GetMin(),
-            }
-        except genicam.GenericException as e:
-            # Intentionally NO disconnect teardown (latching device-removed on
-            # a transient node read killed the stream); removal is owned by
-            # the SDK removal callback + the grab loop's definitive paths.
-            raise CameraReadFailedError(
-                f'The camera did not answer a read of the Width/Height minimum: {e}'
-            ) from e
-
     def get_max_frame_size(self) -> dict:
         """Return sensor-driven max frame dims; {} when not connected.
 

@@ -873,9 +873,6 @@ class TestCameraStateLock:
             def _set_hardware_window(self, plan):
                 return True
 
-            def get_min_frame_size(self):
-                return {'w': 1, 'h': 1}
-
             def get_max_frame_size(self):
                 return {'w': 4096, 'h': 4096}
 
@@ -981,9 +978,6 @@ class TestCameraStateLock:
             def _set_hardware_window(self, plan):
                 return True
 
-            def get_min_frame_size(self):
-                return {'w': 1, 'h': 1}
-
             def get_max_frame_size(self):
                 return {'w': 4096, 'h': 4096}
 
@@ -1083,9 +1077,6 @@ class TestCameraStateLock:
 
             def _set_hardware_window(self, plan):
                 return True
-
-            def get_min_frame_size(self):
-                return {'w': 1, 'h': 1}
 
             def get_max_frame_size(self):
                 return {'w': 4096, 'h': 4096}

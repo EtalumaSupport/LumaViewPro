@@ -6,14 +6,13 @@ reports after binning (`Width.Max` follows `BinningHorizontal`), so the build
 un-bins it by the binning the camera holds then and takes the smallest of
 that, the documented sensor size and the catalogue's ceiling. A rule that
 forgot the binning would publish about half the sensor on a scope brought up
-at 2x. `frame_min` is the camera's reported minimum, recorded unscaled; whether
-it moves with binning is not known from code.
+at 2x. `frame_min` is the profile's alignment, the smallest frame delivered at
+any binning.
 
 Each run reads the limits the scope came up with and the binning and frame the
 camera holds. On hardware the binning is the installation's own, so the read
 is made once with the scope set to 1x and once with it set to 2x (set in
-LumaViewPro, which then closes); the two runs' `frame_max` must agree, and
-their `frame_min` figures say whether the minimum follows binning. The
+LumaViewPro, which then closes); the two runs' `frame_max` must agree. The
 simulator brings a session up at each of 1x and 2x in one run.
 
     python tests/capability/camera_p09_frame_limits_at_the_binning_held.py             # simulator, 1x and 2x

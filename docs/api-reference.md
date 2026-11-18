@@ -10322,16 +10322,16 @@ Held in: [`ScopeCapabilities.camera_limits`](#ScopeCapabilities.camera_limits).
 
 The frames the attached camera takes, read once at connect.
 
-`set_frame_size` refuses a frame outside them before it reaches the
-camera. A limit the camera does not declare is None, and that end is
-not checked. The exposure and gain ranges are not here: they move with
-the camera's readout, so the camera API holds and re-reads them
-(`scope.camera.setting_limits`).
+`set_frame_size` holds a frame side outside them to them before it
+reaches the camera, and tells it. A limit the camera does not declare
+is None, and that end is not held. The exposure and gain ranges are
+not here: they move with the camera's readout, so the camera API holds
+and re-reads them (`scope.camera.setting_limits`).
 
 **Fields**
 
 - <a id="CameraLimits.frame_max"></a>`frame_max`: `FrameSize | None` -- The largest frame the scope delivers, unbinned: the smallest of the sensor size the camera's profile documents, the maximum the camera reports at connect multiplied back by the binning it reported then, and the model's catalogue `MaxFrame` (a lens that images less than the sensor: the LS560's 1700), each where it is known; None when none is. The profile stays in that comparison because a camera can report a few rows and columns more than its documented sensor (the LS850T's daA3840 reports 3860 x 2178 against 3840 x 2160). `set_frame_size` divides it by the binning in force.
-- <a id="CameraLimits.frame_min"></a>`frame_min`: `FrameSize | None` -- The smallest frame the camera reported at connect; None when it reported none.
+- <a id="CameraLimits.frame_min"></a>`frame_min`: `FrameSize | None` -- The smallest frame the camera delivers: its profile's alignment, since `set_frame_size` acquires the hardware's smallest window and crops back. Not the hardware's own smallest window, which held a smaller request up to it (an IDS camera at 2x binning delivered 1056 x 950 for 950 x 950).
 
 <a id="CameraLink"></a>
 ## `lumascope.CameraLink`

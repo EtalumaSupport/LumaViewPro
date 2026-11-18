@@ -469,6 +469,5 @@ _NOT_CONNECTED_PYLON = {
     'get_pixel_format': None,
     'get_supported_pixel_formats': (),
     'get_max_frame_size': {},
-    'get_min_frame_size': {},
     'get_frame_size': None,
 }

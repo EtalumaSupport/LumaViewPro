@@ -40,7 +40,6 @@ from _lumascope.drivers.exceptions import HardwareError
 from _lumascope.drivers.null_ledboard import NullLEDBoard
 from _lumascope.drivers.null_motorboard import NullMotionBoard
 from _lumascope.lvp_logger import logger
-from _lumascope.modules import common_utils
 from _lumascope.modules.api_surface import api_fields
 from _lumascope.modules.frame_validity import FrameRule, FrameValidity, FrameValiditySource
 from _lumascope.modules.axes import Axis
@@ -227,15 +226,18 @@ class StageDistance:
 class CameraLimits:
     """The frames the attached camera takes, read once at connect.
 
-    ``set_frame_size`` refuses a frame outside them before it reaches the
-    camera. A limit the camera does not declare is None, and that end is
-    not checked. The exposure and gain ranges are not here: they move with
-    the camera's readout, so the camera API holds and re-reads them
-    (``scope.camera.setting_limits``).
+    ``set_frame_size`` holds a frame side outside them to them before it
+    reaches the camera, and tells it. A limit the camera does not declare
+    is None, and that end is not held. The exposure and gain ranges are
+    not here: they move with the camera's readout, so the camera API holds
+    and re-reads them (``scope.camera.setting_limits``).
 
     Attributes:
-        frame_min: The smallest frame the camera reported at connect; None
-            when it reported none.
+        frame_min: The smallest frame the camera delivers: its profile's
+            alignment, since ``set_frame_size`` acquires the hardware's
+            smallest window and crops back. Not the hardware's own smallest
+            window, which held a smaller request up to it (an IDS camera at
+            2x binning delivered 1056 x 950 for 950 x 950).
         frame_max: The largest frame the scope delivers, unbinned: the
             smallest of the sensor size the camera's profile documents, the
             maximum the camera reports at connect multiplied back by the
@@ -268,12 +270,6 @@ def _unbinned(reported: tuple[int, int] | None, binning: object) -> tuple[int, i
         )
         return None
     return (reported[0] * binning, reported[1] * binning)
-
-
-def _frame(value: object) -> FrameSize | None:
-    if not common_utils.is_valid_frame_size(value):
-        return None
-    return FrameSize(width=int(value['width']), height=int(value['height']))
 
 
 class CameraShutter(enum.StrEnum):
@@ -615,8 +611,12 @@ class ScopeCapabilities:
             tick_hz = camera.timestamp_tick_frequency_hz
             camera_timestamp_tick_hz = int(tick_hz) if tick_hz is not None else None
             documented: tuple[int, int] | None = None
+            smallest: FrameSize | None = None
             profile = getattr(camera, 'profile', None)
             if profile is not None:
+                smallest = FrameSize(
+                    int(profile.alignment['width']), int(profile.alignment['height'])
+                )
                 camera_sensor = profile.sensor
                 camera_shutter = profile.shutter
                 camera_supports_auto_gain = bool(getattr(profile, 'has_auto_gain', False))
@@ -641,14 +641,7 @@ class ScopeCapabilities:
             )
             if camera.active:
                 camera_limits = CameraLimits(
-                    frame_min=_frame(
-                        _probe(
-                            'camera.get_min_frame_size',
-                            lambda: camera.get_min_frame_size(),
-                            None,
-                            failed=None,
-                        )
-                    ),
+                    frame_min=smallest,
                     frame_max=FrameSize(*camera_max_frame_size) if camera_max_frame_size else None,
                 )
             is_color_native = bool(getattr(camera, 'is_color_native', False))

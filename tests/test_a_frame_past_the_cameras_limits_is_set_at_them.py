@@ -129,6 +129,25 @@ class TestTheFrameWriter:
         assert _clamp_notices(centre_posts) == []
 
 
+def test_a_frame_under_the_hardware_window_minimum_is_set_as_asked(tmp_path, centre_posts):
+    """The smallest frame published is the smallest delivered: the camera
+    profile's alignment, since the camera acquires its smallest window and
+    crops back. The Classic's sensor window is at least 100 x 100, and a
+    64 x 64 frame is delivered as asked, with nothing told."""
+    from _lumascope.modules.scope_session import ScopeSession
+    from tests.settings_fixtures import complete_settings
+
+    s = ScopeSession.create(
+        complete_settings(live_folder=str(tmp_path), microscope='LS620'), simulate=True
+    )
+    try:
+        assert s.scope.capabilities.camera_limits.frame_min == FrameSize(2, 2)
+        assert s.scope.camera.set_frame_size(64, 64) == FrameSize(64, 64)
+        assert _clamp_notices(centre_posts) == []
+    finally:
+        s.shutdown()
+
+
 class TestBringUpStoresTheDeliveredFrame:
     """Bring-up applies the stored frame to the camera directly, and the
     camera snaps it to its grid and caps it at its sensor. The settings then

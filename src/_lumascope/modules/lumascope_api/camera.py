@@ -2849,22 +2849,15 @@ class CameraAPI:
     def _target_frame(self, native: dict, factor: int) -> dict:
         """The displayed frame a saved ``native`` region gives at a new ``factor``.
 
-        The region divided by the binning and floored to even sides, so it
-        follows from the region alone. It is raised to the camera's
-        minimum: a Pylon camera floors only to its maximum and refuses a
-        smaller request outright, and no one asked for this frame -- a
-        binning change derives it, so there is no request to tell. A frame
-        a person asks for is held to the limits first (``set_frame_size``).
+        The region divided by the binning and floored to the camera's
+        alignment, never below it, so it follows from the region alone and is
+        never under the smallest frame the camera delivers
+        (``camera_limits.frame_min``, the same alignment). No one asked for
+        this frame -- a binning change derives it -- so there is no request
+        to tell. A frame a person asks for is held to the limits first
+        (``set_frame_size``).
         """
-        target = binning.native_to_displayed(native, factor, self.pixel_alignment())
-        limits = self._scope.capabilities.camera_limits
-        minimum = limits.frame_min if limits else None
-        if minimum is not None:
-            target = {
-                'width': max(target['width'], minimum.width),
-                'height': max(target['height'], minimum.height),
-            }
-        return target
+        return binning.native_to_displayed(native, factor, self.pixel_alignment())
 
     def _apply_frame_impl(self, native: dict, target: dict) -> FrameSize | None:
         """On the camera lane: apply the displayed ``target``, then save it and the

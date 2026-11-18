@@ -1206,14 +1206,6 @@ class SimulatedCamera(Camera):
             self._height = plan.acq_height
             _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
 
-    def get_min_frame_size(self) -> dict:
-        """Return the simulator's minimum supported frame size.
-
-        Returns:
-            dict: ``{'width': 4, 'height': 4}``.
-        """
-        return {'width': 4, 'height': 4}
-
     def get_max_frame_size(self) -> dict:
         """Return the maximum frame size at the current binning.
 
