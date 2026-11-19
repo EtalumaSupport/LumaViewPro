@@ -237,6 +237,12 @@ Under [Execute Protocol]{.guilabel}:
   button shows the scans and the time remaining; click it to stop the
   run.
 
+When you start a run, LumaViewPro works out how much it will save, from
+the steps, the scans and the frame size, and won't start a run that doesn't
+fit in the free space of the drive it saves to ("Not Enough Disk Space").
+Free some space, or choose a destination folder on another drive
+(@sec-image-files), and start it again.
+
 A stopped run keeps the images it has saved. When a run ends while
 images are still being written to disk, its button reads "Writing Files..."
 with the number still to write. The toolbar's

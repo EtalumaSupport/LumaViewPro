@@ -10,6 +10,13 @@ LumaViewPro runs on Windows 10 or 11, on a desktop or a laptop. The
 monitor doesn't affect the images LumaViewPro saves; a poor monitor just
 makes focus harder to judge by eye.
 
+A computer short of memory, short of free space on the drive LumaViewPro
+saves to, or busy with other programs makes LumaViewPro slow and can make
+the camera seem to drop out. Each time LumaViewPro starts, it checks for
+this, and a "Low system resources" message names what is short. Close
+the other programs it names, or free some space, before you start a long
+run.
+
 LumaViewPro can also be run from its source code on Windows, macOS or Linux,
 with Python 3.12 or 3.13. The `README.md` on the
 [LumaViewPro GitHub page](https://github.com/EtalumaSupport/LumaViewPro)

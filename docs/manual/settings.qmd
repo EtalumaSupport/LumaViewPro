@@ -6,6 +6,10 @@ so. Settings are saved and restored at the next start, except where noted.
 
 If you type a value outside a setting's range, a "Setting Not Changed"
 message gives the allowed range, and the setting keeps its previous value.
+A value past what the Lumascope's hardware can do, such as a frame larger
+than the camera allows or an LED current above the board's maximum, is set
+at that limit instead, and a "Set at the hardware limit" message tells you
+the value it was set to.
 
 ## The Microscope Settings drawer {#sec-microscope-settings}
 
@@ -24,7 +28,7 @@ selected in
 pixels, width by height. Enter a value in either box and press Enter. The
 boxes show the frame size after binning (@sec-binning); at 2x2 each value is
 half the number of sensor pixels. The largest frame depends on the model
-and its camera (@tbl-max-frame); a larger frame isn't accepted. Default:
+and its camera (@tbl-max-frame); a larger frame is set at the largest. Default:
 [1900 x 1900]{.default setting="frame.width frame.height"}.
 
 On the LS820 and LS850 a frame larger than 2100 x 2100 extends beyond the
