@@ -202,6 +202,7 @@ def test_a_retired_plate_name_resolves_and_is_stored_under_its_key(session, z_ch
             'objective_not_in_catalogue',
             'objective_id',
         ),
+        ('PUT', 'selected_model', {'model': 'LS999'}, 'model_unknown', 'model'),
     ],
 )
 def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offers(
@@ -221,7 +222,6 @@ def test_a_wire_client_is_refused_as_the_request_naming_what_the_catalogue_offer
     [
         ('plate', {'labware_id': 'Acme 1536 Ultra Plate'}, 'labware_unknown', 'labware_id'),
         ('objective', {'objective_id': '10xOly'}, 'objective_not_in_catalogue', 'objective_id'),
-        ('scope_model', {'model': 'LS999'}, 'model_unknown', 'model'),
     ],
 )
 def test_a_wire_lookup_of_a_name_the_catalogue_lacks_is_the_requests(
