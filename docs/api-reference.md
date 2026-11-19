@@ -11995,8 +11995,8 @@ tuple.
 - <a id="ScopeCapabilities.led_addresses"></a>`led_addresses`: `tuple[int, ...] | None` -- The LED board addresses the installed board drives: 0 to 7 on an EL-0940's board, 0 to 3 on a Classic's; None when the scope came up without its LED board.
 - <a id="ScopeCapabilities.led_channels"></a>`led_channels`: `tuple[str, ...]` -- The channels of this model that light an LED, from its identity, so a scope that came up without its LED board still names its model's LEDs.
 - <a id="ScopeCapabilities.led_max_ma"></a>`led_max_ma`: `int | None` -- The most current, in mA, the connected LED board drives a channel at; None when the scope came up without its LED board.
-- <a id="ScopeCapabilities.lens_focal_length_mm"></a>`lens_focal_length_mm`: `float | None` -- The tube lens focal length in mm, from the motor board's optics configuration, else the installation's model entry; with `pixel_size_um` and an objective's focal length it gives that objective's um per pixel. None when neither says; never a default.
-- <a id="ScopeCapabilities.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The camera's pixel size in um, from the motor board's optics configuration, else the installation's model entry (a Classic), else the camera's own pitch; None when none says, and then the scope measures nothing (field of view, scale bar, plate coordinates). Never a default: a guessed pixel size is written into every image and cannot be told from a measured one.
+- <a id="ScopeCapabilities.lens_focal_length_mm"></a>`lens_focal_length_mm`: `float | None` -- The tube lens focal length in mm, from the motor board's optics configuration, else the installation's model entry; with `sensor_pitch_um` and an objective's focal length it gives that objective's um per pixel. None when neither says; never a default.
+- <a id="ScopeCapabilities.sensor_pitch_um"></a>`sensor_pitch_um`: `float | None` -- The camera sensor's pixel pitch in um, from the motor board's optics configuration, else the installation's model entry (a Classic), else the camera's own pitch; None when none says, and then the scope measures nothing (field of view, scale bar, plate coordinates). Never a default: a guessed pixel size is written into every image and cannot be told from a measured one.
 
 <a id="ScopeModel"></a>
 ## `lumascope.ScopeModel`
@@ -12016,7 +12016,7 @@ One model of the installation's catalogue (`scopes.json`'s `Models`), read once 
 - <a id="ScopeModel.id"></a>`id`: `str` -- The model's name, the key the operator selects and a board reports.
 - <a id="ScopeModel.lens_focal_length_mm"></a>`lens_focal_length_mm`: `float | None` -- The tube lens's focal length, in mm, for a Classic model; None where the row declares none.
 - <a id="ScopeModel.max_frame"></a>`max_frame`: `FrameSize | None` -- The largest frame, unbinned, of a model whose lens images less than its sensor; None where the row declares none.
-- <a id="ScopeModel.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The sensor's pixel pitch, in um, for a Classic model, whose optics no motorconfig carries; None where the row declares none.
+- <a id="ScopeModel.sensor_pitch_um"></a>`sensor_pitch_um`: `float | None` -- The sensor's pixel pitch, in um, for a Classic model, whose optics no motorconfig carries; None where the row declares none.
 
 <a id="SensorExposure"></a>
 ## `lumascope.SensorExposure`

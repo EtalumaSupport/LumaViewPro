@@ -180,7 +180,7 @@ class TestTileCentersWithoutScale:
     Grids with real spacing must still refuse."""
 
     # A scope that honestly reports no optics.
-    _NO_OPTICS = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None)
+    _NO_OPTICS = SimpleNamespace(sensor_pitch_um=None, lens_focal_length_mm=None)
 
     def test_1x1_layout_needs_no_field_of_view(self):
         tiling_config = shipped_grids()

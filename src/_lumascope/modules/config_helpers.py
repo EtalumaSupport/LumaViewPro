@@ -239,7 +239,7 @@ def log_resolved_optics(
     images it is meant to explain.
     """
     tube_focal_length = None if capabilities is None else capabilities.lens_focal_length_mm
-    pixel_width = None if capabilities is None else capabilities.pixel_size_um
+    pixel_width = None if capabilities is None else capabilities.sensor_pitch_um
 
     um_per_pixel = (
         None

@@ -1342,8 +1342,8 @@ class IDSCamera(Camera):
             try:
                 sensor_px_um = self.read_node('SensorPixelWidth', 'device').value
                 logger.info(f'[CAM Class ] SensorPixelWidth: {sensor_px_um:.4f} um')
-                if sensor_px_um and sensor_px_um > 0 and not self.profile.pixel_size_um:
-                    self.profile.pixel_size_um = float(sensor_px_um)
+                if sensor_px_um and sensor_px_um > 0 and not self.profile.sensor_pitch_um:
+                    self.profile.sensor_pitch_um = float(sensor_px_um)
             except Exception as e:
                 logger.debug(f'[CAM Class ] Could not query SensorPixelWidth: {e}')
 

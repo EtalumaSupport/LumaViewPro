@@ -256,7 +256,7 @@ class _FakeScope:
         # scale off these and writes none, the honest-degradation path.
         self.capabilities = SimpleNamespace(
             has_turret=False,
-            pixel_size_um=None,
+            sensor_pitch_um=None,
             lens_focal_length_mm=None,
             camera_model='testcam-9000',
             camera_serial_number='TC9K-001',

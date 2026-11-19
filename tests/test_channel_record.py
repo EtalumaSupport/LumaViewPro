@@ -450,7 +450,7 @@ class TestRowParsing:
         assert (model.has_focus, model.has_xy_stage, model.has_turret) == (False, False, False)
         assert (model.led_board, model.motor_board, model.filterset) == ('FX2', None, None)
         assert type(model.led_board) is LedBoardFamily
-        assert (model.pixel_size_um, model.lens_focal_length_mm) == (2.2, 32.3)
+        assert (model.sensor_pitch_um, model.lens_focal_length_mm) == (2.2, 32.3)
         assert (model.max_frame.width, model.max_frame.height) == (1700, 1700)
         assert [layer.key_name for layer in model.channels] == ['BF', LED1]
 

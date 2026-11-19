@@ -617,7 +617,7 @@ class TestCameraProfileRegistration:
         profile = lookup_profile(lookup_key)
         assert profile.driver == 'fx2', f'{lookup_key!r} should resolve to the FX2 profile'
         assert profile.sensor == 'Aptina MT9P031'
-        assert profile.pixel_size_um == 2.2
+        assert profile.sensor_pitch_um == 2.2
         assert profile.pixel_formats == ['Mono8']
         assert profile.has_auto_gain is False
         assert profile.has_auto_exposure is False

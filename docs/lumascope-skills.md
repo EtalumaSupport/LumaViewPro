@@ -65,7 +65,7 @@ know models by name. Here, as in every example, `session` is the
 ```python
 caps = scope.capabilities                   # read once, when the scope came up
 print(caps.axes, caps.has_xy_stage, caps.has_turret)
-print(caps.camera_model, caps.pixel_size_um, caps.led_max_ma)
+print(caps.camera_model, caps.sensor_pitch_um, caps.led_max_ma)
 ```
 
 Over REST it is `GET /api/v1/scope/capabilities`. `camera_model` names the

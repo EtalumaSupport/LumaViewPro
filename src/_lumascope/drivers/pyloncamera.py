@@ -431,7 +431,7 @@ class PylonCamera(Camera):
             # did not supply one (the generic fallback carries 0.0) -- never
             # override a curated, bench-validated value -- but always log the
             # hardware value so a mismatch is visible. A body that does not
-            # advertise the node leaves pixel_size_um unset; the scale then
+            # advertise the node leaves sensor_pitch_um unset; the scale then
             # degrades honestly rather than inheriting a guessed default.
             try:
                 px_node = self._node('SensorPixelWidth')
@@ -443,8 +443,8 @@ class PylonCamera(Camera):
                 else:
                     sensor_px_um = px_node.GetValue()
                     logger.info(f'[CAM Class ] SensorPixelWidth: {sensor_px_um:.4f} um')
-                    if sensor_px_um and sensor_px_um > 0 and not self.profile.pixel_size_um:
-                        self.profile.pixel_size_um = float(sensor_px_um)
+                    if sensor_px_um and sensor_px_um > 0 and not self.profile.sensor_pitch_um:
+                        self.profile.sensor_pitch_um = float(sensor_px_um)
             except Exception as e:
                 _cam_log.warning(f'[CAM Class ] Could not query SensorPixelWidth: {e}')
 

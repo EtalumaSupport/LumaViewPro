@@ -14,7 +14,7 @@ import pytest
 from _lumascope.drivers.tmcm6110_config import SECTION, Tmcm6110Config, usteps_per_s, usteps_per_s2
 from _lumascope.modules.scope_capabilities import (
     _resolve_lens_focal_length_mm,
-    _resolve_pixel_size_um,
+    _resolve_sensor_pitch_um,
 )
 from tests.motorconfig_fixtures import SHIPPED_MOTOR_DEFAULTS
 
@@ -136,7 +136,7 @@ def test_optics_and_led_block_come_from_the_models_row():
     assert config.led_block() is None
     assert config.board_config_read_ok is True
     assert _resolve_lens_focal_length_mm(config, {'LensFocalLength': 47.8}) == 47.8
-    assert _resolve_pixel_size_um(config, {'PixelSize': 2.2}, None) == 2.2
+    assert _resolve_sensor_pitch_um(config, {'PixelSize': 2.2}, None) == 2.2
 
 
 def test_the_homing_phases_are_handed_over_as_the_section_holds_them():

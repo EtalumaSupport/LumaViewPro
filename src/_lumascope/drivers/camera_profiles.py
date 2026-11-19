@@ -16,7 +16,7 @@ Adding a new camera model
    extract (with field names in parentheses):
 
    - Sensor manufacturer and model    (sensor)
-   - Pixel pitch in micrometers       (pixel_size_um)
+   - Pixel pitch in micrometers       (sensor_pitch_um)
    - Native resolution in pixels      (native_resolution)
    - Shutter type: rolling or global  (shutter)
    - Supported pixel formats          (pixel_formats)
@@ -111,7 +111,7 @@ class CameraProfile:
     # The sensor's name and its shutter ('rolling' or 'global'), as the model's
     # datasheet states them; None for a camera no curated entry describes.
     sensor: str | None = None
-    pixel_size_um: float = 0.0  # Pixel pitch in micrometers
+    sensor_pitch_um: float = 0.0  # Pixel pitch in micrometers
     shutter: str | None = None
     native_resolution: dict = field(default_factory=dict)  # {'width': int, 'height': int}
     pixel_formats: list[str] = field(default_factory=list)
@@ -149,7 +149,7 @@ _daA3840_45um = CameraProfile(
     model_name='daA3840-45um',
     timing_model='daA3840-45um',
     sensor='Sony IMX334LLR-C',
-    pixel_size_um=2.0,
+    sensor_pitch_um=2.0,
     shutter='rolling',
     native_resolution={'width': 3840, 'height': 2160},
     pixel_formats=['Mono8', 'Mono12', 'Mono12p'],
@@ -178,7 +178,7 @@ _daA3840_45um = CameraProfile(
 _dmA3536_9gm = CameraProfile(
     model_name='dmA3536-9gm',
     sensor='Sony IMX676-AAMR1-C',
-    pixel_size_um=2.0,
+    sensor_pitch_um=2.0,
     shutter='rolling',
     native_resolution={'width': 3536, 'height': 3552},
     # MIPI pixel-format set listed conservatively as Mono8/Mono10
@@ -204,7 +204,7 @@ _a2A3536_31umBAS = CameraProfile(
     model_name='a2A3536-31umBAS',
     timing_model='a2A3536-31umBAS',
     sensor='Sony IMX676-AAMR1-C',
-    pixel_size_um=2.0,
+    sensor_pitch_um=2.0,
     shutter='rolling',
     native_resolution={'width': 3536, 'height': 3552},
     pixel_formats=['Mono8', 'Mono10', 'Mono10p', 'Mono12', 'Mono12p'],
@@ -226,7 +226,7 @@ _a2A3536_31umBAS = CameraProfile(
 _U3_34L0XCP_M = CameraProfile(
     model_name='U3-34L0XCP-M',
     sensor='Sony IMX676-AAMR1-C',
-    pixel_size_um=2.0,
+    sensor_pitch_um=2.0,
     shutter='rolling',
     native_resolution={'width': 3552, 'height': 3552},
     # IDS Peak SDK on this body exposes only packed 10-/12-bit. NOTE:
@@ -287,7 +287,7 @@ _simulated.gain = replace(_simulated.gain, total_min_db=0.0, total_max_db=48.0)
 _MT9P031_LS620 = CameraProfile(
     model_name='MT9P031-LS620',
     sensor='Aptina MT9P031',
-    pixel_size_um=2.2,
+    sensor_pitch_um=2.2,
     shutter='rolling',
     native_resolution={'width': 1900, 'height': 1900},
     pixel_formats=['Mono8'],  # 12-bit sensor, FX2 streams top 8 bits
@@ -361,17 +361,17 @@ def ids_default_profile(model_name: str) -> CameraProfile:
     is wrong for an IDS body (packed Mono10/12, IDS AOI granularity). The IDS
     driver substitutes this when ``lookup_profile`` falls through, then fills the
     capability fields from the live nodemap at connect (pixel formats, gain /
-    exposure range, binning ceiling, ``pixel_size_um`` from ``SensorPixelWidth``).
+    exposure range, binning ceiling, ``sensor_pitch_um`` from ``SensorPixelWidth``).
     So an unrecognized IDS body is still driven AS IDS; the only thing it lacks
     is curated sensor metadata, which a real profile entry would supply.
 
-    ``pixel_size_um`` is left 0.0 here on purpose -- the driver reads the true
+    ``sensor_pitch_um`` is left 0.0 here on purpose -- the driver reads the true
     value from the ``SensorPixelWidth`` node; a fabricated default would silently
     corrupt the micron scale bar and stage-distance math.
     """
     return CameraProfile(
         model_name=model_name,
-        pixel_size_um=0.0,  # filled from SensorPixelWidth at connect
+        sensor_pitch_um=0.0,  # filled from SensorPixelWidth at connect
         pixel_formats=[],  # filled from the live PixelFormat node at connect
         binning_sizes=[1],  # widened from the live binning ceiling at connect
         binning_modes=['Sum'],

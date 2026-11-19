@@ -83,7 +83,7 @@ def _declared_optics(scope_models: Mapping[str, ScopeModel], model: str) -> dict
     entry = scope_models.get(model) if model else None
     if entry is None:
         return {}
-    declared = {'PixelSize': entry.pixel_size_um, 'LensFocalLength': entry.lens_focal_length_mm}
+    declared = {'PixelSize': entry.sensor_pitch_um, 'LensFocalLength': entry.lens_focal_length_mm}
     return {key: value for key, value in declared.items() if value is not None}
 
 
@@ -135,7 +135,7 @@ def _smallest_frame(*sizes: tuple[int, int] | None) -> tuple[int, int] | None:
     return (min(w for w, _ in known), min(h for _, h in known))
 
 
-def _resolve_pixel_size_um(motorconfig, optics: dict, camera) -> float | None:
+def _resolve_sensor_pitch_um(motorconfig, optics: dict, camera) -> float | None:
     """Resolve image pixel pitch (um) from the first real source.
 
     Order: motorconfig Optics (LS820/850/850T) -> scopes.json Optics
@@ -151,10 +151,9 @@ def _resolve_pixel_size_um(motorconfig, optics: dict, camera) -> float | None:
     if optics_px is not None:
         return optics_px
     if camera is not None:
-        profile = getattr(camera, 'profile', None)
-        px = getattr(profile, 'pixel_size_um', None) if profile is not None else None
         # A generic profile carries 0.0 until the driver fills it live from
         # the SDK's SensorPixelWidth; only a real, positive pitch counts.
+        px = camera.profile.sensor_pitch_um
         if px:
             return float(px)
     return None
@@ -310,7 +309,7 @@ class CameraShutter(enum.StrEnum):
     'led_channels',
     'led_max_ma',
     'lens_focal_length_mm',
-    'pixel_size_um',
+    'sensor_pitch_um',
 )
 @dataclass(frozen=True)
 class ScopeCapabilities:
@@ -330,7 +329,7 @@ class ScopeCapabilities:
         has_turret: Whether this scope has a turret: T in ``axes`` when the
             motor board came up, else the declared model's. A turret scope
             whose board did not come up has a turret in an unknown slot.
-        pixel_size_um: The camera's pixel size in um, from the motor
+        sensor_pitch_um: The camera sensor's pixel pitch in um, from the motor
             board's optics configuration, else the installation's model
             entry (a Classic), else the camera's own pitch; None when none
             says, and then the scope measures nothing (field of view, scale
@@ -339,7 +338,7 @@ class ScopeCapabilities:
             one.
         lens_focal_length_mm: The tube lens focal length in mm, from the
             motor board's optics configuration, else the installation's
-            model entry; with ``pixel_size_um`` and an objective's focal
+            model entry; with ``sensor_pitch_um`` and an objective's focal
             length it gives that objective's um per pixel. None when neither
             says; never a default.
         led_addresses: The LED board addresses the installed board drives:
@@ -454,7 +453,7 @@ class ScopeCapabilities:
     has_focus: bool
     has_xy_stage: bool
     has_turret: bool
-    pixel_size_um: float | None
+    sensor_pitch_um: float | None
     lens_focal_length_mm: float | None
 
     # ---- LED ----
@@ -546,7 +545,7 @@ class ScopeCapabilities:
         # init and is immutable for the run).
         motorconfig = getattr(motion, 'motorconfig', None)
         optics = _declared_optics(scope_models, model)
-        pixel_size_um = _resolve_pixel_size_um(motorconfig, optics, camera)
+        sensor_pitch_um = _resolve_sensor_pitch_um(motorconfig, optics, camera)
         lens_focal_length_mm = _resolve_lens_focal_length_mm(motorconfig, optics)
 
         # LED. A scope that came up without its board has no addresses and
@@ -610,23 +609,20 @@ class ScopeCapabilities:
             camera_timestamp_tick_hz = int(tick_hz) if tick_hz is not None else None
             documented: tuple[int, int] | None = None
             smallest: FrameSize | None = None
-            profile = getattr(camera, 'profile', None)
-            if profile is not None:
-                smallest = FrameSize(
-                    int(profile.alignment['width']), int(profile.alignment['height'])
-                )
-                camera_sensor = profile.sensor
-                camera_shutter = profile.shutter
-                camera_supports_auto_gain = bool(getattr(profile, 'has_auto_gain', False))
-                camera_supports_auto_exposure = bool(getattr(profile, 'has_auto_exposure', False))
-                if profile.gain.analog_max_db is not None:
-                    camera_analog_gain_max_db = float(profile.gain.analog_max_db)
-                camera_gain_has_digital = bool(profile.gain.has_digital)
-                camera_pixel_formats = tuple(getattr(profile, 'pixel_formats', ()) or ())
-                camera_binning_sizes = tuple(getattr(profile, 'binning_sizes', ()) or ())
-                native = getattr(profile, 'native_resolution', None)
-                if native:
-                    documented = (int(native['width']), int(native['height']))
+            profile = camera.profile
+            smallest = FrameSize(int(profile.alignment['width']), int(profile.alignment['height']))
+            camera_sensor = profile.sensor
+            camera_shutter = profile.shutter
+            camera_supports_auto_gain = profile.has_auto_gain
+            camera_supports_auto_exposure = profile.has_auto_exposure
+            if profile.gain.analog_max_db is not None:
+                camera_analog_gain_max_db = float(profile.gain.analog_max_db)
+            camera_gain_has_digital = bool(profile.gain.has_digital)
+            camera_pixel_formats = tuple(profile.pixel_formats)
+            camera_binning_sizes = tuple(profile.binning_sizes)
+            native = profile.native_resolution
+            if native:
+                documented = (int(native['width']), int(native['height']))
             size = _probe(
                 'camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None, failed=None
             )
@@ -696,7 +692,7 @@ class ScopeCapabilities:
             has_focus='Z' in axes,
             has_xy_stage=('X' in axes and 'Y' in axes),
             has_turret=_has_turret(axes, motion, scope_models, model),
-            pixel_size_um=pixel_size_um,
+            sensor_pitch_um=sensor_pitch_um,
             lens_focal_length_mm=lens_focal_length_mm,
             led_addresses=led_addresses,
             led_channels=led_channels,

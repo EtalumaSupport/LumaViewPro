@@ -634,7 +634,7 @@ def get_pixel_size(
     headless image was written with no scale.
     """
     tube_focal_length = capabilities.lens_focal_length_mm
-    pixel_width = capabilities.pixel_size_um
+    pixel_width = capabilities.sensor_pitch_um
     if tube_focal_length is None or pixel_width is None or binning_size is None:
         return None
     magnification = tube_focal_length / focal_length

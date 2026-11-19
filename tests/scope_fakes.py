@@ -309,7 +309,7 @@ def give_capabilities_of_a_camera_without_auto_modes(scope):
         camera_supports_auto_gain=False,
         camera_supports_auto_exposure=False,
         has_turret=False,
-        pixel_size_um=None,
+        sensor_pitch_um=None,
         lens_focal_length_mm=None,
     )
     return scope

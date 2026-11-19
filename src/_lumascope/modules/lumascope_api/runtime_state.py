@@ -372,7 +372,7 @@ class RuntimeState:
         if no_camera is not None:
             return no_camera
         capabilities = self._scope.capabilities
-        if capabilities.lens_focal_length_mm is None or capabilities.pixel_size_um is None:
+        if capabilities.lens_focal_length_mm is None or capabilities.sensor_pitch_um is None:
             return PixelSizeUnknownError('optics_undeclared')
         binning = self._scope.camera.binning
         if binning is None:

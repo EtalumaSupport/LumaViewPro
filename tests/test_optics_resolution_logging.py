@@ -36,7 +36,7 @@ def optics():
     """The capabilities of a scope that can report both optics values --
     handed to the record the way the Session hands in its scope's."""
     return SimpleNamespace(
-        lens_focal_length_mm=TUBE_FOCAL_LENGTH_MM, pixel_size_um=SENSOR_PIXEL_SIZE_UM
+        lens_focal_length_mm=TUBE_FOCAL_LENGTH_MM, sensor_pitch_um=SENSOR_PIXEL_SIZE_UM
     )
 
 
@@ -44,7 +44,7 @@ def optics():
 def no_optics():
     """A scope that cannot report its optics -- unknown camera, no declared
     optics. The resolver returns None here rather than inventing a scale."""
-    return SimpleNamespace(lens_focal_length_mm=None, pixel_size_um=SENSOR_PIXEL_SIZE_UM)
+    return SimpleNamespace(lens_focal_length_mm=None, sensor_pitch_um=SENSOR_PIXEL_SIZE_UM)
 
 
 def _emitted(caplog):
@@ -143,11 +143,11 @@ class TestNoScaleIsItselfReported:
             'active scope': (1, None),
             'tube lens focal length': (
                 1,
-                SimpleNamespace(lens_focal_length_mm=None, pixel_size_um=SENSOR_PIXEL_SIZE_UM),
+                SimpleNamespace(lens_focal_length_mm=None, sensor_pitch_um=SENSOR_PIXEL_SIZE_UM),
             ),
             'sensor pixel size': (
                 1,
-                SimpleNamespace(lens_focal_length_mm=TUBE_FOCAL_LENGTH_MM, pixel_size_um=None),
+                SimpleNamespace(lens_focal_length_mm=TUBE_FOCAL_LENGTH_MM, sensor_pitch_um=None),
             ),
             'camera binning': (None, optics),
         }

@@ -665,7 +665,7 @@ class MotorBoardFamily(enum.StrEnum):
     'has_turret',
     'channels',
     'filterset',
-    'pixel_size_um',
+    'sensor_pitch_um',
     'lens_focal_length_mm',
     'max_frame',
 )
@@ -692,7 +692,7 @@ class ScopeModel:
             has when its board carries no Channels block of its own.
         filterset: The name of the model's filterset; None where the row
             names none.
-        pixel_size_um: The sensor's pixel pitch, in um, for a Classic
+        sensor_pitch_um: The sensor's pixel pitch, in um, for a Classic
             model, whose optics no motorconfig carries; None where the row
             declares none.
         lens_focal_length_mm: The tube lens's focal length, in mm, for a
@@ -709,7 +709,7 @@ class ScopeModel:
     motor_board: MotorBoardFamily | None
     channels: tuple[ChannelRecord, ...]
     filterset: str | None
-    pixel_size_um: float | None
+    sensor_pitch_um: float | None
     lens_focal_length_mm: float | None
     max_frame: FrameSize | None
 
@@ -729,7 +729,7 @@ _MODEL_KEYS = frozenset(_FLAG_KEYS.values()) | {
     'MaxFrame',
 }
 # An Optics block's keys and the field each fills.
-_OPTICS_KEYS = {'PixelSize': 'pixel_size_um', 'LensFocalLength': 'lens_focal_length_mm'}
+_OPTICS_KEYS = {'PixelSize': 'sensor_pitch_um', 'LensFocalLength': 'lens_focal_length_mm'}
 
 
 def load_scope_models(data_file: str | None = None) -> Mapping[str, ScopeModel]:

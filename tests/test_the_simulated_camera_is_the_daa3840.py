@@ -74,7 +74,7 @@ def test_what_an_api_caller_reads_is_the_darts():
     simulated, dart = simulated_profile(), lookup_profile('daA3840-45um')
     for field in (
         'native_resolution',
-        'pixel_size_um',
+        'sensor_pitch_um',
         'shutter',
         'binning_sizes',
         'has_auto_gain',

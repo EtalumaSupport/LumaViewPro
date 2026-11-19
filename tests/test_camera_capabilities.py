@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from _lumascope.drivers.camera import Camera
-from _lumascope.drivers.camera_profiles import GainInfo
+from _lumascope.drivers.camera_profiles import CameraProfile, GainInfo
 from _lumascope.drivers.fx2driver import FX2Camera
 from _lumascope.drivers.idscamera import IDSCamera
 from _lumascope.drivers.pyloncamera import PylonCamera
@@ -113,16 +113,10 @@ class TestScopeCapabilitiesIntegration:
             get_sdk_info=lambda: Camera.get_sdk_info(None),
             # The base driver's maps of named settings (none), which a real driver inherits.
             node_maps=lambda: Camera.node_maps(None),
-            profile=SimpleNamespace(
-                sensor=None,
-                shutter=None,
-                has_auto_gain=False,
-                has_auto_exposure=False,
-                pixel_formats=('Mono8',),
-                binning_sizes=(1,),
+            profile=CameraProfile(
+                pixel_formats=['Mono8'],
                 exposure_max_us=10000,
                 gain=GainInfo(),
-                alignment={'width': 2, 'height': 2},
             ),
             get_max_frame_size=lambda: {'width': 1024, 'height': 768},
         )

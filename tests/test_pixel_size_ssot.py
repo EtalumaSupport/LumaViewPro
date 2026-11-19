@@ -21,17 +21,17 @@ from _lumascope.modules.channel_record import load_scope_models
 from _lumascope.modules.scope_capabilities import (
     _declared_optics,
     _resolve_lens_focal_length_mm,
-    _resolve_pixel_size_um,
+    _resolve_sensor_pitch_um,
 )
 from _lumascope.modules.channel_record import release_color
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED1
 
 
-def _camera_with_pixel_size(pixel_size_um):
-    """Minimal camera exposing profile.pixel_size_um, matching what the resolver
-    reads (getattr(camera, 'profile').pixel_size_um)."""
-    return SimpleNamespace(profile=SimpleNamespace(pixel_size_um=pixel_size_um))
+def _camera_with_pixel_size(sensor_pitch_um):
+    """Minimal camera exposing profile.sensor_pitch_um, matching what the resolver
+    reads (camera.profile.sensor_pitch_um)."""
+    return SimpleNamespace(profile=SimpleNamespace(sensor_pitch_um=sensor_pitch_um))
 
 
 def _optics(model):
@@ -52,41 +52,41 @@ class TestResolutionOrder:
         # optics. This is the bug site: the old code fell back to 2.0 here
         # instead of consulting the 2.2 the scope actually has.
         cam = _camera_with_pixel_size(2.2)
-        assert _resolve_pixel_size_um(None, _optics('LS620'), cam) == 2.2
+        assert _resolve_sensor_pitch_um(None, _optics('LS620'), cam) == 2.2
         assert _resolve_lens_focal_length_mm(None, _optics('LS620')) == 47.8
 
     def test_ls850t_motorconfig_wins_and_is_a_no_op(self):
         # A scope WITH a motorconfig sources optics from it; the fix must not
         # move the LS850T's 2.0.
         mc = _motorconfig_with_optics(2.0, 47.8)
-        assert _resolve_pixel_size_um(mc, _optics('LS850T'), None) == 2.0
+        assert _resolve_sensor_pitch_um(mc, _optics('LS850T'), None) == 2.0
         assert _resolve_lens_focal_length_mm(mc, _optics('LS850T')) == 47.8
 
     def test_motorconfig_optics_beats_scopes_json(self):
         # motorconfig is first in the order; a model that ALSO has a scopes.json
         # entry (LS620 -> 2.2) still takes the motorconfig value.
         mc = _motorconfig_with_optics(2.0, 47.8)
-        assert _resolve_pixel_size_um(mc, _optics('LS620'), None) == 2.0
+        assert _resolve_sensor_pitch_um(mc, _optics('LS620'), None) == 2.0
 
     def test_camera_profile_fills_when_no_config_or_scopes_entry(self):
         # An unrecognized model with no motorconfig and no scopes.json entry
         # falls through to the camera's SDK-reported pitch.
         cam = _camera_with_pixel_size(2.19)
-        assert _resolve_pixel_size_um(None, _optics('NoSuchScope'), cam) == 2.19
+        assert _resolve_sensor_pitch_um(None, _optics('NoSuchScope'), cam) == 2.19
 
     def test_unknown_scope_and_camera_yields_none(self):
         # Nothing can report a scale: stay None, never a guess. A generic camera
         # profile carries 0.0 until the SDK fills it, which must not count.
         cam = _camera_with_pixel_size(0.0)
-        assert _resolve_pixel_size_um(None, _optics('NoSuchScope'), cam) is None
+        assert _resolve_sensor_pitch_um(None, _optics('NoSuchScope'), cam) is None
         assert _resolve_lens_focal_length_mm(None, _optics('NoSuchScope')) is None
 
 
 class TestEffectivePixelSize:
     @staticmethod
-    def _optics(pixel_size_um, lens_focal_length_mm):
+    def _optics(sensor_pitch_um, lens_focal_length_mm):
         return SimpleNamespace(
-            pixel_size_um=pixel_size_um, lens_focal_length_mm=lens_focal_length_mm
+            sensor_pitch_um=sensor_pitch_um, lens_focal_length_mm=lens_focal_length_mm
         )
 
     def test_ls620_effective_pixel_size_at_20x(self):

@@ -1249,7 +1249,7 @@ class TestNoPatternRequestedRendersTheSpecimen:
     def test_profile_sensor_info(self):
         cam = SimulatedCamera()
         assert cam.profile.sensor == 'Simulated'
-        assert cam.profile.pixel_size_um == 2.0
+        assert cam.profile.sensor_pitch_um == 2.0
         assert cam.profile.shutter == 'rolling'
 
     def test_profile_sets_max_exposure(self):
@@ -1523,7 +1523,7 @@ class TestCameraProfiles:
         p = lookup_profile('daA3840-45um')
         assert p.model_name == 'daA3840-45um'
         assert p.sensor == 'Sony IMX334LLR-C'
-        assert p.pixel_size_um == 2.0
+        assert p.sensor_pitch_um == 2.0
         assert p.shutter == 'rolling'
         assert p.driver == 'pylon'
         assert p.exposure_max_us == 1_000_000
@@ -1542,7 +1542,7 @@ class TestCameraProfiles:
         p = lookup_profile('U3-34L0XCP-M')
         assert p.driver == 'ids'
         assert p.sensor == 'Sony IMX676-AAMR1-C'
-        assert p.pixel_size_um == 2.0
+        assert p.sensor_pitch_um == 2.0
         assert p.native_resolution == {'width': 3552, 'height': 3552}
         assert p.binning_sizes == [1, 2]
         assert p.gain.gain_selector == 'AnalogAll'

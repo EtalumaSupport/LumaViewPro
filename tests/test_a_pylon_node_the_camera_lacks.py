@@ -287,7 +287,7 @@ def _profile():
         exposure_min_us=None,
         exposure_max_us=None,
         pixel_formats=['Mono8'],
-        pixel_size_um=0.0,
+        sensor_pitch_um=0.0,
     )
 
 
@@ -316,7 +316,7 @@ def test_a_camera_without_the_range_nodes_is_told_so_and_its_profile_is_left_uns
         m for level, m in said if level >= logging.WARNING and any(n in m for n in _RANGE_NODES)
     ]
     assert (cam.profile.gain.total_max_db, cam.profile.exposure_max_us) == (None, None)
-    assert cam.profile.pixel_size_um == 0.0
+    assert cam.profile.sensor_pitch_um == 0.0
 
 
 def test_a_failed_pixel_pitch_read_is_told_at_warning(caplog):
@@ -332,4 +332,4 @@ def test_a_failed_pixel_pitch_read_is_told_at_warning(caplog):
         and 'usb gone' in r.getMessage()
         for r in caplog.records
     )
-    assert cam.profile.pixel_size_um == 0.0
+    assert cam.profile.sensor_pitch_um == 0.0

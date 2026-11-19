@@ -629,7 +629,7 @@ class TestIDSDefaultProfile(unittest.TestCase):
         # pixel formats + pixel size are left for the live nodemap to fill;
         # never fabricate a pixel size (would corrupt the micron scale).
         self.assertEqual(p.pixel_formats, [])
-        self.assertEqual(p.pixel_size_um, 0.0)
+        self.assertEqual(p.sensor_pitch_um, 0.0)
         self.assertEqual(p.alignment, {'width': 2, 'height': 2})
 
 

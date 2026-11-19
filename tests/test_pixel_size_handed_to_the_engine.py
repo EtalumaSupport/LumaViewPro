@@ -53,7 +53,7 @@ class TestAHeadlessImageCarriesItsScale:
         objective = sim_scope.runtime_state.get_current_objective()
         caps = sim_scope.capabilities
         expected = (
-            caps.pixel_size_um
+            caps.sensor_pitch_um
             / (caps.lens_focal_length_mm / objective.focal_length_mm)
             * sim_scope.camera.binning
         )
@@ -91,7 +91,9 @@ class TestTheResolverIsHandedTheOptics:
     def test_a_scope_that_cannot_report_its_optics_yields_none(self, no_context):
         """Preserved: no invented scale. A scope with unknown optics still
         answers None, and its callers still degrade honestly."""
-        caps = SimpleNamespace(pixel_size_um=None, lens_focal_length_mm=None, axes=('X', 'Y', 'Z'))
+        caps = SimpleNamespace(
+            sensor_pitch_um=None, lens_focal_length_mm=None, axes=('X', 'Y', 'Z')
+        )
 
         assert (
             common_utils.get_pixel_size(focal_length=9.0, binning_size=1, capabilities=caps) is None

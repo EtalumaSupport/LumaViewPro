@@ -1592,5 +1592,5 @@ def scale_capabilities():
     from types import SimpleNamespace
 
     return SimpleNamespace(
-        pixel_size_um=2.0, lens_focal_length_mm=47.8, led_max_ma=1000, axes=('X', 'Y', 'Z')
+        sensor_pitch_um=2.0, lens_focal_length_mm=47.8, led_max_ma=1000, axes=('X', 'Y', 'Z')
     )
