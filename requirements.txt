@@ -41,12 +41,11 @@ pydantic==2.14.0
 starlette==1.7.0
 
 # FX2 (LVC LS460/LS560/LS620/LS720) USB driver bindings and the native
-# libusb-1.0 they run on. All three are gated at runtime by
-# src/_lumascope/drivers/fx2driver.py:_FX2_AVAILABLE -- present without FX2 hardware,
-# the driver no-ops with a single INFO log. libusb-package carries the
-# native library itself, so no host copy (Homebrew, distro, a DLL) is
-# ever used; the marker lists the hosts it has wheels for, so the install
-# still succeeds elsewhere and the FX2 gate says why FX2 is off.
+# libusb-1.0 they run on. libusb-package carries the native library
+# itself, so no host copy (Homebrew, distro, a DLL) is ever used; the
+# marker lists the hosts it has wheels for, so the install still succeeds
+# elsewhere and the FX2 gate (src/_lumascope/drivers/fx2driver.py) says
+# why FX2 is off.
 pyusb==1.3.1
 libusb1==3.4.0
 libusb-package==1.0.30.0; sys_platform == "darwin" or (sys_platform == "linux" and (platform_machine == "x86_64" or platform_machine == "aarch64")) or (sys_platform == "win32" and (platform_machine == "AMD64" or platform_machine == "x86"))

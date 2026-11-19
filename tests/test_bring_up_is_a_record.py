@@ -422,7 +422,9 @@ class TestNothingCameUp:
 
 
 # The FX2 driver this installation did not load, as both registries carry it.
-_FX2_DECLINED = (DeclinedDriver('fx2', 'pyusb is not installed'),)
+_FX2_DECLINED = (
+    DeclinedDriver('fx2', 'bundled libusb not in use: libusb-package is not installed'),
+)
 
 
 def _no_camera_with_the_fx2_declined():
@@ -451,7 +453,9 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
             camera = _status(s.bring_up_record(), Board.CAMERA)
             assert camera.cause == 'not_detected'
             # The record still names the driver that did not load.
-            assert 'fx2: pyusb is not installed' in camera.detail
+            assert (
+                'fx2: bundled libusb not in use: libusb-package is not installed' in camera.detail
+            )
             assert _told(centre_posts) == [('Camera', 'not_detected')]
         finally:
             s.shutdown()

@@ -54,10 +54,12 @@ Dependencies
 Import-time safety
 ------------------
 
-All USB / libusb1 imports are wrapped in try/except. When a prerequisite is
-missing the module still imports, logs which one, and registers neither
-driver, so auto-detect never offers an FX2 that cannot run and non-FX2
-scopes on dev machines without pyusb are unaffected.
+pyusb and python-libusb1 are pinned on every host and imported here
+unconditionally; a run without them is refused before this module loads.
+What can still be missing is the native library: when libusb-package's
+bundled copy is not in use the module still imports, logs why, and
+registers neither driver, so auto-detect never offers an FX2 that cannot
+run and non-FX2 scopes are unaffected.
 
 The driver reads no application settings: the one runtime toggle, the LED
 wire trace, arrives as the ``debug_wire`` constructor argument.
@@ -88,6 +90,9 @@ from collections import Counter, deque
 from collections.abc import Callable, Iterable, Iterator
 
 import numpy as np
+import usb.core
+import usb.util
+import usb1
 
 from _lumascope.lib.build_files import build_root
 from _lumascope.lib.lumascope_error import Fault, RefusalCause
@@ -216,26 +221,10 @@ def _vr_name(req: int) -> str:
     return _VR_NAMES.get(req, f'VR_0x{req:02X}')
 
 
-try:
-    import usb.core
-    import usb.util
-
-    _HAS_USB = True
-except ImportError:
-    _HAS_USB = False
-
-try:
-    import usb1
-
-    _HAS_USB1 = True
-except ImportError:
-    _HAS_USB1 = False
-
-
 def _load_bundled_libusb(usb1_module):
     """Bind pyusb and python-libusb1 to libusb-package's library.
 
-    ``usb1_module`` is python-libusb1, or None where it is not installed.
+    ``usb1_module`` is python-libusb1.
 
     Returns ``(path, None)`` when both bindings run on the bundled file, or
     ``(None, reason)`` when they cannot. Which libusb a host happens to have
@@ -275,22 +264,21 @@ def _load_bundled_libusb(usb1_module):
     # on the functions of the handle it holds, so one shared handle leaves
     # pyusb calling with python-libusb1's declarations and every descriptor
     # read fails. The OS loader still maps the file once.
-    if usb1_module is not None:
-        try:
-            usb1_handle = ctypes.CDLL(path)
-        except OSError as ex:
-            return None, f'the bundled libusb at {path} did not load for python-libusb1: {ex}'
-        if not usb1_module.loadLibrary(usb1_handle):
-            return None, 'python-libusb1 had already loaded another libusb'
+    try:
+        usb1_handle = ctypes.CDLL(path)
+    except OSError as ex:
+        return None, f'the bundled libusb at {path} did not load for python-libusb1: {ex}'
+    if not usb1_module.loadLibrary(usb1_handle):
+        return None, 'python-libusb1 had already loaded another libusb'
     return path, None
 
 
 class _Fx2Gate(NamedTuple):
     """Whether this install can reach FX2 hardware, and why not.
 
-    FX2 (LumaviewClassic) drivers require pyusb plus a loadable libusb-1.0
-    native backend, plus libusb1 for ISO streaming, on every platform. On
-    systems missing those, FX2 hardware fundamentally cannot be reached --
+    FX2 (LumaviewClassic) drivers run pyusb and python-libusb1 on the
+    bundled libusb-1.0 native library, on every platform. On a system where
+    that library is not in use, FX2 hardware fundamentally cannot be reached --
     registering the drivers anyway causes the registry to attempt
     instantiation on every auto-detect run, raise NoBackendError /
     ImportError, and dump a confusing traceback on systems that simply
@@ -298,100 +286,69 @@ class _Fx2Gate(NamedTuple):
     classification: this driver class isn't applicable to this install.
 
     Attributes:
-        has_usb: pyusb imports.
-        has_usb1: python-libusb1 imports.
         library_path: The bundled libusb both bindings run on; None when it
             is not in use.
         library_refusal: Why the bundled libusb is not in use; None when it is.
         library_version: The bundled libusb's version as python-libusb1
-            reads it; None where it is not in use or there is no libusb1.
-        available: The FX2 drivers register.
-        unavailable_reason: Why not, in a few words, for the registry to
-            carry beside the drivers it declines: an LS460 / LS560 / LS620 / LS720
-            whose camera is not found then says which driver did not load.
+            reads it; None where it is not in use.
     """
 
-    has_usb: bool
-    has_usb1: bool
     library_path: str | None
     library_refusal: str | None
     library_version: str | None
-    available: bool
-    unavailable_reason: str | None
+
+    @property
+    def available(self) -> bool:
+        """The FX2 drivers register: the bundled libusb is in use."""
+        return self.library_path is not None
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        """Why not, in a few words, for the registry to carry beside the
+        drivers it declines: an LS460 / LS560 / LS620 / LS720 whose camera is
+        not found then says which driver did not load."""
+        return None if self.available else f'bundled libusb not in use: {self.library_refusal}'
 
 
-def _fx2_gate(has_usb: bool, usb1_module) -> _Fx2Gate:
-    """Decide the gate from what imported: pyusb (``has_usb``) and python-libusb1
-    (``usb1_module``, None when absent).
+def _fx2_gate(usb1_module) -> _Fx2Gate:
+    """Decide the gate: whether both bindings run on the bundled libusb.
 
-    Binds the bundled libusb when pyusb is present (``_load_bundled_libusb``,
-    with its ordering invariant), so it runs once, at import.
+    Binds the bundled libusb (``_load_bundled_libusb``, with its ordering
+    invariant), so it runs once, at import. ``usb1_module`` is python-libusb1.
     """
-    has_usb1 = usb1_module is not None
-    library_path, library_refusal = None, 'pyusb is not installed'
-    if has_usb:
-        library_path, library_refusal = _load_bundled_libusb(usb1_module)
-    has_backend = library_path is not None
-    available = has_usb and has_backend and has_usb1
-    if available:
-        reason = None
-    elif not has_usb:
-        reason = 'pyusb is not installed'
-    elif not has_backend:
-        reason = f'bundled libusb not in use: {library_refusal}'
-    else:
-        reason = 'libusb1 is not installed'
+    library_path, library_refusal = _load_bundled_libusb(usb1_module)
     return _Fx2Gate(
-        has_usb=has_usb,
-        has_usb1=has_usb1,
         library_path=library_path,
         library_refusal=library_refusal,
-        library_version=usb1_module.getVersion() if has_backend and has_usb1 else None,
-        available=available,
-        unavailable_reason=reason,
+        library_version=None if library_path is None else usb1_module.getVersion(),
     )
 
 
 def _gate_lines(gate: _Fx2Gate) -> list[tuple[int, str]]:
-    """Which prerequisite kept the FX2 drivers out, and which libusb is loaded.
+    """Why the FX2 drivers were kept out, or which libusb is loaded.
 
     Returns:
         ``(level, line)`` pairs, each at INFO, for the environment banner:
         the gate is decided at import, where nothing has started logging, so
         the banner states it.
     """
-    lines = []
     if not gate.available:
-        if not gate.has_usb:
-            lines.append(
-                '[FX2 Driver] pyusb not installed -- FX2 (LumaviewClassic) '
-                'drivers will not be registered. Install pyusb to enable '
-                'LVC hardware support: pip install pyusb'
-            )
-        elif gate.library_path is None:
-            lines.append(
-                f'[FX2 Driver] bundled libusb not in use: {gate.library_refusal} -- '
-                'FX2 (LumaviewClassic) drivers will not be registered.'
-            )
-        elif not gate.has_usb1:
-            lines.append(
-                '[FX2 Driver] libusb1 not installed -- FX2 (LumaviewClassic) '
-                'drivers will not be registered. Install '
-                'libusb1 (pip install -r requirements.txt) to enable LVC '
-                'hardware support.'
-            )
-    if gate.library_path is not None:
-        lines.append(
+        line = (
+            f'[FX2 Driver] bundled libusb not in use: {gate.library_refusal} -- '
+            'FX2 (LumaviewClassic) drivers will not be registered.'
+        )
+    else:
+        line = (
             f'[FX2 Driver] libusb {gate.library_version or "(version unread)"} '
             f'loaded from {gate.library_path}'
         )
-    return [(logging.INFO, line) for line in lines]
+    return [(logging.INFO, line)]
 
 
 # Resolved at import so a host without a usable libusb is classified as
 # "FX2 not applicable to this install" here, instead of the first
 # usb.core.find() raising NoBackendError mid-connect on every startup.
-_FX2_GATE = _fx2_gate(_HAS_USB, usb1 if _HAS_USB1 else None)
+_FX2_GATE = _fx2_gate(usb1)
 
 
 def fx2_gate_lines() -> list[tuple[int, str]]:
@@ -402,16 +359,13 @@ def fx2_gate_lines() -> list[tuple[int, str]]:
 def fx2_readiness() -> dict[str, bool]:
     """Each term of the availability gate, as this process found it at import.
 
-    Keys name what an installer installs: ``pyusb``, ``libusb-package``
-    (the native library both bindings run on) and ``libusb1`` (the binding that streams
-    frames). ``scripts/install_mac.sh`` reports these rather than
-    probing on its own, so what it prints is what the driver will do.
+    Keys name what an installer installs: ``libusb-package``, the native
+    library both bindings run on (the bindings themselves are pinned, so a
+    run without them never reaches here). ``scripts/install_mac.sh`` reports
+    these rather than probing on its own, so what it prints is what the
+    driver will do.
     """
-    return {
-        'pyusb': _FX2_GATE.has_usb,
-        'libusb-package': _FX2_GATE.library_path is not None,
-        'libusb1': _FX2_GATE.has_usb1,
-    }
+    return {'libusb-package': _FX2_GATE.available}
 
 
 def fx2_readiness_line() -> str:
@@ -421,7 +375,7 @@ def fx2_readiness_line() -> str:
     )
     verdict = 'ready' if _FX2_GATE.available else 'NOT ready'
     line = f'FX2 (LS460/LS560/LS620/LS720) support: {verdict} -- {terms}'
-    if _FX2_GATE.has_usb and _FX2_GATE.library_path is None:
+    if not _FX2_GATE.available:
         line += f' ({_FX2_GATE.library_refusal})'
     return line
 
@@ -434,7 +388,7 @@ REGISTRY_NAME = 'fx2'
 def _register_if_fx2_available(registry, name, **kwargs):
     """Register the decorated class only if FX2 prerequisites are met.
 
-    Declined, with the reason, when pyusb/libusb1 is unavailable: the
+    Declined, with the reason, when the bundled libusb is not in use: the
     registry never tries the FX2 on such an install, and a part it does not
     find is told beside the driver that did not load.
     """
@@ -1163,12 +1117,7 @@ def _is_usb_timeout(error: BaseException) -> bool:
     ``USBErrorNoDevice`` or ``USBErrorNotFound``, siblings of its timeout. The library classes are
     read here, at the failure, rather than captured at import.
     """
-    timeouts: list[type[BaseException]] = []
-    if _HAS_USB:
-        timeouts.append(usb.core.USBTimeoutError)
-    if _HAS_USB1:
-        timeouts.append(usb1.USBErrorTimeout)
-    return isinstance(error, tuple(timeouts))
+    return isinstance(error, (usb.core.USBTimeoutError, usb1.USBErrorTimeout))
 
 
 def _usb_errors() -> tuple[type[BaseException], ...]:
@@ -1179,10 +1128,7 @@ def _usb_errors() -> tuple[type[BaseException], ...]:
     handler around a USB call catches only these. Read at the failure, as
     ``_is_usb_timeout`` reads its classes.
     """
-    errors: list[type[BaseException]] = [OSError]
-    if _HAS_USB1:
-        errors.append(usb1.USBError)
-    return tuple(errors)
+    return (OSError, usb1.USBError)
 
 
 def _camera_write_failed(request: int, error: BaseException) -> Exception:
@@ -1589,23 +1535,7 @@ def _platform_transport_class() -> type[_PyusbTransport]:
 
 
 def _platform_transport() -> _PyusbTransport:
-    """The transport for this host, with the USB libraries it needs.
-
-    Raises:
-        ImportError: pyusb or python-libusb1 is not installed.
-    """
-    if not _HAS_USB:
-        raise ImportError(
-            'pyusb is required for FX2 hardware access. Install with: pip install pyusb'
-        )
-    # libusb1 is needed for ISO streaming. Fail fast so an LS620 user
-    # without libusb1 gets a clear install hint, not a confusing runtime
-    # error 30 seconds in when they hit "start streaming".
-    if not _HAS_USB1:
-        raise ImportError(
-            'libusb1 (python-libusb1) is required for FX2 ISO streaming. '
-            'Install with: pip install -r requirements.txt'
-        )
+    """The transport for this host."""
     return _platform_transport_class()()
 
 
@@ -1648,7 +1578,7 @@ def usb_library_census(vendor_ids: Iterable[int]) -> UsbCensus:
     bundled libusb not in use, or one that cannot list the bus, gives a
     census that says why.
     """
-    if not _HAS_USB or _FX2_GATE.library_path is None:
+    if not _FX2_GATE.available:
         return UsbCensus(
             source='the USB library',
             devices=(),
@@ -1767,7 +1697,7 @@ class _FX2Connection:
     def get(cls) -> _FX2Connection:
         """Return the singleton, constructing it on first call.
 
-        Raises on construction failure (no FX2 hardware, no pyusb, firmware
+        Raises on construction failure (no FX2 hardware, a firmware
         upload timeout, etc.) -- the registry catches the exception and
         falls through to the next candidate driver. The first call's
         failure is held and raised again to every later call
@@ -1777,7 +1707,6 @@ class _FX2Connection:
             _FX2Connection: The shared singleton instance.
 
         Raises:
-            ImportError: pyusb or libusb1 is not installed.
             _FX2AbsentError: No Lumascope FX2 device is on the bus.
             CameraUsbNotFoundError: The firmware was uploaded and the device
                 did not re-enumerate within the timeout window.

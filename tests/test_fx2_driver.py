@@ -103,13 +103,12 @@ def fake_fx2_conn(monkeypatch):
 
 @pytest.mark.skipif(
     not fx2driver._FX2_GATE.available,
-    reason='FX2 prerequisites (pyusb / libusb1) not installed -- drivers '
-    'intentionally not registered (issue #635)',
+    reason='the bundled libusb is not in use -- drivers intentionally not registered (issue #635)',
 )
 class TestRegistryWiring:
     """Verify FX2 is registered in both camera and LED registries.
 
-    Skipped on systems missing pyusb (or libusb1 on macOS/Linux): per #635
+    Skipped on systems where the bundled libusb is not in use: per #635
     the FX2 drivers refuse to register on installs where they cannot work,
     so the registration assertion is meaningless there.
     """
@@ -130,9 +129,9 @@ class TestRegistryWiring:
 
 
 class TestRegistryGatedOnPrereqs:
-    """Issue #635 regression: FX2 drivers must NOT register when pyusb/libusb1
-    are unavailable. Otherwise the registry attempts instantiation, raises
-    ImportError, and dumps a confusing traceback on every no-LVC install."""
+    """Issue #635 regression: FX2 drivers must NOT register when the bundled
+    libusb is not in use. Otherwise the registry attempts instantiation, raises
+    NoBackendError, and dumps a confusing traceback on every no-LVC install."""
 
     def test_an_unavailable_fx2_is_declined_with_its_reason(self, monkeypatch):
         # Not registered, so the registry never tries it; declined, so a
@@ -141,7 +140,7 @@ class TestRegistryGatedOnPrereqs:
             fx2driver,
             '_FX2_GATE',
             fx2driver._FX2_GATE._replace(
-                available=False, unavailable_reason='pyusb is not installed'
+                library_path=None, library_refusal='libusb-package is not installed'
             ),
         )
         registry = DriverRegistry('camera')
@@ -153,7 +152,9 @@ class TestRegistryGatedOnPrereqs:
         assert registry.registered_names() == []
         with pytest.raises(NoLiveDriverError) as caught:
             registry.create('auto')
-        assert caught.value.fallback.declined == (DeclinedDriver('fx2', 'pyusb is not installed'),)
+        assert caught.value.fallback.declined == (
+            DeclinedDriver('fx2', 'bundled libusb not in use: libusb-package is not installed'),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1016,8 +1017,6 @@ class TestFx2DriverLibusbBackendProbe:
         library_path=_BUNDLED,
         usb1_loads=True,
         usb1_opens=True,
-        has_usb=True,
-        has_usb1=True,
     ):
         """The gate over a fake binding tree, with what the bindings were handed."""
         import ctypes
@@ -1069,7 +1068,7 @@ class TestFx2DriverLibusbBackendProbe:
             # None in sys.modules makes the import raise ImportError.
             monkeypatch.setitem(sys.modules, 'libusb_package', None)
 
-        gate = fx2driver._fx2_gate(has_usb, usb1_mod if has_usb1 else None)
+        gate = fx2driver._fx2_gate(usb1_mod)
         return gate, found, handed_to_usb1
 
     @staticmethod
@@ -1125,19 +1124,6 @@ class TestFx2DriverLibusbBackendProbe:
             for lvl, msg in records
         ), f'{case}: the refusal must be stated with its reason; got {records}'
         assert self._registered(monkeypatch, gate) == [], f'{case}: no driver may register'
-
-    @pytest.mark.parametrize(
-        ('case', 'kwargs', 'available', 'reason'),
-        [
-            ('no pyusb', {'has_usb': False}, False, 'pyusb is not installed'),
-            ('no libusb1', {'has_usb1': False}, False, 'libusb1 is not installed'),
-        ],
-    )
-    def test_the_bindings_every_host_needs(self, monkeypatch, case, kwargs, available, reason):
-        gate, _found, _handed = self._gate(
-            monkeypatch, backend=self._backend_on(self._BUNDLED), **kwargs
-        )
-        assert (gate.available, gate.unavailable_reason) == (available, reason), case
 
     def test_the_bundled_library_binds_both_bindings_and_is_named(self, monkeypatch):
         """The backend is asked for the bundled file and nothing else, the

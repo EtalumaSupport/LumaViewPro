@@ -49,11 +49,8 @@ hiddenimports = [
     *collect_submodules('imagecodecs'),
     'skimage.measure',
     'win32timezone',
-    # FX2 (LVC) USB driver imports — pyusb + libusb1 dynamic submodules
-    # that PyInstaller can't follow statically. Listed unconditionally
-    # because src/_lumascope/drivers/fx2driver.py guards their import with try/except
-    # (_FX2_AVAILABLE flag), so absence of the libraries at install
-    # time degrades to "FX2 not available" rather than a crash.
+    # FX2 (LVC) USB driver imports -- pyusb + libusb1 dynamic submodules
+    # that PyInstaller can't follow statically.
     'usb',
     'usb.core',
     'usb.util',
