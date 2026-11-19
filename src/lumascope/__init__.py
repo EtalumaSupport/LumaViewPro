@@ -255,6 +255,7 @@ from _lumascope.modules.graph_analysis import (
 from _lumascope.modules.host_resources import (
     DrawingGpu,
     GpuAdapter,
+    GpuHybridType,
     HostReading,
     ProgramCpu,
 )
@@ -652,6 +653,7 @@ __all__ = [
     'FrameTime',
     'FrameValiditySource',
     'GpuAdapter',
+    'GpuHybridType',
     'GraphOptions',
     'GraphResult',
     'HardwareCommandRefusedError',

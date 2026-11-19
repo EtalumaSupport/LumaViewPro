@@ -494,8 +494,8 @@ class LowSystemResourcesNotice(Notice, Exception):  # noqa: N818 -- a notice, no
     Told once a session, by the session's startup reading
     (``ScopeSession.host_reading``), when available memory, free space on
     the drive LumaViewPro saves to, or another program's share of the CPU
-    is past its line, or when LumaViewPro draws on another maker's GPU than
-    the one Windows ranks for high performance. A PC like that looks to the
+    is past its line, or when LumaViewPro draws on the integrated GPU of a
+    PC Windows types as hybrid, beside its discrete one. A PC like that looks to the
     person like a LumaViewPro defect: slow, freezing, a camera that seems
     to drop, a live view slower than the camera. The message opens with
     what is past; the memory and disk figures lead only when one of them is.
@@ -507,9 +507,9 @@ class LowSystemResourcesNotice(Notice, Exception):  # noqa: N818 -- a notice, no
             when the save folder could not be read.
         busy: Each other program over the CPU line (``ProgramCpu``),
             largest share first.
-        preferred_gpu: The GPU Windows ranks for high performance, when
-            LumaViewPro is drawing on another maker's (``GpuAdapter``);
-            None otherwise.
+        preferred_gpu: The discrete GPU of a hybrid PC, the one Windows'
+            Graphics setting names High performance, when LumaViewPro is
+            drawing on its integrated one (``GpuAdapter``); None otherwise.
     """
 
     title = 'This PC may slow LumaViewPro'
@@ -529,8 +529,8 @@ class LowSystemResourcesNotice(Notice, Exception):  # noqa: N818 -- a notice, no
             # The judge names a preferred GPU only for a reading with a window drawing.
             sentences.append(
                 f'LumaViewPro is drawing on the {reading.drawing_gpu.renderer}, '
-                f'not the {preferred_gpu.description} '
-                'Windows ranks for high performance, so the live view can be slower than the '
+                f'not the {preferred_gpu.description}, '
+                "this PC's high-performance GPU, so the live view can be slower than the "
                 'camera. In Settings > System > Display > Graphics, set LumaViewPro (or, '
                 'running from source, its Python) to High performance, then restart LumaViewPro.'
             )

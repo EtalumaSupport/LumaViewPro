@@ -14,13 +14,14 @@ once when anything is past its line.
 
 The lines are one byte count and one percent on every platform: sizes are
 binary gigabytes, labelled GB as Windows' Explorer and Task Manager show
-them. The GPU is judged on Windows alone, the one platform with a
-system-wide ranking of a PC's GPUs to judge against.
+them. The GPU is judged on Windows alone, the one platform that types a
+PC's GPUs as integrated and discrete to judge against.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import enum
 import os
 import pathlib
 import re
@@ -31,6 +32,7 @@ from typing import NamedTuple
 
 import psutil
 
+from _lumascope.lvp_logger import logger
 from _lumascope.modules import common_utils
 from _lumascope.modules.api_surface import api_fields
 from _lumascope.modules.exceptions import LowSystemResourcesNotice
@@ -77,7 +79,44 @@ class DrawingGpu:
     renderer: str
 
 
-@api_fields('description', 'vendor_id')
+class GpuHybridType(enum.StrEnum):
+    """How Windows types a GPU on a PC with an integrated GPU beside a discrete one.
+
+    On such a PC (a hybrid PC) Windows types the GPU it boots on, the one
+    driving the built-in panel, integrated, and the one beside it with no
+    display outputs discrete: the GPU its Graphics setting names High
+    performance. A PC of one GPU, or of cards that each drive a monitor,
+    has neither.
+    """
+
+    INTEGRATED = 'integrated'
+    DISCRETE = 'discrete'
+    NEITHER = 'neither'
+    # Both bits set: recorded as read, never judged.
+    BOTH = 'both'
+    # Windows did not answer the type query for this GPU.
+    UNREAD = 'unread'
+
+
+# Bits 4 and 5 of D3DKMT_ADAPTERTYPE (d3dkmthk.h).
+_ADAPTER_TYPE_HYBRID_DISCRETE = 1 << 4
+_ADAPTER_TYPE_HYBRID_INTEGRATED = 1 << 5
+
+
+def hybrid_type_of(adapter_type: int) -> GpuHybridType:
+    """The hybrid type a ``D3DKMT_ADAPTERTYPE`` value states."""
+    discrete = bool(adapter_type & _ADAPTER_TYPE_HYBRID_DISCRETE)
+    integrated = bool(adapter_type & _ADAPTER_TYPE_HYBRID_INTEGRATED)
+    if discrete and integrated:
+        return GpuHybridType.BOTH
+    if discrete:
+        return GpuHybridType.DISCRETE
+    if integrated:
+        return GpuHybridType.INTEGRATED
+    return GpuHybridType.NEITHER
+
+
+@api_fields('description', 'vendor_id', 'hybrid')
 @dataclasses.dataclass(frozen=True)
 class GpuAdapter:
     """One of this PC's GPUs, as Windows lists it.
@@ -87,10 +126,14 @@ class GpuAdapter:
             ``NVIDIA GeForce GTX 970M``.
         vendor_id: Its maker's PCI vendor id: 0x8086 Intel, 0x10DE NVIDIA,
             0x1002 AMD.
+        hybrid: How Windows types it beside the PC's other GPUs
+            (``GpuHybridType``): integrated, discrete, neither, both, or
+            unread when Windows did not answer.
     """
 
     description: str
     vendor_id: int
+    hybrid: GpuHybridType
 
 
 @dataclasses.dataclass(frozen=True)
@@ -107,9 +150,10 @@ class HostSnapshot:
         ram_available_bytes: The memory available.
         disk_free_bytes: The save folder's free space; None when no folder
             was asked for, or it does not exist or could not be read.
-        gpus: This PC's GPUs, the one Windows ranks for high performance
-            first; None when they were not asked for, off Windows, or on a
-            Windows that cannot rank them (before Windows 10 1803).
+        gpus: This PC's GPUs, in the order Windows offers them to
+            LumaViewPro, its own Graphics setting's choice first; None when
+            they were not asked for, off Windows, or on a Windows that
+            cannot list them so (before Windows 10 1803).
         read_s: How long the read took.
     """
 
@@ -153,9 +197,10 @@ def read_host(save_folder: str | None, *, read_gpus: bool) -> HostSnapshot:
     )
 
 
-# DXGI, the one Windows interface that ranks a PC's GPUs as its Graphics
-# setting does: IDXGIFactory6.EnumAdapterByGpuPreference. Called through
-# each object's table of methods, numbered as dxgi1_6.h declares them.
+# DXGI lists the GPUs: IDXGIFactory6.EnumAdapterByGpuPreference, which
+# inside a process orders them by that program's own Graphics setting, so
+# the order is logged and never judged. Called through each object's table
+# of methods, numbered as dxgi1_6.h declares them.
 _IID_IDXGI_FACTORY6 = uuid.UUID('c1b6694f-ff09-44a9-b03c-77900a0a1d17')
 _IID_IDXGI_ADAPTER1 = uuid.UUID('29038f61-3839-4626-91fd-086879011a05')
 _RELEASE = 2
@@ -166,17 +211,70 @@ _ADAPTER_FLAG_SOFTWARE = 2
 _S_OK = 0
 _E_NOINTERFACE = 0x80004002
 _DXGI_ERROR_NOT_FOUND = 0x887A0002
+# The driver layer types each GPU (D3DKMT, gdi32): the type query's value is
+# its d3dkmthk.h value, 15; the enum skips 14, so its place in Microsoft's
+# list of members is not its value.
+_KMTQAITYPE_ADAPTERTYPE = 15
 
 
 def _windows_gpus() -> tuple[GpuAdapter, ...] | None:
-    """This PC's hardware GPUs, the one Windows ranks for high performance first; None before Windows 10 1803.
+    """This PC's hardware GPUs, each typed, in the order Windows offers them to LumaViewPro; None before Windows 10 1803.
 
-    Windows' software renderer is not one.
+    Windows' software renderer is not one. A GPU whose type Windows does
+    not answer for is kept, typed unread, and the refusal logged: the rest
+    of the reading stands.
 
     Raises:
-        OSError: DXGI failed other than for a Windows too old to rank.
+        OSError: DXGI failed other than for a Windows too old to list.
     """
     import ctypes
+
+    class _Luid(ctypes.Structure):
+        _fields_ = [('LowPart', ctypes.c_ulong), ('HighPart', ctypes.c_long)]
+
+    class _OpenAdapterFromLuid(ctypes.Structure):
+        _fields_ = [('AdapterLuid', _Luid), ('hAdapter', ctypes.c_uint)]
+
+    class _QueryAdapterInfo(ctypes.Structure):
+        _fields_ = [
+            ('hAdapter', ctypes.c_uint),
+            ('Type', ctypes.c_int),
+            ('pPrivateDriverData', ctypes.c_void_p),
+            ('PrivateDriverDataSize', ctypes.c_uint),
+        ]
+
+    class _CloseAdapter(ctypes.Structure):
+        _fields_ = [('hAdapter', ctypes.c_uint)]
+
+    gdi32 = ctypes.WinDLL('gdi32')
+
+    def hybrid_type(description: str, luid: _Luid) -> GpuHybridType:
+        opened = _OpenAdapterFromLuid(luid, 0)
+        status = gdi32.D3DKMTOpenAdapterFromLuid(ctypes.byref(opened))
+        if status != 0:
+            logger.warning(
+                f'[HOST RESOURCES] D3DKMTOpenAdapterFromLuid refused {description}: '
+                f'0x{status & 0xFFFFFFFF:08x}; its type is unread'
+            )
+            return GpuHybridType.UNREAD
+        try:
+            adapter_type = ctypes.c_uint()
+            query = _QueryAdapterInfo(
+                opened.hAdapter,
+                _KMTQAITYPE_ADAPTERTYPE,
+                ctypes.cast(ctypes.byref(adapter_type), ctypes.c_void_p),
+                ctypes.sizeof(adapter_type),
+            )
+            status = gdi32.D3DKMTQueryAdapterInfo(ctypes.byref(query))
+        finally:
+            gdi32.D3DKMTCloseAdapter(ctypes.byref(_CloseAdapter(opened.hAdapter)))
+        if status != 0:
+            logger.warning(
+                f'[HOST RESOURCES] D3DKMTQueryAdapterInfo refused {description}: '
+                f'0x{status & 0xFFFFFFFF:08x}; its type is unread'
+            )
+            return GpuHybridType.UNREAD
+        return hybrid_type_of(adapter_type.value)
 
     class _AdapterDesc1(ctypes.Structure):
         _fields_ = [
@@ -242,7 +340,10 @@ def _windows_gpus() -> tuple[GpuAdapter, ...] | None:
             finally:
                 method(adapter, _RELEASE)(adapter)
             if not desc.Flags & _ADAPTER_FLAG_SOFTWARE:
-                adapters.append(GpuAdapter(desc.Description, desc.VendorId))
+                luid = _Luid(desc.AdapterLuidLowPart, desc.AdapterLuidHighPart)
+                adapters.append(
+                    GpuAdapter(desc.Description, desc.VendorId, hybrid_type(desc.Description, luid))
+                )
             index += 1
     finally:
         method(factory, _RELEASE)(factory)
@@ -316,9 +417,10 @@ class HostReading:
         window_s: The window's length.
         drawing_gpu: The GPU LumaViewPro's window draws on; None when
             nothing draws (no window: the REST server, a script).
-        gpus: This PC's GPUs, the one Windows ranks for high performance
-            first; None off Windows, or on a Windows that cannot rank them
-            (before Windows 10 1803).
+        gpus: This PC's GPUs, each typed (``GpuAdapter.hybrid``), in the
+            order Windows offers them to LumaViewPro, its own Graphics
+            setting's choice first; None off Windows, or on a Windows that
+            cannot list them so (before Windows 10 1803).
     """
 
     ram_available_bytes: int
@@ -368,7 +470,7 @@ def reading_between(
 
 
 class _GpuCase(NamedTuple):
-    """How the reading's GPUs stand: ``preferred`` is the high-performance GPU LumaViewPro is not drawing on."""
+    """How the reading's GPUs stand: ``preferred`` is the discrete GPU of a hybrid PC whose integrated one LumaViewPro draws on."""
 
     words: str
     preferred: GpuAdapter | None = None
@@ -381,32 +483,48 @@ def _maker(gl_vendor: str) -> int | None:
 
 
 def _gpu_case(reading: HostReading) -> _GpuCase:
-    """Whether LumaViewPro draws on the GPU Windows ranks for high performance, or why that is not judged.
+    """Whether LumaViewPro draws on a hybrid PC's discrete GPU, or why that is not judged.
 
-    Judged only between makers: two GPUs of one maker, or a maker the
-    window's vendor string does not name, cannot be told apart.
+    Judged on a PC Windows types as one integrated GPU beside one discrete
+    one, never on the order Windows lists them in, which follows this
+    program's own Graphics setting. The window's GPU is known by its maker,
+    so the two must be of different makers.
     """
     if reading.drawing_gpu is None:
         return _GpuCase('not judged: no window draws')
     if reading.gpus is None:
-        return _GpuCase('not judged: no ranking of the GPUs on this system')
-    if len({gpu.vendor_id for gpu in reading.gpus}) < 2:
-        return _GpuCase('not judged: fewer than two makers among the GPUs')
+        return _GpuCase('not judged: no list of the GPUs on this system')
+    for gpu in reading.gpus:
+        if gpu.hybrid == GpuHybridType.UNREAD:
+            return _GpuCase(f'not judged: the type of {gpu.description} was not read')
+        if gpu.hybrid == GpuHybridType.BOTH:
+            return _GpuCase(f'not judged: {gpu.description} is typed integrated and discrete')
+    integrated_gpus = [gpu for gpu in reading.gpus if gpu.hybrid == GpuHybridType.INTEGRATED]
+    discrete_gpus = [gpu for gpu in reading.gpus if gpu.hybrid == GpuHybridType.DISCRETE]
+    if len(integrated_gpus) != 1 or len(discrete_gpus) != 1:
+        return _GpuCase(
+            f'not judged: not a hybrid PC (Windows types {len(integrated_gpus)} GPUs integrated '
+            f'and {len(discrete_gpus)} discrete)'
+        )
+    (integrated,), (discrete,) = integrated_gpus, discrete_gpus
+    if integrated.vendor_id == discrete.vendor_id:
+        return _GpuCase('not judged: the integrated and discrete GPUs are of one maker')
     drawing = _maker(reading.drawing_gpu.vendor)
     if drawing is None:
         return _GpuCase(f'not judged: no known maker in {reading.drawing_gpu.vendor!r}')
-    preferred = reading.gpus[0]
-    if drawing == preferred.vendor_id:
+    if drawing == discrete.vendor_id:
         return _GpuCase('on the high-performance GPU')
-    return _GpuCase('not on the high-performance GPU', preferred)
+    if drawing == integrated.vendor_id:
+        return _GpuCase('not on the high-performance GPU', discrete)
+    return _GpuCase('not judged: drawing on a GPU of neither the integrated nor the discrete maker')
 
 
 def judge(reading: HostReading) -> LowSystemResourcesNotice | None:
     """The notice for what in ``reading`` is past its line; None when nothing is.
 
     A save folder that could not be read is not judged; memory and the CPU
-    still are. The GPU is past when LumaViewPro draws on a GPU of another
-    maker than the one Windows ranks for high performance.
+    still are. The GPU is past when LumaViewPro draws on the integrated GPU
+    of a PC Windows types as hybrid, beside its discrete one.
     """
     ram_low = reading.ram_available_bytes < RAM_LINE_BYTES
     disk_low = reading.disk_free_bytes is not None and reading.disk_free_bytes < DISK_LINE_BYTES
@@ -436,7 +554,8 @@ def log_line(reading: HostReading, read_s: float) -> str:
     gpus = (
         'unread'
         if reading.gpus is None
-        else ', '.join(f'{g.description} (0x{g.vendor_id:04X})' for g in reading.gpus) or 'none'
+        else ', '.join(f'{g.description} (0x{g.vendor_id:04X}, {g.hybrid})' for g in reading.gpus)
+        or 'none'
     )
     return (
         f'[HOST RESOURCES] RAM available: {reading.ram_available_bytes / 2**30:.1f} GB | '
@@ -444,6 +563,6 @@ def log_line(reading: HostReading, read_s: float) -> str:
         f'CPU over {reading.window_s:.1f} s, LumaViewPro included: {cpu} | '
         f'top other programs: {programs or "none"} | '
         f'{reading.unread_processes} processes unread | '
-        f'drawing on: {drawing} | GPUs, high performance first: {gpus} | '
+        f'drawing on: {drawing} | GPUs, as Windows offers them to LumaViewPro: {gpus} | '
         f'{_gpu_case(reading).words} | read in {read_s * 1000:.0f} ms'
     )

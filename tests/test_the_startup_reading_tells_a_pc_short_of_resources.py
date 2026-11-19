@@ -8,10 +8,10 @@ the PC over a window from its ``create`` to its startup motion's end,
 keeps the reading (``ScopeSession.host_reading``, and ``status``), and
 tells ``LowSystemResourcesNotice`` naming each thing past its line: under
 4 GB of memory, under 50 GB free on the save drive, another program over
-30% of the machine, or a window drawn on another maker's GPU than the one
-Windows ranks for high performance (a laptop's Intel beside its NVIDIA
-showed the live view at 12 fps against 42). Inside every line, nothing is
-told.
+30% of the machine, or a window drawn on the integrated GPU of a PC
+Windows types as hybrid, beside its discrete one (a laptop's Intel beside
+its NVIDIA showed the live view at 12 fps against 42). Inside every line,
+nothing is told.
 """
 
 from __future__ import annotations
@@ -32,8 +32,10 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.host_resources import (
     DrawingGpu,
     GpuAdapter,
+    GpuHybridType,
     HostReading,
     ProgramCpu,
+    hybrid_type_of,
     judge,
     log_line,
 )
@@ -43,9 +45,9 @@ from tests.settings_fixtures import complete_settings
 
 GB = 2**30
 TITLE = 'This PC may slow LumaViewPro'
-# The laptop's two GPUs, the NVIDIA ranked for high performance.
-INTEL = GpuAdapter('Intel(R) HD Graphics 530', 0x8086)
-NVIDIA = GpuAdapter('NVIDIA GeForce GTX 970M', 0x10DE)
+# The laptop's two GPUs as its dxdiag types them: the Intel integrated, the NVIDIA discrete.
+INTEL = GpuAdapter('Intel(R) HD Graphics 530', 0x8086, GpuHybridType.INTEGRATED)
+NVIDIA = GpuAdapter('NVIDIA GeForce GTX 970M', 0x10DE, GpuHybridType.DISCRETE)
 ON_INTEL = DrawingGpu('Intel', 'Intel(R) HD Graphics 530')
 ON_NVIDIA = DrawingGpu('NVIDIA Corporation', 'NVIDIA GeForce GTX 970M/PCIe/SSE2')
 SETTLED_S = 30.0
@@ -145,50 +147,96 @@ def test_a_popup_names_up_to_three_programs():
 # ------------------------------------------------------------------ the GPU
 
 
-def test_a_window_on_the_intel_beside_a_higher_ranked_nvidia_is_told_first_without_the_figures():
-    notice = judge(_reading(drawing_gpu=ON_INTEL, gpus=(NVIDIA, INTEL)))
+def test_a_window_on_the_integrated_gpu_listed_first_is_told_the_discrete_one_without_the_figures():
+    # The bench's case: at Power saving, Windows offered LumaViewPro the Intel first.
+    notice = judge(_reading(drawing_gpu=ON_INTEL, gpus=(INTEL, NVIDIA)))
 
     assert notice.preferred_gpu == NVIDIA
     assert (notice.ram_low, notice.disk_low, notice.busy) == (False, False, ())
     assert str(notice).startswith(
-        'LumaViewPro is drawing on the Intel(R) HD Graphics 530, not the NVIDIA GeForce GTX 970M '
-        'Windows ranks for high performance'
+        'LumaViewPro is drawing on the Intel(R) HD Graphics 530, not the NVIDIA GeForce GTX 970M, '
+        "this PC's high-performance GPU"
     )
     assert 'Settings > System > Display > Graphics' in str(notice)
     assert 'At startup this PC had' not in str(notice)
     assert notice.title == TITLE
 
 
+def test_the_order_windows_lists_the_gpus_in_does_not_change_the_answer():
+    listed_first = {
+        gpus: judge(_reading(drawing_gpu=ON_INTEL, gpus=gpus))
+        for gpus in ((INTEL, NVIDIA), (NVIDIA, INTEL))
+    }
+    on_the_nvidia = [
+        judge(_reading(drawing_gpu=ON_NVIDIA, gpus=gpus))
+        for gpus in ((INTEL, NVIDIA), (NVIDIA, INTEL))
+    ]
+
+    assert {notice.preferred_gpu for notice in listed_first.values()} == {NVIDIA}
+    assert on_the_nvidia == [None, None]
+
+
 def test_the_gpu_and_low_memory_are_told_in_one_notice_the_gpu_first():
-    notice = judge(_reading(drawing_gpu=ON_INTEL, gpus=(NVIDIA, INTEL), ram_available_bytes=GB))
+    notice = judge(_reading(drawing_gpu=ON_INTEL, gpus=(INTEL, NVIDIA), ram_available_bytes=GB))
     words = str(notice)
 
     assert notice.preferred_gpu == NVIDIA and notice.ram_low
     assert words.index('LumaViewPro is drawing on') < words.index('At startup this PC had 1.0 GB')
 
 
-def test_a_window_on_the_higher_ranked_gpu_is_told_nothing():
-    assert judge(_reading(drawing_gpu=ON_NVIDIA, gpus=(NVIDIA, INTEL))) is None
+_AMD_EGPU = GpuAdapter('AMD Radeon RX 7900 XT', 0x1002, GpuHybridType.NEITHER)
 
 
+# parametrize-justified: each row is its own case of the judge, with its own reason.
 @pytest.mark.parametrize(
     'drawing_gpu, gpus, unjudged',
     [
-        (None, (NVIDIA, INTEL), 'no window draws'),
-        (ON_INTEL, None, 'no ranking of the GPUs on this system'),
-        (ON_INTEL, (INTEL,), 'fewer than two makers among the GPUs'),
+        (None, (INTEL, NVIDIA), 'no window draws'),
+        (ON_INTEL, None, 'no list of the GPUs on this system'),
         (
             ON_INTEL,
-            (GpuAdapter('Intel(R) Arc(TM) A770', 0x8086), INTEL),
-            'fewer than two makers among the GPUs',
+            (
+                GpuAdapter('NVIDIA GeForce RTX 3060', 0x10DE, GpuHybridType.NEITHER),
+                GpuAdapter('Intel(R) UHD Graphics 770', 0x8086, GpuHybridType.NEITHER),
+            ),
+            'not a hybrid PC (Windows types 0 GPUs integrated and 0 discrete)',
+        ),
+        (
+            ON_INTEL,
+            (INTEL, GpuAdapter('Intel(R) Arc(TM) A370M', 0x8086, GpuHybridType.DISCRETE)),
+            'the integrated and discrete GPUs are of one maker',
         ),
         (
             DrawingGpu('Google Inc.', 'ANGLE (Intel HD 530)'),
-            (NVIDIA, INTEL),
+            (INTEL, NVIDIA),
             "no known maker in 'Google Inc.'",
         ),
+        (
+            DrawingGpu('ATI Technologies Inc.', 'AMD Radeon RX 7900 XT'),
+            (INTEL, NVIDIA, _AMD_EGPU),
+            'drawing on a GPU of neither the integrated nor the discrete maker',
+        ),
+        (
+            ON_INTEL,
+            (INTEL, NVIDIA, dataclasses.replace(_AMD_EGPU, hybrid=GpuHybridType.UNREAD)),
+            'the type of AMD Radeon RX 7900 XT was not read',
+        ),
+        (
+            ON_INTEL,
+            (INTEL, dataclasses.replace(NVIDIA, hybrid=GpuHybridType.BOTH)),
+            'NVIDIA GeForce GTX 970M is typed integrated and discrete',
+        ),
     ],
-    ids=['no_window', 'unranked', 'one_gpu', 'one_maker', 'unknown_maker'],
+    ids=[
+        'no_window',
+        'unlisted',
+        'desktop_of_two_cards',
+        'one_maker',
+        'unknown_maker',
+        'egpu',
+        'type_unread',
+        'typed_both',
+    ],
 )
 def test_a_gpu_that_cannot_be_told_apart_is_not_judged_and_the_log_says_why(
     drawing_gpu, gpus, unjudged
@@ -200,38 +248,63 @@ def test_a_gpu_that_cannot_be_told_apart_is_not_judged_and_the_log_says_why(
 
 
 def test_each_makers_vendor_string_is_matched_by_whole_word():
-    amd = GpuAdapter('AMD Radeon RX 6600M', 0x1002)
-    # "Corporation" holds "ati" as letters, not as a word: NVIDIA's string is NVIDIA's.
-    vendors = {
-        'ATI Technologies Inc.': amd,
-        'AMD': amd,
-        'NVIDIA Corporation': NVIDIA,
-        'Intel': INTEL,
+    amd_integrated = GpuAdapter('AMD Radeon(TM) Graphics', 0x1002, GpuHybridType.INTEGRATED)
+    nvidia_beside = GpuAdapter('NVIDIA GeForce RTX 4060', 0x10DE, GpuHybridType.DISCRETE)
+    on_amd = (amd_integrated, nvidia_beside)
+
+    told = {
+        vendor: judge(_reading(drawing_gpu=DrawingGpu(vendor, 'r'), gpus=gpus))
+        for vendor, gpus in {
+            'ATI Technologies Inc.': on_amd,
+            'AMD': on_amd,
+            'Intel': (INTEL, NVIDIA),
+            'Intel Corporation': (INTEL, NVIDIA),
+        }.items()
     }
+    # "Corporation" holds "ati" as letters, not as a word: no maker is named.
+    no_maker = _reading(drawing_gpu=DrawingGpu('Microsoft Corporation', 'r'), gpus=on_amd)
 
-    drawn_elsewhere = {
-        vendor: judge(_reading(drawing_gpu=DrawingGpu(vendor, 'r'), gpus=(INTEL, NVIDIA, amd)))
-        for vendor, own in vendors.items()
+    assert {vendor: notice.preferred_gpu for vendor, notice in told.items()} == {
+        'ATI Technologies Inc.': nvidia_beside,
+        'AMD': nvidia_beside,
+        'Intel': NVIDIA,
+        'Intel Corporation': NVIDIA,
     }
-    on_its_own = {
-        vendor: judge(_reading(drawing_gpu=DrawingGpu(vendor, 'r'), gpus=(own, INTEL, NVIDIA, amd)))
-        for vendor, own in vendors.items()
-        if own != INTEL
-    }
-
-    assert drawn_elsewhere['Intel'] is None
-    assert all(drawn_elsewhere[v].preferred_gpu == INTEL for v in vendors if vendors[v] != INTEL)
-    assert all(notice is None for notice in on_its_own.values())
+    assert judge(_reading(drawing_gpu=DrawingGpu('NVIDIA Corporation', 'r'), gpus=on_amd)) is None
+    assert judge(no_maker) is None
+    assert "not judged: no known maker in 'Microsoft Corporation'" in log_line(no_maker, 0.0)
 
 
-def test_the_log_line_names_the_gpu_drawing_and_every_gpu_in_windows_order():
-    line = log_line(_reading(drawing_gpu=ON_INTEL, gpus=(NVIDIA, INTEL)), 0.0)
+def test_the_log_line_names_the_gpu_drawing_and_every_gpu_typed_in_windows_order():
+    line = log_line(_reading(drawing_gpu=ON_INTEL, gpus=(INTEL, NVIDIA)), 0.0)
 
     assert (
-        'drawing on: Intel(R) HD Graphics 530 (Intel) | GPUs, high performance first: '
-        'NVIDIA GeForce GTX 970M (0x10DE), Intel(R) HD Graphics 530 (0x8086) | '
-        'not on the high-performance GPU'
+        'drawing on: Intel(R) HD Graphics 530 (Intel) | GPUs, as Windows offers them to '
+        'LumaViewPro: Intel(R) HD Graphics 530 (0x8086, integrated), '
+        'NVIDIA GeForce GTX 970M (0x10DE, discrete) | not on the high-performance GPU'
     ) in line
+
+
+def test_the_adapter_type_bits_name_its_hybrid_type():
+    render, display = 1 << 0, 1 << 1
+    decoded = {
+        value: hybrid_type_of(value)
+        for value in (
+            0,
+            render | display,
+            render | 1 << 4,
+            render | display | 1 << 5,
+            1 << 4 | 1 << 5,
+        )
+    }
+
+    assert decoded == {
+        0: GpuHybridType.NEITHER,
+        render | display: GpuHybridType.NEITHER,
+        render | 1 << 4: GpuHybridType.DISCRETE,
+        render | display | 1 << 5: GpuHybridType.INTEGRATED,
+        1 << 4 | 1 << 5: GpuHybridType.BOTH,
+    }
 
 
 # ------------------------------------------------------- the shares by process

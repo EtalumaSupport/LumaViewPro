@@ -1858,8 +1858,8 @@ class ScopeSession:
                 None (the default) reports the steps to the log only.
             drawing_gpu: the GPU the host's window draws on, as its OpenGL
                 context names it, read on the thread that owns the context;
-                the startup reading judges it against the GPU Windows ranks
-                for high performance. None (the default) for a host with no
+                the startup reading judges it against the discrete GPU of a
+                PC Windows types as hybrid. None (the default) for a host with no
                 window: nothing drawn is judged.
 
         Raises:

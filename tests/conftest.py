@@ -796,7 +796,11 @@ def a_roomy_host(save_folder, *, read_gpus):
         cores=8,
         ram_available_bytes=16 * 2**30,
         disk_free_bytes=None if save_folder is None else 500 * 2**30,
-        gpus=(host_resources.GpuAdapter('Intel(R) UHD Graphics 630', 0x8086),)
+        gpus=(
+            host_resources.GpuAdapter(
+                'Intel(R) UHD Graphics 630', 0x8086, host_resources.GpuHybridType.NEITHER
+            ),
+        )
         if read_gpus
         else None,
         read_s=0.0,
