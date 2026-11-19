@@ -226,12 +226,12 @@ class ChannelSliderMaxima:
     Attributes:
         slider_max_exposure_ms: The exposure slider's maximum, in
             milliseconds; None with no camera connected, or while its range
-            is not known (``CameraAPI.known_setting_limits``).
+            is not known (``CameraAPI.setting_limits`` raises).
         slider_max_illumination_ma: The illumination slider's maximum, in
             mA; None with no LED board, or for a channel with no LED on this
             scope (luminescence).
         slider_max_gain_db: The gain slider's maximum, in dB: the camera's
-            gain maximum now (``CameraAPI.known_setting_limits``); None with
+            gain maximum now (``CameraAPI.setting_limits``); None with
             no camera connected, or while its range is not known.
     """
 

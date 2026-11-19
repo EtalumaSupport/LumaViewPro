@@ -281,9 +281,7 @@ class CameraShutter(enum.StrEnum):
 
 @api_fields(
     'axes',
-    'camera_analog_gain_max_db',
     'camera_binning_sizes',
-    'buffer_bit_depth',
     'camera_firmware_version',
     'camera_gain_has_digital',
     'camera_has_clock_latch',

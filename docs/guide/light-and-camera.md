@@ -105,7 +105,7 @@ assert gain == scope.camera.setting_limits.gain_max_db
 scope.camera.set_exposure_ms(0.0)           # wrong_kind: an exposure takes a number above 0
 ```
 
-**Held and fresh reads.** Each setting has two reads. The held read, a
+**Held and fresh reads.** Most settings have two reads. The held read, a
 property named for the setting (`gain_db`, `exposure_ms`, `binning`,
 `frame_size`, ...), answers what the camera last took or reported, with no call
 to the camera, and is None whenever that is unknown. The fresh read, `read_*`

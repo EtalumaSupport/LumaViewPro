@@ -209,7 +209,6 @@ class _HeldChannel:
     'exposure_ms',
     'floor_ms',
     'gain_db',
-    'resume_after_capture',
     'settings',
     'state',
     'stored_exposure_ms',
@@ -351,7 +350,6 @@ class AppliedExposure:
         _refuse_a_contradicted_cap(self, self.stored_ms, self.applied_ms, self.capped)
 
 
-@api_fields('exposure', 'gain')
 @dataclasses.dataclass(frozen=True)
 class AppliedWrite:
     """What a write's gain and exposure become on the attached camera (``applied_write_for``).
@@ -961,7 +959,6 @@ def _describe_geometry(snapshot: dict) -> str:
     return ' '.join(f'{key}={snapshot[key]}' for key in _GEOMETRY_ORDER if key in snapshot)
 
 
-@api_fields('gain_db')
 @dataclasses.dataclass(frozen=True)
 class GainChanged:
     """A gain event.
@@ -973,7 +970,6 @@ class GainChanged:
     gain_db: float
 
 
-@api_fields('exposure_ms')
 @dataclasses.dataclass(frozen=True)
 class ExposureChanged:
     """An exposure event.
@@ -3674,7 +3670,6 @@ class CameraAPI:
         """
         return self._read_on_lane(self._read_fresh, 'read_exposure_ms', args=('exposure_ms',))
 
-    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_auto_gain(self) -> CameraAutoMode:
         """Read the camera's auto-gain mode from the camera.
 
@@ -3695,7 +3690,6 @@ class CameraAPI:
         """
         return self._read_on_lane(self._read_fresh, 'read_auto_gain', args=('auto_gain',))
 
-    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_auto_exposure(self) -> CameraAutoMode:
         """Read the camera's auto-exposure mode from the camera.
 
@@ -3858,7 +3852,6 @@ class CameraAPI:
             raise CameraReadFailedError(_RANGE_UNREAD) from held
         return held
 
-    @api
     @property
     def known_setting_limits(self) -> CameraSettingLimits | None:
         """The camera's gain and exposure range when it is known; no camera read.
@@ -3911,8 +3904,7 @@ class CameraAPI:
         """The exposure in ms the camera last reported or took; None when unknown.
 
         Under a continuous auto-gain arm the camera chooses its own exposure,
-        and this is the one from before the arm; ``longest_exposure_ms``
-        bounds what it may be using.
+        and this is the one from before the arm.
 
         Raises:
             Nothing.
@@ -3968,8 +3960,8 @@ class CameraAPI:
     def auto_gain(self) -> CameraAutoMode | None:
         """The camera's auto-gain mode, as the camera last reported or took it;
         None when unknown. Its writers: an arm, the lock that ends it, a
-        one-shot (``ONCE`` until a read finds it ended), and
-        ``read_auto_gain``.
+        one-shot (``ONCE`` until a read finds it ended), and a fresh read
+        of the camera's mode.
 
         Raises:
             Nothing.
@@ -3981,8 +3973,8 @@ class CameraAPI:
     def auto_exposure(self) -> CameraAutoMode | None:
         """The camera's auto-exposure mode, as the camera last reported or took
         it; None when unknown. Its writers: ``set_auto_exposure``; auto-gain,
-        whose arm, lock and one-shot switch exposure with the gain; and
-        ``read_auto_exposure``.
+        whose arm, lock and one-shot switch exposure with the gain; and a
+        fresh read of the camera's mode.
 
         Raises:
             Nothing.
@@ -4026,7 +4018,6 @@ class CameraAPI:
         """
         return ImageMode(self._scope.read_setting('image_mode'))
 
-    @api
     @property
     def longest_exposure_ms(self) -> float | None:
         """The longest exposure the camera may be using now, in ms.
@@ -4113,7 +4104,6 @@ class CameraAPI:
         refuse_unless_finite_number(stored_exposure_ms, 'stored_exposure_ms')
         return _applied_exposure(stored_exposure_ms, self.setting_limits)
 
-    @api(reads=True)
     def applied_write_for(
         self, gain_db: float | None = None, exposure_ms: float | None = None
     ) -> AppliedWrite:
@@ -5251,7 +5241,6 @@ class CameraAPI:
         self._refresh_cache_from_hardware_after_auto()
 
     # --- Frame-flow listeners ---
-    @api(in_process=True, event=GainChanged)
     def add_gain_listener(self, listener: Callable[[float], None]) -> None:
         """Register a callback for each change of the camera's gain.
 
@@ -5271,7 +5260,6 @@ class CameraAPI:
         with self._camera_listeners_lock:
             self._gain_listeners.append(listener)
 
-    @api(in_process=True)
     def remove_gain_listener(self, listener: Callable[[float], None]) -> None:
         """Unregister a gain listener.
 
@@ -5289,7 +5277,6 @@ class CameraAPI:
             except ValueError:
                 pass
 
-    @api(in_process=True, event=ExposureChanged)
     def add_exposure_listener(self, listener: Callable[[float], None]) -> None:
         """Register a callback for each change of the camera's exposure.
 
@@ -5309,7 +5296,6 @@ class CameraAPI:
         with self._camera_listeners_lock:
             self._exposure_listeners.append(listener)
 
-    @api(in_process=True)
     def remove_exposure_listener(self, listener: Callable[[float], None]) -> None:
         """Unregister an exposure listener.
 

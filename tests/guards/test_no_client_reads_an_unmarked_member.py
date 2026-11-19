@@ -65,6 +65,7 @@ _FORWARDERS = (app_context.AppContext,)
 # move onto ``build`` (NEXT_DOCS "A combined post-processing option").
 _PINNED: dict[str, int] = {
     'CameraAPI.active': 1,
+    'CameraAPI.known_setting_limits': 1,
     'DeliveredRate.megabytes_per_s': 1,
     'Labware.get_well_label': 1,
     'LiveWork.has': 2,

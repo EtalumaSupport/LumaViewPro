@@ -36,7 +36,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`AppliedAutoGain`](#AppliedAutoGain)
 - [`AppliedExposure`](#AppliedExposure)
 - [`AppliedGain`](#AppliedGain)
-- [`AppliedWrite`](#AppliedWrite)
 - [`AutoGainLock`](#AutoGainLock)
 - [`AxisLimits`](#AxisLimits)
 - [`AxisPosition`](#AxisPosition)
@@ -73,7 +72,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`EnhanceResult`](#EnhanceResult)
 - [`EnhancedFile`](#EnhancedFile)
 - [`ExcludedInput`](#ExcludedInput)
-- [`ExposureChanged`](#ExposureChanged)
 - [`FailedCapture`](#FailedCapture)
 - [`FieldOfView`](#FieldOfView)
 - [`FilesWritten`](#FilesWritten)
@@ -86,7 +84,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`FrameRule`](#FrameRule)
 - [`FrameSize`](#FrameSize)
 - [`FrameTime`](#FrameTime)
-- [`GainChanged`](#GainChanged)
 - [`GpuAdapter`](#GpuAdapter)
 - [`GraphOptions`](#GraphOptions)
 - [`GraphResult`](#GraphResult)
@@ -497,7 +494,7 @@ channel on.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a row it would apply holds a value outside its channel setting's range, each named by channel, column and bound.
 - `ArgumentRefusedError`: `'gain_range_inverted'`, a row turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum.
 - `HardwareCommandRefusedError`: `'exclusive_activity_running'`, a home holds the scope and the shown channel's row would change its camera or LED; or the shown channel's LED is lit at 0 mA, its row raises it, and a manual recording runs. Its camera refusals are `apply_channel_camera`'s.
-- `CameraSettingRejected`: the camera did not take a setting of the shown channel; or any row carries a gain or exposure while the camera's gain and exposure range is unread, naming them, none sent (`CameraAPI.applied_write_for`).
+- `CameraSettingRejected`: the camera did not take a setting of the shown channel; or any row carries a gain or exposure while the camera's gain and exposure range is unread, naming them, none sent.
 
 Nothing is stored on any refusal.
 
@@ -740,7 +737,7 @@ kin), and a stored current above the LED board's maximum is lit at
 the maximum, so a display shows the stored value beside the one in
 force. In the scope's channel order. A limit not known caps nothing:
 no camera, or the camera's range not read
-(`CameraAPI.known_setting_limits`), for gain and exposure; no LED
+(`CameraAPI.setting_limits` raises), for gain and exposure; no LED
 board, for current.
 
 **Raises**
@@ -940,7 +937,7 @@ Display hints for a control, never a bound: a typed value may exceed
 either, up to what the camera or the LED board can be asked for,
 which their writers refuse past. The illumination maximum is None for
 a channel with no LED on this scope; the camera's maxima are None
-while its range is not known (`CameraAPI.known_setting_limits`),
+while its range is not known (`CameraAPI.setting_limits` raises),
 and the illumination maximum is answered whatever the camera's.
 
 **Args**
@@ -3004,7 +3001,7 @@ The channel's settings as stored once the write is done, the lock's values and t
 - `SettingRefusedError`: `'not_offered'`, a field this channel does not carry (stimulation on a channel that does not stimulate); `'wrong_kind'` or `'out_of_range'`, a value its setting does not take, a focus that is not finite among them.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved.
 - `HardwareCommandRefusedError`: `'not_on_this_scope'`, this scope does not have `channel` and the write sets it to acquire, turns its auto-gain on or saves its focus; `'exclusive_activity_running'`, as described above, or the write is the shown channel's illumination, its LED is lit at 0 mA, the value is above 0 mA, and a manual recording runs (a recording keeps the light it started under). Nothing is stored.
-- `CameraSettingRejected`: the shown channel's camera did not take its gain, exposure or auto-gain; or a gain or exposure, on any channel, while the camera's gain and exposure range is unread, naming them, none sent (`CameraAPI.applied_write_for`). Nothing is stored.
+- `CameraSettingRejected`: the shown channel's camera did not take its gain, exposure or auto-gain; or a gain or exposure, on any channel, while the camera's gain and exposure range is unread, naming them, none sent. Nothing is stored.
 - `ProtocolRunRefusedError`: `'positions_unreachable'`, a focus on a scope with no Z axis.
 - `PositionOutOfRangeError`: a focus outside Z's travel.
 
@@ -3708,7 +3705,7 @@ it is refused on the UI thread; a click calls it from a worker.
 - `ProtocolRunRefusedError`: `'values_out_of_range'`, a value the step would store in its channels is outside its channel setting's range, each named by column and bound. Nothing changes. A value past the hardware's limit is stored at the limit and told (`ValueClampedNotice`).
 - `ArgumentRefusedError`: `'gain_range_inverted'`, the step turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum. Nothing changes.
 - `ConfigurationDefectError`: `'channels_unresolved'`, this scope's channels could not be resolved. Nothing changes.
-- `CameraSettingRejected`: `'camera_read_failed'`, the camera's gain and exposure range could not be read after its last readout change, naming the step's gain and exposure (`CameraAPI.applied_write_for`). Nothing changes.
+- `CameraSettingRejected`: `'camera_read_failed'`, the camera's gain and exposure range could not be read after its last readout change, naming the step's gain and exposure. Nothing changes.
 - `AxisStateUnknownError`: an axis the step moves does not know its position. Nothing changes.
 - `HardwareCommandRefusedError`: `'not_connected'`, this scope's motor controller or camera is not connected, or its LED controller is not and the step's preview would light; `'exclusive_activity_running'`, a run, a diagnostic or a home holds the scope, or a manual recording runs and the step's channel is not the shown one or its preview would light an LED not lit above 0 mA. Nothing changes.
 - `PositionOutOfRangeError`: the step lies outside an axis's travel; any move already started is stopped, nothing else changes.
@@ -5326,58 +5323,6 @@ Camera sub-API. Owns the camera's setters, reads, holds and applies,
 the camera's state (cache, held channel, auto-gain arm, listeners) and the
 saving of the stored camera settings.
 
-<a id="CameraAPI.add_exposure_listener"></a>
-### `CameraAPI.add_exposure_listener`
-
-```python
-def add_exposure_listener(self, listener: Callable[[float], None]) -> None
-```
-
-Marks: in-process; event: [`ExposureChanged`](#ExposureChanged).
-
-Register a callback for each change of the camera's exposure.
-
-The listener is called with the exposure now in effect, in ms,
-whenever a write changes it, whoever made the write:
-`set_exposure_ms`, `apply`, a channel's settings put on for a
-capture, an auto-gain lock, a restore. It never fires per frame. It
-is called from the thread that made the change, so a GUI listener
-schedules its drawing on its UI thread.
-
-**Args**
-
-- `listener`: `callable(exposure_ms: float)`
-
-**Raises**
-
-Nothing.
-
-<a id="CameraAPI.add_gain_listener"></a>
-### `CameraAPI.add_gain_listener`
-
-```python
-def add_gain_listener(self, listener: Callable[[float], None]) -> None
-```
-
-Marks: in-process; event: [`GainChanged`](#GainChanged).
-
-Register a callback for each change of the camera's gain.
-
-The listener is called with the gain now in effect, in dB, whenever
-a write changes it, whoever made the write: `set_gain_db`,
-`apply`, a channel's settings put on for a capture, an auto-gain
-lock, a restore. It never fires per frame. It is called from the
-thread that made the change, so a GUI listener schedules its drawing
-on its UI thread.
-
-**Args**
-
-- `listener`: `callable(gain_db: float)`
-
-**Raises**
-
-Nothing.
-
 <a id="CameraAPI.applied_auto_gain_for"></a>
 ### `CameraAPI.applied_auto_gain_for`
 
@@ -5463,44 +5408,6 @@ how a user's setting gets destroyed by connecting a smaller body.
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
 
-<a id="CameraAPI.applied_write_for"></a>
-### `CameraAPI.applied_write_for`
-
-```python
-def applied_write_for(
-    self,
-    gain_db: float | None = None,
-    exposure_ms: float | None = None,
-) -> AppliedWrite
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/camera/applied_write_for`.
-
-What a write of this gain and exposure becomes on the attached camera, asked as the write asks.
-
-`applied_gain_db_for` and `applied_exposure_ms_for` answer for a
-display; this answers for a write about to be sent, so a range whose
-last read failed refuses it as the camera's own writes are refused,
-naming each setting asked for, and nothing is sent. Changes nothing.
-
-**Args**
-
-- `gain_db`: The gain the write carries, in dB; None for none.
-- `exposure_ms`: The exposure the write carries, in milliseconds; None for none.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_a_number'`, a value given is not a finite number.
-- `CameraSettingRejected`: `'camera_read_failed'`, the camera's range could not be read after its last readout change, naming every setting asked for.
-- `HardwareCommandRefusedError`: `'not_connected'`, the camera was declared removed by the time the range's read failed.
-
-**Refusals by REST status**
-
-- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_read_failed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
-
 <a id="CameraAPI.apply"></a>
 ### `CameraAPI.apply`
 
@@ -5569,8 +5476,8 @@ Route: `GET /api/v1/scope/camera/auto_exposure`.
 
 The camera's auto-exposure mode, as the camera last reported or took
 it; None when unknown. Its writers: `set_auto_exposure`; auto-gain,
-whose arm, lock and one-shot switch exposure with the gain; and
-`read_auto_exposure`.
+whose arm, lock and one-shot switch exposure with the gain; and a
+fresh read of the camera's mode.
 
 **Raises**
 
@@ -5587,8 +5494,8 @@ Route: `GET /api/v1/scope/camera/auto_gain`.
 
 The camera's auto-gain mode, as the camera last reported or took it;
 None when unknown. Its writers: an arm, the lock that ends it, a
-one-shot (`ONCE` until a read finds it ended), and
-`read_auto_gain`.
+one-shot (`ONCE` until a read finds it ended), and a fresh read
+of the camera's mode.
 
 **Raises**
 
@@ -5637,8 +5544,7 @@ Route: `GET /api/v1/scope/camera/exposure_ms`.
 The exposure in ms the camera last reported or took; None when unknown.
 
 Under a continuous auto-gain arm the camera chooses its own exposure,
-and this is the one from before the arm; `longest_exposure_ms`
-bounds what it may be using.
+and this is the one from before the arm.
 
 **Raises**
 
@@ -5746,32 +5652,6 @@ the pixel format the mode chose (`pixel_format`).
 
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
-<a id="CameraAPI.known_setting_limits"></a>
-### `CameraAPI.known_setting_limits`
-
-```python
-known_setting_limits: CameraSettingLimits | None  # property
-```
-
-Route: `GET /api/v1/scope/camera/known_setting_limits`.
-
-The camera's gain and exposure range when it is known; no camera read.
-
-`setting_limits` for a display or a wait's bound: a slider's stop,
-whether a stored value is capped, how long a frame may take. A range
-whose last read failed is not known, and this answers None for it
-where `setting_limits` raises. Never a write's bound: a write
-checked against the range reads `setting_limits`, and is refused
-while the range is unread.
-
-**Returns**
-
-CameraSettingLimits | None: The range; None with no camera, or while the last read of the range failed.
-
-**Raises**
-
-Nothing.
-
 <a id="CameraAPI.line_noise_reduction"></a>
 ### `CameraAPI.line_noise_reduction`
 
@@ -5823,36 +5703,6 @@ Nothing.
 - 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
 
-<a id="CameraAPI.longest_exposure_ms"></a>
-### `CameraAPI.longest_exposure_ms`
-
-```python
-longest_exposure_ms: float | None  # property
-```
-
-Route: `GET /api/v1/scope/camera/longest_exposure_ms`.
-
-The longest exposure the camera may be using now, in ms.
-
-While continuous auto-gain is armed the camera picks its own
-exposure up to the ceiling the arm was given (the sensor maximum
-when it was given none), and the held exposure is the value from
-before the arm; otherwise the held exposure is the one in force.
-With the exposure unknown it is the sensor maximum, the longest a
-frame can take. Right after a write made the exposure shorter, a
-frame begun before the write is still exposing under the longer one
-until it ends, so that one answers until then. A consumer bounding
-how long a frame may take -- a feed-death watch, a grab's wait --
-needs this, not the held value.
-
-**Returns**
-
-float | None: The bound in ms; None when it is unknown and no maximum is known: none reported, or the last read of the camera's range failed (`setting_limits` raises it).
-
-**Raises**
-
-Nothing.
-
 <a id="CameraAPI.pixel_alignment"></a>
 ### `CameraAPI.pixel_alignment`
 
@@ -5892,72 +5742,6 @@ chosen by `set_image_mode`; None when unknown.
 **Raises**
 
 Nothing.
-
-<a id="CameraAPI.read_auto_exposure"></a>
-### `CameraAPI.read_auto_exposure`
-
-```python
-def read_auto_exposure(self) -> CameraAutoMode
-```
-
-Marks: reads (changes nothing); enters: `lane_override`.  
-Route: `GET /api/v1/scope/camera/read_auto_exposure`.
-
-Read the camera's auto-exposure mode from the camera.
-
-Runs on the camera lane, admitted whatever holds the scope, behind what
-is queued there, up to 170 s, which a long summed capture or an
-engineering diagnostic ahead of it can outlast.
-
-A camera without hardware auto-exposure answers `OFF` unasked.
-
-**Returns**
-
-CameraAutoMode: The mode.
-
-**Raises**
-
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
-- `CameraReadFailedError`: The camera did not answer the read.
-
-**Refusals by REST status**
-
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="CameraAPI.read_auto_gain"></a>
-### `CameraAPI.read_auto_gain`
-
-```python
-def read_auto_gain(self) -> CameraAutoMode
-```
-
-Marks: reads (changes nothing); enters: `lane_override`.  
-Route: `GET /api/v1/scope/camera/read_auto_gain`.
-
-Read the camera's auto-gain mode from the camera.
-
-Runs on the camera lane, admitted whatever holds the scope, behind what
-is queued there, up to 170 s, which a long summed capture or an
-engineering diagnostic ahead of it can outlast.
-
-A camera without hardware auto-gain answers `OFF` unasked.
-
-**Returns**
-
-CameraAutoMode: The mode.
-
-**Raises**
-
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
-- `CameraReadFailedError`: The camera did not answer the read.
-
-**Refusals by REST status**
-
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="CameraAPI.read_binning"></a>
 ### `CameraAPI.read_binning`
@@ -6228,44 +6012,6 @@ str: The format.
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
-<a id="CameraAPI.remove_exposure_listener"></a>
-### `CameraAPI.remove_exposure_listener`
-
-```python
-def remove_exposure_listener(self, listener: Callable[[float], None]) -> None
-```
-
-Marks: in-process.
-
-Unregister an exposure listener.
-
-**Args**
-
-- `listener`: A callable previously passed to `add_exposure_listener`. Silently ignores listeners that are not currently registered.
-
-**Raises**
-
-Nothing.
-
-<a id="CameraAPI.remove_gain_listener"></a>
-### `CameraAPI.remove_gain_listener`
-
-```python
-def remove_gain_listener(self, listener: Callable[[float], None]) -> None
-```
-
-Marks: in-process.
-
-Unregister a gain listener.
-
-**Args**
-
-- `listener`: A callable previously passed to `add_gain_listener`. Silently ignores listeners that are not currently registered.
-
-**Raises**
-
-Nothing.
 
 <a id="CameraAPI.set_auto_exposure"></a>
 ### `CameraAPI.set_auto_exposure`
@@ -10159,8 +9905,7 @@ What a stored auto-gain preference becomes on the attached camera (`applied_auto
 ## `lumascope.AppliedExposure`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`CameraAPI.applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for).  
-Held in: [`AppliedWrite.exposure`](#AppliedWrite.exposure).
+Returned by: [`CameraAPI.applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for).
 
 What a stored exposure becomes on the attached camera, in ms (`applied_exposure_ms_for`).
 
@@ -10174,8 +9919,7 @@ What a stored exposure becomes on the attached camera, in ms (`applied_exposure_
 ## `lumascope.AppliedGain`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`CameraAPI.applied_gain_db_for`](#CameraAPI.applied_gain_db_for).  
-Held in: [`AppliedWrite.gain`](#AppliedWrite.gain).
+Returned by: [`CameraAPI.applied_gain_db_for`](#CameraAPI.applied_gain_db_for).
 
 What a stored gain becomes on the attached camera, in dB (`applied_gain_db_for`).
 
@@ -10184,19 +9928,6 @@ What a stored gain becomes on the attached camera, in dB (`applied_gain_db_for`)
 - <a id="AppliedGain.applied_db"></a>`applied_db`: `float` -- The gain the camera is given, in dB: `stored_db` held to the camera's gain range, or `stored_db` itself when no camera publishes one.
 - <a id="AppliedGain.capped"></a>`capped`: `bool` -- Whether `applied_db` differs from `stored_db`.
 - <a id="AppliedGain.stored_db"></a>`stored_db`: `float` -- The gain the channel stores, in dB, unchanged.
-
-<a id="AppliedWrite"></a>
-## `lumascope.AppliedWrite`
-
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`CameraAPI.applied_write_for`](#CameraAPI.applied_write_for).
-
-What a write's gain and exposure become on the attached camera (`applied_write_for`).
-
-**Fields**
-
-- <a id="AppliedWrite.exposure"></a>`exposure`: `AppliedExposure | None` -- The exposure the write asked for, as the camera is given it; None when it asked for none.
-- <a id="AppliedWrite.gain"></a>`gain`: `AppliedGain | None` -- The gain the write asked for, as the camera is given it; None when it asked for none.
 
 <a id="AutoGainLock"></a>
 ## `lumascope.AutoGainLock`
@@ -10212,7 +9943,6 @@ The result of locking an auto-gain arm.
 - <a id="AutoGainLock.exposure_ms"></a>`exposure_ms`: `float | None` -- The exposure the auto loop reached, in ms, written back as the manual exposure; None when `state` is None or `FAILED`.
 - <a id="AutoGainLock.floor_ms"></a>`floor_ms`: `float | None` -- The arm's `min_exposure_ms`, the exposure at or below which the lock is `AT_MINIMUM`; None when the arm had none.
 - <a id="AutoGainLock.gain_db"></a>`gain_db`: `float | None` -- The gain the auto loop reached, in dB, written back as the manual gain; None exactly when `exposure_ms` is.
-- <a id="AutoGainLock.resume_after_capture"></a>`resume_after_capture`: `bool` -- Whether the arm is re-armed after the capture (a live-view arm), rather than left at the locked values (a protocol step's).
 - <a id="AutoGainLock.settings"></a>`settings`: `dict | None` -- The auto-gain settings the arm was armed with, used to re-arm it; None when no arm was recorded.
 - <a id="AutoGainLock.state"></a>`state`: `AutoGainConvergence | None` -- Where the arm landed; None when no arm was recorded, so nothing was locked and nothing was written to the camera.
 - <a id="AutoGainLock.stored_exposure_ms"></a>`stored_exposure_ms`: `float | None` -- The exposure a caller stores as the channel's manual setting after the lock: `exposure_ms` raised to `floor_ms`. The loop can drive the camera below that floor on a bright scene, and a setting stored that low makes near-black captures of ordinary scenes, so the store keeps the floor while `exposure_ms` keeps what the camera reached. None when `exposure_ms` is.
@@ -10370,7 +10100,7 @@ One of the camera's named settings, as the camera answered a read of it.
 ## `lumascope.CameraSettingLimits`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`CameraAPI.known_setting_limits`](#CameraAPI.known_setting_limits), [`CameraAPI.setting_limits`](#CameraAPI.setting_limits).
+Returned by: [`CameraAPI.setting_limits`](#CameraAPI.setting_limits).
 
 The gain and exposure the attached camera takes now (`CameraAPI.setting_limits`).
 
@@ -10738,8 +10468,8 @@ never by this record.
 
 **Fields**
 
-- <a id="ChannelSliderMaxima.slider_max_exposure_ms"></a>`slider_max_exposure_ms`: `float | None` -- The exposure slider's maximum, in milliseconds; None with no camera connected, or while its range is not known (`CameraAPI.known_setting_limits`).
-- <a id="ChannelSliderMaxima.slider_max_gain_db"></a>`slider_max_gain_db`: `float | None` -- The gain slider's maximum, in dB: the camera's gain maximum now (`CameraAPI.known_setting_limits`); None with no camera connected, or while its range is not known.
+- <a id="ChannelSliderMaxima.slider_max_exposure_ms"></a>`slider_max_exposure_ms`: `float | None` -- The exposure slider's maximum, in milliseconds; None with no camera connected, or while its range is not known (`CameraAPI.setting_limits` raises).
+- <a id="ChannelSliderMaxima.slider_max_gain_db"></a>`slider_max_gain_db`: `float | None` -- The gain slider's maximum, in dB: the camera's gain maximum now (`CameraAPI.setting_limits`); None with no camera connected, or while its range is not known.
 - <a id="ChannelSliderMaxima.slider_max_illumination_ma"></a>`slider_max_illumination_ma`: `int | None` -- The illumination slider's maximum, in mA; None with no LED board, or for a channel with no LED on this scope (luminescence).
 
 <a id="ClockMapping"></a>
@@ -11022,18 +10752,6 @@ made.
 - <a id="ExcludedInput.count"></a>`count`: `int` -- How many.
 - <a id="ExcludedInput.kind"></a>`kind`: `PostProcessingOperation` -- The build that made the files: `COMPOSITE`, `STITCH`, `Z_PROJECTION`, `VIDEO` or `HYPERSTACK`. A recording's frames, which only a video or a hyperstack takes, are never among them.
 
-<a id="ExposureChanged"></a>
-## `lumascope.ExposureChanged`
-
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Delivered by: [`CameraAPI.add_exposure_listener`](#CameraAPI.add_exposure_listener).
-
-An exposure event.
-
-**Fields**
-
-- <a id="ExposureChanged.exposure_ms"></a>`exposure_ms`: `float` -- The exposure now in effect, in ms.
-
 <a id="FailedCapture"></a>
 ## `lumascope.FailedCapture`
 
@@ -11246,18 +10964,6 @@ give a frame its time, and a reader comparing frames must know which.
 
 - <a id="FrameTime.at"></a>`at`: `datetime` -- The frame's time, host local with its UTC offset.
 - <a id="FrameTime.source"></a>`source`: `TimestampSource` -- What `at` is (`TimestampSource`).
-
-<a id="GainChanged"></a>
-## `lumascope.GainChanged`
-
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Delivered by: [`CameraAPI.add_gain_listener`](#CameraAPI.add_gain_listener).
-
-A gain event.
-
-**Fields**
-
-- <a id="GainChanged.gain_db"></a>`gain_db`: `float` -- The gain now in effect, in dB.
 
 <a id="GpuAdapter"></a>
 ## `lumascope.GpuAdapter`
@@ -13480,8 +13186,6 @@ tuple.
 **Fields**
 
 - <a id="ScopeCapabilities.axes"></a>`axes`: `tuple[Axis, ...]` -- The axes this scope has: `('Z',)` for an LS820, `('X', 'Y', 'Z')` for an LS850, `('X', 'Y', 'Z', 'T')` for an LS850T, `()` with no motor board (an LS460, LS560 or LS620).
-- <a id="ScopeCapabilities.buffer_bit_depth"></a>`buffer_bit_depth`: `int` -- The width of the buffers frames are delivered in, not the bits that carry data: 16 for Mono10, Mono12 and Mono16, right-aligned in 16-bit buffers; 8 for a camera that delivers only 8-bit buffers (a Classic's). The data's depth is `camera_max_significant_bits`, and the current frames' `imaging.significant_bits`.
-- <a id="ScopeCapabilities.camera_analog_gain_max_db"></a>`camera_analog_gain_max_db`: `float | None` -- The most gain before a digital stage, in dB, as the camera's profile documents it; None when it documents none or with no camera. The analog maximum in force, which counts a camera with no digital stage, is `scope.camera.setting_limits.analog_gain_max_db`.
 - <a id="ScopeCapabilities.camera_binning_sizes"></a>`camera_binning_sizes`: `tuple[int, ...]` -- The binning factors the camera offers; empty with no camera, or one that offers none.
 - <a id="ScopeCapabilities.camera_firmware_version"></a>`camera_firmware_version`: `str | None` -- The firmware version the camera reports at connect, or None (a Classic's camera reports none).
 - <a id="ScopeCapabilities.camera_gain_has_digital"></a>`camera_gain_has_digital`: `bool` -- True when the camera's profile documents a digital gain stage above its analog one; False with none, or with no camera.
@@ -14527,7 +14231,7 @@ Which host a call came through.
 <a id="CameraAutoMode"></a>
 ### `lumascope.CameraAutoMode`
 
-Returned by: [`CameraAPI.auto_exposure`](#CameraAPI.auto_exposure), [`CameraAPI.auto_gain`](#CameraAPI.auto_gain), [`CameraAPI.read_auto_exposure`](#CameraAPI.read_auto_exposure), [`CameraAPI.read_auto_gain`](#CameraAPI.read_auto_gain).  
+Returned by: [`CameraAPI.auto_exposure`](#CameraAPI.auto_exposure), [`CameraAPI.auto_gain`](#CameraAPI.auto_gain).  
 Taken by: [`CameraAPI.set_auto_exposure`](#CameraAPI.set_auto_exposure).
 
 What one of the camera's auto loops is doing, as the camera reports it.
@@ -19180,7 +18884,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/camera/applied_auto_gain_for` | [`CameraAPI.applied_auto_gain_for`](#CameraAPI.applied_auto_gain_for) |
 | `GET` | `/api/v1/scope/camera/applied_exposure_ms_for` | [`CameraAPI.applied_exposure_ms_for`](#CameraAPI.applied_exposure_ms_for) |
 | `GET` | `/api/v1/scope/camera/applied_gain_db_for` | [`CameraAPI.applied_gain_db_for`](#CameraAPI.applied_gain_db_for) |
-| `GET` | `/api/v1/scope/camera/applied_write_for` | [`CameraAPI.applied_write_for`](#CameraAPI.applied_write_for) |
 | `POST` | `/api/v1/scope/camera/apply` | [`CameraAPI.apply`](#CameraAPI.apply) |
 | `GET` | `/api/v1/scope/camera/auto_exposure` | [`CameraAPI.auto_exposure`](#CameraAPI.auto_exposure) |
 | `PUT` | `/api/v1/scope/camera/auto_exposure` | [`CameraAPI.set_auto_exposure`](#CameraAPI.set_auto_exposure) |
@@ -19200,15 +18903,11 @@ reads what the person was shown.
 | `PUT` | `/api/v1/scope/camera/high_conversion_gain` | [`CameraAPI.set_high_conversion_gain`](#CameraAPI.set_high_conversion_gain) |
 | `GET` | `/api/v1/scope/camera/image_mode` | [`CameraAPI.image_mode`](#CameraAPI.image_mode) |
 | `PUT` | `/api/v1/scope/camera/image_mode` | [`CameraAPI.set_image_mode`](#CameraAPI.set_image_mode) |
-| `GET` | `/api/v1/scope/camera/known_setting_limits` | [`CameraAPI.known_setting_limits`](#CameraAPI.known_setting_limits) |
 | `GET` | `/api/v1/scope/camera/line_noise_reduction` | [`CameraAPI.line_noise_reduction`](#CameraAPI.line_noise_reduction) |
 | `PUT` | `/api/v1/scope/camera/line_noise_reduction` | [`CameraAPI.set_line_noise_reduction`](#CameraAPI.set_line_noise_reduction) |
 | `POST` | `/api/v1/scope/camera/lock_auto_gain` | [`CameraAPI.lock_auto_gain`](#CameraAPI.lock_auto_gain) |
-| `GET` | `/api/v1/scope/camera/longest_exposure_ms` | [`CameraAPI.longest_exposure_ms`](#CameraAPI.longest_exposure_ms) |
 | `GET` | `/api/v1/scope/camera/pixel_alignment` | [`CameraAPI.pixel_alignment`](#CameraAPI.pixel_alignment) |
 | `GET` | `/api/v1/scope/camera/pixel_format` | [`CameraAPI.pixel_format`](#CameraAPI.pixel_format) |
-| `GET` | `/api/v1/scope/camera/read_auto_exposure` | [`CameraAPI.read_auto_exposure`](#CameraAPI.read_auto_exposure) |
-| `GET` | `/api/v1/scope/camera/read_auto_gain` | [`CameraAPI.read_auto_gain`](#CameraAPI.read_auto_gain) |
 | `GET` | `/api/v1/scope/camera/read_binning` | [`CameraAPI.read_binning`](#CameraAPI.read_binning) |
 | `GET` | `/api/v1/scope/camera/read_black_level` | [`CameraAPI.read_black_level`](#CameraAPI.read_black_level) |
 | `GET` | `/api/v1/scope/camera/read_black_level_range` | [`CameraAPI.read_black_level_range`](#CameraAPI.read_black_level_range) |
@@ -19330,11 +19029,9 @@ Each event, the member or `RunEvents` field that delivers it, its record (whose 
 
 | Event | Delivered by | Record | Over REST |
 |---|---|---|---|
-| `exposure` | [`CameraAPI.add_exposure_listener`](#CameraAPI.add_exposure_listener) | [`ExposureChanged`](#ExposureChanged) | event stream |
 | `files_written` | [`RunEvents.files_written`](#RunEvents.files_written) | [`FilesWritten`](#FilesWritten) | event stream |
 | `frame` | [`ImagingAPI.add_frame_listener`](#ImagingAPI.add_frame_listener) | [`FrameDelivered`](#FrameDelivered) | live view |
 | `frame_captured` | [`RunEvents.frame_captured`](#RunEvents.frame_captured) | [`FrameCaptured`](#FrameCaptured) | live view |
-| `gain` | [`CameraAPI.add_gain_listener`](#CameraAPI.add_gain_listener) | [`GainChanged`](#GainChanged) | event stream |
 | `led` | [`IlluminationAPI.add_led_listener`](#IlluminationAPI.add_led_listener) | [`LedReading`](#LedReading) | event stream |
 | `outcome` | [`ScopeSession.add_outcome_listener`](#ScopeSession.add_outcome_listener) | [`Notification`](#Notification) | event stream |
 | `position` | [`MotionAPI.add_position_listener`](#MotionAPI.add_position_listener) | [`PositionChanged`](#PositionChanged) | event stream |

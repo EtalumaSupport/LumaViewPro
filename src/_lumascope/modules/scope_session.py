@@ -2494,7 +2494,7 @@ class ScopeSession:
         either, up to what the camera or the LED board can be asked for,
         which their writers refuse past. The illumination maximum is None for
         a channel with no LED on this scope; the camera's maxima are None
-        while its range is not known (``CameraAPI.known_setting_limits``),
+        while its range is not known (``CameraAPI.setting_limits`` raises),
         and the illumination maximum is answered whatever the camera's.
 
         Args:
@@ -2728,7 +2728,7 @@ class ScopeSession:
             CameraSettingRejected: the camera did not take a setting of the
                 shown channel; or any row carries a gain or exposure while the
                 camera's gain and exposure range is unread, naming them, none
-                sent (``CameraAPI.applied_write_for``).
+                sent.
 
         Nothing is stored on any refusal.
         """
@@ -2960,8 +2960,7 @@ class ScopeSession:
             CameraSettingRejected: the shown channel's camera did not take
                 its gain, exposure or auto-gain; or a gain or exposure, on any
                 channel, while the camera's gain and exposure range is unread,
-                naming them, none sent (``CameraAPI.applied_write_for``).
-                Nothing is stored.
+                naming them, none sent. Nothing is stored.
             ProtocolRunRefusedError: ``'positions_unreachable'``, a focus on a
                 scope with no Z axis.
             PositionOutOfRangeError: a focus outside Z's travel.
@@ -4157,8 +4156,7 @@ class ScopeSession:
                 channels could not be resolved. Nothing changes.
             CameraSettingRejected: ``'camera_read_failed'``, the camera's gain
                 and exposure range could not be read after its last readout
-                change, naming the step's gain and exposure
-                (``CameraAPI.applied_write_for``). Nothing changes.
+                change, naming the step's gain and exposure. Nothing changes.
             AxisStateUnknownError: an axis the step moves does not know
                 its position. Nothing changes.
             HardwareCommandRefusedError: ``'not_connected'``, this scope's
@@ -5865,7 +5863,7 @@ class ScopeSession:
         the maximum, so a display shows the stored value beside the one in
         force. In the scope's channel order. A limit not known caps nothing:
         no camera, or the camera's range not read
-        (``CameraAPI.known_setting_limits``), for gain and exposure; no LED
+        (``CameraAPI.setting_limits`` raises), for gain and exposure; no LED
         board, for current.
 
         Raises:
