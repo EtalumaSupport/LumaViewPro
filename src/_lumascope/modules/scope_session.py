@@ -135,6 +135,7 @@ from _lumascope.modules.protocol import (
     protocol_row_of,
 )
 from _lumascope.modules.axes import StageAxis
+from _lumascope.modules.closed_sets import refuse_unless_offered
 from _lumascope.modules.video_cadence import video_sizing_fps
 import _lumascope.modules.write_size as write_size
 from _lumascope.modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S, MetricsLogger
@@ -397,7 +398,6 @@ class ObjectiveQuestion:
     choices: tuple[str, ...]
 
 
-@api_fields('z_um', 'step_index')
 @dataclasses.dataclass(frozen=True)
 class SavedFocus:
     """What ``ScopeSession.save_focus`` wrote.
@@ -3424,7 +3424,6 @@ class ScopeSession:
             label=label,
         )
 
-    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def save_focus(
         self, protocol: 'Protocol', channel: str, *, step_index: int | None = None
@@ -3548,7 +3547,6 @@ class ScopeSession:
             stored = self._settings['bookmark']
             return PlateLocation(x_mm=stored['x'], y_mm=stored['y'], z_um=stored['z'])
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_go_to_bookmark(self, axes: 'Iterable[StageAxis]') -> 'Operation[None]':
         """Start ``axes`` moving to the bookmark, as the go-to-bookmark buttons do; return the started moves.
 
@@ -3582,6 +3580,9 @@ class ScopeSession:
                 stopped: the board did not take the STOP, or the move did not
                 settle after it.
         """
+        axes = frozenset(
+            refuse_unless_offered(StageAxis, axis, f'axes[{at}]') for at, axis in enumerate(axes)
+        )
         mark = self.bookmark
         motion = self.scope.motion
         with motion.starting_together() as moves:
@@ -3599,7 +3600,6 @@ class ScopeSession:
                 moves.append(motion.start_move_z(mark.z_um))
         return Operation.all_of(tuple(moves))
 
-    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def go_to_bookmark(self, axes: 'Iterable[StageAxis]') -> None:
         """Move ``axes`` to the bookmark, and return once they have arrived.
 
@@ -3634,7 +3634,6 @@ class ScopeSession:
         refuse_waiting_on_ui_thread('go_to_bookmark')
         self.start_go_to_bookmark(axes).result()
 
-    @api(stop='Operation.stop', admitted_by=(Admission.LANE_CALL,))
     def start_go_to_channel_focus(self, channel: str) -> 'Operation[None]':
         """Start Z moving to ``channel``'s saved focus, as the Go To Focus button does; return the started move.
 
@@ -3674,7 +3673,6 @@ class ScopeSession:
             raise FocusNotSavedError(channel)
         return self.scope.motion.start_move_z(focus)
 
-    @api(in_process=True, admitted_by=(Admission.LANE_CALL,))
     def go_to_channel_focus(self, channel: str) -> None:
         """Move Z to ``channel``'s saved focus, and return once it has arrived.
 
@@ -3711,7 +3709,6 @@ class ScopeSession:
         refuse_waiting_on_ui_thread('go_to_channel_focus')
         self.start_go_to_channel_focus(channel).result()
 
-    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def save_all_bookmarks(self) -> PlateLocation:
         """Save the live Z as the Z bookmark and as the focus of every channel this scope has.

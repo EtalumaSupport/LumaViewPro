@@ -135,13 +135,6 @@ RENAMED = [
     ),
     (
         'POST',
-        'save_focus',
-        {'protocol': PROTOCOL, 'layer': 'BF'},
-        'save_focus',
-        {'protocol': PROTOCOL, 'channel': 'BF'},
-    ),
-    (
-        'POST',
         'apply_focus_to_layer_steps',
         {'protocol': PROTOCOL, 'channel': 'BF'},
         'apply_focus_to_channel_steps',
