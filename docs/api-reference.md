@@ -451,57 +451,6 @@ have.
 
 Nothing.
 
-<a id="ScopeSession.apply_channel_settings"></a>
-### `ScopeSession.apply_channel_settings`
-
-```python
-def apply_channel_settings(self, protocol: Protocol) -> None
-```
-
-Marks: enters: `lane_call`, `guarded_write`.  
-Route: `POST /api/v1/apply_channel_settings`.
-
-Put a protocol's Layer Settings into this session's channel controls.
-
-The other half of `save_protocol`, and what the GUI's Load does
-once `load_protocol` has accepted the plate. Every channel stops
-acquiring; each channel the protocol names then takes
-its acquire mode and every value its row holds. A blank value leaves
-that channel's control as it was. A channel this release does not know
-(not in `common_utils.get_channels()`), or this scope does not have,
-is logged and dropped.
-
-Every row is judged before any is stored, and is written as any
-channel write is: the shown channel's row is on the camera, and on
-its LED when lit, when this returns; auto-gain off with a gain or
-exposure beside it is those values with the camera's loop off, and
-alone keeps what the loop reached (`channel_auto_gain_lock`); a
-value past the hardware's limit is set at it and told
-(`ValueClampedNotice`); a channel set to acquire stops stimulating.
-While a run or a diagnostic
-holds the scope the rows are stored only, and its end puts the shown
-channel on.
-
-**Args**
-
-- `protocol`: The protocol whose Layer Settings are applied, as `load_protocol` returned it or as built in memory.
-
-**Raises**
-
-- `ProtocolRunRefusedError`: `'values_out_of_range'`, a row it would apply holds a value outside its channel setting's range, each named by channel, column and bound.
-- `ArgumentRefusedError`: `'gain_range_inverted'`, a row turns auto-gain on while the stored auto-gain range has its minimum gain above its maximum.
-- `HardwareCommandRefusedError`: `'exclusive_activity_running'`, a home holds the scope and the shown channel's row would change its camera or LED; or the shown channel's LED is lit at 0 mA, its row raises it, and a manual recording runs. Its camera refusals are `apply_channel_camera`'s.
-- `CameraSettingRejected`: the camera did not take a setting of the shown channel; or any row carries a gain or exposure while the camera's gain and exposure range is unread, naming them, none sent.
-
-Nothing is stored on any refusal.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `values_out_of_range`; [`ArgumentRefusedError`](#ArgumentRefusedError): `gain_range_inverted`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `activity_ended`
-- 500: [`CameraSettingRejected`](#CameraSettingRejected): `camera_rejected`, `camera_no_answer`, `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
-
 <a id="ScopeSession.apply_focus_to_channel_steps"></a>
 ### `ScopeSession.apply_focus_to_channel_steps`
 
@@ -2640,14 +2589,14 @@ Route: `POST /api/v1/save_protocol`.
 Write a protocol to a file, with this session's Layer Settings.
 
 The block holds each channel set to acquire an image or a video, with
-the values its controls hold now; `apply_channel_settings` puts them
-back. What the GUI opens at its next start-up is not changed: a
+the values its controls hold now; the GUI's Load puts them back.
+What the GUI opens at its next start-up is not changed: a
 script's scratch save is not the person's protocol.
 
 The protocol then has no unsaved changes, its file is this one, and
 its Layer Settings are the block written (`Protocol.has_unsaved_changes`,
 `Protocol.file_path`, `Protocol.channel_settings`), so a run's copy
-of the file and `apply_channel_settings` read what was saved.
+of the file and the GUI's Load read what was saved.
 
 **Args**
 
@@ -3027,7 +2976,7 @@ Give `protocol` the capture root that prefixes its runs' file names.
 **Args**
 
 - `protocol`: The protocol given the root.
-- `root`: The capture root, kept as given; the prefix a run's names take from it is `protocol.capture_prefix()`.
+- `root`: The capture root, kept as given; a run's saved file names begin with it, made safe for a file name.
 
 **Raises**
 
@@ -3036,28 +2985,6 @@ Nothing.
 **Refusals by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-
-<a id="ScopeSession.set_protocol_filepath"></a>
-### `ScopeSession.set_protocol_filepath`
-
-```python
-def set_protocol_filepath(self, file_path: str) -> None
-```
-
-Marks: in-process.
-
-Remember `file_path` as the protocol to open at the next start; `''` forgets it.
-
-The one writer of `protocol.filepath`, which the next start opens,
-stored as it is at load.
-
-**Args**
-
-- `file_path`: The protocol file to open at the next start; one given relative is the data root's, as the shipped default is, and is stored absolute. `''` opens none.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.set_protocol_labware"></a>
 ### `ScopeSession.set_protocol_labware`
@@ -11388,29 +11315,9 @@ Another program's share of the CPU over the startup.
 A wire client holds one as a handle: `/api/v1/handles/Protocol/{handle_id}/`.  
 Returned by: [`ScopeSession.create_empty_protocol`](#ScopeSession.create_empty_protocol), [`ScopeSession.load_protocol`](#ScopeSession.load_protocol), [`ScopeSession.new_protocol`](#ScopeSession.new_protocol).  
 Held in: [`RunEnded.protocol`](#RunEnded.protocol), [`RunEvents.run_ended`](#RunEvents.run_ended).  
-Taken by: [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ScopeSession.add_step`](#ScopeSession.add_step), [`ScopeSession.apply_channel_settings`](#ScopeSession.apply_channel_settings), [`ScopeSession.apply_focus_to_channel_steps`](#ScopeSession.apply_focus_to_channel_steps), [`ScopeSession.apply_tiling`](#ScopeSession.apply_tiling), [`ScopeSession.apply_zstacking`](#ScopeSession.apply_zstacking), [`ScopeSession.delete_step`](#ScopeSession.delete_step), [`ScopeSession.go_to_step`](#ScopeSession.go_to_step), [`ScopeSession.point_steps_at_turret_slot`](#ScopeSession.point_steps_at_turret_slot), [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory), [`ScopeSession.rename_step`](#ScopeSession.rename_step), [`ScopeSession.save_focus`](#ScopeSession.save_focus), [`ScopeSession.save_protocol`](#ScopeSession.save_protocol), [`ScopeSession.set_protocol_capture_root`](#ScopeSession.set_protocol_capture_root), [`ScopeSession.set_protocol_labware`](#ScopeSession.set_protocol_labware), [`ScopeSession.set_protocol_schedule`](#ScopeSession.set_protocol_schedule), [`ScopeSession.set_step_autofocus`](#ScopeSession.set_step_autofocus), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.turret_slot_questions`](#ScopeSession.turret_slot_questions), [`ScopeSession.update_step`](#ScopeSession.update_step).
+Taken by: [`ProtocolRunner.run_autofocus_all_steps`](#ProtocolRunner.run_autofocus_all_steps), [`ProtocolRunner.run_protocol`](#ProtocolRunner.run_protocol), [`ProtocolRunner.run_single_scan`](#ProtocolRunner.run_single_scan), [`ProtocolRunner.start_autofocus_all_steps`](#ProtocolRunner.start_autofocus_all_steps), [`ProtocolRunner.start_protocol`](#ProtocolRunner.start_protocol), [`ProtocolRunner.start_single_scan`](#ProtocolRunner.start_single_scan), [`ScopeSession.add_step`](#ScopeSession.add_step), [`ScopeSession.apply_focus_to_channel_steps`](#ScopeSession.apply_focus_to_channel_steps), [`ScopeSession.apply_tiling`](#ScopeSession.apply_tiling), [`ScopeSession.apply_zstacking`](#ScopeSession.apply_zstacking), [`ScopeSession.delete_step`](#ScopeSession.delete_step), [`ScopeSession.go_to_step`](#ScopeSession.go_to_step), [`ScopeSession.point_steps_at_turret_slot`](#ScopeSession.point_steps_at_turret_slot), [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory), [`ScopeSession.rename_step`](#ScopeSession.rename_step), [`ScopeSession.save_focus`](#ScopeSession.save_focus), [`ScopeSession.save_protocol`](#ScopeSession.save_protocol), [`ScopeSession.set_protocol_capture_root`](#ScopeSession.set_protocol_capture_root), [`ScopeSession.set_protocol_labware`](#ScopeSession.set_protocol_labware), [`ScopeSession.set_protocol_schedule`](#ScopeSession.set_protocol_schedule), [`ScopeSession.set_step_autofocus`](#ScopeSession.set_step_autofocus), [`ScopeSession.start_go_to_step`](#ScopeSession.start_go_to_step), [`ScopeSession.turret_slot_questions`](#ScopeSession.turret_slot_questions), [`ScopeSession.update_step`](#ScopeSession.update_step).
 
 A protocol: its steps, its plate and its schedule, and the file it is read from and written to.
-
-<a id="Protocol.capture_prefix"></a>
-### `Protocol.capture_prefix`
-
-```python
-def capture_prefix(self) -> str
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/handles/Protocol/{handle_id}/capture_prefix`.
-
-The capture root as the prefix of a saved file's name.
-
-The one derivation, read by the image writer and by post-processing:
-two derivations named the images `exp202610_A1_BF` and looked for
-`exp/2026:10_A1_BF`. Empty when there is no root.
-
-**Raises**
-
-Nothing.
 
 <a id="Protocol.capture_root"></a>
 ### `Protocol.capture_root`
@@ -11571,21 +11478,6 @@ Marks: reads (changes nothing).
 Route: `GET /api/v1/handles/Protocol/{handle_id}/period_s`.
 
 How often the protocol scans, in seconds; 0 or None for one scan.
-
-**Raises**
-
-Nothing.
-
-<a id="Protocol.step_list_revision"></a>
-### `Protocol.step_list_revision`
-
-```python
-step_list_revision: int  # property
-```
-
-Route: `GET /api/v1/handles/Protocol/{handle_id}/step_list_revision`.
-
-A count that changes whenever the step list does, for a reader to tell it changed.
 
 **Raises**
 
@@ -18073,7 +17965,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/add_step` | [`ScopeSession.add_step`](#ScopeSession.add_step) |
 | `GET` | `/api/v1/app_runtime` | [`ScopeSession.app_runtime`](#ScopeSession.app_runtime) |
 | `GET` | `/api/v1/app_version` | [`ScopeSession.app_version`](#ScopeSession.app_version) |
-| `POST` | `/api/v1/apply_channel_settings` | [`ScopeSession.apply_channel_settings`](#ScopeSession.apply_channel_settings) |
 | `POST` | `/api/v1/apply_focus_to_channel_steps` | [`ScopeSession.apply_focus_to_channel_steps`](#ScopeSession.apply_focus_to_channel_steps) |
 | `POST` | `/api/v1/apply_remedy` | [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy) |
 | `POST` | `/api/v1/apply_tiling` | [`ScopeSession.apply_tiling`](#ScopeSession.apply_tiling) |
@@ -18095,7 +17986,6 @@ reads what the person was shown.
 | `POST` | `/api/v1/end_control` | [`ScopeSession.end_control`](#ScopeSession.end_control) |
 | `GET` | `/api/v1/engineering_mode` | [`ScopeSession.engineering_mode`](#ScopeSession.engineering_mode) |
 | `PUT` | `/api/v1/engineering_mode` | [`ScopeSession.set_engineering_mode`](#ScopeSession.set_engineering_mode) |
-| `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_prefix` | [`Protocol.capture_prefix`](#Protocol.capture_prefix) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/capture_root` | [`Protocol.capture_root`](#Protocol.capture_root) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/channel_settings` | [`Protocol.channel_settings`](#Protocol.channel_settings) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/duration_s` | [`Protocol.duration_s`](#Protocol.duration_s) |
@@ -18105,7 +17995,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/num_scans` | [`Protocol.num_scans`](#Protocol.num_scans) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/num_steps` | [`Protocol.num_steps`](#Protocol.num_steps) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/period_s` | [`Protocol.period_s`](#Protocol.period_s) |
-| `GET` | `/api/v1/handles/Protocol/{handle_id}/step_list_revision` | [`Protocol.step_list_revision`](#Protocol.step_list_revision) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/step_records` | [`Protocol.step_records`](#Protocol.step_records) |
 | `GET` | `/api/v1/handles/Protocol/{handle_id}/tiling` | [`Protocol.tiling`](#Protocol.tiling) |
 | `POST` | `/api/v1/handles/ProtocolRunner/{handle_id}/start_autofocus` | [`ProtocolRunner.start_autofocus`](#ProtocolRunner.start_autofocus) |

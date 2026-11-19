@@ -1805,7 +1805,6 @@ class Protocol:
         """
         return self._config.get('capture_root', '')
 
-    @api(reads=True)
     def capture_prefix(self) -> str:
         """The capture root as the prefix of a saved file's name.
 
@@ -2409,7 +2408,6 @@ class Protocol:
             return
         raise StepNotFoundError(idx, num_steps)
 
-    @api
     @property
     def step_list_revision(self) -> int:
         """A count that changes whenever the step list does, for a reader to tell it changed.

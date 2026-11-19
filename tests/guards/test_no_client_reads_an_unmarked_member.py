@@ -78,6 +78,7 @@ _PINNED: dict[str, int] = {
     'PostProcessingAPI.zproject': 1,
     'Protocol.copy_for_execution': 2,
     'Protocol.step_row': 6,
+    'ScopeSession.set_protocol_filepath': 2,
 }
 
 

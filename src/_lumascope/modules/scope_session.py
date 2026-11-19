@@ -2686,7 +2686,6 @@ class ScopeSession:
                 )
                 self._store_setting(f'{name}.acquire', None)
 
-    @api(admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def apply_channel_settings(self, protocol: 'Protocol') -> None:
         """Put a protocol's Layer Settings into this session's channel controls.
@@ -2767,14 +2766,14 @@ class ScopeSession:
         """Write a protocol to a file, with this session's Layer Settings.
 
         The block holds each channel set to acquire an image or a video, with
-        the values its controls hold now; ``apply_channel_settings`` puts them
-        back. What the GUI opens at its next start-up is not changed: a
+        the values its controls hold now; the GUI's Load puts them back.
+        What the GUI opens at its next start-up is not changed: a
         script's scratch save is not the person's protocol.
 
         The protocol then has no unsaved changes, its file is this one, and
         its Layer Settings are the block written (``Protocol.has_unsaved_changes``,
         ``Protocol.file_path``, ``Protocol.channel_settings``), so a run's copy
-        of the file and ``apply_channel_settings`` read what was saved.
+        of the file and the GUI's Load read what was saved.
 
         Args:
             protocol: The protocol whose steps are written.
@@ -3864,8 +3863,8 @@ class ScopeSession:
 
         Args:
             protocol: The protocol given the root.
-            root: The capture root, kept as given; the prefix a run's names
-                take from it is ``protocol.capture_prefix()``.
+            root: The capture root, kept as given; a run's saved file names
+                begin with it, made safe for a file name.
 
         Raises:
             Nothing.
@@ -5370,7 +5369,6 @@ class ScopeSession:
             )
         return tuple(entries)
 
-    @api(in_process=True)
     @_guarded_write
     def set_protocol_filepath(self, file_path: str) -> None:
         """Remember ``file_path`` as the protocol to open at the next start; ``''`` forgets it.
