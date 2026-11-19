@@ -11,16 +11,6 @@ integrator's own ``start_logging`` -- and at most once.
 """
 
 import os
-
-# Suppress Kivy's own file/console logging before any Kivy import can fire.
-# A LumaViewPro program's start routes the `kivy` logger into its file_handler /
-# error_handler (_hang_the_bundle_on_root), so Kivy diagnostics still land in the main LVP logs -- just not in
-# ~/.kivy/logs/. The app entry point (lumaviewpro.py) sets the same vars,
-# but lvp_logger is imported earlier by most code paths (tests, scripts,
-# standalone imports), so set them here too.
-os.environ.setdefault('KIVY_NO_CONSOLELOG', '1')
-os.environ.setdefault('KIVY_NO_FILELOG', '1')
-
 import logging
 from logging.handlers import RotatingFileHandler
 import sys
@@ -601,17 +591,12 @@ def _hang_the_bundle_on_root() -> None:
     # which left debug runs -- when the bundle matters most -- double-logged.)
     logger.propagate = True
 
-    # Route Kivy framework errors to LVP main log + errors log
-    # Pin the level so Kivy does not inherit the root logger's DEBUG level (root
-    # runs at DEBUG so standalone scripts' DEBUG per-run logs survive). Without
-    # this pin, Kivy's framework INFO chatter would flood the bundle. WARNING
-    # matches Kivy's prior effective level (it was unset, inheriting root's default).
-    kivy_logger.setLevel(logging.WARNING)
     # Kivy reaches the bundle by propagating to root (the single handler owner);
-    # the WARNING floor keeps its framework chatter out. It previously held its own
-    # copies of the bundle handlers and set propagate False to avoid writing the
-    # bundle twice through root's copies -- the same shared-handler duplication the
-    # LVP loggers carried.
+    # its level is Kivy's, set at its import from the environment
+    # (app_environment.KIVY_ENVIRONMENT), so its INFO startup block stays out.
+    # It previously held its own copies of the bundle handlers and set
+    # propagate False to avoid writing the bundle twice through root's copies --
+    # the same shared-handler duplication the LVP loggers carried.
     kivy_logger.propagate = True
 
     # LVP.* records reach the bundle by propagating through 'LVP' to root

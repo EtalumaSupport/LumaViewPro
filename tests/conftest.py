@@ -38,12 +38,12 @@ import psutil
 import pytest
 
 from _lumascope.drivers import host_clock
+from _lumascope.modules.app_environment import set_kivy_environment
 
-# Keep Kivy from writing anything to ~/.kivy/logs/ during tests. App code
-# sets these in lumaviewpro.py + src/_lumascope/lvp_logger.py, but pytest may import Kivy
-# before either runs, so set them here as well.
-os.environ.setdefault('KIVY_NO_CONSOLELOG', '1')
-os.environ.setdefault('KIVY_NO_FILELOG', '1')
+# The suite's Kivy starts in the GUI's environment: no ~/.kivy/logs, no
+# command line read, its WARNING level. A test may import Kivy before
+# anything of the app's runs, so it is set here, first.
+set_kivy_environment()
 
 # ---------------------------------------------------------------------------
 # Path setup -- the checkout's root for `tests.` and `ui.`. Its src/ is first

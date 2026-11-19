@@ -310,13 +310,9 @@ if __name__ == '__main__':
 
         pyi_splash.update_text('')
 
-    # Disable Kivy's own file logging (LVP has its own RotatingFileHandler)
-    os.environ['KIVY_NO_CONSOLELOG'] = '1'
-    os.environ['KIVY_NO_FILELOG'] = '1'
-    # Kivy reads no command line: its parser exits on an argument it does not
-    # know, and a packaged build's bootloader shows nothing for that exit.
-    # LumaViewPro's own flags are read above, before Kivy loads.
-    os.environ['KIVY_NO_ARGS'] = '1'
+    from _lumascope.modules.app_environment import set_kivy_environment
+
+    set_kivy_environment()
 
     # Single-instance lock check BEFORE any Kivy import.
     # When the check lived inside App.build(), Kivy had already

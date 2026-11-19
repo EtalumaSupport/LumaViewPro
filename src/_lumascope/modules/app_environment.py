@@ -52,6 +52,33 @@ def init_environment() -> AppEnvironment:
     )
 
 
+# Kivy reads these at its import, before any LumaViewPro setting exists: a
+# level set on Kivy's logger after the import does not hold, since the
+# import sets it from the user's ~/.kivy/config.ini.
+KIVY_ENVIRONMENT: dict[str, str] = {
+    # Its parser exits on an argument it does not know, and a packaged
+    # build's bootloader shows nothing for that exit; LumaViewPro reads its
+    # own flags before Kivy loads.
+    'KIVY_NO_ARGS': '1',
+    # LumaViewPro's log files hold Kivy's records; Kivy writes no console
+    # or ~/.kivy/logs copy of its own.
+    'KIVY_NO_CONSOLELOG': '1',
+    'KIVY_NO_FILELOG': '1',
+    # Kivy's warnings and errors reach the bundle and its INFO startup block
+    # does not, whatever a PC's config.ini says.
+    'KCFG_KIVY_LOG_LEVEL': 'warning',
+}
+
+
+def set_kivy_environment() -> None:
+    """Set Kivy's environment, before the process's first Kivy import.
+
+    Assigned, not defaulted, so a value left in a shell cannot change
+    what Kivy does on one PC.
+    """
+    os.environ.update(KIVY_ENVIRONMENT)
+
+
 def take_sim_launch_value(argv: list[str], flag: str, *, simulate: bool) -> str | None:
     """The value of the simulator launch flag ``--<flag>=<value>``, or None
     when it is not given.

@@ -225,8 +225,9 @@ exe = EXE(
     # writing "ERROR: ... Exiting." to stderr) left that terminal
     # orphaned showing the last stderr line -- the "extra terminal
     # windows that say 'exiting'" symptom researchers see on startup. LVP
-    # log output is file-only (KIVY_NO_CONSOLELOG=1 at lumaviewpro.py
-    # :115), so a windowed build doesn't lose any production logging.
+    # log output is file-only (KIVY_NO_CONSOLELOG in
+    # app_environment.KIVY_ENVIRONMENT), so a windowed build doesn't lose
+    # any production logging.
     console=False,
     # Keep the raw traceback out of the bootloader's crash dialog: a
     # researcher must never see one. The dialog itself stays. An exception
