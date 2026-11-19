@@ -35,7 +35,7 @@ from _lumascope.modules.scope_session import ScopeSession
 from _lumascope.rest.app import build_app
 from tests.camera_fakes import bare_pylon_camera
 from tests.scope_fakes import give_camera_and_imaging, give_camera_capabilities, give_stub_lanes
-from tests.settings_fixtures import complete_settings
+from tests.settings_fixtures import complete_settings, installation_of_its_own
 
 _AUTO_GAIN = {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 20.0}
 
@@ -189,7 +189,7 @@ from _lumascope.modules.scope_session import ScopeSession
 from tests.settings_fixtures import complete_settings
 
 with tempfile.TemporaryDirectory() as folder:
-    session = ScopeSession.create(complete_settings(live_folder=folder))
+    session = ScopeSession.create(complete_settings(live_folder=folder), source_path=sys.argv[1])
     try:
         if not session.scope.camera_connected:
             print(json.dumps({'sdk': True, 'connected': False})); sys.exit(0)
@@ -232,10 +232,12 @@ with tempfile.TemporaryDirectory() as folder:
 def test_a_frame_size_half_landed_on_the_emulator_is_held_as_the_camera_reads_it():
     """Basler's emulator (``PYLON_CAMEMU``), in a child process: the width
     lands, the height is refused, and the API holds, and the refusal says,
-    the frame the camera reads, not the one before the write."""
+    the frame the camera reads, not the one before the write. The child's
+    scope is built on an installation of its own, so a scope held on this
+    checkout's lock port does not refuse it."""
     repo = pathlib.Path(__file__).resolve().parents[1]
     done = subprocess.run(
-        [sys.executable, '-I', '-c', _HALF_LANDED_FRAME],
+        [sys.executable, '-I', '-c', _HALF_LANDED_FRAME, str(installation_of_its_own())],
         cwd=str(repo),
         env={**os.environ, 'PYLON_CAMEMU': '1'},
         capture_output=True,
