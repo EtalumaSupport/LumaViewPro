@@ -2009,11 +2009,15 @@ class IDSCamera(Camera):
         # The live Width/Height node bounds: min is the grid phase, inc the
         # alignment step, max the offset-zeroed sensor max. The 1x minimum is
         # otherwise only inferred from the delivered size -- logging it makes
-        # the real hardware floor observable in a bundle.
+        # the real hardware floor observable in a bundle. The offsets' minimum
+        # and increment are logged beside them: they decide whether every
+        # window the plan centres is centred, which nothing else records.
         _cam_log.info(
             f'[CAM Class ] set_frame_size nodes '
             f'W[min={size_min[0]} inc={step[0]} max={self._sensor_max[0]}] '
-            f'H[min={size_min[1]} inc={step[1]} max={self._sensor_max[1]}]'
+            f'H[min={size_min[1]} inc={step[1]} max={self._sensor_max[1]}] '
+            f'OX[min={self._offset_min[0]} inc={offset_step[0]}] '
+            f'OY[min={self._offset_min[1]} inc={offset_step[1]}]'
         )
         return FrameGrid(
             step=step,
