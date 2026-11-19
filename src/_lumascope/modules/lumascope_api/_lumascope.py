@@ -1580,8 +1580,10 @@ class Lumascope:
 
         For whoever reads the log of a camera fault that survives a
         reconnect, which only a power cycle or a reset clears: the uptime
-        says whether the camera had one. Bring-up is where a failed read's
-        flight stops, as for its camera writes: the latch is the one every
+        says whether the camera had one, except on a Basler USB camera,
+        where it counts from LumaViewPro's own reset at connect. Bring-up is
+        where a failed read's flight stops, as for its camera writes: the
+        latch is the one every
         capture's clock mapping takes, so a camera that fails it here is
         reported once and bring-up goes on. The read's body runs here and
         now, as every bring-up write's does, not on the camera lane.

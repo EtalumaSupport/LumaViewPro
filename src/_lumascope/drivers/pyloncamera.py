@@ -31,6 +31,7 @@ from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
     CameraReadFailedError,
     CameraSetupFailedError,
+    CameraUsbNotFoundError,
     CameraUsbOpenFailedError,
     CameraWriteFailedError,
     HardwareError,
@@ -816,6 +817,15 @@ class PylonCamera(Camera):
     # the rate it reaches, inside the clean band.
     _LINK_RATE_SHARE = 0.92
 
+    # A camera reset at connect (``_resets_at_connect``) leaves the bus and
+    # comes back within this many seconds of its reset, both on one clock;
+    # the daA3840s on the bench came back in 2.2-3.3 s. The settle is the
+    # wait after it is listed again before it is opened: every bench reset
+    # of a daA3840 reopened after it.
+    _RESET_RETURN_S = 90.0
+    _RESET_SETTLE_S = 1.0
+    _RESET_POLL_S = 0.2
+
     # The device transport layer's counters of timed-out and failed accesses
     # (Basler doc transport-layer-parameters.html). The stop's stalled wait is
     # inside a register write, so a timeout counter that rises across a slow
@@ -1219,7 +1229,10 @@ class PylonCamera(Camera):
             # is never misreported as "not openable."
             _devs = ()
             _created = False
-            opened = False
+            # The failure's type is set with ``step``, from how far the
+            # connect got: the camera's open, its set-up once open, or its
+            # return to the bus after a reset.
+            fault = CameraUsbOpenFailedError
             step = 'the device lookup'
             try:
                 _devs = pylon.TlFactory.GetInstance().EnumerateDevices()
@@ -1246,9 +1259,41 @@ class PylonCamera(Camera):
             else:
                 p_device = pylon.TlFactory.GetInstance().CreateFirstDevice()
             _created = True
+            camera = pylon.InstantCamera(p_device)
+            device_info = camera.GetDeviceInfo()
+            if self._resets_at_connect(device_info):
+                # The device reset is the one created above, so which camera
+                # is connected does not change. A camera told to reset is
+                # never configured as it was: it may reboot under the session.
+                serial = device_info.GetSerialNumber()
+                step = 'the open before its reset'
+                camera.Open()
+                fault = CameraSetupFailedError
+                step = 'its reset'
+                # Active for the reset's one write alone: nothing is registered
+                # on it, and it is never active again once destroyed.
+                self.active = camera
+                if not self.write_node('DeviceReset', self.RUN, if_present=True):
+                    camera.Close()
+                else:
+                    self.active = None
+                    camera.DestroyDevice()
+                    reset_at = time.monotonic()
+                    fault = CameraUsbNotFoundError
+                    step = 'its return after its reset'
+                    returned = self._wait_for_return_after_reset(serial, reset_at)
+                    fault = CameraUsbOpenFailedError
+                    step = 'the device lookup after its reset'
+                    camera = pylon.InstantCamera(
+                        pylon.TlFactory.GetInstance().CreateDevice(returned)
+                    )
+                    _cam_log.info(
+                        f'[CAM Class ] camera {serial} reset at connect; back after '
+                        f'{time.monotonic() - reset_at:.1f} s'
+                    )
+                fault = CameraUsbOpenFailedError
             step = 'its registration'
-            self.active = pylon.InstantCamera(p_device)
-            camera = self.active
+            self.active = camera
             # Ensure previous removal flag does not persist across a new connection
             self._device_removed = False
             camera.RegisterConfiguration(
@@ -1295,7 +1340,7 @@ class PylonCamera(Camera):
 
             step = 'the open'
             camera.Open()
-            opened = True
+            fault = CameraSetupFailedError
 
             # Start gate, SDK-side enforcement: pypylon 26.4.x's
             # AcquireContinuousConfiguration can auto-StartGrabbing from
@@ -1495,8 +1540,49 @@ class PylonCamera(Camera):
             _cam_log.error(
                 f'[CAM Class ] {failure}', exc_info=not isinstance(ex, genicam.RuntimeException)
             )
-            fault = CameraSetupFailedError if opened else CameraUsbOpenFailedError
             raise fault(failure) from ex
+
+    def _resets_at_connect(self, device_info) -> bool:
+        """Whether ``connect`` resets this camera before configuring it.
+
+        Every Basler USB camera is reset: a 1.1.0 daA3840 left stalling its
+        stops 11 s by an earlier session stays so through a reconnect, and
+        a reset clears it for a while, as a power cycle does. The emulator
+        (``BaslerCamEmu``) has no stall to clear, and no GigE body's reset
+        has been measured. The one place the choice is made, so turning the
+        reset off, or limiting it to some cameras, is a change here alone.
+
+        Raises:
+            genicam.GenericException: The device did not give its class.
+        """
+        return 'Usb' in device_info.GetDeviceClass()
+
+    def _wait_for_return_after_reset(self, serial: str, reset_at: float):
+        """Wait for the camera ``serial``, reset at ``reset_at``, to leave the
+        bus and come back; return its device info once it has settled.
+
+        Raises:
+            TimeoutError: It had not left and come back ``_RESET_RETURN_S``
+                after its reset.
+        """
+        factory = pylon.TlFactory.GetInstance()
+        deadline = reset_at + self._RESET_RETURN_S
+        left = False
+        while time.monotonic() < deadline:
+            listed = next(
+                (d for d in factory.EnumerateDevices() if d.GetSerialNumber() == serial), None
+            )
+            if listed is None:
+                left = True
+            elif left:
+                time.sleep(self._RESET_SETTLE_S)
+                return listed
+            time.sleep(self._RESET_POLL_S)
+        how = 'left the bus and did not come back' if left else 'never left the bus'
+        raise TimeoutError(
+            f'the camera {serial} did not come back after LumaViewPro reset it: it {how} '
+            f'in the {self._RESET_RETURN_S:.0f} s waited'
+        )
 
     def _stop_image_grab_worker(self) -> None:
         """Stop the Stage B worker if it was started during connect().

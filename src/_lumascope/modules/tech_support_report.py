@@ -2222,7 +2222,8 @@ class TechSupportReport:
                 lambda: getattr(camera.setting_limits, 'exposure_max_ms', None)
             ),
             # Whether the camera was power-cycled since a fault: a fault that
-            # survives a reconnect clears only on a power cycle or a reset.
+            # survives a reconnect clears only on a power cycle or a reset. On
+            # a Basler USB camera it counts from LumaViewPro's reset at connect.
             'uptime_s': _hardware_reading(self.scope.diagnostics.read_camera_uptime_s),
         }
         temperatures = _hardware_reading(self.scope.diagnostics.read_camera_temperatures_degc)

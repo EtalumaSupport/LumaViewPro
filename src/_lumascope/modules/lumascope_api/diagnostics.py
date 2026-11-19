@@ -484,8 +484,10 @@ class DiagnosticsAPI:
         The camera's own clock counts from its power-up, and a reset
         (``DeviceReset``) restarts it; a reconnect does not. So a few seconds
         at bring-up says the camera was just powered on, and minutes or hours
-        that it kept running from before. The clock is the one a capture maps
-        onto the host's (``imaging.map_camera_clock``), latched now.
+        that it kept running from before, except on a Basler USB camera,
+        which LumaViewPro resets at every connect: there it counts from that
+        reset. The clock is the one a capture maps onto the host's
+        (``imaging.map_camera_clock``), latched now.
 
         Runs on the camera lane, admitted whatever holds the scope, like the
         temperature read: the latch must not interleave with another camera
