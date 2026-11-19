@@ -2398,7 +2398,7 @@ class Lumascope:
 
         False for a manual scope (an LS620, LS560 or LS460): it is complete
         without one, so its absence is not a disconnection. Set from the
-        model's catalogue entry by ``initialize()``; True before that.
+        model's catalogue entry when the scope is brought up; True before that.
 
         Raises:
             Nothing.

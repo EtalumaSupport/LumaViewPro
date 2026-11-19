@@ -1070,9 +1070,9 @@ class MotionAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'`` with no motor controller (see
-                ``refuse_absent``); ``'home_not_stoppable'``
-                while a home drives on a board that cannot stop one.
+                ``'axis_absent'`` with no motor controller;
+                ``'home_not_stoppable'`` while a home drives on a board that
+                cannot stop one.
                 Nothing was sent.
             MotorStopFailedError: the board did not take the STOP, so the
                 stage may still be moving. Chained from the driver's
@@ -1735,8 +1735,8 @@ class MotionAPI:
 
         Raises:
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, no motor controller or no Z (see
-                ``refuse_absent``); nothing was sent.
+                ``'axis_absent'``, no motor controller or no Z; nothing was
+                sent.
         """
         return self._dispatch_motion(
             self._set_precision_mode_impl,
@@ -2166,9 +2166,8 @@ class MotionAPI:
             ArgumentRefusedError: ``'not_offered'``, ``axis`` is no axis
                 name.
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'axis_absent'``, no motor controller or no such axis (see
-                ``refuse_absent``); an axis the scope does not have has no
-                travel to answer with.
+                ``'axis_absent'``, no motor controller or no such axis; an
+                axis the scope does not have has no travel to answer with.
         """
         self.refuse_absent('axis_limits', axis)
         limits = self._driver.axis_limits(axis=axis)
@@ -2361,8 +2360,7 @@ class MotionAPI:
                 'X', 'Y' or 'Z'.
             HardwareCommandRefusedError: ``'scope_disconnected'`` after
                 the scope's shutdown; ``'not_connected'`` or ``'axis_absent'``,
-                an asked axis has no motor behind it (see
-                ``refuse_absent``).
+                an asked axis has no motor behind it.
             AxisMovingError: ``'axis_moving'``, naming every asked axis
                 that is moving.
             AxisStateUnknownError: ``'position_unknown'``, naming every
@@ -3089,8 +3087,8 @@ class MotionAPI:
         is None is left where it is, a move under way on it included, so a
         caller moving X alone leaves Y alone. The axes given are asked once
         whether they know their position and are started on one task of the
-        IO lane (``one_command``), so a capture asked meanwhile never takes
-        the new X at the old Y. Each is checked against the plate positions
+        IO lane, so a capture asked meanwhile never takes the new X at the
+        old Y. Each is checked against the plate positions
         this stage can reach, and refused in mm, before either moves.
 
         Args:
@@ -3815,8 +3813,8 @@ class MotionAPI:
         refusals come in the order a jog's do: the arguments, the lane's,
         the motion gate's, then the objective's and the scale's. X and Y
         are asked once whether they know their position and started on one
-        task of the IO lane (``one_command``), so a capture asked meanwhile
-        never takes the new X at the old Y.
+        task of the IO lane, so a capture asked meanwhile never takes the
+        new X at the old Y.
 
         Args:
             x_fraction: How far across the frame's width, from 0 to 1.
@@ -3911,7 +3909,7 @@ class MotionAPI:
                 ``'Z'``, ``'T'`` or ``'ALL'``; nothing was asked of the scope.
             HardwareCommandRefusedError: ``'not_connected'`` or
                 ``'axis_absent'``, no motor controller, or no Z or turret to
-                home (see ``refuse_absent``); ``'exclusive_activity_running'``,
+                home; ``'exclusive_activity_running'``,
                 a run, a diagnostic or a recording holds the scope;
                 ``'home_in_flight'``, a home asked earlier, by any caller,
                 has not ended; or ``'lid_open_before_motion'``, the stage's

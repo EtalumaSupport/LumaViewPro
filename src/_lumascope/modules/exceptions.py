@@ -118,9 +118,9 @@ class Refusal(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     read as a crash -- "Background operation failed" over its message, and a
     traceback in the errors log.
 
-    Every reason a refusal carries maps to its ``RefusalCause`` in
-    ``causes``: whether the same request could succeed later with the
-    caller changing nothing.
+    Every reason a refusal carries maps to its ``RefusalCause``, listed
+    under its class in Outcomes: whether the same request could succeed
+    later with the caller changing nothing.
 
     Attributes:
         title: The heading the person reads above the message.
@@ -213,8 +213,8 @@ class Quiet(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     type, never to the code that raises or catches it, so every client reads
     the same answer. A message on a quiet exception is written for the log.
 
-    Every reason maps to its ``RefusalCause`` in ``causes``, as a refusal's
-    does, since a quiet outcome answers a caller's request too.
+    Every reason maps to its ``RefusalCause``, as a refusal's does, since a
+    quiet outcome answers a caller's request too.
     """
 
     _needs_cause = True
@@ -1494,7 +1494,8 @@ class ServerRefusedError(Refusal, Exception):
     Raised by the REST server for a request it answers itself: from its request
     reader, its handle and job stores, its idempotency keys, its live view
     and its close. What the refusal is lives here; how it is sent -- each
-    reason's status, the ``Retry-After`` header -- is the server's,
+    reason's status, the ``Retry-After`` header for a refusal that waiting
+    may lift (``'overloaded'``, ``'no_frame_yet'``) -- is the server's,
     read from this record.
 
     Attributes:
@@ -1528,12 +1529,11 @@ class ServerRefusedError(Refusal, Exception):
         title: The heading, the reason's.
         errors: For ``'invalid_request'`` from the request reader, each
             argument that does not fit; None otherwise.
-        retry_after_s: Seconds to wait before asking again, for a refusal
-            that waiting may lift (``'overloaded'``, ``'no_frame_yet'``);
-            None when no wait helps.
     """
 
     errors: tuple[UnfitArgument, ...] | None
+    # Seconds to wait before asking again, sent as ``Retry-After``; None when
+    # no wait helps.
     retry_after_s: float | None
 
     causes: ClassVar[dict[str, RefusalCause]] = {
@@ -1928,10 +1928,8 @@ class SettingRefusedError(Refusal, ConfigError):
 
     Raised by ``ScopeSession.update_settings`` and ``set_live_folder``, by
     the members that own a ranged setting (``set_channel_settings``,
-    ``set_image_mode``, through ``settings_paths.check_value``) and
-    for a settings dict handed to a session, at ``create``'s door
-    (``settings_init.prepare_loaded``, through
-    ``settings_paths.refuse_handed_values``). A caller that maps refusals to
+    ``set_image_mode``) and for a settings dict handed to a session, at
+    ``create``'s door. A caller that maps refusals to
     responses branches on ``reason``; a person reads the message.
 
     Attributes:

@@ -543,7 +543,7 @@ class LiveProcessingRegistry(_BaseNamespace):
 class RESTRegistry(_BaseNamespace):
     """REST endpoint plugins: the namespace is reserved, and takes no routes in this release.
 
-    A plugin cannot add REST routes yet, so ``register()`` refuses, and a
+    A plugin cannot add REST routes yet: a registration is refused, and a
     shipped plugin registers none.
 
     **Stub mode**: while a plugin is being developed, its author can opt

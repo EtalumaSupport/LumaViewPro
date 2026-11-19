@@ -343,7 +343,7 @@ class ManualRecordingController:
         Returns:
             The recording's ``Operation``: done once its frames, MP4 close and
             any hyperstack build are over and a new recording may start, with
-            its ``RecordingFinished``: the ``end_reason``, and how long saving
+            its ``RecordingFinished``: why it ended, and how long saving
             ran on after the recording ended. Its ``stop()`` stops this
             recording as ``stop`` does, and does nothing once it has stopped,
             so it never stops a recording started later.
@@ -756,8 +756,9 @@ class ManualRecordingController:
         """Close selection; the drain and finish continue on their own.
 
         Every caller of this -- the Record button, app close, a REST or SDK client
-        -- is the user stopping the recording, so its ``end_reason`` is
-        ``'user_stop'``. The controller's own enders (the duration backstop, the
+        -- is the user stopping the recording, so its
+        ``RecordingFinished.end_reason`` is ``'user_stop'``. The controller's
+        own enders (the duration backstop, the
         disk floor, a lost camera) name their own, and no caller can write
         one of those into the manifest.
 

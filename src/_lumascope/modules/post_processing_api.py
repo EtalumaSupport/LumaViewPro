@@ -868,8 +868,7 @@ class PostProcessingAPI:
         builds run one by one make 36 files. Every chosen build's
         settings are checked before any build starts, and the call runs as
         one task on the post-processing lane, so no other build touches the
-        folder between its steps. Each build alone (``stitch``,
-        ``zproject``, ``composite``, ``video``) is unchanged.
+        folder between its steps.
 
         A build with nothing to do in the folder -- video on a single-scan
         run -- is skipped and named in the answer, and the next build takes

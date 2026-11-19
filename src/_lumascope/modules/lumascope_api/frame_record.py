@@ -39,7 +39,7 @@ class ClockMapping:
     """The camera's timestamp clock against the host's steady and wall clocks, measured once.
 
     The host latches the camera's clock between two reads of the scope's
-    steady clock (``host_clock.steady_ns``); the latch fell somewhere inside
+    steady clock (``ScopeSession.host_steady_ns``); the latch fell somewhere inside
     that bracket, so its middle is the host time the latched value belongs to
     and half its width is how far off that can be. The read of the latched
     value comes after the bracket and is no part of it. The host's wall
@@ -48,12 +48,12 @@ class ClockMapping:
     middle by the steady clock.
 
     Attributes:
-        host_ns: The scope's steady clock (``host_clock.steady_ns``) at the
+        host_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) at the
             middle of the bracket.
         camera_ticks: The camera's clock the latch latched.
         tick_hz: Ticks per second of the camera's clock.
         uncertainty_ns: Half the bracket.
-        wall_ns: The host's wall clock (``host_clock.wall_ns``) at ``host_ns``.
+        wall_ns: The host's wall clock (``time.time_ns()``) at ``host_ns``.
     """
 
     host_ns: int
@@ -227,8 +227,7 @@ class FrameRecord:
         frame_significant_bits: The depth each summed frame was delivered at
             (the driver's per-frame stamp). With ``frames_summed`` it is what
             the sum's tag, its rendering and its saturation are worked out
-            from (``image_utils.summed_significant_bits``, ``summed_full_scale``,
-            ``convert_sum_to_8bit``).
+            from.
         camera_timestamp_ticks: The camera's own clock for the frame
             (for a summed capture, the first frame's).
         camera_tick_hz: Ticks per second of that clock.

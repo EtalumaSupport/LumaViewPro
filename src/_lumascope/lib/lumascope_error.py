@@ -313,15 +313,12 @@ class Fault(LumascopeError):  # noqa: N818 -- a kind of outcome, not an error
     for the person: the reporter then shows them, and otherwise shows a
     generic sentence and keeps the words in the log. Its reasons map to no
     cause: a fault answers 500 whatever was asked.
-
-    Attributes:
-        words_for_person: True when the class writes its message for the
-            person who will read it. Declared, never defaulted here: a
-            default on this mixin would sit ahead of a value a fault
-            inherits from its subject's class, and hide it. Unset reads as
-            False.
     """
 
+    # True when the class writes its message for the person who will read
+    # it. Declared, never defaulted here: a default on this mixin would sit
+    # ahead of a value a fault inherits from its subject's class, and hide
+    # it. Unset reads as False.
     words_for_person: ClassVar[bool]
     _needs_cause = False
 

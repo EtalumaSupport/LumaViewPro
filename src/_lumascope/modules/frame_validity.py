@@ -184,10 +184,10 @@ class Change:
             backwards across a DST fall-back, an NTP correction or a host
             resume, and a settle count measured against a timestamp that
             jumped forward never completes. Frame numbers only go up.
-        written_ns: The scope's steady clock (``host_clock.steady_ns``) when
+        written_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) when
             the change was recorded. Every recorder calls ``invalidate`` after
             a camera register or LED write returns, and before a move starts.
-        earliest_ns: The scope's steady clock (``host_clock.steady_ns``) of the
+        earliest_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) of the
             earliest moment the change could have reached the hardware: a
             write's start, as its writer stamped it, since the register may
             change anywhere inside the write; for a move, once in force, the
@@ -201,7 +201,7 @@ class Change:
             ``skip`` was met.
         needs_in_force: A motion source the axis must also settle for: the
             frame count alone does not end its wait.
-        in_force_ns: The scope's steady clock (``host_clock.steady_ns``) when
+        in_force_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) when
             the axis state the settle check reads became settled, stamped by
             the motion API; None until then,
             and for a change that does not wait on an axis.
@@ -537,7 +537,7 @@ class FrameValidity:
 
         Args:
             source: What changed.
-            began_ns: The scope's steady clock (``host_clock.steady_ns``) when
+            began_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) when
                 the write that made the change began, the change's
                 ``earliest_ns``; None for a change recorded before it is made
                 (a move), whose earliest is its record.
@@ -880,9 +880,9 @@ class FrameValidity:
 
         Args:
             source: The motion source of the axis whose state was written.
-            at_ns: The scope's steady clock (``host_clock.steady_ns``) taken
+            at_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) taken
                 where it was written.
-            moving_seen_ns: The scope's steady clock (``host_clock.steady_ns``)
+            moving_seen_ns: The scope's steady clock (``ScopeSession.host_steady_ns``)
                 at the start of the last read that saw the axis still moving;
                 None when no read did, so the stop could be as early as the
                 change's record.

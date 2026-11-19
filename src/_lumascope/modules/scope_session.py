@@ -1128,9 +1128,9 @@ class ScopeSession:
         or file being written, and no run or recording that has ended still
         finishing its files.
 
-        A session ends when its holder goes silent. Once 180 s
-        (``activity_claim.CONTROL_SILENCE_S``) pass with no call in it, no
-        request naming it (``renew_control``) and nothing it started -- a
+        A session ends when its holder goes silent. Once 180 s pass with no
+        call in it, no request naming it (``renew_control``) and nothing it
+        started -- a
         move, a run, a recording, any operation -- still running, the next
         caller it would refuse, or the next take, ends it instead, and its
         holder's next call is refused ``'control_session_ended'``. Nothing
@@ -1643,9 +1643,9 @@ class ScopeSession:
         edges, and a listener registered after a grant would otherwise
         never see it. A wire client is sent the session's ``status`` at
         each edge, in the order the edges happen: every field read at the
-        edge but the camera's, which is asked just after
-        (``status_at_edge``); a field that changes with no edge (an axis,
-        a part, the camera) is as of that edge.
+        edge but the camera's, which is asked just after; a field that
+        changes with no edge (an axis, a part, the camera) is as of that
+        edge.
 
         Args:
             listener: Called with no arguments at each run-state transition,
@@ -2473,7 +2473,7 @@ class ScopeSession:
 
         Raises:
             InstallationFileError: the installation's ``scopes.json`` is
-                unusable (``channel_record.release_channels``).
+                unusable.
         """
         from _lumascope.modules.channel_record import parse_display_color, release_colors
 
@@ -2834,7 +2834,7 @@ class ScopeSession:
 
         A setting the channel does not carry reads None (stimulation on a
         transmitted channel). On a scope with no Z axis ``autofocus`` reads
-        False, as ``get_channel_configs`` reads it; the stored setting is
+        False, as a run and a protocol build read it; the stored setting is
         not changed.
 
         Args:
@@ -4076,7 +4076,7 @@ class ScopeSession:
                 The channel and the preview are the step's.
             CameraSettingRejected: the camera did not take a setting of the
                 step's channel (its ``reason`` says how); the moves started
-                are stopped; see ``apply_channel_camera``.
+                are stopped.
             MotorStopFailedError: a move already started could not be
                 stopped, as ``start_go_to_step``.
             BlockingCallRefusedError: ``'wait_on_ui_thread'``, called on
@@ -4117,8 +4117,8 @@ class ScopeSession:
         another channel was shown meanwhile the step's channel is shown again,
         lit or dark as the shown channel was.
 
-        Once that task has run, the step's channel goes on the camera
-        (``apply_channel_camera``) before this returns, so a still asked after
+        Once that task has run, the step's channel's stored settings go on
+        the camera before this returns, so a still asked after
         it is taken at the step's settings. It waits on the camera lane, so
         it is refused on the UI thread; a click calls it from a worker.
 
@@ -4591,8 +4591,8 @@ class ScopeSession:
 
         Every other LED is dark either way. A channel this unit gives no LED
         has nothing to light, and stays dark. The camera is left on the
-        channel's stored settings (``apply_channel_camera``; nothing is written
-        when it holds them already), unless no camera is connected.
+        channel's stored settings (nothing is written when it holds them
+        already), unless no camera is connected.
 
         Args:
             lit: True lights the shown channel's LED at its stored current;
@@ -5998,7 +5998,7 @@ class ScopeSession:
                 (adds minutes).
             output_dir: The folder the ZIP is written into, made if it is
                 missing. A host that writes where a person looks passes
-                ``path_utils.desktop_folder()``; the session chooses none.
+                the user's desktop; the session chooses none.
             on_progress: Called with a percentage and what the report is
                 doing, from the thread the report runs on.
 
@@ -6044,7 +6044,7 @@ class ScopeSession:
         Args:
             output_dir: The folder the ZIP is written into, made if it is
                 missing. A host that writes where a person looks passes
-                ``path_utils.desktop_folder()``; the session chooses none.
+                the user's desktop; the session chooses none.
             on_progress: Called with a percentage and what the zip is doing,
                 from the thread it runs on.
 
@@ -7404,7 +7404,7 @@ class ScopeSession:
 
         The motion's end, however it ends, and a skip end bring-up's log
         window: the serial, camera and api traffic until then is kept in
-        ``bringup.log`` (``log_helpers.end_bring_up``).
+        ``bringup.log``.
 
         ``disable_homing=True`` skips every step: no startup motion on any
         axis. The turret is left where it is, like the stage axes, in no

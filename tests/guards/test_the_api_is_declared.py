@@ -68,7 +68,10 @@ path (``_lumascope.rest.app.build_app``):
     a reader cannot call it, so a published docstring says what it would
     have pointed to. No line of it names a private path (``_lumascope``, a
     file under ``src/``): every name a reader is shown is imported from
-    ``lumascope``, as its heading says (``lumascope.ScopeSession``).
+    ``lumascope``, as its heading says (``lumascope.ScopeSession``). No code
+    span names a public member a published class has but does not publish,
+    nor a project module's function that is not marked: neither is on the
+    wire nor in the reference, so the reader is sent where no client reaches.
 11. **Every parameter is described.** Every parameter of a marked member
     has an entry in its docstring's ``Args:`` section.
 12. **Every field is described.** Every published field has an entry in
@@ -104,16 +107,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from _lumascope.lib.lumascope_error import LumascopeError
 from _lumascope.modules import wire_encoding
 from _lumascope.modules.api_surface import API, api, entries_of
 from tests.api_reference import (
     PRIVATE_PATH,
     REFERENCE,
     REGENERATE,
+    OUTCOME_FIELDS,
     WRITE,
     declared,
     entry_key,
     member_function,
+    outcome_classes,
     render,
 )
 from tests.ast_seams import RetiredNames, Words
@@ -123,6 +129,7 @@ from tests.marked_set import (
     marked_functions,
     marked_members,
     marked_set,
+    project_modules,
 )
 
 # Members whose absence would mean the walk lost its way, one per kind of
@@ -241,6 +248,97 @@ def test_the_reference_names_nothing_private(rendered: str) -> None:
         'the reference sends its reader to a name that is not API; say in the published '
         'docstring what the private one does:\n'
         + ''.join(f'  {entry}: {sorted(names)}\n' for entry, names in sorted(named.items()))
+    )
+
+
+# A code span naming one name or a dotted one, a call's ``()`` aside; a
+# quoted span is a word, such as a reason, never a name.
+_NAME_SPAN = re.compile(r'`([A-Za-z_][\w.]*?)(?:\(\))?`')
+
+
+def _public_attributes(cls: type) -> set[str]:
+    """Every public name *cls* or a project base defines or annotates."""
+    names: set[str] = set()
+    for klass in cls.__mro__:
+        if klass.__module__.partition('.')[0] in wire_encoding.PROJECT_PACKAGES:
+            names |= set(vars(klass)) | set(vars(klass).get('__annotations__', {}))
+    return {n for n in names if not n.startswith('_')}
+
+
+def test_the_reference_names_only_published_members(
+    marked: dict[str, Marked], rendered: str
+) -> None:
+    """No published docstring sends its reader to a member no client reaches.
+
+    A span ``Owner.name`` whose owner is a published class names one of its
+    published members or fields, or a name it does not have; a bare span
+    in a class's entry is read as that class's. A span ``module.name`` of a
+    project module names a marked function, a class, or nothing the module
+    holds. Published means marked on the class or a base, a field its kind
+    carries (``OUTCOME_FIELDS``), or a name the reference anchors
+    (``to_dict``). A bare span that is the entry's parameter, a closed
+    set's value or one of its class's own reasons is a word of the entry,
+    not a member. Shown first on the stale slip it was written for: before
+    it, ``MotionAPI`` sent five refusals to ``refuse_absent``.
+    """
+    published = {m.owner_name: m.owner for m in marked.values() if not m.at_top_level}
+    published |= outcome_classes() | {LumascopeError.__name__: LumascopeError}
+    anchored = set(_ANCHOR.findall(rendered))
+    closed = {
+        str(member.value)
+        for cls in wire_encoding.project_classes().values()
+        if isinstance(cls, type) and issubclass(cls, enum.Enum)
+        for member in cls
+    }
+    modules: dict[str, list[types.ModuleType]] = {}
+    for module in project_modules():
+        modules.setdefault(module.__name__.rpartition('.')[2], []).append(module)
+
+    def is_published(cls: type, name: str) -> bool:
+        if any(issubclass(cls, kind) and name in f for kind, f in OUTCOME_FIELDS.items()):
+            return True
+        return name in anchored or any(f'{k.__name__}.{name}' in marked for k in cls.__mro__)
+
+    def unpublished_member(cls: type, name: str) -> bool:
+        return name in _public_attributes(cls) and not is_published(cls, name)
+
+    def unmarked_function(head: str, name: str) -> bool:
+        return any(
+            hasattr(module, name)
+            and not isinstance(getattr(module, name), (type, types.ModuleType))
+            and f'{module.__name__}.{name}' not in marked
+            for module in modules.get(head, ())
+        )
+
+    def words_of(entry: str, cls: type) -> set[str]:
+        item = marked.get(entry)
+        function = member_function(item.value) if item is not None else None
+        parameters = (
+            set(inspect.signature(inspect.unwrap(function)).parameters) if function else set()
+        )
+        return parameters | closed | set(getattr(cls, 'causes', None) or ())
+
+    named: dict[str, set[str]] = {}
+    entry = 'the preface'
+    for line in _FENCE.sub('', rendered).splitlines():
+        entry = (_ANCHOR.findall(line) or [entry])[-1]
+        owner = published.get(entry.partition('.')[0])
+        for span in _NAME_SPAN.findall(line):
+            *heads, name = span.split('.')
+            if heads and heads[-1] in published:
+                slip = unpublished_member(published[heads[-1]], name)
+            elif len(heads) == 1 and heads[0] in modules:
+                slip = unmarked_function(heads[0], name)
+            elif not heads and owner is not None:
+                slip = unpublished_member(owner, name) and name not in words_of(entry, owner)
+            else:
+                slip = False
+            if slip:
+                named.setdefault(entry, set()).add(span)
+    assert not named, (
+        'the reference sends its reader to a member that is not published; say in the '
+        'published docstring what it does, or name the published member:\n'
+        + ''.join(f'  {entry}: {sorted(spans)}\n' for entry, spans in sorted(named.items()))
     )
 
 

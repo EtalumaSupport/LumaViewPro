@@ -276,9 +276,9 @@ The immediate call is the level republish: transitions are
 edges, and a listener registered after a grant would otherwise
 never see it. A wire client is sent the session's `status` at
 each edge, in the order the edges happen: every field read at the
-edge but the camera's, which is asked just after
-(`status_at_edge`); a field that changes with no edge (an axis,
-a part, the camera) is as of that edge.
+edge but the camera's, which is asked just after; a field that
+changes with no edge (an axis, a part, the camera) is as of that
+edge.
 
 **Args**
 
@@ -771,7 +771,7 @@ release's, so a folder captured on another unit still has one.
 
 **Raises**
 
-- `InstallationFileError`: the installation's `scopes.json` is unusable (`channel_record.release_channels`).
+- `InstallationFileError`: the installation's `scopes.json` is unusable.
 
 **Refusals by REST status**
 
@@ -791,7 +791,7 @@ Route: `GET /api/v1/channel_settings`.
 
 A setting the channel does not carry reads None (stimulation on a
 transmitted channel). On a scope with no Z axis `autofocus` reads
-False, as `get_channel_configs` reads it; the stored setting is
+False, as a run and a protocol build read it; the stored setting is
 not changed.
 
 **Args**
@@ -1269,7 +1269,7 @@ work meanwhile.
 - `PositionOutOfRangeError`: as `start_go_to_step`; any move already started is stopped, nothing else changes.
 - `MoveFaultError`: `'driver_failed'`, the board did not take a command, and any move already started is stopped; or an axis did not arrive and is UNKNOWN, the motion monitor's `'stalled'`, `'board_lost'`, `'position_unread_after_move'`, `'status_unread'` or `'monitor_ended_mid_move'`, or `'faulted'`; see `MotionAPI.start_move_z`.
 - `MoveStoppedError`: `'stopped'`, a stop ended a move; `'superseded'`, another move or a home took an axis first. The channel and the preview are the step's.
-- `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how); the moves started are stopped; see `apply_channel_camera`.
+- `CameraSettingRejected`: the camera did not take a setting of the step's channel (its `reason` says how); the moves started are stopped.
 - `MotorStopFailedError`: a move already started could not be stopped, as `start_go_to_step`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread, whose form is `start_go_to_step`. Nothing was started.
 
@@ -1433,8 +1433,8 @@ then put its stored camera settings on the camera.
 
 Every other LED is dark either way. A channel this unit gives no LED
 has nothing to light, and stays dark. The camera is left on the
-channel's stored settings (`apply_channel_camera`; nothing is written
-when it holds them already), unless no camera is connected.
+channel's stored settings (nothing is written when it holds them
+already), unless no camera is connected.
 
 **Args**
 
@@ -1677,7 +1677,7 @@ the record of what already happened.
 
 **Args**
 
-- `output_dir`: The folder the ZIP is written into, made if it is missing. A host that writes where a person looks passes `path_utils.desktop_folder()`; the session chooses none.
+- `output_dir`: The folder the ZIP is written into, made if it is missing. A host that writes where a person looks passes the user's desktop; the session chooses none.
 - `on_progress`: Called with a percentage and what the zip is doing, from the thread it runs on.
 
 **Returns**
@@ -1720,7 +1720,7 @@ written into the ZIP; the report does not stop for it.
 **Args**
 
 - `include_bandwidth_test`: Also time the camera's frame delivery (adds minutes).
-- `output_dir`: The folder the ZIP is written into, made if it is missing. A host that writes where a person looks passes `path_utils.desktop_folder()`; the session chooses none.
+- `output_dir`: The folder the ZIP is written into, made if it is missing. A host that writes where a person looks passes the user's desktop; the session chooses none.
 - `on_progress`: Called with a percentage and what the report is doing, from the thread the report runs on.
 
 **Returns**
@@ -3136,7 +3136,7 @@ operation with it.
 
 The motion's end, however it ends, and a skip end bring-up's log
 window: the serial, camera and api traffic until then is kept in
-`bringup.log` (`log_helpers.end_bring_up`).
+`bringup.log`.
 
 `disable_homing=True` skips every step: no startup motion on any
 axis. The turret is left where it is, like the stage axes, in no
@@ -3203,8 +3203,8 @@ person lit or put out in between stays as they left it, and when
 another channel was shown meanwhile the step's channel is shown again,
 lit or dark as the shown channel was.
 
-Once that task has run, the step's channel goes on the camera
-(`apply_channel_camera`) before this returns, so a still asked after
+Once that task has run, the step's channel's stored settings go on
+the camera before this returns, so a still asked after
 it is taken at the step's settings. It waits on the camera lane, so
 it is refused on the UI thread; a click calls it from a worker.
 
@@ -3422,9 +3422,9 @@ no other session, no run, recording, home or diagnostic, no setting
 or file being written, and no run or recording that has ended still
 finishing its files.
 
-A session ends when its holder goes silent. Once 180 s
-(`activity_claim.CONTROL_SILENCE_S`) pass with no call in it, no
-request naming it (`renew_control`) and nothing it started -- a
+A session ends when its holder goes silent. Once 180 s pass with no
+call in it, no request naming it (`renew_control`) and nothing it
+started -- a
 move, a run, a recording, any operation -- still running, the next
 caller it would refuse, or the next take, ends it instead, and its
 holder's next call is refused `'control_session_ended'`. Nothing
@@ -3878,7 +3878,7 @@ frames are rendered in false colour when that channel's stored
 
 **Returns**
 
-The recording's `Operation`: done once its frames, MP4 close and any hyperstack build are over and a new recording may start, with its `RecordingFinished`: the `end_reason`, and how long saving ran on after the recording ended. Its `stop()` stops this recording as `stop` does, and does nothing once it has stopped, so it never stops a recording started later.
+The recording's `Operation`: done once its frames, MP4 close and any hyperstack build are over and a new recording may start, with its `RecordingFinished`: why it ended, and how long saving ran on after the recording ended. Its `stop()` stops this recording as `stop` does, and does nothing once it has stopped, so it never stops a recording started later.
 
 **Raises**
 
@@ -3907,8 +3907,9 @@ Route: `POST /api/v1/manual_recording/stop`.
 Close selection; the drain and finish continue on their own.
 
 Every caller of this -- the Record button, app close, a REST or SDK client
--- is the user stopping the recording, so its `end_reason` is
-`'user_stop'`. The controller's own enders (the duration backstop, the
+-- is the user stopping the recording, so its
+`RecordingFinished.end_reason` is `'user_stop'`. The controller's
+own enders (the duration backstop, the
 disk floor, a lost camera) name their own, and no caller can write
 one of those into the manifest.
 
@@ -3957,8 +3958,7 @@ projections, 2 stitched projections and 1 composite, where the three
 builds run one by one make 36 files. Every chosen build's
 settings are checked before any build starts, and the call runs as
 one task on the post-processing lane, so no other build touches the
-folder between its steps. Each build alone (`stitch`,
-`zproject`, `composite`, `video`) is unchanged.
+folder between its steps.
 
 A build with nothing to do in the folder -- video on a single-scan
 run -- is skipped and named in the answer, and the next build takes
@@ -4550,7 +4550,7 @@ Whether this scope's model has a motor board at all.
 
 False for a manual scope (an LS620, LS560 or LS460): it is complete
 without one, so its absence is not a disconnection. Set from the
-model's catalogue entry by `initialize()`; True before that.
+model's catalogue entry when the scope is brought up; True before that.
 
 **Raises**
 
@@ -6651,7 +6651,7 @@ The travel moves are refused against, or `None` if the axis has no configured li
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is no axis name.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis (see `refuse_absent`); an axis the scope does not have has no travel to answer with.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no such axis; an axis the scope does not have has no travel to answer with.
 
 **Refusals by REST status**
 
@@ -6725,7 +6725,7 @@ answering; either ends it in `HomingFaultError`.
 
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread; nothing was started (`start_home` is the form for a button).
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is not `'Z'`, `'T'` or `'ALL'`; nothing was asked of the scope.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller, or no Z or turret to home (see `refuse_absent`); `'exclusive_activity_running'`, a run, a diagnostic or a recording holds the scope; `'home_in_flight'`, a home asked earlier, by any caller, has not ended; or `'lid_open_before_motion'`, the stage's lid is open, and nothing moves. After a home that succeeded, the put-back's move refused before it drove (`'lid_open_before_motion'`, `'monitor_ended'`). For `'T'`, the Z park before the turret's home refused before Z moved (`'monitor_ended'`, or an interlock reason), the turret as it was.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller, or no Z or turret to home; `'exclusive_activity_running'`, a run, a diagnostic or a recording holds the scope; `'home_in_flight'`, a home asked earlier, by any caller, has not ended; or `'lid_open_before_motion'`, the stage's lid is open, and nothing moves. After a home that succeeded, the put-back's move refused before it drove (`'lid_open_before_motion'`, `'monitor_ended'`). For `'T'`, the Z park before the turret's home refused before Z moved (`'monitor_ended'`, or an interlock reason), the turret as it was.
 - `HomingFaultError`: the home was driven and did not establish a reference: `'error'`, the driver raised; `'board_lost'`, the motor board is no longer connected; `'unread'`, a homed axis's position could not be read; `'lid_open'` or `'stage_unpowered'`, an interlock opened while the home moved. The axes it names are UNKNOWN.
 - `HomingStoppedError`: a Stop ended the home. The axes it names are UNKNOWN; none, when the Stop landed before the home was driven.
 - `AxisStateUnknownError`: for `'T'`, an axis of the scope has no known position; nothing was driven. `'ALL'` recovers it.
@@ -7197,7 +7197,7 @@ dict[StageAxis, float]: Axis to its position, in the order asked.
 **Raises**
 
 - `ArgumentRefusedError`: `'not_offered'`, a name in *axes* is not 'X', 'Y' or 'Z'.
-- `HardwareCommandRefusedError`: `'scope_disconnected'` after the scope's shutdown; `'not_connected'` or `'axis_absent'`, an asked axis has no motor behind it (see `refuse_absent`).
+- `HardwareCommandRefusedError`: `'scope_disconnected'` after the scope's shutdown; `'not_connected'` or `'axis_absent'`, an asked axis has no motor behind it.
 - `AxisMovingError`: `'axis_moving'`, naming every asked axis that is moving.
 - `AxisStateUnknownError`: `'position_unknown'`, naming every asked axis that is UNKNOWN or HOMING.
 
@@ -7272,7 +7272,7 @@ other axes keep the threshold their controller gives them.
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no Z (see `refuse_absent`); nothing was sent.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller or no Z; nothing was sent.
 
 **Refusals by REST status**
 
@@ -7301,8 +7301,8 @@ picture, as in the live view and a saved file. The stage moves by
 refusals come in the order a jog's do: the arguments, the lane's,
 the motion gate's, then the objective's and the scale's. X and Y
 are asked once whether they know their position and started on one
-task of the IO lane (`one_command`), so a capture asked meanwhile
-never takes the new X at the old Y.
+task of the IO lane, so a capture asked meanwhile never takes the
+new X at the old Y.
 
 **Args**
 
@@ -7438,8 +7438,8 @@ offset, the number a person types into a position box. An axis that
 is None is left where it is, a move under way on it included, so a
 caller moving X alone leaves Y alone. The axes given are asked once
 whether they know their position and are started on one task of the
-IO lane (`one_command`), so a capture asked meanwhile never takes
-the new X at the old Y. Each is checked against the plate positions
+IO lane, so a capture asked meanwhile never takes the new X at the
+old Y. Each is checked against the plate positions
 this stage can reach, and refused in mm, before either moves.
 
 **Args**
@@ -7784,7 +7784,7 @@ and ends the live run (its press listeners are told first).
 
 **Raises**
 
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'` with no motor controller (see `refuse_absent`); `'home_not_stoppable'` while a home drives on a board that cannot stop one. Nothing was sent.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'` with no motor controller; `'home_not_stoppable'` while a home drives on a board that cannot stop one. Nothing was sent.
 - `MotorStopFailedError`: the board did not take the STOP, so the stage may still be moving. Chained from the driver's error. The stop generation has moved regardless.
 
 **Refusals by REST status**
@@ -9288,13 +9288,13 @@ long after the change its frame came.
 
 - <a id="Change.at_seq"></a>`at_seq`: `int` -- The last frame the camera's driver had been handed when the change was recorded, a frame still in a host queue included; for a move, once in force, when its stop was stamped. A frame already in the camera's pipeline when the register was written cannot show the new state, so crediting it would retire the skip count against frames that predate the change -- and the capture then returns a frame from before the write. An ordinal rather than a clock reading, because the comparison has to survive the clock moving: wall time runs backwards across a DST fall-back, an NTP correction or a host resume, and a settle count measured against a timestamp that jumped forward never completes. Frame numbers only go up.
 - <a id="Change.credits"></a>`credits`: `tuple[Credit, ...]` -- The frames counted toward it, in the order counted, until `skip` was met.
-- <a id="Change.earliest_ns"></a>`earliest_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) of the earliest moment the change could have reached the hardware: a write's start, as its writer stamped it, since the register may change anywhere inside the write; for a move, once in force, the start of the last read that saw its axis still moving, else `written_ns`. A lag measured from here is never short.
-- <a id="Change.in_force_ns"></a>`in_force_ns`: `int | None` -- The scope's steady clock (`host_clock.steady_ns`) when the axis state the settle check reads became settled, stamped by the motion API; None until then, and for a change that does not wait on an axis.
+- <a id="Change.earliest_ns"></a>`earliest_ns`: `int` -- The scope's steady clock (`ScopeSession.host_steady_ns`) of the earliest moment the change could have reached the hardware: a write's start, as its writer stamped it, since the register may change anywhere inside the write; for a move, once in force, the start of the last read that saw its axis still moving, else `written_ns`. A lag measured from here is never short.
+- <a id="Change.in_force_ns"></a>`in_force_ns`: `int | None` -- The scope's steady clock (`ScopeSession.host_steady_ns`) when the axis state the settle check reads became settled, stamped by the motion API; None until then, and for a change that does not wait on an axis.
 - <a id="Change.needs_in_force"></a>`needs_in_force`: `bool` -- A motion source the axis must also settle for: the frame count alone does not end its wait.
 - <a id="Change.rule"></a>`rule`: `FrameRule` -- Its source's count and where it came from, as they stood when the change was recorded.
 - <a id="Change.skip"></a>`skip`: `int` -- The frames the change needed, its rule's count when it was recorded.
 - <a id="Change.source"></a>`source`: `FrameValiditySource` -- What changed.
-- <a id="Change.written_ns"></a>`written_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) when the change was recorded. Every recorder calls `invalidate` after a camera register or LED write returns, and before a move starts.
+- <a id="Change.written_ns"></a>`written_ns`: `int` -- The scope's steady clock (`ScopeSession.host_steady_ns`) when the change was recorded. Every recorder calls `invalidate` after a camera register or LED write returns, and before a move starts.
 
 <a id="ChannelIdentity"></a>
 ## `lumascope.ChannelIdentity`
@@ -9401,7 +9401,7 @@ Held in: [`FrameRecord.clock_mapping`](#FrameRecord.clock_mapping).
 The camera's timestamp clock against the host's steady and wall clocks, measured once.
 
 The host latches the camera's clock between two reads of the scope's
-steady clock (`host_clock.steady_ns`); the latch fell somewhere inside
+steady clock (`ScopeSession.host_steady_ns`); the latch fell somewhere inside
 that bracket, so its middle is the host time the latched value belongs to
 and half its width is how far off that can be. The read of the latched
 value comes after the bracket and is no part of it. The host's wall
@@ -9412,10 +9412,10 @@ middle by the steady clock.
 **Fields**
 
 - <a id="ClockMapping.camera_ticks"></a>`camera_ticks`: `int` -- The camera's clock the latch latched.
-- <a id="ClockMapping.host_ns"></a>`host_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) at the middle of the bracket.
+- <a id="ClockMapping.host_ns"></a>`host_ns`: `int` -- The scope's steady clock (`ScopeSession.host_steady_ns`) at the middle of the bracket.
 - <a id="ClockMapping.tick_hz"></a>`tick_hz`: `int` -- Ticks per second of the camera's clock.
 - <a id="ClockMapping.uncertainty_ns"></a>`uncertainty_ns`: `int` -- Half the bracket.
-- <a id="ClockMapping.wall_ns"></a>`wall_ns`: `int` -- The host's wall clock (`host_clock.wall_ns`) at `host_ns`.
+- <a id="ClockMapping.wall_ns"></a>`wall_ns`: `int` -- The host's wall clock (`time.time_ns()`) at `host_ns`.
 
 <a id="ControlSession"></a>
 ## `lumascope.ControlSession`
@@ -9718,13 +9718,13 @@ records are equal only when they are the same delivery (identity).
 
 **Fields**
 
-- <a id="Frame.arrived_ns"></a>`arrived_ns`: `int` -- The scope's steady clock (`host_clock.steady_ns`) at the hand-over, where the driver first had the frame: a steady time to set against when a change was made.
+- <a id="Frame.arrived_ns"></a>`arrived_ns`: `int` -- The scope's steady clock (`ScopeSession.host_steady_ns`) at the hand-over, where the driver first had the frame: a steady time to set against when a change was made.
 - <a id="Frame.chunks"></a>`chunks`: `Mapping[str, int | float] | None` -- The camera's per-frame metadata (`ExposureTime`, `Gain`, `FrameID`, `Timestamp` on a Basler), or None for a camera that stamps none (IDS, FX2).
 - <a id="Frame.image"></a>`image`: `ndarray` -- The pixels, cropped to the camera's window, read-only.
 - <a id="Frame.seq"></a>`seq`: `int` -- Hand-over ordinal: how many frames this camera's handler had been handed when the driver first had this one (`HandOver`). Only goes up, whatever the clocks do, and may skip a number for a frame handed over and never stored.
 - <a id="Frame.significant_bits"></a>`significant_bits`: `int` -- Payload depth of these pixels (12 for Mono12 in a uint16 container), from the frame's own format.
 - <a id="Frame.stored"></a>`stored`: `int` -- How many frames this camera's handler had stored, this one included (`delivered_counts`'s frames when it was stored). The frames stored between two records are the difference less one; the hand-over numbers overstate it by every frame never stored.
-- <a id="Frame.wall_ns"></a>`wall_ns`: `int` -- The host's wall clock (`host_clock.wall_ns`) at the hand-over, the arrival a saved file states. It can step backwards; order by `seq`.
+- <a id="Frame.wall_ns"></a>`wall_ns`: `int` -- The host's wall clock (`time.time_ns()`) at the hand-over, the arrival a saved file states. It can step backwards; order by `seq`.
 
 <a id="FrameCaptured"></a>
 ## `lumascope.FrameCaptured`
@@ -9781,7 +9781,7 @@ Built only by this module's two entries: `grab_record` for a still,
 - <a id="FrameRecord.exposure_ms"></a>`exposure_ms`: `float | None` -- Per-frame exposure. For a summed capture this is each frame's exposure, not the total; `frames_summed` says how many. None for a recorded frame that carries no exposure of its own.
 - <a id="FrameRecord.exposure_source"></a>`exposure_source`: `SettingSource | None` -- Whether `exposure_ms` is the frame's own or the setting read beside the grab (`SettingSource`); None exactly when `exposure_ms` is.
 - <a id="FrameRecord.frame_id"></a>`frame_id`: `int | None` -- The camera's frame counter for the frame.
-- <a id="FrameRecord.frame_significant_bits"></a>`frame_significant_bits`: `int` -- The depth each summed frame was delivered at (the driver's per-frame stamp). With `frames_summed` it is what the sum's tag, its rendering and its saturation are worked out from (`image_utils.summed_significant_bits`, `summed_full_scale`, `convert_sum_to_8bit`).
+- <a id="FrameRecord.frame_significant_bits"></a>`frame_significant_bits`: `int` -- The depth each summed frame was delivered at (the driver's per-frame stamp). With `frames_summed` it is what the sum's tag, its rendering and its saturation are worked out from.
 - <a id="FrameRecord.frames_summed"></a>`frames_summed`: `int` -- Number of frames summed into the image.
 - <a id="FrameRecord.gain_db"></a>`gain_db`: `float | None` -- Gain the frame was taken at; None as `exposure_ms` is.
 - <a id="FrameRecord.gain_source"></a>`gain_source`: `SettingSource | None` -- Whether `gain_db` is the frame's own or the setting read beside the grab; None exactly when `gain_db` is.
@@ -11699,7 +11699,7 @@ Held in: [`PluginRegistry.rest`](#PluginRegistry.rest).
 
 REST endpoint plugins: the namespace is reserved, and takes no routes in this release.
 
-A plugin cannot add REST routes yet, so `register()` refuses, and a
+A plugin cannot add REST routes yet: a registration is refused, and a
 shipped plugin registers none.
 
 **Stub mode**: while a plugin is being developed, its author can opt
@@ -14998,10 +14998,6 @@ for the person: the reporter then shows them, and otherwise shows a
 generic sentence and keeps the words in the log. Its reasons map to no
 cause: a fault answers 500 whatever was asked.
 
-**Attributes**
-
-- `words_for_person`: True when the class writes its message for the person who will read it. Declared, never defaulted here: a default on this mixin would sit ahead of a value a fault inherits from its subject's class, and hide it. Unset reads as False.
-
 <a id="FileWriterNotStuckError"></a>
 ### `lumascope.FileWriterNotStuckError`
 
@@ -16539,8 +16535,8 @@ never becomes a notification. Whether an outcome is quiet belongs to its
 type, never to the code that raises or catches it, so every client reads
 the same answer. A message on a quiet exception is written for the log.
 
-Every reason maps to its `RefusalCause` in `causes`, as a refusal's
-does, since a quiet outcome answers a caller's request too.
+Every reason maps to its `RefusalCause`, as a refusal's does, since a
+quiet outcome answers a caller's request too.
 
 <a id="RecordIncompleteError"></a>
 ### `lumascope.RecordIncompleteError`
@@ -16735,9 +16731,9 @@ designed outcome. Unmarked, a refusal raised inside a background task
 read as a crash -- "Background operation failed" over its message, and a
 traceback in the errors log.
 
-Every reason a refusal carries maps to its `RefusalCause` in
-`causes`: whether the same request could succeed later with the
-caller changing nothing.
+Every reason a refusal carries maps to its `RefusalCause`, listed
+under its class in Outcomes: whether the same request could succeed
+later with the caller changing nothing.
 
 **Attributes**
 
@@ -17105,7 +17101,8 @@ A request the REST server itself answers: it never reached a member.
 Raised by the REST server for a request it answers itself: from its request
 reader, its handle and job stores, its idempotency keys, its live view
 and its close. What the refusal is lives here; how it is sent -- each
-reason's status, the `Retry-After` header -- is the server's,
+reason's status, the `Retry-After` header for a refusal that waiting
+may lift (`'overloaded'`, `'no_frame_yet'`) -- is the server's,
 read from this record.
 
 **Attributes**
@@ -17113,7 +17110,6 @@ read from this record.
 - `reason`: The machine-readable code. `'not_found'` -- the route, the handle or the job asked for is not there. `'invalid_request'` -- the request's arguments do not fit its member. `'method_not_allowed'` -- the route does not answer the method it was asked with. `'unsupported_media_type'` -- the request's body is not JSON. `'body_too_large'` -- the request's body is larger than its route takes; nothing past the ceiling was held, and nothing ran. `'body_too_slow'` -- the request's body did not arrive within its deadline; nothing ran, and the connection is closed. `'handle_shared'` -- the handle asked to be forgotten is one every client shares, and it is kept. `'overloaded'` -- the server holds as many handles, jobs or uploads as it keeps; asking again later may succeed. `'server_closing'` -- the server is closing: it finishes what is under way, answers nothing new, and exits. `'no_frame_yet'` -- the live view has no frame to show, because the camera sent none in time; asking again later may succeed. `'not_cancellable'` -- the job is a call held as a job when it outlived its wait, and holds no operation to stop. `'idempotency_key_reused'` -- the `Idempotency-Key` was sent before with a different request; a key is sent again only to retry the same request. `'client_not_allowed'` -- the scope serves only the clients its `rest_api.allowed_clients` names, and the request came from another address. `'wrong_host'` -- the request's `Host` names another server than the address and port it serves on. `'foreign_origin'` -- a page from another site sent the request.
 - `title`: The heading, the reason's.
 - `errors`: For `'invalid_request'` from the request reader, each argument that does not fit; None otherwise.
-- `retry_after_s`: Seconds to wait before asking again, for a refusal that waiting may lift (`'overloaded'`, `'no_frame_yet'`); None when no wait helps.
 
 **Fields**
 
@@ -17178,10 +17174,8 @@ A settings write was refused; nothing was written.
 
 Raised by `ScopeSession.update_settings` and `set_live_folder`, by
 the members that own a ranged setting (`set_channel_settings`,
-`set_image_mode`, through `settings_paths.check_value`) and
-for a settings dict handed to a session, at `create`'s door
-(`settings_init.prepare_loaded`, through
-`settings_paths.refuse_handed_values`). A caller that maps refusals to
+`set_image_mode`) and for a settings dict handed to a session, at
+`create`'s door. A caller that maps refusals to
 responses branches on `reason`; a person reads the message.
 
 **Attributes**

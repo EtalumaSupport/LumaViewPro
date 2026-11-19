@@ -93,9 +93,9 @@ class HandOver:
     Attributes:
         seq: The handler's hand-over ordinal: unique, only rising, and may
             skip a number for a frame handed over but never stored.
-        arrived_ns: The scope's steady clock (``host_clock.steady_ns``) at
+        arrived_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) at
             the hand-over.
-        wall_ns: The host's wall clock (``host_clock.wall_ns``) at the
+        wall_ns: The host's wall clock (``time.time_ns()``) at the
             hand-over: the arrival a saved file states, taken at the same
             moment as ``arrived_ns`` so the two name one arrival on every
             camera.
@@ -127,10 +127,10 @@ class Frame:
             included (``delivered_counts``'s frames when it was stored). The
             frames stored between two records are the difference less one;
             the hand-over numbers overstate it by every frame never stored.
-        arrived_ns: The scope's steady clock (``host_clock.steady_ns``) at
+        arrived_ns: The scope's steady clock (``ScopeSession.host_steady_ns``) at
             the hand-over, where the driver first had the frame: a steady time
             to set against when a change was made.
-        wall_ns: The host's wall clock (``host_clock.wall_ns``) at the
+        wall_ns: The host's wall clock (``time.time_ns()``) at the
             hand-over, the arrival a saved file states. It can step
             backwards; order by ``seq``.
         significant_bits: Payload depth of these pixels (12 for Mono12 in a
