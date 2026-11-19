@@ -341,7 +341,7 @@ def test_a_gain_and_exposure_past_the_range_are_set_at_its_ends_on_a_basler(pylo
 
     scope, cam = pylon_scope
     camera = scope.camera
-    limits = scope.capabilities.camera_limits
+    limits = camera.setting_limits
     min_gain = limits.gain_min_db
     max_gain = limits.gain_max_db
     max_exposure = limits.exposure_max_ms
