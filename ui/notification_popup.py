@@ -340,7 +340,8 @@ def show_blocking_progress_popup(
     For operations that must visibly finish before the app can proceed
     (e.g. draining queued video writes at app close): silent blocking
     reads as a hang and silent abandonment eats data, so the popup shows
-    progress and offers exactly one explicit escape action.
+    progress and offers exactly one explicit escape action. It has no X
+    and no click-outside: it stays on screen until the caller dismisses it.
 
     Args:
         title: Short noun phrase.
@@ -369,6 +370,9 @@ def show_blocking_progress_popup(
         size_hint=(0.6, 0.3),
         auto_dismiss=False,
     )
+    # No title-row X: dismissing it would not stop the operation, only hide
+    # it, leaving a window that looks live while the work goes on unseen.
+    popup.must_answer = True
 
     def _on_action(*_a):
         _log_response(title, f'ACTION:{action_text}')

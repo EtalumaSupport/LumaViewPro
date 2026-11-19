@@ -80,6 +80,57 @@ class TestAPopupThatMustBeAnswered:
         assert not probe.reached
         assert not getattr(popup, '_etaluma_close_added', False)
 
+    def test_the_closing_popup_gets_no_x(self, monkeypatch):
+        """The app's Closing popup cannot be dismissed while the close runs.
+
+        Dismissed, it left the window looking live, accepting settings,
+        while the close went on unseen and every later window close was
+        ignored.
+        """
+        from ui import notification_popup
+        from ui.popup_close import add_popup_close
+
+        probe = _ContainerProbe()
+
+        # Stand-ins by design: the suite's mocked Kivy widgets have no bind,
+        # add_widget or open. The popup opens as the global <Popup> on_open
+        # rule does, through the real injector.
+        class _Widget:
+            def __init__(self, **kw):
+                self.__dict__.update(kw)
+                self.parent = None
+
+            def bind(self, **_handlers):
+                pass
+
+            def add_widget(self, widget):
+                widget.parent = self
+
+            def remove_widget(self, widget):
+                widget.parent = None
+
+        class _Popup(_Widget):
+            def __init__(self, **kw):
+                super().__init__(**kw)
+                self._container = probe
+
+            def open(self):
+                add_popup_close(self)
+
+        for name in ('BoxLayout', 'Label', 'Button'):
+            monkeypatch.setattr(notification_popup, name, _Widget)
+        monkeypatch.setattr(notification_popup, 'Popup', _Popup)
+
+        notification_popup.show_blocking_progress_popup(
+            title='Closing',
+            message='Closing LumaViewPro...',
+            action_text='Discard Remaining Video Frames',
+            on_action=lambda: None,
+            action_shown=False,
+        )
+
+        assert not probe.reached, 'the Closing popup was given an X that hides the close'
+
     def test_an_ordinary_popup_still_goes_on_to_get_its_x(self):
         from types import SimpleNamespace
 

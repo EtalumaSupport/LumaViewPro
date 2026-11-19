@@ -33,9 +33,10 @@ def add_popup_close(popup) -> None:
     drop an unread error). The X is their explicit escape hatch; it does
     not change the click-outside policy.
 
-    A popup that sets ``must_answer = True`` gets no X: it is a question
-    with no cancel path, and closing it unanswered would skip the answer
-    and drop the work waiting on it.
+    A popup that sets ``must_answer = True`` gets no X: its only way out is
+    its own buttons or its caller's dismiss. A question with no cancel path,
+    closed unanswered, would skip the answer and drop the work waiting on
+    it; a blocking progress popup, closed, would hide work that goes on.
 
     Wired app-wide from a global '<Popup>: on_open' rule (below) instead of
     a kv child widget: Kivy merges the built-in <Popup> rule with ours, and
