@@ -9777,19 +9777,6 @@ by its step, among `saturated` or `dark`.
 - <a id="CaptureTally.failed"></a>`failed`: `tuple[FailedCapture, ...]` -- Captures that produced none, in the order they failed. `asked - captured - len(failed)` were never reached.
 - <a id="CaptureTally.saturated"></a>`saturated`: `tuple[StepFrames, ...]` -- Each step with a blown frame and how many, in the order of the scan they were first in, then of the step.
 
-<a id="CaptureTally.missing"></a>
-### `CaptureTally.missing`
-
-```python
-missing: int  # property
-```
-
-Captures asked for that produced no image, failed or never reached.
-
-**Raises**
-
-Nothing.
-
 <a id="CapturedStill"></a>
 ## `lumascope.CapturedStill`
 
@@ -11214,34 +11201,6 @@ One part of the scope at bring-up.
 - <a id="PartStatus.expected"></a>`expected`: `bool` -- Whether this scope's model has one. A manual scope has no motor board, so its absence is not a failure; until the model is known every part is expected.
 - <a id="PartStatus.part"></a>`part`: `Board` -- Which board.
 - <a id="PartStatus.up"></a>`up`: `bool` -- Whether a real driver came up for it.
-
-<a id="PartStatus.describe"></a>
-### `PartStatus.describe`
-
-```python
-def describe(self) -> str
-```
-
-Marks: in-process; reads (changes nothing).
-
-The part's label with its cause: `Motor Controller (port in use)`.
-
-**Raises**
-
-Nothing.
-
-<a id="PartStatus.missing"></a>
-### `PartStatus.missing`
-
-```python
-missing: bool  # property
-```
-
-Expected and not up: the part this scope should have and lacks.
-
-**Raises**
-
-Nothing.
 
 <a id="PlateLocation"></a>
 ## `lumascope.PlateLocation`

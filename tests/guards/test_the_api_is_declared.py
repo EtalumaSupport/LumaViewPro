@@ -891,7 +891,6 @@ OPEN_STRINGS: dict[str, str] = {
     'ObjectiveQuestion.choices field': _OBJECTIVE,
     'ObjectiveQuestion.proposed field': _OBJECTIVE,
     'PartStatus.cause field': _REASON,
-    'PartStatus.describe return': _PROSE,
     'PartStatus.detail field': _PROSE,
     'PluginNotLoaded.name field': _PLUGIN,
     'PluginNotLoaded.reason field': _REASON,

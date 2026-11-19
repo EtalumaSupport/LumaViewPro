@@ -98,7 +98,6 @@ class PartStatus:
     cause: str | None = None
     detail: str = ''
 
-    @api
     @property
     def missing(self) -> bool:
         """Expected and not up: the part this scope should have and lacks.
@@ -108,7 +107,6 @@ class PartStatus:
         """
         return self.expected and not self.up
 
-    @api(in_process=True, reads=True)
     def describe(self) -> str:
         """The part's label with its cause: ``Motor Controller (port in use)``.
 

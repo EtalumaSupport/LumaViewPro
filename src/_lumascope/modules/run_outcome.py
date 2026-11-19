@@ -56,7 +56,7 @@ import threading
 import uuid
 from collections.abc import Callable
 from _lumascope.drivers.exceptions import CameraReadFailedError
-from _lumascope.modules.api_surface import api, api_fields
+from _lumascope.modules.api_surface import api_fields
 from _lumascope.modules.axes import Axis, AxisState, axis_states
 from _lumascope.modules.scope_parts import Board
 
@@ -424,7 +424,6 @@ class CaptureTally:
     saturated: tuple[StepFrames, ...]
     dark: tuple[StepFrames, ...]
 
-    @api
     @property
     def missing(self) -> int:
         """Captures asked for that produced no image, failed or never reached.
