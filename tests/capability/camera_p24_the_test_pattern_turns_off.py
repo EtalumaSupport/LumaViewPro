@@ -9,18 +9,20 @@ camera's answer. This probe reads it:
 - `set_test_pattern(True, 'Black')`, then the node read;
 - `set_test_pattern(False)`, then the node read.
 
+    python tests/capability/camera_p24_the_test_pattern_turns_off.py             # simulator
     python tests/capability/camera_p24_the_test_pattern_turns_off.py --hardware  # the connected scope
 
-The simulator keeps its own pattern and has no `TestPattern` node, so the
-probe is a bench read only. The node is put back as it was found. Live view
-stays off, nothing is lit, and the stage does not move beyond the bring-up
-home.
+The simulated camera keeps its own pattern and has no named nodes: there
+the pattern is turned on and off through the same member, and the node read
+is refused as unsupported (`camera_node_unsupported`). On a scope the node is
+put back as it was found. Live view stays off, nothing is lit, and the stage
+does not move beyond the bring-up home.
 """
 
 import sys
 import traceback
 
-from harness import HARDWARE, check, figure, hardware_session, report
+from harness import HARDWARE, check, figure, hardware_session, make_session, report
 
 NODE = 'TestPattern'
 
@@ -28,6 +30,27 @@ NODE = 'TestPattern'
 def _read(scope):
     answer = scope.diagnostics.read_camera_node(NODE)
     return None if answer is None else answer.value
+
+
+def _simulated(session):
+    from _lumascope.modules.exceptions import CameraSettingUnsupportedError
+
+    scope = session.scope
+    driver = scope._camera_driver
+    figure('camera', {'model': scope.capabilities.camera_model, 'driver': type(driver).__name__})
+    driver.set_test_pattern(True, 'Black')
+    driver.set_test_pattern(False)
+    try:
+        scope.diagnostics.read_camera_node(NODE)
+    except CameraSettingUnsupportedError as refused:
+        reason = refused.reason
+    else:
+        reason = None
+    check(
+        f'the simulated camera refuses a read of {NODE} as unsupported',
+        reason == 'camera_node_unsupported',
+        str(reason),
+    )
 
 
 def _probe(session):
@@ -55,13 +78,15 @@ def _probe(session):
 
 
 def main():
-    if not HARDWARE:
-        print(
-            'REFUSED: P24 reads a Basler node the simulator does not have; run it with --hardware.'
-        )
-        sys.exit(2)
-    with hardware_session() as (session, _runner):
-        _probe(session)
+    if HARDWARE:
+        with hardware_session() as (session, _runner):
+            _probe(session)
+        return
+    session, _live = make_session('probe_test_pattern')
+    try:
+        _simulated(session)
+    finally:
+        session.shutdown()
 
 
 if __name__ == '__main__':
