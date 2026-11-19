@@ -37,6 +37,7 @@ from _lumascope.drivers.camera import (
 )
 from _lumascope.drivers.exceptions import (
     CameraReadFailedError,
+    CameraSetupFailedError,
     CameraUsbOpenFailedError,
     CameraWriteFailedError,
     HardwareError,
@@ -399,6 +400,7 @@ class IDSCamera(Camera):
         # A camera is on the bus from here on: a failure is that camera's,
         # raised to the registry, never told as no camera.
         step = 'the open'
+        opened = False
         try:
             self.active, descriptor = self._open_device_with_retry(
                 descriptor,
@@ -414,6 +416,7 @@ class IDSCamera(Camera):
             step = 'its node map'
             self.remote_nodemap = self.active.RemoteDevice().NodeMaps()[0]
             step = 'its set-up'
+            opened = True
             self._device_removed = False
             self._async_teardown_started = False
 
@@ -459,7 +462,8 @@ class IDSCamera(Camera):
             failure = f'IDS camera found, {step} failed: {type(ex).__name__}: {ex}'
             _cam_log.error(f'[CAM Class ] {failure}')
             self._cleanup_partial_connect()
-            raise CameraUsbOpenFailedError(failure) from ex
+            fault = CameraSetupFailedError if opened else CameraUsbOpenFailedError
+            raise fault(failure) from ex
 
     def _find_device(self):
         """The first enumerated device's descriptor; ``_IDSAbsentError`` when none is reachable.

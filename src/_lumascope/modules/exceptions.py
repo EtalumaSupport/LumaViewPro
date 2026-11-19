@@ -22,6 +22,7 @@ from _lumascope.drivers.exceptions import (
     CameraFirmwareMissingError,
     CameraNoAnswerError,
     CameraReadFailedError,
+    CameraSetupFailedError,
     MotionInterlockError,
 )
 from _lumascope.modules.api_surface import api_fields
@@ -1226,9 +1227,11 @@ class CameraNotAvailableError(Fault, BringUpError):
             ``'camera_driver_unusable'`` -- Windows has a Classic on no
             driver, on a package not LumaViewPro's, or on LumaViewPro's
             and did not start it (a problem code).
-            ``'camera_not_initialized'`` -- the camera did not come up for any
-            other hardware cause, among them a camera that was found and could
-            not be opened, one another application holds included.
+            ``'camera_not_initialized'`` -- the camera was found and could not
+            be opened, one another application holds included, or did not come
+            up for any other hardware cause before its open.
+            ``'camera_setup_failed'`` -- the camera was found and opened, and
+            setting it up failed; no cable or other program explains that.
             ``'camera_bring_up_failed'`` -- LumaViewPro's own code failed while
             bringing the camera up; nothing says the camera is at fault.
     """
@@ -1258,9 +1261,15 @@ class CameraNotAvailableError(Fault, BringUpError):
             "LumaViewPro's driver without starting it (the log names Windows' problem code).",
         ),
         'camera_not_initialized': (
-            'Camera not initialized',
-            'Could not connect to the camera. Check USB cable, power, and close other '
-            'programs that may hold the camera.',
+            'Camera not opened',
+            'The camera was found but could not be opened. Close any other program using '
+            'it, then restart LumaViewPro; if it happens again, unplug the camera and plug '
+            'it back in.',
+        ),
+        'camera_setup_failed': (
+            'Camera not set up',
+            'The camera was found and opened, but setting it up failed (the log names the '
+            'setting). Restart LumaViewPro, and send a support report if it happens again.',
         ),
         'camera_bring_up_failed': (
             'Camera not brought up',
@@ -1270,7 +1279,7 @@ class CameraNotAvailableError(Fault, BringUpError):
     }
     titles: ClassVar[dict[str, str]] = {reason: title for reason, (title, _) in _WORDS.items()}
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(_WORDS)
-    same_fact_as = (CameraFirmwareMissingError,)
+    same_fact_as = (CameraFirmwareMissingError, CameraSetupFailedError)
 
     # What 'camera_driver_unusable' tells the person to do, by whether the
     # driver can be installed from here.

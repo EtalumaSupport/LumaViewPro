@@ -173,7 +173,7 @@ def test_an_ids_connect_whose_configuration_cannot_read_the_grab_state_fails_nam
     from ids_peak import ids_peak
 
     from _lumascope.drivers import idscamera
-    from _lumascope.drivers.exceptions import CameraReadFailedError, CameraUsbOpenFailedError
+    from _lumascope.drivers.exceptions import CameraReadFailedError, CameraSetupFailedError
 
     cam = bare_ids_camera()
     cam.active = None
@@ -199,7 +199,7 @@ def test_an_ids_connect_whose_configuration_cannot_read_the_grab_state_fails_nam
         setattr(cam, name, MagicMock())
     cam.profile = MagicMock(pixel_formats=['Mono8'])
 
-    with pytest.raises(CameraUsbOpenFailedError, match='its configuration failed') as raised:
+    with pytest.raises(CameraSetupFailedError, match='its configuration failed') as raised:
         cam.connect()
     assert isinstance(raised.value.__cause__, CameraReadFailedError)
     assert 'grab state' in str(raised.value)

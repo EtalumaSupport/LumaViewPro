@@ -239,6 +239,17 @@ class CameraUsbOpenFailedError(Fault, HardwareError):
     words_for_person = False
 
 
+class CameraSetupFailedError(Fault, HardwareError):
+    """The camera was found and opened, and setting it up failed. The words
+    name the step and the library's error.
+    """
+
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_setup_failed': None}
+    title = 'Camera Set-up Failed'
+
+    words_for_person = False
+
+
 class CameraStreamStartFailedError(Fault, HardwareError):
     """The stream's own set-up on an opened camera failed. The words carry
     the library's text.

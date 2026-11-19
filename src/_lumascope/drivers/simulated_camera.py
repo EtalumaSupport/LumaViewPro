@@ -35,7 +35,9 @@ from _lumascope.drivers.camera_profiles import simulated_profile
 from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
     CameraReadFailedError,
+    CameraSetupFailedError,
     CameraWriteFailedError,
+    HardwareError,
     PartAbsentError,
 )
 from _lumascope.drivers.registry import camera_registry
@@ -616,6 +618,10 @@ class SimulatedCamera(Camera):
         Returns:
             bool: True; False for a camera built off the bus, left
                 inactive, as a real driver that finds no camera answers.
+
+        Raises:
+            CameraSetupFailedError: The simulated body's set-up failed (an
+                injected node fault), the camera left inactive.
         """
         if not self._on_bus:
             logger.info('[CAM Sim   ] No camera on the bus')
@@ -627,8 +633,16 @@ class SimulatedCamera(Camera):
             self._device_firmware = self.FIRMWARE_VERSION
             self._device_removed = False
 
-            self._load_profile()
-            self.init_camera_config()
+            # Found and open from here, as a real driver's camera after its
+            # open: a fault is the set-up's, told as the real drivers tell it.
+            try:
+                self._load_profile()
+                self.init_camera_config()
+            except HardwareError as e:
+                self.active = None
+                raise CameraSetupFailedError(
+                    f'simulated camera found, its set-up failed: {type(e).__name__}: {e}'
+                ) from e
             # The camera stamps each frame on its own clock, read at connect
             # as the Pylon driver reads its body's tick rate.
             self.timestamp_tick_frequency_hz = self.TIMESTAMP_TICK_HZ

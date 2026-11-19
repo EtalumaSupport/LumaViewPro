@@ -4,9 +4,11 @@
 A camera driver's ``connect`` returns False only when no camera of its kind
 is reachable, so the registry tries the next driver and, with none, the
 bring-up says "Camera not detected". A camera that is found and cannot be
-opened or set up raises ``CameraUsbOpenFailedError``, which the registry
-outranks over every "not found" and the bring-up record tells as "Could not
-connect to the camera". On 2026-10-20 an IDS U3-34L whose reopen failed on
+opened raises ``CameraUsbOpenFailedError``, and one that opened and whose
+set-up failed raises ``CameraSetupFailedError``; the registry outranks either
+over every "not found", and the bring-up tells the first as a camera that
+could not be opened and the second as one whose set-up failed, never as the
+cable's. On 2026-10-20 an IDS U3-34L whose reopen failed on
 ``DataStreams()[0]`` after a successful open was told "a camera driver did
 not load ... Reinstall".
 
@@ -24,7 +26,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from _lumascope.drivers.exceptions import CameraUsbOpenFailedError
+from _lumascope.drivers.exceptions import CameraSetupFailedError, CameraUsbOpenFailedError
 from _lumascope.modules.exceptions import CameraNotAvailableError
 from _lumascope.modules.lumascope_api._lumascope import _camera_failure_cause
 from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
@@ -177,13 +179,43 @@ def test_a_basler_connect_opens_the_emulator_under_pylon_camemu_and_the_first_ba
     assert (asked and asked.device_class) == opened
 
 
-def test_the_bring_up_tells_an_open_failure_as_could_not_connect():
+def test_the_bring_up_tells_an_open_failure_as_a_camera_that_would_not_open():
     fault = CameraUsbOpenFailedError('IDS camera found, its data stream failed: IndexError')
 
     assert _camera_failure_cause(fault, False) == 'camera_not_initialized'
-    assert 'Could not connect to the camera' in str(
-        CameraNotAvailableError('camera_not_initialized')
+    assert 'found but could not be opened' in str(CameraNotAvailableError('camera_not_initialized'))
+
+
+def test_the_bring_up_tells_a_set_up_failure_as_the_set_up_never_the_cable():
+    """A camera that opened and failed its set-up answered on USB: its words
+    name the set-up, never the cable or its power (WINDOWS-PGTAQS8, 2026-11-18:
+    a Basler whose ReverseY failed after the open was told to check its cable)."""
+    fault = CameraSetupFailedError(
+        'Basler camera found, its post-open configuration failed: RuntimeError: ReverseY'
     )
+
+    assert _camera_failure_cause(fault, False) == 'camera_setup_failed'
+    words = str(CameraNotAvailableError('camera_setup_failed'))
+    assert 'setting it up failed' in words
+    assert 'cable' not in words and 'power' not in words
+
+
+def test_a_basler_that_opens_and_fails_its_configuration_raises_its_set_up(monkeypatch):
+    """The open returned, so the failure is the set-up's, not the open's."""
+    from _lumascope.drivers import pyloncamera
+
+    _pylon_tl(monkeypatch, [MagicMock()])
+    # a stand-in by design: pylon failing a node after the open is a fault the simulator cannot yet produce (it has no pylon)
+    sdk_camera = MagicMock()
+    sdk_camera.IsGrabbing.side_effect = pyloncamera.genicam.RuntimeException('Node not existing')
+    monkeypatch.setattr(pyloncamera.pylon, 'InstantCamera', lambda _device: sdk_camera)
+    cam = bare_pylon_camera()
+    cam.active = None
+
+    with pytest.raises(CameraSetupFailedError, match='its post-open configuration failed'):
+        cam.connect()
+
+    assert cam.active is None
 
 
 def test_the_bring_up_tells_its_own_failure_as_lumaviewpros_not_the_cables():

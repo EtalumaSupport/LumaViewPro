@@ -967,16 +967,20 @@ class Camera(ABC):
         ``self._active`` left False or None: the registry reads ``self.found``
         and tries the next driver. A camera that is found and cannot be
         opened or set up is not an absence: the subclass releases what it
-        opened and raises a typed driver fault (``CameraUsbOpenFailedError``
-        or its own), which the registry ranks above every driver that found
-        nothing and the bring-up tells as that camera's failure.
+        opened and raises a typed driver fault, which the registry ranks
+        above every driver that found nothing and the bring-up tells as that
+        camera's failure: ``CameraUsbOpenFailedError`` (or its own) up to the
+        open, ``CameraSetupFailedError`` for anything that fails after it,
+        so the person is never sent to the cable for a camera that answered.
 
         Returns:
             bool: True on success; False when no camera is reachable.
 
         Raises:
             CameraUsbOpenFailedError: A camera was found and could not be
-                opened or set up (or the driver's own typed fault).
+                opened (or the driver's own typed fault).
+            CameraSetupFailedError: A camera was found and opened, and
+                setting it up failed.
         """
         pass
 

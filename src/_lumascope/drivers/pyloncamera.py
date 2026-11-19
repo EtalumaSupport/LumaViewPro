@@ -31,6 +31,7 @@ from _lumascope.drivers.camera import (
 from _lumascope.drivers.exceptions import (
     CameraNoAnswerError,
     CameraReadFailedError,
+    CameraSetupFailedError,
     CameraUsbOpenFailedError,
     CameraWriteFailedError,
     HardwareError,
@@ -1219,6 +1220,7 @@ class PylonCamera(Camera):
             # is never misreported as "not openable."
             _devs = ()
             _created = False
+            opened = False
             step = 'the device lookup'
             try:
                 _devs = pylon.TlFactory.GetInstance().EnumerateDevices()
@@ -1294,6 +1296,7 @@ class PylonCamera(Camera):
 
             step = 'the open'
             camera.Open()
+            opened = True
 
             # Start gate, SDK-side enforcement: pypylon 26.4.x's
             # AcquireContinuousConfiguration can auto-StartGrabbing from
@@ -1328,7 +1331,7 @@ class PylonCamera(Camera):
             except HardwareError as e:
                 _log_cam(
                     'warning',
-                    f'[CAM Class ] MaxNumBuffer cap post-Open failed (window may have closed): {e}',
+                    f'[CAM Class ] MaxNumBuffer cap post-Open failed: {e}',
                 )
 
             # Pre-allocate chunk node-map pool to match the buffer pool.
@@ -1372,8 +1375,7 @@ class PylonCamera(Camera):
             except HardwareError as e:
                 _log_cam(
                     'warning',
-                    f'[CAM Class ] MaxTransferSize set failed (window may have '
-                    f'closed, or node not writable on this transport): {e}',
+                    f'[CAM Class ] MaxTransferSize set failed: {e}',
                 )
 
             # Store device identity if possible
@@ -1486,14 +1488,16 @@ class PylonCamera(Camera):
                 )
                 return False
             # A Basler IS on the bus: an open that fails is typically one held
-            # by another application (e.g. pylon Viewer) or a claim race. That
-            # is the actionable bench failure; it must survive an error-level
-            # log sweep and reach the bring-up as the found camera's failure.
+            # by another application (e.g. pylon Viewer) or a claim race; a
+            # failure after the open is the camera's set-up, which no cable or
+            # other program explains. Either must survive an error-level log
+            # sweep and reach the bring-up as the found camera's failure.
             failure = f'Basler camera found, {step} failed: {type(ex).__name__}: {ex}'
             _cam_log.error(
                 f'[CAM Class ] {failure}', exc_info=not isinstance(ex, genicam.RuntimeException)
             )
-            raise CameraUsbOpenFailedError(failure) from ex
+            fault = CameraSetupFailedError if opened else CameraUsbOpenFailedError
+            raise fault(failure) from ex
 
     def _stop_image_grab_worker(self) -> None:
         """Stop the Stage B worker if it was started during connect().

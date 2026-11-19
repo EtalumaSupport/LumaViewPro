@@ -114,6 +114,7 @@ from _lumascope.drivers.exceptions import (
     CameraFirmwareMissingError,
     CameraNoAnswerError,
     CameraReadFailedError,
+    CameraSetupFailedError,
     CameraStreamStartFailedError,
     CameraUsbNotFoundError,
     CameraUsbOpenFailedError,
@@ -2380,14 +2381,20 @@ class FX2Camera(Camera):
             _StreamEnd(gone=True, reason=reason)
         )
         self.model_name = 'MT9P031-LS620'
-        self._init_sensor()
-        self.cam_image_handler = ImageHandlerBase()
-        # Fresh handler starts with an empty dispatch list; re-push any durable
-        # listeners so a reconnect keeps delivering frames to recording / plugins.
-        self._reapply_frame_callbacks()
-        self._active = True
-        self._load_profile()
-        self.init_camera_config()
+        # The connection is open from here: a fault is the camera's set-up.
+        try:
+            self._init_sensor()
+            self.cam_image_handler = ImageHandlerBase()
+            # Fresh handler starts with an empty dispatch list; re-push any durable
+            # listeners so a reconnect keeps delivering frames to recording / plugins.
+            self._reapply_frame_callbacks()
+            self._active = True
+            self._load_profile()
+            self.init_camera_config()
+        except HardwareError as e:
+            raise CameraSetupFailedError(
+                f'FX2 camera found, its set-up failed: {type(e).__name__}: {e}'
+            ) from e
         logger.info('[FX2 Cam   ] connected: %s', self.model_name)
         return True
 

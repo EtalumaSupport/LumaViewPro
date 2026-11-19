@@ -14291,7 +14291,7 @@ The camera did not come up; the heading and the advice follow the cause.
 
 **Attributes**
 
-- `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver this scope could be using did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, on a package not LumaViewPro's, or on LumaViewPro's and did not start it (a problem code). `'camera_not_initialized'` -- the camera did not come up for any other hardware cause, among them a camera that was found and could not be opened, one another application holds included. `'camera_bring_up_failed'` -- LumaViewPro's own code failed while bringing the camera up; nothing says the camera is at fault.
+- `reason`: `'port_in_use'` -- the part was found and its port could not be opened, most often because another program holds it. `'not_detected'` -- no driver found the part on USB. These two are the hardware registry's own causes, the LED board's too. `'camera_driver_unavailable'` -- no camera was found, and a camera driver this scope could be using did not load on this installation. `'camera_firmware_missing'` -- the firmware file a Classic's driver uploads to the camera is not installed. `'camera_driver_unusable'` -- Windows has a Classic on no driver, on a package not LumaViewPro's, or on LumaViewPro's and did not start it (a problem code). `'camera_not_initialized'` -- the camera was found and could not be opened, one another application holds included, or did not come up for any other hardware cause before its open. `'camera_setup_failed'` -- the camera was found and opened, and setting it up failed; no cable or other program explains that. `'camera_bring_up_failed'` -- LumaViewPro's own code failed while bringing the camera up; nothing says the camera is at fault.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -14300,6 +14300,7 @@ The camera did not come up; the heading and the advice follow the cause.
 | `camera_driver_unusable` | -- | 500 |
 | `camera_firmware_missing` | -- | 500 |
 | `camera_not_initialized` | -- | 500 |
+| `camera_setup_failed` | -- | 500 |
 | `not_detected` | -- | 500 |
 | `port_in_use` | -- | 500 |
 
@@ -14387,6 +14388,18 @@ for a caller that treats it as the bad argument it is.
 | `camera_node_unsupported` | request | 422 |
 | `conversion_gain_mode_unsupported` | request | 422 |
 | `line_noise_reduction_unsupported` | request | 422 |
+
+<a id="CameraSetupFailedError"></a>
+### `lumascope.CameraSetupFailedError`
+
+A fault; bases `Fault`, `HardwareError`.
+
+The camera was found and opened, and setting it up failed. The words
+name the step and the library's error.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `camera_setup_failed` | -- | 500 |
 
 <a id="CameraStreamStalledError"></a>
 ### `lumascope.CameraStreamStalledError`

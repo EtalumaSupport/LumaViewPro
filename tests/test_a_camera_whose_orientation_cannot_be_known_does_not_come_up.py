@@ -8,14 +8,15 @@ True and read back; a read-only node's own value decides (True is taken, so
 the copy must not turn it again). A read or write that fails, or a read-back
 that is not True, leaves the frame's orientation unknown: the error names
 the step and the node, and bring-up records the camera down,
-``camera_not_initialized``. It used to come up streaming in whatever order
-the body held, logged at INFO.
+``camera_setup_failed``: the camera answered, so its words never send the
+person to the cable. It used to come up streaming in whatever order the
+body held, logged at INFO.
 
 The simulated camera's reverse nodes are declared by its ``REVERSE_NODES``
 table, so every answer runs on the simulator; Pylon and IDS run the same
 decision through their own readers over the suite's SDK stand-ins. A raise
 from ``init_camera_config`` reaching connect's handler as
-``CameraUsbOpenFailedError`` is pinned by
+``CameraSetupFailedError`` is pinned by
 ``test_an_ids_connect_whose_configuration_cannot_read_the_grab_state_fails_naming_the_read``.
 """
 
@@ -65,7 +66,7 @@ def test_a_body_whose_orientation_cannot_be_known_is_down_naming_the_step(monkey
         )
         try:
             (camera,) = [p for p in session.bring_up_record().parts if p.part == 'camera']
-            if (camera.up, camera.cause) != (False, 'camera_not_initialized') or (
+            if (camera.up, camera.cause) != (False, 'camera_setup_failed') or (
                 'the image orientation (ReverseY)' not in camera.detail
             ):
                 wrong.append(f'{fails}: {camera}')

@@ -41,6 +41,7 @@ from _lumascope.drivers.camera import Camera
 from _lumascope.drivers.exceptions import (
     CameraFirmwareMissingError,
     CameraReadFailedError,
+    CameraSetupFailedError,
     CameraUsbDriverUnusableError,
     HardwareError,
 )
@@ -358,10 +359,12 @@ def _camera_failure_cause(exc: BaseException, fx2_could_be_this_scope: bool) -> 
     """The record's cause for a camera that raised while connecting.
 
     The camera registry raises the fault a driver raised for a camera it
-    found and could not bring up (``CameraUsbOpenFailedError``, which also
-    covers a camera another application holds, or the driver's own typed
-    fault). When no driver raised, the registry raises the cause it found:
-    no camera, or a port held. A camera not found is told beside the FX2
+    found and could not bring up: ``CameraUsbOpenFailedError`` for one that
+    would not open, a camera another application holds included, or the
+    driver's own typed fault; ``CameraSetupFailedError`` for one that opened
+    and whose set-up failed, which is never told as the cable's. When no
+    driver raised, the registry raises the cause it found: no camera, or a
+    port held. A camera not found is told beside the FX2
     driver that did not load only when this scope may be an FX2 scope
     (``_a_declined_fx2_could_be_this_scope``). Anything outside the
     hardware's family is LumaViewPro's own failure, never the cable's.
@@ -379,6 +382,8 @@ def _camera_failure_cause(exc: BaseException, fx2_could_be_this_scope: bool) -> 
         return 'camera_firmware_missing'
     if isinstance(exc, CameraUsbDriverUnusableError):
         return 'camera_driver_unusable'
+    if isinstance(exc, CameraSetupFailedError):
+        return 'camera_setup_failed'
     if isinstance(exc, PermissionError):
         return 'port_in_use'
     if isinstance(exc, HardwareError):

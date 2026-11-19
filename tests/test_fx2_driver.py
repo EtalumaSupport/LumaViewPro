@@ -39,7 +39,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from _lumascope.drivers import fx2driver
-from _lumascope.drivers.exceptions import CameraWriteFailedError
+from _lumascope.drivers.exceptions import CameraSetupFailedError, CameraWriteFailedError
 from _lumascope.drivers.registry import (
     DeclinedDriver,
     DriverRegistry,
@@ -542,7 +542,7 @@ class TestFX2CameraProfile:
         finally:
             fake_fx2_conn.sensor_reg_write.side_effect = None
 
-    def test_a_first_window_the_camera_does_not_take_fails_its_bring_up_as_a_write_fault(
+    def test_a_first_window_the_camera_does_not_take_fails_its_set_up_as_a_write_fault(
         self, fake_fx2_conn
     ):
         def refuse_the_window(reg, value):
@@ -551,10 +551,11 @@ class TestFX2CameraProfile:
 
         fake_fx2_conn.sensor_reg_write.side_effect = refuse_the_window
 
-        with pytest.raises(CameraWriteFailedError, match='initial window') as raised:
+        with pytest.raises(CameraSetupFailedError, match='initial window') as raised:
             fx2driver.FX2Camera()
 
-        assert raised.value.reason == 'camera_write_failed'
+        assert raised.value.reason == 'camera_setup_failed'
+        assert isinstance(raised.value.__cause__, CameraWriteFailedError)
 
     def test_max_frame_size_is_1900x1900(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()

@@ -35,7 +35,7 @@ from _lumascope.drivers.idscamera import (
 )
 from _lumascope.drivers.exceptions import (
     CameraReadFailedError,
-    CameraUsbOpenFailedError,
+    CameraSetupFailedError,
     CameraWriteFailedError,
 )
 from tests.camera_fakes import bare_ids_camera
@@ -1518,8 +1518,9 @@ class TestConnectFailureUnregistersCallback:
         # so the connect aborts with a live registration in place.
         cam._load_profile = MagicMock(side_effect=RuntimeError('profile load boom'))
 
-        # A found camera that fails is raised, not told as no camera.
-        with pytest.raises(CameraUsbOpenFailedError):
+        # A found camera that fails after its open is raised as its set-up's
+        # failure, not told as no camera.
+        with pytest.raises(CameraSetupFailedError):
             cam.connect()
         # The callback registered during the aborted connect was torn down.
         dm.UnregisterDeviceLostCallback.assert_called_once()
@@ -1534,7 +1535,7 @@ class TestConnectFailureUnregistersCallback:
         cam = self._drive_connect(monkeypatch, dm)
         cam._load_profile = MagicMock(side_effect=ConnectionError('late connection error'))
 
-        with pytest.raises(CameraUsbOpenFailedError):
+        with pytest.raises(CameraSetupFailedError):
             cam.connect()
         dm.UnregisterDeviceLostCallback.assert_called_once()
         assert cam._device_lost_callback_handle is None
