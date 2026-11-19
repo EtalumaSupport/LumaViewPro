@@ -80,6 +80,11 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+%BEST_PY% "%PROJECT_DIR%\scripts\install_gpu_preference.py"
+if errorlevel 1 (
+    pause
+    exit /b 1
+)
 
 REM --- Create run.bat using system Python ---
 >"%PROJECT_DIR%\run.bat" (
@@ -131,6 +136,11 @@ if errorlevel 1 (
     exit /b 1
 )
 call "%VENV_DIR%\Scripts\python" "%PROJECT_DIR%\scripts\install_lumascope_pth.py"
+if errorlevel 1 (
+    pause
+    exit /b 1
+)
+call "%VENV_DIR%\Scripts\python" "%PROJECT_DIR%\scripts\install_gpu_preference.py"
 if errorlevel 1 (
     pause
     exit /b 1
