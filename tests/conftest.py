@@ -600,10 +600,17 @@ def pytest_configure_node(node):
 
 
 def _head_commit(root: Path) -> str:
-    """The checkout's HEAD, or what kept it unread: the files name the run they came from."""
-    answer = subprocess.run(
-        ['git', 'rev-parse', '--short', 'HEAD'], cwd=root, capture_output=True, text=True
-    )
+    """The checkout's HEAD, or what kept it unread: the files name the run they came from.
+
+    A bench host can run a copy of the tree with no git installed; that host's
+    failure files say so, and its run goes on.
+    """
+    try:
+        answer = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'], cwd=root, capture_output=True, text=True
+        )
+    except FileNotFoundError:
+        return 'unread (no git on this host)'
     return answer.stdout.strip() if answer.returncode == 0 else f'unread ({answer.stderr.strip()})'
 
 
