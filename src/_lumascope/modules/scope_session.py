@@ -720,6 +720,8 @@ def _read_only(value):
     'as_a_guarded_write',
     'status_at_edge',
     'startup_motion_ended_by_the_close',
+    'enable_metrics',
+    'disable_metrics',
 )
 class ScopeSession:
     """Owns the shared, GUI-independent state for one microscope session.
@@ -7095,7 +7097,6 @@ class ScopeSession:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    @api(in_process=True)
     def enable_metrics(self, display: DisplayRates | None = None) -> None:
         """Start the session's periodic metrics logging.
 
@@ -7154,7 +7155,6 @@ class ScopeSession:
                 lambda: memory_profile.snapshot('cold_start_done'), COLD_START_SNAPSHOT_DELAY_S
             )
 
-    @api(in_process=True)
     def disable_metrics(self) -> None:
         """Stop the session's periodic metrics logging. Idempotent.
 

@@ -24,7 +24,6 @@ import _lumascope.modules.wall_time as wall_time
 from _lumascope.lib.real_numbers import is_finite_number
 from _lumascope.lvp_logger import logger, metrics_logger
 from _lumascope.modules.acquire_mode import AcquireMode
-from _lumascope.modules.api_surface import api
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.channel_record import ChannelSliderMaxima, Modality, release_channel
 from _lumascope.modules.labware_loader import WellPlateLoader
@@ -483,7 +482,6 @@ class DisplayRates(typing.Protocol):
     a module never reaches up to it.
     """
 
-    @api(in_process=True)
     def display_fps(self) -> float:
         """The frames drawn in the last second.
 
@@ -492,7 +490,6 @@ class DisplayRates(typing.Protocol):
         """
         ...
 
-    @api(in_process=True)
     def frame_interval_percentiles_ms(self) -> dict[str, float]:
         """``p50``, ``p95``, ``p99`` and ``max`` intervals between drawn
         frames, in ms, and ``n`` the samples; empty before the first.

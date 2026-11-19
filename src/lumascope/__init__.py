@@ -91,9 +91,6 @@ from _lumascope.modules.channel_record import (
     MotorBoardFamily,
     ScopeModel,
 )
-from _lumascope.modules.config_helpers import (
-    DisplayRates,
-)
 from _lumascope.modules.coord_transformations import (
     AxisLimits,
     PlateLocation,
@@ -629,7 +626,6 @@ __all__ = [
     'DiagnosticsAPI',
     'DisconnectFailure',
     'DisconnectStep',
-    'DisplayRates',
     'DrawingGpu',
     'DriverNotLiveError',
     'DuplicateCaptureFilenamesNotice',

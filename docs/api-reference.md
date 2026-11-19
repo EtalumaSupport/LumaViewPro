@@ -67,7 +67,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`DegradedOutput`](#DegradedOutput)
 - [`DeliveredRate`](#DeliveredRate)
 - [`DisconnectFailure`](#DisconnectFailure)
-- [`DisplayRates`](#DisplayRates)
 - [`DrawingGpu`](#DrawingGpu)
 - [`EnhanceResult`](#EnhanceResult)
 - [`EnhancedFile`](#EnhancedFile)
@@ -1295,25 +1294,6 @@ The held claim.
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`ClaimStillLentError`](#ClaimStillLentError): `claim_still_lent`
 
-<a id="ScopeSession.disable_metrics"></a>
-### `ScopeSession.disable_metrics`
-
-```python
-def disable_metrics(self) -> None
-```
-
-Marks: in-process.
-
-Stop the session's periodic metrics logging. Idempotent.
-
-Never shuts the scheduler itself down -- a shut scheduler
-refuses all future schedules, and the host may start metrics
-again with the same instance.
-
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.discard_pending_video"></a>
 ### `ScopeSession.discard_pending_video`
 
@@ -1338,36 +1318,6 @@ Nothing.
 **Refusals by REST status**
 
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-
-<a id="ScopeSession.enable_metrics"></a>
-### `ScopeSession.enable_metrics`
-
-```python
-def enable_metrics(self, display: DisplayRates | None = None) -> None
-```
-
-Marks: in-process.
-
-Start the session's periodic metrics logging.
-
-Logs the host's environment fingerprint (`[ENV METRICS]`) first,
-then schedules the periodic ticks. Uses the session's scheduler and the
-`settings.profiling.metrics_interval_s` cadence override when
-present. Metrics stay opt-in by the call itself: a host that runs
-the scope for others calls it -- the GUI does, and so does a
-server host -- and a script that only drives the scope need not.
-
-**Args**
-
-- `display`: The host's live display (the GUI's), whose drawn rate and frame intervals the system tick logs beside the camera's. A host with no display passes none.
-
-**Raises**
-
-- `AlreadyStartedError`: `'metrics_running'`, metrics are already running; `disable_metrics` lets them start again. A second start would silently overwrite the first's schedule and orphan its events, ticking untracked forever. Still a `RuntimeError`.
-
-**Refusals**
-
-- [`AlreadyStartedError`](#AlreadyStartedError): `metrics_running`
 
 <a id="ScopeSession.end_control"></a>
 ### `ScopeSession.end_control`
@@ -10380,47 +10330,6 @@ raised is two failures.
 - <a id="DisconnectFailure.board"></a>`board`: `Board` -- The board.
 - <a id="DisconnectFailure.reason"></a>`reason`: `str | None` -- The failed step's reason; None for an error that carries none.
 - <a id="DisconnectFailure.step"></a>`step`: `DisconnectStep` -- What failed on it.
-
-<a id="DisplayRates"></a>
-## `lumascope.DisplayRates`
-
-Taken by: [`ScopeSession.enable_metrics`](#ScopeSession.enable_metrics).
-
-A live display's own rates, which only a host with a display has.
-
-The GUI hands its display down through `ScopeSession.enable_metrics`;
-a module never reaches up to it.
-
-<a id="DisplayRates.display_fps"></a>
-### `DisplayRates.display_fps`
-
-```python
-def display_fps(self) -> float
-```
-
-Marks: in-process.
-
-The frames drawn in the last second.
-
-**Raises**
-
-Nothing.
-
-<a id="DisplayRates.frame_interval_percentiles_ms"></a>
-### `DisplayRates.frame_interval_percentiles_ms`
-
-```python
-def frame_interval_percentiles_ms(self) -> dict[str, float]
-```
-
-Marks: in-process.
-
-`p50`, `p95`, `p99` and `max` intervals between drawn
-frames, in ms, and `n` the samples; empty before the first.
-
-**Raises**
-
-Nothing.
 
 <a id="DrawingGpu"></a>
 ## `lumascope.DrawingGpu`
