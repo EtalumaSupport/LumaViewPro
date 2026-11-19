@@ -29,6 +29,12 @@ _Network = ipaddress.IPv4Network | ipaddress.IPv6Network
 _HTTP_PORT = 80
 
 
+def _named_in_a_url(address: object) -> str:
+    """*address* as a URL names it beside a port: an IPv6 address bracketed."""
+    text = str(address)
+    return f'[{text}]' if ':' in text else text
+
+
 @dataclasses.dataclass(frozen=True)
 class Served:
     """Where a host serves and whom it admits, as the judge read it from ``rest_api``."""
@@ -59,8 +65,7 @@ class Served:
     @property
     def authority(self) -> str:
         """The address and port a client names the server by, an IPv6 address bracketed."""
-        address = f'[{self.address}]' if self.address.version == 6 else str(self.address)
-        return f'{address}:{self.port}'
+        return f'{_named_in_a_url(self.address)}:{self.port}'
 
     def is_named_by_host(self, host: str | None) -> bool:
         """Whether a request's ``Host`` names this server: its address and port, in any spelling of it.
@@ -118,8 +123,7 @@ class Reach:
 
     @property
     def _host(self) -> str:
-        # An IPv6 address is bracketed beside its port.
-        return f'[{self.address}]' if ':' in self.address else self.address
+        return _named_in_a_url(self.address)
 
     def __str__(self) -> str:
         if self.allowed_clients:
