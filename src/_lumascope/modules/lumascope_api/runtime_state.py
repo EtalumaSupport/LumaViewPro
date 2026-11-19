@@ -430,12 +430,13 @@ class RuntimeState:
                 a fraction that is not a number from 0 to 1.
             ObjectiveUnknownError: ``'slot_unknown'``, ``'slot_unassigned'``,
                 ``'not_in_catalogue'`` or ``'none_selected'``, as
-                ``field_of_view``.
+                ``OpticsStatus.field_of_view`` holds them.
             HardwareCommandRefusedError: ``'not_connected'`` or
-                ``'scope_disconnected'``, as ``field_of_view``.
+                ``'scope_disconnected'``, as ``OpticsStatus.field_of_view``
+                holds them.
             PixelSizeUnknownError: ``'optics_undeclared'``,
                 ``'binning_unread'`` or ``'frame_size_unread'``, as
-                ``field_of_view``.
+                ``OpticsStatus.field_of_view`` holds them.
             ConfigurationDefectError: ``'scope_not_composed'``, no session has bound
                 this scope.
         """

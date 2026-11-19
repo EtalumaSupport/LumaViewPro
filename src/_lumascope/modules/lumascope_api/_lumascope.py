@@ -2317,8 +2317,8 @@ class Lumascope:
         """The model catalogue (scopes.json's ``Models``): a read-only mapping of model name to its ``ScopeModel``.
 
         Read-only, as each record is: no caller can change what another
-        reads. Not published: a caller looks a model up with ``scope_model``
-        and lists them with ``all_scope_models``.
+        reads. Not published: a caller lists the models with
+        ``all_scope_models``.
 
         Raises:
             Nothing.
@@ -2351,8 +2351,8 @@ class Lumascope:
     def all_scope_models(self) -> 'tuple[ScopeModel, ...]':
         """Every scope model of the installation, read once at bring-up, in the catalogue's order.
 
-        Each record is read-only and carries its ``id``, the name
-        ``scope_model`` takes.
+        Each record is read-only and carries its ``id``, its name in the
+        catalogue, the name ``ScopeSession.select_model`` takes.
 
         Raises:
             Nothing.

@@ -2376,9 +2376,7 @@ class ImagingAPI:
     def disable_streaming(self) -> None:
         """Stop camera streaming, and wait.
 
-        After this, ``capture_still()`` fails until streaming resumes;
-        ``buffered_image()`` still returns the last frame the camera
-        delivered.
+        After this, ``capture_still()`` fails until streaming resumes.
         Satisfied with no camera connected: nothing is streaming. Dispatched
         as ``enable_streaming`` is.
 

@@ -1841,9 +1841,9 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
     """A labware, objective or scope model name the installation's catalogue does not hold.
 
     Raised by the catalogue's lookup -- ``Lumascope.plate`` for a plate,
-    ``Lumascope.objective`` for an objective, the scope model lookup
-    ``ScopeSession.select_model`` asks for a scope model -- before anything is stored, so every door that names one
-    is refused alike. A scope model is also refused at bring-up when the
+    ``Lumascope.objective`` for an objective, ``ScopeSession.select_model``'s
+    for a scope model -- before anything is stored, so every door that names
+    one is refused alike. A scope model is also refused at bring-up when the
     scope is to be built as a model the catalogue does not list. A
     ``ConfigError``, because the same check reads a stored setting at
     bring-up and the callers that recover from a bad stored name catch that
@@ -5826,8 +5826,8 @@ class AlreadyStartedError(Refusal, RuntimeError):
     Attributes:
         reason: ``'plugins_loaded'`` -- this session already loaded its
             plugins; it never loads them again. ``'metrics_running'`` --
-            metrics are already running; ``disable_metrics`` lets them start
-            again. ``'scope_composed'`` -- this scope already has its
+            metrics are already running; the host that started them stops
+            them before they start again. ``'scope_composed'`` -- this scope already has its
             session's activity claim or settings; it is given them once.
             ``'bring_up_ended'`` -- this scope's session has ended its
             bring-up; it is not configured again, and no write is made as

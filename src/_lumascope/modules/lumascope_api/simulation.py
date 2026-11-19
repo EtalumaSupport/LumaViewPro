@@ -1149,9 +1149,9 @@ class SimulationAPI:
         LumaViewPro's package installed, and WinUSB stands for that package;
         any other driver stands for another package, as LumaView's libusbK
         package binds both identities. The camera already up
-        keeps running: the binding is read by
-        ``diagnostics.read_camera_usb_bindings`` and checked at the next
-        connect.
+        keeps running: the binding is read by the support report and by
+        the camera driver's repair (``ScopeSession.apply_remedy``), and
+        checked at the next connect.
 
         Args:
             hardware_id: ``USB\\VID_04B4&PID_8613`` (the bootloader) or

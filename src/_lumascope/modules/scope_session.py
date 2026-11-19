@@ -3485,8 +3485,8 @@ class ScopeSession:
 
         X and Y are stored in plate millimetres on the selected plate, Z in
         micrometres: the frame the go-to-bookmark moves read them in. The
-        writer of ``bookmark``'s X and Y; ``save_all_bookmarks`` also writes
-        its Z.
+        writer of ``bookmark``'s X and Y; the GUI's Set All Bookmarks also
+        writes its Z.
 
         Args:
             axes: The axes saved, each ``'X'``, ``'Y'`` or ``'Z'``; an axis
@@ -3537,7 +3537,7 @@ class ScopeSession:
     def bookmark(self) -> PlateLocation:
         """The bookmark: X and Y in plate millimetres on the selected plate, Z in micrometres.
 
-        What ``save_bookmark`` and ``save_all_bookmarks`` stored, in the
+        What ``save_bookmark`` and the GUI's Set All Bookmarks stored, in the
         frame the go-to-bookmark moves read it in.
 
         Raises:

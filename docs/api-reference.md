@@ -596,7 +596,7 @@ Route: `GET /api/v1/bookmark`.
 
 The bookmark: X and Y in plate millimetres on the selected plate, Z in micrometres.
 
-What `save_bookmark` and `save_all_bookmarks` stored, in the
+What `save_bookmark` and the GUI's Set All Bookmarks stored, in the
 frame the go-to-bookmark moves read it in.
 
 **Raises**
@@ -2307,8 +2307,8 @@ Save where the stage is on `axes` as the bookmark, as the bookmark buttons do.
 
 X and Y are stored in plate millimetres on the selected plate, Z in
 micrometres: the frame the go-to-bookmark moves read them in. The
-writer of `bookmark`'s X and Y; `save_all_bookmarks` also writes
-its Z.
+writer of `bookmark`'s X and Y; the GUI's Set All Bookmarks also
+writes its Z.
 
 **Args**
 
@@ -4530,8 +4530,8 @@ Route: `GET /api/v1/scope/all_scope_models`.
 
 Every scope model of the installation, read once at bring-up, in the catalogue's order.
 
-Each record is read-only and carries its `id`, the name
-`scope_model` takes.
+Each record is read-only and carries its `id`, its name in the
+catalogue, the name `ScopeSession.select_model` takes.
 
 **Raises**
 
@@ -6299,9 +6299,7 @@ Route: `POST /api/v1/scope/imaging/disable_streaming`.
 
 Stop camera streaming, and wait.
 
-After this, `capture_still()` fails until streaming resumes;
-`buffered_image()` still returns the last frame the camera
-delivered.
+After this, `capture_still()` fails until streaming resumes.
 Satisfied with no camera connected: nothing is streaming. Dispatched
 as `enable_streaming` is.
 
@@ -7946,9 +7944,9 @@ StageDistance: Positive `dx_um` for a point right of centre, positive `dy_um` fo
 **Raises**
 
 - `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, a fraction that is not a number from 0 to 1.
-- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `field_of_view`.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'scope_disconnected'`, as `field_of_view`.
-- `PixelSizeUnknownError`: `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`, as `field_of_view`.
+- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `OpticsStatus.field_of_view` holds them.
+- `HardwareCommandRefusedError`: `'not_connected'` or `'scope_disconnected'`, as `OpticsStatus.field_of_view` holds them.
+- `PixelSizeUnknownError`: `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`, as `OpticsStatus.field_of_view` holds them.
 - `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
 
 **Refusals by REST status**
@@ -8231,9 +8229,9 @@ The simulated FX2 comes up on WinUSB, as Windows binds it with
 LumaViewPro's package installed, and WinUSB stands for that package;
 any other driver stands for another package, as LumaView's libusbK
 package binds both identities. The camera already up
-keeps running: the binding is read by
-`diagnostics.read_camera_usb_bindings` and checked at the next
-connect.
+keeps running: the binding is read by the support report and by
+the camera driver's repair (`ScopeSession.apply_remedy`), and
+checked at the next connect.
 
 **Args**
 
@@ -13693,7 +13691,7 @@ a `RuntimeError`, as it was documented.
 
 **Attributes**
 
-- `reason`: `'plugins_loaded'` -- this session already loaded its plugins; it never loads them again. `'metrics_running'` -- metrics are already running; `disable_metrics` lets them start again. `'scope_composed'` -- this scope already has its session's activity claim or settings; it is given them once. `'bring_up_ended'` -- this scope's session has ended its bring-up; it is not configured again, and no write is made as bring-up's.
+- `reason`: `'plugins_loaded'` -- this session already loaded its plugins; it never loads them again. `'metrics_running'` -- metrics are already running; the host that started them stops them before they start again. `'scope_composed'` -- this scope already has its session's activity claim or settings; it is given them once. `'bring_up_ended'` -- this scope's session has ended its bring-up; it is not configured again, and no write is made as bring-up's.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -14566,9 +14564,9 @@ A refusal; bases `Refusal`, `ConfigError`.
 A labware, objective or scope model name the installation's catalogue does not hold.
 
 Raised by the catalogue's lookup -- `Lumascope.plate` for a plate,
-`Lumascope.objective` for an objective, the scope model lookup
-`ScopeSession.select_model` asks for a scope model -- before anything is stored, so every door that names one
-is refused alike. A scope model is also refused at bring-up when the
+`Lumascope.objective` for an objective, `ScopeSession.select_model`'s
+for a scope model -- before anything is stored, so every door that names
+one is refused alike. A scope model is also refused at bring-up when the
 scope is to be built as a model the catalogue does not list. A
 `ConfigError`, because the same check reads a stored setting at
 bring-up and the callers that recover from a bad stored name catch that
