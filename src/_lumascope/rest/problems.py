@@ -128,6 +128,8 @@ _SERVER_STATUS = {
     'not_cancellable': 409,
     'idempotency_key_reused': 422,
     'client_not_allowed': 403,
+    'wrong_host': 421,
+    'foreign_origin': 403,
 }
 # The server's own refusals whose answer ends its connection: a body the
 # server stopped reading, and a client it does not serve, which has no use
@@ -300,6 +302,24 @@ def client_not_allowed(peer: str | None) -> ServerRefusedError:
         'client_not_allowed',
         f'This scope serves only the clients its rest_api.allowed_clients names, and {peer} '
         'is not one of them. Add its address at the scope PC, with LumaViewPro closed.',
+    )
+
+
+def wrong_host(host: str | None, served: str) -> ServerRefusedError:
+    """A request whose ``Host`` names another server than this one."""
+    return ServerRefusedError(
+        'wrong_host',
+        f'This server answers only requests addressed to {served}, and this one was addressed '
+        f'to {host!r}. Address the scope by its IP address and port, not by a name.',
+    )
+
+
+def foreign_origin(origin: str) -> ServerRefusedError:
+    """A request a page from another site sent."""
+    return ServerRefusedError(
+        'foreign_origin',
+        f'This server answers no request a page from another site sends, and this one came '
+        f'from {origin!r}. Call the API from a program, or from a page this server serves.',
     )
 
 

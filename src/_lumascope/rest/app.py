@@ -163,7 +163,7 @@ class Closing:
 
 
 @api(in_process=True)
-def build_app(session: ScopeSession) -> fastapi.FastAPI:
+def build_app(session: ScopeSession, *, bound: bool = False) -> fastapi.FastAPI:
     """The application serving *session*'s wire members under ``/api/v1/``.
 
     The OpenAPI description is at ``/api/v1/openapi.json`` and the
@@ -179,6 +179,13 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     Args:
         session: The session the application serves, as
             ``ScopeSession.create`` brings it up; every route calls into it.
+        bound: The application is served on ``rest_api``'s own address and
+            port, as ``build_server`` serves it. A request whose ``Host``
+            names another is then refused ``wrong_host``, and one a page
+            from another site sent ``foreign_origin``, before any route
+            sees it, so no web page the user opens can drive the scope. A
+            host that mounts the application in its own server, or a test
+            client, leaves it False: it is not served at that address.
 
     Raises:
         ConfigurationDefectError: ``'route_shadowed'``, a Session member is
@@ -237,6 +244,8 @@ def build_app(session: ScopeSession) -> fastapi.FastAPI:
     app.state.served = rest_api
     # Innermost, so only an admitted client's request renews a session.
     app.middleware('http')(_renewing(session))
+    if bound:
+        app.middleware('http')(_addressed_to(rest_api))
     # Registered before the log, so it runs inside the request's id and log
     # line: a refused client's answer carries its id and is logged once.
     app.middleware('http')(_admitted_by(rest_api))
@@ -935,6 +944,31 @@ def _admitted_by(
         return await call_next(request)
 
     return admitted
+
+
+def _addressed_to(
+    served: Served,
+) -> Callable[
+    [fastapi.Request, Callable[[fastapi.Request], Awaitable[fastapi.Response]]],
+    Awaitable[fastapi.Response],
+]:
+    """The guard answering a request not addressed to *served*, or sent by another site's page, before any route sees it."""
+
+    async def addressed(
+        request: fastapi.Request,
+        call_next: Callable[[fastapi.Request], Awaitable[fastapi.Response]],
+    ) -> fastapi.Response:
+        host = request.headers.get('host')
+        origin = request.headers.get('origin')
+        if not served.is_named_by_host(host):
+            refusal = problems.wrong_host(host, served.authority)
+        elif origin is not None and not served.is_own_origin(origin):
+            refusal = problems.foreign_origin(origin)
+        else:
+            return await call_next(request)
+        return problems.refused_by_server(refusal, request.state.request_id).response()
+
+    return addressed
 
 
 def _renewing(

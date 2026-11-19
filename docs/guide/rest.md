@@ -56,8 +56,17 @@ elif server.close_failed is not None:    # what the session's shutdown raised
 
 A program that mounts the API in an ASGI application of its own takes it from
 `build_app(session)`; its `allowed_clients` and its body deadline hold whoever
-serves it, while the header deadline is `build_server`'s, so that program sets
-its own server's.
+serves it, while the header deadline and the address check below are
+`build_server`'s, so that program sets its own server's.
+
+**Addressed to it.** The server answers only a request addressed to its own
+address and port: the `Host` a client sends names them, in any spelling of the
+address, or `localhost` at that port when it serves on `127.0.0.1` or `::1`.
+Any other is refused `421` (`'wrong_host'`), so address the scope by its IP
+address, never by a name, which any site can point at it. A request sent by a
+page from another site, its `Origin` not the server's own, is refused `403`
+(`'foreign_origin'`): no web page you open can drive the scope. A program sends
+no `Origin`, and `/docs` sends the server's own.
 
 **The settings.** The server reads `rest_api` from the session's settings. It
 is installation-only: no call changes it, from any caller
@@ -247,7 +256,8 @@ refusal's; every reason and its status is in the reference's
 |---|---|
 | `409` | A refusal the scope's state gave: the same request may succeed later. Also a move or home a stop ended (`kind` `notice`), and `'not_cancellable'`. |
 | `422` | A refusal of the request as sent: change it. Also `'invalid_request'`, `'handle_shared'` and `'idempotency_key_reused'`. |
-| `403` | `'client_not_allowed'`: a client [`allowed_clients`](#serving-another-computer) does not list; its connection is closed. |
+| `403` | `'client_not_allowed'`: a client [`allowed_clients`](#serving-another-computer) does not list; its connection is closed. `'foreign_origin'`: a page from another site sent it ([Serving it](#serving-it)). |
+| `421` | `'wrong_host'`: a request addressed to another server than this one's address and port ([Serving it](#serving-it)). |
 | `500` | A fault: the call failed. |
 | `404` | No such route, handle, job or file. |
 | `405` / `408` / `413` / `415` | The wrong method; a body that did not arrive in time (`'body_too_slow'`: 20 s plus its length at 64 KiB a second; the connection is closed); a body larger than its route takes (`'body_too_large'`: 64 KiB of JSON, 64 MiB for an upload); a body that is not JSON. |

@@ -314,7 +314,7 @@ def build_server(session: ScopeSession, *, shut_down: Callable[[], None]) -> Ser
     except OSError as e:
         raise RestServerNotStartedError(str(served.address), served.port, e) from e
     try:
-        app = build_app(session)
+        app = build_app(session, bound=True)
         config = uvicorn.Config(
             app,
             host=str(served.address),

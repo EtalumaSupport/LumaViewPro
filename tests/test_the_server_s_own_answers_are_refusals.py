@@ -58,6 +58,8 @@ def test_each_reason_s_status_and_title_are_the_type_s():
         'not_cancellable': (409, 'Not Cancellable'),
         'idempotency_key_reused': (422, 'Idempotency Key Reused'),
         'client_not_allowed': (403, 'Client Not Allowed'),
+        'wrong_host': (421, 'Wrong Host'),
+        'foreign_origin': (403, 'Foreign Origin'),
     }
     assert set(expected) == set(ServerRefusedError.causes)
     answered = {}

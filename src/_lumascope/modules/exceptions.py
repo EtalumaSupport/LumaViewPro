@@ -1521,7 +1521,10 @@ class ServerRefusedError(Refusal, Exception):
             key is sent again only to retry the same request.
             ``'client_not_allowed'`` -- the scope serves only the clients its
             ``rest_api.allowed_clients`` names, and the request came from
-            another address.
+            another address. ``'wrong_host'`` -- the request's ``Host``
+            names another server than the address and port it serves on.
+            ``'foreign_origin'`` -- a page from another site sent the
+            request.
         title: The heading, the reason's.
         errors: For ``'invalid_request'`` from the request reader, each
             argument that does not fit; None otherwise.
@@ -1548,6 +1551,8 @@ class ServerRefusedError(Refusal, Exception):
         'not_cancellable': RefusalCause.STATE,
         'idempotency_key_reused': RefusalCause.REQUEST,
         'client_not_allowed': RefusalCause.REQUEST,
+        'wrong_host': RefusalCause.REQUEST,
+        'foreign_origin': RefusalCause.REQUEST,
     }
 
     titles: ClassVar[dict[str, str]] = {
@@ -1564,6 +1569,8 @@ class ServerRefusedError(Refusal, Exception):
         'not_cancellable': 'Not Cancellable',
         'idempotency_key_reused': 'Idempotency Key Reused',
         'client_not_allowed': 'Client Not Allowed',
+        'wrong_host': 'Wrong Host',
+        'foreign_origin': 'Foreign Origin',
     }
 
     def __init__(

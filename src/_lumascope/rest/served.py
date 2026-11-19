@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import ipaddress
 import socket
+import urllib.parse
 
 from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.modules.exceptions import RestServerNotStartedError
@@ -22,6 +23,10 @@ _PORT_RANGE = (1024, 65535)
 
 _Address = ipaddress.IPv4Address | ipaddress.IPv6Address
 _Network = ipaddress.IPv4Network | ipaddress.IPv6Network
+
+# The port a ``Host`` or an ``Origin`` that names none means: the server
+# speaks HTTP alone.
+_HTTP_PORT = 80
 
 
 @dataclasses.dataclass(frozen=True)
@@ -50,6 +55,49 @@ class Served:
         except ValueError:
             return False
         return any(client in entry for entry in self.allowed_clients)
+
+    @property
+    def authority(self) -> str:
+        """The address and port a client names the server by, an IPv6 address bracketed."""
+        address = f'[{self.address}]' if self.address.version == 6 else str(self.address)
+        return f'{address}:{self.port}'
+
+    def is_named_by_host(self, host: str | None) -> bool:
+        """Whether a request's ``Host`` names this server: its address and port, in any spelling of it.
+
+        ``localhost`` names it too when it serves on a loopback address. A
+        DNS name never does, since any site can point one at the address:
+        a page loaded from that name would then read and drive the scope.
+        None, a request with no ``Host``, names nothing.
+        """
+        if host is None:
+            return False
+        return self._names_this_server(urllib.parse.urlsplit(f'//{host}'))
+
+    def is_own_origin(self, origin: str) -> bool:
+        """Whether a request's ``Origin`` is this server's own, as ``is_named_by_host`` judges a ``Host``.
+
+        A page the server itself serves (``/docs``) sends its own; a page
+        from any other site, or one with no site (``null``), is not this
+        server's.
+        """
+        parts = urllib.parse.urlsplit(origin)
+        return parts.scheme == 'http' and parts.path == '' and self._names_this_server(parts)
+
+    def _names_this_server(self, parts: urllib.parse.SplitResult) -> bool:
+        """Whether *parts*' host and port are this server's."""
+        try:
+            port = parts.port
+        except ValueError:
+            return False
+        if (port or _HTTP_PORT) != self.port or parts.hostname is None:
+            return False
+        if parts.hostname == 'localhost':
+            return self.address.is_loopback
+        try:
+            return ipaddress.ip_address(parts.hostname) == self.address
+        except ValueError:
+            return False
 
 
 @dataclasses.dataclass(frozen=True)

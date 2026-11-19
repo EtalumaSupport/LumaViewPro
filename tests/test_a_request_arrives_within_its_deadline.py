@@ -77,10 +77,15 @@ def port(live, monkeypatch):
         assert not thread.is_alive()
 
 
+# Where a request names the server: filled in with its address and port as
+# it is sent, since the server answers no request addressed to another.
+_SERVED = b'SERVED'
+
+
 def _connected(port: int, sent: bytes = b'') -> socket.socket:
     connection = socket.create_connection(('127.0.0.1', port), timeout=_WAIT_S)
     if sent:
-        connection.sendall(sent)
+        connection.sendall(sent.replace(_SERVED, f'127.0.0.1:{port}'.encode()))
     return connection
 
 
@@ -137,7 +142,7 @@ def _trickled(connection: socket.socket, data: bytes) -> threading.Thread:
 
 def _upload_head(name: str, length: int = _UPLOAD_LENGTH, extra: str = '') -> bytes:
     return (
-        f'PUT /api/v1/files/{name} HTTP/1.1\r\nHost: x\r\n'
+        f'PUT /api/v1/files/{name} HTTP/1.1\r\nHost: SERVED\r\n'
         f'Content-Type: application/octet-stream\r\nContent-Length: {length}\r\n{extra}\r\n'
     ).encode()
 
@@ -169,7 +174,7 @@ def test_headers_sent_a_byte_at_a_time_past_the_deadline_are_closed(port):
 @pytest.mark.parametrize(
     ('head', 'status'),
     [
-        (b'POST /nothing HTTP/1.1\r\nHost: x\r\nContent-Length: 100000\r\n\r\n', 404),
+        (b'POST /nothing HTTP/1.1\r\nHost: SERVED\r\nContent-Length: 100000\r\n\r\n', 404),
         (_upload_head('big.bin', length=_lumascope.rest.app.UPLOAD_CEILING_BYTES + 1), 413),
     ],
     ids=['not_found', 'body_too_large'],
@@ -185,7 +190,7 @@ def test_a_body_its_answer_did_not_read_is_closed_at_the_header_deadline(port, h
 @pytest.mark.parametrize(
     'head',
     [
-        b'POST /api/v1/take_control HTTP/1.1\r\nHost: x\r\n'
+        b'POST /api/v1/take_control HTTP/1.1\r\nHost: SERVED\r\n'
         b'Content-Type: application/json\r\nContent-Length: 50\r\n\r\n',
         _upload_head('stalled.bin'),
     ],
@@ -229,7 +234,7 @@ def test_a_body_s_deadline_is_its_own_length_s_not_its_route_s_ceiling(port):
 
 
 def test_an_event_stream_open_past_both_deadlines_is_kept(port):
-    connection = _connected(port, b'GET /api/v1/events HTTP/1.1\r\nHost: x\r\n\r\n')
+    connection = _connected(port, b'GET /api/v1/events HTTP/1.1\r\nHost: SERVED\r\n\r\n')
 
     assert _head(connection.recv(65536))[0] == 200
     assert _kept(connection)
@@ -240,7 +245,7 @@ def test_an_event_stream_pipelined_after_an_answer_is_kept(port):
     """``on_response_complete`` starts the pipelined request itself: no timer may be left armed over it."""
     connection = _connected(
         port,
-        b'GET /api HTTP/1.1\r\nHost: x\r\n\r\nGET /api/v1/events HTTP/1.1\r\nHost: x\r\n\r\n',
+        b'GET /api HTTP/1.1\r\nHost: SERVED\r\n\r\nGET /api/v1/events HTTP/1.1\r\nHost: SERVED\r\n\r\n',
     )
 
     assert _kept(connection)
