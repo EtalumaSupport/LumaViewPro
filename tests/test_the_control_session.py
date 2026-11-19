@@ -859,6 +859,66 @@ class TestTheRestDoor:
         assert refused.status_code == 422
         assert refused.json()['reason'] == 'control_session_ended'
 
+    def test_a_stop_and_a_read_naming_an_ended_session_are_answered_and_a_move_is_refused(
+        self, sim_session, client
+    ):
+        """A client whose session the window ended still stops what it started.
+
+        The Micro-Manager adapter sends its id on every call, its Stop too:
+        refused there, the move it was told to stop ran on.
+        """
+        held = sim_session.scope.simulation.hold_axis('Z')
+        session_id = client.post('/api/v1/take_control', json={'name': 'plate reader'}).json()
+        ended = {'Control-Session': session_id}
+        move = client.post(
+            '/api/v1/scope/motion/start_move_z_by', json={'dz_um': 100.0}, headers=ended
+        ).json()
+        held.result(10)
+        with calling(Caller.GUI):
+            sim_session.end_control(session_id)
+
+        cancelled = client.delete(f'/api/v1/jobs/{move["id"]}', headers=ended)
+        moved = client.get(f'/api/v1/jobs/{move["id"]}', headers={'Prefer': 'wait=30'})
+        held = sim_session.scope.simulation.hold_axis('Z')
+        second = client.post('/api/v1/scope/motion/start_move_z_by', json={'dz_um': 100.0}).json()
+        held.result(10)
+        stopped = client.post('/api/v1/scope/motion/stop_motion', headers=ended)
+        second_moved = client.get(f'/api/v1/jobs/{second["id"]}', headers={'Prefer': 'wait=30'})
+        recording_stopped = client.post('/api/v1/manual_recording/stop', headers=ended)
+        status = client.get('/api/v1/status', headers=ended)
+        refused = client.post(
+            '/api/v1/scope/motion/start_move_z_by', json={'dz_um': 10.0}, headers=ended
+        )
+
+        assert cancelled.status_code == 202, cancelled.text
+        assert moved.json()['status'] == 'failed', moved.text
+        assert moved.json()['error']['reason'] == 'stopped', moved.text
+        assert stopped.status_code == 200, stopped.text
+        assert second_moved.json()['error']['reason'] == 'stopped', second_moved.text
+        assert recording_stopped.status_code == 200, recording_stopped.text
+        assert status.status_code == 200, status.text
+        assert (refused.status_code, refused.json()['reason']) == (422, 'control_session_ended')
+
+    def test_once_another_holds_control_an_ended_id_still_stops_and_never_writes(
+        self, sim_session, client
+    ):
+        old = {
+            'Control-Session': client.post(
+                '/api/v1/take_control', json={'name': 'plate reader'}
+            ).json()
+        }
+        with calling(Caller.GUI):
+            sim_session.take_back_control()
+        client.post('/api/v1/take_control', json={'name': 'second client'})
+
+        stopped = client.post('/api/v1/scope/motion/stop_motion', headers=old)
+        refused = client.put(
+            '/api/v1/labware_id', json={'labware_id': '384 well microplate'}, headers=old
+        )
+
+        assert stopped.status_code == 200, stopped.text
+        assert (refused.status_code, refused.json()['reason']) == (422, 'control_session_ended')
+
     def test_an_id_never_issued_is_answered_as_an_ended_one(self, client):
         # The client does the same for both, take control again, so one answer.
         refused = client.put(

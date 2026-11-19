@@ -250,8 +250,10 @@ assert session.control is None
 
 Work naming a session that has ended, or was never issued, is refused
 `'control_session_ended'`: in Python `acting_in_control` and `end_control` with
-its id, over REST a request carrying it in its `Control-Session` header
-([The control session](rest.md#the-control-session)). The person at the scope
+its id, over REST a write carrying it in its `Control-Session` header
+([The control session](rest.md#the-control-session)). A stop needs no
+session: in Python it is made outside the block, and over REST a stop or a
+read carrying an ended session's id is answered. The person at the scope
 can take it back without the id (`take_back_control`, in-process only).
 
 `take_control` itself is refused while anything of anyone else's is under way:

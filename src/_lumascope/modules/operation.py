@@ -177,7 +177,7 @@ class Operation[T](concurrent.futures.Future[T]):
         # silent until it is done.
         started_in_control(self)
 
-    @api
+    @api(is_stop=True)
     def stop(self) -> None:
         """Stop this operation's work; only asks, and the operation ends on its own.
 

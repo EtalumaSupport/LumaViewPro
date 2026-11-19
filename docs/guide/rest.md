@@ -208,9 +208,11 @@ The wire form of [the control session](concepts.md#who-may-act).
 `POST /api/v1/take_control` with `{"name": ...}` answers the id, to this
 client alone; `GET /api/v1/control` reads who holds it, and since when. While
 it is held, every write carries its id in the `Control-Session` header; any
-other write is refused `409` (`'control_session_held'`), and a request naming
+other write is refused `409` (`'control_session_held'`), and a write naming
 an ended session `422` (`'control_session_ended'`). Reads, stops and the
-display preferences pass without it. `POST /api/v1/end_control` with
+display preferences pass without it, and a read or a stop naming an ended
+session is answered as one with no header: a client stops what it started
+whatever became of its session. `POST /api/v1/end_control` with
 `{"session_id": ...}` ends it, stopping a run or recording taken in it.
 Every request carrying the header renews the session, a read or a job poll
 included; one silent for 180 s is ended by the next client it would refuse.

@@ -80,6 +80,7 @@ from _lumascope.modules.api_surface import (
     fields_of,
     in_process_arguments_of,
     is_record,
+    is_stop_of,
     mark_of,
     reads_of,
     sets_of,
@@ -785,6 +786,8 @@ class WireMember:
             ``sets`` writes: a host serves the method as ``PUT`` on the
             read's path, and answers the read after the write. None
             otherwise.
+        is_stop: A method marked ``is_stop``: every caller may make it, so
+            a host carries it in no control session.
         parameters: What a call takes from the client; the parameters the
             host fills (a callback, a run's handlers) are not among them.
         segment: The live object's class a read leads to, when the member is
@@ -810,6 +813,7 @@ class WireMember:
     parameters: tuple[WireParameter, ...] = ()
     reads: bool = False
     sets: str | None = None
+    is_stop: bool = False
     segment: type | None = None
     doc: str = ''
     admitted_by: tuple[Admission, ...] = ()
@@ -1075,6 +1079,7 @@ def wire_members(
                 parameters=tuple(parameters),
                 reads=reads_of(member),
                 sets=sets_of(member),
+                is_stop=is_stop_of(member),
                 doc=function.__doc__ or '',
                 admitted_by=admitted_by_of(member),
                 hands_out=_hands_out(returns, handed_out, aliases),

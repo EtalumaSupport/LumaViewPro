@@ -503,6 +503,16 @@ def _no_handle(value: object) -> object:
     raise wire_encoding.NoWireFormError(type(value).__name__)
 
 
+def _writes(member: wire_encoding.WireMember) -> bool:
+    """Whether a call of *member* writes, and so is made in the control session its request names.
+
+    A read changes nothing and a stop is anyone's, so neither is made in
+    the session: the header renews a live one (``_renewing``), and one
+    that has ended is answered as a request with no header.
+    """
+    return not (member.read or member.reads or member.is_stop)
+
+
 def _acting_in(session: ScopeSession, control_id: str | None) -> contextlib.AbstractContextManager:
     """The control session a request names, entered on the call's own thread; none named, nothing.
 
@@ -1141,7 +1151,7 @@ def _add(
         control_id = request.headers.get(CONTROL_SESSION_HEADER)
 
         def work() -> object:
-            with _acting_in(session, control_id):
+            with _acting_in(session, control_id if _writes(member) else None):
                 owner = registry.get(handle_id, route.root) if on_handle else session
                 for segment in route.segments:
                     owner = getattr(owner, segment)
@@ -1354,13 +1364,17 @@ def _add_job_routes(
         answer, as its member's refusal. A call held as a job when it
         outlived its wait holds no operation: 409 ``not_cancellable``. The
         forget is a write, in the control session the request names, and
-        refused while another holds one: 409 ``control_session_held``.
+        refused while another holds one: 409 ``control_session_held``. The
+        stop is anyone's, made in no session, whatever the request names.
         """
         control_id = request.headers.get(CONTROL_SESSION_HEADER)
 
-        def work() -> HeldJob | None:
+        def forget_in_session(forget: Callable[[], None]) -> None:
             with _acting_in(session, control_id):
-                return jobs.delete(job_id, as_a_write=session.as_a_guarded_write)
+                session.as_a_guarded_write(forget)
+
+        def work() -> HeldJob | None:
+            return jobs.delete(job_id, as_a_write=forget_in_session)
 
         try:
             # Off the loop: a stop is sent to the scope.

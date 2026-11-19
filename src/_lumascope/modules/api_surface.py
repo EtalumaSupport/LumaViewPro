@@ -52,12 +52,15 @@ write or a post-processing build's admission says so in its mark,
 route -- adds to the member's own
 (``tests/guards/test_every_route_names_the_doors_it_enters.py``).
 
-Four marks say what a member does, each read by its own reader below:
+Five marks say what a member does, each read by its own reader below:
 ``reads`` that it changes nothing, so a host may answer it as a read;
 ``sets`` the read, on its own class, whose value a setter writes -- one
 setting, read by that read and written by this member, so a host serves
 the two as one resource; ``stop`` the member, ``'Class.member'``, that
 stops what it starts -- its own class's, or the handle's it returns;
+``is_stop`` that it is a stop, which every caller may make, so a host
+carries it in no control session, a live one or an ended one alike, and
+it enters no door (``tests/guards/test_every_mark_says_what_its_member_does.py``);
 ``engineering`` that it is a bench or support member, outside what a
 researcher's client needs. What a
 member may raise is its docstring's ``Raises:`` section, the one statement
@@ -122,12 +125,13 @@ RECORD_ATTRIBUTE = '_lvp_api_record'
 # The attribute a record's closed-set fields are recorded under, by name,
 # each as its ``ClosedField``.
 CLOSED_FIELDS_ATTRIBUTE = '_lvp_api_closed_fields'
-# The attributes the four marks are recorded under, each its own: a new
+# The attributes the five marks are recorded under, each its own: a new
 # value of MARK_ATTRIBUTE would be read as unmarked by every host that
 # routes on it, and the member's route would go.
 READS_ATTRIBUTE = '_lvp_api_reads'
 SETS_ATTRIBUTE = '_lvp_api_sets'
 STOP_ATTRIBUTE = '_lvp_api_stop'
+IS_STOP_ATTRIBUTE = '_lvp_api_is_stop'
 ENGINEERING_ATTRIBUTE = '_lvp_api_engineering'
 # The attribute a member's off-wire parameters are recorded under, by name.
 IN_PROCESS_ARGUMENTS_ATTRIBUTE = '_lvp_api_in_process_arguments'
@@ -235,6 +239,7 @@ def api[M](
     reads: bool = False,
     sets: str | None = None,
     stop: str | None = None,
+    is_stop: bool = False,
     engineering: bool = False,
     in_process_arguments: tuple[str, ...] = (),
     admitted_by: tuple[Admission, ...] = (),
@@ -242,7 +247,7 @@ def api[M](
     """Mark a member as API; used bare (``@api``) or as ``@api(in_process=True)``.
 
     ``event`` is the record of the event a listener member delivers.
-    ``reads``, ``sets``, ``stop``, ``engineering``,
+    ``reads``, ``sets``, ``stop``, ``is_stop``, ``engineering``,
     ``in_process_arguments`` and ``admitted_by`` are the marks the module
     docstring describes.
     Goes outermost in a decorator stack. A member that takes an argument is
@@ -277,6 +282,8 @@ def api[M](
             setattr(function, SETS_ATTRIBUTE, sets)
         if stop is not None:
             setattr(function, STOP_ATTRIBUTE, stop)
+        if is_stop:
+            setattr(function, IS_STOP_ATTRIBUTE, True)
         if engineering:
             setattr(function, ENGINEERING_ATTRIBUTE, True)
         if in_process_arguments:
@@ -674,6 +681,11 @@ def sets_of(member: object) -> str | None:
 def stop_of(member: object) -> str | None:
     """The ``'Class.member'`` that stops what *member* starts, or None."""
     return getattr(_function_of(member), STOP_ATTRIBUTE, None)
+
+
+def is_stop_of(member: object) -> bool:
+    """Whether *member* is marked as a stop."""
+    return getattr(_function_of(member), IS_STOP_ATTRIBUTE, False)
 
 
 def is_engineering(member: object) -> bool:

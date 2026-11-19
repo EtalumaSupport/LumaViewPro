@@ -1051,7 +1051,7 @@ class MotionAPI:
     # Order mirrors _lumascope.py source order.
     # ------------------------------------------------------------------
 
-    @api
+    @api(is_stop=True)
     def stop_motion(self) -> None:
         """Stop all in-flight motor moves.
 

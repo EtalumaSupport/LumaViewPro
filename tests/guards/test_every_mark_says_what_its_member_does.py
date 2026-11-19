@@ -18,7 +18,14 @@ This guard holds the marks to what the members are:
    declares what it sets declares ``x``, the read a caller pairs it with.
 4. **A read has no stop.** Nothing a read starts outlives it.
 5. **A stop exists.** A declared stop is ``'Class.member'`` naming a marked
-   member of a project class, which is not itself a read.
+   member of a project class, which is not itself a read, and is marked
+   ``is_stop``.
+6. **A stop is anyone's.** A member marked ``is_stop`` enters no door, so a
+   host that carries it in no control session -- the REST server, for a
+   request naming one that has ended -- leaves it nothing to refuse.
+7. **A read is anyone's.** A read enters no door but the override's, which
+   refuses no caller for the control session, so the REST server carries
+   it in none and its holder's read is refused nothing.
 
 Its subject is a class's members: a read and a stop are what the server
 routes, and a module's marked function is in-process, never routed
@@ -30,7 +37,16 @@ from __future__ import annotations
 import re
 
 from _lumascope.modules import wire_encoding
-from _lumascope.modules.api_surface import fields_of, mark_of, reads_of, sets_of, stop_of
+from _lumascope.modules.api_surface import (
+    Admission,
+    admitted_by_of,
+    fields_of,
+    is_stop_of,
+    mark_of,
+    reads_of,
+    sets_of,
+    stop_of,
+)
 
 _READ_NAME = re.compile(r'(is|has|read)_')
 
@@ -94,4 +110,27 @@ def test_every_declared_stop_is_a_marked_member_that_is_not_a_read():
             wrong.append(f'{qualified} -> {stop}: no marked member')
         elif reads_of(target):
             wrong.append(f'{qualified} -> {stop}: a read cannot stop anything')
+        elif not is_stop_of(target):
+            wrong.append(f'{qualified} -> {stop}: not marked @api(is_stop=True)')
     assert wrong == [], '\n'.join(wrong)
+
+
+def test_a_stop_enters_no_door():
+    with_a_door = [
+        q for q, member in _marked_methods() if is_stop_of(member) and admitted_by_of(member)
+    ]
+    assert with_a_door == [], (
+        f'a stop is made in no control session, so it enters nothing that refuses: {with_a_door}'
+    )
+
+
+def test_a_read_enters_no_door_but_the_override():
+    other_doors = [
+        f'{q}: {sorted(set(admitted_by_of(member)) - {Admission.LANE_OVERRIDE})}'
+        for q, member in _marked_methods()
+        if reads_of(member) and set(admitted_by_of(member)) - {Admission.LANE_OVERRIDE}
+    ]
+    assert other_doors == [], (
+        'a read is made in no control session, so its holder would be refused at '
+        f'any other door: {other_doors}'
+    )

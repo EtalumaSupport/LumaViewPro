@@ -751,7 +751,7 @@ class ManualRecordingController:
         self._finish_thread = None
         self._finishing = False
 
-    @api
+    @api(is_stop=True)
     def stop(self) -> None:
         """Close selection; the drain and finish continue on their own.
 
