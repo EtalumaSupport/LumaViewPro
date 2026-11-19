@@ -785,7 +785,6 @@ _RECORD_KEYS = "a record's keys, not a set (TODO.md, outside W5b)"
 _PROVENANCE = "the measuring run's record, as the characterization writes it"
 _LISTENER = "a listener's own name"
 _TAG = "the caller's tag for a snapshot"
-_SOURCE = 'the module or function a post came from'
 _CATEGORY = "composed from the GUI's label and the executor's action, the dedup identity"
 _KEY = "an outcome's operation key, the caller's"
 _READER = "the REST request reader's own word: where it found an argument, or its code for why"
@@ -884,7 +883,6 @@ OPEN_STRINGS: dict[str, str] = {
     'Notification.message field': _PROSE,
     'Notification.operation_key field': _KEY,
     'Notification.reason field': _REASON,
-    'Notification.source field': _SOURCE,
     'Notification.title field': _PROSE,
     'Objective.description field': _PROSE,
     'Objective.id field': _OBJECTIVE,
@@ -892,9 +890,6 @@ OPEN_STRINGS: dict[str, str] = {
     'Objective.short_name field': _CATALOGUE_TEXT,
     'ObjectiveQuestion.choices field': _OBJECTIVE,
     'ObjectiveQuestion.proposed field': _OBJECTIVE,
-    'Outcome.reason field': _REASON,
-    'Outcome.title field': _PROSE,
-    'Outcome.words field': _PROSE,
     'PartStatus.cause field': _REASON,
     'PartStatus.describe return': _PROSE,
     'PartStatus.detail field': _PROSE,

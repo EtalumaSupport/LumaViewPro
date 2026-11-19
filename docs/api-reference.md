@@ -106,7 +106,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`ObjectiveQuestion`](#ObjectiveQuestion)
 - [`Operation`](#Operation)
 - [`OpticsStatus`](#OpticsStatus)
-- [`Outcome`](#Outcome)
 - [`PartStatus`](#PartStatus)
 - [`PlateLocation`](#PlateLocation)
 - [`PlatePosition`](#PlatePosition)
@@ -177,7 +176,6 @@ NaN stays a NaN, and a key keeps its type.
 - [`ZProject`](#ZProject)
 - [`build_app`](#build_app)
 - [`build_server`](#build_server)
-- [`outcome_of`](#outcome_of)
 - [`start_logging`](#start_logging)
 - [Closed sets](#closed-sets)
 - [Outcomes](#outcomes)
@@ -10966,7 +10964,7 @@ them all.
 **Fields**
 
 - <a id="Notification.category"></a>`category`: `str` -- The part of the instrument it is about, such as `'Motor'`, `'Camera'`, `'FileIO'` or `'Protocol'`.
-- <a id="Notification.cause"></a>`cause`: `RefusalCause | None` -- Whether the same request could succeed later: the outcome's `Outcome.cause`, None where its type declares none (a fault among them), and None for a post made with no outcome behind it.
+- <a id="Notification.cause"></a>`cause`: `RefusalCause | None` -- Whether the same request could succeed later: the outcome type's cause for its reason, None where its type declares none (a fault among them), and None for a post made with no outcome behind it.
 - <a id="Notification.fatal"></a>`fatal`: `bool` -- True for a fault that ended its operation: it reaches a person even while an unattended run mutes the others.
 - <a id="Notification.kind"></a>`kind`: `OutcomeKind` -- What the outcome is, read from its type; `UNCLASSIFIED` for a post made with no outcome behind it.
 - <a id="Notification.message"></a>`message`: `str` -- The words a person reads.
@@ -10975,10 +10973,8 @@ them all.
 - <a id="Notification.outcome_id"></a>`outcome_id`: `int` -- The outcome's number: the same for both deliveries of one outcome (muted, then shown when a person asks for it), different for every other.
 - <a id="Notification.reason"></a>`reason`: `str` -- The outcome's machine-readable code, read from its type; empty for a post that declares none.
 - <a id="Notification.remedy"></a>`remedy`: `Remedy | None` -- The action that answers the outcome, offered to a person; None when it has none.
-- <a id="Notification.severity"></a>`severity`: `Severity` -- How the post is logged; `shown` says whether it is displayed.
 - <a id="Notification.shown"></a>`shown`: `bool` -- Whether it is for display now; False when shutdown, an unattended run's mute, a run that already showed it, or the repeat window holds it back. The window never holds back a run's ending.
 - <a id="Notification.solicited"></a>`solicited`: `bool` -- True when it answers a request just made, a refused press or call, so neither the unattended mute nor the repeat window holds it back.
-- <a id="Notification.source"></a>`source`: `str` -- The module or function that posted it; empty when none was named.
 - <a id="Notification.title"></a>`title`: `str` -- The short heading a person reads.
 - <a id="Notification.wall_time_epoch_s"></a>`wall_time_epoch_s`: `float` -- When it was posted, in seconds since the epoch, for a client in another process.
 
@@ -11201,25 +11197,6 @@ both be held.
 
 - <a id="OpticsStatus.field_of_view"></a>`field_of_view`: `FieldOfView | ObjectiveUnknownError | HardwareCommandRefusedError | PixelSizeUnknownError` -- The frame's extent on the sample, or the first reason it is unknown, in this order: the objective's `ObjectiveUnknownError`; `HardwareCommandRefusedError`, `'not_connected'` naming the camera, or `'scope_disconnected'` after the scope's shutdown; `PixelSizeUnknownError`, `'optics_undeclared'`, `'binning_unread'` or `'frame_size_unread'`.
 - <a id="OpticsStatus.objective"></a>`objective`: `str | ObjectiveUnknownError` -- The active objective's id, or `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`.
-
-<a id="Outcome"></a>
-## `lumascope.Outcome`
-
-A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`outcome_of`](#outcome_of).
-
-What an exception's type says it is, read once for every host that answers it.
-
-**Fields**
-
-- <a id="Outcome.cause"></a>`cause`: `RefusalCause | None` -- Whether the same request could succeed later, as a refusal's, a quiet outcome's or a raised notice's type declares (`RefusalCause`); None for a fault, a notice that is only reported, and a by-contract cancel, which declares none.
-- <a id="Outcome.fatal"></a>`fatal`: `bool` -- A fault that ends what was running.
-- <a id="Outcome.for_person"></a>`for_person`: `bool` -- Whether `words` are written for the person: a refusal's, a notice's, a quiet outcome's, and a fault's whose type writes them so. Any other fault's are a developer's.
-- <a id="Outcome.kind"></a>`kind`: `OutcomeKind` -- A refusal, a notice, a quiet outcome or a fault.
-- <a id="Outcome.reason"></a>`reason`: `str` -- Its machine-readable code; empty when its type declares none.
-- <a id="Outcome.remedy"></a>`remedy`: `Remedy | None` -- The one action that answers it, when it has one.
-- <a id="Outcome.title"></a>`title`: `str | None` -- The heading its type declares; None for a fault whose type declares none, which each host names in its own way.
-- <a id="Outcome.words"></a>`words`: `str` -- Its own words, or a sentence saying they could not be written.
 
 <a id="PartStatus"></a>
 ## `lumascope.PartStatus`
@@ -12497,7 +12474,7 @@ What a manual recording's operation answers once it is done.
 ## `lumascope.Remedy`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Held in: [`Notification.remedy`](#Notification.remedy), [`Outcome.remedy`](#Outcome.remedy).  
+Held in: [`Notification.remedy`](#Notification.remedy).  
 Taken by: [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
 
 The one action that answers a refusal, offered to whoever was refused.
@@ -13589,25 +13566,6 @@ the close: SIGINT, SIGTERM or the host's `close()`.
 
 - [`RestServerNotStartedError`](#RestServerNotStartedError): `rest_server_not_started`
 
-<a id="outcome_of"></a>
-## `lumascope.outcome_of`
-
-```python
-def outcome_of(exception: BaseException) -> Outcome
-```
-
-Marks: in-process.
-
-What *exception* is, as its type says: the one reading of an outcome's kind and words.
-
-**Args**
-
-- `exception`: The exception to read, raised or not: any exception, a cancellation and one the API does not declare included.
-
-**Raises**
-
-Nothing.
-
 <a id="start_logging"></a>
 ## `lumascope.start_logging`
 
@@ -14105,7 +14063,7 @@ datagrams), or no board connected, answers None.
 <a id="OutcomeKind"></a>
 ### `lumascope.OutcomeKind`
 
-Held in: [`Notification.kind`](#Notification.kind), [`Outcome.kind`](#Outcome.kind).
+Held in: [`Notification.kind`](#Notification.kind).
 
 What an outcome is, read from its type by the reporter.
 
@@ -14192,7 +14150,7 @@ where its outcome is built.
 <a id="RefusalCause"></a>
 ### `lumascope.RefusalCause`
 
-Held in: [`Notification.cause`](#Notification.cause), [`Outcome.cause`](#Outcome.cause).
+Held in: [`Notification.cause`](#Notification.cause).
 
 Whether a refused request could succeed later, and what must change for it to.
 
@@ -14258,30 +14216,6 @@ READ: a read of the camera's setting beside the grab, for a frame that
 
 - `frame`
 - `read`
-
-<a id="Severity"></a>
-### `lumascope.Severity`
-
-Held in: [`Notification.severity`](#Notification.severity).
-
-Notification severity, by its name; its logging level is `level`.
-
-NOTICE sits between INFO and WARNING: user-facing status (start/done
-of a long unattended operation) that says so without misdeclaring
-itself as a fault. WARNING stays "something didn't work". The level
-says how a post is logged, not whether it is shown: `shown` on the
-notification says that.
-
-Two severities are ordered by their levels, never by their names:
-`<`, `<=`, `>` and `>=` raise, so an order read from the
-strings cannot be written.
-
-- `DEBUG` (`DEBUG`)
-- `INFO` (`INFO`)
-- `NOTICE` (`NOTICE`)
-- `WARNING` (`WARNING`)
-- `ERROR` (`ERROR`)
-- `CRITICAL` (`CRITICAL`)
 
 <a id="Slide"></a>
 ### `lumascope.Slide`
@@ -17613,7 +17547,7 @@ read the same.
 **Attributes**
 
 - `title`: The ending's heading, its reason's (`ENDING_TITLES`).
-- `reason`: The ending's machine-readable cause, a run ending's reason; `RunStartError` and `RunFailedToStartError` carry the same. `'captures_failed'` -- the run reached its end without every capture it was asked for. `'start_failed'` -- the run's setup raised a fault of no other reason after the run was committed. `'dispatch_refused'` -- the run loop was refused when it was dispatched, so it never ran. `'capture_location_failed'` -- the run's folder could not be made at the capture location. `'run_dir_init_failed'` -- the run's folder was made and could not be initialized. `'camera_lane_stalled'` -- a camera command did not finish, so the run could not take the camera. `'camera_read_failed'` -- the camera's settings could not be read when the run took its snapshot of them. `'run_loop_crashed'` -- the run loop raised, or stopped without saying how the run ended. `'hardware_disconnected'` -- a part the run needs was found disconnected. `'consecutive_scan_failures'` -- the scan failed too many times in a row with the hardware still present. `'interlock'` -- the stage's interlock refused a move during a scan. `'position_lost'` -- an axis lost its position during a scan, and nothing in a run homes it again. `'disk_space_critical'` -- free disk at the save location fell below what the run needs, so the run stopped to save what it has. `'file_writer_stalled'` -- saving stopped making progress, so the run stopped before it lost more captures. `'video_writer_died'` -- the writer of a video step failed. `'led_channel_unavailable'` -- steps of the run take an LED channel this scope does not have, and their captures kept failing. `'camera_failure'` -- the camera failed too many steps in a row. `'autofocus_failed'` -- a single-autofocus run's autofocus did not find focus. `'autofocus_not_started'` -- a single-autofocus run's autofocus was refused before the stage moved, its first window reaching past Z's travel.
+- `reason`: The ending's machine-readable cause, a run ending's reason. `'captures_failed'` -- the run reached its end without every capture it was asked for. `'start_failed'` -- the run's setup raised a fault of no other reason after the run was committed. `'dispatch_refused'` -- the run loop was refused when it was dispatched, so it never ran. `'capture_location_failed'` -- the run's folder could not be made at the capture location. `'run_dir_init_failed'` -- the run's folder was made and could not be initialized. `'camera_lane_stalled'` -- a camera command did not finish, so the run could not take the camera. `'camera_read_failed'` -- the camera's settings could not be read when the run took its snapshot of them. `'run_loop_crashed'` -- the run loop raised, or stopped without saying how the run ended. `'hardware_disconnected'` -- a part the run needs was found disconnected. `'consecutive_scan_failures'` -- the scan failed too many times in a row with the hardware still present. `'interlock'` -- the stage's interlock refused a move during a scan. `'position_lost'` -- an axis lost its position during a scan, and nothing in a run homes it again. `'disk_space_critical'` -- free disk at the save location fell below what the run needs, so the run stopped to save what it has. `'file_writer_stalled'` -- saving stopped making progress, so the run stopped before it lost more captures. `'video_writer_died'` -- the writer of a video step failed. `'led_channel_unavailable'` -- steps of the run take an LED channel this scope does not have, and their captures kept failing. `'camera_failure'` -- the camera failed too many steps in a row. `'autofocus_failed'` -- a single-autofocus run's autofocus did not find focus. `'autofocus_not_started'` -- a single-autofocus run's autofocus was refused before the stage moved, its first window reaching past Z's travel.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -17743,48 +17677,6 @@ run ends. The images that were captured are saved.
 | Reason | Cause | REST status |
 |---|---|---|
 | `captures_failed` | -- | 500 |
-
-<a id="RunStartError"></a>
-### `lumascope.RunStartError`
-
-A fault; bases `Fault`, `ProtocolError`.
-
-A sequenced run failed after it was committed but before it ran.
-
-The counterpart of ProtocolRunRefusedError on the other side of the
-commit line: a refusal means nothing started and nothing needs
-unwinding, while this means the run was committed, the terminal
-callback will fire and cleanup will run. Carries the same three
-fields so both sides deliver one shape to a caller, a REST handler
-and the popup.
-
-**Attributes**
-
-- `reason`: Machine-readable cause, a run ending's reason, as `RunFailedError` explains it.
-- `title`: Short heading for the user, the run ending's.
-- `message`: The sentence a user reads -- never a raw exception string; those belong in the log.
-
-| Reason | Cause | REST status |
-|---|---|---|
-| `autofocus_failed` | -- | 500 |
-| `autofocus_not_started` | -- | 500 |
-| `camera_failure` | -- | 500 |
-| `camera_lane_stalled` | -- | 500 |
-| `camera_read_failed` | -- | 500 |
-| `capture_location_failed` | -- | 500 |
-| `captures_failed` | -- | 500 |
-| `consecutive_scan_failures` | -- | 500 |
-| `disk_space_critical` | -- | 500 |
-| `dispatch_refused` | -- | 500 |
-| `file_writer_stalled` | -- | 500 |
-| `hardware_disconnected` | -- | 500 |
-| `interlock` | -- | 500 |
-| `led_channel_unavailable` | -- | 500 |
-| `position_lost` | -- | 500 |
-| `run_dir_init_failed` | -- | 500 |
-| `run_loop_crashed` | -- | 500 |
-| `start_failed` | -- | 500 |
-| `video_writer_died` | -- | 500 |
 
 <a id="RunWaitExpiredError"></a>
 ### `lumascope.RunWaitExpiredError`

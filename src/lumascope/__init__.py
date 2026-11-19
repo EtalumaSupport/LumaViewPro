@@ -221,7 +221,6 @@ from _lumascope.modules.exceptions import (
     RunFilesNotWrittenError,
     RunImagesNotSavedError,
     RunIncompleteError,
-    RunStartError,
     RunWaitExpiredError,
     RunWriteRefusedError,
     ScopeDisconnectError,
@@ -366,10 +365,7 @@ from _lumascope.modules.manual_recording import (
 )
 from _lumascope.modules.notification_center import (
     Notification,
-    Outcome,
     OutcomeKind,
-    Severity,
-    outcome_of,
 )
 from _lumascope.modules.objectives_loader import (
     Objective,
@@ -737,7 +733,6 @@ __all__ = [
     'OperationSettleRefusedError',
     'OperationWaitExpiredError',
     'OpticsStatus',
-    'Outcome',
     'OutcomeKind',
     'OutputFormat',
     'PackagesNotAsPinnedError',
@@ -807,7 +802,6 @@ __all__ = [
     'RunIncompleteError',
     'RunOutcome',
     'RunProgress',
-    'RunStartError',
     'RunStatus',
     'RunWaitExpiredError',
     'RunWriteRefusedError',
@@ -833,7 +827,6 @@ __all__ = [
     'SettingsFileNotWrittenError',
     'SettingsNotSavedNotice',
     'SettingsSetAside',
-    'Severity',
     'ShownChannel',
     'SimulatedCameraReadRefusal',
     'SimulatedCameraWriteRefusal',
@@ -893,6 +886,5 @@ __all__ = [
     'ZProjectMethod',
     'build_app',
     'build_server',
-    'outcome_of',
     'start_logging',
 ]

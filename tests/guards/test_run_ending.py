@@ -112,7 +112,7 @@ def _recorded_reasons():
                 continue
             fn = node.func
             label = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, 'id', None)
-            if label == 'RunStartError':
+            if label == '_RunStartError':
                 # The typed start failure takes its cause first; the fatal
                 # funnel takes a RunEnding, read below.
                 arg = node.args[0] if node.args else None
@@ -313,7 +313,7 @@ class TestTheRunnerRecordsTheStop:
 class TestAStartFailureCarriesItsCause:
     def test_a_typed_start_failure_keeps_its_code_and_sentence(self):
         import _lumascope.modules.sequenced_capture_runner as scr
-        from _lumascope.modules.exceptions import RunStartError
+        from _lumascope.modules.exceptions import _RunStartError
 
         cleaned = []
         stub = SimpleNamespace(
@@ -330,7 +330,7 @@ class TestAStartFailureCarriesItsCause:
         )
         scr.SequencedCaptureRunner._fail_run_at_start(
             stub,
-            RunStartError('capture_location_failed', 'Pick a folder.'),
+            _RunStartError('capture_location_failed', 'Pick a folder.'),
             PendingRunOutcome(),
         )
 

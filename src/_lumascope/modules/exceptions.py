@@ -2537,7 +2537,7 @@ class RunCheckFailedError(Fault, ProtocolError):
         self.message = message
 
 
-class RunStartError(Fault, ProtocolError):
+class _RunStartError(Fault, ProtocolError):
     """A sequenced run failed after it was committed but before it ran.
 
     The counterpart of ProtocolRunRefusedError on the other side of the
@@ -3178,7 +3178,7 @@ class VideoWriterFailedError(Fault, CaptureError):
 
     title = ENDING_TITLES['video_writer_died']
     causes: ClassVar[dict[str, RefusalCause | None]] = {'video_writer_died': None}
-    same_fact_as = (RunStartError,)
+    same_fact_as = (_RunStartError,)
 
     def __init__(self, *, protocol_step: bool):
         stopped = (
@@ -3435,7 +3435,7 @@ class RunIncompleteError(Fault, CaptureError):
 
     title = ENDING_TITLES['captures_failed']
     causes: ClassVar[dict[str, RefusalCause | None]] = {'captures_failed': None}
-    same_fact_as = (RunStartError,)
+    same_fact_as = (_RunStartError,)
     _NAMED_AT_MOST = 5
 
     def __init__(self, *, asked: int, captured: int, failed_steps: list[str]):
@@ -3467,8 +3467,7 @@ class RunFailedError(Fault, CaptureError):
 
     Attributes:
         title: The ending's heading, its reason's (``ENDING_TITLES``).
-        reason: The ending's machine-readable cause, a run ending's reason;
-            ``RunStartError`` and ``RunFailedToStartError`` carry the same.
+        reason: The ending's machine-readable cause, a run ending's reason.
             ``'captures_failed'`` -- the run reached its end without every
             capture it was asked for. ``'start_failed'`` -- the run's setup
             raised a fault of no other reason after the run was committed.
@@ -3506,7 +3505,7 @@ class RunFailedError(Fault, CaptureError):
 
     titles: ClassVar[dict[str, str]] = ENDING_TITLES
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(FAILURE_REASONS)
-    same_fact_as = (RunStartError,)
+    same_fact_as = (_RunStartError,)
 
     def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
@@ -3526,7 +3525,7 @@ class RunFailedToStartError(Fault, CaptureError):
 
     titles: ClassVar[dict[str, str]] = ENDING_TITLES
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(FAILURE_REASONS)
-    same_fact_as = (RunStartError,)
+    same_fact_as = (_RunStartError,)
 
     def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
@@ -3768,7 +3767,7 @@ class FileWriterStalledError(Fault, CaptureError):
 
     title = ENDING_TITLES['file_writer_stalled']
     causes: ClassVar[dict[str, RefusalCause | None]] = {'file_writer_stalled': None}
-    same_fact_as = (RunStartError,)
+    same_fact_as = (_RunStartError,)
 
     def __init__(self, run: str, stuck: str, unsaved: int):
         super().__init__(

@@ -73,7 +73,7 @@ from _lumascope.modules.exceptions import (
     RunImagesNotSavedError,
     RunEndedByStopNotice,
     RunIncompleteError,
-    RunStartError,
+    _RunStartError,
     SingleScanNotice,
     ValueClampedNotice,
     unknown_positions_sentence,
@@ -2049,7 +2049,7 @@ class SequencedCaptureRunner:
                 and dispatch_future.done()
                 and dispatch_future.exception() is not None
             ):
-                raise RunStartError(
+                raise _RunStartError(
                     'dispatch_refused',
                     'The run could not be started. See the log for details.',
                 ) from dispatch_future.exception()
@@ -2077,7 +2077,7 @@ class SequencedCaptureRunner:
         try:
             self._parent_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
-            raise RunStartError(
+            raise _RunStartError(
                 'capture_location_failed',
                 f'Unable to save data to {self._parent_dir!s}. '
                 'Please select an accessible capture location.',
@@ -2087,7 +2087,7 @@ class SequencedCaptureRunner:
         if not result['status']:
             # The allocator's own sentence: every failure it reports is about
             # the capture location, so it shares that code.
-            raise RunStartError('capture_location_failed', result['error'])
+            raise _RunStartError('capture_location_failed', result['error'])
 
         # The folder's own failures are the run's start failure, in words
         # naming the file and the operating system's reason; anything else is
@@ -2095,11 +2095,11 @@ class SequencedCaptureRunner:
         try:
             self._initialize_run_dir()
         except ProtocolNotSavedError as ex:
-            raise RunStartError(
+            raise _RunStartError(
                 'run_dir_init_failed', f'The run folder could not be initialized. {ex}'
             ) from ex
         except OSError as ex:
-            raise RunStartError(
+            raise _RunStartError(
                 'run_dir_init_failed',
                 f'The run folder {self._run_dir!s} could not be initialized '
                 f'({ex.strerror or type(ex).__name__}).',
@@ -2108,7 +2108,7 @@ class SequencedCaptureRunner:
     def _fail_run_at_start(self, exc: Exception, run: EngineRun) -> None:
         """Unwind a run that failed during start()'s setup phase."""
         logger.error(f'[{self.LOGGER_NAME} ] Run failed during start: {exc}', exc_info=True)
-        if isinstance(exc, RunStartError):
+        if isinstance(exc, _RunStartError):
             ending = RunEnding(RunStatus.FAILED_AT_START, exc.reason, exc.message)
         else:
             # Anything else reaching here is not an L1 sentence. The user

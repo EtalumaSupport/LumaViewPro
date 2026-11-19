@@ -37,7 +37,7 @@ from _lumascope.modules.exceptions import (
     RefusalCause,
     Remedy,
 )
-from _lumascope.modules.api_surface import api, api_fields
+from _lumascope.modules.api_surface import api_fields
 
 logger = logging.getLogger('LVP.notifications')
 # The reporter's own record -- what happened, with the traceback when it is
@@ -139,7 +139,6 @@ class OutcomeKind(StrEnum):
     UNCLASSIFIED = 'unclassified'
 
 
-@api_fields('kind', 'title', 'words', 'for_person', 'reason', 'remedy', 'fatal', 'cause')
 @dataclass(frozen=True)
 class Outcome:
     """What an exception's type says it is, read once for every host that answers it.
@@ -176,7 +175,6 @@ class Outcome:
         return self.words if self.for_person else _UNTYPED_FAULT_BODY
 
 
-@api(in_process=True)
 def outcome_of(exception: BaseException) -> Outcome:
     """What *exception* is, as its type says: the one reading of an outcome's kind and words.
 
@@ -231,12 +229,10 @@ def _next_outcome_id() -> int:
 
 
 @api_fields(
-    'severity',
     'category',
     'title',
     'message',
     'monotonic_s',
-    'source',
     'fatal',
     'solicited',
     'operation_key',
@@ -287,8 +283,8 @@ class Notification:
             for every other.
         reason: The outcome's machine-readable code, read from its type;
             empty for a post that declares none.
-        cause: Whether the same request could succeed later: the outcome's
-            ``Outcome.cause``, None where its type declares none (a fault
+        cause: Whether the same request could succeed later: the outcome
+            type's cause for its reason, None where its type declares none (a fault
             among them), and None for a post made with no outcome behind it.
         shown: Whether it is for display now; False when shutdown, an
             unattended run's mute, a run that already showed it, or the
