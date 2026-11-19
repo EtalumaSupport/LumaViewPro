@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import queue as _queue_mod
 import threading
 import time
 from types import MappingProxyType
@@ -541,7 +540,7 @@ def bare_grab_worker():
     parent = bare_pylon_camera()
     base = ImageHandlerBase()
     base._record_failure = MagicMock(return_value=False)
-    worker = pyloncamera._PylonImageGrabWorker(parent, base, _queue_mod.Queue(maxsize=1))
+    worker = pyloncamera._PylonImageGrabWorker(parent, base)
     return worker, base
 
 

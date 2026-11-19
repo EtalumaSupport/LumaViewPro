@@ -81,20 +81,18 @@ def _make_worker(queue_depth=None, clock=time.monotonic):
     parent.is_grabbing.return_value = True
     base = MagicMock()
     base._record_failure.return_value = False
-    frame_queue = queue.Queue(maxsize=1)
     worker = _PylonImageGrabWorker(
         parent,
         base,
-        frame_queue,
         queue_depth=queue_depth,
         clock=clock,
     )
-    return worker, parent, base, frame_queue
+    return worker, parent, base
 
 
 class TestWorkerLifecycle(unittest.TestCase):
     def test_start_spawns_daemon_thread(self):
-        worker, _, _, _ = _make_worker()
+        worker, _, _ = _make_worker()
         try:
             worker.start()
             self.assertIsNotNone(worker._thread)
@@ -105,7 +103,7 @@ class TestWorkerLifecycle(unittest.TestCase):
             worker.stop()
 
     def test_start_is_idempotent(self):
-        worker, _, _, _ = _make_worker()
+        worker, _, _ = _make_worker()
         try:
             worker.start()
             first_thread = worker._thread
@@ -115,7 +113,7 @@ class TestWorkerLifecycle(unittest.TestCase):
             worker.stop()
 
     def test_stop_joins_within_timeout(self):
-        worker, _, _, _ = _make_worker()
+        worker, _, _ = _make_worker()
         worker.start()
         t0 = time.monotonic()
         worker.stop(timeout=2.0)
@@ -126,7 +124,7 @@ class TestWorkerLifecycle(unittest.TestCase):
         self.assertLess(elapsed, 1.5, f'stop took {elapsed:.2f}s')
 
     def test_stop_idempotent(self):
-        worker, _, _, _ = _make_worker()
+        worker, _, _ = _make_worker()
         worker.start()
         worker.stop()
         # Second stop on an already-stopped worker should not raise.
@@ -134,13 +132,13 @@ class TestWorkerLifecycle(unittest.TestCase):
         self.assertFalse(worker._thread.is_alive())
 
     def test_stop_without_start_is_noop(self):
-        worker, _, _, _ = _make_worker()
+        worker, _, _ = _make_worker()
         # Should not raise; thread was never spawned.
         worker.stop()
         self.assertIsNone(worker._thread)
 
     def test_restart_after_stop(self):
-        worker, _, _, _ = _make_worker()
+        worker, _, _ = _make_worker()
         worker.start()
         worker.stop()
         worker.start()
@@ -179,7 +177,7 @@ def _stage_b_order(worker, base, count):
 def test_a_full_handoff_of_frames_drops_its_oldest_frame_for_the_new_one(queue_depth, holds):
     """After a stall Stage B delivers the newest frames: the full handoff
     used to drop the new frame and deliver the stale ones."""
-    worker, _, base, _ = _make_worker(queue_depth=queue_depth)
+    worker, _, base = _make_worker(queue_depth=queue_depth)
     for seq in range(1, holds + 2):
         worker.enqueue('frame', _FakeGrabResult(), HandOver(seq, 0, 0))
 
@@ -190,7 +188,7 @@ def test_a_failed_grab_is_never_dropped_for_a_frame(caplog):
     """The oldest frame leaves, not the older failed grab, which the
     failed-grab cascade counts; the burst counts the frame dropped."""
     caplog.set_level(logging.WARNING, logger='LVP.camera')
-    worker, _, base, _ = _make_worker(queue_depth=3)
+    worker, _, base = _make_worker(queue_depth=3)
     worker.enqueue('fail', _FakeGrabResult(err_code=999, err_desc='x'), None, error_code=999)
     worker.enqueue('frame', _FakeGrabResult(), HandOver(1, 0, 0))
     worker.enqueue('frame', _FakeGrabResult(), HandOver(2, 0, 0))
@@ -203,11 +201,11 @@ def test_a_failed_grab_is_never_dropped_for_a_frame(caplog):
 
 
 class TestProcessFrame(unittest.TestCase):
-    def test_success_path_stores_and_publishes(self):
+    def test_a_frame_is_stored_with_its_hand_over(self):
         # _FakeGrabResult has no Chunk* attributes, so _read_validity_chunks
         # returns None via the getattr-default path -- no need to patch
         # the static method.
-        worker, _, base, frame_queue = _make_worker()
+        worker, _, base = _make_worker()
         gr = _FakeGrabResult()
         handed_over = HandOver(5, 777, 0)
         worker._process_frame(gr, handed_over)
@@ -216,15 +214,6 @@ class TestProcessFrame(unittest.TestCase):
         # and the number and steady time are Stage A's hand-over.
         assert base._store_frame.call_args.kwargs['wire_bytes'] == 4321
         assert base._store_frame.call_args.kwargs['handed_over'] is handed_over
-        # The capture's queue holds the record the store built.
-        self.assertIs(frame_queue.get_nowait(), base._store_frame.return_value)
-
-    def test_drains_stale_before_putting(self):
-        worker, _, base, frame_queue = _make_worker()
-        frame_queue.put_nowait('stale record')
-        worker._process_frame(_FakeGrabResult(), HandOver(1, 0, 0))
-        self.assertIs(frame_queue.get_nowait(), base._store_frame.return_value)
-        self.assertTrue(frame_queue.empty())
 
 
 class _ArrayGrabResult(_FakeGrabResult):
@@ -240,51 +229,51 @@ class _ArrayGrabResult(_FakeGrabResult):
         return np.arange(self._shape[0] * self._shape[1], dtype=np.uint8).reshape(self._shape)
 
 
-class TestTheCapturesQueueCarriesTheStoredFrame(unittest.TestCase):
-    """The capture reads the frame the store kept, never the array beside it.
+class TestABaslerCaptureIsTheFrameStoredAfterTheCall(unittest.TestCase):
+    """A Basler capture waits on the store, as every camera's does: it is the
+    frame the store kept after the call, the cropped one, never a frame stored
+    before it.
 
-    With a crop window, the store keeps the cropped frame; the capture's
-    queue once carried the uncropped array under the stored frame's number,
-    and carried a frame the store refused (made under another window) under
-    the previous frame's number.
+    The worker drives the real store, as Stage B does; the frames come
+    free-running until the capture answers.
     """
 
-    def _worker_with_a_cropping_store(self):
+    def test_the_capture_is_the_cropped_frame_stored_after_the_call(self):
         from _lumascope.drivers.camera import FrameWindow, ImageHandlerBase
+        from tests.camera_fakes import bare_pylon_camera
 
-        parent = MagicMock()
-        parent._device_removed = False
-        base = ImageHandlerBase()
-        base.frame_window = FrameWindow(acquired_width=8, acquired_height=6, crop=(1, 1, 4, 3))
-        frame_queue = queue.Queue(maxsize=1)
-        return _PylonImageGrabWorker(parent, base, frame_queue), base, frame_queue
+        cam = bare_pylon_camera()
+        store = ImageHandlerBase()
+        store.frame_window = FrameWindow(acquired_width=8, acquired_height=6, crop=(1, 1, 4, 3))
+        cam.cam_image_handler = store
+        worker = _PylonImageGrabWorker(cam, store)
+        worker._process_frame(_ArrayGrabResult(6, 8), store.hand_over())
+        stored_before = store.get_last_image()
 
-    def test_the_queue_carries_the_cropped_stored_frame(self):
-        worker, base, frame_queue = self._worker_with_a_cropping_store()
+        result = []
+        waiter = threading.Thread(target=lambda: result.append(cam.grab_new_capture(5.0)))
+        waiter.start()
+        while waiter.is_alive():
+            worker._process_frame(_ArrayGrabResult(6, 8), store.hand_over())
+        waiter.join()
 
-        worker._process_frame(_ArrayGrabResult(6, 8), base.hand_over())
-
-        queued = frame_queue.get_nowait()
-        self.assertIs(queued, base.get_last_image())
-        self.assertEqual(queued.image.shape, (3, 4))
-
-    def test_a_frame_of_another_window_never_reaches_the_queue(self):
-        worker, _base, frame_queue = self._worker_with_a_cropping_store()
-
-        worker._process_frame(_ArrayGrabResult(10, 10), _base.hand_over())
-
-        self.assertTrue(frame_queue.empty())
+        capture = result[0]
+        assert capture is not None, 'no frame was stored after the call'
+        assert capture.stored > stored_before.stored, (
+            'the capture is a frame stored before the call'
+        )
+        assert capture.image.shape == (3, 4)
 
 
 class TestProcessFailure(unittest.TestCase):
     def test_buffer_canceled_does_not_record_failure(self):
-        worker, _, base, _ = _make_worker()
+        worker, _, base = _make_worker()
         gr = _FakeGrabResult(err_code=_PYLON_ERR_BUFFER_CANCELED, err_desc='cancelled')
         worker._process_failure(gr)
         base._record_failure.assert_not_called()
 
     def test_payload_discarded_does_not_record_failure(self):
-        worker, _, base, _ = _make_worker()
+        worker, _, base = _make_worker()
         gr = _FakeGrabResult(err_code=_PYLON_ERR_PAYLOAD_DISCARDED, err_desc='discarded')
         worker._process_failure(gr)
         base._record_failure.assert_not_called()
@@ -294,20 +283,20 @@ class TestProcessFailure(unittest.TestCase):
         # constant -- the constant-based test above stays green even if the
         # constant drifts off the real value, so it can't catch the typo that
         # left the benign branch dead. This pins the real-hardware code.
-        worker, _, base, _ = _make_worker()
+        worker, _, base = _make_worker()
         gr = _FakeGrabResult(err_code=3791651346, err_desc='Payload data has been discarded')
         worker._process_failure(gr)
         base._record_failure.assert_not_called()
 
     def test_device_removed_skips_failure_counter(self):
-        worker, parent, base, _ = _make_worker()
+        worker, parent, base = _make_worker()
         parent._device_removed = True
         gr = _FakeGrabResult(err_code=9999, err_desc='whatever')
         worker._process_failure(gr)
         base._record_failure.assert_not_called()
 
     def test_generic_failure_records(self):
-        worker, _, base, _ = _make_worker()
+        worker, _, base = _make_worker()
         gr = _FakeGrabResult(err_code=999, err_desc='transport err')
         worker._process_failure(gr)
         base._record_failure.assert_called_once()
@@ -319,7 +308,7 @@ class TestProcessFailure(unittest.TestCase):
         worker, outside any teardown and on a camera it was declaring gone:
         the call pypylon #225 names as a native-abort hazard on a removed
         handle, which the teardown itself skips for a removed camera."""
-        worker, parent, base, _ = _make_worker()
+        worker, parent, base = _make_worker()
         base._record_failure.return_value = True
         gr = _FakeGrabResult(err_code=999, err_desc='transport err')
         worker._process_failure(gr)
@@ -329,7 +318,7 @@ class TestProcessFailure(unittest.TestCase):
 
     def test_grabresult_introspection_failure_is_tolerated(self):
         """err_code / desc readers may themselves raise on a dead handle."""
-        worker, _, base, _ = _make_worker()
+        worker, _, base = _make_worker()
         gr = MagicMock()
         gr.GetErrorCode.side_effect = RuntimeError('handle dead')
         gr.GetErrorDescription.side_effect = RuntimeError('handle dead')
@@ -342,7 +331,7 @@ class TestRunLoop(unittest.TestCase):
     """End-to-end: items enqueued, worker drains them via _run."""
 
     def test_frame_kind_routes_to_process_frame(self):
-        worker, _, base, _frame_queue = _make_worker()
+        worker, _, base = _make_worker()
         worker.start()
         try:
             worker.enqueue('frame', _FakeGrabResult(), HandOver(1, 0, 0))
@@ -356,7 +345,7 @@ class TestRunLoop(unittest.TestCase):
             worker.stop()
 
     def test_fail_kind_routes_to_process_failure(self):
-        worker, _, base, _ = _make_worker()
+        worker, _, base = _make_worker()
         worker.start()
         try:
             worker.enqueue('fail', _FakeGrabResult(err_code=999, err_desc='x'), None)
@@ -370,7 +359,7 @@ class TestRunLoop(unittest.TestCase):
             worker.stop()
 
     def test_device_removed_short_circuits_in_run(self):
-        worker, parent, base, _ = _make_worker()
+        worker, parent, base = _make_worker()
         parent._device_removed = True
         worker.start()
         try:
@@ -382,7 +371,7 @@ class TestRunLoop(unittest.TestCase):
             worker.stop()
 
     def test_exception_in_processing_does_not_kill_thread(self):
-        worker, _, base, _ = _make_worker()
+        worker, _, base = _make_worker()
         base._store_frame.side_effect = RuntimeError('boom')
         worker.start()
         try:
@@ -410,7 +399,7 @@ class TestStopReleasesWhatIsPending(unittest.TestCase):
         """
         import gc
 
-        worker, parent, _, _ = _make_worker()
+        worker, parent, _ = _make_worker()
         # Flagging device_removed has the worker take and release each item
         # without calling the _process_* mocks.
         parent._device_removed = True
@@ -439,7 +428,7 @@ class TestGrabResultRelease(unittest.TestCase):
     """
 
     def test_processed_grabresult_is_dereferenced(self):
-        worker, _, _base, _ = _make_worker()
+        worker, _, _base = _make_worker()
 
         class _Releasable:
             """Smart-pointer stand-in supporting weakref."""
@@ -490,7 +479,7 @@ def _full_worker(caplog, clock):
     """A worker whose queue (depth 1, never started) holds one failed grab,
     which no new item displaces, so each new item is dropped."""
     caplog.set_level(logging.WARNING, logger='LVP.camera')
-    worker, _, _, _ = _make_worker(queue_depth=1, clock=clock)
+    worker, _, _ = _make_worker(queue_depth=1, clock=clock)
     worker.enqueue('fail', _FakeGrabResult(), None)
     return worker
 

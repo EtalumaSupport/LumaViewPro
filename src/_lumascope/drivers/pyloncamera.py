@@ -17,7 +17,6 @@ from _lumascope.drivers.camera import (
     Camera,
     CameraNodeHasNoValue,
     CameraNodeValue,
-    Frame,
     FrameGrid,
     HandOver,
     ImageHandlerBase,
@@ -2752,84 +2751,7 @@ class PylonCamera(Camera):
         self.write_node('AutoExposureTimeLowerLimit', exp_min)
         self.write_node('AutoExposureTimeUpperLimit', exp_max)
 
-    # grab() inherited from Camera base class
-
-    def grab_new_capture(self, timeout_s: float) -> Frame | None:
-        """Drain queued frames, then block for a genuinely new one.
-
-        Drops every frame already queued in the image handler, then
-        blocks up to ``timeout_s`` seconds waiting for the next callback.
-        Used by AF / characterization paths that need the freshest
-        possible frame -- previously dropped only one queued frame,
-        which could return a stale frame when the consumer had fallen
-        behind.
-
-        Args:
-            timeout_s: Wall-clock seconds to wait for a new frame after
-                draining queued frames.
-
-        Returns:
-            The stored ``Frame`` that arrived after the call, or None if
-            the handler is missing or no frame arrived within ``timeout_s``.
-        """
-        # Per-grab duration trace; zero overhead when
-        # ENABLE_PROFILE_TRACE is unset (production builds).
-        _trace_enabled = profile_trace.ENABLE_PROFILE_TRACE
-        _t0 = time.perf_counter() if _trace_enabled else None
-        _outcome = 'unknown'
-        dropped = 0
-        try:
-            if not self.cam_image_handler:
-                _outcome = 'no_handler'
-                return None
-
-            try:
-                # Drain all frames captured before this call -- we only want
-                # the next one produced after we started waiting.
-                while True:
-                    try:
-                        self.cam_image_handler._frame_queue.get_nowait()
-                        dropped += 1
-                    except queue.Empty:
-                        break
-                if dropped > 1:
-                    logger.debug(f'[CAM Class ] grab_new_capture drained {dropped} stale frames')
-
-                frame = self.cam_image_handler._frame_queue.get(block=True, timeout=timeout_s)
-                _outcome = 'success'
-                return frame
-
-            except queue.Empty:
-                # Expected outcome when no frame arrives within `timeout_s`.
-                # WARNING (not ERROR), no traceback -- the wait simply
-                # expired, no SDK fault to attribute.
-                _outcome = 'timeout'
-                _cam_log.warning(
-                    f'[CAM Class ] grab_new_capture timed out after '
-                    f'{timeout_s:.1f}s (no frame queued; dropped {dropped} stale)'
-                )
-                return None
-            except Exception as ex:
-                _outcome = 'exception'
-                _cam_log.exception(
-                    f'[CAM Class ] grab_new_capture raised {type(ex).__name__}: {ex}'
-                )
-                return None
-        finally:
-            if _trace_enabled and _t0 is not None:
-                _dt_ms = (time.perf_counter() - _t0) * 1000.0
-                profile_trace.trace(
-                    'pylon_grab_trace.csv',
-                    'ts_ms,duration_ms,dropped_count,outcome,timeout_s',
-                    [
-                        int(time.time() * 1000),
-                        f'{_dt_ms:.3f}',
-                        dropped,
-                        _outcome,
-                        f'{timeout_s:.3f}',
-                    ],
-                    recording_id=profile_trace.NO_RECORDING,
-                )
+    # grab() and grab_new_capture() inherited from Camera base class
 
     def _frame_grid(self) -> FrameGrid | None:
         """The Width / Height nodes' grid at the current binning.
@@ -3751,13 +3673,12 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
     def __init__(self, parent_cam: PylonCamera):
         pylon.ImageEventHandler.__init__(self)
         ImageHandlerBase.__init__(self)
-        self._frame_queue = queue.Queue(maxsize=1)
         self._parent = parent_cam
         # Stage B worker for the OnImageGrabbed two-stage split. Created
         # here so it shares lifetime with the handler; start() / stop()
         # are driven from PylonCamera.connect / disconnect at the ordering
         # the SDK contract requires.
-        self._worker = _PylonImageGrabWorker(parent_cam, self, self._frame_queue)
+        self._worker = _PylonImageGrabWorker(parent_cam, self)
 
     def OnImagesSkipped(self, camera: pylon.InstantCamera, countOfSkippedImages: int) -> None:
         """Pylon SDK callback fired when the grab strategy drops frames.
@@ -3796,9 +3717,8 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
         """Stage A native-thread fast-path: state checks + enqueue to worker.
 
         Heavy work (16 MB GetArray copy, chunk reads, _store_frame,
-        per-frame callback fanout, legacy frame_queue publish, generic
-        failure classification + counter) runs on Stage B's
-        _PylonImageGrabWorker. The native-thread exposure surface here
+        per-frame callback fanout, generic failure classification +
+        counter) runs on Stage B's _PylonImageGrabWorker. The native-thread exposure surface here
         targets ~100us p99; the BaseException outer guard catches
         anything escaping into Pylon's grab thread per
         `class_pylon_1_1_c_image_event_handler.html` ("exceptions will
@@ -3967,18 +3887,6 @@ class ImageHandler(pylon.ImageEventHandler, ImageHandlerBase):
             except BaseException as e:
                 _log_safely(f'handle_trace tick raised {type(e).__name__}: {e}')
 
-    def reset(self) -> None:
-        """Clear frame buffer, drain the queue, and reset failure counter."""
-        try:
-            while not self._frame_queue.empty():
-                try:
-                    self._frame_queue.get_nowait()
-                except queue.Empty:
-                    break
-        except Exception as e:
-            _cam_log.warning(f'[CAM Class ] handler reset queue-drain failed: {e}')
-        ImageHandlerBase.reset(self)
-
 
 def _error_code_words(code: int | str | None) -> str:
     """A failed grab's error code as Basler documents it: hex, or what stood in for one."""
@@ -4081,14 +3989,12 @@ class _PylonImageGrabWorker:
         self,
         parent,
         base,
-        frame_queue,
         *,
         queue_depth: int | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._parent = parent  # PylonCamera instance
         self._base = base  # ImageHandlerBase instance
-        self._frame_queue = frame_queue  # legacy maxsize=1 consumer queue
         self._depth = self._DEFAULT_QUEUE_DEPTH if queue_depth is None else int(queue_depth)
         # (kind, grabResult, handed_over), oldest first; read and written
         # under _cond alone.
@@ -4329,31 +4235,13 @@ class _PylonImageGrabWorker:
         # switch cannot make this buffered frame downconvert at the wrong depth,
         # because the depth came from the frame, not the camera's current state.
         significant_bits = pylon.BitDepth(grabResult.GetPixelType())
-        frame = self._base._store_frame(
+        self._base._store_frame(
             img,
             chunks=chunks,
             handed_over=handed_over,
             significant_bits=significant_bits,
             wire_bytes=grabResult.GetPayloadSize(),
         )
-        # The capture's queue carries the record the store built: the stored,
-        # cropped frame, never the delivered array beside it, and nothing for
-        # a frame the store refused (made under another window).
-        if frame is None:
-            return
-        try:
-            if not self._frame_queue.empty():
-                with contextlib.suppress(queue.Empty):
-                    self._frame_queue.get_nowait()
-            self._frame_queue.put_nowait(frame)
-        except queue.Full:
-            # latest-wins; older drop is intended (legacy consumer can
-            # only hold one frame). Log at debug so the cause stays in
-            # the post-mortem trace without raising the noise floor.
-            logger.debug(
-                '[CAM Class ] worker frame_queue full after drain attempt; '
-                'dropping latest frame (legacy maxsize=1 consumer race)'
-            )
 
     def _process_failure(self, grabResult) -> None:
         """Stage B failure path: classify + record + auto-stop on cascade.
