@@ -4531,52 +4531,6 @@ The cell-count method LumaViewPro's panel starts from, for
 
 Nothing.
 
-<a id="PostProcessingAPI.draw_graph"></a>
-### `PostProcessingAPI.draw_graph`
-
-```python
-def draw_graph(
-    self,
-    results: FilePath | None,
-    *,
-    x: str | None,
-    y: str | None,
-    trendline: Trendline | None = None,
-    x_label: str | None = None,
-    y_label: str | None = None,
-    title: str = '',
-) -> Figure
-```
-
-Marks: in-process.
-
-The figure `graph` saves for the same arguments, for a GUI in this process to show.
-
-With no *results*, or *x* or *y* None, it is the empty frame a
-graph shows before its axes are chosen.
-
-**Args**
-
-- `results`: The cell-count results file, or None for none yet.
-- `x`: The column on the X axis, or None for none yet.
-- `y`: The column on the Y axis, or None for none yet.
-- `trendline`: One of the kinds `graph_options` names for *x* and *y*, or None for none.
-- `x_label`: The X axis's label; None labels it with *x*.
-- `y_label`: The Y axis's label; None labels it with *y*.
-- `title`: The graph's title; empty for none.
-
-**Raises**
-
-- `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *results*; `'not_a_file'`, a folder is.
-- `PostProcessingRefusedError`: `'results_unreadable'`, the file cannot be graphed; `'axis_not_plottable'`, *x* or *y* is not a column that axis can take; `'fit_impossible'`, the values cannot give the *trendline*.
-- `ArgumentRefusedError`: `'not_offered'`, the *trendline* is not one *x* and *y* take, offering those they take.
-
-**Refusals**
-
-- [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_file`
-- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `results_unreadable`, `axis_not_plottable`, `fit_impossible`
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`
-
 <a id="PostProcessingAPI.enhance"></a>
 ### `PostProcessingAPI.enhance`
 
@@ -4786,22 +4740,6 @@ measure its file at: the method's *pixels_per_um*, else
 - [`PostProcessingRefusedError`](#PostProcessingRefusedError): `no_scale`, `invalid_setting`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `out_of_range`
 
-<a id="PostProcessingAPI.projection_methods"></a>
-### `PostProcessingAPI.projection_methods`
-
-```python
-def projection_methods(self) -> tuple[ZProjectMethod, ...]
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/post_processing/projection_methods`.
-
-The methods `zproject(method=)` and `ZProject(method)` take.
-
-**Raises**
-
-Nothing.
-
 <a id="PostProcessingAPI.save_cell_count_method"></a>
 ### `PostProcessingAPI.save_cell_count_method`
 
@@ -4954,22 +4892,6 @@ it runs to its end.
 
 - 409: [`PostProcessingRefusedError`](#PostProcessingRefusedError): `scope_held`, `files_writing`
 - 503: [`SessionClosingError`](#SessionClosingError): `session_closing`
-
-<a id="PostProcessingAPI.stitch_modes"></a>
-### `PostProcessingAPI.stitch_modes`
-
-```python
-def stitch_modes(self) -> tuple[StitchMode, ...]
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/post_processing/stitch_modes`.
-
-The modes `stitch(mode=)` and `Stitch(mode)` take.
-
-**Raises**
-
-Nothing.
 
 <a id="Lumascope"></a>
 ## `lumascope.Lumascope`
@@ -14225,7 +14147,6 @@ then places them by their recorded stage positions
 <a id="StitchMode"></a>
 ### `lumascope.StitchMode`
 
-Returned by: [`PostProcessingAPI.stitch_modes`](#PostProcessingAPI.stitch_modes).  
 Held in: [`Stitch.mode`](#Stitch.mode).
 
 How a stitch registers its tiles.
@@ -14275,7 +14196,7 @@ HOST_WALLCLOCK: the host's wall clock read after the grab returned the
 ### `lumascope.Trendline`
 
 Held in: [`GraphOptions.trendlines`](#GraphOptions.trendlines).  
-Taken by: [`PostProcessingAPI.draw_graph`](#PostProcessingAPI.draw_graph), [`PostProcessingAPI.graph`](#PostProcessingAPI.graph).
+Taken by: [`PostProcessingAPI.graph`](#PostProcessingAPI.graph).
 
 The kind of curve a graph's trendline is fitted as.
 
@@ -14339,7 +14260,6 @@ so a holder's kind is its item's kind.
 <a id="ZProjectMethod"></a>
 ### `lumascope.ZProjectMethod`
 
-Returned by: [`PostProcessingAPI.projection_methods`](#PostProcessingAPI.projection_methods).  
 Held in: [`ZProject.method`](#ZProject.method).
 
 How a z-stack's slices are reduced to one image, pixel by pixel.
@@ -18224,12 +18144,10 @@ reads what the person was shown.
 | `POST` | `/api/v1/post_processing/graph` | [`PostProcessingAPI.graph`](#PostProcessingAPI.graph) |
 | `GET` | `/api/v1/post_processing/graph_options` | [`PostProcessingAPI.graph_options`](#PostProcessingAPI.graph_options) |
 | `GET` | `/api/v1/post_processing/load_cell_count_method` | [`PostProcessingAPI.load_cell_count_method`](#PostProcessingAPI.load_cell_count_method) |
-| `GET` | `/api/v1/post_processing/projection_methods` | [`PostProcessingAPI.projection_methods`](#PostProcessingAPI.projection_methods) |
 | `POST` | `/api/v1/post_processing/save_cell_count_method` | [`PostProcessingAPI.save_cell_count_method`](#PostProcessingAPI.save_cell_count_method) |
 | `POST` | `/api/v1/post_processing/start_build` | [`PostProcessingAPI.start_build`](#PostProcessingAPI.start_build) |
 | `POST` | `/api/v1/post_processing/start_count_cells` | [`PostProcessingAPI.start_count_cells`](#PostProcessingAPI.start_count_cells) |
 | `POST` | `/api/v1/post_processing/start_enhance` | [`PostProcessingAPI.start_enhance`](#PostProcessingAPI.start_enhance) |
-| `GET` | `/api/v1/post_processing/stitch_modes` | [`PostProcessingAPI.stitch_modes`](#PostProcessingAPI.stitch_modes) |
 | `POST` | `/api/v1/protocol_runner` | [`ScopeSession.protocol_runner`](#ScopeSession.protocol_runner) |
 | `GET` | `/api/v1/protocol_size_advisory` | [`ScopeSession.protocol_size_advisory`](#ScopeSession.protocol_size_advisory) |
 | `POST` | `/api/v1/rename_step` | [`ScopeSession.rename_step`](#ScopeSession.rename_step) |

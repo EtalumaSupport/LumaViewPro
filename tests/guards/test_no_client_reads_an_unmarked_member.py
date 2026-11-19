@@ -72,6 +72,7 @@ _PINNED: dict[str, int] = {
     'LiveWork.has': 2,
     'Lumascope.camera_connected': 2,
     'PostProcessingAPI.composite': 1,
+    'PostProcessingAPI.draw_graph': 1,
     'PostProcessingAPI.stitch': 1,
     'PostProcessingAPI.video': 1,
     'PostProcessingAPI.zproject': 1,

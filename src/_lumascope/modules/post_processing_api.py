@@ -683,7 +683,6 @@ class PostProcessingAPI:
             )
         return tuple(items)
 
-    @api(reads=True)
     def stitch_modes(self) -> tuple[StitchMode, ...]:
         """The modes ``stitch(mode=)`` and ``Stitch(mode)`` take.
 
@@ -692,7 +691,6 @@ class PostProcessingAPI:
         """
         return tuple(StitchMode)
 
-    @api(reads=True)
     def projection_methods(self) -> tuple[ZProjectMethod, ...]:
         """The methods ``zproject(method=)`` and ``ZProject(method)`` take.
 
@@ -743,7 +741,7 @@ class PostProcessingAPI:
         on_progress: ProgressCallback | None = None,
     ) -> BuildResult:
         """Project each Z-stack in *folder* to one image by *method*
-        (one of ``projection_methods()``).
+        (a ``ZProjectMethod``).
 
         Raises:
             ArgumentRefusedError: ``'not_offered'``, *method* is not a
@@ -1664,7 +1662,6 @@ class PostProcessingAPI:
         )
         return GraphOptions(x_axes=tuple(x_axes), y_axes=tuple(y_axes), trendlines=trendlines)
 
-    @api(in_process=True)
     def draw_graph(
         self,
         results: FilePath | None,

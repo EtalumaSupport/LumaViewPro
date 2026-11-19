@@ -24,6 +24,7 @@ from _lumascope.modules.post_processing_api import (
     ZProject,
 )
 from _lumascope.modules.stitch_mode import StitchMode
+from _lumascope.modules.zproject_method import ZProjectMethod
 import _lumascope.modules.post_processing as post_processing
 import _lumascope.modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
@@ -138,7 +139,7 @@ class QuickEnhanceControls(BoxLayout, SettingControls):
 class StitchControls(BoxLayout):
     done = BooleanProperty(False)
     stitching_mode = StringProperty('Quality')
-    # The words each button shows for a mode of the session's stitch_modes().
+    # The words each button shows for a mode of StitchMode.
     _MODE_VALUES: ClassVar[dict[str, StitchMode]] = {
         'Quality': StitchMode.QUALITY,
         'Fast Preview': StitchMode.FAST_PREVIEW,
@@ -189,8 +190,7 @@ class ZProjectionControls(BoxLayout):
         # Kivy is handed each method's word as plain text: it builds the
         # strings it renders from the type of the text it holds, which a
         # member's set refuses. The pick goes back as that word.
-        methods = _app_ctx.ctx.session.post_processing.projection_methods()
-        self.ids['zprojection_method_spinner'].values = [str(method) for method in methods]
+        self.ids['zprojection_method_spinner'].values = [str(method) for method in ZProjectMethod]
         # Opens on the API's default projection, as a REST or script caller's does.
         self.ids['zprojection_method_spinner'].text = str(ZProject.method)
 
