@@ -16,7 +16,8 @@ Four modes, each a bench condition:
   again after ``set_binning(2)`` and a ``set_frame_size``, which no code path
   resets but a body's own firmware might; and the window's and the
   auto-function region's offsets and sizes at connect, so two builds' runs
-  show whether a reverse moves where either is counted from. Nothing is lit,
+  show whether a reverse moves where either is counted from; and the largest
+  frame the scope offers, set beside the sensor's size. Nothing is lit,
   saved or moved.
 - ``--readout``: BF off, then on while frames stream at a long exposure. A
   rolling shutter's frame lit part way through its readout is lit at the end
@@ -235,6 +236,14 @@ def _reverses(scope, when):
 
 def nodes(session):
     scope = session.scope
+    # The largest frame the scope offers, beside the sensor's own size: a
+    # maximum the camera reports while an offset is applied is short by it.
+    limits = scope.capabilities.camera_limits
+    frame_max = None if limits is None else limits.frame_max
+    figure(
+        'the largest frame the scope offers',
+        None if frame_max is None else [frame_max.width, frame_max.height],
+    )
     try:
         at_connect = _reverses(scope, 'at connect')
     except CameraSettingUnsupportedError as ex:
