@@ -898,33 +898,6 @@ and the illumination maximum is answered whatever the camera's.
 
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
 
-<a id="ScopeSession.clear_current_turret_objective"></a>
-### `ScopeSession.clear_current_turret_objective`
-
-```python
-def clear_current_turret_objective(self) -> None
-```
-
-Marks: enters: `guarded_write`.  
-Route: `POST /api/v1/clear_current_turret_objective`.
-
-Leave the turret slot in the light path unassigned.
-
-The counterpart of `assign_turret_objective` for the slot in the
-light path: that says which objective is installed in a slot, this
-says none is known to be in the current one. The slot is the API's,
-never the caller's guess of it.
-
-**Raises**
-
-- `HardwareCommandRefusedError`: `'axis_absent'`, the scope has no turret; or a run, a diagnostic or a recording holds the scope and the slot has an assignment (`'exclusive_activity_running'`). Nothing is written.
-- `ObjectiveUnknownError`: `'slot_unknown'`, the slot in the light path is unknown, so there is no slot to clear.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`
-
 <a id="ScopeSession.clear_turret_objective"></a>
 ### `ScopeSession.clear_turret_objective`
 
@@ -8272,39 +8245,6 @@ Held in: [`Lumascope.runtime_state`](#Lumascope.runtime_state).
 The answers for the user configuration a Lumascope acts on
 (labware / objective / turret / stage), read from the session's settings.
 
-<a id="RuntimeState.field_of_view"></a>
-### `RuntimeState.field_of_view`
-
-```python
-def field_of_view(self) -> FieldOfView
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/runtime_state/field_of_view`.
-
-The area the camera's frame covers on the sample, at the current
-objective and the camera's binning.
-
-A display reads it as a state through `optics_status`.
-
-**Returns**
-
-FieldOfView: Width and height in micrometres.
-
-**Raises**
-
-- `ObjectiveUnknownError`: `'slot_unknown'`, `'slot_unassigned'`, `'not_in_catalogue'` or `'none_selected'`, as `pixel_size_um`.
-- `HardwareCommandRefusedError`: `'not_connected'` or `'scope_disconnected'`, as `pixel_size_um`.
-- `PixelSizeUnknownError`: `'optics_undeclared'` or `'binning_unread'`, as `pixel_size_um`; `'frame_size_unread'`, the camera has not reported its frame.
-- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
-
-**Refusals by REST status**
-
-- 409: [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`; [`PixelSizeUnknownError`](#PixelSizeUnknownError): `binning_unread`, `frame_size_unread`
-- 422: [`PixelSizeUnknownError`](#PixelSizeUnknownError): `optics_undeclared`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
 <a id="RuntimeState.frame_point_distance"></a>
 ### `RuntimeState.frame_point_distance`
 
@@ -8491,51 +8431,6 @@ move to it is refused.
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
-<a id="RuntimeState.plate_transform"></a>
-### `RuntimeState.plate_transform`
-
-```python
-def plate_transform(
-    self,
-    *,
-    labware_id: str | None = None,
-    stage_offset: coord_transformations.StageOffset | None = None,
-) -> Callable[[float, float], coord_transformations.PlatePosition]
-```
-
-Marks: in-process; reads (changes nothing).
-
-`stage_to_plate` bound to one plate and offset, taken when this is called.
-
-`stage_to_plate` reads the selected plate and live offset on every
-call, so a caller converting many positions over time -- a recording
-writing one per frame, a run, a redraw -- would state its later ones
-against a plate or offset changed mid-way. The function returned is
-bound to the plate and offset of this call, so every position it
-converts is stated in one frame of reference and a later change moves
-none of them.
-
-**Args**
-
-- `labware_id`: The plate the positions are stated on; None for the plate selected when this is called.
-- `stage_offset`: Where the plate is mounted on the stage, in um; None for the offset live when this is called.
-
-**Returns**
-
-A function of `(x_um, y_um)` answering their `PlatePosition`; it raises only as the transform refuses a non-finite coordinate.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_a_number'`, an offset axis is not a finite number; asked here, so the function does not.
-- `CatalogueNameRefusedError`: `'labware_unknown'`, `labware_id` is not a plate the catalogue has.
-- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope, and `labware_id` or `stage_offset` was left to the settings.
-
-**Refusals**
-
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`
-- [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
-- [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-
 <a id="RuntimeState.stage_offset"></a>
 ### `RuntimeState.stage_offset`
 
@@ -8597,64 +8492,6 @@ Convert a stage position (um) to a plate position (mm).
 **Refusals by REST status**
 
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`; [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-
-<a id="RuntimeState.turret_config"></a>
-### `RuntimeState.turret_config`
-
-```python
-def turret_config(self) -> dict[int, str | None]
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/runtime_state/turret_config`.
-
-The turret's objective assignments, from the settings.
-
-The map `ScopeSession.turret_objective` reads one slot of: on a
-scope with no turret (`capabilities.has_turret`) it is empty, as
-that read refuses every slot there.
-
-**Returns**
-
-Turret position (1-4) to objective ID, None for an unassigned slot; empty on a scope with no turret. A copy: changing it changes no assignment (`ScopeSession.assign_turret_objective` does).
-
-**Raises**
-
-- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
-
-**Refusals by REST status**
-
-- 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-
-<a id="RuntimeState.well_label"></a>
-### `RuntimeState.well_label`
-
-```python
-def well_label(self) -> str | None
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/runtime_state/well_label`.
-
-Get the well label for the current stage XY position.
-
-Maps the current target X/Y stage position to a plate-frame
-coordinate using the selected labware and stage offset, then
-looks up the matching well label.
-
-**Returns**
-
-str | None: Well label (e.g. `"A1"`); `''` when the selected labware has no wells (the Blank plate) or the position is more than half a pitch beyond its outer well centres; None when X or Y does not know its position, or the scope has no X or Y at all. Consumers omit the well from filenames and metadata for both rather than stamping a fabricated one -- the last number an axis had before it lost its reference names a real well the scope may no longer be over. The two stay distinct so a caller can say which it was.
-
-**Raises**
-
-- `ConfigurationDefectError`: `'scope_not_composed'`, no session has bound this scope.
-- `CatalogueNameRefusedError`: `'labware_unknown'`, the selected labware is not in the catalogue.
-
-**Refusals by REST status**
-
-- 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 
 <a id="SimulationAPI"></a>
@@ -10145,7 +9982,6 @@ One capture a run was asked for that produced no image.
 ## `lumascope.FieldOfView`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`RuntimeState.field_of_view`](#RuntimeState.field_of_view).  
 Held in: [`OpticsStatus.field_of_view`](#OpticsStatus.field_of_view).
 
 The area a frame covers on the sample, in micrometres.
@@ -11070,7 +10906,7 @@ Where the scope is on a plate, focus included: X and Y in mm on the plate, Z in 
 ## `lumascope.PlatePosition`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate), [`RuntimeState.plate_transform`](#RuntimeState.plate_transform), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate).
+Returned by: [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate).
 
 A position on a plate, in mm from the plate's top-left corner.
 
@@ -12805,7 +12641,7 @@ A distance the stage moves on X and Y, in micrometres.
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
 Returned by: [`RuntimeState.stage_offset`](#RuntimeState.stage_offset).  
-Taken by: [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage), [`RuntimeState.plate_transform`](#RuntimeState.plate_transform), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate).
+Taken by: [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage), [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate).
 
 Where the plate is mounted on the stage, in um: the offset the two conversions apply.
 
@@ -17975,7 +17811,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/channel_colors` | [`ScopeSession.channel_colors`](#ScopeSession.channel_colors) |
 | `GET` | `/api/v1/channel_settings` | [`ScopeSession.channel_settings`](#ScopeSession.channel_settings) |
 | `PUT` | `/api/v1/channel_settings` | [`ScopeSession.set_channel_settings`](#ScopeSession.set_channel_settings) |
-| `POST` | `/api/v1/clear_current_turret_objective` | [`ScopeSession.clear_current_turret_objective`](#ScopeSession.clear_current_turret_objective) |
 | `POST` | `/api/v1/clear_turret_objective` | [`ScopeSession.clear_turret_objective`](#ScopeSession.clear_turret_objective) |
 | `POST` | `/api/v1/confirm_objective` | [`ScopeSession.confirm_objective`](#ScopeSession.confirm_objective) |
 | `GET` | `/api/v1/control` | [`ScopeSession.control`](#ScopeSession.control) |
@@ -18130,7 +17965,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/motion_expected` | [`Lumascope.motion_expected`](#Lumascope.motion_expected) |
 | `GET` | `/api/v1/scope/objective` | [`Lumascope.objective`](#Lumascope.objective) |
 | `GET` | `/api/v1/scope/plate` | [`Lumascope.plate`](#Lumascope.plate) |
-| `GET` | `/api/v1/scope/runtime_state/field_of_view` | [`RuntimeState.field_of_view`](#RuntimeState.field_of_view) |
 | `GET` | `/api/v1/scope/runtime_state/frame_point_distance` | [`RuntimeState.frame_point_distance`](#RuntimeState.frame_point_distance) |
 | `GET` | `/api/v1/scope/runtime_state/frame_point_plate` | [`RuntimeState.frame_point_plate`](#RuntimeState.frame_point_plate) |
 | `GET` | `/api/v1/scope/runtime_state/optics_status` | [`RuntimeState.optics_status`](#RuntimeState.optics_status) |
@@ -18138,8 +17972,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/runtime_state/plate_to_stage` | [`RuntimeState.plate_to_stage`](#RuntimeState.plate_to_stage) |
 | `GET` | `/api/v1/scope/runtime_state/stage_offset` | [`RuntimeState.stage_offset`](#RuntimeState.stage_offset) |
 | `GET` | `/api/v1/scope/runtime_state/stage_to_plate` | [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate) |
-| `GET` | `/api/v1/scope/runtime_state/turret_config` | [`RuntimeState.turret_config`](#RuntimeState.turret_config) |
-| `GET` | `/api/v1/scope/runtime_state/well_label` | [`RuntimeState.well_label`](#RuntimeState.well_label) |
 | `POST` | `/api/v1/scope/simulation/answer_model` | [`SimulationAPI.answer_model`](#SimulationAPI.answer_model) |
 | `POST` | `/api/v1/scope/simulation/bind_camera_usb_driver` | [`SimulationAPI.bind_camera_usb_driver`](#SimulationAPI.bind_camera_usb_driver) |
 | `POST` | `/api/v1/scope/simulation/clear` | [`SimulationAPI.clear`](#SimulationAPI.clear) |

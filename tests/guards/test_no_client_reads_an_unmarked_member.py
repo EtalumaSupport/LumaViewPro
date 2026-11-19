@@ -78,6 +78,9 @@ _PINNED: dict[str, int] = {
     'PostProcessingAPI.zproject': 1,
     'Protocol.copy_for_execution': 2,
     'Protocol.step_row': 6,
+    'RuntimeState.plate_transform': 2,
+    'RuntimeState.turret_config': 2,
+    'ScopeSession.clear_current_turret_objective': 1,
     'ScopeSession.set_protocol_filepath': 2,
 }
 

@@ -6890,7 +6890,6 @@ class ScopeSession:
             f'{self.scope.runtime_state.get_current_objective_id()!r}'
         )
 
-    @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
     def clear_current_turret_objective(self) -> None:
         """Leave the turret slot in the light path unassigned.

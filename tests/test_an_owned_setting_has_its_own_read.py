@@ -140,7 +140,7 @@ def test_a_turret_slot_is_refused_on_a_scope_with_no_turret(session):
     assert refused.value.reason == 'axis_absent'
 
 
-def test_the_turret_map_answers_what_each_slot_reads_in_process_and_on_the_wire(tmp_path):
+def test_the_turret_map_answers_what_each_slot_reads(tmp_path):
     turreted = ScopeSession.create(
         complete_settings(live_folder=str(tmp_path), microscope='LS850T'), simulate=True
     )
@@ -148,13 +148,6 @@ def test_the_turret_map_answers_what_each_slot_reads_in_process_and_on_the_wire(
         turreted.assign_turret_objective(2, '10x Oly')
         expected = {slot: turreted.turret_objective(slot) for slot in range(1, 5)}
         assert turreted.scope.runtime_state.turret_config() == expected
-        with TestClient(build_app(turreted)) as client:
-            answer = client.get('/api/v1/scope/runtime_state/turret_config')
-        # The slot keys cross as JSON object keys, strings.
-        assert (answer.status_code, answer.json()) == (
-            200,
-            {str(slot): objective for slot, objective in expected.items()},
-        )
     finally:
         _shutdown(turreted)
 
@@ -169,9 +162,6 @@ def test_the_turret_map_is_empty_on_a_scope_with_no_turret_and_the_stored_slots_
     turretless = ScopeSession.create(settings, simulate=True)
     try:
         assert turretless.scope.runtime_state.turret_config() == {}
-        with TestClient(build_app(turretless)) as client:
-            answer = client.get('/api/v1/scope/runtime_state/turret_config')
-        assert (answer.status_code, answer.json()) == (200, {})
         assert turretless.settings['turret_objectives'] == dict.fromkeys(range(1, 5), '10x Oly')
     finally:
         _shutdown(turretless)

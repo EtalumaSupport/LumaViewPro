@@ -278,7 +278,6 @@ class RuntimeState:
             objective.focal_length_mm, binning, capabilities=self._scope.capabilities
         )
 
-    @api(reads=True)
     def field_of_view(self) -> FieldOfView:
         """The area the camera's frame covers on the sample, at the current
         objective and the camera's binning.
@@ -524,7 +523,6 @@ class RuntimeState:
             stage['X'].position_um + distance.dx_um, stage['Y'].position_um + distance.dy_um
         )
 
-    @api(reads=True)
     def turret_config(self) -> dict[int, str | None]:
         """The turret's objective assignments, from the settings.
 
@@ -653,7 +651,6 @@ class RuntimeState:
             labware=labware, stage_offset=offset, x_mm=x_mm, y_mm=y_mm
         )
 
-    @api(in_process=True, reads=True)
     def plate_transform(
         self,
         *,
@@ -700,7 +697,6 @@ class RuntimeState:
 
         return to_plate
 
-    @api(reads=True)
     def well_label(self) -> str | None:
         """Get the well label for the current stage XY position.
 
