@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from _lumascope.modules import settings_paths
-from _lumascope.modules.api_surface import IN_PROCESS, mark_of, sets_of
+from _lumascope.modules.api_surface import API, mark_of, sets_of
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
     HardwareCommandRefusedError,
@@ -180,7 +180,7 @@ def test_the_turret_map_is_empty_on_a_scope_with_no_turret_and_the_stored_slots_
 def test_get_setting_refuses_a_setting_with_its_own_read_and_names_it(session):
     # The table's paths, a layer's for '*': each owned setting is refused,
     # naming its read -- a setter's own, an action's from the table -- and
-    # only the settings the host moves, whose writers are in-process, are
+    # only the settings the host moves, whose writers no wire carries, are
     # answered.
     wrong = {}
     for pattern, member in settings_paths.SETTINGS_WITH_A_MEMBER.items():
@@ -193,7 +193,7 @@ def test_get_setting_refuses_a_setting_with_its_own_read_and_names_it(session):
             answered = (refused.reason, refused.member)
         else:
             answered = 'answered'
-        if mark_of(writer) == IN_PROCESS:
+        if mark_of(writer) != API:
             expected = 'answered'
         else:
             expected = ('has_member', member.path_of(sets_of(writer) or member.read))
