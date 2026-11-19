@@ -839,7 +839,7 @@ def _block_the_finish(monkeypatch):
             pass
 
         def create_single_recording_stack(
-            self, df, path, output_file_loc, *, save_encoding, channel_colors
+            self, df, path, output_file_loc, *, save_encoding, channel_colors, on_progress
         ):
             entered.set()
             release.wait(timeout=15)
@@ -1164,7 +1164,7 @@ def _capture_hyperstack_df(monkeypatch):
             pass
 
         def create_single_recording_stack(
-            self, df, path, output_file_loc, *, save_encoding, channel_colors
+            self, df, path, output_file_loc, *, save_encoding, channel_colors, on_progress
         ):
             captured['df'] = df
             captured['thread'] = threading.current_thread().name

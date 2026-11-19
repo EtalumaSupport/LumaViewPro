@@ -159,6 +159,9 @@ class TestVideoWellStackBuild:
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
             channel_colors=release_colors(),
+            on_progress=None,
+            total_groups=1,
+            current_group=1,
         )
 
         assert result.status, f'video-well stack build failed: {result.error}'
@@ -204,6 +207,9 @@ class TestVideoWellStackBuild:
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
             channel_colors=release_colors(),
+            on_progress=None,
+            total_groups=1,
+            current_group=1,
         )
         assert result.status, f'stack build failed: {result.error}'
 
@@ -230,6 +236,9 @@ class TestVideoWellStackBuild:
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
             channel_colors=release_colors(),
+            on_progress=None,
+            total_groups=1,
+            current_group=1,
         )
         assert result.status, f'stack build failed: {result.error}'
 
@@ -254,6 +263,9 @@ class TestVideoWellStackBuild:
             output_file_loc=pathlib.Path('out.ome.tiff'),
             save_encoding='right_aligned',
             channel_colors=release_colors(),
+            on_progress=None,
+            total_groups=1,
+            current_group=1,
         )
 
         assert not result.status

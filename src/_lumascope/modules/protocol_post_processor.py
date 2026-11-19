@@ -139,6 +139,24 @@ def rows_of(*, stills: bool, recordings: bool) -> Callable[[pd.DataFrame], pd.Se
     return select
 
 
+def group_progress(
+    on_progress: ProgressCallback | None, *, current_group: int, total_groups: int
+) -> ProgressCallback | None:
+    """*on_progress* for one group of a build of *total_groups*, or None without one.
+
+    The group's own 0 to 100 is reported as its share of the build's, so the
+    build's percent rises through its groups and never falls back to 0 at a
+    group's start.
+    """
+    if on_progress is None:
+        return None
+    # One expression for every point, so a group's 100 and the next group's
+    # 0 are the same number, not two roundings of it.
+    return lambda percent, status: on_progress(
+        (current_group - 1 + percent / 100) / total_groups * 100, status
+    )
+
+
 def derived_rows(df: pd.DataFrame) -> pd.Series:
     """Which rows are derived images, the one test: a raw capture's
     derivation is empty, and every row the loader gives carries one."""

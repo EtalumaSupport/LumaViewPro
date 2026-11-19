@@ -61,6 +61,9 @@ def _build(tmp_path, df, out_name='out.ome.tiff'):
         output_file_loc=pathlib.Path(out_name),
         save_encoding='right_aligned',
         channel_colors=release_colors(),
+        on_progress=None,
+        total_groups=1,
+        current_group=1,
     )
     assert result.status, f'stack build failed: {result.error}'
     with tf.TiffFile(str(tmp_path / out_name)) as tif:

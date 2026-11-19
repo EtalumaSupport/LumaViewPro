@@ -1154,13 +1154,13 @@ class PostProcessingAPI:
         from _lumascope.modules.stack_builder import StackBuilder
 
         def stack(path: pathlib.Path, on_progress: ProgressCallback) -> dict:
-            # One stack, so there is no progress to tell.
             return StackBuilder(has_turret=self._has_turret()).create_single_recording_stack(
                 df=frames,
                 path=path,
                 output_file_loc=output,
                 save_encoding=save_encoding,
                 channel_colors=channel_colors,
+                on_progress=on_progress,
             )
 
         return self._on_lane(

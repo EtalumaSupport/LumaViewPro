@@ -19,7 +19,12 @@ from _lumascope.modules.exceptions import (
     HyperstacksSavingNotice,
 )
 from _lumascope.modules.notification_center import notifications
-from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor, operation_key
+from _lumascope.modules.api_surface import ProgressCallback
+from _lumascope.modules.protocol_post_processor import (
+    ProtocolPostProcessor,
+    group_progress,
+    operation_key,
+)
 from _lumascope.modules.protocol_post_processing_result import PostProcResult
 from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 
@@ -199,6 +204,11 @@ class StackBuilder(ProtocolPostProcessor):
                 output_file_loc=kwargs['output_file_loc'],
                 save_encoding=kwargs['save_encoding'],
                 channel_colors=kwargs['channel_colors'],
+                on_progress=group_progress(
+                    kwargs['on_progress'],
+                    current_group=kwargs['current_group'],
+                    total_groups=kwargs['total_groups'],
+                ),
             )
         )
 
@@ -325,7 +335,15 @@ class StackBuilder(ProtocolPostProcessor):
         save_encoding: str,
         channel_colors: channel_record.ChannelColors,
         sort_order: list[str] | None = None,
+        on_progress: ProgressCallback | None = None,
     ):
+        """Build one stack of *df*'s planes; *on_progress* hears the share of its reads done.
+
+        Every plane is read three times -- its geometry, its depth and
+        record, its pixels as they stream into the writer -- and the percent
+        counts all three, so it moves from the first read rather than sitting
+        at 0 through the two header passes.
+        """
         if sort_order is None:
             sort_order = ['Scan Count', 'Z-Slice', 'Channel Index']
 
@@ -386,6 +404,16 @@ class StackBuilder(ProtocolPostProcessor):
 
         df = df.sort_values(by=sort_order, ascending=True)
 
+        reads, done = 3 * len(df), 0
+
+        def _counted(value):
+            # One plane's read is done; *value* is what it read.
+            nonlocal done
+            done += 1
+            if on_progress is not None:
+                on_progress(done / reads * 100, None)
+            return value
+
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
         sample_image, _, _ = image_utils.load_pixels(
@@ -398,7 +426,9 @@ class StackBuilder(ProtocolPostProcessor):
         # written first, so every plane's dtype is read from its header here.
         # That pair is the one mixture a stack promotes; any other is refused
         # below, plane by plane.
-        plane_dtypes = {image_utils.read_image_geometry(path / fp)[1] for fp in df['Filepath']}
+        plane_dtypes = {
+            _counted(image_utils.read_image_geometry(path / fp))[1] for fp in df['Filepath']
+        }
         promotes_uint8 = plane_dtypes == {np.dtype(np.uint8), np.dtype(np.uint16)}
         stack_dtype = np.dtype(np.uint16) if promotes_uint8 else sample_image.dtype
         # The run's encoding decides how an 8-bit plane enters that stack. A
@@ -411,7 +441,9 @@ class StackBuilder(ProtocolPostProcessor):
         # The output's depth claim and per-plane timing resolve from every
         # input's header before the write starts -- neither can be collected
         # during the plane stream because the OME metadata is written first.
-        headers = [image_utils.read_tiff_depth_and_record(path / fp) for fp in df['Filepath']]
+        headers = [
+            _counted(image_utils.read_tiff_depth_and_record(path / fp)) for fp in df['Filepath']
+        ]
         input_depths = [depth for depth, _ in headers]
         output_depth = image_utils.resolve_output_depth(input_depths)
         input_records = [record for _, record in headers]
@@ -462,8 +494,10 @@ class StackBuilder(ProtocolPostProcessor):
             # dense 0..N-1 range.
             for _, row in df.iterrows():
                 t, z, c = row['Scan Count'], row['Z-Slice'], row['Channel Index']
-                image, _, _ = image_utils.load_pixels(
-                    path / row['Filepath'], collapse_legacy_false_color=False
+                image, _, _ = _counted(
+                    image_utils.load_pixels(
+                        path / row['Filepath'], collapse_legacy_false_color=False
+                    )
                 )
 
                 if image_utils.is_color_image(image):
@@ -535,6 +569,7 @@ class StackBuilder(ProtocolPostProcessor):
         *,
         save_encoding: str,
         channel_colors: channel_record.ChannelColors,
+        on_progress: ProgressCallback | None = None,
     ) -> dict:
         # Manual-recording entry point: sorts by Scan Count alone (Z and
         # Color axes collapse to single values for single recordings)
@@ -555,4 +590,5 @@ class StackBuilder(ProtocolPostProcessor):
             save_encoding=save_encoding,
             channel_colors=channel_colors,
             sort_order=['Scan Count'],
+            on_progress=on_progress,
         )

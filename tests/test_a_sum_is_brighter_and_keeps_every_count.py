@@ -468,6 +468,9 @@ def test_a_runs_stack_is_built_in_the_runs_encoding(tmp_path, encoding, unsummed
         output_file_loc=pathlib.Path('stack.ome.tiff'),
         save_encoding=encoding,
         channel_colors=release_colors(),
+        on_progress=None,
+        total_groups=1,
+        current_group=1,
     )
     assert result.status, result.error
     assert _plane_maxima(tmp_path / 'stack.ome.tiff') == sorted([unsummed, summed])

@@ -17,7 +17,7 @@ import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.common_utils import PostFunction
 from _lumascope.modules.exceptions import InputFramesUnusableError
 from _lumascope.modules.api_surface import ProgressCallback
-from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
+from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor, group_progress
 from _lumascope.modules.protocol_post_processing_result import PostProcResult
 from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 from _lumascope.modules.tiling_config import TilingGrids
@@ -340,12 +340,7 @@ class VideoBuilder(ProtocolPostProcessor):
         # The writer's name, not the request: a taken name has moved it.
         logger.info(f'[{self._name}] Writing video to {video.output_path}')
 
-        # Progress bar percentage calculation
-        end_percentage = (current_group / total_groups) * 100
-        start_percentage = ((current_group - 1) / total_groups) * 100
-
-        percent_diff = end_percentage - start_percentage
-
+        report = group_progress(on_progress, current_group=current_group, total_groups=total_groups)
         total_frames = len(df)
         i = 0
         skipped = 0
@@ -365,8 +360,8 @@ class VideoBuilder(ProtocolPostProcessor):
                 continue
             previous_ts = frame_ts
 
-            if on_progress is not None:
-                on_progress(start_percentage + (i / total_frames) * percent_diff, None)
+            if report is not None:
+                report((i / total_frames) * 100, None)
 
             i += 1
 

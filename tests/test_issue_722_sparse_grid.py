@@ -209,6 +209,9 @@ def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
             output_file_loc=pathlib.Path(f'out_{i}.ome.tiff'),
             save_encoding='right_aligned',
             channel_colors=release_colors(),
+            on_progress=None,
+            total_groups=1,
+            current_group=1,
         )
         from _lumascope.modules import recording_frames
 
