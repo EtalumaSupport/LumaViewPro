@@ -613,6 +613,22 @@ def _the_drawing_gpu() -> DrawingGpu:
     )
 
 
+def _log_the_gl_context() -> None:
+    """Log the window's OpenGL version and Kivy's GL backend; on the thread that owns the context.
+
+    Kivy's own lines for them are INFO, below its level; the version string
+    carries the graphics driver's build, and the backend names an ANGLE
+    window, which the startup reading leaves unjudged.
+    """
+    from kivy.graphics.cgl import cgl_get_initialized_backend_name
+    from kivy.graphics.opengl import GL_VERSION, glGetString
+
+    version = glGetString(GL_VERSION).decode('utf-8', 'replace')
+    logger.info(
+        f'[LVP Main  ] OpenGL: {version} | Kivy GL backend: {cgl_get_initialized_backend_name()}'
+    )
+
+
 class LumaViewProApp(TooltipMixin, App):
     """Main application class -- build, start, stop, tooltips."""
 
@@ -742,6 +758,7 @@ class LumaViewProApp(TooltipMixin, App):
         # The window's GL context is this thread's, so the GPU it draws on is
         # read here, before bring-up's thread hands it to the session.
         self._drawing_gpu = _the_drawing_gpu()
+        _log_the_gl_context()
         self._bring_up = concurrent.futures.Future()
         threading.Thread(target=self._bring_up_on_its_thread, name='bring-up', daemon=True).start()
         self._bring_up.add_done_callback(lambda done: schedule_ui(lambda dt: self._hand_over(done)))
