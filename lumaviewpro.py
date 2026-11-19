@@ -7,23 +7,20 @@ import os
 import sys
 
 
-def _refuse_to_start(title, message):
+def _refuse_to_start(title, message, **fix):
     """Show a refusal that stops the launch before the GUI exists, then exit 1.
 
-    A dialog when tkinter can show one, since a run started by a double click
-    has no terminal, and stderr always.
+    The words go to stderr, then to the startup window, since a run started
+    by a double click has no terminal; when the window cannot be shown, why
+    follows the words on stderr. ``fix`` is the install script and pip line
+    the window offers (``ui.startup_window.show_refusal``).
     """
-    try:
-        import tkinter
-        from tkinter import messagebox
-
-        root = tkinter.Tk()
-        root.withdraw()
-        messagebox.showerror(title, message)
-        root.destroy()
-    except Exception:  # grain: ignore NAKED_EXCEPT
-        pass
     print(f'ERROR: {message}', file=sys.stderr)
+    from ui.startup_window import show_refusal
+
+    failure = show_refusal(title, message, **fix)
+    if failure is not None:
+        print(failure, file=sys.stderr)
     sys.exit(1)
 
 
@@ -55,7 +52,13 @@ except Exception as _first_import_error:
     _judge = sys.modules.get('_lumascope.lib.installed_packages')
     if _judge is None or not isinstance(_first_import_error, _judge.PackagesNotAsPinnedError):
         raise
-    _refuse_to_start(_first_import_error.title, str(_first_import_error))
+    _refuse_to_start(
+        _first_import_error.title,
+        str(_first_import_error),
+        install_script=_first_import_error.install_script,
+        install_args=_first_import_error.install_args,
+        pip_line=_first_import_error.pip_line,
+    )
 
 preload_camera_sdks()
 
@@ -327,42 +330,18 @@ if __name__ == '__main__':
         logger.error(f'[LVP Lock ] {_msg}')
         # Previously also printed to stderr; on a windowed PyInstaller
         # build (console=False) that print is dropped silently and the
-        # tkinter messagebox below is the user-facing signal. The
+        # startup window below is the user-facing signal. The
         # log line above is the file-side record. Issue #559.
-        try:
-            import tkinter as _tk
-            from tkinter import messagebox as _mb
+        from ui.startup_window import show_refusal
 
-            _root = _tk.Tk()
-            # The dialog's parent is an invisible 1 px window centred across
-            # the screen, a third of the way down, not a withdrawn one: macOS
-            # attaches the alert to its parent, and a withdrawn root sits at
-            # (0, 0), so the alert opened in the corner, half off screen.
-            # Moving a withdrawn root does not move it, and no parent at all
-            # lets the alert open behind the existing LVP window.
-            _root.overrideredirect(True)
-            _root.geometry(
-                f'1x1+{_root.winfo_screenwidth() // 2}+{_root.winfo_screenheight() // 3}'
-            )
-            _root.attributes('-alpha', 0.0)
-            # Force the dialog to the foreground. Without this the messagebox
-            # can open behind the existing LVP window and get buried, so the
-            # user never sees why the second launch silently did nothing.
-            _root.attributes('-topmost', True)
-            _root.update()
-            _root.lift()
-            _root.focus_force()
-            _mb.showerror(
-                'LumaViewPro: already running',
-                'Another copy of LumaViewPro is already running.\n\n'
-                'This copy will now close. Switch to the existing '
-                'window, or close the other instance first before '
-                'launching again.',
-                parent=_root,
-            )
-            _root.destroy()
-        except Exception as popup_err:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Lock ] Could not display already-running popup: {popup_err}')
+        _popup_failure = show_refusal(
+            'LumaViewPro: already running',
+            'Another copy of LumaViewPro is already running.\n\n'
+            'This copy will now close. Switch to the existing window,\n'
+            'or close the other instance first before launching again.',
+        )
+        if _popup_failure is not None:
+            logger.warning(f'[LVP Lock ] Could not display already-running popup: {_popup_failure}')
         # After the popup dismiss, if our parent process is a console
         # shell (cmd.exe / PowerShell), post WM_CLOSE to its window so
         # the user's shell doesn't stay orphaned next to a popup they

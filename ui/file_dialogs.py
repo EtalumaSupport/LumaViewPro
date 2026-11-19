@@ -10,6 +10,7 @@ from kivy.properties import ListProperty, StringProperty
 from kivy.uix.button import Button
 
 from ui.hover_behavior import HoverBehavior
+from ui.startup_window import bring_to_front
 from ui.ui_helpers import run_reported
 import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules import gui_logger, image_utils
@@ -155,9 +156,9 @@ def _macos_choose_folder(initial_dir=None):
 def _foregrounded_tk_root():
     """Build the invisible Tk root a tkinter picker parents to, foregrounded.
 
-    lift + focus_force after -topmost: parent= and -topmost alone still let
-    the picker open buried behind the main window on Windows (the messagebox
-    foregrounding precedent, applied here to the picker roots).
+    Brought to the front as the startup window is: parent= and -topmost
+    alone still let the picker open buried behind the main window on
+    Windows.
 
     Thread affinity: the caller creates, uses, and destroys this root
     entirely inside one (worker) thread; the root never escapes that
@@ -168,9 +169,7 @@ def _foregrounded_tk_root():
 
     root = Tk()
     root.attributes('-alpha', 0.0)
-    root.attributes('-topmost', True)
-    root.lift()
-    root.focus_force()
+    bring_to_front(root)
     return root
 
 

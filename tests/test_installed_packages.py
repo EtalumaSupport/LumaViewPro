@@ -4,11 +4,12 @@
 The judge (``packages_unlike_the_pins``) compares each pin that applies to
 this host with the installed metadata; the package's import refuses a row
 (``PackagesNotAsPinnedError``) on every host, before anything third-party
-loads; an installed build is not judged; the GUI entry shows the refusal as
-its dialog and exits 1, and lets any other failure of its first import go up
-unchanged. The refusal's words name the Python that ran, each row, and the
-fix, each half for the launch it fixes, the pip half only where that Python
-can install into itself.
+loads; an installed build is not judged; the GUI entry shows the refusal in
+its startup window and exits 1, and lets any other failure of its first
+import go up unchanged. The refusal's words name each row and the fix, each
+half for the launch it fixes, the pip half only where the Python that ran
+can install into itself, each path and command on a line of its own; the
+refusal carries the fix as data for the window to act on.
 
 The installed versions are real metadata: a stand-in ``.dist-info`` earlier
 on the path is what ``importlib.metadata`` reads first, so no test branch
@@ -93,50 +94,75 @@ def test_an_unreadable_or_unparsable_requirements_file_is_refused_as_unread(tmp_
         packages_unlike_the_pins(_pins(tmp_path, 'not a requirement ==='))
 
     assert (missing.value.reason, unparsable.value.reason) == ('pins_unread', 'pins_unread')
-    assert str(tmp_path / 'requirements.txt') in str(missing.value)
+    assert f'\n    {tmp_path / "requirements.txt"}\n' in str(missing.value)
     assert 'Get the LumaViewPro source again' in str(missing.value)
+    # Its fix is the source got again: no script to start, no pip line to copy.
+    assert (missing.value.install_script, missing.value.pip_line) == (None, None)
 
 
 _ROWS = [PinRow('pypylon', '26.4.1', '==26.10'), PinRow('matplotlib', None, '==3.10.9')]
 
 
-def _words(monkeypatch, platform, **facts):
+def _refusal(monkeypatch, platform, **facts):
     monkeypatch.setattr(sys, 'platform', platform)
     python = RunningPython(**{'executable': '/py/bin/python3', **facts})
-    return str(PackagesNotAsPinnedError.not_as_pinned(_ROWS, python))
+    return PackagesNotAsPinnedError.not_as_pinned(_ROWS, python)
 
 
-def test_the_words_name_the_python_each_row_and_both_halves_of_the_fix(monkeypatch):
-    words = _words(monkeypatch, 'darwin', in_venv=False, has_pip=True, externally_managed=False)
+def test_the_words_name_each_row_and_both_halves_of_the_fix_each_path_on_its_own_line(
+    monkeypatch,
+):
+    words = str(
+        _refusal(monkeypatch, 'darwin', in_venv=False, has_pip=True, externally_managed=False)
+    )
+    pip_line = f'"/py/bin/python3" -m pip install -r "{REPO / "requirements.txt"}"'
 
-    assert 'installed for /py/bin/python3' in words
-    assert '  pypylon: 26.4.1 installed, ==26.10 pinned' in words
-    assert '  matplotlib: not installed, ==3.10.9 pinned' in words
+    assert words.startswith(
+        'LumaViewPro cannot start: 2 Python packages are not the versions they need.\n'
+    )
+    assert '\n    pypylon       26.4.1 installed, 26.10 needed\n' in words
+    assert '\n    matplotlib    not installed, 3.10.9 needed\n' in words
     assert (
-        f'To start LumaViewPro, run {REPO / "scripts" / "install_mac.sh"}, '
-        f'then start it with {REPO / "run.sh"}.'
+        'Run the install script, then start LumaViewPro with run.sh:\n'
+        f'    {REPO / "scripts" / "install_mac.sh"}\n'
+        f'    {REPO / "run.sh"}\n'
     ) in words
-    assert f'"/py/bin/python3" -m pip install -r "{REPO / "requirements.txt"}"' in words
+    assert words.endswith(
+        f'To run your own program or the REST server with this Python instead:\n    {pip_line}'
+    )
+
+
+def test_the_refusal_carries_its_fix_as_the_words_state_it(monkeypatch):
+    refusal = _refusal(monkeypatch, 'darwin', in_venv=False, has_pip=True, externally_managed=False)
+
+    assert refusal.install_script == str(REPO / 'scripts' / 'install_mac.sh')
+    assert refusal.install_args == ()
+    assert refusal.pip_line == f'"/py/bin/python3" -m pip install -r "{REPO / "requirements.txt"}"'
+    assert f'    {refusal.pip_line}' in str(refusal)
 
 
 def test_a_python_that_cannot_install_into_itself_is_given_no_pip_line(monkeypatch):
-    managed = _words(monkeypatch, 'linux', in_venv=False, has_pip=True, externally_managed=True)
-    pipless = _words(monkeypatch, 'linux', in_venv=True, has_pip=False, externally_managed=False)
+    managed = _refusal(monkeypatch, 'linux', in_venv=False, has_pip=True, externally_managed=True)
+    pipless = _refusal(monkeypatch, 'linux', in_venv=True, has_pip=False, externally_managed=False)
 
-    for words, why in ((managed, 'it is externally managed'), (pipless, 'it has no pip')):
+    for refusal, why in ((managed, 'it is externally managed'), (pipless, 'it has no pip')):
+        words = str(refusal)
+        assert refusal.pip_line is None
         assert '-m pip install' not in words
-        assert f'cannot install packages into itself ({why})' in words
-        assert str(REPO / 'venv' / 'bin' / 'python') in words
-        assert str(REPO / 'scripts' / 'install_linux.sh') in words
+        assert f'cannot install packages into itself ({why}):\n    /py/bin/python3\n' in words
+        assert words.endswith(f'installs into:\n    {REPO / "venv" / "bin" / "python"}')
+        assert f'\n    {REPO / "scripts" / "install_linux.sh"}\n' in words
 
 
 def test_a_windows_venv_s_python_is_told_to_update_its_venv(monkeypatch):
-    venv = _words(monkeypatch, 'win32', in_venv=True, has_pip=True, externally_managed=False)
-    system = _words(monkeypatch, 'win32', in_venv=False, has_pip=True, externally_managed=False)
+    venv = _refusal(monkeypatch, 'win32', in_venv=True, has_pip=True, externally_managed=False)
+    system = _refusal(monkeypatch, 'win32', in_venv=False, has_pip=True, externally_managed=False)
+    script = str(REPO / 'scripts' / 'install_windows.bat')
 
-    assert f'{REPO / "scripts" / "install_windows.bat"} --venv, then start it' in venv
-    assert f'{REPO / "scripts" / "install_windows.bat"}, then start it' in system
-    assert str(REPO / 'run.bat') in system
+    assert (venv.install_script, venv.install_args) == (script, ('--venv',))
+    assert (system.install_script, system.install_args) == (script, ())
+    assert f'\n    {script} --venv\n    {REPO / "run.bat"}\n' in str(venv)
+    assert f'\n    {script}\n    {REPO / "run.bat"}\n' in str(system)
 
 
 def _child(tmp_path, code, *, stand_in=True):
@@ -158,8 +184,7 @@ def test_the_package_s_import_refuses_a_run_whose_packages_are_not_as_pinned(tmp
 
     assert done.returncode == 1
     assert 'PackagesNotAsPinnedError' in done.stderr
-    assert '  pypylon: 26.4.1 installed, ==26.10 pinned' in done.stderr
-    assert f'installed for {sys.executable}' in done.stderr
+    assert '    pypylon    26.4.1 installed, 26.10 needed' in done.stderr
 
 
 def test_the_package_s_import_passes_on_the_pins(tmp_path):
@@ -178,11 +203,13 @@ def test_an_installed_build_is_not_judged(tmp_path):
     assert done.returncode == 0, done.stderr
 
 
-# A stand-in by design: tkinter is made unusable in the child, so the entry's
-# dialog falls back to stderr and no window opens on the host running the suite.
+# A stand-in by design: tkinter is made unimportable in the child, as on a
+# Python built without it, so no window opens on the host running the suite.
+# The entry's folder goes first on the path, as `python lumaviewpro.py` puts it.
 _GUI_ENTRY = (
-    'import runpy, sys, tkinter\n'
-    'tkinter.Tk = None\n'
+    'import runpy, sys\n'
+    "sys.modules['tkinter'] = None\n"
+    f'sys.path.insert(0, {str(REPO)!r})\n'
     '{before}'
     f'sys.argv = [{str(REPO / "lumaviewpro.py")!r}]\n'
     f'runpy.run_path({str(REPO / "lumaviewpro.py")!r}, run_name="__main__")\n'
@@ -194,6 +221,10 @@ def test_the_gui_entry_shows_the_refusal_and_exits_1(tmp_path):
 
     assert done.returncode == 1
     assert done.stderr.startswith('ERROR: LumaViewPro cannot start'), done.stderr
+    assert done.stderr.endswith(
+        '\nThe window could not be shown: this Python has no tkinter '
+        '(import of tkinter halted; None in sys.modules).\n'
+    ), done.stderr
     assert 'Traceback' not in done.stderr
 
 

@@ -152,7 +152,6 @@ _FRAGILE_PIN = {
     'tests/test_record_path_buffer_reuse.py': 1,
     'tests/test_root_logging_capture.py': 1,
     'tests/test_run_encoding_ssot.py': 1,
-    'tests/test_single_instance_popup_focus.py': 1,
     'tests/test_stitcher.py': 2,
     'tests/test_tsr_cluster_fix.py': 3,
 }

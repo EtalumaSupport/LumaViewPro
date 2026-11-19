@@ -138,34 +138,71 @@ def packages_unlike_the_pins(pins: pathlib.Path | None = None) -> list[PinRow]:
     return rows
 
 
-def _fix_scripts(python: RunningPython) -> tuple[str, str, str]:
-    """This host's install script, the run script it writes, and the Python it installs into."""
+@dataclass(frozen=True)
+class InstallFix:
+    """This host's install script, how it is started, and what it leaves behind.
+
+    Attributes:
+        script: The install script's absolute path.
+        args: The arguments it is started with.
+        run_script: The run script it writes, which starts LumaViewPro after it.
+        installs_into: The Python it installs into, as a path, or None on
+            Windows, where it picks one and names it in ``run_script``.
+    """
+
+    script: str
+    args: tuple[str, ...]
+    run_script: str
+    installs_into: str | None
+
+
+def _install_fix(python: RunningPython) -> InstallFix:
+    """This host's install fix for ``python``."""
     root = build_root()
     if sys.platform == 'win32':
-        script = str(root / 'scripts' / 'install_windows.bat')
         # A venv's Python is told to update its venv, not moved to the system Python.
-        if python.in_venv:
-            script += ' --venv'
-        run = root / 'run.bat'
-        return script, str(run), f'the one {run} names'
+        return InstallFix(
+            str(root / 'scripts' / 'install_windows.bat'),
+            ('--venv',) if python.in_venv else (),
+            str(root / 'run.bat'),
+            None,
+        )
     name = 'install_mac.sh' if sys.platform == 'darwin' else 'install_linux.sh'
-    return str(root / 'scripts' / name), str(root / 'run.sh'), str(root / 'venv' / 'bin' / 'python')
+    return InstallFix(
+        str(root / 'scripts' / name),
+        (),
+        str(root / 'run.sh'),
+        str(root / 'venv' / 'bin' / 'python'),
+    )
+
+
+def _needed(pinned: str) -> str:
+    """A pin's version as a reader wants it: bare for a single ``==``, else its specifier."""
+    return pinned[2:] if pinned.startswith('==') and ',' not in pinned else pinned
+
+
+# Each path or command in the words stands on a line of its own, indented, so
+# no display wraps one: a refusal is read for the path it names.
+_INDENT = '    '
 
 
 class PackagesNotAsPinnedError(Fault, Exception):
     """A source run's installed packages are not the ones ``requirements.txt`` pins.
 
     Raised at the API package's import, before anything third-party loads,
-    on every host: the GUI shows it as a dialog, and the REST server and any
-    other program show its words as the uncaught exception's message.
+    on every host: the GUI shows it in its startup window, and the REST
+    server and any other program show its words as the uncaught
+    exception's message.
     No ``except`` can name it, since the import that would bind the name
-    is the one that raises. The words name the Python that ran and the fix,
-    each half for the launch it fixes: the install script with the run
-    script it writes, to start LumaViewPro; the pip line naming this Python
-    and the file by absolute path, to run another program with this Python,
-    shown only when this Python can install into itself. The install script
+    is the one that raises. The words name each package and the fix, each
+    half for the launch it fixes: the install script with the run script
+    it writes, to start LumaViewPro; the pip line naming the Python that
+    ran and the file by absolute path, to run another program with that
+    Python, shown only when it can install into itself. The install script
     can choose another Python than the one that ran, so the halves are
-    never alternatives for one launch.
+    never alternatives for one launch. Each path and command stands on a
+    line of its own. The fix is carried as data too, for a display that
+    acts on it.
 
     Attributes:
         reason: ``'packages_not_as_pinned'`` -- a package that applies to
@@ -174,6 +211,12 @@ class PackagesNotAsPinnedError(Fault, Exception):
             line in it is not a requirement, so nothing can be judged.
         rows: The packages not as pinned; empty for ``pins_unread``.
         python: The Python that ran.
+        install_script: The install script's absolute path, or None for
+            ``pins_unread``, whose fix is the source got again.
+        install_args: The arguments the install script is started with.
+        pip_line: The pip command that installs the pins into the Python
+            that ran, or None when it cannot install into itself or
+            nothing can be judged.
     """
 
     causes: ClassVar[dict[str, RefusalCause | None]] = {
@@ -183,46 +226,95 @@ class PackagesNotAsPinnedError(Fault, Exception):
     words_for_person = True
     title = 'Python Packages Not as Pinned'
 
-    def __init__(self, rows: list[PinRow], python: RunningPython, words: str, reason: str):
+    def __init__(
+        self,
+        rows: list[PinRow],
+        python: RunningPython,
+        words: str,
+        reason: str,
+        *,
+        install_script: str | None,
+        install_args: tuple[str, ...],
+        pip_line: str | None,
+    ):
         super().__init__(words)
         self.reason = reason
         self.rows = rows
         self.python = python
+        self.install_script = install_script
+        self.install_args = install_args
+        self.pip_line = pip_line
 
     @classmethod
     def not_as_pinned(cls, rows: list[PinRow], python: RunningPython) -> PackagesNotAsPinnedError:
         """The refusal for ``rows``, its fix worded from what ``python`` can do."""
-        script, run, script_python = _fix_scripts(python)
+        fix = _install_fix(python)
+        count = (
+            '1 Python package is not the version it needs'
+            if len(rows) == 1
+            else f'{len(rows)} Python packages are not the versions they need'
+        )
+        width = max(len(row.name) for row in rows)
         listed = '\n'.join(
-            f'  {row.name}: '
-            f'{"not installed" if row.installed is None else f"{row.installed} installed"}, '
-            f'{row.pinned} pinned'
+            f'{_INDENT}{row.name.ljust(width)}    '
+            + (
+                f'not installed, {_needed(row.pinned)} needed'
+                if row.installed is None
+                else f'{row.installed} installed, {_needed(row.pinned)} needed'
+            )
             for row in rows
         )
-        start = f'To start LumaViewPro, run {script}, then start it with {run}.'
+        script_line = ' '.join((fix.script, *fix.args))
+        start = (
+            f'Run the install script, then start LumaViewPro with '
+            f'{pathlib.Path(fix.run_script).name}:\n'
+            f'{_INDENT}{script_line}\n{_INDENT}{fix.run_script}'
+        )
+        pip_line = None
         if python.can_install:
+            pip_line = f'"{python.executable}" -m pip install -r "{build_root() / PINS}"'
             own = (
-                'To run your own program or the REST server with this Python, run:\n'
-                f'  "{python.executable}" -m pip install -r "{build_root() / PINS}"'
+                'To run your own program or the REST server with this Python instead:\n'
+                f'{_INDENT}{pip_line}'
             )
         else:
             why = 'it has no pip' if not python.has_pip else 'it is externally managed'
-            own = (
-                f'This Python cannot install packages into itself ({why}): run your own '
-                f'program or the REST server with the Python the install script installs '
-                f'into, {script_python}.'
+            into = (
+                f':\n{_INDENT}{fix.installs_into}'
+                if fix.installs_into is not None
+                else f', the one {pathlib.Path(fix.run_script).name} starts LumaViewPro with.'
             )
-        words = (
-            f'LumaViewPro cannot start: the Python packages installed for '
-            f'{python.executable} are not the ones {PINS} pins.\n{listed}\n\n{start}\n{own}'
+            own = (
+                f'This Python cannot install packages into itself ({why}):\n'
+                f'{_INDENT}{python.executable}\n'
+                'To run your own program or the REST server, use the Python the install '
+                f'script installs into{into}'
+            )
+        words = f'LumaViewPro cannot start: {count}.\n\n{listed}\n\n{start}\n\n{own}'
+        return cls(
+            rows,
+            python,
+            words,
+            'packages_not_as_pinned',
+            install_script=fix.script,
+            install_args=fix.args,
+            pip_line=pip_line,
         )
-        return cls(rows, python, words, 'packages_not_as_pinned')
 
     @classmethod
     def pins_unread(cls, pins: pathlib.Path, problem: str) -> PackagesNotAsPinnedError:
         """The refusal for a requirements file that cannot be judged against."""
         words = (
-            f'LumaViewPro cannot start: {pins} cannot be read ({problem}), so the installed '
-            'Python packages cannot be checked against it. Get the LumaViewPro source again.'
+            f'LumaViewPro cannot start: its requirements file cannot be read ({problem}), '
+            'so the installed Python packages cannot be checked against it:\n'
+            f'{_INDENT}{pins}\n\nGet the LumaViewPro source again.'
         )
-        return cls([], running_python(), words, 'pins_unread')
+        return cls(
+            [],
+            running_python(),
+            words,
+            'pins_unread',
+            install_script=None,
+            install_args=(),
+            pip_line=None,
+        )

@@ -15961,22 +15961,28 @@ A fault; bases `Fault`, `Exception`.
 A source run's installed packages are not the ones `requirements.txt` pins.
 
 Raised at the API package's import, before anything third-party loads,
-on every host: the GUI shows it as a dialog, and the REST server and any
-other program show its words as the uncaught exception's message.
+on every host: the GUI shows it in its startup window, and the REST
+server and any other program show its words as the uncaught
+exception's message.
 No `except` can name it, since the import that would bind the name
-is the one that raises. The words name the Python that ran and the fix,
-each half for the launch it fixes: the install script with the run
-script it writes, to start LumaViewPro; the pip line naming this Python
-and the file by absolute path, to run another program with this Python,
-shown only when this Python can install into itself. The install script
+is the one that raises. The words name each package and the fix, each
+half for the launch it fixes: the install script with the run script
+it writes, to start LumaViewPro; the pip line naming the Python that
+ran and the file by absolute path, to run another program with that
+Python, shown only when it can install into itself. The install script
 can choose another Python than the one that ran, so the halves are
-never alternatives for one launch.
+never alternatives for one launch. Each path and command stands on a
+line of its own. The fix is carried as data too, for a display that
+acts on it.
 
 **Attributes**
 
 - `reason`: `'packages_not_as_pinned'` -- a package that applies to this host is missing or at another version than its pin. `'pins_unread'` -- `requirements.txt` cannot be read, or a line in it is not a requirement, so nothing can be judged.
 - `rows`: The packages not as pinned; empty for `pins_unread`.
 - `python`: The Python that ran.
+- `install_script`: The install script's absolute path, or None for `pins_unread`, whose fix is the source got again.
+- `install_args`: The arguments the install script is started with.
+- `pip_line`: The pip command that installs the pins into the Python that ran, or None when it cannot install into itself or nothing can be judged.
 
 | Reason | Cause | REST status |
 |---|---|---|

@@ -443,6 +443,12 @@ _UI_EXCEPT_PIN = {
     ('ui/protocol_settings.py', 'ValueError'): 0,
     ('ui/scope_display.py', 'Exception'): 0,
     ('ui/shader.py', 'Exception'): 0,
+    # The startup window's own failures before the API exists (no tkinter,
+    # no display, the install script not started), each returned as one
+    # line for its caller to report; not API outcomes (Eric, 2026-11-18).
+    ('ui/startup_window.py', 'ImportError'): 1,
+    ('ui/startup_window.py', 'OSError'): 1,
+    ('ui/startup_window.py', 'TclError'): 1,
     ('ui/stage.py', 'Exception'): 0,
     ('ui/step_navigation.py', 'ProtocolRunRefusedError'): 0,
     # The walk driver's own stop (a step it cannot perform, or a fault it

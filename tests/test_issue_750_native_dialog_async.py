@@ -127,13 +127,14 @@ def test_choose_methods_route_through_the_one_runner():
 
 
 def test_tkinter_root_is_foregrounded_and_always_destroyed():
-    """The shared root builder lifts + focuses (pickers must not open
-    buried), and every tkinter primitive destroys its root in a finally so
-    an exception cannot leak a root across threads."""
+    """The shared root builder is brought to the front by the one routine
+    (pickers must not open buried; its behaviour is pinned in
+    test_startup_window.py), and every tkinter primitive destroys its root
+    in a finally so an exception cannot leak a root across threads."""
     builder_src = ast.get_source_segment(
         _SRC, next(n for n in _function_defs() if n.name == '_foregrounded_tk_root')
     )
-    assert 'lift()' in builder_src and 'focus_force()' in builder_src
+    assert 'bring_to_front(root)' in builder_src
 
     for name in _PRIMITIVE_NAMES - {'_foregrounded_tk_root'}:
         node = next(n for n in _function_defs() if n.name == name)
