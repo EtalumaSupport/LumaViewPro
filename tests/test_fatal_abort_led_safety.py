@@ -48,6 +48,7 @@ _MODULES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'src/_lumascope/mod
 
 from _lumascope.modules.run_outcome import RunEnding
 from _lumascope.modules.video_recording import FrameLosses
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.scope_fakes import swap_lanes
 from tests.stock_channels import LED2
 
@@ -187,7 +188,7 @@ def _run_cleanup_capture_led_ctx(*, forced_dark, led_end_policy):
         record_cleanup_failures=lambda steps: None,
         failed_before=(),
         video_save_wait_s=None,
-        video_as_frames=False,
+        recording_format=RecordingFormat.MP4,
         video_losses=FrameLosses(),
     )
     run_end = [ctx for t, ctx in applied if t is LedTransition.RUN_END]

@@ -27,7 +27,12 @@ import re
 import pytest
 
 import _lumascope.modules.config_helpers as config_helpers
-from _lumascope.modules.image_mode import ImageCaptureConfig, ImageMode, OutputFormat
+from _lumascope.modules.image_mode import (
+    ImageCaptureConfig,
+    ImageMode,
+    OutputFormat,
+    RecordingFormat,
+)
 from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
 from tests.ast_seams import REPO_ROOT, MemberNames, tracked_files
 from tests.settings_fixtures import complete_settings
@@ -37,7 +42,7 @@ _OWNED_PARAMS = MemberNames(
     {
         'image_capture_config',
         'keep_led_between_steps',
-        'video_as_frames',
+        'recording_format',
         'separate_folder_per_channel',
         'timestamp_overlay',
         'video_max_fps',
@@ -80,7 +85,7 @@ def test_helper_passes_settings_values_through():
     out = config_helpers.get_sequenced_run_settings(
         complete_settings(
             keep_led_between_steps=True,
-            video_as_frames=True,
+            video_recording_format='frames',
             separate_folder_per_channel=True,
             video={'timestamp_overlay': False, 'max_fps': 5},
         ),
@@ -89,7 +94,7 @@ def test_helper_passes_settings_values_through():
     assert out == {
         'image_capture_config': ImageCaptureConfig.from_image_mode(ImageMode.EIGHT_BIT),
         'keep_led_between_steps': True,
-        'video_as_frames': True,
+        'recording_format': RecordingFormat.FRAMES,
         'separate_folder_per_channel': True,
         'timestamp_overlay': False,
         'video_max_fps': 5,
@@ -119,7 +124,7 @@ def test_autofocus_scan_forces_led_and_folder_safety(run_mode):
     literal at each."""
     settings = complete_settings(
         keep_led_between_steps=True,
-        video_as_frames=True,
+        video_recording_format='frames',
         separate_folder_per_channel=True,
     )
     out = config_helpers.get_sequenced_run_settings(settings, run_mode=run_mode)
@@ -142,7 +147,7 @@ def test_autofocus_scan_plan_carries_the_forced_values(run_mode):
     run_settings = config_helpers.get_sequenced_run_settings(
         complete_settings(
             keep_led_between_steps=True,
-            video_as_frames=True,
+            video_recording_format='frames',
             separate_folder_per_channel=True,
         ),
         run_mode=run_mode,

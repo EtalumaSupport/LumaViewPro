@@ -128,7 +128,7 @@ SHOWN_SETTINGS: tuple[tuple[str, Callable[[object, str], None]], ...] = (
     ('frame', _redraw_framing),
     ('image_output_format', _redraw_capture),
     ('jpg_quality', _redraw_capture),
-    ('video_as_frames', _redraw_capture),
+    ('video_recording_format', _redraw_capture),
     ('scale_bar', _redraw_capture),
     ('show_tooltips', _redraw_capture),
     ('stimulation_enabled', _redraw_stimulation),

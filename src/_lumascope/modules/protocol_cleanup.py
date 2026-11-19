@@ -18,6 +18,7 @@ from _lumascope.lvp_logger import logger
 from _lumascope.lib import log_helpers
 
 from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.image_mode import RecordingFormat
 from _lumascope.modules.exceptions import (
     FramesLostIn,
     MoveFaultError,
@@ -163,8 +164,8 @@ def run_cleanup(
     # step finished having written every frame it kept; None otherwise, and
     # when there was nothing to wait for (wait_for_video_drains).
     video_save_wait_s: float | None,
-    # Whether the run saved its videos as frames, for the words of the wait.
-    video_as_frames: bool,
+    # How the run saved its videos, for the words of the wait.
+    recording_format: RecordingFormat,
     # The frames the run's finished video steps lost, together
     # (ProtocolImageWriter.video_losses): told once here, since each step's
     # own report goes to the log.
@@ -447,7 +448,9 @@ def run_cleanup(
 
         notifications.report_outcome(
             RecordingSavedLateNotice(
-                save_wait_s=video_save_wait_s, as_frames=video_as_frames, protocol_run=True
+                save_wait_s=video_save_wait_s,
+                as_frames=recording_format.writes_frames,
+                protocol_run=True,
             ),
             solicited=False,
             category='Protocol',

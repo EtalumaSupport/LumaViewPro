@@ -212,7 +212,7 @@ def _recorded_runs(tmp_path_factory):
 
     root = tmp_path_factory.mktemp('recorded_runs')
     settings = headless_settings(root)
-    settings['video_as_frames'] = True
+    settings['video_recording_format'] = 'frames'
     shapes = {
         'stills_and_recording': (('BF', 'image'), (LED1, 'image'), (LED0, 'video')),
         'recording_alone': ((LED0, 'video'),),

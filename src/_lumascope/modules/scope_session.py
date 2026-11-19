@@ -4728,7 +4728,7 @@ class ScopeSession:
                 run_settings['image_capture_config'],
                 self.channel_colors(),
             ),
-            video_as_frames=run_settings['video_as_frames'],
+            recording_format=run_settings['recording_format'],
             video_fps=video_sizing_fps(
                 run_settings['video_max_fps'],
                 self.scope.imaging.delivered_rate().frame_rate_fps,

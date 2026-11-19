@@ -13,7 +13,7 @@ recordings, each through the member the GUI's press reaches:
 3. a manual recording (``session.manual_recording.start``) right after a
    gain change.
 
-Each records as frames (``video_as_frames``) at every frame the camera
+Each records as frames (``video_recording_format``) at every frame the camera
 delivers, so the first file is the first frame after the start. Its
 ``frame_id`` (the file's record) names the frame the camera delivered,
 caught by a frame listener, and that frame is judged through
@@ -170,7 +170,7 @@ def main():
         figure('live_folder', str(live))
         layer = args.layer
         # Every frame is kept as its own file, the step's one layer is this one.
-        session.update_settings('video_as_frames', True)
+        session.update_settings('video_recording_format', 'frames')
         session.update_settings('video.max_fps', 0.0)
         session.set_channel_settings(layer, video_duration_s=1.0)
         for other in common_utils.get_channels():

@@ -27,6 +27,7 @@ from _lumascope.modules.exceptions import (
     VideoFramesDroppedError,
 )
 from _lumascope.modules.notification_center import outcome_of
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
 from tests.video_step_drives import record_first_frame, video_step_on
 from tests.video_engine_harness import NotifyRecorder
@@ -221,7 +222,7 @@ def test_a_failed_finish_is_one_fault_chained_from_what_failed(
     tmp_path, monkeypatch, post_processing
 ):
     controller, scope, clock = make_controller(
-        tmp_path, hyperstack=True, post_processing=post_processing
+        tmp_path, recording_format=RecordingFormat.HYPERSTACK, post_processing=post_processing
     )
     reported = _record_reports(monkeypatch, manual_recording_module)
     failure = RuntimeError('scripted hyperstack failure')
@@ -246,7 +247,7 @@ def test_a_refused_hyperstack_is_reported_in_the_builders_words(
     tmp_path, monkeypatch, post_processing
 ):
     controller, scope, clock = make_controller(
-        tmp_path, hyperstack=True, post_processing=post_processing
+        tmp_path, recording_format=RecordingFormat.HYPERSTACK, post_processing=post_processing
     )
     reported = _record_reports(monkeypatch, manual_recording_module)
 

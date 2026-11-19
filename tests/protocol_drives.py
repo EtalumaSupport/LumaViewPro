@@ -29,6 +29,7 @@ from _lumascope.modules.run_outcome import CaptureTally, RunEnding, RunStatus
 from tests.scope_fakes import swap_lanes
 from tests.settings_fixtures import complete_settings
 from _lumascope.modules.channel_record import release_colors
+from _lumascope.modules.image_mode import RecordingFormat
 
 
 def held_run_claim():
@@ -344,7 +345,7 @@ def scan_ready_runner(step, **state):
     runner._enable_image_saving = False
     runner._image_capture_config = ImageCaptureConfig.from_image_mode('8bit')
     runner._separate_folder_per_channel = False
-    runner._video_as_frames = False
+    runner._recording_format = RecordingFormat.MP4
     runner._run_mode = SequencedCaptureRunMode.FULL_PROTOCOL
     runner._keep_led_between_steps = False
     runner._ag_ae_max_exposure_ms = complete_settings()['ag_ae_max_exposure_ms']

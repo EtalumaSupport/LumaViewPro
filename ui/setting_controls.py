@@ -20,7 +20,7 @@ from __future__ import annotations
 import dataclasses
 import typing
 
-from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, OutputFormat
+from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, OutputFormat, RecordingFormat
 from _lumascope.modules.zstack_config import ZStackReference
 
 
@@ -67,6 +67,13 @@ OUTPUT_FORMAT_LABELS = {
     OutputFormat.JPG: 'JPG',
 }
 
+# The recording format picker's labels, in its order.
+RECORDING_FORMAT_LABELS = {
+    RecordingFormat.MP4: 'MP4',
+    RecordingFormat.FRAMES: 'Frames',
+    RecordingFormat.HYPERSTACK: 'Hyperstack',
+}
+
 # The z-stack reference picker's labels, in its order.
 ZSTACK_REFERENCE_LABELS = {
     ZStackReference.TOP: 'Current Position at Top',
@@ -106,9 +113,9 @@ MICROSCOPE_SETTINGS: tuple[SettingControl, ...] = (
     ),
     Picker(
         'video_recording_format_spinner',
-        'video_as_frames',
-        (False, True),
-        lambda as_frames: 'Frames' if as_frames else 'mp4',
+        'video_recording_format',
+        tuple(RECORDING_FORMAT_LABELS),
+        RECORDING_FORMAT_LABELS.__getitem__,
     ),
     Toggle('show_tooltips_btn', 'show_tooltips', 'SHOW_TOOLTIPS'),
 )

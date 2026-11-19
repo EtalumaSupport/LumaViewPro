@@ -25,6 +25,7 @@ from _lumascope.modules.lumascope_api.frame_record import CapturedStill
 from _lumascope.modules.scope_capabilities import FrameSize
 from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 from _lumascope.modules.write_size import FrameSizing, estimate_step_write_mb
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.frame_records import frame_record, unpositioned
 from tests.protocol_drives import a_frame_sizing
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
@@ -150,15 +151,16 @@ def test_one_scan_of_869s_protocol_is_sized_from_its_frames():
     """#869: 96 steps of 30 s at 61 fps, 1400x1400 8-bit, saved as frames:
     96 x 1830 frames of 1400 x 1400 x 1 byte, not 96 x 1830 x 8 MB."""
     scan_mb = _frames_protocol().estimate_write_mb(
-        sizing=a_frame_sizing(), video_as_frames=True, video_fps=61.0
+        sizing=a_frame_sizing(), recording_format=RecordingFormat.FRAMES, video_fps=61.0
     )
 
     assert scan_mb == pytest.approx(96 * 1830 * 1400 * 1400 / _MIB)
 
 
-def test_a_hyperstack_counts_every_tiff_twice_and_an_mp4_once():
-    """The stacks are built after the run beside the TIFFs they read, which
-    stay; an MP4 is not stacked."""
+def test_each_stack_counts_its_own_files_twice():
+    """A stack is built after the run beside the files it reads, which stay:
+    the stills' when the Sequenced format stacks, a recording's frames when
+    the recording format does, each on its own; an MP4 is not stacked."""
     protocol = _build_protocol(
         [
             _make_step(name='S0'),
@@ -166,18 +168,30 @@ def test_a_hyperstack_counts_every_tiff_twice_and_an_mp4_once():
         ]
     )
 
-    def scan_mb(stacked, video_as_frames):
+    def scan_mb(stacked, recording_format):
         return protocol.estimate_write_mb(
             sizing=a_frame_sizing(stacked=stacked),
-            video_as_frames=video_as_frames,
+            recording_format=recording_format,
             video_fps=40.0,
         )
 
     still_mb = estimate_step_write_mb(
         protocol.step_row(step_index=0), sizing=a_frame_sizing(), video_fps=40.0
     )
-    assert scan_mb(True, False) == pytest.approx(scan_mb(False, False) + still_mb)
-    assert scan_mb(True, True) == pytest.approx(2 * scan_mb(False, True))
+    frames_mb = estimate_step_write_mb(
+        protocol.step_row(step_index=1),
+        sizing=a_frame_sizing(),
+        recording_format=RecordingFormat.FRAMES,
+        video_fps=40.0,
+    )
+    once = scan_mb(False, RecordingFormat.FRAMES)
+    assert once == pytest.approx(still_mb + frames_mb)
+    assert scan_mb(True, RecordingFormat.FRAMES) == pytest.approx(once + still_mb)
+    assert scan_mb(False, RecordingFormat.HYPERSTACK) == pytest.approx(once + frames_mb)
+    assert scan_mb(True, RecordingFormat.HYPERSTACK) == pytest.approx(once + still_mb + frames_mb)
+    assert scan_mb(True, RecordingFormat.MP4) == pytest.approx(
+        scan_mb(False, RecordingFormat.MP4) + still_mb
+    )
 
 
 def test_an_mp4_step_is_its_frames_at_a_compression_fraction_over_a_floor():

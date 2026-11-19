@@ -245,7 +245,7 @@ def test_a_recordings_frames_pass_the_stills_builds_to_the_video(tmp_path):
     from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
     settings = headless_settings(tmp_path)
-    settings['video_as_frames'] = True
+    settings['video_recording_format'] = 'frames'
     with open_composite_session(settings) as (session, runner):
         pending = runner.start_single_scan(
             protocol=_protocol(_stills_and_a_recording()), parent_dir=str(tmp_path / 'runs')

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from _lumascope.modules import channel_record, image_mode
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.common_utils import read_video_config
+from _lumascope.modules.image_mode import RecordingFormat
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -50,8 +51,9 @@ class FrameSizing:
         save_encoding: The image mode's save encoding; ``'rgb'`` widens a
             16-bit frame shown in a colour to three channels.
         channel_colors: Each channel's colour, as the writers colour a frame.
-        stacked: True when the run's sequenced output is a hyperstack, built
-            after the run beside the TIFFs it reads, which it does not remove.
+        stacked: True when the run's sequenced output is a hyperstack of its
+            stills, built after the run beside the TIFFs it reads, which it
+            does not remove.
     """
 
     frame: FrameSize
@@ -154,7 +156,7 @@ def estimate_step_write_mb(
     step: pd.Series | Mapping[str, object],
     *,
     sizing: FrameSizing,
-    video_as_frames: bool = False,
+    recording_format: RecordingFormat = RecordingFormat.MP4,
     video_fps: float | None,
 ) -> float:
     """Estimate the disk a single protocol step will write, in MB.
@@ -165,17 +167,16 @@ def estimate_step_write_mb(
     video step scales with the recording: the frame count is duration_s *
     the rate the recording is sized at (``video_sizing_fps``: the global
     limit, else the camera's delivered rate), and each frame is one saved
-    frame when saved as individual TIFFs (video_as_frames) or a compressed
-    fraction of its 8-bit frame in an MP4, never under the MP4 floor. A
-    hyperstack's second copy is not counted here: it is the run's, built
-    after the run (``Protocol.estimate_write_mb``).
+    frame when the recording format writes frames, or a compressed fraction
+    of its 8-bit frame in an MP4, never under the MP4 floor. A stack's
+    second copy is not counted here: it is the run's, built after the run
+    (``Protocol.estimate_write_mb``).
 
     Args:
         step: A protocol step; reads Acquire, channel, Sum, False_Color and
             Video Config.
         sizing: The run's frame sizing.
-        video_as_frames: Run-level flag -- video saved as individual frames
-            rather than a compressed MP4.
+        recording_format: How the run saves a video step.
         video_fps: The rate a video step is sized at
             (``video_cadence.video_sizing_fps``); None when it is not known,
             which only a protocol with no video step may pass.
@@ -202,7 +203,7 @@ def estimate_step_write_mb(
         raise ValueError('A video step cannot be sized without the rate it records at.')
     duration_s = _coerce_positive_float(read_video_config(step).get('duration'))
     frames = max(1, int(duration_s * video_fps))
-    if video_as_frames:
+    if recording_format.writes_frames:
         return (
             frames
             * sizing.saved_frame_bytes(channel=channel, sum_count=1, false_color_on=false_color_on)

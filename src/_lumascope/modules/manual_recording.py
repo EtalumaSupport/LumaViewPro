@@ -35,7 +35,6 @@ import pandas as pd
 
 from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Frame
-import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.wall_time as wall_time
@@ -89,6 +88,7 @@ from _lumascope.modules.recording_frames import (
     write_frame,
 )
 from _lumascope.modules.image_save import RECORDED_FRAME_WRITERS
+from _lumascope.modules.image_mode import RecordingFormat
 from _lumascope.modules.recording_manifest import gather_host_provenance
 from _lumascope.modules.video_cadence import StallWatch, effective_recording_fps, stall_threshold_s
 from _lumascope.modules.video_recording import (
@@ -430,13 +430,13 @@ class ManualRecordingController:
         effective_fps = effective_recording_fps(max_fps)
 
         duration_s = get_manual_video_max_duration(settings)
-        video_as_frames = settings['video_as_frames']
+        recording_format = RecordingFormat(settings['video_recording_format'])
         capture_config = get_image_capture_config_from_settings(settings)
         camera = scope.capabilities
 
         start_dt = wall_time.now()
         start_time_str = start_dt.strftime('%Y-%m-%d_%H.%M.%S')
-        if video_as_frames:
+        if recording_format.writes_frames:
             save_folder = Path(settings['live_folder']) / 'Manual' / f'Video_{start_time_str}'
         else:
             save_folder = Path(settings['live_folder']) / 'Manual'
@@ -465,7 +465,7 @@ class ManualRecordingController:
                 'start a recording. Free up space and try again.',
             )
 
-        if video_as_frames:
+        if recording_format.writes_frames:
             # Reserve the per-recording folder here: after the last refusal
             # that can still turn this press away, and before RecordingConfig
             # freezes output_dir, so the config carries the name actually
@@ -511,10 +511,7 @@ class ManualRecordingController:
                 'software': {'lvp_version': lvp_version},
             },
         }
-        hyperstack = (
-            video_as_frames
-            and capture_config.output_format_sequenced == image_mode.OutputFormat.HYPERSTACK
-        )
+        hyperstack = recording_format.builds_stack
         # What the file will claim of the scope -- its frame size, its
         # objective, its plate and the camera's facts -- is read by the engine
         # once it holds the claim: a turret or frame change can neither start
@@ -537,9 +534,13 @@ class ManualRecordingController:
             # objective would carry no scale while the scope went on with one
             # the person had not confirmed.
             claimed['objective'], _ = scope.runtime_state.resolve_current_objective()
-            claimed['plate'] = scope.runtime_state.get_labware() if video_as_frames else None
-            claimed['to_plate'] = scope.runtime_state.plate_transform() if video_as_frames else None
-            claimed['camera'] = recording_camera(scope) if video_as_frames else None
+            claimed['plate'] = (
+                scope.runtime_state.get_labware() if recording_format.writes_frames else None
+            )
+            claimed['to_plate'] = (
+                scope.runtime_state.plate_transform() if recording_format.writes_frames else None
+            )
+            claimed['camera'] = recording_camera(scope) if recording_format.writes_frames else None
             # A change made just before Record (a gain, an exposure, a move)
             # comes into force first, as it would for a capture, and within
             # a capture's limit: a dead feed or a change that never comes
@@ -587,14 +588,16 @@ class ManualRecordingController:
                 # the start timestamp would describe whichever one it did not
                 # measure. The frames leg owns a per-recording folder and keeps
                 # the default name.
-                manifest_filename=('recording_manifest.json' if video_as_frames else None),
+                manifest_filename=(
+                    'recording_manifest.json' if recording_format.writes_frames else None
+                ),
             )
             return claimed['config'], mapping
 
         recording = _Recording()
         engine = VideoRecordingEngine(
             write_frame=functools.partial(self._write_frame, recording),
-            writers=RECORDED_FRAME_WRITERS if video_as_frames else 1,
+            writers=RECORDED_FRAME_WRITERS if recording_format.writes_frames else 1,
             claim=self._claim,
             clock=self._clock,
             steady_clock=self._steady_clock,
@@ -602,7 +605,7 @@ class ManualRecordingController:
         recording.engine = engine
         # The frames leg's folder, reserved above; a start that fails from
         # here on leaves it holding nothing.
-        frames_folder = save_folder if video_as_frames else None
+        frames_folder = save_folder if recording_format.writes_frames else None
 
         # Its stop is this recording's own engine's, never the controller's
         # current one: a late stop reaches an engine already closed, which
@@ -629,7 +632,7 @@ class ManualRecordingController:
         try:
             config = claimed['config']
             plan = _RecordingPlan(
-                video_as_frames=video_as_frames,
+                recording_format=recording_format,
                 save_folder=save_folder,
                 channel=claimed['channel'],
                 false_color_on=claimed['false_color'],
@@ -637,12 +640,11 @@ class ManualRecordingController:
                 save_encoding=capture_config.save_encoding,
                 capture_depth=capture_config.capture_depth,
                 camera=claimed['camera'],
-                hyperstack=hyperstack,
                 objective_id=claimed['objective'],
                 labware=claimed['plate'],
                 to_plate=claimed['to_plate'],
             )
-            if video_as_frames:
+            if recording_format.writes_frames:
                 _say_what_the_frames_cannot_record(scope, plan.to_plate)
             else:
                 save_folder.mkdir(exist_ok=True, parents=True)
@@ -700,7 +702,7 @@ class ManualRecordingController:
         )
         logger.info(
             f'[ManualRecord] Recording started: {rate}, '
-            f'max {duration_s:.0f} s, {"frames" if video_as_frames else "mp4"} '
+            f'max {duration_s:.0f} s, {recording_format} '
             f'-> {save_folder}'
         )
         return operation
@@ -916,7 +918,7 @@ class ManualRecordingController:
                 to_plate=plan.to_plate,
                 camera=plan.camera,
             )
-            if plan.video_as_frames
+            if plan.recording_format.writes_frames
             else None
         )
         engine.ingest_frame(frame.image, timestamp_s, chunks, fact=facts)
@@ -933,7 +935,7 @@ class ManualRecordingController:
 
         image = fit_to_recording(image, config.width, config.height)
 
-        if recording.plan.video_as_frames:
+        if recording.plan.recording_format.writes_frames:
             return self._write_tiff_frame(recording, image, frame_number, config, facts)
         return self._write_mp4_frame(recording, image, timestamp_s)
 
@@ -1296,7 +1298,7 @@ class _RecordingPlan:
     identity); the engine's RecordingConfig carries the engine-visible
     half of the same snapshot."""
 
-    video_as_frames: bool
+    recording_format: RecordingFormat
     save_folder: Path
     # Resolved at start() and never None, so no write edge has to decide
     # what an unnamed channel means.
@@ -1310,7 +1312,6 @@ class _RecordingPlan:
     # The camera facts every frame shares, read at start(); None when the
     # recording saves no frame files.
     camera: RecordingCamera | None
-    hyperstack: bool
     # Resolved once at start(), not per frame: the objective cannot change
     # mid-recording, and a per-frame resolve would let one stack hold frames
     # that disagree about their own scale.

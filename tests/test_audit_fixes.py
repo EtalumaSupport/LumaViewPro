@@ -975,7 +975,7 @@ def _run_cleanup_kwargs(**overrides):
         'record_cleanup_failures': lambda steps: None,
         'failed_before': (),
         'video_save_wait_s': None,
-        'video_as_frames': False,
+        'recording_format': RecordingFormat.MP4,
         'video_losses': FrameLosses(),
     }
     kwargs.update(overrides)
@@ -2420,6 +2420,7 @@ from tests.installation_fixtures import copy_installation_files
 from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0, LED1, LED2
 from _lumascope.modules.lumascope_api.frame_record import CapturedStill
+from _lumascope.modules.image_mode import RecordingFormat
 
 
 def _function_source(source: str, func_name: str) -> str:

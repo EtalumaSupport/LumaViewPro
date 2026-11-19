@@ -47,6 +47,7 @@ from tests.test_validate_steps import (
 )
 from _lumascope.modules.channel_record import GREY, release_colors
 from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.log_capture import records_of
 from tests.stock_channels import LED0, LED1
 from tests.installation_fixtures import shipped_grids
@@ -443,7 +444,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch, sim_s
         sim_scope,
         tmp_path,
         step={'channel': 'BF'},
-        video_as_frames=False,
+        recording_format=RecordingFormat.MP4,
         record_step_row=lambda **kw: rows.append(kw),
         elapsed_clock=elapsed,
     )
@@ -489,7 +490,7 @@ def test_two_video_steps_of_one_name_each_keep_their_own_manifest(tmp_path, monk
             sim_scope,
             tmp_path,
             step={'channel': 'BF'},
-            video_as_frames=False,
+            recording_format=RecordingFormat.MP4,
             elapsed_clock=elapsed,
         )
         assert recorder.run_blocking() == protocol_recording.COMPLETED

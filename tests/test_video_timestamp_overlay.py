@@ -16,6 +16,7 @@ import pytest
 
 import _lumascope.modules.protocol_recording as protocol_recording
 from _lumascope.modules.channel_record import GREY, release_color
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.stock_channels import LED0
 from tests.video_step_drives import ElapsedClock, video_step_on
 
@@ -62,7 +63,7 @@ def _video_step(scope, monkeypatch, tmp_path, *, timestamp_overlay, false_color=
         scope,
         tmp_path,
         step={'False_Color': false_color},
-        video_as_frames=False,
+        recording_format=RecordingFormat.MP4,
         timestamp_overlay=timestamp_overlay,
         elapsed_clock=elapsed,
     )

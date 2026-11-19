@@ -36,7 +36,7 @@ def _file_rows(run_parent: pathlib.Path) -> tuple[pathlib.Path, list[str]]:
 def test_with_a_folder_per_channel_every_file_row_names_where_its_file_is(tmp_path):
     settings = headless_settings(tmp_path)
     settings['separate_folder_per_channel'] = True
-    settings['video_as_frames'] = True
+    settings['video_recording_format'] = 'frames'
     with open_composite_session(settings) as (_session, runner):
         pending = runner.start_single_scan(
             protocol=_protocol([_step('S1', 0, x=20.0, gain=1.0), _video('V1', 1)]),

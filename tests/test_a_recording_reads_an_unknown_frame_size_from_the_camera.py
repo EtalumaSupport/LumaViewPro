@@ -47,7 +47,7 @@ def session(tmp_path, monkeypatch):
         complete_settings(
             **_settings(
                 tmp_path,
-                video_as_frames=True,
+                video_recording_format='frames',
                 video={
                     'max_fps': 0,
                     'max_duration_s': VIDEO_MAX_DURATION_S_RANGE[0],

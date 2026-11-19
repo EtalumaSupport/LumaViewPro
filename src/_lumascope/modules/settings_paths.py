@@ -31,7 +31,12 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.closed_sets import member_of
-from _lumascope.modules.image_mode import LIVE_OUTPUT_FORMATS, ImageMode, OutputFormat
+from _lumascope.modules.image_mode import (
+    LIVE_OUTPUT_FORMATS,
+    ImageMode,
+    OutputFormat,
+    RecordingFormat,
+)
 from _lumascope.lib.real_numbers import is_count, is_finite_number, is_integer_number
 from _lumascope.modules.channel_record import parse_display_color
 from _lumascope.modules.lumascope_api._constants import (
@@ -168,7 +173,6 @@ KIND_IS_THE_RANGE: typing.Final[frozenset[str]] = frozenset(
         'preview_host_downscale',
         'profiling.handle_trace_enabled',
         'profiling.open_files_enabled',
-        'video_as_frames',
         'video.timestamp_overlay',
         'motion.restore_after_home',
         'show_tooltips',
@@ -403,6 +407,7 @@ _RANGES: typing.Final[dict[str, typing.Callable[[str, typing.Any], None]]] = {
     'image_output_format.sequenced': functools.partial(
         _refuse_unless_member, closed_set=OutputFormat
     ),
+    'video_recording_format': functools.partial(_refuse_unless_member, closed_set=RecordingFormat),
     'video.max_fps': functools.partial(_refuse_outside, limits=(0, VIDEO_MAX_FPS_LIMIT)),
     'video.max_duration_s': functools.partial(_refuse_outside, limits=VIDEO_MAX_DURATION_S_RANGE),
     # The encoder takes a whole quality; a fraction would be truncated.

@@ -37,7 +37,7 @@ from tests.settings_fixtures import complete_settings
 from ui.listener_bridge import UIListenerBridge
 from ui.microscope_settings import MicroscopeSettings
 from ui.protocol_settings import ProtocolSettings
-from ui.setting_controls import OUTPUT_FORMAT_LABELS
+from ui.setting_controls import OUTPUT_FORMAT_LABELS, RECORDING_FORMAT_LABELS
 
 
 @pytest.fixture
@@ -159,7 +159,11 @@ def test_a_refused_capture_setting_pick_shows_the_stored_value_again(session, he
     )
     panel.pick_control('sequenced_image_output_format_spinner')
     panel.update_jpg_quality(settings['jpg_quality'] - 5)
-    ids['video_recording_format_spinner'].text = 'mp4' if settings['video_as_frames'] else 'Frames'
+    ids['video_recording_format_spinner'].text = next(
+        label
+        for fmt, label in RECORDING_FORMAT_LABELS.items()
+        if fmt != settings['video_recording_format']
+    )
     panel.pick_control('video_recording_format_spinner')
     ids['enable_scale_bar_btn'].state = 'normal' if settings['scale_bar']['enabled'] else 'down'
     panel.update_scale_bar_state()

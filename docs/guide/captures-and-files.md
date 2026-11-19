@@ -71,8 +71,10 @@ session.light_shown_channel(False)
 LumaViewPro's Record button starts and returns its `Operation`: `stop()` ends
 it, and `result()` answers a `RecordingFinished`, its `end_reason` and
 `save_wait_s`. It keeps at most `video.max_fps` frames a second (0, shipped, is
-every frame) for at most `video.max_duration_s`, as numbered TIFFs when
-`video_as_frames` is set and as an MP4 otherwise ([Saved files](#saved-files));
+every frame) for at most `video.max_duration_s`, in the format
+`video_recording_format` names: mp4 (shipped), one MP4; frames, numbered
+TIFFs; hyperstack, the TIFFs and then one OME-TIFF hyperstack of them beside
+them. A protocol's video steps follow the same setting ([Saved files](#saved-files));
 `is_recording` and `elapsed_s` answer where it stands. A start that cannot
 record is refused `RecordingRefusedError`.
 
@@ -184,6 +186,6 @@ No frame is dropped for a slow disk, so saving can run on after the recording
 ends; a frame lost to a write error, or one that arrived without the camera's
 timestamp, is counted and told. How long saving ran on is the manifest's
 `save_wait_s`, a manual recording's answer (`RecordingFinished.save_wait_s`) and a run's (`RunOutcome.video_save_wait_s`),
-and a wait over 10 s is told once saving finishes. Frames saved as files are
-also built into a hyperstack of their channel when the run format is the
-hyperstack.
+and a wait over 10 s is told once saving finishes. A recording's frames are
+built into a hyperstack of their channel when `video_recording_format` is
+hyperstack, whatever the run format; the run format stacks only stills.

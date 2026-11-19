@@ -61,7 +61,7 @@ def runs(tmp_path_factory):
             'unsaved': run('unsaved', OutputFormat.TIFF, save=False),
         }
         session.set_channel_settings(LED0, acquire='video')
-        session.update_settings('video_as_frames', True)
+        session.update_settings('video_recording_format', 'frames')
         for fmt in (OutputFormat.JPG, OutputFormat.TIFF, OutputFormat.OME_TIFF):
             saved[f'{fmt.name.lower()}_frames'] = run(f'frames_{fmt.name}', fmt)
         yield session, saved

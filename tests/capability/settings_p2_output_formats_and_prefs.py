@@ -23,7 +23,7 @@ try:
     snap = s.settings_snapshot()
     print('image_output_format   :', snap['image_output_format'])
     print('jpg_quality           :', snap.get('jpg_quality'))
-    print('video_as_frames       :', snap.get('video_as_frames'))
+    print('video_recording_format:', snap.get('video_recording_format'))
     print('scale_bar             :', snap.get('scale_bar'))
     print('show_tooltips         :', snap.get('show_tooltips'))
 
@@ -92,18 +92,21 @@ try:
     s.update_settings('jpg_quality', 90)
 
     # --- video recording format ------------------------------------------
-    s.update_settings('video_as_frames', True)
-    _common.ok('video_as_frames took effect', s.settings_snapshot()['video_as_frames'] is True)
+    s.update_settings('video_recording_format', 'frames')
+    _common.ok(
+        'video_recording_format took effect',
+        s.settings_snapshot()['video_recording_format'] == 'frames',
+    )
     try:
-        s.update_settings('video_as_frames', 'banana')
+        s.update_settings('video_recording_format', 'banana')
         _common.ok(
-            "video_as_frames 'banana' refused",
+            "video_recording_format 'banana' refused",
             False,
-            f'stored {s.settings_snapshot()["video_as_frames"]!r}',
+            f'stored {s.settings_snapshot()["video_recording_format"]!r}',
         )
     except SettingRefusedError as e:
-        _common.ok("video_as_frames 'banana' refused", True, f'{e.reason}: {e}')
-    s.update_settings('video_as_frames', False)
+        _common.ok("video_recording_format 'banana' refused", True, f'{e.reason}: {e}')
+    s.update_settings('video_recording_format', 'mp4')
 
     # --- scale bar: the Session's setting, which the imaging API reads ----
     s.set_scale_bar_enabled(True)

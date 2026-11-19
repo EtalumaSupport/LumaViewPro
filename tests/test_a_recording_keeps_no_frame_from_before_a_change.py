@@ -189,7 +189,7 @@ def _why_none_kept(scope, live_folder, delivered, finished, started_ns, stop_ns)
     return '\n'.join(stated)
 
 
-FRAMES_LEG = {'video_as_frames': True}
+FRAMES_LEG = {'video_recording_format': 'frames'}
 
 
 @pytest.mark.parametrize('sim_session', [FRAMES_LEG], indirect=True)

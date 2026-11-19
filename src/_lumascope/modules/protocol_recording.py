@@ -76,6 +76,7 @@ from _lumascope.modules.recording_frames import (
     write_frame,
 )
 from _lumascope.modules.image_save import RECORDED_FRAME_WRITERS
+from _lumascope.modules.image_mode import RecordingFormat
 from _lumascope.modules.recording_manifest import gather_host_provenance
 from _lumascope.modules.video_cadence import (
     StallWatch,
@@ -118,7 +119,7 @@ class ProtocolVideoStep:
             Auto_Gain, Exposure).
         save_folder: The run's save folder for this step.
         name: The step's artifact base name (caller tokens preserved).
-        video_as_frames: Run-level flag -- TIFF frames vs MP4.
+        recording_format: The run's recording format (frames or one MP4).
         capture_config: The run's frozen ImageCaptureConfig (encoding,
             depth).
         timestamp_overlay: Run-scoped snapshot of the overlay choice.
@@ -171,7 +172,7 @@ class ProtocolVideoStep:
         step: Any,
         save_folder: Path,
         name: str,
-        video_as_frames: bool,
+        recording_format: RecordingFormat,
         capture_config: Any,
         timestamp_overlay: bool,
         global_max_fps: float,
@@ -197,7 +198,7 @@ class ProtocolVideoStep:
         self._step = step
         self._save_folder = Path(save_folder)
         self._name = name
-        self._video_as_frames = video_as_frames
+        self._recording_format = recording_format
         self._capture_config = capture_config
         self._timestamp_overlay = timestamp_overlay
         self._global_max_fps = global_max_fps
@@ -330,7 +331,7 @@ class ProtocolVideoStep:
             estimate_step_write_mb(
                 step,
                 sizing=self._frame_sizing,
-                video_as_frames=self._video_as_frames,
+                recording_format=self._recording_format,
                 video_fps=self._video_sizing_fps,
             ),
         )
@@ -366,10 +367,10 @@ class ProtocolVideoStep:
         # records. An unknown one refuses the step (ObjectiveUnknownError): a
         # file with no objective would carry no scale.
         self._objective_id, _ = scope.runtime_state.resolve_current_objective()
-        self._camera = recording_camera(scope) if self._video_as_frames else None
+        self._camera = recording_camera(scope) if self._recording_format.writes_frames else None
         self._start_dt = wall_time.now()
 
-        if self._video_as_frames:
+        if self._recording_format.writes_frames:
             self._output_dir = self._save_folder / self._name
         else:
             self._output_dir = self._save_folder
@@ -414,10 +415,12 @@ class ProtocolVideoStep:
             # moves the video, and a manifest named from the request would
             # replace the earlier one's. The frames leg owns a per-recording
             # folder and keeps the default name.
-            manifest_filename=('recording_manifest.json' if self._video_as_frames else None),
+            manifest_filename=(
+                'recording_manifest.json' if self._recording_format.writes_frames else None
+            ),
         )
 
-        if not self._video_as_frames:
+        if not self._recording_format.writes_frames:
             self._writer = VideoWriter(
                 output_path=self._output_dir / f'{self._name}.mp4',
                 fps=fps,
@@ -434,7 +437,7 @@ class ProtocolVideoStep:
 
         engine = VideoRecordingEngine(
             write_frame=self._write_frame,
-            writers=RECORDED_FRAME_WRITERS if self._video_as_frames else 1,
+            writers=RECORDED_FRAME_WRITERS if self._recording_format.writes_frames else 1,
             claim=self._run_claim,
             clock=self._clock,
             steady_clock=self._steady_clock,
@@ -454,7 +457,7 @@ class ProtocolVideoStep:
         rate = 'every delivered frame' if fps is None else f'{fps:.2f} fps limit'
         logger.info(
             f'[PROTOCOL-VIDEO] Recording started: {rate}, {duration_s:.0f} s, '
-            f'{"frames" if self._video_as_frames else "mp4"} -> {self._output_dir}'
+            f'{self._recording_format} -> {self._output_dir}'
         )
 
         outcome, end_reason = self._wait_for_recording(
@@ -666,7 +669,7 @@ class ProtocolVideoStep:
                 to_plate=self._to_plate,
                 camera=self._camera,
             )
-            if self._video_as_frames
+            if self._recording_format.writes_frames
             else None
         )
         engine.ingest_frame(frame.image, timestamp_s, chunks, fact=facts)
@@ -682,7 +685,7 @@ class ProtocolVideoStep:
         image = fit_to_recording(image, config.width, config.height)
 
         step = self._step
-        if self._video_as_frames:
+        if self._recording_format.writes_frames:
             if config.bit_depth == 8 and image.dtype != np.uint8:
                 image = image_utils.convert_to_8bit(image, config.bit_depth)
             file_loc = config.output_dir / config.filename_template.format(n=frame_number)

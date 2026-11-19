@@ -23,6 +23,7 @@ import pathlib
 
 import pytest
 
+from _lumascope.modules import settings_init
 from _lumascope.modules.channel_record import release_old_names
 from tests.settings_fixtures import shipped_template
 
@@ -45,7 +46,13 @@ RUNTIME_ONLY_TOP_LEVEL = {'turret_position'}
 # - the old channel names (the release's OldChannelNames): each block is
 #   renamed to its LED's key at preparation and placed by the unit at
 #   bring-up.
-MIGRATED_TOP_LEVEL = {'manual_video', *(old.name for old in release_old_names())}
+# - every retired top-level setting (``settings_init._RETIRED_PATHS``, the
+#   one list of them): removed at load whatever it holds.
+MIGRATED_TOP_LEVEL = {
+    'manual_video',
+    *(old.name for old in release_old_names()),
+    *(path for path in settings_init._RETIRED_PATHS if '.' not in path),
+}
 
 # Per-layer (nested dict) keys that exist ONLY in current.json, on purpose,
 # keyed by the top-level entry they live under. None now: the frame's

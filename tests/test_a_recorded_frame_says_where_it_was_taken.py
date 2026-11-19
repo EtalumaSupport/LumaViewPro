@@ -49,6 +49,7 @@ from tests.camera_fakes import delivered_frame
 from tests.frame_records import frame_record, plate
 from tests.video_engine_harness import FakeClock, FrameFeed, WriterStub
 from _lumascope.modules.channel_record import release_colors
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.stock_channels import LED0, LED1
 
 A_FACT = FrameFact(plate_x_mm=1.5, plate_y_mm=2.5, z_um=3.0, moving=False)
@@ -466,8 +467,7 @@ class TestARecordingOnTheSimulator:
         from tests.scope_fakes import home_sim_scope
         from tests.settings_fixtures import complete_settings
 
-        settings = complete_settings(live_folder=str(tmp_path), video_as_frames=True)
-        settings['image_output_format']['sequenced'] = 'OME-TIFF Hyperstack'
+        settings = complete_settings(live_folder=str(tmp_path), video_recording_format='hyperstack')
         settings['video']['max_duration_s'] = A_RECORDINGS_LIMIT_S
         session = ScopeSession.create(settings, simulate=True)
         try:
@@ -518,7 +518,7 @@ class TestARecordingStatesEachFramesStart:
     # it and the two wall clock reads' own slew against the steady clock.
     _WITHIN = datetime.timedelta(milliseconds=3)
 
-    def _record(self, tmp_path, *, video_as_frames):
+    def _record(self, tmp_path, *, recording_format):
         """A manual recording of a few frames on a simulated session: its
         folder, each delivered frame's true start by FrameID, and the wall
         time just before the recording was asked to start."""
@@ -526,7 +526,9 @@ class TestARecordingStatesEachFramesStart:
         from _lumascope.modules.scope_session import ScopeSession
         from tests.settings_fixtures import complete_settings
 
-        settings = complete_settings(live_folder=str(tmp_path), video_as_frames=video_as_frames)
+        settings = complete_settings(
+            live_folder=str(tmp_path), video_recording_format=recording_format.value
+        )
         settings['video']['max_duration_s'] = A_RECORDINGS_LIMIT_S
         session = ScopeSession.create(settings, simulate=True)
         started = {}
@@ -551,7 +553,7 @@ class TestARecordingStatesEachFramesStart:
         return tmp_path / 'Manual', started, before
 
     def test_a_frames_recordings_first_frame_states_its_start(self, tmp_path):
-        manual, started, before = self._record(tmp_path, video_as_frames=True)
+        manual, started, before = self._record(tmp_path, recording_format=RecordingFormat.FRAMES)
 
         folder = next(manual.glob('Video_*'))
         first = read_file_record(sorted(folder.glob('ManualVideo_Frame_*.tiff'))[0])
@@ -561,7 +563,7 @@ class TestARecordingStatesEachFramesStart:
         assert stated >= before, 'a frame started before the recording was kept'
 
     def test_an_mp4_recordings_manifest_states_its_first_frames_start(self, tmp_path):
-        manual, started, before = self._record(tmp_path, video_as_frames=False)
+        manual, started, before = self._record(tmp_path, recording_format=RecordingFormat.MP4)
 
         manifest = json.loads(next(manual.glob('*_manifest.json')).read_text())
         first = manifest['frame_index'][0]
@@ -591,7 +593,7 @@ def _record_a_video_step(tmp_path, *, sequenced_format, image_mode='8bit'):
     from tests.test_composite_run_e2e import headless_settings, open_composite_session
 
     settings = headless_settings(tmp_path, sequenced_format=sequenced_format)
-    settings['video_as_frames'] = True
+    settings['video_recording_format'] = 'frames'
     settings['image_mode'] = image_mode
     with open_composite_session(settings) as (_session, runner):
         run = runner.start_single_scan(
@@ -609,7 +611,7 @@ def _record_manually(tmp_path, *, live_format, sequenced_format):
     settings = headless_settings(
         tmp_path, sequenced_format=sequenced_format, live_format=live_format
     )
-    settings['video_as_frames'] = True
+    settings['video_recording_format'] = 'frames'
     settings['video']['max_duration_s'] = A_RECORDINGS_LIMIT_S
     with open_composite_session(settings) as (session, _runner):
         session.show_channel(LED1)

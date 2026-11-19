@@ -52,6 +52,7 @@ from tests.scope_fakes import (
     swap_lanes,
 )
 from _lumascope.modules.channel_record import release_colors
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.stock_channels import LED0, LED1, LED2
 from tests.protocol_fixtures import protocol_of
 
@@ -675,13 +676,15 @@ class TestSingleScanVideo:
         mp4s = list(tmp_path.rglob('*.mp4'))
         assert mp4s and mp4s[0].stat().st_size > 0, 'the MP4 must land beside its manifest'
 
-    def test_video_as_frames(self, executor, scope, tmp_path):
+    def test_a_video_step_recorded_as_frames(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(
             color='BF',
             acquire='video',
             video_config={'duration': 0.5},
         )
-        completed, _ = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
+        completed, _ = _run_and_wait(
+            executor, protocol, tmp_path, recording_format=RecordingFormat.FRAMES
+        )
         assert completed
         frames = list(tmp_path.rglob('*_Frame_*.tiff'))
         assert frames, 'the frames leg must write per-frame TIFF artifacts'
@@ -707,7 +710,9 @@ class TestSingleScanVideo:
             acquire='video',
             video_config={'duration': 0.5},
         )
-        completed, _ = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
+        completed, _ = _run_and_wait(
+            executor, protocol, tmp_path, recording_format=RecordingFormat.FRAMES
+        )
         assert completed
         frames = list(tmp_path.rglob('*_Frame_*.tiff'))
         assert frames, 'the frames leg must write per-frame TIFF artifacts'
@@ -745,7 +750,9 @@ class TestARunsSlowVideoSaveIsToldAtItsEnd:
             color='BF', acquire='video', video_config={'duration': 0.5}
         )
 
-        completed, ended = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
+        completed, ended = _run_and_wait(
+            executor, protocol, tmp_path, recording_format=RecordingFormat.FRAMES
+        )
 
         assert completed
         waited_s = ended['outcome'].video_save_wait_s
@@ -789,7 +796,9 @@ class TestARunsLostVideoFramesAreToldOnceAtItsEnd:
             ]
         )
 
-        completed, _ = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
+        completed, _ = _run_and_wait(
+            executor, protocol, tmp_path, recording_format=RecordingFormat.FRAMES
+        )
 
         assert completed
         manifests = [json.loads(p.read_text()) for p in tmp_path.rglob('recording_manifest.json')]

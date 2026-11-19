@@ -29,6 +29,7 @@ from _lumascope.modules.common_utils import (
     PROTOCOL_SIZE_ADVISORY_STEPS,
     format_disk_size_mb,
 )
+from _lumascope.modules.image_mode import RecordingFormat
 from _lumascope.modules.scope_session import ControlsLock
 from _lumascope.modules.write_size import estimate_step_write_mb
 from tests.protocol_drives import a_frame_sizing
@@ -69,12 +70,12 @@ VIDEO_FPS = 40.0
 SIZING = a_frame_sizing()
 
 
-def _per_step_sum(protocol, *, video_as_frames, video_fps):
+def _per_step_sum(protocol, *, recording_format, video_fps):
     return sum(
         estimate_step_write_mb(
             protocol.step_row(step_index=i),
             sizing=SIZING,
-            video_as_frames=video_as_frames,
+            recording_format=recording_format,
             video_fps=video_fps,
         )
         for i in range(protocol.num_steps())
@@ -88,12 +89,14 @@ class TestTheWholeProtocolEstimateHasOneOwner:
     The grep it replaced could only see that a name was mentioned.
     """
 
-    @pytest.mark.parametrize('video_as_frames', [False, True])
-    def test_total_equals_the_sum_of_its_steps(self, video_as_frames):
+    # A stack's second copy is the run's, not a step's, so the formats that
+    # build none are the ones whose total is its steps' sum.
+    @pytest.mark.parametrize('recording_format', [RecordingFormat.MP4, RecordingFormat.FRAMES])
+    def test_total_equals_the_sum_of_its_steps(self, recording_format):
         protocol = _build_protocol(_mixed_steps())
         assert protocol.estimate_write_mb(
-            sizing=SIZING, video_as_frames=video_as_frames, video_fps=VIDEO_FPS
-        ) == _per_step_sum(protocol, video_as_frames=video_as_frames, video_fps=VIDEO_FPS)
+            sizing=SIZING, recording_format=recording_format, video_fps=VIDEO_FPS
+        ) == _per_step_sum(protocol, recording_format=recording_format, video_fps=VIDEO_FPS)
 
 
 class TestTheThresholdBoundary:

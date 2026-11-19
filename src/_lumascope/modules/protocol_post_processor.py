@@ -129,6 +129,16 @@ def _recording_frames(df: pd.DataFrame) -> pd.Series:
     return frames
 
 
+def rows_of(*, stills: bool, recordings: bool) -> Callable[[pd.DataFrame], pd.Series]:
+    """A build's ``select`` for the families it takes: a folder's stills, its recordings' frames, or both."""
+
+    def select(df: pd.DataFrame) -> pd.Series:
+        frames = _recording_frames(df)
+        return (frames & recordings) | (~frames & stills)
+
+    return select
+
+
 def derived_rows(df: pd.DataFrame) -> pd.Series:
     """Which rows are derived images, the one test: a raw capture's
     derivation is empty, and every row the loader gives carries one."""

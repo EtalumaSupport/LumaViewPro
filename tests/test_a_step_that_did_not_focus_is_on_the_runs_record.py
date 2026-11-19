@@ -138,7 +138,7 @@ def test_a_recorded_frame_taken_at_its_fallback_focus_says_so(tmp_path, every_sc
     file of a step recorded at its fallback focus states why autofocus did
     not focus, and a frame of a step with no autofocus states nothing."""
     settings = headless_settings(tmp_path)
-    settings['video_as_frames'] = True
+    settings['video_recording_format'] = 'frames'
     steps = [
         _step('V0', 0, x=20.0, gain=1.0, autofocus=True),
         _step('V1', 1, x=30.0, gain=1.0),

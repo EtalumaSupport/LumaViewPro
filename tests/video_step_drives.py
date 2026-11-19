@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock
 
-from _lumascope.modules.image_mode import ImageCaptureConfig
+from _lumascope.modules.image_mode import ImageCaptureConfig, RecordingFormat
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.protocol_recording import ProtocolVideoStep
 from _lumascope.modules.run_events import RunEvents
@@ -61,7 +61,7 @@ def video_step_on(
         'step': {**VIDEO_STEP, **(step or {})},
         'save_folder': save_folder,
         'name': 'clip',
-        'video_as_frames': True,
+        'recording_format': RecordingFormat.FRAMES,
         'capture_config': ImageCaptureConfig.from_image_mode('8bit'),
         'timestamp_overlay': True,
         'global_max_fps': 0,

@@ -56,6 +56,29 @@ class OutputFormat(enum.StrEnum):
     HYPERSTACK = 'OME-TIFF Hyperstack'
 
 
+class RecordingFormat(enum.StrEnum):
+    """The formats a recording is saved in, manual or a protocol's video step.
+
+    A reader asks what a format does (``writes_frames``, ``builds_stack``),
+    never which member it is, so a new format is a member and its answers.
+    The values are spelled as the settings files hold them.
+    """
+
+    MP4 = 'mp4'
+    FRAMES = 'frames'
+    HYPERSTACK = 'hyperstack'
+
+    @property
+    def writes_frames(self) -> bool:
+        """One TIFF per frame and the recording's manifest, not one MP4."""
+        return self in (RecordingFormat.FRAMES, RecordingFormat.HYPERSTACK)
+
+    @property
+    def builds_stack(self) -> bool:
+        """An OME-TIFF hyperstack built from the frames once they are written; the frames stay."""
+        return self == RecordingFormat.HYPERSTACK
+
+
 # The sequenced formats a post-run merge can read its per-channel frames
 # back out of. JPG holds the display, lossy and with no capture facts; the
 # hyperstack build leaves a per-well stack with no 2D per-channel frame to

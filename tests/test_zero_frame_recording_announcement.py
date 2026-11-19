@@ -22,6 +22,7 @@ import pytest
 
 import _lumascope.modules.manual_recording as manual_recording_module
 import _lumascope.modules.video_writer as video_writer_module
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.test_manual_recording_controller import (
     feed_frames,
     finish,
@@ -69,7 +70,7 @@ class TestEmptyRecordingAnnouncesNoFile:
         merely a different log line.
         """
         controller, _scope, _clock = make_controller(
-            tmp_path, video_as_frames=False, post_processing=post_processing
+            tmp_path, recording_format=RecordingFormat.MP4, post_processing=post_processing
         )
         controller.start()
         controller.stop()
@@ -80,7 +81,7 @@ class TestEmptyRecordingAnnouncesNoFile:
     def test_zero_frames_does_not_announce_a_path(self, caplog, tmp_path, post_processing):
         """The defect: no line may name a file that was never created."""
         controller, _scope, _clock = make_controller(
-            tmp_path, video_as_frames=False, post_processing=post_processing
+            tmp_path, recording_format=RecordingFormat.MP4, post_processing=post_processing
         )
         controller.start()
         controller.stop()
@@ -100,7 +101,7 @@ class TestEmptyRecordingAnnouncesNoFile:
     def test_frames_still_announce_their_path(self, caplog, tmp_path, post_processing):
         """Behaviour preservation: a real recording still names its file."""
         controller, scope, clock = make_controller(
-            tmp_path, video_as_frames=False, post_processing=post_processing
+            tmp_path, recording_format=RecordingFormat.MP4, post_processing=post_processing
         )
         controller.start()
         feed_frames(scope, clock, 5, fps=10.0)
@@ -128,7 +129,7 @@ class TestEmptyRecordingAnnouncesNoFile:
         breaking the other.
         """
         controller, scope, clock = make_controller(
-            tmp_path, video_as_frames=False, post_processing=post_processing
+            tmp_path, recording_format=RecordingFormat.MP4, post_processing=post_processing
         )
         controller.start()
         if n_frames:

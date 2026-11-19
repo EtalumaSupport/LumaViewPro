@@ -34,6 +34,7 @@ from _lumascope.modules.lumascope_api.imaging import (
 )
 from _lumascope.modules.notification_center import OutcomeKind, Severity
 from _lumascope.modules.run_events import RunEvents
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.test_manual_recording_controller import make_controller
 from tests.scope_fakes import bind_settings_like_a_session
 from tests.protocol_drives import run_identity
@@ -104,12 +105,12 @@ class TestTheRegistrantHearsTheFailure:
         assert 'refused_plugin' in registry.live_processing.names()
         registry.live_processing.unregister('refused_plugin')
 
-    @pytest.mark.parametrize('video_as_frames', [True, False])
+    @pytest.mark.parametrize('recording_format', [RecordingFormat.FRAMES, RecordingFormat.MP4])
     def test_a_record_press_whose_registration_raised_leaves_nothing(
-        self, tmp_path, video_as_frames, post_processing
+        self, tmp_path, recording_format, post_processing
     ):
         controller, scope, _ = make_controller(
-            tmp_path, video_as_frames=video_as_frames, post_processing=post_processing
+            tmp_path, recording_format=recording_format, post_processing=post_processing
         )
         scope.imaging.add_frame_listener = MagicMock(side_effect=_refuse)
 
@@ -124,7 +125,7 @@ class TestTheRegistrantHearsTheFailure:
     def test_a_video_step_whose_registration_raised_unwinds_and_lets_it_go_on(
         self, sim_scope, tmp_path, monkeypatch
     ):
-        recorder = video_step_on(sim_scope, tmp_path, video_as_frames=False)
+        recorder = video_step_on(sim_scope, tmp_path, recording_format=RecordingFormat.MP4)
         monkeypatch.setattr(sim_scope._camera_driver, 'register_frame_callback', _refuse)
         reported = []
         monkeypatch.setattr(
@@ -325,7 +326,7 @@ class TestTheUnwindAndRemovalEdges:
         from _lumascope.modules.exceptions import RecordingRefusedError
 
         controller, _, _ = make_controller(
-            tmp_path, video_as_frames=True, post_processing=post_processing
+            tmp_path, recording_format=RecordingFormat.FRAMES, post_processing=post_processing
         )
         controller._claim.try_claim('protocol', run=run_identity())
         with pytest.raises(RecordingRefusedError):
@@ -336,7 +337,7 @@ class TestTheUnwindAndRemovalEdges:
 
     def test_a_frames_folder_with_something_in_it_is_kept(self, tmp_path, post_processing):
         controller, scope, _ = make_controller(
-            tmp_path, video_as_frames=True, post_processing=post_processing
+            tmp_path, recording_format=RecordingFormat.FRAMES, post_processing=post_processing
         )
 
         def write_then_refuse(*_a, **_kw):
@@ -359,7 +360,7 @@ class TestTheUnwindAndRemovalEdges:
         recorder = video_step_on(
             sim_scope,
             tmp_path,
-            video_as_frames=False,
+            recording_format=RecordingFormat.MP4,
             events=RunEvents(video_progress=progress),
         )
         monkeypatch.setattr(sim_scope._camera_driver, 'register_frame_callback', _refuse)

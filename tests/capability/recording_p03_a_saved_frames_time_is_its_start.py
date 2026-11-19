@@ -9,7 +9,7 @@ Three saves, each through the member the GUI's press reaches, at the
 layer's exposure set to 25 ms:
 
 1. a still, through a one-step image run (``runner.start_single_scan``);
-2. a manual recording as frames (``video_as_frames`` on);
+2. a manual recording as frames (``video_recording_format`` ``'frames'``);
 3. a manual recording as MP4.
 
 Every frame the camera delivers is caught by a frame listener: its id, its
@@ -218,7 +218,7 @@ def _index_entries(manifest, delivered):
 
 def _manual(session, live, as_frames):
     name = 'manual_frames' if as_frames else 'manual_mp4'
-    session.update_settings('video_as_frames', as_frames)
+    session.update_settings('video_recording_format', 'frames' if as_frames else 'mp4')
     before = set(live.rglob('*'))
     delivered = _Delivered(session.scope.imaging)
     try:

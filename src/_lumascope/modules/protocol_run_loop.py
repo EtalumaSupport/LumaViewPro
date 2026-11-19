@@ -171,7 +171,7 @@ class ProtocolRunLoop:
         consecutive_scan_failures = 0
 
         # The per-step write estimate is a per-run invariant -- the protocol
-        # steps and the video_as_frames mode do not change mid-run -- so compute
+        # steps and the recording format do not change mid-run -- so compute
         # the required free space once on the first scan that checks and reuse
         # it, instead of re-walking every step on each scan's disk check. Stays
         # None (and unevaluated) until a scan with an output dir actually needs
@@ -270,7 +270,7 @@ class ProtocolRunLoop:
                             MIN_REQUIRED_DISK_MB,
                             p._protocol.estimate_write_mb(
                                 sizing=p._frame_sizing,
-                                video_as_frames=p._video_as_frames,
+                                recording_format=p._recording_format,
                                 video_fps=p._video_sizing_fps,
                             ),
                         )

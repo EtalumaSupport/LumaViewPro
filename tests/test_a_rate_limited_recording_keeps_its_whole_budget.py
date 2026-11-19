@@ -66,7 +66,7 @@ def test_a_manual_recordings_last_frame_held_on_its_way_is_kept(
         scope=sim_scope,
         settings_snapshot=lambda: complete_settings(
             live_folder=str(tmp_path),
-            video_as_frames=True,
+            video_recording_format='frames',
             video={'max_fps': 10, 'max_duration_s': 2, 'timestamp_overlay': False},
         ),
         shown_channel=lambda: 'BF',

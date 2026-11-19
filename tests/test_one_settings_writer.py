@@ -89,6 +89,10 @@ def test_a_leaf_with_no_shipped_value_takes_the_kind_it_holds_when_set(session):
         ('image_output_format.live', 'OME-TIFF Hyperstack', 'not_offered'),
         # A second channel order every 4.0 beta stored; the drawers' is the one.
         ('step_channel_order', ['BF'], 'not_a_setting'),
+        # The recording format's yes or no, retired: video_recording_format
+        # is the choice.
+        ('video_as_frames', True, 'not_a_setting'),
+        ('video_recording_format', 'avi', 'not_offered'),
     ],
 )
 def test_a_refused_write_names_why_and_writes_nothing(session, path, value, reason):

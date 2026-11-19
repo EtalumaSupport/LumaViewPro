@@ -70,6 +70,8 @@ def test_a_build_is_over_for_a_capture_once_its_answer_is_delivered(session, tmp
         save_encoding='8bit',
         channel_colors=session.channel_colors(),
         written=lambda: None,
+        stills=True,
+        recordings=False,
     )
     build.add_done_callback(heard)
 

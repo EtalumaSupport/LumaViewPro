@@ -171,7 +171,7 @@
         "denoise_enabled": false,
         "sharpen_enabled": true
     },
-    "video_as_frames": false,
+    "video_recording_format": "mp4",
     "motion": {
         "acceleration_max_pct": 100,
         "restore_after_home": false

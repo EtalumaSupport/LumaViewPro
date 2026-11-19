@@ -252,6 +252,8 @@ class TestNothingBuildsFromAFolderMissingImages:
                 save_encoding='8bit',
                 channel_colors=release_colors(),
                 written=_abandoned,
+                stills=True,
+                recordings=False,
             ),
             answered.set,
         )

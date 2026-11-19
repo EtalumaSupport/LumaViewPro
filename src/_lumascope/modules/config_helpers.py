@@ -175,7 +175,7 @@ def get_sequenced_run_settings(settings: dict, *, run_mode: SequencedCaptureRunM
     return {
         'image_capture_config': image_capture_config,
         'keep_led_between_steps': (False if autofocus_scan else settings['keep_led_between_steps']),
-        'video_as_frames': settings['video_as_frames'],
+        'recording_format': image_mode.RecordingFormat(settings['video_recording_format']),
         'separate_folder_per_channel': (
             False if autofocus_scan else settings['separate_folder_per_channel']
         ),

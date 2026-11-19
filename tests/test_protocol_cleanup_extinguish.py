@@ -29,6 +29,7 @@ from _lumascope.modules.activity_claim import acting
 from tests.protocol_drives import a_claim_its_scope_asks, run_identity
 from _lumascope.modules.run_outcome import PendingRunOutcome, RunEnding
 from _lumascope.modules.video_recording import FrameLosses
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.scope_fakes import build_scope, channel_reading
 from tests.stock_channels import LED0
 
@@ -174,7 +175,7 @@ def _cleanup_told(scope, monkeypatch, apply_led_transition_fn):
         record_cleanup_failures=lambda steps: None,
         failed_before=(),
         video_save_wait_s=None,
-        video_as_frames=False,
+        recording_format=RecordingFormat.MP4,
         video_losses=FrameLosses(),
     )
     return applied, told

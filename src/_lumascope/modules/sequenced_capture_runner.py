@@ -332,7 +332,7 @@ class RunPlan:
     # The caller's own protocol, not a copy: the one object a completed
     # autofocus scan writes its focus into.
     write_focus_to: Protocol | None
-    video_as_frames: bool
+    recording_format: image_mode.RecordingFormat
     keep_led_between_steps: bool
     return_to_position: PlateLocation | None
     stage_offset: StageOffset
@@ -1234,7 +1234,7 @@ class SequencedCaptureRunner:
         # Anything a normal run must do with a found focus therefore cannot
         # be gated on this.
         write_focus_to: Protocol | None = None,
-        video_as_frames: bool = False,
+        recording_format: image_mode.RecordingFormat = image_mode.RecordingFormat.MP4,
         keep_led_between_steps: bool = False,
         timestamp_overlay: bool = True,
         video_max_fps: int = 0,
@@ -1582,7 +1582,7 @@ class SequencedCaptureRunner:
                     ),
                 )
             scan_mb = execution_protocol.estimate_write_mb(
-                sizing=frame_sizing, video_as_frames=video_as_frames, video_fps=video_fps
+                sizing=frame_sizing, recording_format=recording_format, video_fps=video_fps
             )
             required_mb = max(common_utils.MIN_REQUIRED_DISK_MB, scan_mb * n_scans)
             try:
@@ -1638,7 +1638,7 @@ class SequencedCaptureRunner:
             disable_saving_artifacts=disable_saving_artifacts,
             save_autofocus_data=save_autofocus_data,
             write_focus_to=write_focus_to,
-            video_as_frames=video_as_frames,
+            recording_format=recording_format,
             keep_led_between_steps=keep_led_between_steps,
             return_to_position=return_to_position,
             stage_offset=stage_offset,
@@ -1847,7 +1847,7 @@ class SequencedCaptureRunner:
             self._write_focus_to = plan.write_focus_to
             self._focus_channel = _channel_whose_focus_it_saves(plan)
             self._keep_led_between_steps = plan.keep_led_between_steps
-            self._video_as_frames = plan.video_as_frames
+            self._recording_format = plan.recording_format
             self._timestamp_overlay = plan.timestamp_overlay
             self._video_max_fps = plan.video_max_fps
             self._video_sizing_fps = plan.video_sizing_fps
@@ -2658,7 +2658,12 @@ class SequencedCaptureRunner:
     def _start_hyperstack_build(
         self, on_end: typing.Callable[[], None]
     ) -> concurrent.futures.Future | None:
-        """Put the post-run per-well hyperstack build on the post-processing lane, when configured.
+        """Put the post-run per-well hyperstack build on the post-processing lane, when asked for.
+
+        Each family the run has is stacked when its own format asks: the
+        stills when the Sequenced format is Hyperstack, each video step's
+        frames when the recording format is. A run that asks for neither,
+        or has none of what it asks for, builds nothing.
 
         Runs from cleanup for every capturing run mode (an autofocus scan
         captures nothing to stack). The build waits for THIS run's images
@@ -2679,7 +2684,16 @@ class SequencedCaptureRunner:
         if self._run_mode.is_autofocus:
             return None
         config = self._image_capture_config
-        if config is None or config.output_format_sequenced != image_mode.OutputFormat.HYPERSTACK:
+        if config is None:
+            return None
+        acquired = self._protocol.steps()['Acquire']
+        stills = config.output_format_sequenced == image_mode.OutputFormat.HYPERSTACK and bool(
+            (acquired != AcquireMode.VIDEO).any()
+        )
+        recordings = self._recording_format.builds_stack and bool(
+            (acquired == AcquireMode.VIDEO).any()
+        )
+        if not (stills or recordings):
             return None
         run_dir = self._run_dir
         if run_dir is None:
@@ -2691,6 +2705,8 @@ class SequencedCaptureRunner:
             save_encoding=config.save_encoding,
             channel_colors=self._channel_colors,
             written=lambda: write_batch.wait_until_written(_POST_RUN_WRITES_WAIT_S),
+            stills=stills,
+            recordings=recordings,
         )
         return stack_builder.build_hyperstacks_for_run(submit, on_end)
 
@@ -3069,7 +3085,7 @@ class SequencedCaptureRunner:
                 record_cleanup_failures=run._pending.record_cleanup_failures,
                 failed_before=halt_failed,
                 video_save_wait_s=video_save_wait_s,
-                video_as_frames=self._video_as_frames,
+                recording_format=self._recording_format,
                 video_losses=video_losses,
             )
             build = self._start_hyperstack_build(on_end=run._files_event_done)

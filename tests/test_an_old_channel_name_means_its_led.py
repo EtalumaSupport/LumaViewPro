@@ -295,6 +295,8 @@ def test_an_old_runs_false_colour_images_stack_as_baked(old_session, run_folder)
         save_encoding='right_aligned',
         channel_colors=old_session.channel_colors(),
         written=lambda: None,
+        stills=True,
+        recordings=False,
     ).result(timeout=60)
 
     with tifffile.TiffFile(run_folder / 'Hyperstack' / 'custom0000_TA1_hyperstack.ome.tiff') as tif:

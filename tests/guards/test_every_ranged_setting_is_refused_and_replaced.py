@@ -45,6 +45,7 @@ _OUT_OF_RANGE = {
     'tiling_overlap_percent': 75.0,
     'image_output_format.live': 'BMP',
     'image_output_format.sequenced': 'BMP',
+    'video_recording_format': 'avi',
     'video.max_fps': settings_paths.VIDEO_MAX_FPS_LIMIT + 1,
     'video.max_duration_s': 0,
     'jpg_quality': settings_paths.JPG_QUALITY_RANGE[1] + 1,
@@ -77,7 +78,12 @@ _OUT_OF_RANGE = {
 # The settings that hold a closed set, whose write refuses a value outside it
 # ``not_offered``, the set's one word, not ``out_of_range``.
 _CLOSED_SETS = frozenset(
-    {'zstack.position', 'image_output_format.live', 'image_output_format.sequenced'}
+    {
+        'zstack.position',
+        'image_output_format.live',
+        'image_output_format.sequenced',
+        'video_recording_format',
+    }
 )
 
 # A whole-number setting's fraction, inside its bounds: the board and the

@@ -86,7 +86,7 @@ def test_a_manual_recordings_first_frame_is_not_moved_by_a_step_of_the_wall_cloc
         scope=sim_scope,
         settings_snapshot=lambda: complete_settings(
             live_folder=str(tmp_path),
-            video_as_frames=True,
+            video_recording_format='frames',
             video={'max_fps': 0, 'max_duration_s': 60, 'timestamp_overlay': False},
         ),
         shown_channel=lambda: 'BF',

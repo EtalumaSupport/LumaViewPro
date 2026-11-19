@@ -37,6 +37,7 @@ from _lumascope.modules.exceptions import (
     RunFilesNotWrittenError,
     RunWriteRefusedError,
 )
+from _lumascope.modules.image_mode import RecordingFormat
 from _lumascope.modules.image_save import save_image
 from _lumascope.modules.channel_record import ChannelColors
 from _lumascope.modules.scope_parts import Board
@@ -1383,7 +1384,7 @@ class ProtocolImageWriter:
         sum_count: int = 1,
         enable_image_saving: bool = True,
         autogain_settings: dict | None = None,
-        video_as_frames: bool = False,
+        recording_format: RecordingFormat = RecordingFormat.MP4,
         separate_folder_per_channel: bool = False,
         arm_refused: CameraSettingRejected | None = None,
     ) -> bool:
@@ -1610,7 +1611,7 @@ class ProtocolImageWriter:
                         step=step,
                         save_folder=pathlib.Path(save_folder),
                         name=name,
-                        video_as_frames=video_as_frames,
+                        recording_format=recording_format,
                         capture_config=self._config,
                         timestamp_overlay=self._timestamp_overlay,
                         global_max_fps=self._video_max_fps,

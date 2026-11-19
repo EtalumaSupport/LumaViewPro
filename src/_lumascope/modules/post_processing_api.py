@@ -1057,6 +1057,8 @@ class PostProcessingAPI:
         save_encoding: str,
         channel_colors: ChannelColors,
         written: Callable[[], None],
+        stills: bool,
+        recordings: bool,
     ) -> concurrent.futures.Future:
         """Put a finished run's per-well hyperstack build on the lane, without waiting.
 
@@ -1067,7 +1069,9 @@ class PostProcessingAPI:
         blocks until the run's images are all on disk and raises when they
         will not be; the build waits on it before it starts, so a stack is
         never built from a folder still filling. The run's own files and its
-        own hold are no reason to refuse it.
+        own hold are no reason to refuse it. *stills* and *recordings* are
+        the families the run's formats stack: its stills under the Sequenced
+        format, each video step's frames under the recording format.
 
         Returns:
             The future the build settles: the builder's answer, or what
@@ -1077,12 +1081,14 @@ class PostProcessingAPI:
         Raises:
             HardwareCommandRefusedError: the lane is closed.
         """
+        from _lumascope.modules.protocol_post_processor import rows_of
         from _lumascope.modules.stack_builder import StackBuilder
 
         return self._on_lane(
             functools.partial(
                 StackBuilder(has_turret=self._has_turret()).load_folder,
                 tiling_grids=self._tiling_grids,
+                select=rows_of(stills=stills, recordings=recordings),
                 save_encoding=save_encoding,
                 channel_colors=channel_colors,
             ),

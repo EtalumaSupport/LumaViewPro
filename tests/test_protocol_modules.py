@@ -43,6 +43,7 @@ from _lumascope.modules.run_outcome import EndingLatch, RunEnding
 from tests.scope_fakes import swap_lanes
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.coord_transformations import PlateLocation
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.protocol_drives import a_frame_sizing
 
 
@@ -354,7 +355,7 @@ class TestRunCleanup:
             'record_cleanup_failures': lambda steps: None,
             'failed_before': (),
             'video_save_wait_s': None,
-            'video_as_frames': False,
+            'recording_format': RecordingFormat.MP4,
             'video_losses': FrameLosses(),
         }
         defaults.update(overrides)

@@ -52,6 +52,7 @@ from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.axes import StageAxis
 from _lumascope.modules.closed_sets import member_of, refuse_unless_offered
 from _lumascope.modules.api_surface import FilePath, api, api_fields
+from _lumascope.modules.image_mode import RecordingFormat
 
 if TYPE_CHECKING:
     import _lumascope.modules.labware as labware_module
@@ -2575,7 +2576,7 @@ class Protocol:
         self,
         *,
         sizing: write_size.FrameSizing,
-        video_as_frames: bool = False,
+        recording_format: RecordingFormat = RecordingFormat.MP4,
         video_fps: float | None,
     ) -> float:
         """Estimate the disk one scan of this protocol writes, in MB.
@@ -2584,9 +2585,8 @@ class Protocol:
         checks and the advisory cannot drift apart; a run's whole size is
         this times its scan count. Lives on Protocol because the estimate has
         to know the steps frame schema, and Protocol is what guarantees that
-        schema at any row count. A hyperstack run counts every TIFF twice:
-        the stacks are built after the run beside the files they read, which
-        stay.
+        schema at any row count. A stack counts its frames twice: it is
+        built after the run beside the files it reads, which stay.
 
         Stateless by design -- no cached total. A cache here has to be
         invalidated by every mutator, and the in-place ones (modify_step
@@ -2602,8 +2602,8 @@ class Protocol:
 
         Args:
             sizing: The frame sizing the run saves at.
-            video_as_frames: Run-level flag -- video saved as individual
-                frames rather than a compressed MP4.
+            recording_format: How the run saves a video step: one MP4, its
+                frames, or its frames and a stack of them.
             video_fps: The rate a video step is sized at
                 (``video_cadence.video_sizing_fps``); None when it is not
                 known, which only a protocol with no video step may pass.
@@ -2637,18 +2637,21 @@ class Protocol:
             video_mb += write_size.estimate_step_write_mb(
                 steps.iloc[pos],
                 sizing=sizing,
-                video_as_frames=video_as_frames,
+                recording_format=recording_format,
                 video_fps=video_fps,
             )
-        if video_as_frames:
-            tiff_mb, video_mb = tiff_mb + video_mb, 0.0
-        return tiff_mb * (2 if sizing.stacked else 1) + video_mb
+        # A stack is built beside the frames it reads, which stay: the
+        # stills' when the Sequenced format stacks, the recordings' when
+        # the recording format does.
+        return tiff_mb * (2 if sizing.stacked else 1) + video_mb * (
+            2 if recording_format.builds_stack else 1
+        )
 
     def size_advisory(
         self,
         *,
         sizing: write_size.FrameSizing | None,
-        video_as_frames: bool = False,
+        recording_format: RecordingFormat = RecordingFormat.MP4,
         video_fps: float | None,
     ) -> ProtocolSizeAdvisory | None:
         """Describe this protocol if it is large enough to warn about, else None.
@@ -2667,8 +2670,8 @@ class Protocol:
             sizing: The frame sizing a run would save at; None when the
                 camera's frame size or depth is not known, and the advisory
                 then says the protocol is not sized.
-            video_as_frames: True when the run saves a video step as individual frames
-                rather than one compressed file, which writes more.
+            recording_format: How the run saves a video step; its frames
+                write more than one MP4, and a stack of them more again.
             video_fps: The rate a video step is sized at
                 (``video_cadence.video_sizing_fps``); None when it is not
                 known (no limit set and the camera delivering nothing), and
@@ -2698,7 +2701,7 @@ class Protocol:
                 ),
             )
         scan_mb = self.estimate_write_mb(
-            sizing=sizing, video_as_frames=video_as_frames, video_fps=video_fps
+            sizing=sizing, recording_format=recording_format, video_fps=video_fps
         )
         num_scans = self.num_scans()
         run_mb = scan_mb * num_scans

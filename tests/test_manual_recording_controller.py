@@ -40,6 +40,7 @@ from tests.camera_fakes import delivered_frame
 from _lumascope.modules.lumascope_api import AxisPosition
 from _lumascope.modules.axes import AxisState
 from _lumascope.modules.channel_record import release_colors
+from _lumascope.modules.image_mode import OutputFormat, RecordingFormat
 from tests.frame_records import plate
 from tests.objective_records import objective
 from tests.post_processing_lane import a_post_processing_api
@@ -264,19 +265,16 @@ class _FakeScope:
         )
 
 
-def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, hyperstack=False):
-    settings = complete_settings(
+def make_settings(tmp_path, *, recording_format=RecordingFormat.FRAMES, max_fps=0, duration_s=60):
+    return complete_settings(
         live_folder=str(tmp_path),
-        video_as_frames=video_as_frames,
+        video_recording_format=recording_format.value,
         video={
             'max_fps': max_fps,
             'max_duration_s': duration_s,
             'timestamp_overlay': True,
         },
     )
-    if hyperstack:
-        settings['image_output_format']['sequenced'] = 'OME-TIFF Hyperstack'
-    return settings
 
 
 def make_controller(
@@ -577,7 +575,7 @@ def _hold_the_wall_second(monkeypatch):
 
 class TestMp4Leg:
     def test_end_to_end_mp4_and_manifest(self, tmp_path):
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        controller, scope, clock = make_controller(tmp_path, recording_format=RecordingFormat.MP4)
         controller.start()
         feed_frames(scope, clock, 5, fps=10.0)
         controller.stop()
@@ -595,7 +593,7 @@ class TestMp4Leg:
         self, tmp_path, monkeypatch
     ):
         _hold_the_wall_second(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        controller, scope, clock = make_controller(tmp_path, recording_format=RecordingFormat.MP4)
         for frames in (3, 5):
             controller.start()
             feed_frames(scope, clock, frames, fps=10.0)
@@ -724,7 +722,7 @@ class TestFailedStartUnwind:
 
     def test_failed_start_closes_container(self, tmp_path, monkeypatch):
         made = _capture_engine_and_writer(monkeypatch)
-        controller, _scope, _clock = make_controller(tmp_path, video_as_frames=False)
+        controller, _scope, _clock = make_controller(tmp_path, recording_format=RecordingFormat.MP4)
         _fail_the_finish_thread(monkeypatch)
 
         with pytest.raises(RuntimeError):
@@ -742,7 +740,7 @@ class TestFailedStartUnwind:
         # reason that has nothing to do with the unwind.
         made = _capture_engine_and_writer(monkeypatch)
         controller, _scope, _clock = make_controller(
-            tmp_path, video_as_frames=False, lit=LED0, shown=LED0
+            tmp_path, recording_format=RecordingFormat.MP4, lit=LED0, shown=LED0
         )
         _fail_the_finish_thread(monkeypatch)
 
@@ -761,7 +759,7 @@ class TestFailedStartUnwind:
         # one leaves nothing of its own, and the cleanup must not reach the
         # earlier recording holding the name it asked for.
         _hold_the_wall_second(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        controller, scope, clock = make_controller(tmp_path, recording_format=RecordingFormat.MP4)
         controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
@@ -854,7 +852,9 @@ def _block_the_finish(monkeypatch):
 class TestExclusivitySpansTheFinish:
     def test_second_start_during_finish_is_refused(self, tmp_path, monkeypatch):
         entered, release = _block_the_finish(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0, shown=LED0)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit=LED0, shown=LED0
+        )
         try:
             controller.start()
             feed_frames(scope, clock, 3, fps=10.0)
@@ -882,7 +882,7 @@ class TestExclusivitySpansTheFinish:
         # user about their FPS budget has already run half of start().
         entered, release = _block_the_finish(monkeypatch)
         controller, scope, clock = make_controller(
-            tmp_path, hyperstack=True, lit=LED0, shown=LED0, max_fps=20
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit=LED0, shown=LED0, max_fps=20
         )
         try:
             controller.start()
@@ -907,7 +907,9 @@ class TestARecordingIsAnOperation:
 
     def test_its_operation_is_done_only_when_a_new_start_is_accepted(self, tmp_path, monkeypatch):
         entered, release = _block_the_finish(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0, shown=LED0)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit=LED0, shown=LED0
+        )
         try:
             recording = controller.start()
             feed_frames(scope, clock, 3, fps=10.0)
@@ -981,7 +983,7 @@ class TestARecordingIsAnOperation:
         monkeypatch.setattr(
             manual_recording_module.VideoRecordingEngine, '_finalize_locked', _explode
         )
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        controller, scope, clock = make_controller(tmp_path, recording_format=RecordingFormat.MP4)
         recording = controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
         recording.stop()
@@ -999,7 +1001,7 @@ class TestFinishThreadResilience:
         # stuck in its recording state, with the drain already over.
         made = _capture_engine_and_writer(monkeypatch)
         recorder = NotifyRecorder(centre_posts)
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+        controller, scope, clock = make_controller(tmp_path, recording_format=RecordingFormat.MP4)
 
         def _explode(_self):
             raise RuntimeError('scripted finalize failure')
@@ -1132,7 +1134,9 @@ class TestLossIsNotified:
     def test_finish_failure_notifies(self, tmp_path, monkeypatch, centre_posts):
         # A post-drain finish failure (here the hyperstack build) must
         # reach the user, never vanish behind a log line.
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK
+        )
         recorder = NotifyRecorder(centre_posts)
 
         class _ExplodingBuilder:
@@ -1174,13 +1178,43 @@ def test_a_recordings_stack_is_built_on_the_post_processing_lane(tmp_path, monke
     # The session's builds own the stack, on their lane, as a run's are: a
     # recording's finish does not build on a thread of its own.
     captured = _capture_hyperstack_df(monkeypatch)
-    controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+    controller, scope, clock = make_controller(
+        tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit='BF'
+    )
     controller.start()
     feed_frames(scope, clock, 2, fps=10.0)
     controller.stop()
     finish(controller)
 
     assert captured['thread'] == _builds.lane.executor_name
+
+
+def test_only_the_hyperstack_format_builds_a_recordings_stack(tmp_path):
+    # The recording format alone decides whether a recording is stacked;
+    # the Sequenced format is the stills' choice, so every one of its values
+    # is walked under both formats that write frames. The real builder: the
+    # stack's file is what a person finds, and the frames stay beside it.
+    wrong = []
+    for sequenced in OutputFormat:
+        for recording_format in (RecordingFormat.FRAMES, RecordingFormat.HYPERSTACK):
+            folder = tmp_path / f'{sequenced.name}-{recording_format}'
+            folder.mkdir()
+            store = make_settings(folder, recording_format=recording_format)
+            store['image_output_format']['sequenced'] = sequenced.value
+            controller, scope, clock = make_controller(folder, settings=store, lit='BF')
+            controller.start()
+            feed_frames(scope, clock, 3, fps=10.0)
+            controller.stop()
+            finish(controller)
+
+            saved = next((folder / 'Manual').glob('Video_*'))
+            stacked = (saved / MANUAL_HYPERSTACK_FILENAME).exists()
+            frames = sum(1 for f in saved.glob('*.tif*') if f.name != MANUAL_HYPERSTACK_FILENAME)
+            if (stacked, frames) != (recording_format.builds_stack, 3):
+                wrong.append(
+                    f'{sequenced} / {recording_format}: stacked {stacked}, {frames} frames'
+                )
+    assert not wrong, '\n'.join(wrong)
 
 
 class TestChannelIdentity:
@@ -1194,7 +1228,9 @@ class TestChannelIdentity:
         # row must carry 'BF', not None -- a null Color makes nunique() 0
         # and the hyperstack never builds.
         captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit='BF'
+        )
         controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
@@ -1206,7 +1242,7 @@ class TestChannelIdentity:
         # Lumi is legitimately unlit; the shown channel names it.
         captured = _capture_hyperstack_df(monkeypatch)
         controller, scope, clock = make_controller(
-            tmp_path, hyperstack=True, lit=None, shown='Lumi'
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit=None, shown='Lumi'
         )
         controller.start()
         feed_frames(scope, clock, 2, fps=10.0)
@@ -1219,7 +1255,9 @@ class TestChannelIdentity:
         # Nothing lit and Brightfield shown is a session's startup state.
         # It records as BF -- it is not refused and never writes a null.
         captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=None)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit=None
+        )
         controller.start()
         feed_frames(scope, clock, 2, fps=10.0)
         controller.stop()
@@ -1232,7 +1270,7 @@ class TestChannelIdentity:
         captured = _capture_hyperstack_df(monkeypatch)
         scope = _FakeScope(board=False)
         controller, scope, clock = make_controller(
-            tmp_path, scope=scope, hyperstack=True, shown=LED1
+            tmp_path, scope=scope, recording_format=RecordingFormat.HYPERSTACK, shown=LED1
         )
         controller.start()
         feed_frames(scope, clock, 2, fps=10.0)
@@ -1246,7 +1284,9 @@ class TestChannelIdentity:
         # is a brightfield recording producing no hyperstack file at all,
         # and every other test here substitutes the builder. Nothing else
         # exercises _create_stack on manual-shaped rows.
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit='BF'
+        )
         controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
@@ -1371,7 +1411,7 @@ class TestD15LiveSettingsBackDoor:
         # The back door: a protocol load rewrites the live video settings
         # (rate cap, duration, overlay) under the running recording.
         store['video'].update({'max_fps': 1, 'max_duration_s': 1, 'timestamp_overlay': False})
-        store['video_as_frames'] = False
+        store['video_recording_format'] = 'mp4'
 
         feed_frames(scope, clock, 5, fps=10.0)
         clock.advance(2.0)  # past the mutated 1 s duration, far under the baked 60 s
@@ -1544,7 +1584,9 @@ class TestTheRecordedPosition:
             'report_outcome',
             lambda outcome, **kwargs: shown.append((outcome.title, str(outcome))),
         )
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit='BF'
+        )
         scope.motion.unknown = {'X': 'unknown'}
         controller.start()
         feed_frames(scope, clock, 2, fps=10.0)
@@ -1558,7 +1600,9 @@ class TestTheRecordedPosition:
 
     def test_each_row_is_its_own_frames_channel(self, tmp_path, monkeypatch):
         captured = _capture_hyperstack_df(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0, shown=LED0)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit=LED0, shown=LED0
+        )
         controller.start()
         feed_frames(scope, clock, 1, fps=10.0)
         scope.motion.positions['X'] = 3000.0
@@ -1603,7 +1647,9 @@ class TestTheRecordedPosition:
         ]
 
         shown.clear()
-        controller, scope, clock = make_controller(tmp_path, lit='BF', video_as_frames=False)
+        controller, scope, clock = make_controller(
+            tmp_path, lit='BF', recording_format=RecordingFormat.MP4
+        )
         scope.motion.unknown = {'X': 'unknown'}
         scope.runtime_state.plate_transform = lambda: None
         controller.start()
@@ -1721,7 +1767,9 @@ class TestARecordingThatCannotBeOneHyperstackSaysWhy:
     def test_the_notification_carries_the_builders_reason_and_the_frames_stand(
         self, tmp_path, centre_posts
     ):
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=LED0, shown=LED0)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK, lit=LED0, shown=LED0
+        )
         controller.start()
         feed_frames(scope, clock, 2, fps=10.0)
         scope.illumination._lit = LED1
@@ -1816,7 +1864,9 @@ class TestASlowSaveIsToldOnceItFinishes:
         self, tmp_path, monkeypatch, centre_posts
     ):
         writing = self._hold_writes(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.FRAMES
+        )
         recording = controller.start()
         feed_frames(scope, clock, 4, fps=10.0)
         recording.stop()
@@ -1837,7 +1887,9 @@ class TestASlowSaveIsToldOnceItFinishes:
         )
 
     def test_saving_that_keeps_up_is_not_told(self, tmp_path, centre_posts):
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.FRAMES
+        )
         recording = controller.start()
         feed_frames(scope, clock, 4, fps=10.0)
         recording.stop()
@@ -1851,7 +1903,9 @@ class TestASlowSaveIsToldOnceItFinishes:
         self, tmp_path, monkeypatch, centre_posts
     ):
         writing = self._hold_writes(monkeypatch)
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.FRAMES
+        )
         recording = controller.start()
         feed_frames(scope, clock, 4, fps=10.0)
         recording.stop()
@@ -1868,7 +1922,9 @@ class TestASlowSaveIsToldOnceItFinishes:
         self, tmp_path, monkeypatch, centre_posts
     ):
         writing = self._hold_writes(monkeypatch, dies=True)
-        controller, scope, clock = make_controller(tmp_path, video_as_frames=True)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.FRAMES
+        )
         recording = controller.start()
         feed_frames(scope, clock, 4, fps=10.0)
         recording.stop()
@@ -1933,7 +1989,9 @@ class TestARecordingsLanesAreItsOwn:
             real_write(scope, image, file_loc, *args, **kwargs)
 
         monkeypatch.setattr(manual_recording_module, 'write_frame', _hold_the_first_write)
-        controller, scope, clock = make_controller(tmp_path, hyperstack=True)
+        controller, scope, clock = make_controller(
+            tmp_path, recording_format=RecordingFormat.HYPERSTACK
+        )
         controller.start()
         feed_frames(scope, clock, 3, fps=10.0)
         assert entered.wait(5)

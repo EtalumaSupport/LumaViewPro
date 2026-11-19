@@ -130,7 +130,7 @@ def test_a_runs_held_captures_do_not_grow_with_its_scans(tmp_path, caplog):
 @pytest.mark.slow
 def test_a_video_run_keeps_at_most_one_scans_video_steps(tmp_path):
     settings = headless_settings(tmp_path)
-    settings['video_as_frames'] = True
+    settings['video_recording_format'] = 'frames'
     video_steps, scans = 2, 4
     alive = {}
 
@@ -201,7 +201,7 @@ def test_a_video_step_read_before_it_records_is_still_waited_for(tmp_path, monke
     a step's prologue included, when it is not yet busy; the step read
     there is still waited for at the run's end and counted as kept."""
     settings = headless_settings(tmp_path)
-    settings['video_as_frames'] = True
+    settings['video_recording_format'] = 'frames'
     held = _LastScanHeld(monkeypatch, scans=2)
     with open_composite_session(settings) as (session, runner), held.listening() as events:
         # Polled on every camera frame, as a REST client or the GUI polls it.
@@ -220,7 +220,7 @@ def test_a_video_step_that_lost_a_frame_is_on_the_runs_end_after_it_finished(tmp
     the run's end waits for the last scan's; the run's end still says not
     every frame was kept."""
     settings = headless_settings(tmp_path)
-    settings['video_as_frames'] = True
+    settings['video_recording_format'] = 'frames'
     held = _LastScanHeld(monkeypatch, scans=2, lose_first=True)
     with open_composite_session(settings) as (_session, runner), held.listening() as events:
         outcome = _run(runner, tmp_path, _protocol(_videos(1), 2), events)

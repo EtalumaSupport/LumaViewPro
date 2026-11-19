@@ -417,7 +417,7 @@ class ProtocolStepRunner:
                     sum_count=step['Sum'],
                     enable_image_saving=p._enable_image_saving,
                     autogain_settings=p._autogain_settings,
-                    video_as_frames=p._video_as_frames,
+                    recording_format=p._recording_format,
                     separate_folder_per_channel=p._separate_folder_per_channel,
                     curr_step=p._curr_step,
                     # Set by this step's own arm, the tick before; every

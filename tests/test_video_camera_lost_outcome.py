@@ -13,6 +13,7 @@ import pytest
 
 import _lumascope.modules.protocol_recording as protocol_recording
 from _lumascope.modules.run_events import RunEvents, VideoPhase
+from _lumascope.modules.image_mode import RecordingFormat
 from tests.stock_channels import LED0
 from tests.video_step_drives import video_step_on
 
@@ -22,7 +23,7 @@ def _make_recorder(scope, tmp_path, clock, **overrides):
         scope,
         tmp_path,
         step={'Video Config': {'duration': 10}, 'channel': 'BF'},
-        video_as_frames=False,
+        recording_format=RecordingFormat.MP4,
         clock=lambda: clock['t'],
         elapsed_clock=lambda: clock['t'],
         **overrides,
@@ -94,7 +95,7 @@ class TestZeroFrameOutcomeMapping:
     def _run_with_outcome(self, scope, tmp_path, outcome):
         clock = {'t': 1000.0}
         recorder = _make_recorder(scope, tmp_path, clock)
-        recorder._video_as_frames = True
+        recorder._recording_format = RecordingFormat.FRAMES
         with (
             patch.object(protocol_recording, 'VideoRecordingEngine', MagicMock()),
             patch.object(recorder, '_prologue', return_value=None),

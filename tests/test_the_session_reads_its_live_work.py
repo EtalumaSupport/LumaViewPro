@@ -189,6 +189,8 @@ def test_a_runs_hyperstack_is_post_processing_work_until_it_ends(sim_session, tm
         save_encoding='8bit',
         channel_colors=sim_session.channel_colors(),
         written=written,
+        stills=True,
+        recordings=False,
     )
     assert started.wait(SETTLE_S), 'the lane never began the build'
     assert (

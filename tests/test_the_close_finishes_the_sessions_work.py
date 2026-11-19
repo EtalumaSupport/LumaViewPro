@@ -168,6 +168,8 @@ def test_a_runs_post_run_build_ends_before_the_close_returns(sim_session, tmp_pa
         save_encoding='8bit',
         channel_colors=sim_session.channel_colors(),
         written=written,
+        stills=True,
+        recordings=False,
     )
 
     sim_session.shutdown()

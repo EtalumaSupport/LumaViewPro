@@ -15,7 +15,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from _lumascope.modules.image_mode import ImageCaptureConfig, OutputFormat
+from _lumascope.modules.image_mode import ImageCaptureConfig, OutputFormat, RecordingFormat
 from _lumascope.modules.notification_center import OutcomeKind
 from _lumascope.modules.protocol_image_writer import RunWriteBatch
 from _lumascope.modules.protocol_state_machine import SequencedCaptureRunMode
@@ -23,6 +23,17 @@ from tests.protocol_drives import bare_capture_runner
 from tests.case_walk import failing_cases
 from _lumascope.modules.channel_record import release_colors
 from tests.stock_channels import LED0
+from tests.test_protocol_roundtrip import _build_protocol, _make_step
+
+
+def _steps(*acquired):
+    # A run's protocol: one step per entry, each acquiring an image or a video.
+    return _build_protocol(
+        [
+            _make_step(name=f'S{i}', acquire=acquire, video_config={'duration': 1})
+            for i, acquire in enumerate(acquired)
+        ]
+    )
 
 
 def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL, **overrides):
@@ -31,6 +42,9 @@ def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
     runner._image_capture_config = ImageCaptureConfig.from_image_mode(
         '8bit', output_format_sequenced=OutputFormat.HYPERSTACK
     )
+    # A run of stills, its recordings (it has none) saved as one MP4.
+    runner._protocol = _steps('image')
+    runner._recording_format = RecordingFormat.MP4
     runner._run_dir = tmp_path
     # The run's writes, ended with nothing outstanding: its images are written.
     runner._write_batch = RunWriteBatch(MagicMock())
@@ -131,7 +145,12 @@ class TestRunnerHyperstackTrigger:
         # a stand-in by design: the subject is what the runner hands its builds.
         run_hyperstack = runner._post_processing.run_hyperstack
         run_hyperstack.assert_called_once_with(
-            tmp_path, save_encoding='8bit', channel_colors=release_colors(), written=ANY
+            tmp_path,
+            save_encoding='8bit',
+            channel_colors=release_colors(),
+            written=ANY,
+            stills=True,
+            recordings=False,
         )
         # The images it waits for are its own run's, not the successor's.
         run_hyperstack.call_args.kwargs['written']()
@@ -155,6 +174,41 @@ class TestRunnerHyperstackTrigger:
         with patch('_lumascope.modules.stack_builder.build_hyperstacks_for_run') as build:
             assert runner._start_hyperstack_build(on_end=lambda: None) is None
         build.assert_not_called()
+
+    def test_each_family_is_stacked_by_its_own_format(self, tmp_path):
+        # The stills are stacked under the Sequenced format, a recording's
+        # frames under the recording format, each only when the run has
+        # some; a run asking for neither, or for a family it lacks, builds
+        # nothing.
+        H, T = OutputFormat.HYPERSTACK, OutputFormat.TIFF
+        cases = [
+            (H, RecordingFormat.FRAMES, ('image', 'video'), (True, False)),
+            (T, RecordingFormat.HYPERSTACK, ('image', 'video'), (False, True)),
+            (H, RecordingFormat.HYPERSTACK, ('image', 'video'), (True, True)),
+            (H, RecordingFormat.FRAMES, ('video',), None),
+            (T, RecordingFormat.HYPERSTACK, ('image',), None),
+            (T, RecordingFormat.MP4, ('image', 'video'), None),
+        ]
+
+        def check(sequenced, recording_format, acquired, families):
+            runner = _hyperstack_runner(tmp_path)
+            runner._image_capture_config = ImageCaptureConfig.from_image_mode(
+                '8bit', output_format_sequenced=sequenced
+            )
+            runner._protocol = _steps(*acquired)
+            runner._recording_format = recording_format
+            with patch('_lumascope.modules.stack_builder.build_hyperstacks_for_run') as build:
+                started = runner._start_hyperstack_build(on_end=lambda: None)
+            if families is None:
+                assert started is None and not build.called
+                return
+            ((submit, _on_end), _) = build.call_args
+            submit()
+            asked = runner._post_processing.run_hyperstack.call_args.kwargs
+            assert (asked['stills'], asked['recordings']) == families
+
+        failed = failing_cases(cases, check)
+        assert not failed, failed
 
     @pytest.mark.parametrize(
         'run_mode',

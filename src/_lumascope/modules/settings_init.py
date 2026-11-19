@@ -452,6 +452,10 @@ _RETIRED_PATHS = (
     # made copied and recorded at below the one global limit: a
     # recording's only limit is ``video.max_fps``.
     '*.video_config.fps',
+    # Whether a recording was saved as frames, a yes or no that left a
+    # third format nowhere to go and let the Sequenced format decide whether
+    # a recording was stacked: ``video_recording_format`` is the choice.
+    'video_as_frames',
 )
 
 
