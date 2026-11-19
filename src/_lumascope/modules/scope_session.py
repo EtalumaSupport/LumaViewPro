@@ -2386,8 +2386,7 @@ class ScopeSession:
         Returns:
             The remedy's own answer: ``recover_file_writer`` answers how many
             of the run's images it gave up on, ``repair_camera_driver`` the
-            bindings read after the repair, as
-            ``scope.diagnostics.read_camera_usb_bindings``.
+            camera's USB identity bindings read after the repair.
 
         Raises:
             HardwareCommandRefusedError: ``'exclusive_activity_running'``, the

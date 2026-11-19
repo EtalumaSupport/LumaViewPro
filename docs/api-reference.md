@@ -567,7 +567,7 @@ refuses if not.
 
 **Returns**
 
-The remedy's own answer: `recover_file_writer` answers how many of the run's images it gave up on, `repair_camera_driver` the bindings read after the repair, as `scope.diagnostics.read_camera_usb_bindings`.
+The remedy's own answer: `recover_file_writer` answers how many of the run's images it gave up on, `repair_camera_driver` the camera's USB identity bindings read after the repair.
 
 **Raises**
 
@@ -6570,75 +6570,6 @@ dict[str, float] | None: Each sensor's temperature in degC, by the sensor's name
 - 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
 - 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
-
-<a id="DiagnosticsAPI.read_camera_uptime_s"></a>
-### `DiagnosticsAPI.read_camera_uptime_s`
-
-```python
-def read_camera_uptime_s(self) -> float | None
-```
-
-Marks: reads (changes nothing); enters: `lane_override`.  
-Route: `GET /api/v1/scope/diagnostics/read_camera_uptime_s`.
-
-Read how long the camera has been powered, live: the seconds since
-its last power-up or reset.
-
-The camera's own clock counts from its power-up, and a reset
-(`DeviceReset`) restarts it; a reconnect does not. So a few seconds
-at bring-up says the camera was just powered on, and minutes or hours
-that it kept running from before. The clock is the one a capture maps
-onto the host's (`imaging.map_camera_clock`), latched now.
-
-Runs on the camera lane, admitted whatever holds the scope, like the
-temperature read: the latch must not interleave with another camera
-command, and a run does not stop it. It waits behind what is queued
-there, up to 170 s, which a long summed capture or an engineering
-diagnostic ahead of it can outlast.
-
-**Returns**
-
-float | None: The seconds since the camera's last power-up or reset. None for a camera without a clock latch (`capabilities.camera_has_clock_latch`), and when the latch probe failed as the camera came up; None when no camera is connected, after the scope's shutdown too.
-
-**Raises**
-
-- `CameraReadFailedError`: `'camera_read_failed'`, the latch or the read of what it latched failed.
-
-**Refusals by REST status**
-
-- 422: [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`; [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`
-
-<a id="DiagnosticsAPI.read_camera_usb_bindings"></a>
-### `DiagnosticsAPI.read_camera_usb_bindings`
-
-```python
-def read_camera_usb_bindings(self) -> tuple[UsbIdentityBindings, ...] | None
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/diagnostics/read_camera_usb_bindings`.
-
-Which driver Windows has bound to each USB identity of a Lumascope Classic.
-
-The FX2 is two USB devices in turn, the bootloader and the running
-firmware, and Windows binds each on its own. Read without elevation,
-the same read the camera's connect checks, so it answers whether or
-not the camera came up -- the case it is for. Takes no lane: it asks
-the host's device list, not the scope.
-
-**Returns**
-
-tuple[UsbIdentityBindings, ...] | None: The bootloader's, then the running firmware's. None where the host binds no driver to a USB device (macOS, Linux) and on a simulated scope with no FX2.
-
-**Raises**
-
-- `CameraUsbLookupFailedError`: Windows' device list could not be read.
-
-**Refusals by REST status**
-
-- 500: [`CameraUsbLookupFailedError`](#CameraUsbLookupFailedError): `camera_usb_lookup_failed`
 
 <a id="DiagnosticsAPI.read_usb_census"></a>
 ### `DiagnosticsAPI.read_usb_census`
@@ -13895,7 +13826,7 @@ One device of a USB identity and the driver Windows has bound to it.
 ## `lumascope.UsbIdentityBindings`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`DiagnosticsAPI.read_camera_usb_bindings`](#DiagnosticsAPI.read_camera_usb_bindings), [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
+Returned by: [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy).
 
 A USB identity of a Lumascope Classic and each of its devices' drivers.
 
@@ -18924,8 +18855,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/diagnostics/motor_info` | [`DiagnosticsAPI.motor_info`](#DiagnosticsAPI.motor_info) |
 | `GET` | `/api/v1/scope/diagnostics/read_camera_link` | [`DiagnosticsAPI.read_camera_link`](#DiagnosticsAPI.read_camera_link) |
 | `GET` | `/api/v1/scope/diagnostics/read_camera_temperatures_degc` | [`DiagnosticsAPI.read_camera_temperatures_degc`](#DiagnosticsAPI.read_camera_temperatures_degc) |
-| `GET` | `/api/v1/scope/diagnostics/read_camera_uptime_s` | [`DiagnosticsAPI.read_camera_uptime_s`](#DiagnosticsAPI.read_camera_uptime_s) |
-| `GET` | `/api/v1/scope/diagnostics/read_camera_usb_bindings` | [`DiagnosticsAPI.read_camera_usb_bindings`](#DiagnosticsAPI.read_camera_usb_bindings) |
 | `GET` | `/api/v1/scope/diagnostics/read_usb_census` | [`DiagnosticsAPI.read_usb_census`](#DiagnosticsAPI.read_usb_census) |
 | `POST` | `/api/v1/scope/illumination/led_off` | [`IlluminationAPI.led_off`](#IlluminationAPI.led_off) |
 | `POST` | `/api/v1/scope/illumination/led_on` | [`IlluminationAPI.led_on`](#IlluminationAPI.led_on) |

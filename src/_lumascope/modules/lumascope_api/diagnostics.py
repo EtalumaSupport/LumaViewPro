@@ -477,7 +477,6 @@ class DiagnosticsAPI:
         # fails here rather than going unpublished.
         return CameraLink(**driver.get_link_info())
 
-    @api(reads=True, admitted_by=(Admission.LANE_OVERRIDE,))
     def read_camera_uptime_s(self) -> float | None:
         """Read how long the camera has been powered, live: the seconds since
         its last power-up or reset.
@@ -607,7 +606,6 @@ class DiagnosticsAPI:
             raise CameraNodeNotReadableError(name, node_map, answer)
         return answer
 
-    @api(reads=True)
     def read_camera_usb_bindings(self) -> tuple[UsbIdentityBindings, ...] | None:
         """Which driver Windows has bound to each USB identity of a Lumascope Classic.
 
