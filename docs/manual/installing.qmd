@@ -12,10 +12,11 @@ makes focus harder to judge by eye.
 
 A computer short of memory, short of free space on the drive LumaViewPro
 saves to, or busy with other programs makes LumaViewPro slow and can make
-the camera seem to drop out. Each time LumaViewPro starts, it checks for
-this, and a "Low system resources" message names what is short. Close
-the other programs it names, or free some space, before you start a long
-run.
+the camera seem to drop out. So does a laptop with two graphics chips
+that draws LumaViewPro on the slower one. Each time LumaViewPro starts, it
+checks for these, and a "This PC may slow LumaViewPro" message names what
+it found. Close the other programs it names, free some space, or set the
+graphics chip (@sec-two-gpus) before you start a long run.
 
 LumaViewPro can also be run from its source code on Windows, macOS or Linux,
 with Python 3.12 or 3.13. The `README.md` on the
@@ -126,6 +127,27 @@ A side panel taller than the LumaViewPro window scrolls, and the
 Protocol panel's run buttons stay in view below it. If the text is larger
 than you want, lower Windows' display scale: Settings, System, Display,
 Scale.
+
+### The live view is slow on a laptop with two graphics chips {#sec-two-gpus}
+
+Many laptops have two graphics chips: a power-saving one built into the
+processor (often Intel) and a faster one (often NVIDIA or AMD). If Windows
+draws LumaViewPro on the power-saving chip, the live view can show far
+fewer frames than the camera takes, most of all with the window maximized.
+When LumaViewPro starts, it says so if it is drawing on the slower chip.
+
+The installer sets LumaViewPro to the faster chip. To set it yourself:
+
+1. Open Settings, System, Display, Graphics.
+2. Find LumaViewPro in the list. If it isn't there, choose Browse and pick
+   `lumaviewpro.exe` in the folder LumaViewPro is installed in.
+3. Choose Options (or select the app), then High performance, and save.
+4. Close LumaViewPro and start it again.
+
+If you run LumaViewPro from its source code, the program to set is the
+`python.exe` that runs it. The install script `install_windows.bat` sets it
+for you, which also sets every other program run with that Python. After
+you install a new version of Python, run the install script again.
 
 ### Sending a support report {#sec-support-report}
 
