@@ -5,7 +5,8 @@ The API over HTTP: serving it, routes, handles, jobs, the control session, probl
 A server is LumaViewPro's, beside its window, or `python -m lumascope.rest`
 from its source ([Serving it](#serving-it)). `GET /api` answers
 the versions served; the OpenAPI 3.1 description of every route is at
-`/api/v1/openapi.json`, with an interactive reference at `/docs`. Each route's
+`/api/v1/openapi.json`, with an interactive reference at `/docs`, served
+whole by the server, so it works with no internet. Each route's
 description lists the refusals and faults its member declares, under the
 status each answers.
 

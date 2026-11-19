@@ -96,6 +96,16 @@ These libraries are statically or dynamically linked into `imagecodecs` and are 
 
 **Authoritative per-build list**: the imagecodecs wheel carries each codec's license text in its `imagecodecs/licenses/` folder, and the installation carries that folder, in the installation folder; the wrapper's own license is in `imagecodecs-<version>.dist-info/licenses/`.
 
+## Bundled web files (not pip-installed)
+
+The REST server's interactive reference (`/docs`) is served from files kept in the source, at `src/_lumascope/rest/swagger_ui/`, unmodified from the package's release:
+
+| Component | Version | License | Upstream | Files |
+|---|---|---|---|---|
+| swagger-ui-dist | 5.34.1 | Apache-2.0 | https://github.com/swagger-api/swagger-ui | `swagger-ui-bundle.js`, `swagger-ui.css`, `favicon-32x32.png` |
+
+Its NOTICE: "swagger-ui. Copyright 2020-2021 SmartBear Software Inc." The bundle carries the components its build compiled in, each under the license its own notice names: MIT (React and others), BSD-3-Clause (ieee754), and Apache-2.0 for DOMPurify, which is dual-licensed with MPL-2.0; their notices are in `docs/licenses/LICENSE.swagger-ui-bundle.txt`.
+
 ## Bundled binaries (not pip-installed)
 
 These ship inside the application folder after PyInstaller builds the Windows installer:
@@ -141,5 +151,6 @@ Full license text for each distinct license used above is provided alongside thi
 - `docs/licenses/LICENSE.matplotlib.txt`
 - `docs/licenses/LICENSE.LGPL-2.1.txt`
 - `docs/licenses/LICENSE.CC0-1.0.txt`
+- `docs/licenses/LICENSE.swagger-ui-bundle.txt` -- the notices of the components compiled into Swagger UI's bundle, as its release ships them.
 - Each bundled package's own license files are not copied here: the installation carries them where its wheel puts them, in the package's `<name>-<version>.dist-info` folder in the installation folder (the IDS license terms among them), and imagecodecs' codec licenses in `imagecodecs\licenses\`.
 - `docs/licenses/LICENSE.FLAC.txt`, `LICENSE.freetype.txt`, `LICENSE.harfbuzz.txt`, `LICENSE.jpeg.txt`, `LICENSE.modplug.txt`, `LICENSE.mpg123.txt`, `LICENSE.ogg-vorbis.txt`, `LICENSE.opus.txt`, `LICENSE.opusfile.txt`, `LICENSE.png.txt`, `LICENSE.tiff.txt`, `LICENSE.webp.txt`, `LICENSE.zlib.txt` — SDL2 sub-component licenses, pre-existing.

@@ -12,7 +12,8 @@ meets it. So:
 1. **Named.** Every hand-written route is in ``_TRANSPORTS`` with the one
    capability it carries -- a marked member, or the subscribe and
    unsubscribe pair the live view holds open -- or as the server's own
-   (its versions, its events, its handles, its jobs), and its code reaches
+   (its versions, its events, its handles, its jobs, its reference page and
+   the files that page loads), and its code reaches
    each member it is named with. A new hand-written route fails until it is
    named here.
 2. **Decides nothing.** The routes' code -- the ``_add_*`` builders in
@@ -62,6 +63,8 @@ _FRAME_SUBSCRIPTION = (
 # the endpoint itself), or the server's own.
 _TRANSPORTS = {
     'build_app.<locals>.versions': _SERVER,
+    '_add_reference_page.<locals>.reference': _SERVER,
+    '_served_file.<locals>.file': _SERVER,
     '_add_file_route.<locals>.download': ((ScopeSession, 'live_folder_path', None),),
     '_add_upload_route.<locals>.upload': ((ScopeSession, 'put_live_folder_file', None),),
     '_add_still_route.<locals>.still': ((ScopeSession, 'capture_still', None),),

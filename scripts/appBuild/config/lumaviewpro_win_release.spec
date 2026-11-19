@@ -20,6 +20,9 @@ datas = [
     # Beside the backend module, where it is read: the package is collected by
     # its import name, so its destination drops the source tree's src/.
     ('src/_lumascope/drivers/sim_wire/runtime/MICROPYTHON_PIN', '_lumascope/drivers/sim_wire/runtime'),
+    # Swagger UI's files, read beside the REST app module, which serves them
+    # as /docs, so the interactive reference works with no internet.
+    ('src/_lumascope/rest/swagger_ui', '_lumascope/rest/swagger_ui'),
     ('docs/licenses', 'docs/licenses'),
     ('docs/LICENSE', 'docs'),
     ('docs/THIRD_PARTY_NOTICES.md', 'docs'),

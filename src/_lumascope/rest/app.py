@@ -36,6 +36,7 @@ import fastapi.routing
 import numpy as np
 import pydantic
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import ClientDisconnect
@@ -216,7 +217,9 @@ def build_app(session: ScopeSession, *, bound: bool = False) -> fastapi.FastAPI:
         title='Lumascope',
         version=session.app_version or 'unknown',
         openapi_url=f'{PREFIX}/openapi.json',
-        docs_url='/docs',
+        # Served from the installation (_add_reference_page): the default
+        # page loads its script and style from a CDN, and is blank offline.
+        docs_url=None,
         redoc_url=None,
         lifespan=served,
         responses=problems.openapi_responses(
@@ -268,6 +271,7 @@ def build_app(session: ScopeSession, *, bound: bool = False) -> fastapi.FastAPI:
     _add_job_routes(app, session, jobs, closing)
     _add_event_route(app, stream, event_stream.published(session, handed_out))
     _add_live_routes(app, live, closing)
+    _add_reference_page(app)
     _add_file_route(app, session)
     _add_upload_route(app, session, jobs, closing, keys)
     _add_still_route(app, session, jobs, closing)
@@ -326,6 +330,55 @@ def _add_file_route(app: fastapi.FastAPI, session: ScopeSession) -> None:
             {'type': 'string', 'format': 'binary'},
         ),
     )
+
+
+# Swagger UI's script, style and icon, unmodified from swagger-ui-dist at
+# the version docs/THIRD_PARTY_NOTICES.md names, read beside this module.
+_SWAGGER_UI = pathlib.Path(__file__).parent / 'swagger_ui'
+_SWAGGER_UI_FILES = '/docs/files'
+# Each typed here, not by the host's table, which on Windows is the
+# registry's and can call a script text/plain.
+_SWAGGER_UI_TYPES = {
+    'swagger-ui-bundle.js': 'text/javascript',
+    'swagger-ui.css': 'text/css',
+    'favicon-32x32.png': 'image/png',
+}
+
+
+def _add_reference_page(app: fastapi.FastAPI) -> None:
+    """``/docs``, the interactive reference, every file it loads served by this server.
+
+    So it works on a computer with no internet. Swagger UI's online
+    validator is turned off: its badge is an image from validator.swagger.io.
+    """
+
+    async def reference() -> fastapi.Response:
+        return get_swagger_ui_html(
+            openapi_url=app.openapi_url,
+            title=f'{app.title} - Swagger UI',
+            swagger_js_url=f'{_SWAGGER_UI_FILES}/swagger-ui-bundle.js',
+            swagger_css_url=f'{_SWAGGER_UI_FILES}/swagger-ui.css',
+            swagger_favicon_url=f'{_SWAGGER_UI_FILES}/favicon-32x32.png',
+            swagger_ui_parameters={'validatorUrl': None},
+        )
+
+    app.add_api_route('/docs', reference, methods=['GET'], include_in_schema=False)
+    for name, media_type in _SWAGGER_UI_TYPES.items():
+        app.add_api_route(
+            f'{_SWAGGER_UI_FILES}/{name}',
+            _served_file(_SWAGGER_UI / name, media_type),
+            methods=['GET'],
+            include_in_schema=False,
+        )
+
+
+def _served_file(path: pathlib.Path, media_type: str) -> Callable[[], Awaitable[fastapi.Response]]:
+    """An endpoint answering *path*'s bytes as *media_type*; it takes nothing from the request."""
+
+    async def file() -> fastapi.Response:
+        return FileResponse(path, media_type=media_type)
+
+    return file
 
 
 def _add_upload_route(
