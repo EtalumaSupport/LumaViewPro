@@ -6,26 +6,35 @@ import os
 # Python version check -- must run before any imports that require 3.12+
 import sys
 
-if sys.version_info < (3, 12):  # noqa: UP036 -- runtime check is load-bearing UX (friendly error before a deeper SyntaxError from a dependency on an unsupported Python).
-    _ver = f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'
-    _msg = (
-        f'LumaViewPro requires Python 3.12 or later.\n'
-        f'You are running Python {_ver}.\n\n'
-        f'Supported versions: 3.12, 3.13'
-    )
+
+def _refuse_to_start(title, message):
+    """Show a refusal that stops the launch before the GUI exists, then exit 1.
+
+    A dialog when tkinter can show one, since a run started by a double click
+    has no terminal, and stderr always.
+    """
     try:
-        # Try GUI dialog first
         import tkinter
         from tkinter import messagebox
 
         root = tkinter.Tk()
         root.withdraw()
-        messagebox.showerror('Unsupported Python Version', _msg)
+        messagebox.showerror(title, message)
         root.destroy()
     except Exception:  # grain: ignore NAKED_EXCEPT
         pass
-    print(f'ERROR: {_msg}', file=sys.stderr)
+    print(f'ERROR: {message}', file=sys.stderr)
     sys.exit(1)
+
+
+if sys.version_info < (3, 12):  # noqa: UP036 -- runtime check is load-bearing UX (friendly error before a deeper SyntaxError from a dependency on an unsupported Python).
+    _ver = f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'
+    _refuse_to_start(
+        'Unsupported Python Version',
+        f'LumaViewPro requires Python 3.12 or later.\n'
+        f'You are running Python {_ver}.\n\n'
+        f'Supported versions: 3.12, 3.13',
+    )
 
 # This checkout's own API, whatever lumascope.pth the interpreter holds; the
 # link is not followed, so a link farm stays its own launch folder.
@@ -35,7 +44,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src
 # empty: its image-processing DLL fails initialization once the full DLL
 # population (matplotlib->numpy, Kivy/SDL, cv2, pylon) is resident, so the
 # preload precedes every heavy import.
-from _lumascope.modules.app_environment import preload_camera_sdks
+# The first import of the API judges the installed packages against
+# requirements.txt and raises its refusal. Its class cannot be imported ahead
+# of the try, since that import is the one that raises; the judge's module
+# stays imported when the package's import fails, so the class is read from
+# there and anything else from the import goes up unchanged.
+try:
+    from _lumascope.modules.app_environment import preload_camera_sdks
+except Exception as _first_import_error:
+    _judge = sys.modules.get('_lumascope.lib.installed_packages')
+    if _judge is None or not isinstance(_first_import_error, _judge.PackagesNotAsPinnedError):
+        raise
+    _refuse_to_start(_first_import_error.title, str(_first_import_error))
 
 preload_camera_sdks()
 
@@ -409,10 +429,6 @@ if __name__ == '__main__':
     # load dropped from ~55% to ~35% with this off, no visible quality loss.
     # Line/vector UI edges lose a little smoothing in exchange.
     Config.set('graphics', 'multisamples', '0')
-
-    import kivy
-
-    kivy.require('2.1.0')
 
     from kivy.app import App
     from kivy.base import stopTouchApp

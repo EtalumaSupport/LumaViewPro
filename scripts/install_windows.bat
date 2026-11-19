@@ -81,15 +81,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM --- Verify installation ---
-echo.
-echo Verifying core packages...
-%BEST_PY% -c "import kivy; import numpy; import cv2; import serial; print('All core packages verified.')"
-if errorlevel 1 (
-    echo.
-    echo Warning: Some core packages failed to import. Check output above.
-)
-
 REM --- Create run.bat using system Python ---
 >"%PROJECT_DIR%\run.bat" (
     echo @echo off
@@ -143,15 +134,6 @@ call "%VENV_DIR%\Scripts\python" "%PROJECT_DIR%\scripts\install_lumascope_pth.py
 if errorlevel 1 (
     pause
     exit /b 1
-)
-
-REM --- Verify installation ---
-echo.
-echo Verifying core packages...
-call "%VENV_DIR%\Scripts\python" -c "import kivy; import numpy; import cv2; import serial; print('All core packages verified.')"
-if errorlevel 1 (
-    echo.
-    echo Warning: Some core packages failed to import. Check output above.
 )
 
 REM --- Create run.bat using venv Python ---

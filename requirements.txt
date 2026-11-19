@@ -25,6 +25,11 @@ av==17.0.1
 # current Windows 11 has no `wmic`. Kivy installs it today (through
 # pypiwin32); it is named here because LVP imports it directly.
 pywin32==312; sys_platform == "win32"
+# The startup check of the installed packages against this file
+# (src/_lumascope/lib/installed_packages.py) parses it. matplotlib and
+# scikit-image install it today; it is named here because LVP imports it
+# directly.
+packaging==26.3
 
 # The REST server (src/_lumascope/rest/): FastAPI served by uvicorn. pydantic and
 # starlette come with FastAPI and are pinned beside it because src/_lumascope/rest/

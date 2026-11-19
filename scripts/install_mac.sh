@@ -29,6 +29,24 @@ setup_fx2_usb() {
     fx2_driver_py 'from _lumascope.drivers.fx2driver import fx2_readiness_line; print(fx2_readiness_line())'
 }
 
+# The run scripts start LumaViewPro with this venv's Python. Both the new and
+# the updated venv write them, so a venv made by hand gets them too.
+write_run_scripts() {
+    cat > "$PROJECT_DIR/run.sh" << 'RUNEOF'
+#!/bin/bash
+cd "$(dirname "$0")"
+"./venv/bin/python" lumaviewpro.py "$@"
+RUNEOF
+    chmod +x "$PROJECT_DIR/run.sh"
+
+    cat > "$PROJECT_DIR/run_simulate.sh" << 'RUNEOF'
+#!/bin/bash
+cd "$(dirname "$0")"
+"./venv/bin/python" lumaviewpro.py --simulate "$@"
+RUNEOF
+    chmod +x "$PROJECT_DIR/run_simulate.sh"
+}
+
 echo "========================================="
 echo " LumaViewPro Installer"
 echo "========================================="
@@ -121,6 +139,7 @@ if [ -f "$VENV_DIR/bin/python" ]; then
         "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
         "$VENV_DIR/bin/python" "$PROJECT_DIR/scripts/install_lumascope_pth.py"
         setup_fx2_usb
+        write_run_scripts
         echo ""
         echo "Update complete!"
         exit 0
@@ -138,27 +157,9 @@ echo "Installing dependencies..."
 "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
 "$VENV_DIR/bin/python" "$PROJECT_DIR/scripts/install_lumascope_pth.py"
 
-# --- Verify installation ---
-echo ""
-echo "Verifying core packages..."
-"$VENV_DIR/bin/python" -c "import kivy; import numpy; import cv2; import serial; print('All core packages verified.')"
-
 setup_fx2_usb
 
-# --- Create run script ---
-cat > "$PROJECT_DIR/run.sh" << 'RUNEOF'
-#!/bin/bash
-cd "$(dirname "$0")"
-"./venv/bin/python" lumaviewpro.py "$@"
-RUNEOF
-chmod +x "$PROJECT_DIR/run.sh"
-
-cat > "$PROJECT_DIR/run_simulate.sh" << 'RUNEOF'
-#!/bin/bash
-cd "$(dirname "$0")"
-"./venv/bin/python" lumaviewpro.py --simulate "$@"
-RUNEOF
-chmod +x "$PROJECT_DIR/run_simulate.sh"
+write_run_scripts
 
 echo ""
 echo "========================================="

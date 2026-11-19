@@ -17515,6 +17515,36 @@ reads the words as an errno.
 |---|---|---|
 | `still_running` | state | 409 |
 
+<a id="PackagesNotAsPinnedError"></a>
+### `lumascope.PackagesNotAsPinnedError`
+
+A fault; bases `Fault`, `Exception`.
+
+A source run's installed packages are not the ones `requirements.txt` pins.
+
+Raised at the API package's import, before anything third-party loads,
+on every host: the GUI shows it as a dialog, and the REST server and any
+other program show its words as the uncaught exception's message.
+No `except` can name it, since the import that would bind the name
+is the one that raises. The words name the Python that ran and the fix,
+each half for the launch it fixes: the install script with the run
+script it writes, to start LumaViewPro; the pip line naming this Python
+and the file by absolute path, to run another program with this Python,
+shown only when this Python can install into itself. The install script
+can choose another Python than the one that ran, so the halves are
+never alternatives for one launch.
+
+**Attributes**
+
+- `reason`: `'packages_not_as_pinned'` -- a package that applies to this host is missing or at another version than its pin. `'pins_unread'` -- `requirements.txt` cannot be read, or a line in it is not a requirement, so nothing can be judged.
+- `rows`: The packages not as pinned; empty for `pins_unread`.
+- `python`: The Python that ran.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `packages_not_as_pinned` | -- | 500 |
+| `pins_unread` | -- | 500 |
+
 <a id="PartAbsentError"></a>
 ### `lumascope.PartAbsentError`
 

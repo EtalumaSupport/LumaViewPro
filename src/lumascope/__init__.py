@@ -48,6 +48,9 @@ from _lumascope.drivers.simulated_camera import (
 from _lumascope.drivers.simulated_specimen import (
     Slide,
 )
+from _lumascope.lib.installed_packages import (
+    PackagesNotAsPinnedError,
+)
 from _lumascope.lib.lumascope_error import (
     Fault,
     LumascopeError,
@@ -747,6 +750,7 @@ __all__ = [
     'Outcome',
     'OutcomeKind',
     'OutputFormat',
+    'PackagesNotAsPinnedError',
     'Part',
     'PartAbsentError',
     'PartStatus',

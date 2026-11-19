@@ -243,14 +243,16 @@ pytest tests/
 
 **Windows installer:** Download and run the latest installer from the [GitHub Releases](https://github.com/EtalumaSupport/LumaViewPro/releases) page.
 
-**From source (git):**
+**From source (git):** pull, then re-run your platform's install script (see [Quick Install](#quick-install)), which updates the packages to the versions `requirements.txt` pins:
 ```bash
 cd LumaViewPro
 git pull
-pip install -r requirements.txt
+bash scripts/install_mac.sh        # or scripts/install_linux.sh; on Windows, scripts\install_windows.bat
 ```
 
-**From source (ZIP):** Download and extract the latest version from GitHub and re-run `pip install -r requirements.txt` and `python scripts/install_lumascope_pth.py` in its folder, so the API imported is the new copy's.
+**From source (ZIP):** Download and extract the latest version from GitHub and run the install script in its folder, so the packages are the new copy's pins and the API imported is the new copy's.
+
+A source run whose installed packages are not the ones `requirements.txt` pins does not start: it names each package, the version installed and the version pinned, and the command that fixes it.
 
 ## License
 

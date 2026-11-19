@@ -12,9 +12,10 @@ reporter asks about first.
 The umbrellas (each class that names ``_Umbrella`` among its bases, such as
 ``ConfigError``) name a subject, not a kind: each child states its own.
 
-Discovered, not listed: every class in ``src/_lumascope/modules/``, ``src/_lumascope/drivers/`` and
-``src/_lumascope/rest/`` whose bases reach a built-in exception. The simulator walker's two
-(``ui/``) never reach an API caller and are not read, and neither does the
+Discovered, not listed: every class in ``src/_lumascope/lib/``,
+``src/_lumascope/modules/``, ``src/_lumascope/drivers/`` and
+``src/_lumascope/rest/`` whose bases reach a built-in exception. The
+simulator walker's two (``ui/``) never reach an API caller and are not read, and neither does the
 simulated boards' MicroPython side (``src/_lumascope/drivers/sim_wire/mp/``), which runs
 in the board's own process and imports what only MicroPython has.
 """
@@ -49,12 +50,20 @@ _BUILTIN_EXCEPTIONS = {
 }
 
 _MICROPYTHON_SIDE = REPO_ROOT / 'src/_lumascope/drivers/sim_wire/mp'
+# lib holds the root and the outcomes raised before modules/ can load (the
+# package's own import refuses a run whose packages are not as pinned).
+LAYERS = (
+    'src/_lumascope/lib',
+    'src/_lumascope/modules',
+    'src/_lumascope/drivers',
+    'src/_lumascope/rest',
+)
 
 
 def _exception_classes():
     """(module name, class name) for every exception class the API's layers define."""
     found = []
-    for layer in ('src/_lumascope/modules', 'src/_lumascope/drivers', 'src/_lumascope/rest'):
+    for layer in LAYERS:
         for path in [REPO_ROOT / rel for rel in tracked_files((layer,))]:
             if path.is_relative_to(_MICROPYTHON_SIDE):
                 continue
@@ -73,8 +82,8 @@ def _resolved():
     classes = []
     for module, name in _exception_classes():
         cls = getattr(importlib.import_module(module), name, None)
-        # The kinds and the umbrella mixin sit on the root; none is an outcome.
-        if cls in KINDS or cls is _Umbrella:
+        # The root, the kinds and the umbrella mixin; none is an outcome.
+        if cls in KINDS or cls is _Umbrella or cls is LumascopeError:
             continue
         if isinstance(cls, type) and issubclass(cls, BaseException):
             classes.append(cls)
@@ -88,7 +97,13 @@ UMBRELLAS = tuple(cls for cls in EXCEPTION_CLASSES if _Umbrella in cls.__bases__
 def test_the_discovery_finds_the_api_s_exceptions():
     assert len(EXCEPTION_CLASSES) >= 100, 'the AST walk drifted and found too few classes'
     names = {cls.__name__ for cls in EXCEPTION_CLASSES}
-    assert {'HardwareError', 'ProtocolRunRefusedError', 'ServerRefusedError'} <= names
+    # One from each layer the walk reads.
+    assert {
+        'HardwareError',
+        'PackagesNotAsPinnedError',
+        'ProtocolRunRefusedError',
+        'ServerRefusedError',
+    } <= names
 
 
 def _named(classes):
@@ -261,7 +276,7 @@ RAISABLE = tuple(
 )
 
 
-_OURS = ('_lumascope.modules.', '_lumascope.drivers.', '_lumascope.rest.')
+_OURS = tuple(layer.removeprefix('src/').replace('/', '.') + '.' for layer in LAYERS)
 
 
 def _ours(cls):

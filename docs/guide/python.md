@@ -13,8 +13,12 @@ Python reaches it. Get the source and run its install script, as LumaViewPro's
 (Python 3.12 or 3.13): the script makes `lumascope` importable by the Python
 it installed into, and that Python runs your program. A Python it did not
 install into fails at the import, `ModuleNotFoundError: No module named
-'lumascope'`. The source folder, the one holding `lumaviewpro.py` and `data/`,
-is your program's installation (`root` below) and its data root: the logs, and
+'lumascope'`. A Python whose installed packages are not the ones
+`requirements.txt` pins is refused at the import, `PackagesNotAsPinnedError`,
+naming each package, the version installed and the version pinned, the install
+script, and, when that Python can install into itself, the pip line that fixes
+it; re-run the install script after a pull. The source folder, the one
+holding `lumaviewpro.py` and `data/`, is your program's installation (`root` below) and its data root: the logs, and
 the shipped live folder `./capture`, are under it.
 
 **Settings.** A LumaViewPro installation keeps the user's configuration in

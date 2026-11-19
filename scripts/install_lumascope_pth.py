@@ -15,7 +15,9 @@ the user's namespace.
 - A ``lumascope.pth`` naming another checkout is replaced, and both are
   named: the last install is the user's install.
 - The result is checked in a fresh interpreter started outside the checkout:
-  the package it imports must be this checkout's.
+  the package it imports must be this checkout's. That import judges the
+  installed packages against ``requirements.txt``, so it is the install
+  scripts' one check of what they installed, and a refusal fails the install.
 
 The install scripts run it with the Python they installed the requirements
 into. First-party code (the GUI, the tools, the suite) never needs it: each
@@ -78,8 +80,10 @@ def imported_from(python: str, outside: pathlib.Path) -> pathlib.Path:
         check=False,
     )
     if done.returncode != 0:
-        last = (done.stderr.strip().splitlines() or [f'exit {done.returncode}'])[-1]
-        raise RefusedError(f'{python} does not import {PACKAGE} after the install: {last}')
+        # Whole: the refusal of packages not as pinned is several lines, and
+        # its last is only the fix.
+        problem = done.stderr.strip() or f'exit {done.returncode}'
+        raise RefusedError(f'{python} does not import {PACKAGE} after the install:\n{problem}')
     return pathlib.Path(done.stdout.strip()).resolve().parent
 
 
