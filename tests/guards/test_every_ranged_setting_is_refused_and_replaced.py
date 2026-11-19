@@ -20,7 +20,8 @@ import pytest
 
 from _lumascope.modules import settings_init, settings_paths
 from _lumascope.modules.exceptions import SettingRefusedError
-from _lumascope.modules.scope_session import ScopeSession
+from _lumascope.modules.api_surface import API, mark_of
+from _lumascope.modules.scope_session import ScopeSession, _owner_of
 from tests.ast_seams import REPO_ROOT
 from tests.settings_fixtures import complete_settings, shipped_template
 from tests.case_walk import failing_cases
@@ -110,12 +111,15 @@ def session(tmp_path_factory):
 def test_a_write_outside_the_range_is_refused_and_nothing_is_written(session):
     def check(path, value):
         before = session.settings_snapshot()
-        if settings_paths.member_for(path) is not None:
+        member = settings_paths.member_for(path)
+        if member is not None:
             # A ranged setting with its own member is refused for the member
-            # first; its range is the load's half only.
+            # first, as the host's when no wire carries the member; its range
+            # is the load's half only.
             with pytest.raises(SettingRefusedError) as refused:
                 session.update_settings(path, value)
-            assert refused.value.reason == 'has_member'
+            writer = getattr(_owner_of(member), member.name)
+            assert refused.value.reason == ('has_member' if mark_of(writer) == API else 'host_only')
         elif settings_paths.is_installation_only(path):
             # No write reaches it at all; its range is the load's half and a
             # handed dict's.

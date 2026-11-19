@@ -374,7 +374,6 @@ from _lumascope.modules.operation import (
     Operation,
 )
 from _lumascope.modules.path_utils import (
-    AppRuntime,
     CaptureLocationError,
 )
 from _lumascope.modules.plugins import (
@@ -513,7 +512,6 @@ __all__ = [
     'AccelerationLimitRefusedError',
     'AcquireMode',
     'AlreadyStartedError',
-    'AppRuntime',
     'AppliedAutoGain',
     'AppliedExposure',
     'AppliedGain',

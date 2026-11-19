@@ -83,6 +83,7 @@ _PINNED: dict[str, int] = {
     'ScopeSession.clear_current_turret_objective': 1,
     'ScopeSession.save_all_bookmarks': 1,
     'ScopeSession.save_focus': 1,
+    'ScopeSession.set_acceleration_limit_pct': 1,
     'ScopeSession.set_protocol_filepath': 2,
     'ScopeSession.start_go_to_bookmark': 1,
     'ScopeSession.start_go_to_channel_focus': 1,

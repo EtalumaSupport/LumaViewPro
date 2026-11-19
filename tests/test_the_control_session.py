@@ -824,18 +824,18 @@ class TestTheRestDoor:
         session_id = taken.json()
         assert sim_session.control.taken_by == Caller.REST
 
-        refused = client.put('/api/v1/acceleration_limit_pct', json={'limit_pct': 40})
+        refused = client.put('/api/v1/labware_id', json={'labware_id': '384 well microplate'})
         assert refused.status_code == 409
         assert refused.json()['reason'] == 'control_session_held'
         assert refused.json()['control_session'] == 'plate reader'
 
         written = client.put(
-            '/api/v1/acceleration_limit_pct',
-            json={'limit_pct': 40},
+            '/api/v1/labware_id',
+            json={'labware_id': '384 well microplate'},
             headers={'Control-Session': session_id},
         )
         assert written.status_code == 200, written.text
-        assert sim_session.acceleration_limit_pct == 40
+        assert sim_session.labware_id == '384 well microplate'
 
     def test_the_status_names_the_session_and_never_its_id(self, client):
         session_id = client.post('/api/v1/take_control', json={'name': 'plate reader'}).json()
@@ -851,8 +851,8 @@ class TestTheRestDoor:
             sim_session.end_control(session_id)
 
         refused = client.put(
-            '/api/v1/acceleration_limit_pct',
-            json={'limit_pct': 40},
+            '/api/v1/labware_id',
+            json={'labware_id': '384 well microplate'},
             headers={'Control-Session': session_id},
         )
         # An ended id never becomes the live one again: the client takes control anew.
@@ -862,8 +862,8 @@ class TestTheRestDoor:
     def test_an_id_never_issued_is_answered_as_an_ended_one(self, client):
         # The client does the same for both, take control again, so one answer.
         refused = client.put(
-            '/api/v1/acceleration_limit_pct',
-            json={'limit_pct': 40},
+            '/api/v1/labware_id',
+            json={'labware_id': '384 well microplate'},
             headers={'Control-Session': 'never-issued'},
         )
         assert refused.status_code == 422
@@ -1154,7 +1154,7 @@ class TestASessionWhoseHolderGoesSilent:
             polled = client.get('/api/v1/jobs', headers={'Control-Session': session_id})
             assert polled.status_code == 200, polled.text
             silence.passes(CONTROL_SILENCE_S - 1)
-            refused = client.put('/api/v1/acceleration_limit_pct', json={'limit_pct': 40})
+            refused = client.put('/api/v1/labware_id', json={'labware_id': '384 well microplate'})
             assert refused.status_code == 409
             assert refused.json()['reason'] == 'control_session_held'
 

@@ -197,24 +197,6 @@ Owns the shared, GUI-independent state for one microscope session.
 - <a id="ScopeSession.post_processing"></a>`post_processing`: `PostProcessingAPI` -- The post-processing builds: stitch, z-project, composite, video, enhance, cell count and graph (`PostProcessingAPI`).
 - <a id="ScopeSession.scope"></a>`scope`: `Lumascope` -- The microscope this session drives (`Lumascope`).
 
-<a id="ScopeSession.acceleration_limit_pct"></a>
-### `ScopeSession.acceleration_limit_pct`
-
-```python
-acceleration_limit_pct: int  # property
-```
-
-Route: `GET /api/v1/acceleration_limit_pct`.
-
-The motors' acceleration limit, as a percent of the firmware's maximum.
-
-The one `set_acceleration_limit_pct` stored, which bring-up gives the
-motor controller.
-
-**Raises**
-
-Nothing.
-
 <a id="ScopeSession.acting_in_control"></a>
 ### `ScopeSession.acting_in_control`
 
@@ -410,26 +392,6 @@ slices when stacked.
 - 422: [`ProtocolRunRefusedError`](#ProtocolRunRefusedError): `positions_outside_travel`, `zstack_not_configured`, `positions_unreachable`, `zslices_outside_travel`; [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`, `not_a_number`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`; [`StepNotFoundError`](#StepNotFoundError): `no_such_step`; [`StepEditRefusedError`](#StepEditRefusedError): `step_value_refused`
 - 500: [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
-
-<a id="ScopeSession.app_runtime"></a>
-### `ScopeSession.app_runtime`
-
-```python
-app_runtime: AppRuntime  # property
-```
-
-Route: `GET /api/v1/app_runtime`.
-
-How the application was launched: `source`, `bundle` or `installed`.
-
-`source`: Python running a checkout or pip install. `bundle`: a
-packaged build the installer did not install. `installed`: a
-packaged build in the folder the installer wrote, whose data lives in
-the user's Documents folder.
-
-**Raises**
-
-Nothing.
 
 <a id="ScopeSession.app_version"></a>
 ### `ScopeSession.app_version`
@@ -688,29 +650,6 @@ board, for current.
 **Raises**
 
 Nothing.
-
-<a id="ScopeSession.capture_settings_snapshot"></a>
-### `ScopeSession.capture_settings_snapshot`
-
-```python
-def capture_settings_snapshot(self) -> dict
-```
-
-Marks: in-process; reads (changes nothing).
-
-A settings snapshot for composing a capture or a run.
-
-`settings_snapshot`, refused while the active objective
-(`objective_id`) is unknown: a capture
-stamps its scale, so it is never composed without one.
-
-**Raises**
-
-- `ObjectiveUnknownError`: The active objective is unknown: `'slot_unknown'`, `'slot_unassigned'` or `'not_in_catalogue'` on a turret scope; `'none_selected'` with no turret, no person has confirmed the objective.
-
-**Refusals**
-
-- [`ObjectiveUnknownError`](#ObjectiveUnknownError): `slot_unknown`, `slot_unassigned`, `not_in_catalogue`, `none_selected`
 
 <a id="ScopeSession.capture_still"></a>
 ### `ScopeSession.capture_still`
@@ -2595,38 +2534,6 @@ will change it is `model_at_next_start`.
 **Raises**
 
 Nothing.
-
-<a id="ScopeSession.set_acceleration_limit_pct"></a>
-### `ScopeSession.set_acceleration_limit_pct`
-
-```python
-def set_acceleration_limit_pct(self, limit_pct: int) -> None
-```
-
-Marks: sets [`acceleration_limit_pct`](#ScopeSession.acceleration_limit_pct); enters: `lane_call`, `guarded_write`.  
-Route: `PUT /api/v1/acceleration_limit_pct`.
-
-Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.
-
-The member that sets `motion.acceleration_max_pct`. The motion API
-stores it once the motor controller took the value, so the board and
-the stored limit cannot disagree.
-
-**Args**
-
-- `limit_pct`: The limit, a percent of the firmware's maximum acceleration, within the range the motion API accepts.
-
-**Raises**
-
-- `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller to take it. Nothing is stored.
-- `AccelerationLimitRefusedError`: `limit_pct` is outside the range the motion API accepts (a ValueError). Nothing is stored.
-
-**Refusals by REST status**
-
-- 409: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `exclusive_activity_running`; [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
-- 422: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`, `activity_ended`; [`AccelerationLimitRefusedError`](#AccelerationLimitRefusedError): `acceleration_out_of_range`; [`BlockingCallRefusedError`](#BlockingCallRefusedError): `blocking_on_worker`, `blocking_inline`
-- 500: [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
 
 <a id="ScopeSession.set_channel_settings"></a>
 ### `ScopeSession.set_channel_settings`
@@ -12974,22 +12881,6 @@ the ones the settings and a protocol file store, so neither changes.
 - `image`
 - `video`
 
-<a id="AppRuntime"></a>
-### `lumascope.AppRuntime`
-
-Returned by: [`ScopeSession.app_runtime`](#ScopeSession.app_runtime).
-
-How this process was launched: the one answer every reader takes.
-
-`SOURCE`: a Python interpreter running a checkout or pip install.
-`BUNDLE`: a PyInstaller build the installer did not install (a build
-run from `dist`). `INSTALLED`: a PyInstaller build in the folder the
-installer wrote, its marker beside the exe.
-
-- `source`
-- `bundle`
-- `installed`
-
 <a id="AutoGainConvergence"></a>
 ### `lumascope.AutoGainConvergence`
 
@@ -17545,10 +17436,7 @@ reads what the person was shown.
 
 | Method | Path | Member |
 |---|---|---|
-| `GET` | `/api/v1/acceleration_limit_pct` | [`ScopeSession.acceleration_limit_pct`](#ScopeSession.acceleration_limit_pct) |
-| `PUT` | `/api/v1/acceleration_limit_pct` | [`ScopeSession.set_acceleration_limit_pct`](#ScopeSession.set_acceleration_limit_pct) |
 | `POST` | `/api/v1/add_step` | [`ScopeSession.add_step`](#ScopeSession.add_step) |
-| `GET` | `/api/v1/app_runtime` | [`ScopeSession.app_runtime`](#ScopeSession.app_runtime) |
 | `GET` | `/api/v1/app_version` | [`ScopeSession.app_version`](#ScopeSession.app_version) |
 | `POST` | `/api/v1/apply_focus_to_channel_steps` | [`ScopeSession.apply_focus_to_channel_steps`](#ScopeSession.apply_focus_to_channel_steps) |
 | `POST` | `/api/v1/apply_remedy` | [`ScopeSession.apply_remedy`](#ScopeSession.apply_remedy) |

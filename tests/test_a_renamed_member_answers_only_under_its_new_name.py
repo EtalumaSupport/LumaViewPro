@@ -200,7 +200,6 @@ RENAMED = [
         'confirm_objective',
         {'objective_id': '10x Oly', 'slot': 1},
     ),
-    ('PUT', 'acceleration_limit_pct', {'val_pct': 40}, 'acceleration_limit_pct', {'limit_pct': 40}),
     (
         'POST',
         'post_processing/save_cell_count_method',

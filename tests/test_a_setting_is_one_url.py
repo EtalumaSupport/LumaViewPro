@@ -41,7 +41,6 @@ _WRITES = {
     'labware_id': ({'labware_id': '384 well microplate'}, None, '384 well microplate'),
     'scale_bar_enabled': ({'enabled': True}, None, True),
     'engineering_mode': ({'enabled': True}, None, True),
-    'acceleration_limit_pct': ({'limit_pct': 40}, None, 40),
     'channel_settings': (
         {'channel': LED0, 'acquire': 'video', 'gain_db': 5.0, 'focus_z_um': None},
         {'channel': LED0},
@@ -151,7 +150,7 @@ def test_a_put_that_outlives_its_wait_is_a_job_whose_result_is_the_read(
     client, session, monkeypatch
 ):
     released = threading.Event()
-    real = session.set_acceleration_limit_pct
+    real = session.select_labware
 
     def set_once_released(*args, **kwargs):
         assert released.wait(10)
@@ -159,18 +158,18 @@ def test_a_put_that_outlives_its_wait_is_a_job_whose_result_is_the_read(
 
     # a stand-in by design: holds the write until the client's wait has
     # passed; no setting's write outlives a wait on the simulator.
-    monkeypatch.setattr(session, 'set_acceleration_limit_pct', set_once_released)
+    monkeypatch.setattr(session, 'select_labware', set_once_released)
     asked = client.put(
-        '/api/v1/acceleration_limit_pct',
-        json={'limit_pct': 40},
+        '/api/v1/labware_id',
+        json={'labware_id': '384 well microplate'},
         headers={'Prefer': 'respond-async'},
     )
     assert asked.status_code == 202
     released.set()
     ended = client.get(asked.headers['Location'], headers={'Prefer': 'wait=30'}).json()
 
-    assert (ended['status'], ended['result']) == ('completed', 40)
-    assert client.get('/api/v1/acceleration_limit_pct').json() == 40
+    assert (ended['status'], ended['result']) == ('completed', '384 well microplate')
+    assert client.get('/api/v1/labware_id').json() == '384 well microplate'
 
 
 class _NoSuchRead:

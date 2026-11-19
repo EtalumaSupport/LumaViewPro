@@ -6157,7 +6157,6 @@ class ScopeSession:
         version, _build_timestamp = path_utils.read_version()
         return version or None
 
-    @api
     @property
     def app_runtime(self) -> path_utils.AppRuntime:
         """How the application was launched: ``source``, ``bundle`` or ``installed``.
@@ -6348,7 +6347,6 @@ class ScopeSession:
         """
         return settings_init.retire_rejected_current_json()
 
-    @api(in_process=True, reads=True)
     def capture_settings_snapshot(self) -> dict:
         """A settings snapshot for composing a capture or a run.
 
@@ -7013,7 +7011,6 @@ class ScopeSession:
         """
         return self._settings['scale_bar']['enabled']
 
-    @api
     @property
     def acceleration_limit_pct(self) -> int:
         """The motors' acceleration limit, as a percent of the firmware's maximum.
@@ -7026,7 +7023,6 @@ class ScopeSession:
         """
         return self._settings['motion']['acceleration_max_pct']
 
-    @api(sets='acceleration_limit_pct', admitted_by=(Admission.LANE_CALL, Admission.GUARDED_WRITE))
     @_guarded_write
     def set_acceleration_limit_pct(self, limit_pct: int) -> None:
         """Set the motors' acceleration limit, as a percent of the firmware's maximum, and store it.

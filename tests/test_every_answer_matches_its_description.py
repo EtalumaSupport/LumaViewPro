@@ -94,11 +94,11 @@ def test_every_answer_a_simulated_session_gives_matches_its_route(tmp_path):
             s.shutdown()
 
     assert not mismatched, '\n'.join(mismatched)
-    # 79 to 84 answers a model at this writing, since the run-state reads
+    # 75 to 79 answers a model at this writing, since the run-state reads
     # the records replaced, live_work's own route, the two file-stall
     # reads its run's-images item replaced, and the reads the freeze's
     # surface pass unmarked left the wire.
-    assert min(checked.values()) >= 77, checked
+    assert min(checked.values()) >= 73, checked
 
 
 def _check_every_answer(session, model: str, mismatched: list[str]) -> int:

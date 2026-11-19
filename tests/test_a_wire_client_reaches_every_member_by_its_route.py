@@ -205,7 +205,6 @@ def test_the_versions_are_answered_unversioned(client):
 
 def test_a_read_answers_its_encoded_value(client, session):
     assert client.get('/api/v1/app_version').json() == session.app_version
-    assert client.get('/api/v1/app_runtime').json() == 'source'
     assert client.get('/api/v1/engineering_mode').json() is False
     assert set(client.get('/api/v1/status').json()) == {
         'live_work',
