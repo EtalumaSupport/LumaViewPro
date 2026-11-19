@@ -2337,8 +2337,9 @@ class Camera(ABC):
         Writes the ``TestPattern`` node: the named entry when enabled,
         ``'Off'`` when not; the frames delivered after it carry it. The IDS
         U3-34L0XCP-M offers Off / Black / White / ColorBar /
-        ColorBarVertical / Gray / LightGrey (bench-read); an entry the body
-        does not offer is refused by the SDK.
+        ColorBarVertical / Gray / LightGrey, the Basler daA3840-45um Off /
+        Black / White / Testimage1 / Testimage2 / Testimage3 (both
+        bench-read); an entry the body does not offer is refused by the SDK.
 
         Args:
             enabled: True to enable the pattern, False to disable.

@@ -121,7 +121,7 @@ _CASES = [
     ('auto_gain_once', lambda c: c.auto_gain_once(True), 'raises'),
     ('exposure_t', lambda c: c.exposure_t(20.0), 'raises'),
     ('auto_exposure_t', lambda c: c.auto_exposure_t(True), 'raises'),
-    ('set_test_pattern', lambda c: c.set_test_pattern(pattern='White'), 'raises'),
+    ('set_test_pattern', lambda c: c.set_test_pattern(True, 'White'), 'raises'),
     ('_set_auto_exposure_time_bounds', lambda c: c._set_auto_exposure_time_bounds(50.0), 'raises'),
     ('latch_clock', lambda c: c.latch_clock(), 'read_failed'),
 ]

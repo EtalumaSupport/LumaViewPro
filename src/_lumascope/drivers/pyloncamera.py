@@ -3173,31 +3173,6 @@ class PylonCamera(Camera):
         self._write_auto_modes(None, 'Continuous' if state else 'Off')
         _log_cam('info', f'[CAM Class ] Auto exposure {"enabled" if state else "disabled"}')
 
-    def set_test_pattern(
-        self,
-        enabled: bool = False,
-        pattern: str = 'Black',
-    ) -> None:
-        """Apply a Pylon ``TestPattern``; the frames delivered after it carry it.
-
-        Per-camera supported patterns include ``'Black'``, ``'White'``,
-        ``'GreyHorizontalRamp'``, ``'GreyVerticalRamp'``,
-        ``'ColorDiagonalSawtooth8'``, etc. (per Basler
-        ``test-images.html``). ``enabled`` is currently a no-op marker
-        kept for API compatibility -- writes are unconditional when
-        called.
-
-        Args:
-            enabled: Reserved for future use.
-            pattern: Pylon symbolic test-pattern name.
-
-        Raises:
-            CameraWriteFailedError: The camera does not offer the node or
-                did not take the pattern.
-            CameraNoAnswerError: The write timed out.
-        """
-        self.write_node('TestPattern', pattern)
-
     # Stream-grabber stat node names probed in read_diagnostic_snapshot.
     # All read defensively via _safe_node so missing nodes record
     # '<missing>' rather than raising. The list spans both transports;
