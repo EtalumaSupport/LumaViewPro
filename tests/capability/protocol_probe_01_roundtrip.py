@@ -17,10 +17,10 @@ try:
 
     banner('1. create a protocol (no GUI)')
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
-        session.settings_snapshot(),
+        session.settings_snapshot,
         objective_helper=session.scope.objective_helper,
         wellplate_loader=session.scope.wellplate_loader,
-        current_z=session.plate_position().z_um,
+        current_z=session.plate_position.z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -29,8 +29,8 @@ try:
     cfg['channel_configs']['BF']['acquire'] = 'image'
     cfg['labware_id'] = 'Center Plate'
     protocol = session.scope.protocols.create_protocol(input_config=cfg)
-    print('created steps   :', protocol.num_steps())
-    print('labware         :', protocol.labware_id())
+    print('created steps   :', protocol.num_steps)
+    print('labware         :', protocol.labware_id)
 
     banner('2. save to TSV')
     path = live / 'probe_roundtrip.tsv'
@@ -41,8 +41,8 @@ try:
     banner('3. load it back')
     reloaded = session.scope.protocols.load_protocol(file_path=path)
     print('reloaded type   :', type(reloaded).__name__)
-    print('reloaded steps  :', reloaded.num_steps())
-    print('steps match     :', reloaded.num_steps() == protocol.num_steps())
+    print('reloaded steps  :', reloaded.num_steps)
+    print('steps match     :', reloaded.num_steps == protocol.num_steps)
 
     banner('4. run one scan over the reloaded protocol')
     outcome = runner.start_single_scan(

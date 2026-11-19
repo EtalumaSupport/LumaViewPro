@@ -75,7 +75,7 @@ def test_a_stop_before_the_driver_homes_ends_the_home_with_nothing_moved(homed, 
     assert outcome_of(ended.value).kind == OutcomeKind.NOTICE
     assert ended.value.axes == ()
     assert 'before it began' in str(ended.value)
-    assert homed.motion.axes_without_position() == {}
+    assert homed.motion.axes_without_position == {}
     assert homed.motion.get_current_positions() == before
 
 
@@ -129,7 +129,7 @@ def test_a_stop_while_the_board_homes_ends_it_only_where_the_board_can_take_one(
             home.stop()
         assert (refused.value.reason, refused.value.member) == ('home_not_stoppable', 'stop_motion')
         assert home.result(60) is None
-        assert homed.motion.axes_without_position() == {}
+        assert homed.motion.axes_without_position == {}
 
 
 def test_the_el0940_driver_refuses_a_stop_while_it_homes(monkeypatch):

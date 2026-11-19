@@ -30,7 +30,7 @@ def _reconcile(monkeypatch, *, shown, capped):
     # test_a_capped_layer_setting_is_told_once_at_bring_up.
     context = MagicMock()
     context.session.shown_channel = ShownChannel(shown, lit=False)
-    context.session.capped_channels.return_value = tuple(
+    context.session.capped_channels = tuple(
         layer for layer in release_catalogue() if layer in capped
     )
     monkeypatch.setattr(_app_ctx, 'ctx', context)

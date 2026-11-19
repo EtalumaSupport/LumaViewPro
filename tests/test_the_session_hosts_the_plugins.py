@@ -358,9 +358,9 @@ class TestTheSessionIsThePluginsHost:
 
     def test_health_is_the_registrys_once_plugins_load(self, tmp_path):
         with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
-            assert session.plugin_health() is None
+            assert session.plugin_health is None
             _load(session, _plugin('healthy'))
-            loaded = [s.name for ns in session.plugin_health().namespaces for s in ns.loaded]
+            loaded = [s.name for ns in session.plugin_health.namespaces for s in ns.loaded]
             assert 'stitcher' in loaded
 
     def test_unload_tells_each_plugin_once_and_shutdown_unloads(self, tmp_path):
@@ -400,7 +400,7 @@ class TestOneEngineeringMode:
             assert session.engineering_mode is False
             _load(session, _plugin('engineering', on_register=turn_on))
             runner.run_composite(sequence_name='eng', parent_dir=str(tmp_path / 'runs'))
-            token = f'Turret{session.scope.motion.turret_status().slot}'
+            token = f'Turret{session.scope.motion.turret_status.slot}'
             still = session.manual_capture.start_save_still().result(timeout=WAIT_S)
 
         frames = sorted(p.name for p in single_run_dir(tmp_path / 'runs').glob('*.tiff'))
@@ -443,7 +443,7 @@ class TestNoEngineering:
             entry_points = [_Imported(engineering), _Imported(other)]
             with patch('importlib.metadata.entry_points', return_value=entry_points):
                 session.load_plugins()
-            health = session.plugin_health()
+            health = session.plugin_health
             named = [s.name for ns in health.namespaces for s in ns.loaded]
             named += [p.name for p in session.plugins.not_loaded()]
             assert imported == ['other']
@@ -491,7 +491,7 @@ def test_the_registry_itself_refuses_a_second_load(tmp_path):
             pytest.raises(AlreadyStartedError) as refused,
         ):
             session.plugins.load(session, '4.0.0')
-        not_loaded = session.plugin_health().not_loaded
+        not_loaded = session.plugin_health.not_loaded
     finally:
         session.shutdown()
 

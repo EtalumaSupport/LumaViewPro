@@ -72,4 +72,4 @@ def test_the_homing_test_reads_the_axes_where_the_home_left_them(session):
     result = TechSupportReport(session).diag.run_homing_test()
 
     assert result['passed'] is True
-    assert session.scope.motion.turret_status().slot == 1
+    assert session.scope.motion.turret_status.slot == 1

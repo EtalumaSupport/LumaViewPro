@@ -122,7 +122,7 @@ def test_the_composite_takes_the_users_thresholds(session, monkeypatch, tmp_path
     seen = _spy_build(monkeypatch, CompositeGeneration, 'load_folder')
     session.post_processing.composite(tmp_path)
 
-    settings = session.settings_snapshot()
+    settings = session.settings_snapshot
     assert seen['brightness_thresholds_percent'] == (
         config_helpers.get_composite_blend_thresholds(settings)
     )
@@ -278,7 +278,7 @@ def test_the_default_cell_count_method_is_the_one_the_count_and_rest_take(sessio
     from _lumascope.modules.cell_count_method import CellCountMethod
     from _lumascope.rest.app import build_app
 
-    method = session.post_processing.default_cell_count_method()
+    method = session.post_processing.default_cell_count_method
     assert method == CellCountMethod()
 
     (tmp_path / 'empty').mkdir()

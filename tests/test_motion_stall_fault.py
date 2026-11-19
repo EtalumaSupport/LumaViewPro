@@ -109,7 +109,7 @@ def test_a_move_that_keeps_moving_is_never_given_up(session, monkeypatch, centre
     assert time.monotonic() - start > 2 * 0.5, 'the moves were too short to show anything'
     motion.move_turret(2)
 
-    assert motion.turret_status().slot == 2
+    assert motion.turret_status.slot == 2
     assert _faults(centre_posts) == []
 
 
@@ -148,7 +148,7 @@ def test_a_turret_home_whose_z_park_stalls_ends_in_the_parks_fault(session, cent
     thread."""
     motion = session.scope.motion
     motion.move_z(3000.0)
-    turret_before = motion.turret_status()
+    turret_before = motion.turret_status
     session.scope.simulation.hold_axis('Z')
 
     with pytest.raises(MoveFaultError) as raised:
@@ -156,7 +156,7 @@ def test_a_turret_home_whose_z_park_stalls_ends_in_the_parks_fault(session, cent
     session.scope.simulation.clear()
 
     assert (raised.value.axis, raised.value.reason) == ('Z', 'stalled')
-    assert motion.turret_status() == turret_before
+    assert motion.turret_status == turret_before
 
     assert motion._motion_monitor_thread.is_alive()
     home_sim_scope(session.scope)

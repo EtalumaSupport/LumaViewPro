@@ -237,14 +237,14 @@ class TestFindNearestStep:
 
     def test_returns_minus_one_for_empty_protocol(self):
         proto = MagicMock()
-        proto.num_steps.return_value = 0
+        proto.num_steps = 0
         assert config_helpers.find_nearest_step(0, 0, proto) == -1
 
     def test_finds_nearest(self):
         import pandas as pd
 
         proto = MagicMock()
-        proto.num_steps.return_value = 3
+        proto.num_steps = 3
         proto.steps.return_value = pd.DataFrame(
             {
                 'X': [0, 10, 20],
@@ -297,7 +297,7 @@ class TestGetCurrentPlatePosition:
         settings['microscope'] = 'LS820'
         with _open_session(settings) as session:
             session.scope.motion.move_z(500.0)
-            result = session.plate_position()
+            result = session.plate_position
             z = session.scope.motion.get_current_position('Z')
         assert result.z_um == pytest.approx(z, abs=0.01)
 

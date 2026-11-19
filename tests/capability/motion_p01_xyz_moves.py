@@ -34,8 +34,8 @@ def body(s):
         check('home ALL returns', True)
     except HomingFailedError as e:
         check('home ALL returns', False, str(e))
-    check('Z position known after home', 'Z' not in m.axes_without_position())
-    check('X position known after home', 'X' not in m.axes_without_position())
+    check('Z position known after home', 'Z' not in m.axes_without_position)
+    check('X position known after home', 'X' not in m.axes_without_position)
     try:
         m.home('Z')
         check('home Z alone returns', True)
@@ -66,7 +66,7 @@ def body(s):
     # --- PLATE frame: what the typed coordinate box and the stage click send ---
     s.select_labware('96 well microplate')
     m.move_to_plate(PlateLocation(x_mm=60.0, y_mm=40.0, z_um=None))
-    after = s.plate_position()
+    after = s.plate_position
     check(
         'plate-frame move landed on the typed coordinate',
         abs(after.x_mm - 60.0) < 0.05 and abs(after.y_mm - 40.0) < 0.05,

@@ -78,13 +78,13 @@ def test_the_message_names_the_axis_the_request_and_the_range(motion):
 )
 def test_out_of_travel_is_refused_and_nothing_is_driven(motion, axis, position):
     """A refused move writes no target, so the previous one stands."""
-    target_before = motion.target_positions()[axis]
+    target_before = motion.target_positions[axis]
 
     with pytest.raises(PositionOutOfRangeError) as caught:
         axis_move(motion, axis, position)
 
     assert (caught.value.axis, caught.value.bound) == (axis, 'travel range')
-    assert motion.target_positions()[axis] == target_before
+    assert motion.target_positions[axis] == target_before
 
 
 @pytest.mark.parametrize(
@@ -99,7 +99,7 @@ def test_in_travel_and_the_boundaries_are_allowed(motion, axis, position):
     """
     axis_move(motion, axis, position)
 
-    assert motion.target_positions()[axis] == position
+    assert motion.target_positions[axis] == position
     assert motion.get_current_position(axis) == pytest.approx(position, abs=1.0)
 
 
@@ -136,7 +136,7 @@ def test_a_slot_the_turret_does_not_have_is_refused_before_z_is_parked(motion, s
     the slot on record is unchanged.
     """
     motion.move_z(1000.0)
-    slot_before = motion.turret_status().slot
+    slot_before = motion.turret_status.slot
 
     with pytest.raises(PositionOutOfRangeError) as caught:
         motion.move_turret(slot)
@@ -150,7 +150,7 @@ def test_a_slot_the_turret_does_not_have_is_refused_before_z_is_parked(motion, s
     assert 'travel range' not in str(caught.value)
     assert 'safety limit' not in str(caught.value)
     assert motion.get_current_position('Z') == pytest.approx(1000.0, abs=1.0)
-    assert motion.turret_status().slot == slot_before
+    assert motion.turret_status.slot == slot_before
 
 
 @pytest.mark.parametrize('slot', [1, 2, 3, 4])
@@ -158,4 +158,4 @@ def test_every_real_slot_is_taken(motion, slot):
     """All four inclusive; refusing an endpoint would strand slot 1 or 4."""
     motion.move_turret(slot)
 
-    assert motion.turret_status().slot == slot
+    assert motion.turret_status.slot == slot

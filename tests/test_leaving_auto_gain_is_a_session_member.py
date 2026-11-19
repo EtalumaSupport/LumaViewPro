@@ -182,13 +182,13 @@ def test_turning_off_a_hidden_layer_stores_only_its_preference_and_locks_nothing
     indirect=['sim_session'],
 )
 def test_a_refused_request_changes_nothing(sim_session, layer, enabled, refused, reason):
-    before = sim_session.settings_snapshot()
+    before = sim_session.settings_snapshot
 
     with pytest.raises(refused) as raised:
         sim_session.set_channel_settings(layer, auto_gain=enabled)
     assert getattr(raised.value, 'reason', None) == reason
 
-    assert sim_session.settings_snapshot() == before
+    assert sim_session.settings_snapshot == before
 
 
 @pytest.mark.parametrize('sim_session', [{'microscope': 'Lumi'}], indirect=True)

@@ -145,11 +145,11 @@ class ProtocolTimeEstimator:
         """Estimate total protocol execution time."""
         scan_estimate = self._estimate_scan(protocol)
 
-        period_s = protocol.period_s()
-        duration_s = protocol.duration_s()
+        period_s = protocol.period_s
+        duration_s = protocol.duration_s
         # The protocol's own count, divided exactly, so the estimate counts
         # the scans the run will take.
-        num_scans = protocol.num_scans()
+        num_scans = protocol.num_scans
 
         scan_time = scan_estimate.total_s
         scan_fits = scan_time <= period_s

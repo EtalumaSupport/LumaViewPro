@@ -65,9 +65,7 @@ class _ProtocolSettingsStarter(ps.ProtocolSettings):
         }
         # The protocol on screen, whose schedule New starts from.
         # Unchanged since it was saved, so New asks nothing first.
-        self._protocol = SimpleNamespace(
-            period_s=lambda: None, duration_s=lambda: None, has_unsaved_changes=False
-        )
+        self._protocol = SimpleNamespace(period_s=None, duration_s=None, has_unsaved_changes=False)
 
 
 class TestARefusedProtocolCreation:

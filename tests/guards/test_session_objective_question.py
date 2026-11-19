@@ -110,14 +110,14 @@ def _lines(caplog):
 
 
 # ---------------------------------------------------------------------------
-# T8 -- objective_question()
+# T8 -- objective_question
 # ---------------------------------------------------------------------------
 
 
 class TestT8ObjectiveQuestion:
     def test_fresh_install_on_a_turret_model_asks_for_position_1(self, sessions):
         session = _at_slot(sessions(**_turret_settings()), 1)
-        question = session.objective_question()
+        question = session.objective_question
         assert question is not None
         assert question.turret_slot == 1
         assert question.proposed == '4x Oly'
@@ -125,7 +125,7 @@ class TestT8ObjectiveQuestion:
 
     def test_a_non_turret_model_asks_without_a_position(self, sessions):
         session = sessions(**_turret_settings(microscope=NON_TURRET_MODEL, objective_id='10x Oly'))
-        question = session.objective_question()
+        question = session.objective_question
         assert question is not None
         assert question.turret_slot is None
         # Owed only before anyone confirmed one, so the stored id is the
@@ -134,7 +134,7 @@ class TestT8ObjectiveQuestion:
 
     def test_confirmed_and_assigned_asks_nothing(self, sessions):
         session = _at_slot(sessions(**_turret_settings(objective_confirmed=True)), 1)
-        assert session.objective_question() is None
+        assert session.objective_question is None
 
     def test_confirmed_but_the_current_slot_is_empty_asks_for_that_slot(self, sessions):
         session = sessions(
@@ -145,7 +145,7 @@ class TestT8ObjectiveQuestion:
             )
         )
         _at_slot(session, 2)
-        question = session.objective_question()
+        question = session.objective_question
         assert question is not None
         assert question.turret_slot == 2
 
@@ -160,7 +160,7 @@ class TestT8ObjectiveQuestion:
             )
         )
         _at_slot(session, 2)
-        question = session.objective_question()
+        question = session.objective_question
         assert question is not None
         assert question.turret_slot == 2
 
@@ -170,7 +170,7 @@ class TestT8ObjectiveQuestion:
 
         session = sessions(**_turret_settings())
         with pytest.raises(ObjectiveUnknownError) as excinfo:
-            session.objective_question()
+            _ = session.objective_question
         assert excinfo.value.reason == 'slot_unknown'
         assert 'home the scope' in str(excinfo.value)
 
@@ -219,9 +219,9 @@ class TestT8ObjectiveQuestion:
             while motion.get_axis_state('T') != AxisState.MOVING:
                 assert time.monotonic() < deadline, 'the turret move never started'
                 time.sleep(0.005)
-            assert motion.turret_status().slot is None
+            assert motion.turret_status.slot is None
 
-            assert session.objective_question() is None
+            assert session.objective_question is None
             with pytest.raises(ObjectiveUnknownError) as excinfo:
                 session.scope.runtime_state.resolve_current_objective()
             assert excinfo.value.reason == 'slot_unknown'
@@ -231,20 +231,20 @@ class TestT8ObjectiveQuestion:
 
         assert outcome == {'returned': True}
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
-        assert session.objective_question() is None
+        assert session.objective_question is None
 
     def test_no_hardware_withholds_the_owed_question_and_says_so(self, caplog, sessions):
         session = sessions(**_turret_settings())
         session.scope._no_hardware = True
         assert session.scope.no_hardware is True  # the lever works
-        assert session.objective_question() is None
+        assert session.objective_question is None
         assert any('no hardware' in line for line in _lines(caplog)), _lines(caplog)
 
     def test_no_hardware_with_nothing_owed_says_nothing(self, caplog, sessions):
         session = _at_slot(sessions(**_turret_settings(objective_confirmed=True)), 1)
         session.scope._no_hardware = True
         assert session.scope.no_hardware is True  # the lever works
-        assert session.objective_question() is None
+        assert session.objective_question is None
         assert not any('no hardware' in line for line in _lines(caplog)), _lines(caplog)
 
     def test_provisional_settings_defer_the_question_and_say_so(
@@ -254,7 +254,7 @@ class TestT8ObjectiveQuestion:
         monkeypatch.setattr(
             settings_init, 'rejected_current_json', ('/data/current.json', 'invalid JSON')
         )
-        assert session.objective_question() is None
+        assert session.objective_question is None
         assert any('provisional' in line for line in _lines(caplog)), _lines(caplog)
 
     def test_a_proposal_outside_the_catalogue_falls_back_to_the_default(self, sessions):
@@ -271,7 +271,7 @@ class TestT8ObjectiveQuestion:
         _at_slot(session, 2)
         assert session.settings['turret_objectives'][2] == 'banana'
         assert 'banana' not in session.scope.objective_helper.get_objectives_list()
-        question = session.objective_question()
+        question = session.objective_question
         assert question is not None
         assert question.turret_slot == 2
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
@@ -300,13 +300,13 @@ class TestT8ObjectiveQuestion:
             session.scope.objective_helper, 'get_objectives_list', lambda: [], raising=False
         )
         with pytest.raises(ConfigError):
-            session.objective_question()
+            _ = session.objective_question
 
     def test_the_stored_position_is_not_consulted(self, sessions):
         # A hand-edited, unparseable stored position no longer matters: the
         # slot is the one motion reports.
         session = _at_slot(sessions(**_turret_settings(turret_position='three')), 1)
-        question = session.objective_question()
+        question = session.objective_question
         assert question is not None
         assert question.turret_slot == 1
 
@@ -321,7 +321,7 @@ class TestT8ObjectiveQuestion:
             )
         )
         _at_slot(session, 1)
-        question = session.objective_question()
+        question = session.objective_question
         assert question is not None
         assert question.proposed == DEFAULT_PROPOSED_OBJECTIVE_ID
         assert question.proposed != '20x Oly'
@@ -330,7 +330,7 @@ class TestT8ObjectiveQuestion:
         # The renderer logs its own show; a polled read must not log per poll.
         session = _at_slot(sessions(**_turret_settings()), 1)
         caplog.clear()
-        assert session.objective_question() is not None
+        assert session.objective_question is not None
         assert not any('objective question' in line for line in _lines(caplog)), _lines(caplog)
 
 
@@ -392,7 +392,7 @@ class TestT9ConfirmObjective:
     def test_after_a_confirm_the_question_is_answered(self, sessions):
         session = _at_slot(sessions(**_turret_settings(turret_position=2)), 2)
         session.confirm_objective('4x Oly', slot=2)
-        assert session.objective_question() is None
+        assert session.objective_question is None
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +422,7 @@ class TestT10SelectObjective:
         assert session.scope.runtime_state.get_current_objective_id() == '4x Oly'
         caplog.clear()
         assert session.select_objective('10x Oly') is True
-        assert session.scope.motion.turret_status().slot == 2
+        assert session.scope.motion.turret_status.slot == 2
         assert session.settings['turret_objectives'][1] == '4x Oly'
         assert session.scope.runtime_state.get_current_objective_id() == '10x Oly'
         optics = [line for line in _lines(caplog) if line.startswith('[Optics')]
@@ -511,13 +511,13 @@ class TestT10TurretWriters:
         whichever slot it binds, and when it re-binds the slot in the light
         path to the assignment the question proposes."""
         session = _at_slot(sessions(**_turret_settings()), 1)
-        assert session.objective_question() is not None
+        assert session.objective_question is not None
         with TestClient(build_app(session)) as client:
             answer = client.put(
                 '/api/v1/turret_objective', json={'slot': slot, 'objective_id': objective_id}
             )
         assert answer.status_code == 200, answer.text
-        assert session.objective_question() is None
+        assert session.objective_question is None
 
     def test_clear_empties_the_slot(self, sessions):
         session = sessions(**_turret_settings())

@@ -92,7 +92,7 @@ def _assert_refused_and_unchanged(protocol, write, refusal=StepNotFoundError):
         write(protocol)
 
     pd.testing.assert_frame_equal(protocol.steps(), before)
-    assert protocol.num_steps() == len(before)
+    assert protocol.num_steps == len(before)
     assert protocol.step_list_revision == revision
 
 
@@ -136,7 +136,7 @@ def test_a_frame_with_its_own_index_is_written_by_position():
 
     protocol.modify_autofocus(step_index=1, enabled=True)
 
-    assert protocol.num_steps() == NUM_STEPS
+    assert protocol.num_steps == NUM_STEPS
     assert [protocol.step_row(step_index=i)['Auto_Focus'] for i in range(NUM_STEPS)] == [
         False,
         True,
@@ -217,7 +217,7 @@ def test_an_insert_naming_no_place_or_two_is_refused(place):
 def test_an_insert_at_either_end_lands_there(place, lands_at):
     protocol = _protocol()
     name = _insert(protocol, **place)
-    assert protocol.num_steps() == NUM_STEPS + 1
+    assert protocol.num_steps == NUM_STEPS + 1
     assert protocol.step_row(step_index=lands_at)['Name'] == name
 
 
@@ -248,5 +248,5 @@ def _empty_protocol(session):
 def test_the_first_step_of_an_empty_protocol_is_added(session, place):
     protocol = _empty_protocol(session)
     names = session.add_step(protocol, **place)
-    assert protocol.num_steps() == 1
+    assert protocol.num_steps == 1
     assert list(protocol.steps()['Name']) == names

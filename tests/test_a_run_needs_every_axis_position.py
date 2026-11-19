@@ -130,7 +130,7 @@ def _images(tmp_path):
 class TestTheQuestion:
     def test_every_axis_of_an_unhomed_scope_is_unknown(self, session_factory):
         motion = session_factory().scope.motion
-        assert motion.axes_without_position() == {
+        assert motion.axes_without_position == {
             'X': AxisState.UNKNOWN,
             'Y': AxisState.UNKNOWN,
             'Z': AxisState.UNKNOWN,
@@ -139,12 +139,12 @@ class TestTheQuestion:
     def test_a_homed_scope_has_nothing_unknown(self, session_factory):
         session = session_factory()
         home_sim_scope(session.scope)
-        assert session.scope.motion.axes_without_position() == {}
+        assert session.scope.motion.axes_without_position == {}
 
     def test_a_scope_with_no_axes_has_nothing_unknown(self, session_factory):
         motion = session_factory().scope.motion
         motion._init_axes([], [])
-        assert motion.axes_without_position() == {}
+        assert motion.axes_without_position == {}
 
 
 def test_only_a_position_refusal_names_axes():

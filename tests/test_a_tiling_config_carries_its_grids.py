@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The tiling grids an installation offers: one set per session, handed out as a frozen record.
 
-``TilingConfig`` is the record ``tiling_config()`` answers, in-process and
+``TilingConfig`` is the record ``tiling_config`` answers, in-process and
 over the wire alike: ``available`` and ``default``, which no caller can
 change. The grids themselves (``TilingGrids``) are read from tiling.json
 once, by the scope at bring-up, and every protocol the session builds or
@@ -108,10 +108,10 @@ def test_the_grids_a_session_offers_are_the_ones_its_scope_read_at_bring_up(tmp_
     data = _installation(tmp_path)
     session = ScopeSession.create(complete_settings(), source_path=str(tmp_path), simulate=True)
     try:
-        offered = session.tiling_config().available
+        offered = session.tiling_config.available
         _write(data, {'data': {'13x17': {'m': 13, 'n': 17}}, 'metadata': {'default': '13x17'}})
 
-        assert session.tiling_config().available == offered
+        assert session.tiling_config.available == offered
     finally:
         session.shutdown()
 
@@ -122,11 +122,11 @@ def test_a_caller_cannot_change_the_grids_a_session_offers(tmp_path):
     _installation(tmp_path)
     session = ScopeSession.create(complete_settings(), source_path=str(tmp_path), simulate=True)
     try:
-        offered = session.tiling_config()
+        offered = session.tiling_config
         with pytest.raises(dataclasses.FrozenInstanceError):
             offered.available = ('9x9',)
 
-        assert session.tiling_config() == offered
+        assert session.tiling_config == offered
     finally:
         session.shutdown()
 
@@ -156,7 +156,7 @@ def test_a_protocol_built_after_an_edit_takes_the_grids_the_session_offers(tmp_p
 
         session.apply_tiling(protocol, '2x2')
 
-        assert '2x2' in session.tiling_config().available
-        assert protocol.tiling() == '2x2'
+        assert '2x2' in session.tiling_config.available
+        assert protocol.tiling == '2x2'
     finally:
         session.shutdown()

@@ -293,7 +293,7 @@ def test_an_old_runs_false_colour_images_stack_as_baked(old_session, run_folder)
     old_session.post_processing.run_hyperstack(
         run_folder,
         save_encoding='right_aligned',
-        channel_colors=old_session.channel_colors(),
+        channel_colors=old_session.channel_colors,
         written=lambda: None,
         stills=True,
         recordings=False,

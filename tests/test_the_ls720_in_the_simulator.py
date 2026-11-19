@@ -55,11 +55,11 @@ def _board(scope):
 def test_the_ls720_runs_the_6110_driver_and_starts_unknown(scope):
     assert isinstance(scope._motion_driver, Tmcm6110Board)
     assert set(scope.capabilities.axes) == {'X', 'Y', 'Z'}
-    assert scope.motion.axes_without_position().keys() - {'T'}
+    assert scope.motion.axes_without_position.keys() - {'T'}
 
 
 def test_a_home_makes_every_axis_known_at_its_index_position(homed):
-    assert not (homed.motion.axes_without_position().keys() - {'T'})
+    assert not (homed.motion.axes_without_position.keys() - {'T'})
     assert homed.motion.get_current_positions() == {'X': 117_690.0, 'Y': 950.0, 'Z': 0.0}
 
 
@@ -107,7 +107,7 @@ def test_each_axis_moves_through_the_api(homed):
 
 def test_the_lid_refuses_x_and_y_and_lets_z_move(homed):
     homed.simulation.interlock(lid_open=True)
-    assert homed.motion.interlocks() == {'lid_open'}
+    assert homed.motion.read_interlocks() == {'lid_open'}
     for axis in ('X', 'Y'):
         with pytest.raises(HardwareCommandRefusedError) as refused:
             axis_move(homed.motion, axis, 1_000)
@@ -170,7 +170,7 @@ def test_a_home_with_the_lid_open_is_refused_and_moves_nothing(homed):
         homed.motion.home()
     assert refused.value.reason == 'lid_open_before_motion'
     assert _at(homed, 'Z') == pytest.approx(1_000, abs=0.1)
-    assert not (homed.motion.axes_without_position().keys() - {'T'})
+    assert not (homed.motion.axes_without_position.keys() - {'T'})
 
 
 def test_a_position_the_board_does_not_report_is_unread_not_none(homed):

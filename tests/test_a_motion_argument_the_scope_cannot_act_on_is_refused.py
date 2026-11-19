@@ -62,7 +62,7 @@ def _refused(call, reason):
 def _motion_state(scope):
     motion = scope.motion
     states = {axis: motion.get_axis_state(axis) for axis in EVERY_AXIS}
-    return states, motion.target_positions(), motion.turret_status().slot
+    return states, motion.target_positions, motion.turret_status.slot
 
 
 NO_AXIS = [(member, name) for member in AXIS_MEMBERS for name in ('Q', 'x')]
@@ -114,7 +114,7 @@ def test_an_axis_the_model_lacks_is_a_name_and_keeps_its_answers(tmp_path):
     session = _session(tmp_path, 'LS850')
     try:
         assert session.scope.motion.get_axis_state('T') == 'unknown'
-        assert 'T' not in session.scope.motion.axes_without_position()
+        assert 'T' not in session.scope.motion.axes_without_position
         assert session.scope.diagnostics.read_motor_drv_status('T') == 0
     finally:
         session.shutdown()

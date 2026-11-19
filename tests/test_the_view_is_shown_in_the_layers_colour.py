@@ -133,7 +133,7 @@ def test_a_layers_shown_colour_is_its_colour_with_false_colour_on_and_grey_off(
     monkeypatch.setattr(
         _app_ctx,
         'ctx',
-        SimpleNamespace(session=SimpleNamespace(channel_colors=channel_record.release_colors)),
+        SimpleNamespace(session=SimpleNamespace(channel_colors=channel_record.release_colors())),
     )
     drawer = SimpleNamespace(
         channel=layer, ids={'false_color': SimpleNamespace(active=false_color)}

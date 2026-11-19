@@ -62,7 +62,7 @@ def test_a_refused_start_raises_its_fault_and_is_not_reported_again_as_a_stall(f
     assert raised.value.reason == 'camera_stream_start_failed'
     assert 'refused' in str(raised.value)
     assert fx2_session.scope.camera_connected
-    assert not imaging.is_streaming()
+    assert not imaging.read_streaming()
     # Three stall bounds: a grab still wanted after the refusal is reported
     # inside one (the stall's own tests).
     time.sleep(1.5)
@@ -76,7 +76,7 @@ def test_the_start_after_a_refused_one_streams(fx2_session):
 
     imaging.enable_streaming()
 
-    assert imaging.is_streaming()
+    assert imaging.read_streaming()
 
 
 def test_a_rest_caller_is_answered_with_the_refused_start(fx2_session):

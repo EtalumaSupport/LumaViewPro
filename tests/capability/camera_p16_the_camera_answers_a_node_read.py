@@ -97,7 +97,7 @@ def _check_answers(answers, when):
 
 
 def _frames_delivered(imaging):
-    return imaging.delivered_rate()
+    return imaging.delivered_rate
 
 
 def _probe(session):
@@ -122,9 +122,9 @@ def _probe(session):
         return
 
     imaging = scope.imaging
-    if imaging.is_streaming():
+    if imaging.read_streaming():
         imaging.disable_streaming()
-    check('idle: the camera is not grabbing', not imaging.is_streaming())
+    check('idle: the camera is not grabbing', not imaging.read_streaming())
     _check_answers(_read_all(scope.diagnostics, 'idle'), 'idle')
 
     imaging.enable_streaming()
@@ -132,7 +132,7 @@ def _probe(session):
         time.sleep(GRAB_WARMUP_S)
         figure('grabbing: delivered rate before the reads', str(_frames_delivered(imaging)))
         _check_answers(_read_all(scope.diagnostics, 'grabbing'), 'grabbing')
-        check('grabbing: the camera still grabs after the reads', imaging.is_streaming())
+        check('grabbing: the camera still grabs after the reads', imaging.read_streaming())
         time.sleep(GRAB_WARMUP_S)
         figure('grabbing: delivered rate after the reads', str(_frames_delivered(imaging)))
     finally:

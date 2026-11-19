@@ -6,13 +6,13 @@ Homing, moves, stops, interlocks, jogging and the turret.
 again after a fault loses it. A move of any axis, and a run, is refused
 `'position_unknown'` while any axis of the scope has no position; a kept
 position only while one of its own axes has none.
-`axes_without_position()` names each axis that has none, and why (`unknown` or
+`axes_without_position` names each axis that has none, and why (`unknown` or
 `homing`). A session starts unhomed; the
 startup motion ([Bringing a session up](concepts.md#bringing-a-session-up)) homes it.
 
 ```python
 scope.motion.home()                         # every axis; 'Z' or 'T' homes one
-assert scope.motion.axes_without_position() == {}
+assert scope.motion.axes_without_position == {}
 ```
 
 `start_home(axis)` starts the same home and returns its `Operation` at once. A
@@ -59,7 +59,7 @@ limits are `axis_limits(axis)`.
 scope.motion.move_xy(x_um=60000.0, y_um=40000.0)
 scope.motion.move_z(4000.0)
 scope.motion.move_z_by(-50.0)
-print(scope.motion.axis_positions())        # each axis's position and state
+print(scope.motion.axis_positions)        # each axis's position and state
 print(scope.motion.axis_limits('Z'))
 ```
 
@@ -95,7 +95,7 @@ raises `MotorStopFailedError`: the stage may still be moving.
 
 **Motion you did not start.** `wait_until_finished_moving()` returns once every
 axis moving now has stopped, and raises if one did not stop well;
-`target_positions()` answers where each axis was last commanded to go, and
+`target_positions` answers where each axis was last commanded to go, and
 None for an axis whose position is not known. A move you started is judged by
 its own operation's `result()`. Whether anything moves now is one read,
 `session.status` (`GET /api/v1/status`): an axis in `axes`, or the turret in
@@ -105,10 +105,10 @@ the event stream's `position` events.
 
 **Interlocks.** The LS720's stage refuses to move with its lid open or its
 stage unpowered (`'lid_open_before_motion'`, `'stage_unpowered_before_motion'`);
-`interlocks()` answers which are tripped now. No other model has one.
+`read_interlocks()` asks the board which are tripped now. No other model has one.
 
 **The turret.** A scope with a turret (`scope.capabilities.has_turret`) moves
-it by slot, 1 to 4: `move_turret(slot)`. `turret_status()` answers its slot,
+it by slot, 1 to 4: `move_turret(slot)`. `turret_status` answers its slot,
 or `TurretStatus('unknown', None)` while it is not known; None means the scope
 has no turret. A turret move is three moves: Z lowered, the turret turned, and
 Z put back (`restore_z=False` leaves Z down, for a caller that sets Z next);
@@ -123,7 +123,7 @@ waiting, the form a REST client calls.
 ```python model=LS850T
 session.assign_turret_objective(2, '10x Oly')
 scope.motion.move_turret(2)
-print(scope.motion.turret_status())
+print(scope.motion.turret_status)
 print(session.objective_id)                 # '10x Oly', slot 2's objective
 ```
 

@@ -31,12 +31,12 @@ def test_the_schedule_is_set_and_an_unrunnable_one_refused_leaving_it(session):
     protocol = session.create_empty_protocol()
 
     session.set_protocol_schedule(protocol, period_s=5 * 60, duration_s=2 * 3600)
-    assert (protocol.period_s(), protocol.duration_s()) == (5 * 60, 2 * 3600)
+    assert (protocol.period_s, protocol.duration_s) == (5 * 60, 2 * 3600)
 
     with pytest.raises(ProtocolScheduleRefusedError) as refused:
         session.set_protocol_schedule(protocol, period_s=0.5, duration_s=3600)
     assert (refused.value.reason, refused.value.key) == ('schedule_not_runnable', 'period')
-    assert (protocol.period_s(), protocol.duration_s()) == (5 * 60, 2 * 3600)
+    assert (protocol.period_s, protocol.duration_s) == (5 * 60, 2 * 3600)
 
 
 def test_the_capture_root_is_kept_as_given(session):
@@ -44,7 +44,7 @@ def test_the_capture_root_is_kept_as_given(session):
 
     session.set_protocol_capture_root(protocol, 'plate 7')
 
-    assert protocol.capture_root() == 'plate 7'
+    assert protocol.capture_root == 'plate 7'
 
 
 def test_one_steps_autofocus_or_every_steps_is_set(session):

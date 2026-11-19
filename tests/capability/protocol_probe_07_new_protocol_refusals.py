@@ -2,7 +2,7 @@
 
 The GUI (ui/protocol_settings.py:731-826) checks three things itself:
   * require_file_writes_idle
-  * protocol.num_steps() == 0 with no channel enabled -> popup
+  * protocol.num_steps == 0 with no channel enabled -> popup
   * _validate_objectives_in_protocol (ui/protocol_settings.py:904)
 Does the API raise/return any of them?
 """
@@ -19,7 +19,7 @@ try:
         settings,
         objective_helper=session.scope.objective_helper,
         wellplate_loader=session.scope.wellplate_loader,
-        current_z=session.plate_position().z_um,
+        current_z=session.plate_position.z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -28,7 +28,7 @@ try:
     cfg['labware_id'] = 'Center Plate'
     try:
         p = session.scope.protocols.create_protocol(input_config=cfg)
-        print('NO RAISE -- steps:', p.num_steps())
+        print('NO RAISE -- steps:', p.num_steps)
     except Exception as e:
         print(f'RAISED {type(e).__name__}: {e}')
 

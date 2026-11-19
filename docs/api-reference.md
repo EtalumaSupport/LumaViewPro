@@ -400,6 +400,7 @@ slices when stacked.
 app_version: str | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/app_version`.
 
 The application's version, `4.0.0-beta36`; None where the build has none.
@@ -508,7 +509,7 @@ overlap, laid out on the protocol's own plate.
 **Args**
 
 - `protocol`: The protocol whose steps are tiled.
-- `tiling`: The grid, one of `tiling_config().available`, such as `'3x3'`.
+- `tiling`: The grid, one of `tiling_config.available`, such as `'3x3'`.
 
 **Raises**
 
@@ -592,6 +593,7 @@ under a hold too.
 bookmark: PlateLocation  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/bookmark`.
 
 The bookmark: X and Y in plate millimetres on the selected plate, Z in micrometres.
@@ -607,7 +609,7 @@ Nothing.
 ### `ScopeSession.bring_up_record`
 
 ```python
-def bring_up_record(self) -> BringUpRecord
+bring_up_record: BringUpRecord  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -631,7 +633,7 @@ Nothing.
 ### `ScopeSession.capped_channels`
 
 ```python
-def capped_channels(self) -> tuple[str, ...]
+capped_channels: tuple[str, ...]  # property
 ```
 
 Marks: in-process; reads (changes nothing).
@@ -752,7 +754,7 @@ session started.
 ### `ScopeSession.channel_colors`
 
 ```python
-def channel_colors(self) -> dict[str, tuple[float, float, float]]
+channel_colors: dict[str, tuple[float, float, float]]  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -913,6 +915,7 @@ active objective changed.
 control: ControlSession | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/control`.
 
 The control session held now, None when none is.
@@ -928,7 +931,7 @@ Nothing.
 controls_lock: ControlsLock  # property
 ```
 
-Marks: in-process.
+Marks: in-process; reads (changes nothing).
 
 Which of a person's controls the Session locks now, and why: its editing policy, not a refusal.
 
@@ -1052,7 +1055,7 @@ carry the objective they were taken with.
 ### `ScopeSession.current_slot_objective_question`
 
 ```python
-def current_slot_objective_question(self) -> ObjectiveQuestion
+current_slot_objective_question: ObjectiveQuestion  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -1320,6 +1323,7 @@ Nothing.
 host_reading: HostReading | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/host_reading`.
 
 This PC's resources as read over the session's startup; None until its startup motion has ended.
@@ -1359,6 +1363,7 @@ Nothing.
 labware_id: str  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/labware_id`.
 
 The current plate's catalogue key, the one `select_labware` selected.
@@ -1404,6 +1409,7 @@ Nothing.
 last_save_folder: Path | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/last_save_folder`.
 
 The folder of the last file saved, whoever asked for the save.
@@ -1528,7 +1534,7 @@ or a stale setting.
 live_work: LiveWork  # property
 ```
 
-Marks: in-process.
+Marks: in-process; reads (changes nothing).
 
 Everything the session is still doing, each piece from its owner.
 
@@ -1744,6 +1750,7 @@ Where the ZIP is, and the words that say where to send it.
 model_at_next_start: str | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/model_at_next_start`.
 
 The model this scope's next start runs as, when it is not the one running, else None.
@@ -1812,6 +1819,7 @@ steps; a labware with no wells still gives an empty protocol, which
 objective_id: str  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/objective_id`.
 
 The active objective's catalogue key.
@@ -1833,7 +1841,7 @@ person has confirmed it. A display reads it as a state through
 ### `ScopeSession.objective_question`
 
 ```python
-def objective_question(self) -> ObjectiveQuestion | None
+objective_question: ObjectiveQuestion | None  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -1882,7 +1890,7 @@ and a polled read must not log per poll.
 ### `ScopeSession.plate_position`
 
 ```python
-def plate_position(self) -> PlateLocation
+plate_position: PlateLocation  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -1912,6 +1920,7 @@ Where the scope is on the plate: X and Y in mm, Z in um.
 plugin_api_level: int  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/plugin_api_level`.
 
 What this LumaViewPro does that a plugin may rely on.
@@ -1927,7 +1936,7 @@ Nothing.
 ### `ScopeSession.plugin_health`
 
 ```python
-def plugin_health(self) -> PluginHealth | None
+plugin_health: PluginHealth | None  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -1972,7 +1981,7 @@ Nothing.
 plugins: PluginRegistry | None  # property
 ```
 
-Marks: in-process.
+Marks: in-process; reads (changes nothing).
 
 The plugin contract: the namespaces a plugin registers into, as `ctx.plugins`.
 
@@ -2380,6 +2389,7 @@ The path written; a missing folder is made.
 scale_bar_enabled: bool  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scale_bar_enabled`.
 
 Whether captured images are drawn with the scale bar, as `set_scale_bar_enabled` set it.
@@ -2521,6 +2531,7 @@ objective already active is a no-op.
 selected_model: str  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/selected_model`.
 
 The saved scope model: the one `select_model` saved.
@@ -2910,7 +2921,7 @@ read here.
 ### `ScopeSession.settings_are_provisional`
 
 ```python
-def settings_are_provisional(self) -> bool
+settings_are_provisional: bool  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -2932,7 +2943,7 @@ Nothing.
 ### `ScopeSession.settings_snapshot`
 
 ```python
-def settings_snapshot(self) -> dict
+settings_snapshot: dict  # property
 ```
 
 Marks: in-process; reads (changes nothing).
@@ -3075,7 +3086,7 @@ again.
 source_path: Path  # property
 ```
 
-Marks: in-process.
+Marks: in-process; reads (changes nothing).
 
 The data folder this session runs on: its scope's, never a copy.
 
@@ -3362,6 +3373,7 @@ The pick's `Operation`: its `result()` is whether the active objective changed, 
 status: Status  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/status`.
 
 What the scope is doing: its work, its axes, its parts and its camera, in one read.
@@ -3453,7 +3465,7 @@ The session's id, told to its taker and to no one else: what a call in the sessi
 ### `ScopeSession.tiling_config`
 
 ```python
-def tiling_config(self) -> TilingConfig
+tiling_config: TilingConfig  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -3463,7 +3475,7 @@ The tiling grids this installation offers: the scope's copy, read at bring-up.
 
 What a caller needs to choose a grid: `available` lists the
 labels `new_protocol` and `apply_tiling` accept, and
-`default` is the one to preselect; `Protocol.tiling()` names
+`default` is the one to preselect; `Protocol.tiling` names
 the grid a protocol's steps already carry. Read once with the
 installation's other catalogues, so a tiling.json edited while the
 program runs is seen at the next start, and every protocol is built
@@ -3785,6 +3797,7 @@ One manual-recording flow: snapshot, record, drain, finish.
 elapsed_s: float  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/manual_recording/elapsed_s`.
 
 Seconds since the recording started; 0.0 when idle.
@@ -3800,6 +3813,7 @@ Nothing.
 is_draining: bool  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/manual_recording/is_draining`.
 
 True while queued frames are still being written.
@@ -3815,6 +3829,7 @@ Nothing.
 is_recording: bool  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/manual_recording/is_recording`.
 
 True while cadence selection is open.
@@ -3830,6 +3845,7 @@ Nothing.
 pending_writes: int  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/manual_recording/pending_writes`.
 
 Frames enqueued but not yet on disk.
@@ -3845,6 +3861,7 @@ Nothing.
 save_folder: Path | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/manual_recording/save_folder`.
 
 The active (or last) recording's output folder.
@@ -4087,7 +4104,7 @@ The results table, the method file, how many images were counted, each image lef
 ### `PostProcessingAPI.default_cell_count_method`
 
 ```python
-def default_cell_count_method(self) -> CellCountMethod
+default_cell_count_method: CellCountMethod  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -4488,6 +4505,7 @@ The microscope: its boards and camera, reached through its sub-APIs.
 all_labware: tuple[Labware, ...]  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/all_labware`.
 
 Every plate of the installation, read once at bring-up, in the catalogue's order.
@@ -4506,6 +4524,7 @@ Nothing.
 all_objectives: tuple[Objective, ...]  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/all_objectives`.
 
 Every objective of the installation, read once at bring-up, in the order they are offered.
@@ -4526,6 +4545,7 @@ Nothing.
 all_scope_models: tuple[ScopeModel, ...]  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/all_scope_models`.
 
 Every scope model of the installation, read once at bring-up, in the catalogue's order.
@@ -4544,6 +4564,7 @@ Nothing.
 motion_expected: bool  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/motion_expected`.
 
 Whether this scope's model has a motor board at all.
@@ -4617,6 +4638,8 @@ carries the old name; the plate it now lives under is answered.
 simulation: SimulationAPI  # property
 ```
 
+Marks: reads (changes nothing).
+
 The faults a simulated scope presents, switched on by name.
 
 On the wire as in-process, but for two members that take or hand
@@ -4630,7 +4653,7 @@ Nothing.
 ### `Lumascope.unconnected_parts`
 
 ```python
-def unconnected_parts(self) -> tuple[Board, ...]
+unconnected_parts: tuple[Board, ...]  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -4814,6 +4837,7 @@ dict | None: `{'gain_db': ..., 'exposure_ms': ...}`, each the value now in effec
 auto_exposure: CameraAutoMode | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/auto_exposure`.
 
 The camera's auto-exposure mode, as the camera last reported or took
@@ -4832,6 +4856,7 @@ Nothing.
 auto_gain: CameraAutoMode | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/auto_gain`.
 
 The camera's auto-gain mode, as the camera last reported or took it;
@@ -4850,6 +4875,7 @@ Nothing.
 binning: int | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/binning`.
 
 The binning factor the camera last reported or took; None when unknown.
@@ -4865,6 +4891,7 @@ Nothing.
 black_level: float | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/black_level`.
 
 The black level the camera last reported or took (see
@@ -4881,6 +4908,7 @@ Nothing.
 exposure_ms: float | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/exposure_ms`.
 
 The exposure in ms the camera last reported or took; None when unknown.
@@ -4931,6 +4959,7 @@ saved frame after the apply is the truth.
 frame_size: FrameSize | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/frame_size`.
 
 The size of the frames the camera delivers, as it last reported or
@@ -4947,6 +4976,7 @@ Nothing.
 gain_db: float | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/gain_db`.
 
 The gain in dB the camera last reported or took; None when unknown.
@@ -4962,6 +4992,7 @@ Nothing.
 high_conversion_gain: bool | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/high_conversion_gain`.
 
 Whether the camera's high conversion gain is on, as the camera last
@@ -4980,6 +5011,7 @@ Nothing.
 image_mode: ImageMode  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/image_mode`.
 
 The image mode captures are taken in: the saved one, which
@@ -5001,6 +5033,7 @@ the pixel format the mode chose (`pixel_format`).
 line_noise_reduction: bool | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/line_noise_reduction`.
 
 Whether the camera's line-noise filter is on, as the camera last took
@@ -5049,7 +5082,7 @@ Nothing.
 ### `CameraAPI.pixel_alignment`
 
 ```python
-def pixel_alignment(self) -> dict
+pixel_alignment: dict  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -5076,6 +5109,7 @@ Nothing.
 pixel_format: str | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/pixel_format`.
 
 The pixel format the camera last reported or took (e.g. `'Mono12'`),
@@ -5768,6 +5802,7 @@ the camera took it, as `set_high_conversion_gain` is.
 setting_limits: CameraSettingLimits | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/camera/setting_limits`.
 
 The gain and exposure the camera takes now; no camera read.
@@ -5809,7 +5844,7 @@ the lane's one blocking dispatch with a wait bound.
 ### `DiagnosticsAPI.led_info`
 
 ```python
-def led_info(self) -> LedBoardInfo
+led_info: LedBoardInfo  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -5829,7 +5864,7 @@ Nothing.
 ### `DiagnosticsAPI.motor_info`
 
 ```python
-def motor_info(self) -> MotorBoardInfo
+motor_info: MotorBoardInfo  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -6060,7 +6095,7 @@ The commanded current in mA.
 ### `IlluminationAPI.led_states`
 
 ```python
-def led_states(self) -> tuple[LedReading, ...] | None
+led_states: tuple[LedReading, ...] | None  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -6265,7 +6300,7 @@ Nothing.
 ### `ImagingAPI.delivered_rate`
 
 ```python
-def delivered_rate(self) -> DeliveredRate
+delivered_rate: DeliveredRate  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -6387,31 +6422,6 @@ installation's.
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`
 
-<a id="ImagingAPI.is_streaming"></a>
-### `ImagingAPI.is_streaming`
-
-```python
-def is_streaming(self) -> bool
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/imaging/is_streaming`.
-
-Whether the camera is currently acquiring frames.
-
-Queries the driver directly, unlike the scope's connected parts
-(`unconnected_parts`), which read each driver's connection flag
-and ask the camera nothing. False when no camera is attached, or
-one its driver declared removed.
-
-**Raises**
-
-- `CameraReadFailedError`: The camera did not answer its grab state, a camera pulled during the read included; the next ask of a pulled camera answers False.
-
-**Refusals by REST status**
-
-- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
-
 <a id="ImagingAPI.judge_frame"></a>
 ### `ImagingAPI.judge_frame`
 
@@ -6440,6 +6450,31 @@ axis settled.
 **Raises**
 
 Nothing.
+
+<a id="ImagingAPI.read_streaming"></a>
+### `ImagingAPI.read_streaming`
+
+```python
+def read_streaming(self) -> bool
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/imaging/read_streaming`.
+
+Whether the camera is currently acquiring frames.
+
+Queries the driver directly, unlike the scope's connected parts
+(`unconnected_parts`), which read each driver's connection flag
+and ask the camera nothing. False when no camera is attached, or
+one its driver declared removed.
+
+**Raises**
+
+- `CameraReadFailedError`: The camera did not answer its grab state, a camera pulled during the read included; the next ask of a pulled camera answers False.
+
+**Refusals by REST status**
+
+- 500: [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
 
 <a id="ImagingAPI.recorded_changes"></a>
 ### `ImagingAPI.recorded_changes`
@@ -6493,6 +6528,7 @@ Nothing.
 significant_bits: int  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/scope/imaging/significant_bits`.
 
 Meaningful payload bits of frames the current camera delivers.
@@ -6592,7 +6628,7 @@ Nothing.
 ### `MotionAPI.axes_without_position`
 
 ```python
-def axes_without_position(self) -> dict[Axis, AxisState]
+axes_without_position: dict[Axis, AxisState]  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -6662,7 +6698,7 @@ The travel moves are refused against, or `None` if the axis has no configured li
 ### `MotionAPI.axis_positions`
 
 ```python
-def axis_positions(self) -> dict[StageAxis, AxisPosition]
+axis_positions: dict[StageAxis, AxisPosition]  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -6752,42 +6788,6 @@ as that activity's work and takes no claim of its own.
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
-
-<a id="MotionAPI.interlocks"></a>
-### `MotionAPI.interlocks`
-
-```python
-def interlocks(self) -> frozenset[Interlock]
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/motion/interlocks`.
-
-The stage's hardware interlocks open now (`'lid_open'`, `'stage_unpowered'`).
-
-Empty on a board with none. Asked of the driver directly, not
-queued on the IO lane: the driver reads it under its own lock,
-one exchange serialized with any in flight, so the answer never
-waits for a move or a home to finish, as the motion monitor's own
-reads do not. It does wait for what holds that lock now: one
-exchange or one poll of a home, and at most a Stop's settle (2 s).
-
-**Returns**
-
-frozenset[Interlock]: The open interlocks.
-
-**Raises**
-
-- `HardwareCommandRefusedError`: `'scope_disconnected'` after the scope's shutdown; `'not_connected'`, naming the motor controller. Nothing was asked.
-- `BoardNoReplyError`: `'board_no_reply'`, the board did not answer the read; the stage's state is unknown, which is not the same answer as none open.
-- `BoardPortFailedError`: `'board_port_failed'`, the port to the board failed or is not open; the state is unknown.
-- `BoardReplyUnreadableError`: `'board_reply_unreadable'`, the board's answer could not be read; the state is unknown.
-- `BoardReportedError`: `'board_reported_error'`, the board refused the read; the state is unknown.
-
-**Refusals by REST status**
-
-- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`BoardReplyUnreadableError`](#BoardReplyUnreadableError): `board_reply_unreadable`; [`BoardReportedError`](#BoardReportedError): `board_reported_error`
-- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`, `not_connected`
 
 <a id="MotionAPI.jog_step_um"></a>
 ### `MotionAPI.jog_step_um`
@@ -7205,6 +7205,42 @@ dict[StageAxis, float]: Axis to its position, in the order asked.
 
 - 409: [`AxisMovingError`](#AxisMovingError): `axis_moving`; [`AxisStateUnknownError`](#AxisStateUnknownError): `position_unknown`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`; [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `axis_absent`
+- 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`, `not_connected`
+
+<a id="MotionAPI.read_interlocks"></a>
+### `MotionAPI.read_interlocks`
+
+```python
+def read_interlocks(self) -> frozenset[Interlock]
+```
+
+Marks: reads (changes nothing).  
+Route: `GET /api/v1/scope/motion/read_interlocks`.
+
+The stage's hardware interlocks open now (`'lid_open'`, `'stage_unpowered'`).
+
+Empty on a board with none. Asked of the driver directly, not
+queued on the IO lane: the driver reads it under its own lock,
+one exchange serialized with any in flight, so the answer never
+waits for a move or a home to finish, as the motion monitor's own
+reads do not. It does wait for what holds that lock now: one
+exchange or one poll of a home, and at most a Stop's settle (2 s).
+
+**Returns**
+
+frozenset[Interlock]: The open interlocks.
+
+**Raises**
+
+- `HardwareCommandRefusedError`: `'scope_disconnected'` after the scope's shutdown; `'not_connected'`, naming the motor controller. Nothing was asked.
+- `BoardNoReplyError`: `'board_no_reply'`, the board did not answer the read; the stage's state is unknown, which is not the same answer as none open.
+- `BoardPortFailedError`: `'board_port_failed'`, the port to the board failed or is not open; the state is unknown.
+- `BoardReplyUnreadableError`: `'board_reply_unreadable'`, the board's answer could not be read; the state is unknown.
+- `BoardReportedError`: `'board_reported_error'`, the board refused the read; the state is unknown.
+
+**Refusals by REST status**
+
+- 500: [`BoardNoReplyError`](#BoardNoReplyError): `board_no_reply`; [`BoardPortFailedError`](#BoardPortFailedError): `board_port_failed`; [`BoardReplyUnreadableError`](#BoardReplyUnreadableError): `board_reply_unreadable`; [`BoardReportedError`](#BoardReportedError): `board_reported_error`
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `scope_disconnected`, `not_connected`
 
 <a id="MotionAPI.remove_position_listener"></a>
@@ -7798,7 +7834,7 @@ and ends the live run (its press listeners are told first).
 ### `MotionAPI.target_positions`
 
 ```python
-def target_positions(self) -> dict[StageAxis, float | None]
+target_positions: dict[StageAxis, float | None]  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -7833,7 +7869,7 @@ Nothing.
 ### `MotionAPI.turret_status`
 
 ```python
-def turret_status(self) -> TurretStatus | None
+turret_status: TurretStatus | None  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -8003,7 +8039,7 @@ The `PlatePosition`, in mm; or the first reason it is unknown, in this order: `H
 ### `RuntimeState.optics_status`
 
 ```python
-def optics_status(self) -> OpticsStatus
+optics_status: OpticsStatus  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -8033,7 +8069,7 @@ OpticsStatus: Each value, or its refusal.
 ### `RuntimeState.pixel_size_um`
 
 ```python
-def pixel_size_um(self) -> float
+pixel_size_um: float  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -8102,7 +8138,7 @@ move to it is refused.
 ### `RuntimeState.stage_offset`
 
 ```python
-def stage_offset(self) -> coord_transformations.StageOffset
+stage_offset: coord_transformations.StageOffset  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -8462,7 +8498,7 @@ An operation done once the move has halted at the hold, for a caller acting on a
 ### `SimulationAPI.injected`
 
 ```python
-def injected(self) -> tuple[InjectedFault, ...]
+injected: tuple[InjectedFault, ...]  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -8989,6 +9025,8 @@ What bring-up found, substituted and set aside.
 missing: tuple[PartStatus, ...]  # property
 ```
 
+Marks: reads (changes nothing).
+
 The parts this scope should have and lacks.
 
 **Raises**
@@ -9462,6 +9500,8 @@ and what the API refuses it refuses whatever this says.
 controls_locked: bool  # property
 ```
 
+Marks: reads (changes nothing).
+
 True while the whole control surface locks: the run surface is held, or a recording is live.
 
 **Raises**
@@ -9474,6 +9514,8 @@ Nothing.
 ```python
 named: str | None  # property
 ```
+
+Marks: reads (changes nothing).
 
 The sentence for what locks the controls now, None while nothing does.
 
@@ -9490,6 +9532,8 @@ Nothing.
 ```python
 run_lockout: bool  # property
 ```
+
+Marks: reads (changes nothing).
 
 True while something holds the run surface: `run_named` or `control_named`.
 
@@ -9903,6 +9947,8 @@ does not return this.
 ```python
 holds: bool  # property
 ```
+
+Marks: reads (changes nothing).
 
 Whether this taking still holds the claim.
 
@@ -10827,7 +10873,7 @@ A protocol: its steps, its plate and its schedule, and the file it is read from 
 ### `Protocol.capture_root`
 
 ```python
-def capture_root(self) -> str
+capture_root: str  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -10843,7 +10889,7 @@ Nothing.
 ### `Protocol.channel_settings`
 
 ```python
-def channel_settings(self) -> dict[str, ChannelSettings]
+channel_settings: dict[str, ChannelSettings]  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -10870,7 +10916,7 @@ Nothing.
 ### `Protocol.duration_s`
 
 ```python
-def duration_s(self) -> float | None
+duration_s: float | None  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -10889,6 +10935,7 @@ Nothing.
 file_path: Path | None  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/handles/Protocol/{handle_id}/file_path`.
 
 The file this protocol was last loaded from or saved to; None when it has none.
@@ -10904,6 +10951,7 @@ Nothing.
 has_unsaved_changes: bool  # property
 ```
 
+Marks: reads (changes nothing).  
 Route: `GET /api/v1/handles/Protocol/{handle_id}/has_unsaved_changes`.
 
 Whether the protocol has changed since it was last built, loaded or saved.
@@ -10922,7 +10970,7 @@ Nothing.
 ### `Protocol.labware_id`
 
 ```python
-def labware_id(self) -> str
+labware_id: str  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -10938,7 +10986,7 @@ Nothing.
 ### `Protocol.num_scans`
 
 ```python
-def num_scans(self) -> int
+num_scans: int  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -10959,7 +11007,7 @@ Nothing.
 ### `Protocol.num_steps`
 
 ```python
-def num_steps(self) -> int
+num_steps: int  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -10975,7 +11023,7 @@ Nothing.
 ### `Protocol.period_s`
 
 ```python
-def period_s(self) -> float | None
+period_s: float | None  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -10991,7 +11039,7 @@ Nothing.
 ### `Protocol.step_records`
 
 ```python
-def step_records(self) -> tuple[StepRecord, ...]
+step_records: tuple[StepRecord, ...]  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -11007,7 +11055,7 @@ Nothing.
 ### `Protocol.tiling`
 
 ```python
-def tiling(self) -> str | None
+tiling: str | None  # property
 ```
 
 Marks: reads (changes nothing).  
@@ -11704,7 +11752,7 @@ shipped plugin registers none.
 
 **Stub mode**: while a plugin is being developed, its author can opt
 into `enable_stub_mode()`. In stub mode, register() accepts the
-spec and records it, so `session.plugin_health()` reflects the
+spec and records it, so `session.plugin_health` reflects the
 registration, but serves nothing, so the rest of the plugin -- its
 load and unregister hooks -- can be tried. Stub mode is opt-in and
 not the default, so a shipped plugin's registration is refused,
@@ -11722,7 +11770,7 @@ Marks: in-process.
 Opt into accepting REST registrations as stubs.
 
 After enable_stub_mode(), register(spec, router) records the
-registration (visible in `session.plugin_health()`) and serves
+registration (visible in `session.plugin_health`) and serves
 nothing, since a plugin cannot add REST routes in this release. A
 plugin author uses this while developing a plugin, to try the rest
 of its lifecycle.
@@ -12335,7 +12383,7 @@ axis can read HOMING in `axes` a moment before the home appears in
 **Fields**
 
 - <a id="Status.axes"></a>`axes`: `dict[StageAxis, AxisPosition]` -- Each stage axis's state and position, None where the position is not known (`MotionAPI.axis_positions`): X, Y and Z, in um. An axis whose state is `moving` or `homing` is moving now; with `turret`, the read of whether anything moves.
-- <a id="Status.camera_streaming"></a>`camera_streaming`: `bool | None` -- Whether the camera is grabbing frames, asked of the camera itself (`ImagingAPI.is_streaming`); None when the camera did not answer, the failure reported in the log at each ask.
+- <a id="Status.camera_streaming"></a>`camera_streaming`: `bool | None` -- Whether the camera is grabbing frames, asked of the camera itself (`ImagingAPI.read_streaming`); None when the camera did not answer, the failure reported in the log at each ask.
 - <a id="Status.control"></a>`control`: `ControlSession | None` -- The control session held, None when none is (`ScopeSession.control`).
 - <a id="Status.host_reading"></a>`host_reading`: `HostReading | None` -- This PC's resources as read over the session's startup (`ScopeSession.host_reading`); None until the startup motion has ended.
 - <a id="Status.live_work"></a>`live_work`: `LiveWork` -- Everything the session is still doing (`ScopeSession.live_work`).
@@ -12460,6 +12508,8 @@ A support report or logs zip that was saved, and the words that say where.
 message: str  # property
 ```
 
+Marks: reads (changes nothing).
+
 Where the ZIP is and where to send it; the folder is the one it was written to.
 
 **Raises**
@@ -12472,6 +12522,8 @@ Nothing.
 ```python
 title: str  # property
 ```
+
+Marks: reads (changes nothing).
 
 The title the saved report's notice is shown under.
 
@@ -12956,7 +13008,7 @@ Taken by: [`SimulationAPI.delay_reply`](#SimulationAPI.delay_reply), [`Simulatio
 A board a scope is brought up from, in the order bring-up connects them.
 
 The parts that connect, and so the ones that can be not connected: the
-bring-up record's parts, `Lumascope.unconnected_parts()`, and the
+bring-up record's parts, `Lumascope.unconnected_parts`, and the
 boards a simulated fault targets. Each is also a `Part`, by the same
 value, so `Part(board)` is the board's part.
 
@@ -13236,7 +13288,7 @@ The image mode captures are taken and saved in (the module docstring).
 <a id="Interlock"></a>
 ### `lumascope.Interlock`
 
-Returned by: [`MotionAPI.interlocks`](#MotionAPI.interlocks).
+Returned by: [`MotionAPI.read_interlocks`](#MotionAPI.read_interlocks).
 
 A stage hardware interlock that, open, stops the stage.
 
@@ -13253,7 +13305,7 @@ a command it stopped before anything moved is refused with its
 
 Held in: [`LedBoardInfo.command_set`](#LedBoardInfo.command_set).
 
-The LED board's text command set, as `led_info().command_set` names it.
+The LED board's text command set, as `led_info.command_set` names it.
 
 INFO predates the v2 firmware; SELFTEST, I2CSCAN and the LEDREAD
 current reads came with it. A board with no text command channel at
@@ -13322,7 +13374,7 @@ The kind of light a channel images.
 
 Held in: [`MotorBoardInfo.command_set`](#MotorBoardInfo.command_set).
 
-The motor board's text command set, as `motor_info().command_set` names it.
+The motor board's text command set, as `motor_info.command_set` names it.
 
 The EL-0940's (INFO, FULLINFO, ACTUAL_R, SPI and the rest). A board
 with no text command channel (the TMCM-6110, which speaks binary
@@ -17627,14 +17679,14 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/imaging/delivered_rate` | [`ImagingAPI.delivered_rate`](#ImagingAPI.delivered_rate) |
 | `POST` | `/api/v1/scope/imaging/disable_streaming` | [`ImagingAPI.disable_streaming`](#ImagingAPI.disable_streaming) |
 | `POST` | `/api/v1/scope/imaging/enable_streaming` | [`ImagingAPI.enable_streaming`](#ImagingAPI.enable_streaming) |
-| `GET` | `/api/v1/scope/imaging/is_streaming` | [`ImagingAPI.is_streaming`](#ImagingAPI.is_streaming) |
+| `GET` | `/api/v1/scope/imaging/read_streaming` | [`ImagingAPI.read_streaming`](#ImagingAPI.read_streaming) |
 | `GET` | `/api/v1/scope/imaging/significant_bits` | [`ImagingAPI.significant_bits`](#ImagingAPI.significant_bits) |
 | `GET` | `/api/v1/scope/motion/axes_without_position` | [`MotionAPI.axes_without_position`](#MotionAPI.axes_without_position) |
 | `GET` | `/api/v1/scope/motion/axis_limits` | [`MotionAPI.axis_limits`](#MotionAPI.axis_limits) |
 | `GET` | `/api/v1/scope/motion/axis_positions` | [`MotionAPI.axis_positions`](#MotionAPI.axis_positions) |
-| `GET` | `/api/v1/scope/motion/interlocks` | [`MotionAPI.interlocks`](#MotionAPI.interlocks) |
 | `GET` | `/api/v1/scope/motion/jog_step_um` | [`MotionAPI.jog_step_um`](#MotionAPI.jog_step_um) |
 | `GET` | `/api/v1/scope/motion/positions_to_keep` | [`MotionAPI.positions_to_keep`](#MotionAPI.positions_to_keep) |
+| `GET` | `/api/v1/scope/motion/read_interlocks` | [`MotionAPI.read_interlocks`](#MotionAPI.read_interlocks) |
 | `POST` | `/api/v1/scope/motion/set_precision_mode` | [`MotionAPI.set_precision_mode`](#MotionAPI.set_precision_mode) |
 | `POST` | `/api/v1/scope/motion/start_center_on` | [`MotionAPI.start_center_on`](#MotionAPI.start_center_on) |
 | `POST` | `/api/v1/scope/motion/start_home` | [`MotionAPI.start_home`](#MotionAPI.start_home) |

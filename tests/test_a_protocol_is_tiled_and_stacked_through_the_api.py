@@ -67,7 +67,7 @@ def _bf_steps_at(session, xs_um):
     protocol = session.create_empty_protocol()
     for x_um in xs_um:
         session.scope.motion.move_xy(x_um=x_um)
-        session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
+        session.add_step(protocol, after_step_index=protocol.num_steps - 1)
     return protocol
 
 
@@ -160,7 +160,7 @@ class TestTiling:
     def test_the_tiles_are_judged_on_the_protocols_plate(self, session, monkeypatch):
         protocol = _bf_steps_at(session, (40000,))
         session.set_protocol_labware(protocol, '6 well microplate')
-        assert session.settings['protocol']['labware'] != protocol.labware_id()
+        assert session.settings['protocol']['labware'] != protocol.labware_id
         loader = session.scope.wellplate_loader
         asked = []
         real = loader.get_plate
@@ -173,7 +173,7 @@ class TestTiling:
 
         session.apply_tiling(protocol, '2x2')
 
-        assert asked == [protocol.labware_id()]
+        assert asked == [protocol.labware_id]
 
     def test_a_z_only_scope_is_refused_for_no_x_y_motor(self, z_only_session):
         protocol = _bf_steps_at_center(z_only_session)
@@ -277,7 +277,7 @@ class TestZStacking:
 
         z_only_session.apply_zstacking(protocol)
 
-        assert protocol.num_steps() == 5
+        assert protocol.num_steps == 5
 
     def test_over_rest_the_stack_is_asked_by_the_protocol_alone(self):
         """``POST /api/v1/apply_zstacking`` takes the protocol and nothing of the stack."""

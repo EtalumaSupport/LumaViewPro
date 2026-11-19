@@ -767,7 +767,7 @@ class MotionAPI:
         return HomingFaultError(home, 'board_lost' if self._board_lost() else 'error', axes)
 
     @api(reads=True)
-    def interlocks(self) -> frozenset[Interlock]:
+    def read_interlocks(self) -> frozenset[Interlock]:
         """The stage's hardware interlocks open now (``'lid_open'``, ``'stage_unpowered'``).
 
         Empty on a board with none. Asked of the driver directly, not
@@ -1607,7 +1607,8 @@ class MotionAPI:
                 raise MoveStoppedError('T', 'stopped')
             self._record_turret_slot(int(slot))
 
-    @api(reads=True)
+    @api
+    @property
     def turret_status(self) -> TurretStatus | None:
         """The turret's state and the slot in the light path, read together; None on a scope with no turret.
 
@@ -2123,14 +2124,14 @@ class MotionAPI:
             self._fire_turret_listeners()
             return
         stage_axis = StageAxis(axis)
-        at = self.axis_positions()[stage_axis]
+        at = self.axis_positions[stage_axis]
         with self._position_listeners_lock:
             listeners = list(self._position_listeners)
         notifications.tell_listeners(listeners, stage_axis, at, category='Motion')
 
     def _fire_turret_listeners(self):
         """Notify all turret listeners of the turret's state and slot, as ``turret_status`` answers them."""
-        at = self.turret_status()
+        at = self.turret_status
         if at is None:
             return
         with self._position_listeners_lock:
@@ -2253,7 +2254,8 @@ class MotionAPI:
             if put_back and not self._stopped_since(stop_generation):
                 self._put_back(None, z_before)
 
-    @api(reads=True)
+    @api
+    @property
     def axes_without_position(self) -> dict[Axis, AxisState]:
         """Which of this scope's axes do not know their position, and why.
 
@@ -2293,7 +2295,8 @@ class MotionAPI:
             if not self._position_known(state)
         }
 
-    @api(reads=True)
+    @api
+    @property
     def axis_positions(self) -> dict[StageAxis, AxisPosition]:
         """Every stage axis's state and its position, or None where the position is not known.
 
@@ -2531,7 +2534,8 @@ class MotionAPI:
             )
         return target if target is not None else self._read_position_cache(axis)
 
-    @api(reads=True)
+    @api
+    @property
     def target_positions(self) -> dict[StageAxis, float | None]:
         """The target of every stage axis the scope has a position for (where it is commanded to go), by axis name, in um.
 
@@ -2647,7 +2651,7 @@ class MotionAPI:
         if limits is not None and not (limits.min_um <= stage_position <= limits.max_um):
             labware = self._scope.runtime_state.get_labware()
             dimension = labware.width_mm if axis == 'X' else labware.height_mm
-            offset = self._scope.runtime_state.stage_offset()
+            offset = self._scope.runtime_state.stage_offset
             offset_mm = (offset.x_um if axis == 'X' else offset.y_um) / 1000
 
             def reachable(edge_mm: float) -> bool:

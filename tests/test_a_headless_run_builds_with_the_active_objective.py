@@ -39,7 +39,7 @@ def test_the_protocol_names_the_slots_objective(tmp_path, monkeypatch, start):
     )
     settings['objective_id'] = stale
     with open_composite_session(settings) as (session, runner):
-        slot = session.scope.motion.turret_status().slot
+        slot = session.scope.motion.turret_status.slot
         in_light_path = TEST_TURRET_OBJECTIVES[slot]
         assert stale != in_light_path, 'the stored objective must not be the one in the light path'
         built = []

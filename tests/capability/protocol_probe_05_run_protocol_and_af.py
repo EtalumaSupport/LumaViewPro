@@ -22,14 +22,14 @@ session, live = make_session('runproto', home=True)
 try:
     import _lumascope.modules.config_helpers as config_helpers
 
-    settings = session.settings_snapshot()
+    settings = session.settings_snapshot
     runner = session.protocol_runner()
 
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
         objective_helper=session.scope.objective_helper,
         wellplate_loader=session.scope.wellplate_loader,
-        current_z=session.plate_position().z_um,
+        current_z=session.plate_position.z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -37,14 +37,14 @@ try:
     cfg['channel_configs']['BF']['acquire'] = 'image'
     cfg['labware_id'] = 'Center Plate'
     protocol = session.scope.protocols.create_protocol(input_config=cfg)
-    print('steps:', protocol.num_steps())
+    print('steps:', protocol.num_steps)
 
     banner('A. RUN FULL PROTOCOL (2 scans, 10s period)')
     protocol.modify_time_params(
         period=datetime.timedelta(seconds=10),
         duration=datetime.timedelta(seconds=15),
     )
-    print('period_s/duration_s:', protocol.period_s(), protocol.duration_s())
+    print('period_s/duration_s:', protocol.period_s, protocol.duration_s)
     outcome = runner.start_protocol(
         protocol,
         sequence_name='probe_full_protocol',

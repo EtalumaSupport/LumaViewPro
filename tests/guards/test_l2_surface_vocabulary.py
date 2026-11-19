@@ -5,7 +5,7 @@ The L2 surface converged on one word per fact:
 
     LED drive current   mA        -> illumination_ma
     turret move         tmove     -> move_turret
-    turret homed query  has_thomed -> axes_without_position()
+    turret homed query  has_thomed -> axes_without_position
     camera reads        *_cached, get_gain_db, get_exposure_ms
                                   -> the held property or read_*
     camera writes       set_auto_exposure_time, apply_layer_camera_settings
@@ -42,7 +42,7 @@ RETIRED = {
     'mA': 'illumination_ma',
     'tmove': 'move_turret',
     '_tmove_impl': '_move_turret_impl',
-    'has_thomed': 'axes_without_position()',
+    'has_thomed': 'axes_without_position',
     '_thome_impl': '_home_turret_impl',
     'active_cached': 'camera.active',
     'gain_db_cached': 'camera.gain_db',
@@ -71,9 +71,9 @@ RETIRED = {
     'LayerRecord': 'ChannelRecord',
     'layer_identity': 'channel_identity',
     'WellPlate': 'Labware',
-    'is_current_turret_position_objective_set': 'turret_status().slot and turret_config',
-    'is_current_slot_objective_set': 'turret_status().slot and turret_config',
-    'get_turret_slot': 'turret_status().slot',
+    'is_current_turret_position_objective_set': 'turret_status.slot and turret_config',
+    'is_current_slot_objective_set': 'turret_status.slot and turret_config',
+    'get_turret_slot': 'turret_status.slot',
     'is_moving': 'is_any_axis_moving',
     'saved_focus': 'channel_settings().focus_z_um',
     'set_channel_acquire': 'set_channel_settings(acquire=...)',

@@ -122,7 +122,7 @@ def _run_folder(tmp_path, protocol, *, without_groups=False):
         protocol_file_loc=pathlib.Path('run.tsv'),
         outfile=folder / ProtocolExecutionRecord.DEFAULT_FILENAME,
     )
-    for idx in range(protocol.num_steps()):
+    for idx in range(protocol.num_steps):
         step = protocol.step_row(step_index=idx)
         filename = f'{step["Name"]}_0000.tiff'
         _write_tiff(folder / filename, step['channel'])
@@ -149,7 +149,7 @@ def _composite(folder):
 class TestEachAddIsItsOwnComposite:
     def test_the_reporters_four_adds_make_three_composites_from_every_image(self, scope, tmp_path):
         protocol = _added(scope)
-        assert protocol.num_steps() == 11
+        assert protocol.num_steps == 11
 
         result = _composite(_run_folder(tmp_path, protocol))
 

@@ -1365,7 +1365,8 @@ class PostProcessingAPI:
             waiter=waiter,
         )
 
-    @api(reads=True)
+    @api
+    @property
     def default_cell_count_method(self) -> CellCountMethod:
         """The cell-count method LumaViewPro's panel starts from, for
         ``count_cells(method=)``: ``CellCountMethod()``.

@@ -136,7 +136,7 @@ def test_a_write_to_a_camera_removed_while_it_is_not_streaming_is_refused_not_co
     scope = session.scope
     try:
         scope.imaging.disable_streaming()
-        assert scope.imaging.is_streaming() is False
+        assert scope.imaging.read_streaming() is False
         before = scope.camera.gain_db
         scope.simulation.remove_camera()
 
@@ -158,7 +158,7 @@ def _ls620_not_streaming_then_unplugged():
     settings['simulator_tier'] = 'fast'
     session = ScopeSession.create(settings, simulate=True)
     session.scope.imaging.disable_streaming()
-    assert session.scope.imaging.is_streaming() is False
+    assert session.scope.imaging.read_streaming() is False
     session.scope.simulation.remove_camera()
     return session
 

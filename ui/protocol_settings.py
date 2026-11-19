@@ -164,7 +164,7 @@ class ProtocolSettings(FloatLayout):
 
     def update_step_ui_immediate(self):
         """Non-triggered version for immediate updates."""
-        num_steps = self._protocol.num_steps()
+        num_steps = self._protocol.num_steps
 
         # Only update if values changed to prevent unnecessary layout recalculation
         new_step_num = str(self.curr_step + 1)
@@ -228,7 +228,7 @@ class ProtocolSettings(FloatLayout):
         The panel is built before the session exists, so it cannot hold its
         own copy from construction; it never reads tiling.json itself.
         """
-        return _app_ctx.ctx.session.tiling_config()
+        return _app_ctx.ctx.session.tiling_config
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
@@ -297,8 +297,8 @@ class ProtocolSettings(FloatLayout):
             # The field's minutes or hours, in the API's seconds; the
             # Session judges whether the protocol can run it.
             schedule = {
-                'period_s': self._protocol.period_s(),
-                'duration_s': self._protocol.duration_s(),
+                'period_s': self._protocol.period_s,
+                'duration_s': self._protocol.duration_s,
             }
             schedule[f'{key}_s'] = schedule_from_units(key, text, judged=False).total_seconds()
             _app_ctx.ctx.session.set_protocol_schedule(self._protocol, **schedule)
@@ -313,8 +313,8 @@ class ProtocolSettings(FloatLayout):
         short values; H:M:S entry is the tracked follow-up.
         """
         for field, seconds, unit in (
-            ('capture_period', self._protocol.period_s(), 60),
-            ('capture_dur', self._protocol.duration_s(), 3600),
+            ('capture_period', self._protocol.period_s, 60),
+            ('capture_dur', self._protocol.duration_s, 3600),
         ):
             shown = 0 if seconds is None else seconds / unit
             self.ids[field].text = str(round(shown, 6))
@@ -361,7 +361,7 @@ class ProtocolSettings(FloatLayout):
 
     def _show_capture_root(self) -> None:
         """Show the capture root the protocol holds."""
-        self.ids['capture_root'].text = self._protocol.capture_root()
+        self.ids['capture_root'].text = self._protocol.capture_root
 
     # Labware Selection
     def select_labware(self):
@@ -488,7 +488,7 @@ class ProtocolSettings(FloatLayout):
         self.go_to_step(step_index=self.curr_step)
 
     def generate_step_name_input(self):
-        num_steps = self._protocol.num_steps()
+        num_steps = self._protocol.num_steps
         if num_steps > 0:
             step = self.get_curr_step()
             if step['Auto_Named'] or step['Label'] == '':
@@ -555,8 +555,8 @@ class ProtocolSettings(FloatLayout):
                 ctx.session.new_protocol(
                     tiling=tiling,
                     use_zstacking=use_zstacking,
-                    period_s=self._protocol.period_s(),
-                    duration_s=self._protocol.duration_s(),
+                    period_s=self._protocol.period_s,
+                    duration_s=self._protocol.duration_s,
                 )
             )
 
@@ -567,7 +567,7 @@ class ProtocolSettings(FloatLayout):
             return
         protocol = built[0]
 
-        if protocol.num_steps() == 0:
+        if protocol.num_steps == 0:
             # A build with no acquiring channel was refused by the Session,
             # so zero steps here means the labware has no wells (Blank, a
             # 0x0 plate): an empty protocol the user builds up with Add at
@@ -582,7 +582,7 @@ class ProtocolSettings(FloatLayout):
         # later step value means. Without it the interaction log shows a run
         # starting over steps that appear from nowhere, and reconstructing a
         # field report costs an investigation.
-        gui_logger.protocol_action('NEW', f'steps={protocol.num_steps()}')
+        gui_logger.protocol_action('NEW', f'steps={protocol.num_steps}')
 
         def _redraw():
             # A new protocol has no file. Once the panel holds the one this
@@ -772,13 +772,13 @@ class ProtocolSettings(FloatLayout):
 
         self.ids['protocol_filename'].text = protocol.file_path.name
 
-        num_steps = self._protocol.num_steps()
+        num_steps = self._protocol.num_steps
         if num_steps < 1:
             self.curr_step = -1
         else:
             self.curr_step = 0
 
-        labware = self._protocol.labware_id()
+        labware = self._protocol.labware_id
 
         # The spinner shows the plate the Session put the scope on. A changed
         # text dispatches its select_labware, which re-selects that plate (a
@@ -799,7 +799,7 @@ class ProtocolSettings(FloatLayout):
         # scalar, so the spinner otherwise stays at its 1x1 default and
         # misrepresents an already-tiled protocol. A protocol tiled in no
         # grid on offer shows no selection.
-        self.ids['tiling_size_spinner'].text = self._protocol.tiling() or ''
+        self.ids['tiling_size_spinner'].text = self._protocol.tiling or ''
 
         self.update_step_ui()
         # Only a load a person asked for may drive the stage. The startup
@@ -962,7 +962,7 @@ class ProtocolSettings(FloatLayout):
         logger.info('[LVP Main  ] ProtocolSettings.prev_step()')
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
-        num_steps = self._protocol.num_steps()
+        num_steps = self._protocol.num_steps
         if num_steps <= 0:
             self.curr_step = -1
             self.update_step_ui()
@@ -977,7 +977,7 @@ class ProtocolSettings(FloatLayout):
         logger.info('[LVP Main  ] ProtocolSettings.next_step()')
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
-        num_steps = self._protocol.num_steps()
+        num_steps = self._protocol.num_steps
         if num_steps <= 0:
             return
 
@@ -998,7 +998,7 @@ class ProtocolSettings(FloatLayout):
         """
         _app_ctx.ctx.session.delete_step(self._protocol, self.curr_step)
 
-        if self._protocol.num_steps() <= 0:
+        if self._protocol.num_steps <= 0:
             self.curr_step = -1
         else:
             self.curr_step = max(self.curr_step - 1, 0)
@@ -1086,7 +1086,7 @@ class ProtocolSettings(FloatLayout):
             # position, so it reads the snapshot, which never refuses: the
             # steps are already added, and a refusal now would report a
             # failed add for one that succeeded.
-            z = _app_ctx.ctx.scope.motion.axis_positions()['Z'].position_um
+            z = _app_ctx.ctx.scope.motion.axis_positions['Z'].position_um
             if z is not None:
                 of_shown.sort(key=lambda idx: abs(self._protocol.step_row(idx)['Z'] - z))
         self.curr_step = of_shown[0] if of_shown else first_added
@@ -1117,7 +1117,7 @@ class ProtocolSettings(FloatLayout):
         gui_logger.toggle('PROTOCOL_DISABLE_IMAGE_SAVING', self.saving_disabled)
 
     def get_curr_step(self):
-        if self._protocol.num_steps() == 0:
+        if self._protocol.num_steps == 0:
             return None
 
         return self._protocol.step_row(step_index=self.curr_step)

@@ -45,7 +45,7 @@ def test_a_line_of_whitespace_alone_is_skipped_wherever_it_falls(tmp_path, start
     protocol = protocol_from_file(file_path=path)
 
     assert protocol.steps()['Well'].tolist() == ['A1', 'A2']
-    assert protocol.period_s() == 60
+    assert protocol.period_s == 60
 
 
 @pytest.mark.parametrize(
@@ -71,4 +71,4 @@ def test_a_file_with_windows_line_endings_loads(tmp_path):
     protocol = protocol_from_file(file_path=path)
 
     assert protocol.steps()['Well'].tolist() == ['A1', 'A2']
-    assert protocol.labware_id() == '6 well microplate'
+    assert protocol.labware_id == '6 well microplate'

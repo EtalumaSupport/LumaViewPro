@@ -112,10 +112,10 @@ class TestSaveThenRestore:
         loaded = session.load_protocol(written)
         session.apply_channel_settings(loaded)
 
-        assert loaded.num_steps() == protocol.num_steps()
-        assert (loaded.period_s(), loaded.duration_s()) == (
-            protocol.period_s(),
-            protocol.duration_s(),
+        assert loaded.num_steps == protocol.num_steps
+        assert (loaded.period_s, loaded.duration_s) == (
+            protocol.period_s,
+            protocol.duration_s,
         )
         assert _layer_fields(session, 'BF') == saved_bf
         assert session.settings[LED1]['acquire'] is None, (
@@ -208,12 +208,12 @@ class TestASaveIsTheProtocolsLayerSettings:
 
         session.save_protocol(protocol, tmp_path / 'saved.tsv')
 
-        assert protocol.channel_settings()['BF'].gain_db == 9.0
+        assert protocol.channel_settings['BF'].gain_db == 9.0
         # A run writes its copy of the protocol into its folder this way
         # (``SequencedCaptureRunner._initialize_run_dir``).
         run_copy = tmp_path / 'run' / 'saved.tsv'
         protocol.copy_for_execution().to_file(file_path=run_copy)
-        assert session.load_protocol(run_copy).channel_settings()['BF'].gain_db == 9.0
+        assert session.load_protocol(run_copy).channel_settings['BF'].gain_db == 9.0
         _set_layer(session, 'BF', gain_db=4.0)
         session.apply_channel_settings(protocol)
         assert session.settings['BF']['gain_db'] == 9.0
@@ -225,7 +225,7 @@ class TestASaveIsTheProtocolsLayerSettings:
         written = session.save_protocol(protocol, tmp_path / 'plate.tsv')
 
         assert protocol.has_saved_channel_settings()
-        assert protocol.channel_settings() == session.load_protocol(written).channel_settings()
+        assert protocol.channel_settings == session.load_protocol(written).channel_settings
 
     def test_a_save_that_writes_no_block_leaves_the_protocol_none(self, session, tmp_path):
         _only_bf_acquiring(session)
@@ -246,7 +246,7 @@ class TestTheBlockIsTypedAtLoad:
             tmp_path, f'{LED2}\timage\t350.0\t20.0\tTrue\t200.0\tTrue\t1\tFalse\n'
         )
 
-        row = session.load_protocol(tsv).channel_settings()[LED2]
+        row = session.load_protocol(tsv).channel_settings[LED2]
 
         assert row == ChannelSettings(
             acquire='image',
@@ -265,8 +265,8 @@ class TestTheBlockIsTypedAtLoad:
 
         protocol = session.load_protocol(tsv)
 
-        assert protocol.channel_settings()[LED2].acquire is AcquireMode.VIDEO
-        assert type(protocol.step_records()[0].acquire) is AcquireMode
+        assert protocol.channel_settings[LED2].acquire is AcquireMode.VIDEO
+        assert type(protocol.step_records[0].acquire) is AcquireMode
 
     def test_a_row_built_with_a_word_that_is_no_mode_is_refused(self):
         with pytest.raises(ArgumentRefusedError) as refused:
@@ -281,7 +281,7 @@ class TestTheBlockIsTypedAtLoad:
     def test_a_blank_cell_is_none(self, session, tmp_path):
         tsv = _file_with_block(tmp_path, 'BF\timage\t5.0\t0.0\tFalse\t2.0\tFalse\t\t\n')
 
-        assert session.load_protocol(tsv).channel_settings()['BF'].frames_summed is None
+        assert session.load_protocol(tsv).channel_settings['BF'].frames_summed is None
 
     @pytest.mark.parametrize(
         'row',
@@ -336,7 +336,7 @@ class TestTheBlockIsTypedAtLoad:
             session.load_protocol(tsv)
 
     def test_a_file_with_no_block_is_inferred_typed(self, session, tmp_path):
-        row = session.load_protocol(_protocol_file(tmp_path, PLATE)).channel_settings()['BF']
+        row = session.load_protocol(_protocol_file(tmp_path, PLATE)).channel_settings['BF']
 
         assert row == ChannelSettings(
             acquire='image',

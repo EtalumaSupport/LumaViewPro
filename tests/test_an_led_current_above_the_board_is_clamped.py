@@ -22,7 +22,7 @@ def _clamp_notices(centre_posts):
 
 
 def _lit_ma(scope, address):
-    (reading,) = [r for r in scope.illumination.led_states() if r.address == address]
+    (reading,) = [r for r in scope.illumination.led_states if r.address == address]
     return reading.illumination_ma
 
 

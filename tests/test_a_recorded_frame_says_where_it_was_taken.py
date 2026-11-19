@@ -87,7 +87,7 @@ def _fake_scope(positions):
     # a stand-in by design: frame_fact reads only the motion API, and a
     # position the simulator holds cannot be set unhomed or homing at will.
     return SimpleNamespace(
-        motion=SimpleNamespace(axis_positions=lambda: positions, turret_status=lambda: None),
+        motion=SimpleNamespace(axis_positions=positions, turret_status=None),
     )
 
 
@@ -409,7 +409,7 @@ class TestTheBoundPlateTransform:
 
         protocol = _make_single_step_protocol()
         plates = {
-            protocol.labware_id(): SimpleNamespace(width_mm=100.0, height_mm=50.0),
+            protocol.labware_id: SimpleNamespace(width_mm=100.0, height_mm=50.0),
             'narrow': SimpleNamespace(width_mm=10.0, height_mm=5.0),
         }
         settings = {'protocol.labware': 'narrow', 'stage_offset': {'x': 5000.0, 'y': 0.0}}
@@ -422,7 +422,7 @@ class TestTheBoundPlateTransform:
         # The selected plate and the live offset are never read for a
         # run's frames.
         to_plate = state.plate_transform(
-            labware_id=protocol.labware_id(), stage_offset=StageOffset(x_um=0.0, y_um=0.0)
+            labware_id=protocol.labware_id, stage_offset=StageOffset(x_um=0.0, y_um=0.0)
         )
         assert to_plate(1000.0, 2000.0) == PlatePosition(x_mm=99.0, y_mm=48.0)
 

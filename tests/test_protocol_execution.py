@@ -395,7 +395,7 @@ class TestSingleScanBasicImage:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # A scan ends with every LED off
-        not_dark = [r for r in scope.illumination.led_states() if r.state is not LedState.DARK]
+        not_dark = [r for r in scope.illumination.led_states if r.state is not LedState.DARK]
         assert not_dark == [], f'LEDs not dark after protocol: {not_dark}'
 
     def test_auto_gain_disabled_in_step(self, executor, scope, tmp_path):
@@ -894,7 +894,7 @@ class TestLedStateAtEnd:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
         # Verify all LEDs are off via simulator public API
-        not_dark = [r for r in scope.illumination.led_states() if r.state is not LedState.DARK]
+        not_dark = [r for r in scope.illumination.led_states if r.state is not LedState.DARK]
         assert not_dark == [], f'LEDs not dark: {not_dark}'
 
     def test_return_to_original_leds(self, executor, scope, tmp_path):
@@ -1126,7 +1126,7 @@ class TestTilingAsymmetric3x5:
         protocol = _make_multi_step_protocol(steps)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert protocol.num_steps() == 15
+        assert protocol.num_steps == 15
 
 
 class TestTilingMultiChannel:
@@ -1140,7 +1140,7 @@ class TestTilingMultiChannel:
         protocol = _make_multi_step_protocol(steps)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        assert protocol.num_steps() == 8
+        assert protocol.num_steps == 8
 
 
 # ---------------------------------------------------------------------------
@@ -1221,7 +1221,7 @@ class TestTilingWithZStack:
                         }
                     )
         protocol = _make_multi_step_protocol(steps)
-        assert protocol.num_steps() == 12  # 4 tiles * 3 slices
+        assert protocol.num_steps == 12  # 4 tiles * 3 slices
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -1259,7 +1259,7 @@ class TestMultiWell:
             steps.append({'color': 'BF', 'well': well, 'x': float(x), 'y': float(y)})
             steps.append({'color': LED2, 'well': well, 'x': float(x), 'y': float(y)})
         protocol = _make_multi_step_protocol(steps)
-        assert protocol.num_steps() == 12
+        assert protocol.num_steps == 12
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -1279,7 +1279,7 @@ class TestMultiWell:
                         }
                     )
         protocol = _make_multi_step_protocol(steps)
-        assert protocol.num_steps() == 8  # 2 wells * 4 tiles
+        assert protocol.num_steps == 8  # 2 wells * 4 tiles
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -1721,7 +1721,7 @@ class TestAllFeaturesEnabled:
                         }
                     )
         protocol = _make_multi_step_protocol(steps)
-        assert protocol.num_steps() == 12
+        assert protocol.num_steps == 12
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
@@ -1743,7 +1743,7 @@ class TestAllFeaturesEnabled:
                         }
                     )
         protocol = _make_multi_step_protocol(steps)
-        assert protocol.num_steps() == 12  # 2 wells * 2 colors * 3 tiles
+        assert protocol.num_steps == 12  # 2 wells * 2 colors * 3 tiles
         completed, _ = _run_and_wait(executor, protocol, tmp_path, separate_folder_per_channel=True)
         assert completed
 
@@ -2134,7 +2134,7 @@ class TestCleanupCorrectness:
         run.stop()
         done.wait(timeout=COMPLETION_TIMEOUT)
 
-        not_dark = [r for r in scope.illumination.led_states() if r.state is not LedState.DARK]
+        not_dark = [r for r in scope.illumination.led_states if r.state is not LedState.DARK]
         assert not_dark == [], f'LEDs not dark after abort: {not_dark}'
 
     def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):

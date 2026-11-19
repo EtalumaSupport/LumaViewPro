@@ -216,7 +216,7 @@ class TestAcceleration:
 
 class TestBringUp:
     def test_the_camera_is_streaming_after_create(self, sim_session):
-        assert sim_session.scope.imaging.is_streaming()
+        assert sim_session.scope.imaging.read_streaming()
 
 
 class TestTheSupportReportDuringARun:
@@ -240,7 +240,7 @@ class TestTheSupportReportDuringARun:
 
         assert led_sent == [] and led_multi_sent == [], 'an LED command went out during a run'
         assert motor_sent == [] and motor_multi_sent == [], 'a motor command went out during a run'
-        assert sn == sc.diagnostics.motor_info().serial_number
+        assert sn == sc.diagnostics.motor_info.serial_number
         motor_info = (tmp_path / 'firmware_info' / 'motor_info.txt').read_text()
         assert sn in motor_info and 'SKIPPED' in motor_info
         for rel in (

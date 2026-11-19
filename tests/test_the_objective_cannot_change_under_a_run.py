@@ -110,7 +110,7 @@ def test_rebinding_a_slots_own_objective_records_the_confirmation_under_a_run(tm
         finally:
             taking.release()
         assert session.settings['turret_objectives'][1] == '10x Oly'
-        assert session.objective_question() is None
+        assert session.objective_question is None
     finally:
         session.shutdown()
 

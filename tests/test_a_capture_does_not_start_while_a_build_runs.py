@@ -68,7 +68,7 @@ def test_a_build_is_over_for_a_capture_once_its_answer_is_delivered(session, tmp
     build = session.post_processing.run_hyperstack(
         tmp_path,
         save_encoding='8bit',
-        channel_colors=session.channel_colors(),
+        channel_colors=session.channel_colors,
         written=lambda: None,
         stills=True,
         recordings=False,

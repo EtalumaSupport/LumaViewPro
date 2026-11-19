@@ -109,7 +109,7 @@ class TestTheRead:
         motion.move_xy(x_um=20000.0, y_um=30000.0)
         motion.move_z(3000.0)
         kept = motion.positions_to_keep(('X', 'Y', 'Z'), then='keep it')
-        snapshot = motion.axis_positions()
+        snapshot = motion.axis_positions
         assert kept == {axis: snapshot[axis].position_um for axis in ('X', 'Y', 'Z')}
 
     def test_a_moving_axis_is_refused(self, session):
@@ -123,7 +123,7 @@ class TestTheRead:
 
     def test_an_axis_not_asked_may_move(self, session):
         motion = session.scope.motion
-        at_rest = motion.axis_positions()['X'].position_um
+        at_rest = motion.axis_positions['X'].position_um
         move = _held_z(session)
         assert motion.positions_to_keep(('X',), then='keep it') == {'X': at_rest}
         session.scope.simulation.clear()
@@ -168,7 +168,7 @@ class TestTheKeepersReadThroughIt:
         session.scope.motion.move_z(3000.0)
         keepers = {
             'focus_z_um': lambda: session.scope.protocols.focus_z_um(then='save the focus'),
-            'plate_position': session.plate_position,
+            'plate_position': lambda: session.plate_position,
             'save_bookmark': lambda: session.save_bookmark(('Z',)),
         }
         for name, keep in keepers.items():
@@ -193,7 +193,7 @@ class TestOverRest:
         session.scope.motion.move_z(3000.0)
         answer = self._read(client, 'Z')
         assert answer.status_code == 200, answer.text
-        assert answer.json() == {'Z': session.scope.motion.axis_positions()['Z'].position_um}
+        assert answer.json() == {'Z': session.scope.motion.axis_positions['Z'].position_um}
 
     def test_a_moving_axis_is_409(self, session, client):
         move = _held_z(session)

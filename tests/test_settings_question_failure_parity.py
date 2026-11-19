@@ -411,9 +411,11 @@ class TestTheQuestionIsAskable:
             session=SimpleNamespace(
                 settings_are_provisional=settings_init.settings_are_provisional,
                 retire_rejected_settings=settings_init.retire_rejected_current_json,
-                bring_up_record=lambda: BringUpRecord(
-                    parts=(),
-                    settings_set_aside=SettingsSetAside(*settings_init.rejected_current_json),
+                bring_up_record=(
+                    BringUpRecord(
+                        parts=(),
+                        settings_set_aside=SettingsSetAside(*settings_init.rejected_current_json),
+                    )
                 ),
             )
         )
@@ -489,10 +491,10 @@ class TestTheProvisionalStateIsTheSessions:
     def test_session_exposes_the_provisional_query_and_remedy(self, session, monkeypatch, tmp_path):
         """The GUI must not reach around the Session into settings_init:
         an L2 caller needs the same query and the same remedy."""
-        assert session.settings_are_provisional() is False
+        assert session.settings_are_provisional is False
 
         _make_provisional(monkeypatch, tmp_path)
-        assert session.settings_are_provisional() is True
+        assert session.settings_are_provisional is True
 
         calls = []
 

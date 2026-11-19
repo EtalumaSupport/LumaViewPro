@@ -109,7 +109,7 @@ def _panel(monkeypatch):
         SimpleNamespace(
             session=SimpleNamespace(
                 set_channel_settings=lambda layer, **fields: acquire.append((layer, fields)),
-                channel_colors=channel_record.release_colors,
+                channel_colors=channel_record.release_colors(),
             )
         ),
     )

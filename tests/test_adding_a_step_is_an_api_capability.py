@@ -82,7 +82,7 @@ class TestTheApiRefuses:
 
         assert excinfo.value.reason == 'no_acquiring_channel'
         assert list(captured) == []
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
 
     def test_a_slot_with_no_objective_is_refused_and_adds_nothing(self, scope, centre_posts):
         # A step records the objective it was taken with; a slot that holds
@@ -97,7 +97,7 @@ class TestTheApiRefuses:
 
         assert excinfo.value.reason == 'slot_unassigned'
         assert list(captured) == []
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
 
     def test_an_unknown_axis_position_is_refused_before_anything_else(self, scope, centre_posts):
         # An axis that lost its reference keeps answering the last number it
@@ -127,7 +127,7 @@ class TestTheApiRefuses:
             'Home the scope, then add the step.'
         )
         assert list(captured) == []
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
 
 
 @pytest.mark.usefixtures('turret_in_a_known_slot')
@@ -260,7 +260,7 @@ class TestAScriptAddsAStepThroughTheSession:
             else:
                 wrong.append(f'{at}: was not refused')
         assert not wrong, '\n'.join(wrong)
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
 
         session.add_step(protocol, channels=('BF',), at=PlateLocation(None, None, None))
 
@@ -278,7 +278,7 @@ class TestAScriptAddsAStepThroughTheSession:
 
         assert excinfo.value.reason == 'no_acquiring_channel'
         assert list(captured) == []
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
 
 
 def _only_acquiring(session, *layers):
@@ -335,7 +335,7 @@ class TestAnAddCanBeAZStack:
             session.add_step(protocol, use_zstacking=True)
 
         assert excinfo.value.reason == 'zstack_not_configured'
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
 
     def test_a_stack_past_the_z_travel_adds_nothing(self, session):
         _only_acquiring(session, 'BF', LED0)
@@ -351,7 +351,7 @@ class TestAnAddCanBeAZStack:
 
         assert excinfo.value.reason == 'zslices_outside_travel'
         assert 'the new BF step' in str(excinfo.value)
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
 
 
 def test_a_slot_with_no_objective_refuses_a_step_as_it_refuses_a_new_protocol(tmp_path):
@@ -376,6 +376,6 @@ def test_a_slot_with_no_objective_refuses_a_step_as_it_refuses_a_new_protocol(tm
             session.new_protocol()
 
         assert added.value.reason == created.value.reason == 'slot_unassigned'
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
     finally:
         session.shutdown()

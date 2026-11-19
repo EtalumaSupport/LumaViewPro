@@ -60,7 +60,7 @@ def _a_step_at_each_slot(session, slots=(1, 2)):
     protocol = session.create_empty_protocol()
     for slot in slots:
         session.scope.motion.move_turret(slot)
-        session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
+        session.add_step(protocol, after_step_index=protocol.num_steps - 1)
     return protocol
 
 
@@ -71,7 +71,7 @@ def _slots(protocol):
 def _targets(session, protocol):
     return [
         session.scope.protocols.step_targets(protocol, idx).turret_slot
-        for idx in range(protocol.num_steps())
+        for idx in range(protocol.num_steps)
     ]
 
 
@@ -119,7 +119,7 @@ class TestEachStepKeepsItsOwnSlot:
         for idx, slot in enumerate((2, 1, 2)):
             session.go_to_step(protocol, idx)
             session.scope.motion.wait_until_finished_moving(timeout_s=30)
-            assert session.scope.motion.turret_status().slot == slot
+            assert session.scope.motion.turret_status.slot == slot
 
     def test_changing_one_step_to_a_slot_leaves_the_others_where_they_are(self, session):
         # The reporter's retest: change one step to T1 and every step went to T1.

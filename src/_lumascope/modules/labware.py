@@ -56,7 +56,7 @@ class Labware:
     well_diameter_mm: float | None
     standard: str
 
-    @api(in_process=True, reads=True)
+    @api(in_process=True)
     @property
     def well_size_mm(self) -> tuple[float, float]:
         """A well's width and height in mm.

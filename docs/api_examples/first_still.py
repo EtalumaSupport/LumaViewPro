@@ -26,7 +26,7 @@ def main():
         # still is refused until it has: the still records its scale. Answer
         # the objective question with the objective in the light path (on
         # the simulator, the one it proposes).
-        question = session.objective_question()
+        question = session.objective_question
         if question is not None:
             session.confirm_objective(question.proposed, slot=question.turret_slot)
         scope = session.scope

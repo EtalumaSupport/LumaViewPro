@@ -187,7 +187,7 @@ def env(gui_ctx, monkeypatch):
                 built,
                 x=BASE_X_MM + i,
                 objective=objective,
-                after_step_index=built.num_steps() - 1,
+                after_step_index=built.num_steps - 1,
             )
         return built
 
@@ -237,7 +237,7 @@ def test_deleting_every_step_then_adding_one_points_at_the_new_step(env):
     env.land()
     panel.update_step_ui_immediate()
 
-    assert panel._protocol.num_steps() == 0
+    assert panel._protocol.num_steps == 0
     assert panel.curr_step == -1, 'a move that landed after the list emptied moved the pointer'
 
     env.stand_at_add_x()

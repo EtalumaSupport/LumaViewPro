@@ -97,7 +97,7 @@ def test_each_unit_has_a_block_and_a_colour_for_every_channel(installation, mode
             assert key in session.settings, key
         for key in _ADDED:
             assert session.settings[key] == fluorescence_block, key
-        colors = session.channel_colors()
+        colors = session.channel_colors
         for record in session.scope.channel_identity.channels:
             assert colors[record.key_name] == channel_record.parse_display_color(
                 record.display_color
@@ -132,7 +132,7 @@ def test_a_composite_takes_every_channel_in_its_colour(installation, model):
         runs = installation / 'runs'
         runs.mkdir()
         outcome = runner.run_composite(sequence_name='added', parent_dir=str(runs))
-        colors = session.channel_colors()
+        colors = session.channel_colors
 
     assert outcome.status == 'completed', outcome
     run_dir = single_run_dir(runs)

@@ -60,7 +60,7 @@ def stage(gui_ctx, monkeypatch):
 def _home(scope):
     home_sim_scope(scope)
     motion = scope.motion
-    landed = [motion.target_positions()[a] for a in 'XY']
+    landed = [motion.target_positions[a] for a in 'XY']
     landed += [motion.get_current_position(a) for a in 'XY']
     home = _where_a_home_lands(scope)
     assert landed == [*home, *home], 'the home lands where the crosshair was last drawn'
@@ -73,7 +73,7 @@ def test_an_unchanged_known_position_is_not_redrawn(stage, gui_ctx):
 
 
 def test_after_the_position_was_unknown_the_same_position_is_drawn(stage, gui_ctx):
-    assert gui_ctx.scope.motion.axes_without_position(), 'the scope comes up unhomed'
+    assert gui_ctx.scope.motion.axes_without_position, 'the scope comes up unhomed'
     with pytest.raises(_DrawnError):  # no position: the redraw hides the crosshair
         stage.draw_labware_io_calculations()
     _home(gui_ctx.scope)
@@ -106,8 +106,8 @@ def test_a_z_without_a_position_does_not_hide_the_xy_crosshair(stage, gui_ctx, s
     scope.simulation.drop_replies('motor', count=None, command='ZHOME')
     with pytest.raises(HomingFailedError):
         scope.motion.home('Z')
-    assert scope.motion.axis_positions()['Z'].state == AxisState.UNKNOWN
-    assert scope.motion.axis_positions()['X'].state == AxisState.IDLE
+    assert scope.motion.axis_positions['Z'].state == AxisState.UNKNOWN
+    assert scope.motion.axis_positions['X'].state == AxisState.IDLE
 
     # Known and unchanged since it was last drawn: the redraw skips.
     assert stage.draw_labware_io_calculations() is None
@@ -136,11 +136,11 @@ def test_a_homed_stage_whose_position_the_api_no_longer_answers_draws_none(
     # A stand-in by design: the simulator has no fault that lands the close's
     # board swap between two reads of one redraw, so the reads answer as the
     # null board does.
-    monkeypatch.setattr(scope.motion, 'target_positions', lambda: {})
+    monkeypatch.setattr(type(scope.motion), 'target_positions', property(lambda self: {}))
     monkeypatch.setattr(
-        scope.motion,
+        type(scope.motion),
         'axis_positions',
-        lambda: {a: AxisPosition(AxisState.UNKNOWN, None) for a in 'XYZ'},
+        property(lambda self: {a: AxisPosition(AxisState.UNKNOWN, None) for a in 'XYZ'}),
     )
     monkeypatch.setattr(scope, 'plate', lambda labware_id: _Plate())
     monkeypatch.setattr(stage_module, 'Clock', SimpleNamespace(schedule_once=lambda *a, **k: None))

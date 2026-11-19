@@ -391,7 +391,7 @@ def live_lit_pairs(illumination: IlluminationAPI) -> frozenset[tuple[int, float]
     The live-state counterpart of snapshot_lit_pairs, read from the
     illumination API's own store.
     """
-    return snapshot_lit_pairs(illumination.led_states())
+    return snapshot_lit_pairs(illumination.led_states)
 
 
 def snapshot_lit_pairs(readings: tuple[LedReading, ...] | None) -> frozenset[tuple[int, float]]:
@@ -419,7 +419,7 @@ def lit_other_than(
         lit: The addresses lit, from a frame's record (``FrameRecord.illumination_ma``);
             None reads them from the store now, ``snapshot_lit_pairs``'s meaning.
     """
-    readings = illumination.led_states() or ()
+    readings = illumination.led_states or ()
     if lit is None:
         lit = dict(snapshot_lit_pairs(readings))
     return [
@@ -1447,7 +1447,8 @@ class IlluminationAPI:
         addresses = sorted(set(self._driver.available_channels()) | set(self._led_state))
         return tuple(self._reading(address) for address in addresses)
 
-    @api(reads=True)
+    @api
+    @property
     def led_states(self) -> tuple[LedReading, ...] | None:
         """Every LED address of the attached board, as the API holds it: no board is asked.
 

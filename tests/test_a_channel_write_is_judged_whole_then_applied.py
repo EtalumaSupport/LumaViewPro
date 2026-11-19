@@ -187,12 +187,12 @@ def test_set_all_bookmarks_refuses_a_z_outside_travel_and_stores_nothing(session
     motion = session.scope.motion
     beyond = motion.axis_limits('Z').max_um + 100.0
     motion.move_z(beyond, ignore_limits=True)
-    before = session.settings_snapshot()
+    before = session.settings_snapshot
 
     with pytest.raises(PositionOutOfRangeError):
         session.save_all_bookmarks()
 
-    assert session.settings_snapshot() == before
+    assert session.settings_snapshot == before
 
 
 class TestAutoGainIsNotStoredOnWithARangeNoArmCanTake:
@@ -213,7 +213,7 @@ class TestAutoGainIsNotStoredOnWithARangeNoArmCanTake:
 
     def test_a_loaded_layer_turning_it_on_is_refused_whole(self, session):
         _invert_the_gain_range(session)
-        before = session.settings_snapshot()
+        before = session.settings_snapshot
 
         with pytest.raises(ArgumentRefusedError) as refused:
             session.apply_channel_settings(
@@ -221,7 +221,7 @@ class TestAutoGainIsNotStoredOnWithARangeNoArmCanTake:
             )
 
         assert refused.value.reason == 'gain_range_inverted'
-        assert session.settings_snapshot() == before
+        assert session.settings_snapshot == before
 
     def test_a_step_turning_it_on_is_refused_before_the_stage_moves(self, session):
         # Going to a step asks the channel write before any move starts, so
@@ -229,15 +229,15 @@ class TestAutoGainIsNotStoredOnWithARangeNoArmCanTake:
         _invert_the_gain_range(session)
         step = {**_step(60.0, 40.0, 5000.0, _objective_of(session)), 'Auto_Gain': True}
         protocol = _layers(step, BF=_row())
-        before = session.settings_snapshot()
-        targets = session.scope.motion.target_positions()
+        before = session.settings_snapshot
+        targets = session.scope.motion.target_positions
 
         with pytest.raises(ArgumentRefusedError) as refused:
             session.start_go_to_step(protocol, 0)
 
         assert refused.value.reason == 'gain_range_inverted'
-        assert session.scope.motion.target_positions() == targets
-        assert session.settings_snapshot() == before
+        assert session.scope.motion.target_positions == targets
+        assert session.settings_snapshot == before
 
 
 class TestAWriteHeldBackByAnActivityIsAppliedAtItsEnd:
@@ -355,7 +355,7 @@ class TestAValueTheCameraRefusesIsNotStored:
         # parametrize-justified: each refusal is armed on its own camera node.
         _shown_bf_at(session)
         earlier = getattr(session.channel_settings('BF'), field)
-        before = session.settings_snapshot()
+        before = session.settings_snapshot
         session.scope.simulation.refuse_camera_write(node, 'raise')
 
         with pytest.raises(CameraSettingRejected) as rejected:
@@ -363,23 +363,23 @@ class TestAValueTheCameraRefusesIsNotStored:
 
         assert rejected.value.reason == 'camera_rejected'
         assert getattr(session.channel_settings('BF'), field) == earlier
-        assert session.settings_snapshot() == before
+        assert session.settings_snapshot == before
         record = session.scope.imaging.capture_still('BF', accept_dark=True).record
         assert getattr(record, field) == pytest.approx(earlier)
 
     def test_a_write_whose_gain_alone_is_refused_stores_neither_value(self, session):
         _shown_bf_at(session)
-        before = session.settings_snapshot()
+        before = session.settings_snapshot
         session.scope.simulation.refuse_camera_write('gain', 'raise')
 
         with pytest.raises(CameraSettingRejected):
             session.set_channel_settings('BF', gain_db=12.0, exposure_ms=45.0)
 
-        assert session.settings_snapshot() == before
+        assert session.settings_snapshot == before
 
     def test_a_loaded_layer_the_camera_refuses_stores_no_row(self, session):
         _shown_bf_at(session)
-        before = session.settings_snapshot()
+        before = session.settings_snapshot
         session.scope.simulation.refuse_camera_write('gain', 'raise')
 
         with pytest.raises(CameraSettingRejected):
@@ -387,12 +387,12 @@ class TestAValueTheCameraRefusesIsNotStored:
                 _layers(BF=_row(gain_db=2.5, exposure_ms=12.0, auto_gain=False))
             )
 
-        assert session.settings_snapshot() == before
+        assert session.settings_snapshot == before
 
     def test_an_auto_gain_bound_the_camera_refuses_is_not_stored(self, session):
         session.show_channel('BF')
         session.set_channel_settings('BF', auto_gain=True)
-        before = session.settings_snapshot()
+        before = session.settings_snapshot
         session.scope.simulation.refuse_camera_write('auto_gain', 'raise')
 
         with pytest.raises(CameraSettingRejected):
@@ -401,7 +401,7 @@ class TestAValueTheCameraRefusesIsNotStored:
                 session.setting('protocol.autogain.max_gain_db') - 1.0,
             )
 
-        assert session.settings_snapshot() == before
+        assert session.settings_snapshot == before
 
 
 def _fail_the_range_read(session):
@@ -433,19 +433,19 @@ class TestAWriteWithTheCameraRangeUnreadIsRefusedInItsWords:
     def test_typing_a_gain_and_exposure_is_refused_and_nothing_is_stored(self, session, channel):
         session.show_channel('BF')
         _fail_the_range_read(session)
-        before = session.settings_snapshot()
+        before = session.settings_snapshot
 
         with pytest.raises(CameraSettingRejected) as refused:
             session.set_channel_settings(channel, gain_db=12.0, exposure_ms=45.0)
 
         assert refused.value.reason == 'camera_read_failed'
         assert str(refused.value) == _RANGE_UNREAD_WORDS
-        assert session.settings_snapshot() == before
+        assert session.settings_snapshot == before
 
     def test_a_loaded_layer_is_refused_and_stores_no_row(self, session):
         session.show_channel('BF')
         _fail_the_range_read(session)
-        before = session.settings_snapshot()
+        before = session.settings_snapshot
 
         with pytest.raises(CameraSettingRejected) as refused:
             session.apply_channel_settings(
@@ -454,7 +454,7 @@ class TestAWriteWithTheCameraRangeUnreadIsRefusedInItsWords:
 
         assert refused.value.reason == 'camera_read_failed'
         assert str(refused.value) == _RANGE_UNREAD_WORDS
-        assert session.settings_snapshot() == before
+        assert session.settings_snapshot == before
 
 
 @pytest.fixture
@@ -475,12 +475,12 @@ def test_a_light_the_led_refuses_after_the_camera_took_the_write_stores_nothing_
     ls620.light_shown_channel(True)
     camera = ls620.scope.camera
     held_gain = camera.read_gain_db()  # the FX2's step nearest the 3.0 asked
-    before = ls620.settings_snapshot()
+    before = ls620.settings_snapshot
     ls620.scope.simulation.refuse_led_write()
 
     with pytest.raises(BoardPortFailedError):
         ls620.set_channel_settings(channel, gain_db=6.0, illumination_ma=20.0)
 
-    assert ls620.settings_snapshot() == before
+    assert ls620.settings_snapshot == before
     assert camera.read_gain_db() == pytest.approx(held_gain)
     assert camera.get_held_channel() == channel

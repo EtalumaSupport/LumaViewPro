@@ -288,9 +288,9 @@ def test_each_run_state_edge_sends_the_status_in_the_order_heard(client, session
 
 def test_a_status_read_waiting_on_the_camera_does_not_hold_the_edge(client, session, monkeypatch):
     # A stand-in by design: the simulator cannot yet hold its camera in a
-    # grab stop, which on a Basler makes is_streaming wait (P-16, measured).
+    # grab stop, which on a Basler makes read_streaming wait (P-16, measured).
     released = threading.Event()
-    real = session.scope.imaging.is_streaming
+    real = session.scope.imaging.read_streaming
     transitioning = threading.current_thread()
     asked_on = []
 
@@ -302,7 +302,7 @@ def test_a_status_read_waiting_on_the_camera_does_not_hold_the_edge(client, sess
 
     with _reading(client) as stream:
         stream.until('status')
-        monkeypatch.setattr(session.scope.imaging, 'is_streaming', waits_on_a_grab_stop)
+        monkeypatch.setattr(session.scope.imaging, 'read_streaming', waits_on_a_grab_stop)
         try:
             with session.diagnostic_claim():
                 pass

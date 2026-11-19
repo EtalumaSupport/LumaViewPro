@@ -110,9 +110,9 @@ def _make_parent(
     p._scope = mock.MagicMock()
     # The loop asks which parts are not connected; a bare mock's truthy
     # answer would end the run as a disconnect.
-    p._scope.unconnected_parts.return_value = ()
+    p._scope.unconnected_parts = ()
     p._protocol = mock.MagicMock()
-    p._protocol.period_s.return_value = period_s
+    p._protocol.period_s = period_s
     p._parent_dir = None
     p._start_t = clock.t  # run() entry semantics (the fallback anchor)
     p._curr_step = 0
@@ -175,7 +175,7 @@ def test_first_interval_is_never_shorter_than_period():
 
     assert len(p.capture_times) == 2
     interval_1 = p.capture_times[1] - p.capture_times[0]
-    assert interval_1 >= p._protocol.period_s.return_value, (
+    assert interval_1 >= p._protocol.period_s, (
         f'first interval {interval_1:.1f}s is shorter than the period -- '
         f'the anchor must be the first ACQUISITION, not run() entry'
     )
@@ -251,7 +251,9 @@ def test_a_board_lost_during_a_long_wait_ends_the_run_at_the_next_check():
     # Scan 1 ends at 40 s.
     p = _make_parent(clock, n_scans=2, period_s=3600.0)
     lost_at = 41.0
-    p._scope.unconnected_parts.side_effect = lambda: (Board.CAMERA,) if clock.t >= lost_at else ()
+    type(p._scope).unconnected_parts = mock.PropertyMock(
+        side_effect=lambda: (Board.CAMERA,) if clock.t >= lost_at else ()
+    )
     ending = _run(clock, p)
 
     assert len(p.capture_times) == 1

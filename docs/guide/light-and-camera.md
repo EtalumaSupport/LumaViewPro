@@ -35,7 +35,7 @@ written again.
 
 ```python
 scope.illumination.led_on('Ex405', 50)
-print(scope.illumination.led_states())  # one LedReading per board address
+print(scope.illumination.led_states)  # one LedReading per board address
 scope.illumination.leds_off()
 ```
 
@@ -166,7 +166,7 @@ falsify its frames -- binning, frame size, image mode -- is refused
 ([Who may act](concepts.md#who-may-act) has the whole list).
 
 **Streaming.** The camera streams from bring-up on. `scope.imaging.disable_streaming()`
-stops its feed and `enable_streaming()` starts it again; `is_streaming()`
+stops its feed and `enable_streaming()` starts it again; `read_streaming()`
 answers which, and raises `CameraReadFailedError` when the camera does not
 answer; the session's `status` then carries `camera_streaming` as `null`. While the feed is stopped, a still, a saved still, a run's start
 and a go-to are refused (`'camera_not_streaming'`). The camera's other members -- the conversion gain,

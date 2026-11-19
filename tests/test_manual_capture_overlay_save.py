@@ -51,7 +51,7 @@ def capture_ctx(tmp_path):
     scope = spec_scope()
     # The objective the frame is taken with, read at capture.
     scope.runtime_state.resolve_current_objective.return_value = ('4x Oly', {})
-    scope.illumination.led_states.return_value = {}
+    scope.illumination.led_states = {}
     # The stage is over A1 of a 96-well plate: the file's well is named from
     # the position it records.
     a1 = plate('96 well microplate')
@@ -60,7 +60,7 @@ def capture_ctx(tmp_path):
     scope.runtime_state.plate_transform.return_value = lambda x_um, y_um: PlatePosition(
         x_mm=a1_x_mm, y_mm=a1_y_mm
     )
-    scope.motion.axis_positions.return_value = {
+    scope.motion.axis_positions = {
         'X': AxisPosition(AxisState.IDLE, 1000.0),
         'Y': AxisPosition(AxisState.IDLE, 2000.0),
     }
@@ -226,7 +226,7 @@ class TestEngineeringModeNamesTheTurretPosition:
 
     def test_engineering_mode_writes_the_canonical_turret_token(self, capture_ctx):
         capture_ctx.engineering_mode = True
-        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.IDLE, 2)
+        capture_ctx.scope.motion.turret_status = TurretStatus(AxisState.IDLE, 2)
 
         save_one = _run_capture(capture_ctx)
 
@@ -235,7 +235,7 @@ class TestEngineeringModeNamesTheTurretPosition:
 
     def test_the_legacy_spelling_is_gone(self, capture_ctx):
         capture_ctx.engineering_mode = True
-        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.IDLE, 2)
+        capture_ctx.scope.motion.turret_status = TurretStatus(AxisState.IDLE, 2)
         capture_ctx.use_crosshairs = True
 
         save_one = _run_capture(capture_ctx)
@@ -250,7 +250,7 @@ class TestEngineeringModeNamesTheTurretPosition:
         """A scope that has not reported a turret position yet names the file
         exactly as production mode does; nothing is invented."""
         capture_ctx.engineering_mode = True
-        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.UNKNOWN, None)
+        capture_ctx.scope.motion.turret_status = TurretStatus(AxisState.UNKNOWN, None)
 
         save_one = _run_capture(capture_ctx)
 
@@ -259,7 +259,7 @@ class TestEngineeringModeNamesTheTurretPosition:
     def test_production_mode_names_no_turret_position(self, capture_ctx):
         """Behaviour preserved on both sides of the change."""
         capture_ctx.engineering_mode = False
-        capture_ctx.scope.motion.turret_status.return_value = TurretStatus(AxisState.IDLE, 2)
+        capture_ctx.scope.motion.turret_status = TurretStatus(AxisState.IDLE, 2)
 
         save_one = _run_capture(capture_ctx)
 

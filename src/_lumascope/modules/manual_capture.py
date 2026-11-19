@@ -416,7 +416,7 @@ class ManualCaptureController:
         # The writer's own renderer, so a manual still and a protocol step
         # spell the turret slot the same way; an unknown slot, or no turret,
         # adds nothing.
-        turret = scope.motion.turret_status() if request.engineering_mode else None
+        turret = scope.motion.turret_status if request.engineering_mode else None
         append = common_utils.build_step_name(
             common_utils.StepNameComponents(
                 custom_prefix=append,

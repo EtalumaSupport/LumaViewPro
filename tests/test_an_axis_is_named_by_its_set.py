@@ -36,12 +36,12 @@ def test_the_answers_name_their_axes_by_the_members(session):
     motion = session.scope.motion
     seen = []
     motion.add_position_listener(lambda axis, at: seen.append(axis))
-    motion.move_z(motion.target_positions()['Z'] + 1.0)
+    motion.move_z(motion.target_positions['Z'] + 1.0)
     motion.wait_until_finished_moving()
 
     answered = {
-        'axis_positions': list(motion.axis_positions()),
-        'target_positions': list(motion.target_positions()),
+        'axis_positions': list(motion.axis_positions),
+        'target_positions': list(motion.target_positions),
         'Status.axes': list(session.status.axes),
         'position event': seen[:1],
     }
@@ -52,13 +52,13 @@ def test_the_answers_name_their_axes_by_the_members(session):
         'position event': [(StageAxis, 'Z')],
     }
     assert [(type(a), a) for a in session.scope.capabilities.axes] == [(Axis, a) for a in 'XYZT']
-    assert motion.axis_positions()['Z'] == motion.axis_positions()[StageAxis.Z]
+    assert motion.axis_positions['Z'] == motion.axis_positions[StageAxis.Z]
 
 
 def test_an_axis_without_a_position_is_answered_by_its_member(tmp_path):
     session = _session(tmp_path, 'LS850T', homed=False)
     try:
-        unknown = session.scope.motion.axes_without_position()
+        unknown = session.scope.motion.axes_without_position
         assert [(type(a), a) for a in unknown] == [(Axis, a) for a in 'XYZT']
     finally:
         session.shutdown()
@@ -84,8 +84,8 @@ def test_an_axis_state_is_answered_as_the_member(session):
 
     answered = [
         motion.get_axis_state('Z'),
-        motion.axis_positions()['Z'].state,
-        motion.turret_status().state,
+        motion.axis_positions['Z'].state,
+        motion.turret_status.state,
         session.status.turret.state,
     ]
 

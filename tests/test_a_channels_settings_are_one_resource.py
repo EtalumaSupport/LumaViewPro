@@ -70,13 +70,13 @@ def test_none_is_a_value_written(session):
 
 
 def test_a_write_with_one_value_refused_stores_none_of_them(session):
-    before = session.settings_snapshot()
+    before = session.settings_snapshot
 
     with pytest.raises(SettingRefusedError) as refused:
         session.set_channel_settings('BF', gain_db=4.0, frames_summed=0)
 
     assert (refused.value.reason, refused.value.path) == ('out_of_range', 'BF.sum')
-    assert session.settings_snapshot() == before
+    assert session.settings_snapshot == before
 
 
 def _clamp_notices(centre_posts):
@@ -156,13 +156,13 @@ def test_an_exposure_below_the_camera_floor_is_raised_to_it(session):
 
 
 def test_a_field_the_channel_does_not_carry_is_refused_and_read_none(session):
-    before = session.settings_snapshot()
+    before = session.settings_snapshot
 
     with pytest.raises(SettingRefusedError) as refused:
         session.set_channel_settings('BF', gain_db=4.0, stim_frequency_hz=2.0)
 
     assert (refused.value.reason, refused.value.path) == ('not_offered', 'BF.stim_config.frequency')
-    assert session.settings_snapshot() == before
+    assert session.settings_snapshot == before
     record = session.channel_settings('BF')
     assert (record.stim_frequency_hz, record.composite_brightness_threshold_pct) == (None, None)
 

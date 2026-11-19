@@ -169,7 +169,7 @@ def test_readings_a_caller_built_with_plain_strings_restore_their_lit_address(se
             'lit' if r.name == LED2 else 'dark',
             10.0 if r.name == LED2 else None,
         )
-        for r in illumination.led_states()
+        for r in illumination.led_states
     )
 
     illumination.restore_led_state(readings)

@@ -409,7 +409,7 @@ def measure_delivery_like_a_session(scope, timeout_s: float = 10.0) -> None:
     """
     from _lumascope.modules.scheduler import ThreadingTimerScheduler
 
-    if scope.imaging.delivered_rate().frame_rate_fps > 0:
+    if scope.imaging.delivered_rate.frame_rate_fps > 0:
         return
 
     scheduler = ThreadingTimerScheduler(name_prefix='TestStreamCheck')
@@ -421,7 +421,7 @@ def measure_delivery_like_a_session(scope, timeout_s: float = 10.0) -> None:
 
     _TEARDOWNS.append(stop)
     deadline = time.monotonic() + timeout_s
-    while scope.imaging.delivered_rate().frame_rate_fps <= 0:
+    while scope.imaging.delivered_rate.frame_rate_fps <= 0:
         if time.monotonic() > deadline:
             raise AssertionError(
                 f'the simulated camera delivered no measured rate in {timeout_s} s'
@@ -506,22 +506,22 @@ def home_sim_scope(scope):
 
 
 def led_reading(scope, address):
-    """The reading of one LED board address, named or not, from ``led_states()``.
+    """The reading of one LED board address, named or not, from ``led_states``.
 
     A test about an address, or about one the unit's identity does not
     name, reads it here; a test about a layer reads ``channel_reading``.
     """
-    (reading,) = [r for r in scope.illumination.led_states() if r.address == address]
+    (reading,) = [r for r in scope.illumination.led_states if r.address == address]
     return reading
 
 
 def channel_reading(illumination, channel):
-    """The reading of the LED ``channel`` lights, from ``led_states()``; None with no LED board.
+    """The reading of the LED ``channel`` lights, from ``led_states``; None with no LED board.
 
     ``channel`` is a layer name, mapped to its address through the unit's
     identity (``led_address_of``).
     """
-    readings = illumination.led_states()
+    readings = illumination.led_states
     if readings is None:
         return None
     address = illumination.led_address_of(channel)
@@ -557,13 +557,15 @@ def spec_scope(**attrs):
         # double answers both as the real scope does, not as a mock.
         double.settings_template = real.settings_template
         double.source_path = real.source_path
-        # Each sub-API's spec is taken on first access, from the real one:
-        # taken here, while its drivers are up, since a read the API refuses
-        # with no camera (imaging.significant_bits) would raise from a
-        # disconnected scope's.
+        # The capabilities record's spec is taken from the real one, its
+        # fields being the instance's, while its drivers are up.
+        _ = double.capabilities
+        # Each sub-API is specced from its class, not the live object: a
+        # held read is a property, and a spec taken from an instance reads
+        # every one, so a read the API refuses on a scope that has not
+        # placed its turret (runtime_state.pixel_size_um) would raise here.
         for sub_api in (
             'camera',
-            'capabilities',
             'diagnostics',
             'illumination',
             'imaging',
@@ -571,7 +573,12 @@ def spec_scope(**attrs):
             'protocols',
             'runtime_state',
         ):
-            getattr(double, sub_api)
+            # a stand-in by design: each sub-API of the specced double above
+            setattr(
+                double,
+                sub_api,
+                create_autospec(type(getattr(real, sub_api)), instance=True, spec_set=True),
+            )
     finally:
         # The spec is captured by create_autospec; the live object has
         # served its purpose and must not keep simulated drivers open.

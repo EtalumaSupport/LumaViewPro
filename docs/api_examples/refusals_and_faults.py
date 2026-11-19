@@ -46,7 +46,7 @@ def main():
         # one takes, on every tier: the camera's cable pulled. What needs the
         # camera is refused until the application restarts.
         scope.simulation.remove_camera()
-        print(f'Not connected: {scope.unconnected_parts()}')
+        print(f'Not connected: {scope.unconnected_parts}')
         session.show_channel('BF')
         session.light_shown_channel(True)
         no_camera = refused(lambda: session.manual_capture.start_save_still().result(timeout=30))

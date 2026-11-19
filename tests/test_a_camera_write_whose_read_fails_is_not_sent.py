@@ -301,7 +301,7 @@ def test_two_refused_parts_stay_the_cameras_refusal(session):
 
 
 def _camera_part(session):
-    (camera,) = [p for p in session.bring_up_record().parts if p.part == 'camera']
+    (camera,) = [p for p in session.bring_up_record.parts if p.part == 'camera']
     return camera
 
 

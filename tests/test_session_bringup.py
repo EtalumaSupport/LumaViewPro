@@ -43,7 +43,7 @@ class TestAFactorySessionIsConfigured:
             == session.settings['objective_id']
         )
         assert session.scope.runtime_state.get_labware() is not None
-        assert session.scope.imaging.is_streaming()
+        assert session.scope.imaging.read_streaming()
 
     def test_a_bare_session_captures_and_saves(self, session, tmp_path):
         from _lumascope.modules.image_save import save_image

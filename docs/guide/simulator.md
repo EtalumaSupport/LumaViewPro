@@ -34,7 +34,7 @@ the same production driver path a real fault takes: a board that drops replies,
 a camera unplugged, a home that never trips its switch, an open lid. Each is a
 write, refused under another's control session, refused on a real scope
 (`'needs_simulated_scope'`), on a board the scope lacks (`'fault_unknown'`) and
-on a board that cannot show it (`'not_injectable_on_board'`). `injected()` answers what is
+on a board that cannot show it (`'not_injectable_on_board'`). `injected` answers what is
 injected, and `clear()` removes it all.
 
 Which board can show a fault depends on how the model is simulated. Each
@@ -71,7 +71,7 @@ what made it, never by its pixels.
 
 ```python
 scope.simulation.drop_replies('motor', 1)   # the motor board misses its next reply
-print(scope.simulation.injected())
+print(scope.simulation.injected)
 ```
 
 ```python raises=MoveFaultError:driver_failed
@@ -81,7 +81,7 @@ scope.motion.move_z(4000.0)                 # driver_failed: the board missed th
 ```python
 scope.simulation.clear()
 scope.simulation.remove_camera()            # as if its cable were pulled
-assert 'camera' in scope.unconnected_parts()
+assert 'camera' in scope.unconnected_parts
 ```
 
 ```python raises=HardwareCommandRefusedError:not_connected
@@ -90,7 +90,7 @@ scope.camera.set_gain_db(2.0)               # not_connected, until a restart
 
 ```python model=LS720
 scope.simulation.interlock(lid_open=True)
-print(scope.motion.interlocks())
+print(scope.motion.read_interlocks())
 ```
 
 ```python raises=HardwareCommandRefusedError:lid_open_before_motion

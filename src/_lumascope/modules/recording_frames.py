@@ -223,8 +223,8 @@ def frame_fact(
             (``runtime_state.plate_transform()``), or None when the caller
             states no plate position; X and Y are then unknown.
     """
-    positions = scope.motion.axis_positions()
-    turret = scope.motion.turret_status()
+    positions = scope.motion.axis_positions
+    turret = scope.motion.turret_status
     states = [p.state for p in positions.values()] + ([turret.state] if turret else [])
     moving = any(state in (AxisState.MOVING, AxisState.HOMING) for state in states)
     x = positions.get('X')
@@ -309,7 +309,7 @@ def arrival(
     """
     from _lumascope.modules.lumascope_api.illumination import snapshot_lit_pairs
 
-    readings = scope.illumination.led_states()
+    readings = scope.illumination.led_states
     return Arrival(
         fact=frame_fact(scope, to_plate=to_plate),
         light=common_utils.light_of(readings, channel_tiebreak),

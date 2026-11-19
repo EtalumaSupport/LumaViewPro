@@ -148,7 +148,7 @@ home runs it holds the scope like a run: other requests are refused
 `'home_in_flight'`. A home that fails is not raised: it is reported as an
 outcome ([Hearing outcomes](python.md#hearing-outcomes); over REST an `outcome`
 event), and the motion ends there, without the turret move, so a program
-reads `scope.motion.axes_without_position()` before it trusts a position.
+reads `scope.motion.axes_without_position` before it trusts a position.
 LumaViewPro and the REST server (`python -m lumascope.rest`) run the startup
 motion before a client's first call, and still serve after a failed home, so a
 client can home again. When the session's first startup motion ends, it reads
@@ -178,12 +178,12 @@ the form a REST client calls. Which objective is in which slot is `assign_turret
 light path is unknown, its reason saying why (`'slot_unassigned'` while the slot
 holds none).
 Where nobody has said which objective is in the light path, the session asks rather than guesses:
-`objective_question()` answers the question owed, or None, and
+`objective_question` answers the question owed, or None, and
 `confirm_objective` answers it; on a turret scope binding a slot with
 `assign_turret_objective` is the same answer. The pixel size and field of view follow from
 the objective and the camera, and refuse with the same cause while either is
 unknown. A display reads both as a
-state: `runtime_state.optics_status()` answers the objective and the field of
+state: `runtime_state.optics_status` answers the objective and the field of
 view, each its value or the refusal that says why it is unknown, raised to
 no one. `select_model` stores the
 model a scope that does not report its own is brought up as next time; the
@@ -200,10 +200,10 @@ as while it differs from the running one, else None.
 print([plate.name for plate in scope.all_labware])      # every plate offered
 print(scope.plate('384 well microplate').columns)       # 24
 print(session.select_labware('384 well microplate'))    # True: the plate changed
-question = session.objective_question()
+question = session.objective_question
 if question is not None:                                # which objective is in slot 1?
     session.confirm_objective(question.proposed, slot=question.turret_slot)
-print(session.objective_id, scope.runtime_state.pixel_size_um())
+print(session.objective_id, scope.runtime_state.pixel_size_um)
 ```
 
 **One session per scope.** A real scope is opened by one session at a time:
@@ -304,7 +304,7 @@ scope.motion.move_turret(2)                 # this scope has no turret: axis_abs
 ```
 
 **A lost part stays lost.** Nothing reconnects a part during a session. A part
-that is not connected is named by `scope.unconnected_parts()` until LumaViewPro
+that is not connected is named by `scope.unconnected_parts` until LumaViewPro
 restarts, so `'not_connected'` is a restart refusal (REST 503), and a run that
 loses a part ends at once (`'hardware_disconnected'`). A run refused
 `'not_connected'` and a run that ends `'hardware_disconnected'` name their
@@ -405,7 +405,7 @@ applied = scope.camera.applied_gain_db_for(999.0)
 assert applied.capped and applied.applied_db == scope.camera.setting_limits.gain_max_db
 ```
 
-**What the settings hold, and what they do not.** `settings_snapshot()`
+**What the settings hold, and what they do not.** `settings_snapshot`
 answers a copy of every setting, for work that must not see a write made while
 it runs (in-process; a REST client reads a setting by its path). Positions, the lit LED and the camera's live values are not settings:
 each is read from its owner.
@@ -426,7 +426,7 @@ stage.
 
 ```python
 print(session.labware_id)                                   # the plate selected
-print(scope.runtime_state.stage_offset())               # where it sits on the stage
+print(scope.runtime_state.stage_offset)               # where it sits on the stage
 plate = scope.runtime_state.stage_to_plate(60000.0, 40000.0)   # stage um -> plate mm
 stage = scope.runtime_state.plate_to_stage(plate.x_mm, plate.y_mm)
 assert round(stage.x_um) == 60000 and round(stage.y_um) == 40000
@@ -447,7 +447,7 @@ from lumascope import PlateLocation
 
 scope.motion.move_to_well('B2')
 scope.motion.move_to_plate(PlateLocation(x_mm=23.38, y_mm=20.24, z_um=None))
-print(session.plate_position())                 # X, Y in plate mm; Z in um
+print(session.plate_position)                 # X, Y in plate mm; Z in um
 ```
 
 A plate is wider than the stage reaches, so `move_to_plate` refuses a point

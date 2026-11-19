@@ -291,17 +291,13 @@ def test_every_setup_statement_sits_inside_the_bracket():
     bracket = brackets[0]
 
     def _attrs_called(nodes):
-        return [
-            n.func.attr
-            for stmt in nodes
-            for n in ast.walk(stmt)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-        ]
+        # A setup step is a call or a held read (`illumination.led_states`).
+        return [n.attr for stmt in nodes for n in ast.walk(stmt) if isinstance(n, ast.Attribute)]
 
     before_the_bracket = _attrs_called(run.body[: run.body.index(bracket)])
     for call in SETUP_CALLS_IN_SOURCE_ORDER:
         assert call not in before_the_bracket, (
-            f'{call}() can raise, so above the bracket it latches the '
+            f'{call} can raise, so above the bracket it latches the '
             'in-progress flag for the life of the process; it belongs inside'
         )
 
@@ -573,7 +569,7 @@ def test_a_clean_exit_still_runs_every_restore_step(scope, runner, monkeypatch):
     assert _focused(sweep(runner, scope, keep_led_on=True))
 
     assert precision[-1] is True, f'the precision restore must still run; {precision}'
-    lit = [r.name for r in scope.illumination.led_states() if r.state is LedState.LIT]
+    lit = [r.name for r in scope.illumination.led_states if r.state is LedState.LIT]
     assert lit == ['BF'], f'the AF-end LED transition must still run; lit: {lit}'
     assert scope.camera.auto_gain is CameraAutoMode.CONTINUOUS, 'the camera restore must still run'
 

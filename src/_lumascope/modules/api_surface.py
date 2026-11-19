@@ -669,7 +669,10 @@ def host_wiring_of(cls: type) -> tuple[str, ...]:
 
 
 def reads_of(member: object) -> bool:
-    """Whether *member* is marked as changing nothing."""
+    """Whether *member* changes nothing: a property with no setter, by its
+    kind, or a method marked ``reads``."""
+    if isinstance(member, property):
+        return member.fset is None
     return getattr(_function_of(member), READS_ATTRIBUTE, False)
 
 

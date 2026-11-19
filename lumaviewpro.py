@@ -814,10 +814,7 @@ class LumaViewProApp(TooltipMixin, App):
             owed.append('initialization')
         if not self._persisted_protocol_loaded and not open_popups():
             owed.append('the saved protocol load')
-        if (
-            Board.CAMERA not in ctx.scope.unconnected_parts()
-            and ctx.scope_display.frames_shown == 0
-        ):
+        if Board.CAMERA not in ctx.scope.unconnected_parts and ctx.scope_display.frames_shown == 0:
             owed.append('a displayed frame')
         return owed
 
@@ -860,10 +857,10 @@ class LumaViewProApp(TooltipMixin, App):
         mean running with saves silently disabled -- the user changes settings
         all session and loses every one of them at exit, with nothing said.
         """
-        if not ctx.session.settings_are_provisional():
+        if not ctx.session.settings_are_provisional:
             return
 
-        reason = ctx.session.bring_up_record().settings_set_aside.reason
+        reason = ctx.session.bring_up_record.settings_set_aside.reason
 
         def _after_revert():
             # The retire is a file rename that can fail under a Windows
@@ -872,7 +869,7 @@ class LumaViewProApp(TooltipMixin, App):
             # resolved. Otherwise settings can be kept again, so the
             # objective question suppressed while they were provisional is
             # asked now.
-            if ctx.session.settings_are_provisional():
+            if ctx.session.settings_are_provisional:
                 self._ask_about_rejected_settings()
             else:
                 self._prompt_objective_if_needed()
@@ -1148,7 +1145,7 @@ class LumaViewProApp(TooltipMixin, App):
         self.live_work = session.live_work
         self.control = session.control
         lumaview = MainDisplay(scope=session.scope)
-        cell_count_method = session.post_processing.default_cell_count_method()
+        cell_count_method = session.post_processing.default_cell_count_method
         cell_count_content = CellCountControls(
             method=cell_count_method,
             size_scale=session.post_processing.cell_count_size_scale(cell_count_method),

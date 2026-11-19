@@ -96,7 +96,7 @@ def _load_set(session, folder):
             pixel_size_um=pixel_size_um,
             output_file_loc=None,
             estimator=estimator,
-            channel_colors=session.channel_colors(),
+            channel_colors=session.channel_colors,
         )
         if not result['status']:
             raise RuntimeError(f'{folder}: {result["error"]}')

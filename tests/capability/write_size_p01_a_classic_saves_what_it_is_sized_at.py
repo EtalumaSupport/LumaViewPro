@@ -37,7 +37,7 @@ def _sizing(session, mode, frame):
         frame,
         session.scope.capabilities,
         image_mode.ImageCaptureConfig.from_image_mode(mode),
-        session.channel_colors(),
+        session.channel_colors,
     )
 
 
@@ -50,7 +50,7 @@ def _the_writers_array(session, mode, sum_count, channel, false_color_on):
         accept_dark=True,
         timeout_s=10.0,
     )
-    color = channel_record.shown_color(channel, false_color_on, session.channel_colors())
+    color = channel_record.shown_color(channel, false_color_on, session.channel_colors)
     return still.image, image_utils.maybe_apply_false_color(
         data=still.image,
         color=color,

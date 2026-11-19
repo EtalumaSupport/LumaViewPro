@@ -94,7 +94,7 @@ def _validity_summary(run_dir):
 def body(session, runner, live):
     session.select_labware('6 well microplate')
     protocol = session.new_protocol(tiling='1x1')
-    figure('S10.protocol_steps', protocol.num_steps())
+    figure('S10.protocol_steps', protocol.num_steps)
     trace_dir = live / 'profile'
     profile_trace.enable(output_dir=str(trace_dir), commit=git_revision())
     outcome, started, ended, files_done, record = _run(

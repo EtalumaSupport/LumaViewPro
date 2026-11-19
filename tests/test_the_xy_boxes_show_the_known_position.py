@@ -37,7 +37,7 @@ def test_an_unhomed_stage_shows_as_not_known(gui_ctx):
     ``--``, not a plate position."""
     scope = gui_ctx.scope
     assert scope.capabilities.has_xy_stage
-    assert scope.motion.target_positions()['X'] is None
+    assert scope.motion.target_positions['X'] is None
     ctrl = _control()
 
     ctrl.update_gui()
@@ -49,7 +49,7 @@ def test_a_homed_stage_shows_its_plate_position(gui_ctx):
     """Homed, each box shows the plate position of where the stage is."""
     scope = gui_ctx.scope
     home_sim_scope(scope)
-    stage = scope.motion.axis_positions()
+    stage = scope.motion.axis_positions
     plate = scope.runtime_state.stage_to_plate(stage['X'].position_um, stage['Y'].position_um)
     ctrl = _control()
 

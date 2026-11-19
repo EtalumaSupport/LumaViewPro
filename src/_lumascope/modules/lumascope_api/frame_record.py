@@ -462,7 +462,7 @@ class CapturedStill:
     image: np.ndarray
     record: FrameRecord
 
-    @api(in_process=True, reads=True)
+    @api(in_process=True)
     @property
     def significant_bits(self) -> int:
         """The depth of ``image``: 8 for an 8-bit array, else the bits its sum

@@ -48,7 +48,7 @@ session = ScopeSession.create(
 )
 session.run_application_session()           # the startup motion: home, then the turret
 scope = session.scope
-question = session.objective_question()      # a new install: which objective is mounted?
+question = session.objective_question      # a new install: which objective is mounted?
 if question is not None:                     # until answered, a saved still and a run are refused
     session.confirm_objective(question.proposed, slot=question.turret_slot)
 ```
@@ -107,7 +107,7 @@ and `scope.motion_expected` (False for a model with no motion); the record's
 `substitutions` and `settings_set_aside` name what bring-up replaced:
 
 ```python
-record = session.bring_up_record()
+record = session.bring_up_record
 for part in record.parts:
     print(part.part, 'up' if part.up else 'not up')
 assert record.missing == ()                # the simulator has every part

@@ -117,8 +117,8 @@ def test_a_redraw_shows_no_z_while_the_api_does_not_know_it(gui_ctx, monkeypatch
     and the slider is left where it stands, set to no number. A scope comes
     up this way, and a failed home leaves Z the same."""
     motion = gui_ctx.scope.motion
-    assert motion.axis_positions()['Z'] == AxisPosition(AxisState.UNKNOWN, None)
-    assert motion.target_positions()['Z'] is None
+    assert motion.axis_positions['Z'] == AxisPosition(AxisState.UNKNOWN, None)
+    assert motion.target_positions['Z'] is None
     ctrl = VerticalControl.__new__(VerticalControl)
     ctrl.ids = {'z_position_id': _Box(), 'obj_position': _Slider()}
     ctrl.ids['obj_position'].value = 1234.0

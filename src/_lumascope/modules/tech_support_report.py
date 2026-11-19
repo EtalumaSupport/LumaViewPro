@@ -1023,7 +1023,7 @@ class FirmwareDiagnostics:
         unread = self._unread_motor_board()
         if unread is not None:
             return unread
-        if self._scope.diagnostics.motor_info().command_set is None:
+        if self._scope.diagnostics.motor_info.command_set is None:
             return {'not_applicable': NO_MOTOR_TEXT}
         return None
 
@@ -1049,7 +1049,7 @@ class FirmwareDiagnostics:
         """
         if not self._led_ok():
             return {'error': 'LED board not connected'}
-        command_set = self._scope.diagnostics.led_info().command_set
+        command_set = self._scope.diagnostics.led_info.command_set
         if command_set is None:
             return {'not_applicable': 'Not supported on this LED board (no text command channel)'}
         if needs_v2 and command_set != LedCommandSet.V2:
@@ -1171,7 +1171,7 @@ class FirmwareDiagnostics:
         """The motor board's FULLINFO, asked now, for the report's motor section.
 
         The report's name does not come from here: the serial number is the
-        one the board stated at connect, ``motor_info().serial_number``.
+        one the board stated at connect, ``motor_info.serial_number``.
         """
         no_text = self._no_motor_text()
         if no_text is not None:
@@ -1442,7 +1442,7 @@ class FirmwareDiagnostics:
             'tests': [],
             'note': 'Informational only -- many units lack tachometer hardware',
         }
-        spin = fan.motor_fan_spin_times()
+        spin = fan.motor_fan_spin_times
 
         # Test 1: Set fan to ~50% duty, read RPM
         failed = self._what_the_hardware_said(lambda: fan.set_motor_fan_duty(50))
@@ -1750,7 +1750,7 @@ class TechSupportReport:
             fullinfo = self.diag.get_motor_fullinfo()
             # Read at connect, so a board with no text channel, which INFO
             # and FULLINFO cannot ask, still states its firmware and serial.
-            identity = self.scope.diagnostics.motor_info()
+            identity = self.scope.diagnostics.motor_info
             sn = identity.serial_number
             version = identity.firmware_version
             with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
@@ -1790,7 +1790,7 @@ class TechSupportReport:
         """
         d = tmp / 'firmware_info'
         d.mkdir()
-        led_info = self.scope.diagnostics.led_info().to_dict()
+        led_info = self.scope.diagnostics.led_info.to_dict()
         skipped = (
             f'SKIPPED board queries: {skip.reason}\n'
             'The microscope was in use; these are the values cached at connect.\n'
@@ -1802,7 +1802,7 @@ class TechSupportReport:
             sn = None
             self._write_no_motor_board(d)
         else:
-            motor_info = self.scope.diagnostics.motor_info().to_dict()
+            motor_info = self.scope.diagnostics.motor_info.to_dict()
             sn = motor_info['serial_number']
             with open(d / 'motor_info.txt', 'w', encoding='utf-8') as f:
                 f.write(f'{Board.MOTOR.label} (cached at connect):\n{motor_info}\n\n')
@@ -2608,7 +2608,7 @@ class TechSupportReport:
         while the settings are provisional, and a save follows a write by a
         second, so the file on disk can differ from what the session runs on.
         """
-        snapshot = json.dumps(self._session.settings_snapshot(), indent=4)
+        snapshot = json.dumps(self._session.settings_snapshot, indent=4)
         (tmp / 'live_settings.json').write_bytes(_without_api_keys(snapshot.encode('utf-8')))
 
     def _step_logs(self, tmp):
@@ -2864,7 +2864,7 @@ class TechSupportReport:
 
         The session's record.
         """
-        record = self._session.bring_up_record()
+        record = self._session.bring_up_record
         body = dataclasses.asdict(record)
         for part in body['parts']:
             part['cause_words'] = CAUSE_PHRASES.get(part['cause']) if part['cause'] else None
@@ -2872,7 +2872,7 @@ class TechSupportReport:
 
     def _step_plugins(self, tmp):
         """The loaded plugins, the ones that did not load and why, and their runtime errors."""
-        health = self._session.plugin_health()
+        health = self._session.plugin_health
         if health is None:
             body = {'plugins': None, 'why': 'no plugin registry on this host'}
         else:
@@ -2912,7 +2912,7 @@ class TechSupportReport:
                 cb(85, 'Writing metadata...')
                 # The serial the board stated at connect: asking the board now
                 # is refused while a run or a control session holds the scope.
-                sn = self.scope.diagnostics.motor_info().serial_number
+                sn = self.scope.diagnostics.motor_info.serial_number
                 self._step_metadata(tmp, sn, 'logs_only')
 
                 cb(95, 'Creating ZIP file...')

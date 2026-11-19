@@ -522,7 +522,7 @@ class Status:
         parts: Which parts came up at bring-up, and why each that did not
             (``ScopeSession.bring_up_record``).
         camera_streaming: Whether the camera is grabbing frames, asked of
-            the camera itself (``ImagingAPI.is_streaming``); None when the
+            the camera itself (``ImagingAPI.read_streaming``); None when the
             camera did not answer, the failure reported in the log at each ask.
         host_reading: This PC's resources as read over the session's
             startup (``ScopeSession.host_reading``); None until the startup
@@ -854,8 +854,8 @@ class ScopeSession:
             lane=executor_bundle.post_processing_executor,
             tiling_grids=scope.protocols.tiling_grids(),
             has_turret=lambda: scope.capabilities.has_turret,
-            settings_snapshot=self.settings_snapshot,
-            channel_colors=self.channel_colors,
+            settings_snapshot=lambda: self.settings_snapshot,
+            channel_colors=lambda: self.channel_colors,
             # Read as each build starts; the claim is made further down.
             scope_holder=lambda: self._activity_claim.holder,
             files_draining=lambda: self._draining_batch() is not None,
@@ -933,16 +933,16 @@ class ScopeSession:
         self.metrics_logger = MetricsLogger(
             scope=scope,
             executor_bundle=executor_bundle,
-            settings_snapshot=self.settings_snapshot,
+            settings_snapshot=lambda: self.settings_snapshot,
         )
         # Manual video recording, composed with the session claim so a
         # recording and a protocol run are mutually exclusive for every
         # caller tier (GUI, L2, REST).
         self.manual_recording = ManualRecordingController(
             scope=scope,
-            settings_snapshot=self.settings_snapshot,
+            settings_snapshot=lambda: self.settings_snapshot,
             shown_channel=lambda: self._shown_channel,
-            channel_colors=self.channel_colors,
+            channel_colors=lambda: self.channel_colors,
             activity_claim=self._activity_claim,
             scheduler=self._scheduler,
             post_processing=self.post_processing,
@@ -953,10 +953,10 @@ class ScopeSession:
         # still must not refuse Record, a run or a reconnect.
         self.manual_capture = ManualCaptureController(
             scope=scope,
-            settings_snapshot=self.settings_snapshot,
+            settings_snapshot=lambda: self.settings_snapshot,
             shown_channel=lambda: self._shown_channel,
             engineering_mode=lambda: self.engineering_mode,
-            channel_colors=self.channel_colors,
+            channel_colors=lambda: self.channel_colors,
             on_saved=self._saved,
         )
 
@@ -980,7 +980,7 @@ class ScopeSession:
             autofocus_thread=autofocus_thread,
             autofocus_runner=autofocus_runner,
             activity_claim=self._activity_claim,
-            channel_colors=self.channel_colors,
+            channel_colors=lambda: self.channel_colors,
             post_processing=self.post_processing,
             on_run_idle=self._run_went_idle,
             on_protocol_files_written=self._run_protocol_complete_processors,
@@ -1274,7 +1274,7 @@ class ScopeSession:
         """
         return write()
 
-    @api(reads=True)
+    @api
     @property
     def engineering_mode(self) -> bool:
         """Whether the session runs in engineering mode, as ``create`` began it
@@ -1511,9 +1511,9 @@ class ScopeSession:
             'lock': self.controls_lock,
             'control': self._activity_claim.control,
             'run_refused': self._sequenced_capture_runner.state_refusal(self._activity_claim),
-            'axes': self.scope.motion.axis_positions(),
-            'turret': self.scope.motion.turret_status(),
-            'parts': self.scope.bring_up_record().parts,
+            'axes': self.scope.motion.axis_positions,
+            'turret': self.scope.motion.turret_status,
+            'parts': self.scope.bring_up_record.parts,
             'host_reading': self._host_reading,
         }
         return lambda: Status(**at_edge, camera_streaming=self._camera_streaming())
@@ -1528,7 +1528,7 @@ class ScopeSession:
         the askers ask (a client's poll, the event stream).
         """
         try:
-            return self.scope.imaging.is_streaming()
+            return self.scope.imaging.read_streaming()
         except HardwareError as failed:
             notifications.report_outcome(failed, solicited=False, category='Camera', log_only=True)
             return None
@@ -2476,7 +2476,8 @@ class ScopeSession:
         for entry in channel_configs:
             entry['autofocus'] = False
 
-    @api(reads=True)
+    @api
+    @property
     def channel_colors(self) -> dict[str, tuple[float, float, float]]:
         """Every channel of the release and the colour it is shown and written
         in, as red, green and blue weights, each 0 to 1.
@@ -2577,9 +2578,9 @@ class ScopeSession:
         """
         import _lumascope.modules.config_helpers as config_helpers
 
-        z = self.scope.motion.axis_positions().get('Z')
+        z = self.scope.motion.axis_positions.get('Z')
         if z is None:
-            current_z = self.plate_position().z_um
+            current_z = self.plate_position.z_um
         elif z.position_um is None:
             current_z = None
         else:
@@ -2633,8 +2634,8 @@ class ScopeSession:
                 as ``select_labware``; the scope stays on the plate it had.
         """
         protocol = self.scope.protocols.load_protocol(file_path=file_path)
-        self.scope.protocols.set_labware(protocol, protocol.labware_id())
-        self.select_labware(protocol.labware_id())
+        self.scope.protocols.set_labware(protocol, protocol.labware_id)
+        self.select_labware(protocol.labware_id)
         # Loaded whole: the file is its own, by its absolute path, since a
         # relative one is the working folder's, which a later save may not
         # share.
@@ -2751,7 +2752,7 @@ class ScopeSession:
         Nothing is stored on any refusal.
         """
         self.scope.protocols.refuse_channel_settings_out_of_range(protocol)
-        rows = protocol.channel_settings()
+        rows = protocol.channel_settings
         channels = common_utils.get_channels()
         present = self._channels_on_scope()
         fields: dict[str, dict[str, object]] = {name: {'acquire': None} for name in channels}
@@ -3273,7 +3274,7 @@ class ScopeSession:
 
         return self.scope.protocols.create_protocol(
             empty_config=config_helpers.get_empty_protocol_config_from_settings(
-                self.settings_snapshot(), self.scope.wellplate_loader
+                self.settings_snapshot, self.scope.wellplate_loader
             )
         )
 
@@ -3373,7 +3374,7 @@ class ScopeSession:
         return self.scope.protocols.add_step(
             protocol,
             channel_configs=channel_configs,
-            plate_position=at if at is not None else self.plate_position_on(protocol.labware_id()),
+            plate_position=at if at is not None else self.plate_position_on(protocol.labware_id),
             channel_order=channel_order,
             before_step_index=before_step_index,
             after_step_index=after_step_index,
@@ -3438,7 +3439,7 @@ class ScopeSession:
             step_index,
             channel=channel,
             channel_configs=self.get_channel_configs(),
-            plate_position=self.plate_position_on(protocol.labware_id()),
+            plate_position=self.plate_position_on(protocol.labware_id),
             label=label,
         )
 
@@ -3960,13 +3961,14 @@ class ScopeSession:
         self._refuse_without_a_turret('point_steps_at_turret_slot')
         return self.scope.protocols.point_steps_at_turret_slot(protocol, objective_id, slot)
 
-    @api(reads=True)
+    @api
+    @property
     def tiling_config(self) -> 'TilingConfig':
         """The tiling grids this installation offers: the scope's copy, read at bring-up.
 
         What a caller needs to choose a grid: ``available`` lists the
         labels ``new_protocol`` and ``apply_tiling`` accept, and
-        ``default`` is the one to preselect; ``Protocol.tiling()`` names
+        ``default`` is the one to preselect; ``Protocol.tiling`` names
         the grid a protocol's steps already carry. Read once with the
         installation's other catalogues, so a tiling.json edited while the
         program runs is seen at the next start, and every protocol is built
@@ -3976,7 +3978,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        return self.scope.protocols.tiling_config()
+        return self.scope.protocols.tiling_config
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
@@ -3988,7 +3990,7 @@ class ScopeSession:
 
         Args:
             protocol: The protocol whose steps are tiled.
-            tiling: The grid, one of ``tiling_config().available``, such as
+            tiling: The grid, one of ``tiling_config.available``, such as
                 ``'3x3'``.
 
         Raises:
@@ -4407,7 +4409,7 @@ class ScopeSession:
         address = self.scope.illumination.led_address_of(channel)
         if address is None or not self.scope.led_connected:
             return False
-        readings = self.scope.illumination.led_states()
+        readings = self.scope.illumination.led_states
         return any(r.address == address and r.state == LedState.LIT for r in readings)
 
     def _show_channel(self, channel: str, *, was_lit: bool | None = None) -> None:
@@ -4479,7 +4481,7 @@ class ScopeSession:
                 ),
             )
 
-    @api(reads=True)
+    @api
     @property
     def shown_channel(self) -> ShownChannel:
         """The channel the scope shows: its channel, and whether its LED is lit.
@@ -4744,12 +4746,12 @@ class ScopeSession:
                 self.scope.camera.frame_size,
                 self.scope.capabilities,
                 run_settings['image_capture_config'],
-                self.channel_colors(),
+                self.channel_colors,
             ),
             recording_format=run_settings['recording_format'],
             video_fps=video_sizing_fps(
                 run_settings['video_max_fps'],
-                self.scope.imaging.delivered_rate().frame_rate_fps,
+                self.scope.imaging.delivered_rate.frame_rate_fps,
             ),
         )
 
@@ -4763,7 +4765,8 @@ class ScopeSession:
         """
         return _ReadOnlySettings(self._settings)
 
-    @api(in_process=True, reads=True)
+    @api(in_process=True)
+    @property
     def settings_snapshot(self) -> dict:
         """A deep copy of the settings dict, taken under the lock.
 
@@ -5805,7 +5808,7 @@ class ScopeSession:
         # start on one that does would lose it for the next unit connected.
         # The motor driver caches its identity at connect, so the read is
         # synchronous; no board (or a board with no model) reports None.
-        detected = self.scope.diagnostics.motor_info().model
+        detected = self.scope.diagnostics.motor_info.model
         stored = self._settings.get('microscope')
         if detected is None:
             if stored not in scope_models:
@@ -5867,7 +5870,8 @@ class ScopeSession:
         self._apply_bring_up_channel()
         self.scope.end_bring_up()
 
-    @api(in_process=True, reads=True)
+    @api(in_process=True)
+    @property
     def capped_channels(self) -> tuple[str, ...]:
         """This scope's channels whose stored gain, exposure or current the attached hardware cannot reach.
 
@@ -5963,7 +5967,8 @@ class ScopeSession:
             return
         self.scope.write_camera_at_bring_up(lambda: self.apply_channel_camera(channel))
 
-    @api(reads=True)
+    @api
+    @property
     def bring_up_record(self) -> 'BringUpRecord':
         """What bring-up found, substituted and set aside, for a client that asks later.
 
@@ -5978,7 +5983,7 @@ class ScopeSession:
         Raises:
             Nothing.
         """
-        return self.scope.bring_up_record()
+        return self.scope.bring_up_record
 
     @staticmethod
     def _settings_set_aside() -> 'SettingsSetAside | None':
@@ -6189,7 +6194,8 @@ class ScopeSession:
         """
         return path_utils.app_runtime()
 
-    @api(reads=True)
+    @api
+    @property
     def plugin_health(self) -> 'PluginHealth | None':
         """The loaded plugins, the ones that did not load, and their runtime errors.
 
@@ -6332,7 +6338,8 @@ class ScopeSession:
         """
         return self.scope.host_steady_ns()
 
-    @api(reads=True)
+    @api
+    @property
     def settings_are_provisional(self) -> bool:
         """Is the app running on defaults nobody has agreed to keep?
 
@@ -6379,7 +6386,7 @@ class ScopeSession:
                 with no turret, no person has confirmed the objective.
         """
         objective_id, _ = self.scope.runtime_state.resolve_current_objective()
-        snapshot = self.settings_snapshot()
+        snapshot = self.settings_snapshot
         snapshot['objective_id'] = objective_id
         self._read_autofocus_as_off_without_z(
             snapshot[channel] for channel in common_utils.get_channels()
@@ -6390,7 +6397,8 @@ class ScopeSession:
     # The objective: the question, the answer and the plain writers
     # ------------------------------------------------------------------
 
-    @api(reads=True)
+    @api
+    @property
     def objective_question(self) -> 'ObjectiveQuestion | None':
         """Does the objective need confirming? The question, or None.
 
@@ -6432,7 +6440,7 @@ class ScopeSession:
         has_turret = self.scope.capabilities.has_turret
         unconfirmed = not self.scope.runtime_state.objective_confirmed()
         slots = self._settings['turret_objectives']
-        slot = self.scope.motion.turret_status().slot if has_turret else None
+        slot = self.scope.motion.turret_status.slot if has_turret else None
         # A known slot with no assignment owes the question. An unknown slot
         # alone does not: it is unknown during every turret move, and asking
         # then would put the question up while the turret is still turning.
@@ -6443,7 +6451,7 @@ class ScopeSession:
         if self.scope.no_hardware:
             logger.info('[Session  ] objective question withheld -- no hardware this session')
             return None
-        if self.settings_are_provisional():
+        if self.settings_are_provisional:
             logger.info(
                 '[Session  ] objective question deferred -- settings are provisional and '
                 'the answer could not be kept'
@@ -6467,7 +6475,8 @@ class ScopeSession:
             raise ObjectiveUnknownError('slot_unknown')
         return self._objective_question_at(slot)
 
-    @api(reads=True)
+    @api
+    @property
     def current_slot_objective_question(self) -> ObjectiveQuestion:
         """The objective question for the turret slot in the light path, owed or not.
 
@@ -6493,7 +6502,7 @@ class ScopeSession:
         """
         if not self.scope.capabilities.has_turret:
             return self._objective_question_at(None)
-        slot = self.scope.motion.turret_status().slot
+        slot = self.scope.motion.turret_status.slot
         if slot is None:
             raise ObjectiveUnknownError('slot_unknown')
         return self._objective_question_at(slot)
@@ -6921,7 +6930,7 @@ class ScopeSession:
                 path is unknown, so there is no slot to clear.
         """
         self._refuse_without_a_turret('clear_current_turret_objective')
-        slot = self.scope.motion.turret_status().slot
+        slot = self.scope.motion.turret_status.slot
         if slot is None:
             raise ObjectiveUnknownError('slot_unknown')
         self.clear_turret_objective(slot)
@@ -6941,7 +6950,8 @@ class ScopeSession:
         if holder is not None:
             raise HardwareCommandRefusedError('exclusive_activity_running', member, holder)
 
-    @api(reads=True)
+    @api
+    @property
     def plate_position(self) -> PlateLocation:
         """The stage's position in plate coordinates, on the session's labware.
 
@@ -7345,7 +7355,7 @@ class ScopeSession:
                         # channel state answers that question directly.
                         lit = [
                             r.name or f'address {r.address}'
-                            for r in self.scope.illumination.led_states() or ()
+                            for r in self.scope.illumination.led_states or ()
                             if r.state == LedState.LIT
                         ]
                         state_text = (
@@ -7467,7 +7477,7 @@ class ScopeSession:
         # Bring-up has already reported the missing board once, in its own
         # report; homing it would only have the home refused as "not
         # connected" and show the same absence a second time.
-        if any(status.part == Board.MOTOR for status in self.scope.bring_up_record().missing):
+        if any(status.part == Board.MOTOR for status in self.scope.bring_up_record.missing):
             return skipped('the motor board did not come up at bring-up')
 
         if home_fn is None:

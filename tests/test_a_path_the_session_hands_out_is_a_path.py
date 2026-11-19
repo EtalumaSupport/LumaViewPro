@@ -39,7 +39,7 @@ def test_the_settings_file_set_aside_and_its_retired_name_are_paths(session, mon
     current.write_text('{not json', encoding='utf-8')
     monkeypatch.setattr(settings_init, 'rejected_current_json', (str(current), 'unparseable'))
 
-    set_aside = session.bring_up_record().settings_set_aside
+    set_aside = session.bring_up_record.settings_set_aside
     assert set_aside.path == current
     assert isinstance(set_aside.path, pathlib.Path)
 

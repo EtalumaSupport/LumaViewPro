@@ -640,8 +640,8 @@ class SequencedCaptureRunner:
             # compared here, and schedules a microsecond apart stay apart
             # as floats. A full protocol always has both: a loaded file and
             # New each give one.
-            n_scans = protocol.num_scans()
-            period_s, duration_s = protocol.period_s(), protocol.duration_s()
+            n_scans = protocol.num_scans
+            period_s, duration_s = protocol.period_s, protocol.duration_s
             if period_s == 0 or duration_s < period_s:
                 from _lumascope.modules.notification_center import notifications
 
@@ -669,6 +669,7 @@ class SequencedCaptureRunner:
         with self._protocol_state_lock:
             return self._n_scans, self._scan_count
 
+    @property
     def num_scans(self) -> int:
         with self._protocol_state_lock:
             return self._n_scans
@@ -916,10 +917,10 @@ class SequencedCaptureRunner:
         # None before the first run: a status poller may ask before any
         # protocol is loaded, and an AttributeError from a getter is a
         # crash in a UI handler, not an answer.
-        return self._protocol.period_s() if self._protocol is not None else None
+        return self._protocol.period_s if self._protocol is not None else None
 
     def _num_steps(self) -> int | None:
-        return self._protocol.num_steps() if self._protocol is not None else None
+        return self._protocol.num_steps if self._protocol is not None else None
 
     def _step_index(self) -> int:
         # One int, written only by the step runner as it advances; the
@@ -1081,7 +1082,7 @@ class SequencedCaptureRunner:
             ProtocolRunRefusedError: ``position_unknown``, naming the axes.
                 Reported once.
         """
-        unknown_axes = self._scope.motion.axes_without_position()
+        unknown_axes = self._scope.motion.axes_without_position
         if unknown_axes:
             self._refuse(
                 reason='position_unknown',
@@ -1210,7 +1211,7 @@ class SequencedCaptureRunner:
         # Before every protocol gate: a scope missing a part is told that
         # first, not a symptom of it -- with no LED board there is no current
         # cap to judge a step's illumination against.
-        unconnected = self._scope.unconnected_parts()
+        unconnected = self._scope.unconnected_parts
         named = [f'the {part.noun}' for part in unconnected]
         if named:
             parts = named[0] if len(named) == 1 else f'{", ".join(named[:-1])} and {named[-1]}'
@@ -1260,7 +1261,7 @@ class SequencedCaptureRunner:
         Mutates no runner state, commands no hardware -- it reads which
         parts are connected and the stage's interlocks -- and writes nothing
         to disk: a refused prepare is observationally a no-op. The
-        record getters (run_dir(), num_scans()) still answer for the
+        record getters (run_dir(), num_scans) still answer for the
         previous run; run_started_by() answers for whoever holds the
         scope, which a refused prepare did not change either. The plan
         records who started the run: the caller the host stamped on this
@@ -1309,7 +1310,7 @@ class SequencedCaptureRunner:
             steps = protocol.steps()
             video = (
                 sorted(steps.loc[steps['Acquire'] == AcquireMode.VIDEO, 'channel'].unique())
-                if protocol.num_steps()
+                if protocol.num_steps
                 else []
             )
             if video:
@@ -1322,7 +1323,7 @@ class SequencedCaptureRunner:
                         f'{"it" if one else "them"} to Image, or off, and try again.'
                     ),
                 )
-            channels = protocol.steps()['channel'].nunique() if protocol.num_steps() else 0
+            channels = protocol.steps()['channel'].nunique() if protocol.num_steps else 0
             if channels < COMPOSITE_MIN_CHANNELS:
                 set_to_capture = (
                     'no channel is'
@@ -1352,7 +1353,7 @@ class SequencedCaptureRunner:
                     ),
                 )
 
-        if protocol.num_steps() == 0:
+        if protocol.num_steps == 0:
             self._refuse(
                 reason='empty_protocol',
                 message='Protocol has no steps. Add at least one step before running.',
@@ -1363,7 +1364,7 @@ class SequencedCaptureRunner:
         # camera's queued commands have run, so a frame-size change in flight
         # is not taken for a stopped feed.
         try:
-            streaming = self._scope.imaging.is_streaming_once_settled()
+            streaming = self._scope.imaging.read_streaming_once_settled()
         except Exception as ex:
             self._hardware_state_unknown('check whether the camera is streaming', ex)
         if not streaming:
@@ -1498,7 +1499,7 @@ class SequencedCaptureRunner:
         # the lid in its own words. Asked of the board directly rather than
         # queued behind a move or a home on the IO lane.
         try:
-            open_interlocks = self._scope.motion.interlocks()
+            open_interlocks = self._scope.motion.read_interlocks()
         except Exception as ex:
             self._hardware_state_unknown("read the stage's interlocks", ex)
         if 'lid_open' in open_interlocks:
@@ -1514,14 +1515,12 @@ class SequencedCaptureRunner:
         # that its steps are outside travel. The offset is the scope's, the
         # one the gate judges X/Y with, snapshotted so the run converts with
         # the offset it was admitted at.
-        self._scope.protocols.refuse_positions_outside_travel(
-            protocol.steps(), protocol.labware_id()
-        )
+        self._scope.protocols.refuse_positions_outside_travel(protocol.steps(), protocol.labware_id)
         if return_to_position is not None:
             self._scope.protocols.refuse_return_outside_travel(
-                return_to_position, protocol.labware_id()
+                return_to_position, protocol.labware_id
             )
-        stage_offset = self._scope.runtime_state.stage_offset()
+        stage_offset = self._scope.runtime_state.stage_offset
         ag_ae_max_exposure_ms = self._scope.read_setting('ag_ae_max_exposure_ms')
 
         # A gate about where the run SAVES rather than about the instrument,
@@ -1667,7 +1666,7 @@ class SequencedCaptureRunner:
         # thread that started the run (the worker pool, at the GUI's Run), so
         # a large protocol spends seconds here.
         logger.info(
-            f'[SeqCapExec] Run prepared: {protocol.num_steps()} steps checked '
+            f'[SeqCapExec] Run prepared: {protocol.num_steps} steps checked '
             f'in {time.monotonic() - started:.2f} s'
         )
         return plan
@@ -1764,7 +1763,7 @@ class SequencedCaptureRunner:
                 raise
             logger.error(f'[{self.LOGGER_NAME} ] The camera snapshot was refused: {refused}')
             return hardware_disconnected_at_start_ending((Board.CAMERA,))
-        self._original_led_states = self._scope.illumination.led_states()
+        self._original_led_states = self._scope.illumination.led_states
         # No target brightness is written here: every step that arms
         # auto-gain, and every one-shot, hands the camera its target in the
         # same write.
@@ -2007,13 +2006,13 @@ class SequencedCaptureRunner:
                 channel_colors=self._channel_colors,
                 run_claim=self._held_claim.lend(),
                 labware=self._scope.wellplate_loader.get_plate(
-                    labware_id=self._protocol.labware_id()
+                    labware_id=self._protocol.labware_id
                 ),
                 to_plate=self._scope.runtime_state.plate_transform(
-                    labware_id=self._protocol.labware_id(), stage_offset=self._stage_offset
+                    labware_id=self._protocol.labware_id, stage_offset=self._stage_offset
                 ),
                 captures_asked=(
-                    plan.n_scans * self._protocol.num_steps()
+                    plan.n_scans * self._protocol.num_steps
                     if plan.enable_image_saving and not plan.disable_saving_artifacts
                     else 0
                 ),

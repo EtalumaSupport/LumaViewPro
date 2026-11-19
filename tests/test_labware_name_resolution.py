@@ -120,7 +120,7 @@ class TestTheReader:
             proto = protocol_from_file(
                 file_path=_protocol_file(tmp_path, old_name),
             )
-            assert proto.labware_id() == key
+            assert proto.labware_id == key
 
         failed = failing_cases(sorted(RENAMED.items()), check)
         assert not failed, failed
@@ -141,7 +141,7 @@ class TestTheReader:
         proto = protocol_from_file(
             file_path=_protocol_file(tmp_path, UNKNOWN_PLATE),
         )
-        assert proto.labware_id() == UNKNOWN_PLATE
+        assert proto.labware_id == UNKNOWN_PLATE
 
     def test_a_reloaded_legacy_file_is_saved_under_the_key(self, tmp_path):
         proto = protocol_from_file(
@@ -174,7 +174,7 @@ class TestTheApiLoad:
         proto = session.scope.protocols.load_protocol(
             file_path=_protocol_file(tmp_path, 'Center Dish')
         )
-        assert proto.labware_id() == 'Center Plate'
+        assert proto.labware_id == 'Center Plate'
 
     def test_the_scopes_lookup_answers_a_retired_spelling_with_its_plate(self, session):
         def check(old_name, key):

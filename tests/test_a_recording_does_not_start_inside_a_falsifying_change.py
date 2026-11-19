@@ -267,15 +267,15 @@ class TestAnUnknownObjective:
 class TestTheObjectiveQuestionDuringAHold:
     @pytest.mark.parametrize('kind', ['recording', 'protocol', 'diagnostic'])
     def test_it_is_not_asked_while_a_hold_would_refuse_the_answer(self, session, kind):
-        assert session.objective_question() is not None, 'owed: never confirmed on this install'
+        assert session.objective_question is not None, 'owed: never confirmed on this install'
         held = session._activity_claim.try_claim(
             kind, run=run_identity() if kind == 'protocol' else None
         )
         try:
-            assert session.objective_question() is None
+            assert session.objective_question is None
         finally:
             held.release()
-        assert session.objective_question() is not None
+        assert session.objective_question is not None
 
     def test_the_gui_redraws_the_turret_on_every_run_state_edge(self):
         publish = find_def('lumaviewpro.py', 'publish_run_state', class_name='LumaViewProApp')

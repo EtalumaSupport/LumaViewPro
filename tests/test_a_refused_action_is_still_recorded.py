@@ -76,8 +76,8 @@ class _Protocols(ps.ProtocolSettings):
         }
         # Unchanged since it was saved, so New asks nothing first.
         self._protocol = SimpleNamespace(
-            period_s=lambda: 20 * 60.0,
-            duration_s=lambda: 48 * 3600.0,
+            period_s=20 * 60.0,
+            duration_s=48 * 3600.0,
             has_unsaved_changes=False,
         )
 

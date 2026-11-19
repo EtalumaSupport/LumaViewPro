@@ -11,6 +11,12 @@ This guard holds the marks to what the members are:
 1. **A prefixed read is marked.** A method named ``is_``, ``has_`` or
    ``read_`` is marked ``reads``. A property is a read by its kind and takes
    no mark.
+1a. **A held read is a property.** A read taking no argument answers what
+   the API holds, and is a property (``motion.axis_positions``); a fresh
+   read of the hardware or the host is a method named ``read_``
+   (``motion.read_interlocks()``). ``Operation.progress()`` is the one
+   exception, beside the ``done()`` and ``result()`` of the ``Future`` it
+   follows.
 2. **No member is named ``get_``.** ``read_`` is a fresh read of the
    hardware or the host, a bare noun the state held; ``get_`` says neither,
    so a published member or field never carries it.
@@ -34,10 +40,12 @@ routes, and a module's marked function is in-process, never routed
 
 from __future__ import annotations
 
+import inspect
 import re
 
 from _lumascope.modules import wire_encoding
 from _lumascope.modules.api_surface import (
+    READS_ATTRIBUTE,
     Admission,
     admitted_by_of,
     fields_of,
@@ -66,6 +74,49 @@ def test_every_prefixed_read_is_marked_a_read():
         if _READ_NAME.match(qualified.split('.')[1]) and not reads_of(member)
     ]
     assert unmarked == [], f'mark each @api(reads=True), or rename it: {unmarked}'
+
+
+# Operation follows Python's Future, whose done() and result() are methods,
+# so its progress() is one beside them: one class, one idiom.
+_FUTURE_IDIOM = {'Operation.progress'}
+
+
+def _takes_no_argument(member) -> bool:
+    function = member.__func__ if isinstance(member, (classmethod, staticmethod)) else member
+    parameters = list(inspect.signature(function).parameters.values())
+    if parameters and parameters[0].name in ('self', 'cls'):
+        parameters = parameters[1:]
+    return not parameters
+
+
+def test_a_held_read_is_a_property():
+    as_methods = [
+        qualified
+        for qualified, member in _marked_methods()
+        if reads_of(member)
+        and _takes_no_argument(member)
+        and not qualified.split('.')[1].startswith('read_')
+        and qualified not in _FUTURE_IDIOM
+    ]
+    assert as_methods == [], (
+        'a read of what the API holds is a property; a fresh read of the hardware '
+        f'or the host is named read_<fact>: {as_methods}'
+    )
+
+
+def test_a_property_carries_no_read_mark():
+    marked = [
+        f'{owner}.{name}'
+        for owner, cls in sorted(wire_encoding.project_classes().items())
+        for name, member in vars(cls).items()
+        # The mark itself, not reads_of: a property answers a read by its kind.
+        if (
+            isinstance(member, property)
+            and mark_of(member) is not None
+            and getattr(member.fget, READS_ATTRIBUTE, False)
+        )
+    ]
+    assert marked == [], f'a property is a read by its kind; drop reads=True: {marked}'
 
 
 def test_no_published_name_says_get():

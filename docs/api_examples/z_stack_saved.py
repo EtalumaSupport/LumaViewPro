@@ -26,7 +26,7 @@ def main():
         # A new install has not been told which objective is mounted, and a
         # saved still and a run are refused until it has. Answer with the
         # objective in the light path (on the simulator, the one it proposes).
-        question = session.objective_question()
+        question = session.objective_question
         if question is not None:
             session.confirm_objective(question.proposed, slot=question.turret_slot)
         scope = session.scope

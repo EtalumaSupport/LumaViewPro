@@ -38,7 +38,7 @@ def _make_protocol(steps_data, period_min=20.0, duration_hr=1.0, *, period=None,
     else:
         df = pd.DataFrame()
     protocol.steps.return_value = df
-    protocol.num_steps.return_value = len(df)
+    protocol.num_steps = len(df)
     # The steps here are in no z-stack, where a step sweeps when its
     # Auto_Focus is on; a stack's one sweep is pinned on a real Protocol in
     # tests/test_zstack_group_autofocus.py.

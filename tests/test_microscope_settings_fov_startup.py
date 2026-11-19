@@ -67,12 +67,8 @@ class TestLoadSettingsFovStartup:
             'ui/microscope_settings.py', 'MicroscopeSettings', 'refresh_fov_labels'
         )
         for node in ast.walk(method):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == 'optics_status'
-            ):
-                # The scope decides: the GUI hands it nothing to compute from.
-                assert (node.args, node.keywords) == ([], [])
+            # The scope decides: the GUI reads its answer and hands it
+            # nothing to compute from.
+            if isinstance(node, ast.Attribute) and node.attr == 'optics_status':
                 return
         raise AssertionError('refresh_fov_labels shows no field of view')

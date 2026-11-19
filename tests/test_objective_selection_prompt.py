@@ -41,11 +41,13 @@ class _ScriptedSession:
         self.cleared = []
         self.scope = SimpleNamespace(objective=SHIPPED_OBJECTIVES.__getitem__)
 
+    @property
     def objective_question(self):
         if isinstance(self.question, Exception):
             raise self.question
         return self.question
 
+    @property
     def settings_are_provisional(self):
         # The renderer asks this before running a startup continuation on a
         # question that is not owed: while settings are provisional the host
@@ -468,7 +470,9 @@ class TestAnUnknownSlotSaysWhatHappensNext:
         )
         try:
             # Bring-up alone leaves the slot unknown, and nothing is confirmed.
-            monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
+            monkeypatch.setattr(
+                type(session), 'settings_are_provisional', property(lambda self: False)
+            )
             monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
             h = _Harness(monkeypatch, session)
             h.prompt()

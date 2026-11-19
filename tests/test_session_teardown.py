@@ -88,7 +88,7 @@ class TestAFactoryBuiltScopeIsTornDown:
             session.shutdown()
             monitor = scope.motion._motion_monitor_thread
             _wait_dead(monitor)
-            assert scope.imaging.is_streaming() is False, 'shutdown() left the camera streaming'
+            assert scope.imaging.read_streaming() is False, 'shutdown() left the camera streaming'
             assert monitor is None or not monitor.is_alive(), (
                 'shutdown() left the motion monitor alive'
             )

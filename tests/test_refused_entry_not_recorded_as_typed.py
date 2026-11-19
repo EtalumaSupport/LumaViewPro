@@ -113,7 +113,7 @@ def test_a_capture_root_records_and_stores_what_was_typed(emitted, monkeypatch):
 
         typed = [v for n, v in emitted if n == 'CAPTURE_ROOT']
         assert typed == ['my/run:1'], f'what the user typed is recorded once: {emitted}'
-        assert panel._protocol.capture_root() == 'my/run:1'
+        assert panel._protocol.capture_root == 'my/run:1'
         assert widget.text == 'my/run:1', 'the field shows what was typed'
     finally:
         session.shutdown()

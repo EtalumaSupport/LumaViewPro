@@ -4,7 +4,7 @@
 The protocol panel used to build its own tiling config in its constructor,
 which runs before the session exists, so it fell back to the installation's
 folder rather than the one the scope was started on. The session now answers
-(`ScopeSession.tiling_config()`), from the grids its scope read, so an
+(`ScopeSession.tiling_config`), from the grids its scope read, so an
 integrator can list the labels `new_protocol` accepts, and nothing in `ui/`
 reads tiling.json itself.
 """
@@ -30,7 +30,7 @@ def test_the_session_answers_from_the_folder_its_scope_was_started_on(tmp_path):
 
     session = ScopeSession.create(complete_settings(), source_path=str(tmp_path), simulate=True)
     try:
-        config = session.tiling_config()
+        config = session.tiling_config
     finally:
         session.shutdown()
 
@@ -50,6 +50,6 @@ def test_nothing_in_ui_reads_the_tiling_file_itself():
         if _names_tiling_file(node)
     ]
     assert found == [], (
-        'the GUI asks the session for its tiling grids (session.tiling_config()); '
+        'the GUI asks the session for its tiling grids (session.tiling_config); '
         f'it never names tiling.json: {found}'
     )

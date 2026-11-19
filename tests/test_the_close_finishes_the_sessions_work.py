@@ -166,7 +166,7 @@ def test_a_runs_post_run_build_ends_before_the_close_returns(sim_session, tmp_pa
     sim_session.post_processing.run_hyperstack(
         tmp_path,
         save_encoding='8bit',
-        channel_colors=sim_session.channel_colors(),
+        channel_colors=sim_session.channel_colors,
         written=written,
         stills=True,
         recordings=False,

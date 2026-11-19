@@ -44,12 +44,12 @@ def _three_bf_steps(session):
     protocol = session.create_empty_protocol()
     for x_um in (10000, 20000, 30000):
         session.scope.motion.move_xy(x_um=x_um)
-        session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
+        session.add_step(protocol, after_step_index=protocol.num_steps - 1)
     return protocol
 
 
 def _names(protocol):
-    return [protocol.step_row(i)['Name'] for i in range(protocol.num_steps())]
+    return [protocol.step_row(i)['Name'] for i in range(protocol.num_steps)]
 
 
 class TestDeleteStep:

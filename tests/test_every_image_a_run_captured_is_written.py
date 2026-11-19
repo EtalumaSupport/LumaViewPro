@@ -150,11 +150,15 @@ class TestAnErrorAbort:
         monkeypatch.setattr(protocol_run_loop, 'HW_CHECK_INTERVAL_S', -1)
         heard_events = _Heard()
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            real_unconnected = session.scope.unconnected_parts
+            real_unconnected = type(session.scope).unconnected_parts.fget
             monkeypatch.setattr(
-                session.scope,
+                type(session.scope),
                 'unconnected_parts',
-                lambda: (Board.CAMERA,) if disconnected.is_set() else real_unconnected(),
+                property(
+                    lambda self: (
+                        (Board.CAMERA,) if disconnected.is_set() else real_unconnected(self)
+                    )
+                ),
             )
             outcome = runner.start_single_scan(
                 protocol=_protocol(
@@ -202,11 +206,15 @@ class TestAnErrorAbort:
 
         monkeypatch.setattr(ProtocolExecutionRecord, 'complete', _recorded_complete)
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
-            real_unconnected = session.scope.unconnected_parts
+            real_unconnected = type(session.scope).unconnected_parts.fget
             monkeypatch.setattr(
-                session.scope,
+                type(session.scope),
                 'unconnected_parts',
-                lambda: (Board.CAMERA,) if disconnected.is_set() else real_unconnected(),
+                property(
+                    lambda self: (
+                        (Board.CAMERA,) if disconnected.is_set() else real_unconnected(self)
+                    )
+                ),
             )
             outcome = runner.start_single_scan(
                 protocol=_protocol(
@@ -458,11 +466,15 @@ class TestARunAfterAnErrorAbort:
         monkeypatch.setattr(protocol_run_loop, 'HW_CHECK_INTERVAL_S', -1)
         with open_composite_session(headless_settings(tmp_path)) as (session, runner):
             engine = runner.session._sequenced_capture_runner
-            real_unconnected = session.scope.unconnected_parts
+            real_unconnected = type(session.scope).unconnected_parts.fget
             monkeypatch.setattr(
-                session.scope,
+                type(session.scope),
                 'unconnected_parts',
-                lambda: (Board.CAMERA,) if disconnected.is_set() else real_unconnected(),
+                property(
+                    lambda self: (
+                        (Board.CAMERA,) if disconnected.is_set() else real_unconnected(self)
+                    )
+                ),
             )
             first_files = _Heard()
             first = runner.start_single_scan(

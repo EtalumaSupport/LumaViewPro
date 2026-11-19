@@ -103,10 +103,10 @@ class TestReadersHandOutCopies:
         )
 
         with pytest.raises(dataclasses.FrozenInstanceError):
-            loaded.channel_settings()['BF'].illumination_ma = 999.0
-        loaded.channel_settings()['BF'] = None
+            loaded.channel_settings['BF'].illumination_ma = 999.0
+        loaded.channel_settings['BF'] = None
 
-        assert loaded.channel_settings()['BF'].illumination_ma == 5.0
+        assert loaded.channel_settings['BF'].illumination_ma == 5.0
 
 
 class TestEveryStoredCellIsReadOnly:
@@ -262,7 +262,7 @@ class TestAWritersConfigIsCopiedOnce:
 
         session.apply_tiling(protocol, '2x2')
 
-        assert protocol.num_steps() == 4
+        assert protocol.num_steps == 4
         for column in DICT_COLUMNS:
             cells = [protocol.step_row(i)[column] for i in range(4)]
             assert all(cell is cells[0] for cell in cells), column

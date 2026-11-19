@@ -640,7 +640,7 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
 
         rig = _AfRig()
         lost = {}
-        real = rig.scope.motion.axes_without_position
+        real = type(rig.scope.motion).axes_without_position.fget
 
         def flat_and_losing_z(**kwargs):
             # a stand-in by design: the simulator cannot yet lose Z on the
@@ -649,7 +649,11 @@ class TestTheOutcomeSaysWhetherAutofocusFoundFocus:
             return 0.0
 
         monkeypatch.setattr(autofocus_functions, 'autofocus_score', flat_and_losing_z)
-        monkeypatch.setattr(rig.scope.motion, 'axes_without_position', lambda: dict(lost) or real())
+        monkeypatch.setattr(
+            type(rig.scope.motion),
+            'axes_without_position',
+            property(lambda self: dict(lost) or real(self)),
+        )
         try:
             outcome = rig.run_autofocus(tmp_path, save_data=False)
         finally:

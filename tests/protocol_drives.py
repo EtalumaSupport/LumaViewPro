@@ -231,10 +231,10 @@ def bare_capture_runner(**overrides):
         # unknown; a bare mock answers that question with a truthy mock, so
         # the default scope states the homed answer. A test about position
         # passes its own scope.
-        kwargs['scope'].motion.axes_without_position.return_value = {}
+        kwargs['scope'].motion.axes_without_position = {}
         # The run loop asks which parts are not connected; a bare mock's
         # truthy answer would end every run as a disconnect.
-        kwargs['scope'].unconnected_parts.return_value = ()
+        kwargs['scope'].unconnected_parts = ()
     # The engine reads IO and CAMERA from its scope; a test that passes its
     # own lane puts it there.
     swap_lanes(
@@ -263,16 +263,16 @@ def scr_run_kwargs(**overrides):
     from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunMode
 
     protocol = MagicMock()
-    protocol.num_steps.return_value = 1
+    protocol.num_steps = 1
     protocol.validate_for_run.return_value = []
-    # Floats, as Protocol.period_s() answers; period 0 is one scan.
-    protocol.period_s.return_value = 0.0
-    protocol.duration_s.return_value = 3600.0
-    protocol.num_scans.return_value = 1
+    # Floats, as Protocol.period_s answers; period 0 is one scan.
+    protocol.period_s = 0.0
+    protocol.duration_s = 3600.0
+    protocol.num_scans = 1
     protocol.copy_for_execution.return_value = protocol
     # The run hands its writer the plate the protocol names, so the plate
     # is a catalogue name, as a real protocol's is after validate_for_run.
-    protocol.labware_id.return_value = '96 well microplate'
+    protocol.labware_id = '96 well microplate'
     kwargs = {
         'protocol': protocol,
         'run_mode': SequencedCaptureRunMode.FULL_PROTOCOL,
@@ -324,7 +324,7 @@ def scan_ready_runner(step, **state):
     runner._scope.led_connected = False
     protocol = MagicMock()
     protocol.step_row.return_value = step
-    protocol.num_steps.return_value = 1
+    protocol.num_steps = 1
     # a stand-in by design: the one step is in no z-stack, where a step
     # sweeps in its own light when its Auto_Focus is on.
     protocol.focus_sweep_step.side_effect = lambda step_index: (
@@ -369,7 +369,7 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     runner = scan_ready_runner(step, **state)
     runner._scan_in_progress.clear()
     runner._n_scans = n_scans
-    runner._protocol.period_s.return_value = 0.0
+    runner._protocol.period_s = 0.0
     # _start_t is a monotonic timestamp (seconds), matching the run loop's pacing.
     runner._start_t = time.monotonic()
     runner._events = RunEvents(step_started=MagicMock())

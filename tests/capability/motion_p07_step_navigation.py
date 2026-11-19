@@ -30,7 +30,7 @@ def body(s):
 
     # --- build a two-position protocol and navigate to a step by hand ---
     cfg = config_helpers.get_standalone_capture_config_from_settings(
-        s.settings_snapshot(),
+        s.settings_snapshot,
         s.scope.objective_helper,
         s.scope.wellplate_loader,
         channel='BF',
@@ -46,8 +46,8 @@ def body(s):
     protocol = s.scope.protocols.create_protocol(input_config=cfg)
     check(
         'a script can build a multi-step protocol',
-        protocol.num_steps() >= 2,
-        f'{protocol.num_steps()} steps',
+        protocol.num_steps >= 2,
+        f'{protocol.num_steps} steps',
     )
 
     idx = config_helpers.find_nearest_step(x=69.0, y=49.0, protocol=protocol)
@@ -56,7 +56,7 @@ def body(s):
     step = protocol.step_row(step_index=idx)
     s.go_to_step(protocol, idx)
     m.wait_until_finished_moving()
-    here = s.plate_position()
+    here = s.plate_position
     check(
         'a script can go to the nearest step through the Session',
         abs(here.x_mm - float(step['X'])) < 0.05 and abs(here.y_mm - float(step['Y'])) < 0.05,

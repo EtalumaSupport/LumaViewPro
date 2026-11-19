@@ -160,12 +160,14 @@ class _FakeMotion:
         # 'moving' / 'homing' per axis when a test sets it; idle otherwise.
         self.states = {}
 
+    @property
     def axes_without_position(self):
         return dict(self.unknown)
 
     def get_current_position(self):
         return dict(self.positions)
 
+    @property
     def axis_positions(self):
         out = {}
         for ax, pos in self.positions.items():
@@ -174,13 +176,14 @@ class _FakeMotion:
             out[ax] = AxisPosition(state, pos if known else None)
         return out
 
+    @property
     def turret_status(self):
         # A scope with no turret.
         return None
 
 
 class _FakeIllumination:
-    """Commanded LED state, the shape led_states() returns.
+    """Commanded LED state, the shape led_states returns.
 
     None models a scope with no LED board installed, which is what the
     real accessor returns in that case.
@@ -195,6 +198,7 @@ class _FakeIllumination:
     # named by no layer, as on an EL-0940 board.
     _NAMES = (LED0, LED1, LED2, 'BF', 'PC', 'DF', None, None)
 
+    @property
     def led_states(self):
         if not self._board:
             return None
@@ -248,7 +252,7 @@ class _FakeScope:
         self.objective_helper = SimpleNamespace(
             get_objective_info=lambda objective_id: self.runtime_state.get_current_objective()
         )
-        self.diagnostics = SimpleNamespace(motor_info=lambda: SimpleNamespace(serial_number=None))
+        self.diagnostics = SimpleNamespace(motor_info=SimpleNamespace(serial_number=None))
         # Every layer a stock model carries: the recording's start asks the
         # scope has the layer it is named for, and these tests name the
         # LS850's layers and Lumi.
@@ -1266,7 +1270,7 @@ class TestChannelIdentity:
         assert list(captured['df']['channel']) == ['BF', 'BF']
 
     def test_no_led_board_falls_back_to_the_shown_channel(self, tmp_path, monkeypatch):
-        # led_states() is None with no board, so the shown channel stands.
+        # led_states is None with no board, so the shown channel stands.
         captured = _capture_hyperstack_df(monkeypatch)
         scope = _FakeScope(board=False)
         controller, scope, clock = make_controller(

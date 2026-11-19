@@ -81,7 +81,7 @@ def test_a_bus_that_cannot_be_read_is_logged_as_that_and_the_scope_comes_up(monk
         assert session.scope.diagnostics.read_usb_census().unreadable == (
             'SetupDiGetClassDevsW failed: 5'
         )
-        assert all(part.up for part in session.bring_up_record().parts)
+        assert all(part.up for part in session.bring_up_record.parts)
     finally:
         session.shutdown()
 

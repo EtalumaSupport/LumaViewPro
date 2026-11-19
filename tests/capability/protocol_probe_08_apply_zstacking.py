@@ -11,12 +11,12 @@ session, live = make_session('applyzs', home=True, zstack=dict(ZS))
 try:
     import _lumascope.modules.config_helpers as config_helpers
 
-    settings = session.settings_snapshot()
+    settings = session.settings_snapshot
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
         objective_helper=session.scope.objective_helper,
         wellplate_loader=session.scope.wellplate_loader,
-        current_z=session.plate_position().z_um,
+        current_z=session.plate_position.z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -24,16 +24,16 @@ try:
     cfg['channel_configs']['BF']['acquire'] = 'image'
     cfg['labware_id'] = 'Center Plate'
     p = session.scope.protocols.create_protocol(input_config=cfg)
-    before = p.num_steps()
+    before = p.num_steps
 
     banner('apply_zstacking')
     zp = config_helpers.get_zstack_params_from_settings(settings)
     print('zstack params:', zp)
     session.apply_zstacking(p)
-    print(f'{before} -> {p.num_steps()} steps')
+    print(f'{before} -> {p.num_steps} steps')
     print('Z-Slice column:', p.steps()['Z-Slice'].tolist())
     print('Z column      :', p.steps()['Z'].tolist())
-    print('ASSERT expanded:', 'PASS' if p.num_steps() > before else 'FAIL')
+    print('ASSERT expanded:', 'PASS' if p.num_steps > before else 'FAIL')
 
     banner("the zero-extent refusal is the protocol's")
     p2 = session.scope.protocols.create_protocol(input_config=cfg)

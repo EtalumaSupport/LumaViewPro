@@ -202,7 +202,7 @@ class ProtocolRunLoop:
                     # The probe's handler computes a fact and nothing else: an
                     # abort raised or swallowed in here would leave the run
                     # going with the hardware gone.
-                    gone = p._scope.unconnected_parts()
+                    gone = p._scope.unconnected_parts
                     if gone:
                         logger.error(
                             '[PROTOCOL] Hardware disconnected during run -- aborting protocol'
@@ -228,7 +228,7 @@ class ProtocolRunLoop:
                     # scan, before any wait, so a wait that wakes late never
                     # moves the schedule.
                     if due is None:
-                        due = max(p._start_t + p._protocol.period_s(), time.monotonic())
+                        due = max(p._start_t + p._protocol.period_s, time.monotonic())
                     wait_s = due - time.monotonic()
                     if wait_s > 0:
                         # On the Stop event, so a Stop is seen at once; cut at
@@ -246,7 +246,7 @@ class ProtocolRunLoop:
                     'scan_started',
                     p._scan_count,
                     remaining_scans,
-                    p._protocol.period_s(),
+                    p._protocol.period_s,
                 )
 
                 # Initialize per-scan state (curr_step, AF pointer).
@@ -265,7 +265,7 @@ class ProtocolRunLoop:
                 disk_ok, free_mb = True, 0.0
                 if p._parent_dir is not None and p._frame_sizing is not None:
                     if scan_required_mb is None:
-                        num_steps = p._protocol.num_steps()
+                        num_steps = p._protocol.num_steps
                         scan_required_mb = max(
                             MIN_REQUIRED_DISK_MB,
                             p._protocol.estimate_write_mb(
@@ -355,7 +355,7 @@ class ProtocolRunLoop:
                     # already been advanced past it.
                     new_count - 1,
                     p._remaining_scans(),
-                    p._protocol.period_s(),
+                    p._protocol.period_s,
                 )
 
                 p._scan_in_progress.clear()
@@ -382,7 +382,7 @@ class ProtocolRunLoop:
                 # the protocol from making progress; transient errors
                 # (one bad LED ack, one frame timeout, etc.) are
                 # exactly what a periodic protocol is supposed to ride
-                # out. The 30s periodic unconnected_parts() check
+                # out. The 30s periodic unconnected_parts check
                 # earlier in this loop covers between-scan
                 # disconnects; this branch covers during-scan ones.
                 # Handle-state check only (cached connected flags), NOT a
@@ -391,7 +391,7 @@ class ProtocolRunLoop:
                 # transient. The consecutive-failure cap below bounds that case;
                 # a true liveness probe (a hardware round-trip) is deferred --
                 # it needs bench validation before it can change classification.
-                gone = p._scope.unconnected_parts()
+                gone = p._scope.unconnected_parts
                 if gone:
                     logger.error(
                         f'[Protocol] Hardware disconnect during scan: {ex}',
@@ -423,7 +423,7 @@ class ProtocolRunLoop:
                 # disconnect's words. Asked of the axis state rather than the
                 # exception, because the fault arrives as the move's own
                 # error first and as the position refusal only after.
-                lost_axes = p._scope.motion.axes_without_position()
+                lost_axes = p._scope.motion.axes_without_position
                 if lost_axes:
                     logger.error(
                         f'[Protocol] Axis position lost during scan: {ex}',

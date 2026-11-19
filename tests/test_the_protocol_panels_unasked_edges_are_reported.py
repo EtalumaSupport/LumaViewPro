@@ -85,7 +85,7 @@ def _protocol(num_steps):
             channel_config=LAYER_CONFIG,
             plate_position=PlateLocation(x_mm=float(i), y_mm=0.0, z_um=0.0),
             objective_id='10x Oly',
-            after_step_index=protocol.num_steps() - 1,
+            after_step_index=protocol.num_steps - 1,
         )
     return protocol
 

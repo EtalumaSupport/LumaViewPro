@@ -138,7 +138,7 @@ class ImageSettings(BoxLayout):
         the unit's row drives an LED.
         """
         records = {record.key_name: record for record in identity.channels}
-        colors = _app_ctx.ctx.session.channel_colors()
+        colors = _app_ctx.ctx.session.channel_colors
         for channel, drawer in self._drawers.items():
             record = records.get(channel)
             if record is None:
@@ -384,7 +384,7 @@ class ImageSettings(BoxLayout):
         writing the slider -- the channel's handler re-committed the value
         (crediting the user with a drag it never made).
         """
-        capped = _app_ctx.ctx.session.capped_channels()
+        capped = _app_ctx.ctx.session.capped_channels
         for channel in common_utils.get_channels():
             if channel in capped:
                 self.channel_control_lookup(channel=channel).render_channel_values_from_settings()

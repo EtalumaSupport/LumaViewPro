@@ -143,7 +143,7 @@ class Stage(Widget):
         # with none has no place on the map.
         df = protocol.steps()[['X', 'Y']].dropna()
         self._protocol_step_locations_df = df.drop_duplicates()
-        self._protocol_step_labware = protocol.labware_id()
+        self._protocol_step_labware = protocol.labware_id
         self._protocol_step_redraw = True
         # Invalidate step locations FBO cache
         self._step_locations_fbo = None
@@ -267,7 +267,7 @@ class Stage(Widget):
         fbo.release()
 
         runtime_state = _app_ctx.ctx.scope.runtime_state
-        stage_offset = runtime_state.stage_offset()
+        stage_offset = runtime_state.stage_offset
         to_plate = runtime_state.plate_transform()
 
         # Now draw to the FBO
@@ -463,8 +463,8 @@ class Stage(Widget):
             # axis once the close installs the null board) answers None in
             # both reads, so the None check is the whole gate. Each read
             # answers for itself: the close can land between the two.
-            positions = scope.motion.axis_positions()
-            targets = scope.motion.target_positions()
+            positions = scope.motion.axis_positions
+            targets = scope.motion.target_positions
             x_target = targets.get('X')
             y_target = targets.get('Y')
             x_current = positions['X'].position_um

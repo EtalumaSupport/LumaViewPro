@@ -239,7 +239,7 @@ class TestSettingsSnapshot:
 
     def test_snapshot_is_deep_copy(self):
         session = self._session({'display': {'brightness': 80}})
-        snap = session.settings_snapshot()
+        snap = session.settings_snapshot
 
         snap['display']['brightness'] = 999
         snap['new_key'] = True
@@ -261,7 +261,7 @@ class TestSettingsSnapshot:
     def test_snapshot_after_update(self):
         session = self._session({})
         session.update_settings('video.max_fps', 11)
-        snap = session.settings_snapshot()
+        snap = session.settings_snapshot
         session.update_settings('video.max_fps', 22)
 
         assert snap['video']['max_fps'] == 11
@@ -601,7 +601,7 @@ class TestPositionCache:
     def test_a_homed_cache_holds_where_the_home_left_the_stage(self, sim_scope):
         """Before any move, the cache holds the position the home sent the
         stage to, which is the board's position after home, not zero."""
-        targets = sim_scope.motion.target_positions()
+        targets = sim_scope.motion.target_positions
         for axis in ('X', 'Y', 'Z'):
             assert targets[axis] == pytest.approx(
                 sim_scope.motion.read_actual_position(axis), abs=0.1
@@ -610,26 +610,26 @@ class TestPositionCache:
     def test_move_z_updates_cache(self, sim_scope):
         """move_z should push the new position into the cache."""
         sim_scope.motion.move_z(5000.0)
-        assert sim_scope.motion.target_positions()['Z'] == 5000.0
+        assert sim_scope.motion.target_positions['Z'] == 5000.0
 
     def test_move_z_only_updates_its_axis(self, sim_scope):
         """Moving Z should not affect X or Y cache."""
-        before = sim_scope.motion.target_positions()
+        before = sim_scope.motion.target_positions
         sim_scope.motion.move_z(5000.0)
-        assert sim_scope.motion.target_positions()['X'] == before['X']
-        assert sim_scope.motion.target_positions()['Y'] == before['Y']
+        assert sim_scope.motion.target_positions['X'] == before['X']
+        assert sim_scope.motion.target_positions['Y'] == before['Y']
 
     def test_move_xy_by_updates_cache(self, sim_scope):
         """move_xy_by should accumulate into the cache."""
         sim_scope.motion.start_move_xy(x_um=1000.0)
         sim_scope.motion.start_move_xy_by(dx_um=500.0).result()
-        assert sim_scope.motion.target_positions()['X'] == pytest.approx(1500.0, abs=0.1)
+        assert sim_scope.motion.target_positions['X'] == pytest.approx(1500.0, abs=0.1)
 
     def test_move_z_by_negative(self, sim_scope):
         """Negative relative moves should subtract from cache."""
         sim_scope.motion.start_move_z(3000.0)
         sim_scope.motion.start_move_z_by(-1000.0).result()
-        assert sim_scope.motion.target_positions()['Z'] == pytest.approx(2000.0, abs=0.1)
+        assert sim_scope.motion.target_positions['Z'] == pytest.approx(2000.0, abs=0.1)
 
     def test_get_current_position_matches_target(self, sim_scope):
         """After a blocking move, get_current_position is at the target
@@ -650,11 +650,11 @@ class TestPositionCache:
         # Use move_abs_pos to set a known position, then verify refresh reads it.
         sim_scope._motion_driver.move_abs_pos('Z', 5000.0)
         # Cache still has old value since we bypassed the motion API
-        assert sim_scope.motion.target_positions()['Z'] != 5000.0
+        assert sim_scope.motion.target_positions['Z'] != 5000.0
         # Now refresh from hardware
         sim_scope.motion._refresh_position_cache()
         # Should now match what the motor reports
-        pos = sim_scope.motion.target_positions()['Z']
+        pos = sim_scope.motion.target_positions['Z']
         assert abs(pos - 5000.0) < 1.0  # allow microstep rounding
 
 
@@ -1870,7 +1870,7 @@ def test_not_saving_capture_builds_record_task_without_crash():
     scope.capabilities.has_turret = False
     scope.led_connected = False
     protocol = MagicMock()
-    protocol.capture_root.return_value = ''
+    protocol.capture_root = ''
 
     # Must not raise; the file lane is a stub so the queued task is not run.
     writer.capture(
@@ -2473,7 +2473,7 @@ def _sim_backed_imaging():
     # dark-by-design (the same result the retired explicit False gave).
     from types import SimpleNamespace
 
-    scope.illumination = SimpleNamespace(led_states=lambda: (), led_address_of=lambda c: None)
+    scope.illumination = SimpleNamespace(led_states=(), led_address_of=lambda c: None)
     give_camera_capabilities(scope, cam)
     scope.capabilities = dataclasses.replace(
         scope.capabilities, sensor_pitch_um=None, lens_focal_length_mm=None
@@ -6769,7 +6769,7 @@ class TestGetLedStateShape:
 
     def test_get_led_states_off_channels_use_none(self):
         scope = self._scope()
-        readings = scope.illumination.led_states()
+        readings = scope.illumination.led_states
         assert [r.address for r in readings] == list(range(8)), (
             'led_states must return one reading per board address'
         )
@@ -6782,7 +6782,7 @@ class TestGetLedStateShape:
 
 class TestProtocolCleanupLedRestoreKey:
     """`protocol_cleanup.restore_after_protocol` reads `color_data['illumination_ma']`
-    from the `original_led_states` snapshot taken via `led_states()`.
+    from the `original_led_states` snapshot taken via `led_states`.
     A prior typo (`color_data['illumination']`) silently raised KeyError
     on every LED-restore path and was swallowed by the surrounding
     try/except. Rule 16 cluster fix paired with the audit F2/F12
@@ -7009,7 +7009,7 @@ class TestAutoGainArmedInScanIterate:
         scope.capabilities.has_turret = False
         scope.led_connected = False
         protocol = MagicMock()
-        protocol.capture_root.return_value = ''
+        protocol.capture_root = ''
         writer.capture(
             scan_count=0,
             curr_step=0,
@@ -8631,7 +8631,7 @@ class TestPS11VideoCancelledRecordsRow:
         monkeypatch.setattr(piw, 'ProtocolVideoStep', lambda **kw: fake_recorder)
 
         protocol = MagicMock()
-        protocol.capture_root.return_value = ''
+        protocol.capture_root = ''
         step = _protocol_step(Acquire='video', **{'Video Config': {'duration': 1}})
         writer.capture(
             save_folder=str(tmp_path),
@@ -8681,7 +8681,7 @@ class TestVideoCameraLostFeedsStrikeCounter:
         monkeypatch.setattr(piw, 'ProtocolVideoStep', lambda **kw: fake_recorder)
 
         protocol = MagicMock()
-        protocol.capture_root.return_value = ''
+        protocol.capture_root = ''
         step = _protocol_step(Acquire='video', **{'Video Config': {'duration': 1}})
         writer.capture(
             save_folder=str(tmp_path),
@@ -8735,7 +8735,7 @@ class TestRemainingScansAtomicSnapshot:
         runner._n_scans = 10
         runner._scan_count = 3
         assert runner.progress_snapshot() == (10, 3)
-        assert runner.num_scans() == 10
+        assert runner.num_scans == 10
         assert runner.scan_count() == 3
         assert runner._remaining_scans() == 7
 
@@ -8848,7 +8848,7 @@ class TestCaptureFailureAbortNotificationOrdering:
         # Force the capture to fail (returns no frame) so the failure branch runs.
         scope.imaging.capture_still.side_effect = CaptureFailedError('no_frame')
         protocol = MagicMock()
-        protocol.capture_root.return_value = ''
+        protocol.capture_root = ''
 
         # Two prior failures so this call crosses the 3-strike abort threshold.
         writer._consecutive_capture_failures = 2

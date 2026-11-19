@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import copy
 import threading
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 
@@ -73,7 +73,7 @@ def _runner_over_a_store_edited_after_the_first_read():
     session = MagicMock()
     session.settings = _edited()
     session.capture_settings_snapshot.side_effect = snapshot
-    session.settings_snapshot.side_effect = snapshot
+    type(session).settings_snapshot = PropertyMock(side_effect=snapshot)
     session.plate_position_on.return_value = _POSITION
     session.scope.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session, engine=session._sequenced_capture_runner)

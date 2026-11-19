@@ -243,7 +243,7 @@ def test_a_camera_declared_removed_answers_not_grabbing_and_asks_the_driver_noth
     """The base reads the removal latch before the driver is asked, so a
     camera gone before its teardown answers ``False`` on every driver, its
     handle still held, and no read is made of a camera that cannot answer.
-    The simulator answered ``True`` in that window, so ``is_streaming`` and
+    The simulator answered ``True`` in that window, so ``read_streaming`` and
     ``status`` said streaming for a pulled camera on the simulated scope
     alone."""
     pylon = bare_pylon_camera()

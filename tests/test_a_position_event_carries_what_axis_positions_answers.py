@@ -61,7 +61,7 @@ def test_a_settled_move_reports_the_position_axis_positions_answers(scope):
     scope.motion.move_xy(x_um=1500.0)
 
     last_x = [at for axis, at in heard if axis == 'X'][-1]
-    assert last_x == scope.motion.axis_positions()['X']
+    assert last_x == scope.motion.axis_positions['X']
     assert last_x.state == AxisState.IDLE
     assert last_x.position_um == pytest.approx(1500.0, abs=1.0)
 
@@ -84,7 +84,7 @@ def test_a_poll_tells_its_listeners_once_every_moving_axis_is_read(scope):
     def listener(axis, _at):
         if threading.current_thread().name != 'motion-monitor':
             return
-        now = motion.axis_positions()
+        now = motion.axis_positions
         if now['X'].state == now['Y'].state == AxisState.MOVING:
             seen.append((axis, now['X'].position_um, now['Y'].position_um))
 

@@ -59,9 +59,7 @@ def test_shutdown_ledsoff_wait_distinguishes_timeout():
             if h.type is not None and ast.unparse(h.type) == 'TimeoutError'
         )
         consults_cache = any(
-            isinstance(n, ast.Call)
-            and isinstance(n.func, ast.Attribute)
-            and n.func.attr == 'led_states'
+            isinstance(n, ast.Attribute) and n.attr == 'led_states'
             for n in ast.walk(timeout_handler)
         )
         assert consults_cache, (

@@ -23,7 +23,7 @@ try:
     step('runtime_state.well_label()', lambda: scope.runtime_state.well_label())
     step(
         'config_helpers.get_image_capture_config_from_settings',
-        lambda: config_helpers.get_image_capture_config_from_settings(s.settings_snapshot()),
+        lambda: config_helpers.get_image_capture_config_from_settings(s.settings_snapshot),
     )
     step(
         f'session.get_channel_configs([{LED0}])',

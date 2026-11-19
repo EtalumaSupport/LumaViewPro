@@ -69,7 +69,7 @@ def test_the_protocols_own_insert_names_its_place(session):
             objective_id=step['Objective'],
         )
 
-    assert protocol.num_steps() == 1
+    assert protocol.num_steps == 1
 
 
 def test_a_place_on_both_sides_is_still_refused(session):
@@ -80,4 +80,4 @@ def test_a_place_on_both_sides_is_still_refused(session):
     with pytest.raises(ProtocolError):
         session.add_step(protocol, before_step_index=0, after_step_index=0)
 
-    assert protocol.num_steps() == 1
+    assert protocol.num_steps == 1

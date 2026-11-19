@@ -95,12 +95,12 @@ def _titles(centre_posts):
 class TestAddStep:
     def test_an_accepted_step_is_gone_to_last(self, homed):
         protocol = homed.session.new_protocol()
-        before = protocol.num_steps()
+        before = protocol.num_steps
         panel = _Panel(protocol)
 
         panel.insert_step(after_current_step=True)
 
-        assert protocol.num_steps() == before + 1
+        assert protocol.num_steps == before + 1
         assert panel.curr_step == 1
         assert panel.moves == [1]
         homed.stage.set_protocol_steps.assert_called_once_with(protocol)
@@ -114,7 +114,7 @@ class TestAddStep:
         panel.insert_step(after_current_step=True)
 
         assert _titles(centre_posts) == ['Step Not Saved']
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
         assert panel.moves == [], 'a refused step has nowhere to go'
         assert panel.curr_step == 0
         assert panel.redraws == 1, 'the panel still shows its protocol as the API has it'
@@ -155,7 +155,7 @@ class TestNewProtocol:
         panel.new_protocol()
 
         assert panel._protocol is not previous
-        assert panel._protocol.num_steps() > 0
+        assert panel._protocol.num_steps > 0
         assert homed.settings['protocol']['filepath'] == ''
         assert (panel.ids['protocol_filename'].text, panel.ids['capture_root'].text) == ('', '')
         assert panel.moves == [0]
@@ -287,7 +287,7 @@ class TestLoad:
         panel.load_protocol(filepath=str(tsv), navigate=True)
 
         assert panel._protocol is not previous
-        assert panel._protocol.labware_id() == '6 well microplate'
+        assert panel._protocol.labware_id == '6 well microplate'
         assert homed.settings['protocol']['filepath'] == str(tsv), 'the Session remembered it'
         [outcome] = centre_posts
         assert (outcome.category, outcome.kind.value) == ('UI:LOAD_PROTOCOL', 'fault')
@@ -374,12 +374,12 @@ class TestCaptureRoot:
         self, held, centre_posts
     ):
         protocol = held.create_empty_protocol()
-        kept = protocol.capture_root()
+        kept = protocol.capture_root
         panel = _Panel(protocol)
         panel.ids['capture_root'].text = 'typed'
 
         panel.update_capture_root('typed')
 
         assert [n.title for n in centre_posts] == ['Under Remote Control']
-        assert protocol.capture_root() == kept
+        assert protocol.capture_root == kept
         assert panel.ids['capture_root'].text == kept, 'the field shows the root the protocol kept'

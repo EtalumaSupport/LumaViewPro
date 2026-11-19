@@ -310,7 +310,7 @@ built-in:
    `unregister` at shutdown.
 
 A plugin that did not load is recorded with its reason, for
-`session.plugin_health()` and the tech-support report.
+`session.plugin_health` and the tech-support report.
 
 An installed plugin claiming a built-in's name keeps it; the built-in
 is the one reported as not loaded.
@@ -602,6 +602,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 129 | The camera sensor's pixel pitch is `sensor_pitch_um`, where it was `pixel_size_um`: `ScopeCapabilities.sensor_pitch_um` (and `GET /api/v1/scope/capabilities`'s key), the model catalogue's `ScopeModel.sensor_pitch_um` and a camera profile's. `pixel_size_um` now names one fact, the scale at the sample, which `runtime_state.pixel_size_um()` answers and a saved file records, unchanged. No alias. |
 | level 130 | A recording's format is one setting with three values: `video_recording_format`, `'mp4'` (shipped), `'frames'` or `'hyperstack'`, judged at the write as its closed set; `video_as_frames` is gone, refused at the write as not a setting and removed from a stored file at load. Only `'hyperstack'` builds a recording's stack, a manual recording's and each video step's of a run; the Sequenced format stacks a run's stills alone. |
 | level 131 | A `live_work` item says how long a recording has recorded: `WorkItem.elapsed_s`, a manual recording's or a run's video step's seconds so far, and `total_s`, the step's length. A post-processing build's item is named in words with its folder's own name (`"Stitching in <folder>"`), not by its member and path. A recording's or a run's video finish states `left` and `discardable` only while its frames are being written; after that it is listed as finishing, with neither. |
+| level 132 | A read of what the API holds is a property, read without a call; a fresh read of the hardware or the host is a method named `read_`. 35 reads became properties: `scope.unconnected_parts`; `camera.pixel_alignment`; `diagnostics.motor_info`, `led_info` and `motor_fan_spin_times`; `illumination.led_states`; `imaging.delivered_rate`; `motion.turret_status`, `axes_without_position`, `axis_positions` and `target_positions`; `runtime_state.pixel_size_um`, `optics_status` and `stage_offset`; `simulation.injected`; `post_processing.default_cell_count_method`; a protocol's `period_s`, `duration_s`, `num_scans`, `labware_id`, `tiling`, `capture_root`, `channel_settings`, `num_steps` and `step_records`; the session's `channel_colors`, `tiling_config`, `settings_snapshot`, `capped_channels`, `bring_up_record`, `plugin_health`, `settings_are_provisional`, `objective_question`, `current_slot_objective_question` and `plate_position`. `imaging.is_streaming()` is `imaging.read_streaming()` and `motion.interlocks()` is `motion.read_interlocks()`, each a fresh read. `Operation.progress()` stays a method, beside `done()` and `result()`. REST's routes and answers are unchanged, but for the two renamed: `GET /api/v1/scope/imaging/read_streaming`, where it was `/imaging/is_streaming`, and `GET /api/v1/scope/motion/read_interlocks`, where it was `/motion/interlocks`. No alias. |
 
 ---
 

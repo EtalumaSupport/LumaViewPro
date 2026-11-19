@@ -99,7 +99,7 @@ def _refuse_video_layers(session):
     does not look, so neither the timing nor the build load would be real."""
     import _lumascope.modules.common_utils as common_utils
 
-    settings = session.settings_snapshot()
+    settings = session.settings_snapshot
     video = [
         layer for layer in common_utils.get_channels() if settings[layer].get('acquire') == 'video'
     ]
@@ -206,7 +206,7 @@ def main():
             protocol, period_s=args.period, duration_s=args.period * args.scans
         )
         figure('first', args.first)
-        figure('protocol.steps', protocol.num_steps())
+        figure('protocol.steps', protocol.num_steps)
         figure('protocol.scans', args.scans)
         figure('labware', args.labware or "the scope's own selection")
 

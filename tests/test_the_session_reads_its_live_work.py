@@ -275,7 +275,7 @@ def test_a_runs_hyperstack_is_post_processing_work_until_it_ends(sim_session, tm
     build = sim_session.post_processing.run_hyperstack(
         tmp_path,
         save_encoding='8bit',
-        channel_colors=sim_session.channel_colors(),
+        channel_colors=sim_session.channel_colors,
         written=written,
         stills=True,
         recordings=False,

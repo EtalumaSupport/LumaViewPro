@@ -49,7 +49,7 @@ def _refused(session, reason, **sources):
 
 
 def test_a_configuration_as_the_session_builds_it_builds(session, config):
-    assert session.scope.protocols.create_protocol(input_config=config).num_steps() > 0
+    assert session.scope.protocols.create_protocol(input_config=config).num_steps > 0
 
 
 @pytest.mark.parametrize(
@@ -161,19 +161,19 @@ def test_the_zstack_keys_are_not_read_when_not_stacking(session, config):
     # A composite or a plain scan carries no stack; its zstack_params may be empty.
     config['use_zstacking'] = False
     config['zstack_params'] = {}
-    assert session.scope.protocols.create_protocol(input_config=config).num_steps() > 0
+    assert session.scope.protocols.create_protocol(input_config=config).num_steps > 0
 
 
 def test_a_whole_number_stored_as_a_float_is_a_whole_number(session, config):
     # The settings store admits a count of 2.0 (its rule: a whole number),
     # so the build takes what the store holds.
     config['channel_configs']['BF']['sum'] = 2.0
-    assert session.scope.protocols.create_protocol(input_config=config).num_steps() > 0
+    assert session.scope.protocols.create_protocol(input_config=config).num_steps > 0
 
 
 def test_an_overlap_of_50_percent_builds(session, config):
     config['tiling_overlap_percent'] = 50.0
-    assert session.scope.protocols.create_protocol(input_config=config).num_steps() > 0
+    assert session.scope.protocols.create_protocol(input_config=config).num_steps > 0
 
 
 @pytest.mark.parametrize('acquire', [{}, [], 3])

@@ -169,7 +169,7 @@ def test_a_z_only_scope_names_the_axis_it_lacks(make_session, monkeypatch, model
     assert sent == []
     # A turret command parks no Z, and the scope still answers that it has no turret.
     assert scope.motion.get_current_position('Z') == z_before
-    assert scope.motion.turret_status() is None
+    assert scope.motion.turret_status is None
 
 
 def test_a_scope_with_no_turret_names_the_turret(make_session, monkeypatch):
@@ -180,7 +180,7 @@ def test_a_scope_with_no_turret_names_the_turret(make_session, monkeypatch):
 
     assert str(refusal) == 'This microscope has no turret.'
     assert sent == []
-    assert scope.motion.turret_status() is None
+    assert scope.motion.turret_status is None
 
 
 def test_the_travel_of_an_axis_the_tmcm_stage_lacks_is_refused_over_the_wire(make_session):
@@ -292,15 +292,15 @@ def test_a_position_read_of_an_absent_axis_answers_none(make_session, model, abs
     scope = make_session(model).scope
     for axis in absent:
         if axis == 'T':
-            assert scope.motion.turret_status() is None
+            assert scope.motion.turret_status is None
             continue
         assert scope.motion.get_current_position(axis) is None
-        assert scope.motion.target_positions().get(axis) is None
+        assert scope.motion.target_positions.get(axis) is None
         assert scope.motion.read_actual_position(axis) is None
     # The turret has a slot, not a position: the stage axes only.
     stage_axes = set(scope.capabilities.axes) - set(absent) - {'T'}
     assert set(scope.motion.get_current_positions()) == stage_axes
-    assert set(scope.motion.target_positions()) == stage_axes
+    assert set(scope.motion.target_positions) == stage_axes
 
 
 def test_after_disconnect_every_read_answers_none(make_session):
@@ -309,9 +309,9 @@ def test_after_disconnect_every_read_answers_none(make_session):
     motion = session.scope.motion
     for axis in 'XYZ':
         assert motion.get_current_position(axis) is None
-        assert motion.target_positions().get(axis) is None
+        assert motion.target_positions.get(axis) is None
     assert motion.get_current_positions() == {}
-    assert motion.target_positions() == {}
+    assert motion.target_positions == {}
 
 
 def test_a_present_axis_that_lost_its_reference_keeps_its_number(make_session):

@@ -38,11 +38,11 @@ try:
     )
 
     # --- the objective question: API-backed, GUI renders it ---
-    check('session.objective_question() exists', callable(s.objective_question))
+    check('session.objective_question is a read', isinstance(type(s).objective_question, property))
     check('session.confirm_objective() exists', callable(s.confirm_objective))
     s.clear_turret_objective(3)
     m.move_turret(3)
-    q = s.objective_question()
+    q = s.objective_question
     print('objective_question on an unassigned slot ->', q, flush=True)
     check(
         'landing on an unassigned slot produces a question a script can answer',
@@ -53,10 +53,10 @@ try:
         s.confirm_objective(b, slot=3)
         check(
             'confirm_objective assigns the slot, clears the question, and is active',
-            s.settings_snapshot()['turret_objectives'][3] == b
-            and s.objective_question() is None
+            s.settings_snapshot['turret_objectives'][3] == b
+            and s.objective_question is None
             and s.scope.runtime_state.resolve_current_objective()[0] == b,
-            str(s.settings_snapshot()['turret_objectives']),
+            str(s.settings_snapshot['turret_objectives']),
         )
 except BaseException:
     traceback.print_exc()

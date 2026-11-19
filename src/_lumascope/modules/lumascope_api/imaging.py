@@ -2397,7 +2397,7 @@ class ImagingAPI:
         driver.stop_grabbing()
 
     @api(reads=True)
-    def is_streaming(self) -> bool:
+    def read_streaming(self) -> bool:
         """Whether the camera is currently acquiring frames.
 
         Queries the driver directly, unlike the scope's connected parts
@@ -2415,7 +2415,7 @@ class ImagingAPI:
             return False
         return driver.is_grabbing()
 
-    def is_streaming_once_settled(self) -> bool:
+    def read_streaming_once_settled(self) -> bool:
         """Whether the camera is acquiring once the camera commands queued ahead have run.
 
         A consult seam for a gate that must not refuse a camera mid-way
@@ -2435,10 +2435,10 @@ class ImagingAPI:
             LaneCallStillRunningError: ``'call_overran'``, what is queued
                 ahead outlasted the restore's bound, 170 s.
         """
-        if self.is_streaming():
+        if self.read_streaming():
             return True
         return self._camera._read_on_lane(
-            self.is_streaming, 'is_streaming_once_settled', satisfied_when_absent=False
+            self.read_streaming, 'read_streaming_once_settled', satisfied_when_absent=False
         )
 
     # --- Operation flags ---
@@ -2662,7 +2662,8 @@ class ImagingAPI:
         if handle is not None:
             self._stream_check_scheduler.unschedule(handle)
 
-    @api(reads=True)
+    @api
+    @property
     def delivered_rate(self) -> DeliveredRate:
         """Read the rate the camera delivered frames, and their bytes on the link.
 
@@ -2714,7 +2715,7 @@ class ImagingAPI:
         deadline = time.monotonic() + wait_s
         with self._delivered_rate_published:
             while True:
-                rate = self.delivered_rate()
+                rate = self.delivered_rate
                 remaining = deadline - time.monotonic()
                 if rate.frame_rate_fps > 0 or remaining <= 0:
                     return rate

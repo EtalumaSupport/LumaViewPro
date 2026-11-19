@@ -46,7 +46,7 @@ def scope():
     )
     try:
         session.scope.motion.home()
-        assert session.scope.motion.axes_without_position() == {}
+        assert session.scope.motion.axes_without_position == {}
         yield session.scope
     finally:
         session.shutdown()
@@ -61,7 +61,7 @@ def test_after_a_reboot_the_api_no_longer_claims_to_know_the_stage(scope):
         scope.motion.move_z(100.0)
     assert (first.value.reason, first.value.cause) == ('not_connected', RefusalCause.RESTART)
 
-    assert scope.motion.axes_without_position() == dict.fromkeys('XYZT', AxisState.UNKNOWN)
+    assert scope.motion.axes_without_position == dict.fromkeys('XYZT', AxisState.UNKNOWN)
     with pytest.raises(HardwareCommandRefusedError) as refused:
         scope.motion.move_z(100.0)
     assert (refused.value.reason, refused.value.cause) == ('not_connected', RefusalCause.RESTART)
@@ -124,7 +124,7 @@ def test_a_cable_pulled_mid_move_faults_the_axis_within_the_deadline_and_says_so
             time.sleep(0.05)
         assert time.monotonic() - pulled >= motion._DISCONNECT_FAULT_S
         # The board is lost, so no axis knows its position, not only the one moving.
-        assert motion.axes_without_position() == dict.fromkeys(('X', 'Y', 'Z', 'T'), 'unknown')
+        assert motion.axes_without_position == dict.fromkeys(('X', 'Y', 'Z', 'T'), 'unknown')
         errors = [(n.category, n.title) for n in centre_posts if n.severity == Severity.ERROR]
         assert errors == [('Motion', 'Motor Board Disconnected')]
     finally:
@@ -153,18 +153,18 @@ def test_a_board_lost_while_every_axis_is_idle_reads_as_lost(model):
         assert scope.motor_connected is False
 
         unknown = AxisPosition(AxisState.UNKNOWN, None)
-        assert motion.axis_positions() == dict.fromkeys(('X', 'Y', 'Z'), unknown)
+        assert motion.axis_positions == dict.fromkeys(('X', 'Y', 'Z'), unknown)
         assert session.status.axes == dict.fromkeys(('X', 'Y', 'Z'), unknown)
         turret = TurretStatus(AxisState.UNKNOWN, None) if 'T' in scope.capabilities.axes else None
-        assert (motion.turret_status(), session.status.turret) == (turret, turret)
-        assert motion.axes_without_position().keys() - {'T'}
+        assert (motion.turret_status, session.status.turret) == (turret, turret)
+        assert motion.axes_without_position.keys() - {'T'}
         with pytest.raises(HardwareCommandRefusedError) as refused:
-            motion.interlocks()
+            motion.read_interlocks()
         assert (refused.value.reason, refused.value.missing) == (
             'not_connected',
             MissingPart(Part.MOTOR),
         )
-        assert scope.diagnostics.motor_info() == MotorBoardInfo(None, None, None, None, None)
+        assert scope.diagnostics.motor_info == MotorBoardInfo(None, None, None, None, None)
     finally:
         session.shutdown()
 

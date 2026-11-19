@@ -121,7 +121,7 @@ class TestBinningRoundTrip:
 # The deliverable frame-size granularity the UI floors to before handing the
 # size to the camera: even (2x2) on every camera, each of which acquires the
 # next window up on its own grid and crops back. The UI sources it from
-# camera.pixel_alignment(), NOT a hardcoded grid.
+# camera.pixel_alignment, NOT a hardcoded grid.
 IDS_DELIVERABLE_ALIGN = {'width': 2, 'height': 2}
 
 
@@ -168,11 +168,13 @@ class TestDeliverableAlignmentFloor:
         assert disp['height'] == 950
         assert disp['height'] != 948
 
-    def test_the_frame_and_binning_members_floor_to_the_drivers_alignment(self, tmp_path):
+    def test_the_frame_and_binning_members_floor_to_the_drivers_alignment(
+        self, tmp_path, monkeypatch
+    ):
         # Pin the fix where the displayed size is derived: both frame-size
         # paths (a frame edit and a binning change, CameraAPI.set_frame_size
         # / set_binning) floor to the ACTIVE driver's deliverable
-        # granularity via camera.pixel_alignment(), not a hardcoded grid
+        # granularity via camera.pixel_alignment, not a hardcoded grid
         # -- else a non-cropping driver persists an undeliverable size (the
         # reviewed regression). The simulator's own grid is 48x4; the driver
         # here reports the IDS even grid, so a request floored to anything
@@ -183,7 +185,9 @@ class TestDeliverableAlignmentFloor:
         session = ScopeSession.create(complete_settings(live_folder=str(tmp_path)), simulate=True)
         try:
             camera = session.scope.camera
-            camera.pixel_alignment = lambda: IDS_DELIVERABLE_ALIGN
+            monkeypatch.setattr(
+                type(camera), 'pixel_alignment', property(lambda self: IDS_DELIVERABLE_ALIGN)
+            )
             requests = []
             real = camera._set_frame_size_impl
             camera._set_frame_size_impl = lambda w, h: requests.append((w, h)) or real(w, h)
@@ -195,7 +199,7 @@ class TestDeliverableAlignmentFloor:
 
         assert requests == [(1150, 802), (574, 400)], (
             'set_frame_size and set_binning must floor to '
-            'camera.pixel_alignment() (per-driver), not a hardcoded alignment; '
+            'camera.pixel_alignment (per-driver), not a hardcoded alignment; '
             f'the camera was asked for {requests}'
         )
 

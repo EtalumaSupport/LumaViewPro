@@ -254,7 +254,7 @@ def test_a_feature_saved_on_for_a_camera_without_it_is_saved_off_and_told_once(c
     assert saved['camera']['line_noise_reduction'] is False
     told = [p for p in centre_posts if p.reason == 'camera_feature_absent']
     assert len(told) == 2
-    substituted = {s.setting for s in scope.bring_up_record().substitutions}
+    substituted = {s.setting for s in scope.bring_up_record.substitutions}
     assert {'camera.high_conversion_gain', 'camera.line_noise_reduction'} <= substituted
 
 

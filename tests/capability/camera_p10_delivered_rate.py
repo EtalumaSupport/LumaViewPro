@@ -43,7 +43,7 @@ def _row(scope, label):
     row = {
         'observed_fps': derived.get('observed_fps'),
         'is_camera_rate': derived.get('observed_fps_is_camera_rate'),
-        'lvp_fps': scope.imaging.delivered_rate().frame_rate_fps,
+        'lvp_fps': scope.imaging.delivered_rate.frame_rate_fps,
         'fps_max': config.get('acquisition_frame_rate_max', config.get('resulting_frame_rate')),
         'limiter': config.get('dltl_component'),
         'dltl_bps': config.get('dltl_value_bps'),
@@ -97,9 +97,9 @@ def _measure(session):
     cam = scope.camera
     figure('camera_model', scope.capabilities.camera_model)
     figure('firmware', scope.diagnostics.run_pylon_diagnostic_probe(0).get('camera'))
-    if not scope.imaging.is_streaming():
+    if not scope.imaging.read_streaming():
         scope.imaging.enable_streaming()
-    check('the camera is streaming', scope.imaging.is_streaming())
+    check('the camera is streaming', scope.imaging.read_streaming())
     figure('exposure_ms', cam.set_exposure_ms(EXPOSURE_MS))
 
     cam.set_image_mode('8bit')

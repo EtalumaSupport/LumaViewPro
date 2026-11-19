@@ -169,7 +169,7 @@ class ProtocolStepRunner:
                 # 'position_lost' with its remedy.
                 if (
                     p._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS
-                    and not p._scope.motion.axes_without_position()
+                    and not p._scope.motion.axes_without_position
                 ):
                     p._ending.set_if_unset(_ending_of_a_failed_autofocus(_af_exc))
             _cam_gain = p._scope.camera.gain_db
@@ -360,7 +360,7 @@ class ProtocolStepRunner:
         # path that can lose a position on the way (a failed autofocus
         # restore reaches this point without raising). The raise ends the run
         # through the run loop's classification.
-        lost_axes = p._scope.motion.axes_without_position()
+        lost_axes = p._scope.motion.axes_without_position
         if lost_axes:
             raise AxisStateUnknownError(lost_axes)
         # After the lost-position check: a stall's own STOP ends every other
@@ -466,7 +466,7 @@ class ProtocolStepRunner:
             f'[TIMING] Step {p._curr_step + 1} total: {(time.monotonic() - p._step_start_time) * 1000:.1f}ms'
         )
 
-        num_steps = p._protocol.num_steps()
+        num_steps = p._protocol.num_steps
         if p._curr_step < num_steps - 1:
             with p._protocol_state_lock:
                 p._curr_step = min(p._curr_step + 1, num_steps - 1)
@@ -678,7 +678,7 @@ class ProtocolStepRunner:
             captures: Whether the step captures a frame.
         """
         p = self._p
-        num_steps = p._protocol.num_steps()
+        num_steps = p._protocol.num_steps
         same_color = False
         same_zstack_group = False
         is_scan_boundary = False

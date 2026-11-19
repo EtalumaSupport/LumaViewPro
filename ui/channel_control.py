@@ -980,5 +980,5 @@ class ChannelControl(BoxLayout):
         false colour box ticked, grey without; during a run, the box the
         run's step set."""
         return channel_record.shown_color(
-            self.channel, self.ids['false_color'].active, _app_ctx.ctx.session.channel_colors()
+            self.channel, self.ids['false_color'].active, _app_ctx.ctx.session.channel_colors
         )

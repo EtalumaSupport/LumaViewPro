@@ -157,7 +157,7 @@ def test_a_clients_stop_that_withholds_the_runs_turret_change_ends_the_run(
     session = turret_session
     motion = session.scope.motion
     held = session.scope.simulation.hold_axis('T')
-    theirs = motion.start_move_turret(3 if motion.turret_status().slot != 3 else 2)
+    theirs = motion.start_move_turret(3 if motion.turret_status.slot != 3 else 2)
     held.result(_HOLD_WAIT_S)
     run = session.protocol_runner().start_single_scan(
         protocol=_build_real_protocol([{**_steps(60.0)[0], 'Objective': '4x Oly'}]),

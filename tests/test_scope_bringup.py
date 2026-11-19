@@ -97,7 +97,7 @@ class TestShutdownStopsWhatTheSessionHolds:
         session.shutdown()
 
         # The scope is the factory's too: the same call disconnects it.
-        assert session.scope.imaging.is_streaming() is False
+        assert session.scope.imaging.read_streaming() is False
         assert session.scope.motor_connected is False
         for wrapper in (
             bundle.protocol_thread,

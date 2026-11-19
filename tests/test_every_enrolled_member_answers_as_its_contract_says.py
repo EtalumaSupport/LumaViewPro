@@ -310,7 +310,7 @@ def _over_a_well(session: ScopeSession) -> list[dict]:
     motion.move_xy(y_um=30000.0)
     motion.move_z(1000.0)
     motion.wait_until_finished_moving(timeout_s=60)
-    here = session.plate_position()
+    here = session.plate_position
     return [{'x': here.x_mm, 'y': here.y_mm, 'z': here.z_um, 'name': 'A1'}]
 
 
@@ -463,7 +463,7 @@ def _valid_rows() -> list[Valid]:
             lambda s: s.session.save_protocol(s.protocol, s.live / 'saved' / 'p.tsv'),
             lambda s, path: (
                 None
-                if s.session.load_protocol(path).num_steps() == s.protocol.num_steps()
+                if s.session.load_protocol(path).num_steps == s.protocol.num_steps
                 else 'the protocol read back has other steps'
             ),
             ('/api/v1/save_protocol', lambda s: {'protocol': s.handle, 'file_path': 'wire/p.tsv'}),
@@ -476,7 +476,7 @@ def _valid_rows() -> list[Valid]:
             ),
             lambda s, loaded: (
                 None
-                if loaded.num_steps() == s.protocol.num_steps()
+                if loaded.num_steps == s.protocol.num_steps
                 else 'the protocol loaded has other steps'
             ),
             ('/api/v1/load_protocol', lambda s: {'file_path': 'loaded/p.tsv'}),
@@ -489,7 +489,7 @@ def _valid_rows() -> list[Valid]:
             ),
             lambda s, opened: (
                 None
-                if opened.num_steps() == s.protocol.num_steps()
+                if opened.num_steps == s.protocol.num_steps
                 else 'the protocol opened has other steps'
             ),
         ),
@@ -620,15 +620,13 @@ def _valid_rows() -> list[Valid]:
             'MotionAPI.home',
             lambda s: s.session.scope.motion.home(),
             lambda s, _: (
-                'not homed'
-                if s.session.scope.motion.axes_without_position().keys() - {'T'}
-                else None
+                'not homed' if s.session.scope.motion.axes_without_position.keys() - {'T'} else None
             ),
         ),
         Valid(
             'tiling_config',
             'ScopeSession.tiling_config',
-            lambda s: s.session.tiling_config(),
+            lambda s: s.session.tiling_config,
             lambda s, grids: None if grids.default in grids.available else f'{grids}',
             ('/api/v1/tiling_config', lambda s: {}),
         ),

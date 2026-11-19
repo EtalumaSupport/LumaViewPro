@@ -21,10 +21,10 @@ try:
 
     protocol = scope.protocols.create_protocol(empty_config=s.get_sequenced_capture_config())
     names = s.add_step(protocol, before_step_index=0)
-    print('P10: add_step ->', names, 'steps now', protocol.num_steps())
+    print('P10: add_step ->', names, 'steps now', protocol.num_steps)
     harness.check(
         'a script can add a step through the Session',
-        protocol.num_steps() == 1 and protocol.step_row(step_index=0)['channel'] == 'BF',
+        protocol.num_steps == 1 and protocol.step_row(step_index=0)['channel'] == 'BF',
     )
 
     from _lumascope.modules.exceptions import ProtocolRunRefusedError
@@ -36,7 +36,7 @@ try:
     except ProtocolRunRefusedError as e:
         refused = e.reason == 'no_acquiring_channel'
     harness.check('an add that would add nothing is refused at the API', refused)
-    harness.check('the refusal added nothing', protocol.num_steps() == 1)
+    harness.check('the refusal added nothing', protocol.num_steps == 1)
 except Exception:
     traceback.print_exc()
     harness.check('probe completed without an unexpected raise', False)

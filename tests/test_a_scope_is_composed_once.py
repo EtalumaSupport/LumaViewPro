@@ -49,11 +49,11 @@ def test_a_second_settings_binding_is_refused_and_the_sessions_stay(session):
 
     assert refused.value.reason == 'scope_composed'
     assert session.scope.read_setting('objective_id') == session.settings['objective_id']
-    assert session.scope.bring_up_record() == session.bring_up_record()
+    assert session.scope.bring_up_record == session.bring_up_record
 
 
 def test_after_bring_up_nothing_is_written_or_recorded_as_bring_ups(session):
-    record = session.bring_up_record()
+    record = session.bring_up_record
     written = []
 
     with pytest.raises(AlreadyStartedError) as write_refused:
@@ -66,4 +66,4 @@ def test_after_bring_up_nothing_is_written_or_recorded_as_bring_ups(session):
         'bring_up_ended',
     )
     assert written == []
-    assert session.bring_up_record() == record
+    assert session.bring_up_record == record

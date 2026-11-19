@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """The scope publishes its effective pixel size and field of view, so no caller recomputes them.
 
-``scope.runtime_state.pixel_size_um()`` is the micrometres per pixel at
+``scope.runtime_state.pixel_size_um`` is the micrometres per pixel at
 the current objective and the camera's binning, the scale every saved image
 carries; ``field_of_view()`` is the area the camera's frame covers at
 that scale, a record of width and height in micrometres. Each is refused,
@@ -10,7 +10,7 @@ naming its first cause, when it cannot be known: no objective known
 optics the scope does not declare, a binning or a frame the camera has not
 reported (``PixelSizeUnknownError``); ``frame_point_distance``, the stage
 distance to a point of the frame, is refused as the field of view is.
-``optics_status()`` answers the objective and the field of view for a
+``optics_status`` answers the objective and the field of view for a
 display: each its value, or the refusal that says why it is unknown, never
 raised.
 
@@ -69,7 +69,7 @@ def test_each_answers_the_scale_and_extent_of_a_saved_still(tmp_path, microscope
             path = _saved_still(session)
             height, width = tifffile.imread(path).shape[:2]
 
-            pixel_size_um = state.pixel_size_um()
+            pixel_size_um = state.pixel_size_um
             assert _rounded(pixel_size_um) == read_pixel_size_um(path), (microscope, size)
             assert state.field_of_view() == FieldOfView(
                 width_um=pixel_size_um * width, height_um=pixel_size_um * height
@@ -81,9 +81,9 @@ def test_each_answers_the_scale_and_extent_of_a_saved_still(tmp_path, microscope
 def test_the_pixel_size_follows_the_binning(tmp_path):
     session = _session(tmp_path, microscope='LS850')
     try:
-        at_one = session.scope.runtime_state.pixel_size_um()
+        at_one = session.scope.runtime_state.pixel_size_um
         session.scope.camera.set_binning(2)
-        assert session.scope.runtime_state.pixel_size_um() == pytest.approx(2 * at_one)
+        assert session.scope.runtime_state.pixel_size_um == pytest.approx(2 * at_one)
     finally:
         session.shutdown()
 
@@ -91,7 +91,7 @@ def test_the_pixel_size_follows_the_binning(tmp_path):
 def _refusals(state):
     """Each scale read's refusal, by read: its type and reason."""
     reads = {
-        'pixel_size': state.pixel_size_um,
+        'pixel_size': lambda: state.pixel_size_um,
         'field_of_view': state.field_of_view,
         'frame_point_distance': lambda: state.frame_point_distance(0.5, 0.5),
     }
@@ -130,12 +130,12 @@ def test_with_the_cameras_binning_or_frame_unknown_each_is_refused_naming_it(tmp
     session = _session(tmp_path, microscope='LS850')
     try:
         state = session.scope.runtime_state
-        assert state.pixel_size_um() is not None
+        assert state.pixel_size_um is not None
         # Unanswered twice: the write and the API's one resend.
         session.scope.simulation.refuse_camera_write('frame_size', 'no_answer', count=2)
         with pytest.raises(CameraSettingRejected):
             session.scope.camera.set_frame_size(800, 600)
-        assert state.pixel_size_um() > 0
+        assert state.pixel_size_um > 0
         with pytest.raises(PixelSizeUnknownError) as frame_unread:
             state.field_of_view()
         assert frame_unread.value.reason == 'frame_size_unread'
@@ -181,10 +181,10 @@ def test_the_optics_status_answers_the_objective_and_the_field_of_view(tmp_path)
     session = _session(tmp_path, microscope='LS850')
     try:
         state = session.scope.runtime_state
-        assert state.optics_status() == OpticsStatus(
+        assert state.optics_status == OpticsStatus(
             objective=state.get_current_objective_id(), field_of_view=state.field_of_view()
         )
-        assert isinstance(state.optics_status().field_of_view, FieldOfView)
+        assert isinstance(state.optics_status.field_of_view, FieldOfView)
     finally:
         session.shutdown()
 
@@ -216,7 +216,7 @@ def test_an_unknown_objective_is_answered_as_its_refusal_in_both_fields(
         if turret_slot is not None:
             home_sim_scope(session.scope)
             session.scope.motion.move_turret(turret_slot)
-        status = session.scope.runtime_state.optics_status()
+        status = session.scope.runtime_state.optics_status
         assert _refusal(status.objective) == ('ObjectiveUnknownError', reason)
         assert _refusal(status.field_of_view) == ('ObjectiveUnknownError', reason)
     finally:
@@ -231,7 +231,7 @@ def test_with_no_camera_the_objective_is_known_and_the_field_of_view_is_the_came
         state = session.scope.runtime_state
         known = state.get_current_objective_id()
         session.scope.simulation.remove_camera()
-        status = state.optics_status()
+        status = state.optics_status
         assert status.objective == known
         assert _refusal(status.field_of_view) == ('HardwareCommandRefusedError', 'not_connected')
         assert status.field_of_view.missing.part == Part.CAMERA
@@ -247,7 +247,7 @@ def test_a_frame_or_binning_the_camera_has_not_reported_is_answered_as_its_refus
         session.scope.simulation.refuse_camera_write('frame_size', 'no_answer', count=2)
         with pytest.raises(CameraSettingRejected):
             session.scope.camera.set_frame_size(800, 600)
-        assert _refusal(state.optics_status().field_of_view) == (
+        assert _refusal(state.optics_status.field_of_view) == (
             'PixelSizeUnknownError',
             'frame_size_unread',
         )
@@ -255,7 +255,7 @@ def test_a_frame_or_binning_the_camera_has_not_reported_is_answered_as_its_refus
         session.scope.simulation.refuse_camera_write('binning', 'no_answer', count=2)
         with pytest.raises(CameraSettingRejected):
             session.scope.camera.set_binning(2)
-        assert _refusal(state.optics_status().field_of_view) == (
+        assert _refusal(state.optics_status.field_of_view) == (
             'PixelSizeUnknownError',
             'binning_unread',
         )

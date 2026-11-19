@@ -152,12 +152,13 @@ class ProtocolsAPI:
         """
         return self._scope._tiling_grids
 
+    @property
     def tiling_config(self) -> TilingConfig:
         """The tiling grids this installation offers: the scope's copy, read at bring-up.
 
         What a caller needs to choose a grid: ``available`` lists the
         labels ``create_protocol`` and ``Protocol.apply_tiling`` accept,
-        and ``default`` is the one to preselect; ``Protocol.tiling()``
+        and ``default`` is the one to preselect; ``Protocol.tiling``
         names the grid a protocol's steps already carry. Read once with the
         installation's other catalogues, so a tiling.json edited while the
         program runs is seen at the next start; a file no reader can use
@@ -233,7 +234,7 @@ class ProtocolsAPI:
         checked = time.monotonic()
         logger.info(
             f'[Protocol] Loaded "{pathlib.Path(file_path).name}": '
-            f'{protocol.num_steps()} steps, read in {read - started:.2f} s, '
+            f'{protocol.num_steps} steps, read in {read - started:.2f} s, '
             f'checked in {checked - read:.2f} s'
         )
         return protocol
@@ -340,8 +341,8 @@ class ProtocolsAPI:
                 frame_dimensions=input_config['frame_dimensions'],
                 binning_size=input_config['binning_size'],
                 axis_limits=self._travel_limits(),
-                labware=self._scope.wellplate_loader.get_plate(labware_id=protocol.labware_id()),
-                stage_offset=self._scope.runtime_state.stage_offset(),
+                labware=self._scope.wellplate_loader.get_plate(labware_id=protocol.labware_id),
+                stage_offset=self._scope.runtime_state.stage_offset,
                 overlap_percent=input_config.get('tiling_overlap_percent', 0.0),
                 capabilities=self._scope.capabilities,
                 objective_helper=self._scope.objective_helper,
@@ -428,7 +429,7 @@ class ProtocolsAPI:
         # Judged before the z-stack, so a base Z outside travel is one refusal.
         outside = self._outside_travel(
             [('the new step', _plate_location_axes(plate_position, 'at'))],
-            protocol.labware_id(),
+            protocol.labware_id,
         )
         if outside:
             self._refuse(
@@ -442,7 +443,7 @@ class ProtocolsAPI:
         ordered = [channel for channel in (channel_order or []) if channel in channel_configs]
         ordered += [channel for channel in channel_configs if channel not in ordered]
         if before_step_index is None and after_step_index is None:
-            after_step_index = protocol.num_steps() - 1
+            after_step_index = protocol.num_steps - 1
         acquiring = [
             channel for channel in ordered if Protocol.channel_acquires(channel_configs[channel])
         ]
@@ -480,13 +481,13 @@ class ProtocolsAPI:
             )
             before_step_index, after_step_index = None, inserted_at
         if zstack_params is not None:
-            steps_before = protocol.num_steps()
+            steps_before = protocol.num_steps
             protocol.apply_zstacking(
                 zstack_params,
                 self._travel_limits(),
                 only=range(first_added, first_added + len(names)),
             )
-            added = len(names) + protocol.num_steps() - steps_before
+            added = len(names) + protocol.num_steps - steps_before
             names = [
                 protocol.step_row(step_index=idx)['Name']
                 for idx in range(first_added, first_added + added)
@@ -791,8 +792,8 @@ class ProtocolsAPI:
             frame_dimensions=frame_dimensions,
             binning_size=binning_size,
             axis_limits=self._travel_limits(),
-            labware=self._scope.wellplate_loader.get_plate(labware_id=protocol.labware_id()),
-            stage_offset=self._scope.runtime_state.stage_offset(),
+            labware=self._scope.wellplate_loader.get_plate(labware_id=protocol.labware_id),
+            stage_offset=self._scope.runtime_state.stage_offset,
             overlap_percent=overlap_percent,
             capabilities=self._scope.capabilities,
             objective_helper=self._scope.objective_helper,
@@ -868,7 +869,7 @@ class ProtocolsAPI:
         x = y = None
         if 'X' in axes and 'Y' in axes and px is not None and py is not None:
             stage = self._scope.runtime_state.plate_to_stage(
-                px, py, labware_id=protocol.labware_id(), stage_offset=stage_offset
+                px, py, labware_id=protocol.labware_id, stage_offset=stage_offset
             )
             x, y = stage.x_um, stage.y_um
         return x, y, (z if 'Z' in axes else None)
@@ -958,7 +959,7 @@ class ProtocolsAPI:
         # from the channel's saved focus -- a step is where the scope will be
         # sent. And ahead of the objective, whose advice (set the slot's
         # objective) is wrong when the slot itself is what is unknown.
-        unknown_axes = self._scope.motion.axes_without_position()
+        unknown_axes = self._scope.motion.axes_without_position
         if unknown_axes:
             self._refuse(
                 reason='step_position_unknown',
@@ -1022,7 +1023,7 @@ class ProtocolsAPI:
         )
 
         present = {record.key_name for record in self._scope.channel_identity.channels}
-        rows = {name: row for name, row in protocol.channel_settings().items() if name in present}
+        rows = {name: row for name, row in protocol.channel_settings.items() if name in present}
         refuse_values_out_of_range(
             channel_settings_values_refused(rows),
             "The protocol's Layer Settings",
@@ -1280,7 +1281,7 @@ class ProtocolsAPI:
         if {'X', 'Y'} & set(axis_limits):
             plate = {
                 'labware': self._scope.wellplate_loader.get_plate(labware_id=labware_key),
-                'stage_offset': self._scope.runtime_state.stage_offset(),
+                'stage_offset': self._scope.runtime_state.stage_offset,
             }
         outside = []
         for label, position in positions:
@@ -1310,7 +1311,7 @@ class ProtocolsAPI:
             steps: The protocol's steps table (``Protocol.steps()``), its
                 positions already validated as numbers.
             labware_key: The plate the protocol's X/Y are measured on
-                (``Protocol.labware_id()``), already validated as known.
+                (``Protocol.labware_id``), already validated as known.
 
         Raises:
             ProtocolRunRefusedError: ``positions_outside_travel``.
@@ -1425,7 +1426,7 @@ class ProtocolsAPI:
         """
         if not self._scope.capabilities.has_turret:
             return -1
-        return self._scope.motion.turret_status().slot
+        return self._scope.motion.turret_status.slot
 
     @classmethod
     def _slot_meant(cls, objective_id: object, slot: int, turret_config: dict) -> int | None:
@@ -1479,7 +1480,7 @@ class ProtocolsAPI:
         """
         if not self._scope.capabilities.has_turret:
             return
-        live = self._scope.motion.turret_status().slot
+        live = self._scope.motion.turret_status.slot
         turret_config = self._scope.runtime_state.turret_config()
         by_slot: dict[int, list[int]] = {}
         for idx, objective_id in enumerate(protocol.steps()['Objective']):

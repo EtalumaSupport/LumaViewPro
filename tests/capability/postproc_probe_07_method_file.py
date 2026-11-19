@@ -29,7 +29,7 @@ def main() -> int:
 
     session, _live = harness.make_session('method_file')
     post = session.post_processing
-    method = dataclasses.replace(post.default_cell_count_method(), pixels_per_um=2.6)
+    method = dataclasses.replace(post.default_cell_count_method, pixels_per_um=2.6)
     post.save_cell_count_method(method, path)
     loaded = post.load_cell_count_method(path)
     harness.check(

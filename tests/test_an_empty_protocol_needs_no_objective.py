@@ -37,7 +37,7 @@ def test_an_empty_protocol_is_built_while_the_objective_is_unknown(unassigned_tu
 
     protocol = session.create_empty_protocol()
 
-    assert protocol.num_steps() == 0
+    assert protocol.num_steps == 0
 
 
 def test_a_run_config_still_refuses_the_unknown_objective(unassigned_turret_session):

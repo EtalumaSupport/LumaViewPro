@@ -108,10 +108,10 @@ def _lit_by_going_to_each_step(session, protocol) -> list[int]:
     """The LED address each step lights when gone to with the preview on."""
     session.update_settings('protocol_led_on', True)
     lit = []
-    for index in range(protocol.num_steps()):
+    for index in range(protocol.num_steps):
         session.go_to_step(protocol, index)
         lit.extend(
-            r.address for r in session.scope.illumination.led_states() if r.state.name == 'LIT'
+            r.address for r in session.scope.illumination.led_states if r.state.name == 'LIT'
         )
     return lit
 
@@ -140,7 +140,7 @@ def test_an_old_protocol_loads_in_the_units_keys_and_lights_its_leds(
         protocol = session.load_protocol(str(old))
         steps = protocol.steps()
         colors = list(steps['channel'])
-        settings_keys = set(protocol.channel_settings())
+        settings_keys = set(protocol.channel_settings)
         names = list(steps['Name'])
         lit = _lit_by_going_to_each_step(session, protocol)
     finally:

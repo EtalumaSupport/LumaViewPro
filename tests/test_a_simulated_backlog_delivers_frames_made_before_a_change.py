@@ -149,7 +149,7 @@ def test_clear_releases_the_held_frames(sim_scope):
 
     ids = [f.chunks['FrameID'] for f in frames]
     assert ids == sorted(ids) and len(set(ids)) == len(ids)
-    assert sim_scope.simulation.injected() == ()
+    assert sim_scope.simulation.injected == ()
 
 
 def test_a_frame_the_camera_did_not_deliver_has_no_record(sim_scope):

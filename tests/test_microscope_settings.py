@@ -294,9 +294,7 @@ class TestTheFramingRedrawShowsTheStore:
         # scope's answer, which the scope's own test pins on the simulator
         ctx = SimpleNamespace(
             scope=SimpleNamespace(
-                runtime_state=SimpleNamespace(
-                    optics_status=lambda: SimpleNamespace(field_of_view=fov)
-                )
+                runtime_state=SimpleNamespace(optics_status=SimpleNamespace(field_of_view=fov))
             )
         )
         monkeypatch.setattr(app_context, 'ctx', ctx)

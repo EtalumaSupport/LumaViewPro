@@ -27,7 +27,7 @@ def test_every_step_names_the_objective_in_the_light_path(tmp_path):
 
         protocol = session.new_protocol()
 
-        assert protocol.num_steps() > 0
+        assert protocol.num_steps > 0
         assert set(protocol.steps()['Objective']) == {current}
 
 

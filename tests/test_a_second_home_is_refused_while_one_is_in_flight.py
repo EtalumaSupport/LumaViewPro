@@ -87,7 +87,7 @@ class TestOneHomeAtATime:
         first.join(HOME_S)
         assert not first.is_alive()
         assert board.count == 1
-        assert scope.motion.axes_without_position() == {}
+        assert scope.motion.axes_without_position == {}
 
     # Two simulated homes, 6-8 s on the LS850 and LS850T.
     @pytest.mark.slow
@@ -121,7 +121,7 @@ class TestTheClaimEndsWithItsHome:
 
         monkeypatch.setattr(scope._motion_driver, 'home', real)
         scope.motion.home()
-        assert scope.motion.axes_without_position() == {}
+        assert scope.motion.axes_without_position == {}
 
 
 @pytest.fixture

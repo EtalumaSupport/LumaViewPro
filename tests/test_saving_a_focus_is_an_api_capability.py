@@ -62,10 +62,10 @@ def _protocol_bf_bf_blue(session):
     for x_um in (10000, 20000):
         session.scope.motion.move_xy(x_um=x_um)
         session.set_channel_settings(LED0, acquire=None)
-        session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
+        session.add_step(protocol, after_step_index=protocol.num_steps - 1)
     session.set_channel_settings(LED0, acquire='image')
     session.set_channel_settings('BF', acquire=None)
-    session.add_step(protocol, after_step_index=protocol.num_steps() - 1)
+    session.add_step(protocol, after_step_index=protocol.num_steps - 1)
     session.set_channel_settings('BF', acquire='image')
     assert [protocol.step_row(i)['channel'] for i in range(3)] == ['BF', 'BF', LED0]
     assert [protocol.step_row(i)['Z'] for i in range(3)] == [LAYER_FOCUS] * 3
@@ -77,7 +77,7 @@ def _go_to_z(session, z):
 
 
 def _zs(protocol):
-    return [protocol.step_row(i)['Z'] for i in range(protocol.num_steps())]
+    return [protocol.step_row(i)['Z'] for i in range(protocol.num_steps)]
 
 
 class TestSaveFocus:

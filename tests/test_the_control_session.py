@@ -319,21 +319,21 @@ class TestEveryDoorRefusesAsOneClass:
             sim_session.scope.illumination.led_on(LED1, 10)
         assert refused.value.reason == 'control_session_held'
         assert refused.value.control_session == 'plate reader'
-        lit = [r for r in sim_session.scope.illumination.led_states() if r.state == LedState.LIT]
+        lit = [r for r in sim_session.scope.illumination.led_states if r.state == LedState.LIT]
         assert lit == []
 
     def test_a_move(self, sim_session, held):
-        before = sim_session.scope.motion.target_positions()['Z']
+        before = sim_session.scope.motion.target_positions['Z']
         with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.scope.motion.move_z(before + 10)
         assert refused.value.reason == 'control_session_held'
-        assert sim_session.scope.motion.target_positions()['Z'] == before
+        assert sim_session.scope.motion.target_positions['Z'] == before
 
     def test_a_camera_command(self, sim_session, held):
         with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.scope.imaging.disable_streaming()
         assert refused.value.reason == 'control_session_held'
-        assert sim_session.scope.imaging.is_streaming()
+        assert sim_session.scope.imaging.read_streaming()
 
     def test_the_holders_home_takes_the_scope(self, sim_session, held):
         with sim_session.acting_in_control(held):
@@ -452,7 +452,7 @@ class TestTheSessionsWrites:
         with pytest.raises(ControlSessionRefusedError) as refused:
             sim_session.scope.protocols.delete_step(protocol, 0)
         assert refused.value.reason == 'control_session_held'
-        assert protocol.num_steps() == 1
+        assert protocol.num_steps == 1
 
     def test_a_non_holders_camera_write_changes_nothing(self, sim_session, held):
         before = sim_session.scope.camera.frame_size
@@ -554,13 +554,13 @@ class TestTheSessionsMembers:
     # Never confirmed for this light path, so the question is owed.
     @pytest.mark.parametrize('sim_session', [{'objective_confirmed': None}], indirect=True)
     def test_the_objective_question_is_put_to_the_holder_and_not_to_anyone_else(self, sim_session):
-        assert sim_session.objective_question() is not None
+        assert sim_session.objective_question is not None
         with calling(Caller.REST):
             session_id = sim_session.take_control('plate reader')
 
-        assert sim_session.objective_question() is None, 'its answer would be refused'
+        assert sim_session.objective_question is None, 'its answer would be refused'
         with sim_session.acting_in_control(session_id):
-            assert sim_session.objective_question() is not None
+            assert sim_session.objective_question is not None
 
     def test_the_controls_lock_names_the_session_and_nothing_runs(self, sim_session):
         _take_on(sim_session)

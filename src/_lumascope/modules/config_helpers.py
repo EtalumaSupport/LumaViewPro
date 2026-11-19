@@ -52,7 +52,7 @@ def find_nearest_step(x: float, y: float, protocol: 'Protocol | None') -> int:
     A step with no X/Y is at no place on the plate, so it is never the
     nearest; -1 when no step has one.
     """
-    if protocol is None or protocol.num_steps() <= 0:
+    if protocol is None or protocol.num_steps <= 0:
         return -1
 
     placed = protocol.steps()[['X', 'Y']].dropna()
@@ -840,7 +840,7 @@ def _buffer_line(tick: _Tick) -> str:
     # allocates ~3 fresh OS-level buffers (camera copy, 12->8 LUT, tobytes()).
     # The standby-cache growth in [PDH METRICS] should track the data rate
     # roughly. The display's rate is the GUI's, logged only where one exists.
-    delivered = tick.scope.imaging.delivered_rate()
+    delivered = tick.scope.imaging.delivered_rate
     wire_frame_bytes = (
         delivered.bytes_per_s / delivered.frame_rate_fps if delivered.frame_rate_fps else 0.0
     )

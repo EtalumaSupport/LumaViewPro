@@ -62,5 +62,5 @@ def test_a_z_move_asked_mid_change_runs_after_the_restore(sim_turreted_session):
     asking.join(_WAIT_S)
 
     assert outcome == {'turret': 'returned', 'z': 'returned'}
-    assert motion.turret_status().slot == 2
+    assert motion.turret_status.slot == 2
     assert motion.get_current_position('Z') == pytest.approx(_ASKED_Z_UM, abs=0.1)

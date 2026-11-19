@@ -508,7 +508,7 @@ class TestTheRunLoopsOwnEndings:
         # a mock here raises and the run ends as a crash -- masking the case
         # under test.
         runner._protocol.estimate_write_mb.return_value = 500.0
-        runner._protocol.num_steps.return_value = 1
+        runner._protocol.num_steps = 1
         # start() always sets these from the run's plan; the bare harness
         # does not, and the run loop reads them to size the run.
         runner._video_sizing_fps = 30.0
@@ -540,9 +540,9 @@ def _plain_scan_protocol(session):
     import _lumascope.modules.config_helpers as config_helpers
 
     input_config = config_helpers.get_composite_capture_config_from_settings(
-        session.settings_snapshot(),
+        session.settings_snapshot,
         session.scope.objective_helper,
-        position=session.plate_position(),
+        position=session.plate_position,
     )
     return session.scope.protocols.create_protocol(input_config=input_config)
 

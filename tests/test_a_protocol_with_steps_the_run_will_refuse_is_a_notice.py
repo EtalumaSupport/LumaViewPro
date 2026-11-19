@@ -51,7 +51,7 @@ def test_a_loaded_file_with_an_invalid_step_loads_and_is_noticed_once(session, r
 
     loaded = session.load_protocol(path)
 
-    assert loaded.num_steps() == protocol.num_steps()
+    assert loaded.num_steps == protocol.num_steps
     assert reported == [('ProtocolStepsInvalidNotice', 'Protocol', False)]
 
 

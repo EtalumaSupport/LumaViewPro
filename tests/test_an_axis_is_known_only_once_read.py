@@ -29,14 +29,14 @@ def test_a_homed_axis_whose_read_fails_starts_unknown():
     motion._init_axes(['X', 'Y', 'Z', 'T'], ['X', 'Y', 'Z', 'T'])
 
     scope.simulation.clear()
-    states = {axis: at.state for axis, at in motion.axis_positions().items()}
+    states = {axis: at.state for axis, at in motion.axis_positions.items()}
     assert states == {
         'X': AxisState.IDLE,
         'Y': AxisState.IDLE,
         'Z': AxisState.UNKNOWN,
     }
-    assert motion.turret_status().state == AxisState.IDLE
-    assert motion.axis_positions()['Z'].position_um is None
+    assert motion.turret_status.state == AxisState.IDLE
+    assert motion.axis_positions['Z'].position_um is None
     with pytest.raises(AxisStateUnknownError) as exc:
         motion.move_z(1000.0)
     assert exc.value.reason == 'position_unknown'

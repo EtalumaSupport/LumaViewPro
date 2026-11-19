@@ -100,7 +100,7 @@ def main():
             for slot, objective in session.scope.runtime_state.turret_config().items()
             if objective
         }
-        start_slot = motion.turret_status().slot
+        start_slot = motion.turret_status.slot
         figure('turret slots assigned', slots)
         figure('turret slot at start', start_slot)
         here = slots.get(start_slot)
@@ -125,7 +125,7 @@ def main():
         away = slots[away_slot]
 
         labware = session.settings['protocol']['labware']
-        position = session.plate_position()
+        position = session.plate_position
         figure('step position (plate mm, z um)', position)
         layer = session.settings['BF']
         protocol = protocol_of(
@@ -153,10 +153,10 @@ def main():
 
         def _observed_move_turret(slot, restore_z=True):
             lit_at_turn.append(
-                sorted(str(r.name) for r in illumination.led_states() if r.state is LedState.LIT)
+                sorted(str(r.name) for r in illumination.led_states if r.state is LedState.LIT)
             )
             real_move_turret(slot=slot, restore_z=restore_z)
-            turned_to.append((slot, motion.turret_status().slot))
+            turned_to.append((slot, motion.turret_status.slot))
 
         motion.move_turret = _observed_move_turret
         run_parent = SCRATCH / 'p10_runs'
@@ -185,9 +185,7 @@ def main():
             'each turret move landed on the slot it asked for',
             all(asked == landed for asked, landed in turned_to),
         )
-        check(
-            'the turret ends on the slot it started on', motion.turret_status().slot == start_slot
-        )
+        check('the turret ends on the slot it started on', motion.turret_status.slot == start_slot)
         figure('channels lit as each turret move starts', lit_at_turn)
         check('no LED is lit as a turret move starts', lit_at_turn and not any(lit_at_turn))
 

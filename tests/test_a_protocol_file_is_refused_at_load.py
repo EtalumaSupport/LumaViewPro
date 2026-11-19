@@ -72,7 +72,7 @@ class TestTheLoadRefusesWhatTheRunWouldRefuse:
 
         protocol = scope.protocols.load_protocol(file_path=path)
 
-        assert protocol.num_steps() == 2
+        assert protocol.num_steps == 2
 
 
 class TestTheGuiNoLongerKeepsItsOwnCopy:

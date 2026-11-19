@@ -67,7 +67,7 @@ class TestNewProtocol:
             # The panel's redraw runs whatever the outcome; it draws nothing here.
             update_step_ui=lambda: None,
             # The protocol on screen, whose schedule New starts from.
-            _protocol=SimpleNamespace(period_s=lambda: None, duration_s=lambda: None),
+            _protocol=SimpleNamespace(period_s=None, duration_s=None),
         )
         # The build New runs once nothing unsaved stands in the way.
         return ps.ProtocolSettings._new_protocol, stand, refused.value

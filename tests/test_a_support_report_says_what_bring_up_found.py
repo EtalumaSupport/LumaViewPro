@@ -39,7 +39,7 @@ def _read(zip_path, name):
 def test_the_logs_zip_carries_the_bring_up_record(session, tmp_path):
     saved = session.make_logs_zip(output_dir=tmp_path / 'out')
     body = _read(saved.path, 'bring_up.json')
-    record = session.bring_up_record()
+    record = session.bring_up_record
     assert [part['part'] for part in body['parts']] == [part.part for part in record.parts]
     assert [part['up'] for part in body['parts']] == [part.up for part in record.parts]
 

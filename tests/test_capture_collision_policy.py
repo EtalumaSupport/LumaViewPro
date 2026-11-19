@@ -142,7 +142,7 @@ def test_load_warns_same_base_in_same_tile_group_and_still_loads(tmp_path, centr
     proto = protocol_from_file(
         file_path=tsv,
     )
-    assert proto.num_steps() == 2, 'the file must load so the user can rename the steps'
+    assert proto.num_steps == 2, 'the file must load so the user can rename the steps'
     captured = [n.message for n in centre_posts]
     assert len(captured) == 1, captured
     assert 'refused' in captured[0].lower()
@@ -665,7 +665,7 @@ def test_loader_infers_tiling_from_tile_column(tmp_path):
     proto = protocol_from_file(
         file_path=tsv,
     )
-    assert proto.tiling() == '2x2'
+    assert proto.tiling == '2x2'
 
 
 def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
@@ -685,7 +685,7 @@ def test_tile_shaped_names_with_empty_tile_column_infer_no_tiling(tmp_path):
         file_path=tsv,
     )
     # Anything but the no-tiling label means a tiling was faked from the names.
-    assert proto.tiling() == '1x1'
+    assert proto.tiling == '1x1'
     # The user text itself survives as the labels.
     assert list(proto.steps()['Label']) == ['Region_TA1', 'Region_TA2', 'Region_TB1', 'Region_TB2']
 
@@ -797,7 +797,7 @@ def test_same_base_different_objective_is_not_a_collision(tmp_path, centre_posts
     proto = protocol_from_file(
         file_path=tsv,
     )
-    assert proto.num_steps() == 2
+    assert proto.num_steps == 2
     assert centre_posts == [], centre_posts
 
     # Run leg: no collision errors either.

@@ -45,7 +45,7 @@ def body(session):
         str(maximum),
     )
     channel = session.shown_channel.channel
-    before = session.settings_snapshot()[channel]['exposure_ms']
+    before = session.settings_snapshot[channel]['exposure_ms']
     figure('channel', channel)
     figure('exposure_before_ms', before)
 
@@ -53,7 +53,7 @@ def body(session):
     notifications.add_listener(told.append, min_severity=Severity.DEBUG)
     try:
         answered = session.set_channel_settings(channel, exposure_ms=TYPED_MS).exposure_ms
-        stored = session.settings_snapshot()[channel]['exposure_ms']
+        stored = session.settings_snapshot[channel]['exposure_ms']
         clamps = [
             post for post in told if getattr(post, 'reason', None) == ValueClampedNotice.reason
         ]

@@ -1180,7 +1180,7 @@ def _channel_settings(row: dict) -> ChannelSettings:
     """One Layer Settings row as its record, each cell read as its column's type.
 
     The one reader for a saved block and an inferred one, so every caller
-    of ``channel_settings()`` gets the same types and none casts a cell
+    of ``channel_settings`` gets the same types and none casts a cell
     itself.
 
     Raises:
@@ -1250,7 +1250,7 @@ def channel_settings_values_refused(
 ) -> list[tuple[str, SettingRefusedError]]:
     """Each Layer Settings value the channel ranges refuse, with the channel and column holding it.
 
-    ``rows`` are ``Protocol.channel_settings()``' records, or those of them
+    ``rows`` are ``Protocol.channel_settings``' records, or those of them
     a caller will apply. A blank cell holds no value and is not judged.
     """
     # Deferred: settings_paths imports this module.
@@ -1693,7 +1693,7 @@ class Protocol:
             if runnable and key in self._config:
                 _refuse_unless_runnable(key, self._config[key])
 
-        # Cache for num_steps() -- invalidated by _step_list_changed().
+        # Cache for num_steps -- invalidated by _step_list_changed().
         # num_steps was called 35x per step during real-HW protocol runs, so
         # caching len(self._config['steps']) is a measurable win (M14 follow-up).
         self._num_steps_cache: int | None = None
@@ -1715,7 +1715,8 @@ class Protocol:
 
         return z_height_map
 
-    @api(reads=True)
+    @api
+    @property
     def period_s(self) -> float | None:
         """How often the protocol scans, in seconds; 0 or None for one scan.
 
@@ -1725,7 +1726,8 @@ class Protocol:
         period = self._config['period']
         return None if period is None else period.total_seconds()
 
-    @api(reads=True)
+    @api
+    @property
     def duration_s(self) -> float | None:
         """How long the protocol runs its scans, in seconds; 0 or None for one scan.
 
@@ -1735,7 +1737,8 @@ class Protocol:
         duration = self._config['duration']
         return None if duration is None else duration.total_seconds()
 
-    @api(reads=True)
+    @api
+    @property
     def num_scans(self) -> int:
         """How many scans a full run of the protocol takes: its duration over its period, whole.
 
@@ -1752,7 +1755,8 @@ class Protocol:
             return 1
         return max(1, int((duration or datetime.timedelta(0)) / period))
 
-    @api(reads=True)
+    @api
+    @property
     def labware_id(self) -> str:
         """The catalogue key of the plate the protocol's steps are placed on.
 
@@ -1761,7 +1765,8 @@ class Protocol:
         """
         return self._config['labware_id']
 
-    @api(reads=True)
+    @api
+    @property
     def tiling(self) -> str | None:
         """The tile grid this protocol's steps carry.
 
@@ -1797,7 +1802,8 @@ class Protocol:
             )
         return label
 
-    @api(reads=True)
+    @api
+    @property
     def capture_root(self) -> str:
         """The capture root as it was typed or loaded.
 
@@ -1816,9 +1822,10 @@ class Protocol:
         Raises:
             Nothing.
         """
-        return self.sanitize_step_name(self.capture_root() or '')
+        return self.sanitize_step_name(self.capture_root or '')
 
-    @api(reads=True)
+    @api
+    @property
     def channel_settings(self) -> dict[str, ChannelSettings]:
         """Each channel's Layer Settings row as its record, keyed by channel.
 
@@ -1845,7 +1852,7 @@ class Protocol:
         """Whether the protocol carries its own Layer Settings block.
 
         False for a v5 file or a protocol built in memory, whose
-        ``channel_settings()`` are inferred from its steps.
+        ``channel_settings`` are inferred from its steps.
         """
         return self._config.get('channel_settings') is not None
 
@@ -1911,7 +1918,7 @@ class Protocol:
         # Period (Interval) needs the same sub-minute precision as Duration:
         # at 2 decimals a 1-second interval (0.016667 min) quantizes to 0.02
         # min on disk, corrupting the stored value. Match Duration's 6 decimals.
-        period_s, duration_s = self.period_s(), self.duration_s()
+        period_s, duration_s = self.period_s, self.duration_s
         period_minutes = 0 if period_s is None else round(period_s / 60.0, 6)
         duration_hours = 0 if duration_s is None else round(duration_s / 3600.0, 6)
 
@@ -1925,8 +1932,8 @@ class Protocol:
         csvwriter.writerow(
             [
                 'Capture Root',
-                self.capture_root()
-                if self.capture_root() is not None or self.capture_root() != ''
+                self.capture_root
+                if self.capture_root is not None or self.capture_root != ''
                 else '',
             ]
         )
@@ -1996,7 +2003,7 @@ class Protocol:
         ``ScopeSession.save_protocol``), never by a client.
 
         A save's Layer Settings block becomes the protocol's, so
-        ``channel_settings()``, a run's copy of the file and
+        ``channel_settings``, a run's copy of the file and
         ``apply_channel_settings`` read what the file holds: the protocol
         kept the block it was loaded with, and a run then recorded settings
         the saved file did not.
@@ -2365,7 +2372,7 @@ class Protocol:
         # runtime in get_plate(). Without this, validation hard-fails on
         # names that would have run fine.
         loader = wellplate_loader
-        labware_key = self.labware_id()
+        labware_key = self.labware_id
         if labware_key:
             try:
                 if not loader.is_known_plate(labware_key):
@@ -2380,7 +2387,8 @@ class Protocol:
 
         return errors
 
-    @api(reads=True)
+    @api
+    @property
     def num_steps(self) -> int:
         """How many steps the protocol holds.
 
@@ -2403,7 +2411,7 @@ class Protocol:
         Raises:
             StepNotFoundError: idx is outside the range.
         """
-        num_steps = self.num_steps()
+        num_steps = self.num_steps
         highest = num_steps - 1 + past_end
         if lowest <= idx <= highest:
             return
@@ -2680,7 +2688,7 @@ class Protocol:
         Raises:
             Nothing.
         """
-        num_steps = self.num_steps()
+        num_steps = self.num_steps
         if num_steps <= common_utils.PROTOCOL_SIZE_ADVISORY_STEPS:
             return None
 
@@ -2703,7 +2711,7 @@ class Protocol:
         scan_mb = self.estimate_write_mb(
             sizing=sizing, recording_format=recording_format, video_fps=video_fps
         )
-        num_scans = self.num_scans()
+        num_scans = self.num_scans
         run_mb = scan_mb * num_scans
         return ProtocolSizeAdvisory(
             num_steps=num_steps,
@@ -3247,7 +3255,8 @@ class Protocol:
 
         return step_dict['Name']
 
-    @api(reads=True)
+    @api
+    @property
     def step_records(self) -> tuple[StepRecord, ...]:
         """Every step, in order, as its record: the step table in one read.
 
@@ -3329,7 +3338,7 @@ class Protocol:
         # tiled protocol would change nothing while reporting success. There is
         # no un-tile path; the untiled protocol has to be reloaded.
         no_tiling = self._tiling_grids.no_tiling_label()
-        current_tiling = self.tiling()
+        current_tiling = self.tiling
         if current_tiling != no_tiling:
             grid = f' ({current_tiling})' if current_tiling else ''
             _refuse_build(
@@ -3495,8 +3504,7 @@ class Protocol:
         self._set_steps(pd.DataFrame.from_dict(new_steps))
         self.optimize_step_ordering()
         logger.info(
-            f'[Protocol] Tile grid {tiling} applied: {len(orig_steps_df)} -> '
-            f'{self.num_steps()} steps'
+            f'[Protocol] Tile grid {tiling} applied: {len(orig_steps_df)} -> {self.num_steps} steps'
         )
 
     @staticmethod
@@ -3604,7 +3612,7 @@ class Protocol:
         next_group_id = steps['Z-Stack Group ID'].max() + 1
         group_ids: dict[tuple, int] = {}
 
-        num_steps = self.num_steps()
+        num_steps = self.num_steps
         new_steps = []
         block: list[dict] = []
         block_at = None
@@ -3691,7 +3699,7 @@ class Protocol:
             self._set_steps(pd.DataFrame.from_dict(new_steps))
         logger.info(
             f'[Protocol] Z-stack applied (range {zstack_params["range"]} um, step '
-            f'{zstack_params["step_size"]} um): {num_steps} -> {self.num_steps()} steps'
+            f'{zstack_params["step_size"]} um): {num_steps} -> {self.num_steps} steps'
         )
 
     @classmethod

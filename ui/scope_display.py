@@ -1036,7 +1036,7 @@ class ScopeDisplay(Image):
                     waits = list(self._perf_ui_waits)
                     avg_ui_wait = sum(waits) / len(waits) if waits else 0
                     max_ui_wait = max(waits) if waits else 0
-                    capture_fps = ctx.scope.imaging.delivered_rate().frame_rate_fps
+                    capture_fps = ctx.scope.imaging.delivered_rate.frame_rate_fps
                     logger.debug(
                         f'[PERF] capture={capture_fps:.1f} display={display_fps:.1f} '
                         f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '

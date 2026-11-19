@@ -148,8 +148,8 @@ class TestAFieldEdit:
         panel.update_period()
 
         assert reported == []
-        assert panel._protocol.period_s() == 10 * 60
-        assert panel._protocol.duration_s() == DURATION.total_seconds()
+        assert panel._protocol.period_s == 10 * 60
+        assert panel._protocol.duration_s == DURATION.total_seconds()
         assert _stored(ctx) == STORED
         assert float(panel.ids['capture_period'].text) == 10
 
@@ -160,7 +160,7 @@ class TestAFieldEdit:
         panel.update_duration()
 
         assert reported == []
-        assert panel._protocol.duration_s() == 5 * 3600
+        assert panel._protocol.duration_s == 5 * 3600
         assert _stored(ctx) == STORED
 
     @pytest.mark.parametrize('typed', ['0.005', '', '.'])
@@ -173,7 +173,7 @@ class TestAFieldEdit:
         panel.update_period()
 
         assert reported == [('ProtocolScheduleRefusedError', 'UI:PROTOCOL_PERIOD')]
-        assert (panel._protocol.period_s(), panel._protocol.duration_s()) == SCHEDULE_S
+        assert (panel._protocol.period_s, panel._protocol.duration_s) == SCHEDULE_S
         assert float(panel.ids['capture_period'].text) == 7
         assert _stored(ctx) == STORED
 
@@ -186,7 +186,7 @@ class TestAFieldEdit:
         panel.update_duration()
 
         assert reported == [('ProtocolScheduleRefusedError', 'UI:PROTOCOL_DURATION')]
-        assert panel._protocol.duration_s() == DURATION.total_seconds()
+        assert panel._protocol.duration_s == DURATION.total_seconds()
         assert float(panel.ids['capture_dur'].text) == 3
 
 
@@ -200,7 +200,7 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
 
         panel._protocol_start()
 
-        assert (handed[0].period_s(), handed[0].duration_s()) == SCHEDULE_S
+        assert (handed[0].period_s, handed[0].duration_s) == SCHEDULE_S
         assert handed[0] is not panel._protocol
 
     def test_save_writes_the_protocols_schedule_and_leaves_it_as_it_was(
@@ -210,7 +210,7 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
 
         panel.save_protocol_as(panel._protocol, str(tmp_path / 'saved.tsv'))
 
-        assert (panel._protocol.period_s(), panel._protocol.duration_s()) == SCHEDULE_S
+        assert (panel._protocol.period_s, panel._protocol.duration_s) == SCHEDULE_S
         text = (tmp_path / 'saved.tsv').read_text()
         assert 'Period\t7.0\n' in text and 'Duration\t3.0\n' in text
         assert _stored(ctx) == STORED
@@ -241,7 +241,7 @@ class TestRunSaveAndNewTakeTheProtocolsSchedule:
 
         assert reported == []
         assert panel._protocol is not on_screen, 'the Session built a new protocol'
-        assert (panel._protocol.period_s(), panel._protocol.duration_s()) == (2 * 60, 9 * 3600)
+        assert (panel._protocol.period_s, panel._protocol.duration_s) == (2 * 60, 9 * 3600)
 
     def test_a_new_protocol_is_shown_with_its_own_schedule(self, homed, reported, discarding):
         panel = _Panel(_protocol())

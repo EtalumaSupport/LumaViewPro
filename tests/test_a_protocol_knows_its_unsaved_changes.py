@@ -67,7 +67,7 @@ class TestAProtocolArrivesUnchanged:
 
         protocol = session.new_protocol(tiling='3x3')
 
-        assert protocol.num_steps() > 1
+        assert protocol.num_steps > 1
         _arrived_unchanged(protocol, None)
 
     def test_a_z_stacked_new(self, make_session):
@@ -77,7 +77,7 @@ class TestAProtocolArrivesUnchanged:
 
         protocol = session.new_protocol(use_zstacking=True)
 
-        assert protocol.num_steps() > 1
+        assert protocol.num_steps > 1
         _arrived_unchanged(protocol, None)
 
     def test_an_empty_protocol(self, make_session):
@@ -97,7 +97,7 @@ class TestAProtocolArrivesUnchanged:
 def _shift_every_z(session, protocol):
     """A scan's copy of ``protocol`` with every Z moved, for ``adopt_focus_from``."""
     scanned = protocol.copy_for_execution()
-    for idx in range(scanned.num_steps()):
+    for idx in range(scanned.num_steps):
         scanned.modify_step_z_height(step_index=idx, z=scanned.step_row(step_index=idx)['Z'] + 7)
     protocol.adopt_focus_from(scanned)
 

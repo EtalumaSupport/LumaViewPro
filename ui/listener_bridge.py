@@ -281,7 +281,7 @@ class UIListenerBridge:
             # Re-read: the event's fields may be stale by now. None with
             # no LED board installed, after disconnect. Read by address,
             # since the event's address may have no name.
-            readings = self._scope.illumination.led_states() or ()
+            readings = self._scope.illumination.led_states or ()
             reading = next((r for r in readings if r.address == a), None)
             if reading is not None and reading.name is not None:
                 self._write_led_button(reading.name, lit=reading.state == LedState.LIT)
@@ -360,9 +360,7 @@ class UIListenerBridge:
         def _reconcile(dt):
             # None with no LED board installed: nothing is lit.
             lit = {
-                r.name
-                for r in self._scope.illumination.led_states() or ()
-                if r.state == LedState.LIT
+                r.name for r in self._scope.illumination.led_states or () if r.state == LedState.LIT
             }
             for color in common_utils.get_channels_with_led():
                 self._write_led_button(color, lit=color in lit)

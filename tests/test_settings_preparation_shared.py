@@ -346,7 +346,7 @@ def test_a_dead_rest_setting_handed_in_is_dropped_and_never_saved(tmp_path):
     saved = tmp_path / 'current.json'
     session = ScopeSession.create(settings, simulate=True, settings_file=str(saved))
     try:
-        assert 'api_key' not in session.settings_snapshot()['rest_api']
+        assert 'api_key' not in session.settings_snapshot['rest_api']
     finally:
         session.shutdown()
 

@@ -49,7 +49,7 @@ def _active(session):
 
 
 def _turret(session):
-    status = session.scope.motion.turret_status()
+    status = session.scope.motion.turret_status
     return status.state, status.slot
 
 

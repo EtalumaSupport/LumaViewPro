@@ -266,7 +266,7 @@ class CameraLink:
 
 
 class MotorCommandSet(enum.StrEnum):
-    """The motor board's text command set, as ``motor_info().command_set`` names it.
+    """The motor board's text command set, as ``motor_info.command_set`` names it.
 
     The EL-0940's (INFO, FULLINFO, ACTUAL_R, SPI and the rest). A board
     with no text command channel (the TMCM-6110, which speaks binary
@@ -277,7 +277,7 @@ class MotorCommandSet(enum.StrEnum):
 
 
 class LedCommandSet(enum.StrEnum):
-    """The LED board's text command set, as ``led_info().command_set`` names it.
+    """The LED board's text command set, as ``led_info.command_set`` names it.
 
     INFO predates the v2 firmware; SELFTEST, I2CSCAN and the LEDREAD
     current reads came with it. A board with no text command channel at
@@ -1471,7 +1471,8 @@ class DiagnosticsAPI:
             return None
         return drv.read_fanspeed()
 
-    @api(in_process=True, reads=True, engineering=True)
+    @api(in_process=True, engineering=True)
+    @property
     def motor_fan_spin_times(self) -> dict[str, float] | None:
         """How long the motor-board fan takes to reach a new duty, in seconds.
 
@@ -1619,7 +1620,8 @@ class DiagnosticsAPI:
 
     # --- Board identity ---
 
-    @api(reads=True)
+    @api
+    @property
     def motor_info(self) -> MotorBoardInfo:
         """The motor board's identity.
 
@@ -1652,7 +1654,8 @@ class DiagnosticsAPI:
             command_set=MotorCommandSet.TEXT if driver.takes_text_commands else None,
         )
 
-    @api(reads=True)
+    @api
+    @property
     def led_info(self) -> LedBoardInfo:
         """The LED board's firmware and command set.
 

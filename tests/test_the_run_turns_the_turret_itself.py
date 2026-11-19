@@ -46,14 +46,14 @@ def test_a_headless_run_visits_each_steps_slot(tmp_path, monkeypatch):
     slots = {obj: slot for slot, obj in TEST_TURRET_OBJECTIVES.items() if obj}
     protocol = _two_objective_protocol()
     expected = [
-        slots[protocol.step_row(step_index=i)['Objective']] for i in range(protocol.num_steps())
+        slots[protocol.step_row(step_index=i)['Objective']] for i in range(protocol.num_steps)
     ]
     # Each step's slot, in order; Z is not restored after the safety park
     # because the step's own Z move follows.
     assert [slot for slot, _ in visited][: len(expected)] == expected
     assert all(restore_z is False for _, restore_z in visited)
     # The host is told each step as it starts; the run moves the turret itself.
-    assert displayed == list(range(protocol.num_steps()))
+    assert displayed == list(range(protocol.num_steps))
 
 
 def test_a_refused_move_raises_instead_of_being_skipped():

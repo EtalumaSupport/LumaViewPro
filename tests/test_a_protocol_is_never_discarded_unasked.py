@@ -227,7 +227,7 @@ class TestSave:
             recording.release()
         assert [n.reason for n in centre_posts] == ['exclusive_activity_running']
         assert ctx.settings['protocol']['filepath'] == str(kept), 'precondition: the path kept'
-        assert panel._protocol.num_steps() == 0, 'precondition: the panel holds the empty protocol'
+        assert panel._protocol.num_steps == 0, 'precondition: the panel holds the empty protocol'
 
         panel.save_protocol()
 
@@ -272,7 +272,7 @@ class TestTheClose:
         self._idle(panel)
 
         assert panel.commit_typed_edits() is True
-        assert protocol.period_s() == 180
+        assert protocol.period_s == 180
         assert panel.unsaved_changes_text() == 'The new protocol has changes that are not saved.'
 
     def test_a_refused_typed_period_stops_the_close(self, ctx, centre_posts, monkeypatch):

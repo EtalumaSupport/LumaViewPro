@@ -42,7 +42,7 @@ def test_before_a_home_the_plate_position_is_refused(make_session):
     session = make_session('LS850', homed=False)
 
     with pytest.raises(AxisStateUnknownError) as exc:
-        session.plate_position()
+        _ = session.plate_position
 
     assert set(exc.value.axes_without_position) == {'X', 'Y', 'Z'}
 
@@ -50,7 +50,7 @@ def test_before_a_home_the_plate_position_is_refused(make_session):
 def test_after_a_home_the_plate_position_is_read(make_session):
     session = make_session('LS850')
 
-    position = session.plate_position()
+    position = session.plate_position
 
     assert position.z_um == pytest.approx(session.scope.motion.get_current_position('Z'), abs=0.01)
 
@@ -60,7 +60,7 @@ def test_a_pulled_cable_is_the_cable_not_an_unknown_position(make_session, monke
     monkeypatch.setattr(session.scope._motion_driver, 'is_connected', lambda: False)
 
     with pytest.raises(HardwareCommandRefusedError) as exc:
-        session.plate_position()
+        _ = session.plate_position
 
     assert exc.value.reason == 'not_connected'
 
@@ -94,7 +94,7 @@ def test_new_with_every_layer_focused_builds_before_a_home(make_session):
 def test_after_a_home_new_takes_the_z_the_scope_read(make_session):
     session = make_session('LS850', acquiring=('BF',), BF={'focus': None})
     session.scope.motion.move_z(3000.0)
-    z = session.scope.motion.axis_positions()['Z'].position_um
+    z = session.scope.motion.axis_positions['Z'].position_um
 
     protocol = session.new_protocol()
 

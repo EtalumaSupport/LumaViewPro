@@ -108,7 +108,7 @@ def test_ordering_the_steps_keeps_those_without_a_position(make_session, tmp_pat
 
     protocol.optimize_step_ordering()
 
-    assert protocol.num_steps() == 3
+    assert protocol.num_steps == 3
 
 
 def test_a_step_without_x_and_y_is_never_the_nearest(make_session, tmp_path):
@@ -152,7 +152,7 @@ def test_a_step_without_x_and_y_is_refused_by_every_door_on_a_stage_scope(make_s
     reasons = {door: _refused(call).reason for door, call in doors.items()}
 
     assert reasons == dict.fromkeys(doors, 'step_position_missing')
-    assert protocol.num_steps() == 2
+    assert protocol.num_steps == 2
 
 
 def test_the_refusal_names_the_steps_and_the_axes(make_session, tmp_path):
@@ -237,7 +237,7 @@ def test_the_plate_read_and_the_steps_record_nothing_for_an_absent_axis(
 ):
     session = make_session(model, acquiring=('BF',))
 
-    here = session.plate_position()
+    here = session.plate_position
     added = session.create_empty_protocol()
     session.add_step(added)
     new = session.new_protocol()

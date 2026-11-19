@@ -36,7 +36,7 @@ def main():
             check('turret homes', True)
         except HomingFailedError as e:
             check('turret homes', False, str(e))
-        check('turret position known after home', 'T' not in m.axes_without_position())
+        check('turret position known after home', 'T' not in m.axes_without_position)
         m.move_turret(1, restore_z=True)
 
         # --- objective selection (the spinner): turns to the slot holding it ---
@@ -51,9 +51,9 @@ def main():
             'select_objective turns the turret to the slot holding it and writes no slot',
             changed
             and now_id == other
-            and m.turret_status().slot == 4
+            and m.turret_status.slot == 4
             and s.settings['turret_objectives'] == slots_before,
-            f'{first} -> {now_id} at slot {m.turret_status().slot}',
+            f'{first} -> {now_id} at slot {m.turret_status.slot}',
         )
         jogs = ('jog_z_coarse_um', 'jog_z_fine_um', 'jog_xy_coarse_um', 'jog_xy_fine_um')
         check(
@@ -65,15 +65,15 @@ def main():
         # --- assign an objective to a turret slot, then select that slot ---
         s.assign_turret_objective(2, first)
         s.assign_turret_objective(3, other)
-        slots = s.settings_snapshot().get('turret_objectives')
+        slots = s.settings_snapshot.get('turret_objectives')
         check('turret slot assignment is stored', slots is not None, str(slots))
 
         # --- rotate the turret (what the 4 turret buttons do) ---
         m.move_turret(2, restore_z=True)
-        t2 = m.turret_status().slot
+        t2 = m.turret_status.slot
         at2 = s.scope.runtime_state.resolve_current_objective()[0]
         m.move_turret(3, restore_z=True)
-        t3 = m.turret_status().slot
+        t3 = m.turret_status.slot
         at3 = s.scope.runtime_state.resolve_current_objective()[0]
         check('turret position changes on move_turret', t2 != t3, f'slot2={t2} slot3={t3}')
         check(

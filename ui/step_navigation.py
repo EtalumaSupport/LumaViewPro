@@ -42,7 +42,7 @@ def go_to_step(
     ctx = _app_ctx.ctx
 
     protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-    if protocol.num_steps() <= 0:
+    if protocol.num_steps <= 0:
         # No step to show: a Delete emptied the list, or a file loaded none.
         # Any other index, a typed 0 included, is the Session's to refuse.
         protocol_settings.curr_step = -1

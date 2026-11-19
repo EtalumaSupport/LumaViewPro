@@ -125,13 +125,13 @@ def test_a_turret_scope_whose_board_did_not_come_up_has_a_turret_in_no_known_slo
         assert session.scope.capabilities.axes == ()
         assert session.scope.capabilities.has_turret is True
         unknown = TurretStatus(AxisState.UNKNOWN, None)
-        assert session.scope.motion.turret_status() == unknown
+        assert session.scope.motion.turret_status == unknown
         assert session.status.turret == unknown
         with pytest.raises(ObjectiveUnknownError) as excinfo:
             session.scope.runtime_state.resolve_current_objective()
         assert excinfo.value.reason == 'slot_unknown'
         with pytest.raises(ObjectiveUnknownError) as excinfo:
-            session.current_slot_objective_question()
+            _ = session.current_slot_objective_question
         assert excinfo.value.reason == 'slot_unknown'
     finally:
         session.shutdown()
@@ -157,12 +157,14 @@ class TestTheQuestionUsesIt:
         # stand-in by design: the simulated board has no turret to stand at
         # slot 1, and the scope's has-a-turret answer was set above.
         monkeypatch.setattr(
-            session.scope.motion, 'turret_status', lambda: TurretStatus(AxisState.IDLE, 1)
+            type(session.scope.motion),
+            'turret_status',
+            property(lambda self: TurretStatus(AxisState.IDLE, 1)),
         )
-        monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
+        monkeypatch.setattr(type(session), 'settings_are_provisional', property(lambda self: False))
         monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
 
-        question = session.objective_question()
+        question = session.objective_question
 
         assert question is not None, 'a turreted scope with an empty slot must be asked'
         assert question.turret_slot == 1, (
@@ -172,10 +174,10 @@ class TestTheQuestionUsesIt:
     @pytest.mark.parametrize('session', [{'objective_confirmed': False}], indirect=True)
     def test_no_slot_is_named_when_the_board_reports_no_turret(self, session, monkeypatch):
         _board(session, has_turret=False)
-        monkeypatch.setattr(session, 'settings_are_provisional', lambda: False)
+        monkeypatch.setattr(type(session), 'settings_are_provisional', property(lambda self: False))
         monkeypatch.setattr(type(session.scope), 'no_hardware', property(lambda self: False))
 
-        question = session.objective_question()
+        question = session.objective_question
 
         assert question is not None
         assert question.turret_slot is None, (
@@ -224,13 +226,13 @@ class TestAChangeOfTopologyAsksAgain:
                 '10x Oly', slot=1 if first.scope.capabilities.has_turret else None
             )
             stored = first.settings['objective_confirmed']
-            assert first.objective_question() is None
+            assert first.objective_question is None
         finally:
             first.shutdown()
 
         second = _brought_up(tmp_path, brought_up_on, objective_confirmed=stored)
         try:
-            assert second.objective_question() is not None, (
+            assert second.objective_question is not None, (
                 f'confirmed on {confirmed_on}, brought up on {brought_up_on}: not asked'
             )
         finally:
@@ -241,7 +243,7 @@ class TestAChangeOfTopologyAsksAgain:
             tmp_path, 'LS850', objective_confirmed='turret', objective_id='40x Phase'
         )
         try:
-            assert session.objective_question().proposed == '40x Phase'
+            assert session.objective_question.proposed == '40x Phase'
         finally:
             session.shutdown()
 
@@ -257,7 +259,7 @@ class TestAChangeOfTopologyAsksAgain:
         session = _brought_up(tmp_path, model, objective_confirmed=True, objective_id='20x Oly')
         try:
             assert session.settings['objective_confirmed'] == recorded
-            assert session.objective_question() is None
+            assert session.objective_question is None
         finally:
             session.shutdown()
 
@@ -265,6 +267,6 @@ class TestAChangeOfTopologyAsksAgain:
         session = _brought_up(tmp_path, 'LS850', objective_confirmed=False)
         try:
             assert session.settings['objective_confirmed'] is None
-            assert session.objective_question() is not None
+            assert session.objective_question is not None
         finally:
             session.shutdown()

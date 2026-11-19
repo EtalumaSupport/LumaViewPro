@@ -56,7 +56,7 @@ def test_a_protocol_the_app_wrote_can_be_read_back(tmp_path):
     """The reproduced defect: the writer's own output was unreadable."""
     reloaded = _reload(_large_protocol(), tmp_path)
 
-    assert reloaded.num_steps() == LARGE_STEP_COUNT
+    assert reloaded.num_steps == LARGE_STEP_COUNT
 
 
 @pytest.mark.slow
@@ -86,7 +86,7 @@ gc.collect()
 tracemalloc.start()
 loaded = protocol_from_file(file_path=sys.argv[1])
 _, peak = tracemalloc.get_traced_memory()
-print(loaded.num_steps(), peak)
+print(loaded.num_steps, peak)
 """
 
 _CHECKOUT = pathlib.Path(__file__).resolve().parents[1]
@@ -133,14 +133,14 @@ def test_a_protocol_of_the_size_a_customer_asked_for_is_saved_and_reopened(sim_s
         )
     sim_session.select_labware('96 well microplate')
     built = sim_session.new_protocol(use_zstacking=True)
-    assert built.num_steps() == 96 * 4 * 200
+    assert built.num_steps == 96 * 4 * 200
     path = tmp_path / 'stacked.tsv'
 
     sim_session.save_protocol(built, path)
     reloaded = sim_session.load_protocol(path)
 
     assert path.stat().st_size > 10 * 1024 * 1024
-    assert reloaded.num_steps() == 96 * 4 * 200
+    assert reloaded.num_steps == 96 * 4 * 200
 
 
 def test_the_file_ceiling_still_refuses_and_blames_memory_not_corruption(tmp_path):

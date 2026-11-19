@@ -530,7 +530,7 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
         _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
         output_dir = tmp_path / 'output'
         first_run_dir = executor.run_dir()
-        first_num_scans = executor.num_scans()
+        first_num_scans = executor.num_scans
         # The completed run released the scope, so nobody holds it -- the
         # state the refused prepare below must also leave untouched.
         assert executor.run_started_by() is None, (
@@ -564,7 +564,7 @@ class TestLateFailurePreservesNothingAndLeavesNoOrphan:
             'a refused prepare must not disturb run_dir(); callers saving '
             'into it would target the wrong location'
         )
-        assert executor.num_scans() == first_num_scans
+        assert executor.num_scans == first_num_scans
         assert executor.run_started_by() is None, (
             'a refused prepare must not make the runner claim to hold the scope'
         )
@@ -875,13 +875,13 @@ class TestTheRefusalFunnel:
             return protocol
 
         def not_connected(mp):
-            mp.setattr(scope, 'unconnected_parts', lambda: (Board.CAMERA,))
+            mp.setattr(type(scope), 'unconnected_parts', property(lambda self: (Board.CAMERA,)))
             return _make_single_step_protocol()
 
         def camera_not_streaming(mp):
             # Open and connected, its feed stopped: the lane read behind the
             # queued commands says so too.
-            mp.setattr(scope.imaging, 'is_streaming', lambda: False)
+            mp.setattr(scope.imaging, 'read_streaming', lambda: False)
             return _make_single_step_protocol()
 
         def camera_not_delivering(mp):
@@ -897,14 +897,16 @@ class TestTheRefusalFunnel:
         def position_unknown(mp):
             # Stated rather than inherited from the fixture's un-homed scope,
             # so the scenario still refuses if the fixture ever homes.
-            mp.setattr(scope.motion, 'axes_without_position', lambda: {'X': 'unknown'})
+            mp.setattr(
+                type(scope.motion), 'axes_without_position', property(lambda self: {'X': 'unknown'})
+            )
             return _make_single_step_protocol()
 
         def lid_open(mp):
             # Homed, so the position gate before it passes; the stage's lid
             # is the board's to report.
-            mp.setattr(scope.motion, 'axes_without_position', lambda: {})
-            mp.setattr(scope.motion, 'interlocks', lambda: frozenset({'lid_open'}))
+            mp.setattr(type(scope.motion), 'axes_without_position', property(lambda self: {}))
+            mp.setattr(scope.motion, 'read_interlocks', lambda: frozenset({'lid_open'}))
             return _make_single_step_protocol()
 
         def autofocus_running(mp):

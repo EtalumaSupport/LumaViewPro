@@ -36,7 +36,7 @@ class _Panel(ps.ProtocolSettings):
         # The protocol on screen, whose schedule New starts from; unchanged
         # since it was saved, so New asks nothing first.
         self._protocol = SimpleNamespace(
-            period_s=lambda: PERIOD_S, duration_s=lambda: DURATION_S, has_unsaved_changes=False
+            period_s=PERIOD_S, duration_s=DURATION_S, has_unsaved_changes=False
         )
 
     def update_step_ui(self):

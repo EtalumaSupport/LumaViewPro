@@ -137,7 +137,7 @@ class TestTheApiRefuses:
             _update(scope, protocol, layer=LED1, channel_configs=configs)
 
         assert excinfo.value.title == 'No Such Step'
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
 
 
 @pytest.mark.usefixtures('turret_in_a_known_slot')
@@ -197,7 +197,7 @@ class TestAScriptUpdatesAStepThroughTheSession:
         session.update_step(protocol, 0, channel='BF')
 
         step = _step(protocol)
-        position = session.plate_position()
+        position = session.plate_position
         assert (step['X'], step['Y'], step['Z']) == (position.x_mm, position.y_mm, position.z_um)
         assert step['Objective'] == session.scope.runtime_state.resolve_current_objective()[0]
 

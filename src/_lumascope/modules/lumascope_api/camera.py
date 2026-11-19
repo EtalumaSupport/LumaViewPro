@@ -2920,7 +2920,7 @@ class CameraAPI:
         to tell. A frame a person asks for is held to the limits first
         (``set_frame_size``).
         """
-        return binning.native_to_displayed(native, factor, self.pixel_alignment())
+        return binning.native_to_displayed(native, factor, self.pixel_alignment)
 
     def _apply_frame_impl(self, native: dict, target: dict) -> FrameSize | None:
         """On the camera lane: apply the displayed ``target``, then save it and the
@@ -3770,7 +3770,8 @@ class CameraAPI:
         """
         return self._read_on_lane(self._read_fresh, 'read_pixel_format', args=('pixel_format',))
 
-    @api(reads=True)
+    @api
+    @property
     def pixel_alignment(self) -> dict:
         """Return the camera's deliverable frame-size granularity.
 

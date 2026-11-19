@@ -362,7 +362,7 @@ class TestOneRunOneEncoding:
 
         monkeypatch.setattr(piw, 'ProtocolVideoStep', _FakeRecorder)
         protocol = MagicMock()
-        protocol.capture_root.return_value = ''
+        protocol.capture_root = ''
         video_step = {
             'Name': 'A1_BF_vid',
             'channel': 'BF',

@@ -113,7 +113,7 @@ def test_a_failed_toggle_probe_keeps_the_saved_setting_and_is_on_the_record(togg
     assert scope.camera.high_conversion_gain is None, 'what the camera holds is not known'
     assert toggles.written == []
 
-    camera_part = next(p for p in toggles.session.bring_up_record().parts if p.part == Board.CAMERA)
+    camera_part = next(p for p in toggles.session.bring_up_record.parts if p.part == Board.CAMERA)
     assert camera_part.cause == 'settings_not_applied'
     assert (
         "CameraReadFailedError: The camera's conversion gain probe failed when it came up; "

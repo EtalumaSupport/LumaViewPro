@@ -326,7 +326,7 @@ class TestRoundTripBasic:
     def test_single_bf_image_step(self, tmp_path):
         proto = _build_protocol([_make_step(color='BF', acquire='image')])
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 1
+        assert reloaded.num_steps == 1
         step = reloaded.step_row(step_index=0)
         assert step['channel'] == 'BF'
         assert step['Acquire'] == 'image'
@@ -489,7 +489,7 @@ class TestRoundTripBasic:
             file_path=tsv,
         )
         assert proto is not None
-        assert proto.labware_id() == '384 well microplate'
+        assert proto.labware_id == '384 well microplate'
 
         errors = proto.validate_for_run(
             objective_helper=ObjectiveLoader(),
@@ -513,7 +513,7 @@ class TestRoundTripMultiStep:
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 3
+        assert reloaded.num_steps == 3
         assert reloaded.step_row(step_index=0)['channel'] == 'BF'
         assert reloaded.step_row(step_index=1)['channel'] == LED1
         assert reloaded.step_row(step_index=2)['channel'] == LED2
@@ -542,7 +542,7 @@ class TestRoundTripMultiStep:
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 3
+        assert reloaded.num_steps == 3
         assert reloaded.step_row(step_index=0)['Well'] == 'A1'
         assert reloaded.step_row(step_index=1)['Well'] == 'A2'
         assert reloaded.step_row(step_index=2)['Well'] == 'B1'
@@ -557,7 +557,7 @@ class TestRoundTripMultiStep:
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 4
+        assert reloaded.num_steps == 4
         for i in range(4):
             assert reloaded.step_row(step_index=i)['Tile Group ID'] == 1
         assert reloaded.step_row(step_index=0)['Tile'] == 'T00'
@@ -572,7 +572,7 @@ class TestRoundTripMultiStep:
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 3
+        assert reloaded.num_steps == 3
 
     def test_zstack_steps(self, tmp_path):
         """Z-stack steps preserve Z-Slice index and group IDs."""
@@ -583,7 +583,7 @@ class TestRoundTripMultiStep:
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 3
+        assert reloaded.num_steps == 3
         assert reloaded.step_row(step_index=0)['Z'] == pytest.approx(4900.0)
         assert reloaded.step_row(step_index=2)['Z'] == pytest.approx(5100.0)
         assert reloaded.step_row(step_index=0)['Z-Slice'] == 0
@@ -618,7 +618,7 @@ class TestRoundTripEdgeCases:
         steps = [_make_step(name=f'A1_{c}', color=c) for c in colors]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == len(colors)
+        assert reloaded.num_steps == len(colors)
         for i, c in enumerate(colors):
             assert reloaded.step_row(step_index=i)['channel'] == c
 
@@ -844,7 +844,7 @@ class TestRoundTripMetadata:
     def test_period_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], period_min=5.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.period_s() == 5 * 60
+        assert reloaded.period_s == 5 * 60
 
     def test_period_zero_accepted_as_single_scan(self, tmp_path):
         """Z-stack and single-shot capture write Period=0 in their TSV;
@@ -854,7 +854,7 @@ class TestRoundTripMetadata:
         protocol_time_estimator already treats period_s == 0 as 1 scan."""
         proto = _build_protocol([_make_step()], period_min=0.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.period_s() == 0
+        assert reloaded.period_s == 0
 
     def test_period_negative_still_rejected(self, tmp_path):
         """Period < 0 stays a hard error -- meaningless and likely a
@@ -897,10 +897,10 @@ class TestRoundTripMetadata:
             config=config,
         )
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.period_s() == 0, (
+        assert reloaded.period_s == 0, (
             f'period=None must round-trip as 0 (the single-'
             f'scan marker accepted by the loader). Got '
-            f'{reloaded.period_s()!r}.'
+            f'{reloaded.period_s!r}.'
         )
 
     def test_duration_none_round_trips_as_zero(self, tmp_path):
@@ -920,8 +920,8 @@ class TestRoundTripMetadata:
             config=config,
         )
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.duration_s() == 0, (
-            f'duration=None must round-trip as 0. Got {reloaded.duration_s()!r}.'
+        assert reloaded.duration_s == 0, (
+            f'duration=None must round-trip as 0. Got {reloaded.duration_s!r}.'
         )
 
     def test_duration_zero_accepted_as_single_scan(self, tmp_path):
@@ -931,24 +931,24 @@ class TestRoundTripMetadata:
         by an adjacent Duration check (issue #669)."""
         proto = _build_protocol([_make_step()], duration_hrs=0.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.duration_s() == 0
+        assert reloaded.duration_s == 0
 
     def test_duration_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], duration_hrs=12.0)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.duration_s() == 12 * 3600
+        assert reloaded.duration_s == 12 * 3600
 
     def test_labware_preserved(self, tmp_path):
         proto = _build_protocol([_make_step()], labware='96 well microplate')
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.labware_id() == '96 well microplate'
+        assert reloaded.labware_id == '96 well microplate'
 
     def test_capture_root_preserved(self, tmp_path):
         steps = [_make_step()]
         proto = _build_protocol(steps)
         proto._config['capture_root'] = 'experiment_42'
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.capture_root() == 'experiment_42'
+        assert reloaded.capture_root == 'experiment_42'
 
     def test_video_config_various_durations(self, tmp_path):
         """Different duration values round-trip correctly."""
@@ -981,7 +981,7 @@ class TestRoundTripCombinations:
                 )
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 6
+        assert reloaded.num_steps == 6
 
     def test_multiwell_multichannel(self, tmp_path):
         """Multi-well x multi-channel protocol."""
@@ -1000,7 +1000,7 @@ class TestRoundTripCombinations:
                 )
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 9
+        assert reloaded.num_steps == 9
         assert reloaded.step_row(step_index=0)['Well'] == 'A1'
         assert reloaded.step_row(step_index=0)['channel'] == 'BF'
         assert reloaded.step_row(step_index=8)['Well'] == 'B1'
@@ -1014,7 +1014,7 @@ class TestRoundTripCombinations:
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 3
+        assert reloaded.num_steps == 3
 
     def test_tiling_3x5(self, tmp_path):
         """3 rows x 5 columns tiling (15 tiles)."""
@@ -1032,7 +1032,7 @@ class TestRoundTripCombinations:
                 )
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 15
+        assert reloaded.num_steps == 15
 
     def test_multiwell_tiled_multichannel(self, tmp_path):
         """The real-world protocol: multi-well x tiled x multi-channel."""
@@ -1053,7 +1053,7 @@ class TestRoundTripCombinations:
                     )
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.num_steps() == 16  # 2 wells x 4 tiles x 2 channels
+        assert reloaded.num_steps == 16  # 2 wells x 4 tiles x 2 channels
 
     def test_multiple_objectives(self, tmp_path):
         """Steps with different objectives."""
@@ -1459,12 +1459,12 @@ class TestProtocolModification:
             period=datetime.timedelta(minutes=5),
             duration=datetime.timedelta(hours=2),
         )
-        assert (proto.period_s(), proto.duration_s()) == (5 * 60, 2 * 3600)
+        assert (proto.period_s, proto.duration_s) == (5 * 60, 2 * 3600)
 
     def test_num_steps(self):
         steps = [_make_step(name=f's{i}') for i in range(5)]
         proto = _build_protocol(steps)
-        assert proto.num_steps() == 5
+        assert proto.num_steps == 5
 
     def test_step_access_by_index(self):
         steps = [
@@ -1479,18 +1479,18 @@ class TestProtocolModification:
 
     def test_labware_accessor(self):
         proto = _build_protocol([_make_step()], labware='96 well microplate')
-        assert proto.labware_id() == '96 well microplate'
+        assert proto.labware_id == '96 well microplate'
 
     def test_capture_root_accessor(self):
         proto = _build_protocol([_make_step()])
         proto._config['capture_root'] = 'experiment_1'
-        assert proto.capture_root() == 'experiment_1'
+        assert proto.capture_root == 'experiment_1'
 
 
 class TestProtocolNumStepsCache:
-    """Regression tests for Protocol.num_steps() caching.
+    """Regression tests for Protocol.num_steps caching.
 
-    Added after real-hardware profiling (2026-04-13) showed num_steps() was
+    Added after real-hardware profiling (2026-04-13) showed num_steps was
     called 1281 times during a 36-step protocol run -- roughly 35x per step --
     because executor/validation code paths repeatedly asked for the count.
     The cache must be invalidated by every mutation path that can change the
@@ -1500,14 +1500,14 @@ class TestProtocolNumStepsCache:
 
     def test_cache_returns_correct_initial_count(self):
         proto = _build_protocol([_make_step(name=f's{i}') for i in range(7)])
-        assert proto.num_steps() == 7
-        assert proto.num_steps() == 7  # second call hits cache
+        assert proto.num_steps == 7
+        assert proto.num_steps == 7  # second call hits cache
 
     def test_cache_invalidated_after_delete_step(self):
         proto = _build_protocol([_make_step(name=f's{i}') for i in range(5)])
-        assert proto.num_steps() == 5  # prime the cache
+        assert proto.num_steps == 5  # prime the cache
         proto.delete_step(step_index=2)
-        assert proto.num_steps() == 4
+        assert proto.num_steps == 4
 
     def test_cache_invalidated_after_optimize_ordering(self):
         proto = _build_protocol(
@@ -1517,25 +1517,25 @@ class TestProtocolNumStepsCache:
                 _make_step(name='s2', x=15.0, y=25.0, z=5000.0),
             ]
         )
-        assert proto.num_steps() == 3
+        assert proto.num_steps == 3
         proto.optimize_step_ordering()
-        assert proto.num_steps() == 3  # count unchanged, but cache should be
+        assert proto.num_steps == 3  # count unchanged, but cache should be
         # consistent with the new dataframe
 
     def test_cache_independent_across_copy_for_execution(self):
         proto = _build_protocol([_make_step(name=f's{i}') for i in range(3)])
-        assert proto.num_steps() == 3  # prime cache on original
+        assert proto.num_steps == 3  # prime cache on original
         copy = proto.copy_for_execution()
         # copy should compute its own count, not reuse original's cached value
-        assert copy.num_steps() == 3
+        assert copy.num_steps == 3
         # mutating the copy must not affect the original
         copy.delete_step(step_index=0)
-        assert copy.num_steps() == 2
-        assert proto.num_steps() == 3
+        assert copy.num_steps == 2
+        assert proto.num_steps == 3
 
     def test_cache_attribute_exists_on_new_instances(self):
         """Both __init__ and copy_for_execution must set _num_steps_cache.
-        A missing attribute would AttributeError on first num_steps() call."""
+        A missing attribute would AttributeError on first num_steps call."""
         proto = _build_protocol([_make_step()])
         assert hasattr(proto, '_num_steps_cache')
         copy = proto.copy_for_execution()
@@ -1544,7 +1544,7 @@ class TestProtocolNumStepsCache:
     def test_repeated_num_steps_calls_are_identical(self):
         """Smoke test: 100 back-to-back calls all return the same value."""
         proto = _build_protocol([_make_step(name=f's{i}') for i in range(42)])
-        counts = {proto.num_steps() for _ in range(100)}
+        counts = {proto.num_steps for _ in range(100)}
         assert counts == {42}
 
 
@@ -1715,7 +1715,7 @@ class TestProtocolInsertStep:
             objective_id='10x Oly',
             before_step_index=0,
         )
-        assert proto.num_steps() == 2
+        assert proto.num_steps == 2
         # The typed name becomes the step's Label; the derived Name renders
         # it with the channel token.
         assert proto.step_row(step_index=0)['Label'] == 'new_step'
@@ -1736,7 +1736,7 @@ class TestProtocolInsertStep:
             before_step_index=None,
             after_step_index=0,
         )
-        assert proto.num_steps() == 2
+        assert proto.num_steps == 2
         assert proto.step_row(step_index=0)['Name'] == 'first'
         assert proto.step_row(step_index=1)['Label'] == 'appended'
         assert proto.step_row(step_index=1)['Name'] == f'appended_{LED2}'
@@ -1760,7 +1760,7 @@ class TestProtocolInsertStep:
             before_step_index=None,
             after_step_index=0,
         )
-        assert proto.num_steps() == 3
+        assert proto.num_steps == 3
         assert proto.step_row(step_index=0)['Name'] == 'step_0'
         assert proto.step_row(step_index=1)['Label'] == 'middle'
         assert proto.step_row(step_index=1)['Name'] == 'middle_BF'
@@ -1798,10 +1798,10 @@ class TestProtocolInsertStep:
             before_step_index=None,
             after_step_index=0,
         )
-        assert proto.num_steps() == 2
+        assert proto.num_steps == 2
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
-        assert reloaded.num_steps() == 2
+        assert reloaded.num_steps == 2
         assert reloaded.step_row(step_index=1)['channel'] == LED1
 
         completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
@@ -1814,7 +1814,7 @@ class TestProtocolDeleteStep:
     def test_delete_only_step(self):
         proto = _build_protocol([_make_step()])
         proto.delete_step(step_index=0)
-        assert proto.num_steps() == 0
+        assert proto.num_steps == 0
 
     def test_delete_first_of_three(self):
         proto = _build_protocol(
@@ -1825,7 +1825,7 @@ class TestProtocolDeleteStep:
             ]
         )
         proto.delete_step(step_index=0)
-        assert proto.num_steps() == 2
+        assert proto.num_steps == 2
         assert proto.step_row(step_index=0)['Name'] == 'b'
         assert proto.step_row(step_index=1)['Name'] == 'c'
 
@@ -1838,7 +1838,7 @@ class TestProtocolDeleteStep:
             ]
         )
         proto.delete_step(step_index=1)
-        assert proto.num_steps() == 2
+        assert proto.num_steps == 2
         assert proto.step_row(step_index=0)['Name'] == 'a'
         assert proto.step_row(step_index=1)['Name'] == 'c'
 
@@ -1851,7 +1851,7 @@ class TestProtocolDeleteStep:
             ]
         )
         proto.delete_step(step_index=2)
-        assert proto.num_steps() == 2
+        assert proto.num_steps == 2
         assert proto.step_row(step_index=1)['Name'] == 'b'
 
     def test_delete_all_one_by_one(self):
@@ -1863,7 +1863,7 @@ class TestProtocolDeleteStep:
         )
         proto.delete_step(step_index=1)
         proto.delete_step(step_index=0)
-        assert proto.num_steps() == 0
+        assert proto.num_steps == 0
 
 
 class TestProtocolModifyStep:
@@ -1962,13 +1962,13 @@ class TestLumascapeAPILed:
         scope.illumination.led_on(channel='BF', illumination_ma=50)
         scope.illumination.led_on(channel=LED2, illumination_ma=100)
         scope.illumination.leds_off()
-        not_dark = [r for r in scope.illumination.led_states() if r.state is not LedState.DARK]
+        not_dark = [r for r in scope.illumination.led_states if r.state is not LedState.DARK]
         assert not_dark == [], f'LEDs not dark after leds_off: {not_dark}'
 
     def test_led_states_snapshot(self, scope):
         scope.illumination.led_on(channel=LED1, illumination_ma=200)
         scope.illumination.led_on(channel=LED2, illumination_ma=150)
-        states = {r.name: r for r in scope.illumination.led_states()}
+        states = {r.name: r for r in scope.illumination.led_states}
         assert (states[LED1].state, states[LED1].illumination_ma) == (LedState.LIT, 200)
         assert states[LED2].state is LedState.LIT
         assert states['BF'].state is LedState.DARK
@@ -1980,13 +1980,13 @@ class TestLumascapeAPIMotor:
     def test_move_z(self, scope):
         scope.motion.move_z(3000.0)
         # Simulated motor moves instantly in fast mode
-        pos = scope.motion.target_positions()['Z']
+        pos = scope.motion.target_positions['Z']
         assert pos == pytest.approx(3000.0, abs=1.0)
 
     def test_get_target_positions_from_cache(self, scope):
         """target_positions uses cache -- zero serial I/O."""
         scope.motion.move_z(5000.0)
-        pos = scope.motion.target_positions()['Z']
+        pos = scope.motion.target_positions['Z']
         assert pos == pytest.approx(5000.0, abs=1.0)
 
 
@@ -2091,7 +2091,7 @@ class TestV6LayerSettings:
         reloaded = protocol_from_file(
             filepath,
         )
-        inferred = reloaded.channel_settings()
+        inferred = reloaded.channel_settings
 
         assert set(inferred.keys()) == {'BF', LED0, LED1, LED2}
         for layer in ('BF', LED0, LED1, LED2):
@@ -2132,7 +2132,7 @@ class TestV6LayerSettings:
         filepath = tmp_path / 'v6.tsv'
         proto.to_file(filepath, channel_settings=records)
 
-        assert protocol_from_file(filepath).channel_settings() == records
+        assert protocol_from_file(filepath).channel_settings == records
 
     def test_a_file_read_and_written_again_is_the_same_file(self, tmp_path):
         """A loaded protocol's stored records are what to_file writes when no

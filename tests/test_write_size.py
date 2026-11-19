@@ -122,7 +122,7 @@ def test_a_run_is_sized_for_the_camera_it_saves_from(sim_session, camera_bits):
         scope.camera.frame_size,
         scope.capabilities,
         image_mode.ImageCaptureConfig.from_image_mode('12bit_scientific'),
-        sim_session.channel_colors(),
+        sim_session.channel_colors,
     )
     frame = scope.camera.frame_size
 

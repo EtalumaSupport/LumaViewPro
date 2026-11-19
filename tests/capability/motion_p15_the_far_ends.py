@@ -145,7 +145,7 @@ def _measure(session):
         _move(m, axis, middle[axis])
         check(
             f'{axis}: the stage knows its position after the sweep',
-            axis not in m.axes_without_position(),
+            axis not in m.axes_without_position,
         )
         check(f'{axis}: reached its far limit clear', record['ended_by'] == 'none_by_the_limit')
     z_far = limits['Z'].max_um

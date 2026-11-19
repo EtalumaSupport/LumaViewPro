@@ -27,5 +27,5 @@ def test_a_bring_up_without_a_camera_does_not_say_it_streams(monkeypatch, tmp_pa
 def test_a_bring_up_with_a_camera_says_it_streams(monkeypatch, tmp_path, caplog):
     caplog.set_level(logging.DEBUG)
     session = _bring_up(monkeypatch, tmp_path)
-    assert session.scope.imaging.is_streaming()
+    assert session.scope.imaging.read_streaming()
     assert _completion_line(records_of(caplog, scope_session_mod)).endswith('camera streaming')

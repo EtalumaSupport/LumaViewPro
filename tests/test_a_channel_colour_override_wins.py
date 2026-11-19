@@ -35,11 +35,11 @@ def test_an_override_is_the_channels_colour_and_null_gives_the_release_back(sess
     release = channel_record.release_colors()
 
     session.set_channel_settings(LED2, display_color=MAGENTA)
-    overridden = session.channel_colors()
+    overridden = session.channel_colors
     session.set_channel_settings(LED2, display_color=None)
 
     assert overridden == {**release, LED2: (1.0, 0.0, 1.0)}
-    assert session.channel_colors() == release
+    assert session.channel_colors == release
 
 
 def test_a_unit_colour_its_board_gives_is_the_channels_unless_overridden(tmp_path):
@@ -60,9 +60,9 @@ def test_a_unit_colour_its_board_gives_is_the_channels_unless_overridden(tmp_pat
         warn_pre_release=False,
     )
     try:
-        from_the_unit = session.channel_colors()
+        from_the_unit = session.channel_colors
         session.set_channel_settings(LED0, display_color=MAGENTA)
-        overridden = session.channel_colors()
+        overridden = session.channel_colors
     finally:
         session.shutdown()
 

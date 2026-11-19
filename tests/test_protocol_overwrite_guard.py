@@ -211,7 +211,7 @@ def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, centre_posts)
     proto = protocol_from_file(
         file_path=tsv,
     )
-    assert proto.num_steps() == 2, 'the colliding file must load so the steps can be renamed'
+    assert proto.num_steps == 2, 'the colliding file must load so the steps can be renamed'
     captured = [n.message for n in centre_posts]
     assert len(captured) == 1, captured
     assert 'refused' in captured[0].lower()
@@ -234,7 +234,7 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
     proto = protocol_from_file(
         file_path=tsv,
     )
-    assert proto.num_steps() == 3
+    assert proto.num_steps == 3
 
 
 def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
@@ -257,7 +257,7 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, centre_posts):
     proto = protocol_from_file(
         file_path=tsv,
     )
-    assert proto.num_steps() == 4, (
+    assert proto.num_steps == 4, (
         'Cross-TGID duplicates must NOT be rejected (the legitimate tiled-'
         'acquisition pattern still loads).'
     )
@@ -308,7 +308,7 @@ def test_load_accepts_unique_steps(tmp_path):
     proto = protocol_from_file(
         file_path=tsv,
     )
-    assert proto.num_steps() == 2
+    assert proto.num_steps == 2
 
 
 # ---------------------------------------------------------------------------

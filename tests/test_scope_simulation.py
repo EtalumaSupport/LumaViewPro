@@ -289,7 +289,7 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
     scope.simulation.silence('motor')
     scope.simulation.refuse_camera_write('gain', 'unreported')
     scope.simulation.refuse_camera_read('black_level', 'failed')
-    assert scope.simulation.injected() == (
+    assert scope.simulation.injected == (
         InjectedFault('silence', {'board': 'motor'}),
         InjectedFault('refuse_camera_write', {'node': 'gain', 'answer': 'unreported', 'count': 1}),
         InjectedFault(
@@ -297,7 +297,7 @@ def test_injected_lists_what_was_asked_and_clear_takes_it_all_back(scope):
         ),
     )
     scope.simulation.clear()
-    assert scope.simulation.injected() == ()
+    assert scope.simulation.injected == ()
     assert scope.motion.read_actual_position('X') == pytest.approx(before, abs=0.1)
     scope.camera.set_gain_db(4.0)
     assert scope.imaging._frame_validity.target('gain') == 4.0
@@ -374,12 +374,12 @@ def test_a_hold_its_move_never_reached_ends_saying_what_ended_it(scope):
 
 def test_an_answered_model_is_what_the_board_reports_until_cleared(scope):
     scope.simulation.answer_model('LS999')
-    assert scope.diagnostics.motor_info().model == 'LS999'
+    assert scope.diagnostics.motor_info.model == 'LS999'
     assert scope.capabilities.has_turret, 'the board kept the axes it was built with'
     scope.simulation.answer_model(None)
-    assert scope.diagnostics.motor_info().model is None
+    assert scope.diagnostics.motor_info.model is None
     scope.simulation.clear()
-    assert scope.diagnostics.motor_info().model == 'LS850T'
+    assert scope.diagnostics.motor_info.model == 'LS850T'
 
 
 def test_every_member_refuses_on_a_real_scope(no_hardware_scope):
@@ -454,7 +454,7 @@ def test_the_ls720s_broken_home_switch_fails_the_home_until_cleared(ls720, monke
     assert failed.value.reason == 'error'
     ls720.simulation.clear()
     ls720.motion.home()
-    assert not (ls720.motion.axes_without_position().keys() - {'T'})
+    assert not (ls720.motion.axes_without_position.keys() - {'T'})
 
 
 def test_a_silenced_ls720_board_answers_nothing_until_unsilenced(ls720):

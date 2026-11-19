@@ -87,7 +87,7 @@ class VerticalControl(BoxLayout):
         scope = _app_ctx.ctx.lumaview.scope
         if not scope.capabilities.has_focus:
             return
-        self.show_z(scope.motion.axis_positions()['Z'].position_um)
+        self.show_z(scope.motion.axis_positions['Z'].position_um)
 
     def show_z_travel(self) -> None:
         """Span the focus slider over the scope's Z travel.
@@ -119,7 +119,7 @@ class VerticalControl(BoxLayout):
         has focus, so a drag is not overwritten.
         """
         slider = self.ids['obj_position']
-        target = _app_ctx.ctx.lumaview.scope.motion.target_positions().get('Z')
+        target = _app_ctx.ctx.lumaview.scope.motion.target_positions.get('Z')
         if target is not None and not slider.user_interacting:
             slider.value = target
         self._write_z_text(polled)
@@ -236,7 +236,7 @@ class VerticalControl(BoxLayout):
                 would refuse the answer.
         """
         ctx = _app_ctx.ctx
-        turret = ctx.scope.motion.turret_status()
+        turret = ctx.scope.motion.turret_status
         slot = turret.slot if turret is not None else None
         for position, assigned in ctx.scope.runtime_state.turret_config().items():
             button = self.ids[f'turret_pos_{position}_btn']
@@ -246,7 +246,7 @@ class VerticalControl(BoxLayout):
             button.text = f'< {position} >' if assigned is None else assigned
 
         # The objective, or the refusal that says why it is unknown.
-        objective = ctx.scope.runtime_state.optics_status().objective
+        objective = ctx.scope.runtime_state.optics_status.objective
         objective_id = objective if isinstance(objective, str) else None
         self.ids['assign_objective_btn'].text = objective_id or 'Assign Objective'
         shown = objective_id or f'Unknown ({objective.reason})'
@@ -393,7 +393,7 @@ class VerticalControl(BoxLayout):
         # the call's return, and the question is that return.
         run_reported(
             lambda: self._render_objective_question(
-                _app_ctx.ctx.session.current_slot_objective_question()
+                _app_ctx.ctx.session.current_slot_objective_question
             ),
             redraw=None,
             label='ASSIGN_OBJECTIVE',
@@ -424,9 +424,9 @@ class VerticalControl(BoxLayout):
         """
 
         def _ask():
-            question = _app_ctx.ctx.session.objective_question()
+            question = _app_ctx.ctx.session.objective_question
             if question is None:
-                if not _app_ctx.ctx.session.settings_are_provisional():
+                if not _app_ctx.ctx.session.settings_are_provisional:
                     self._resolve_objective(on_resolved)
                 return
             self._render_objective_question(question, on_resolved=on_resolved)

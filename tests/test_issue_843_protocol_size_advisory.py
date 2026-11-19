@@ -78,7 +78,7 @@ def _per_step_sum(protocol, *, recording_format, video_fps):
             recording_format=recording_format,
             video_fps=video_fps,
         )
-        for i in range(protocol.num_steps())
+        for i in range(protocol.num_steps)
     )
 
 
@@ -341,7 +341,7 @@ class TestTheEstimateTracksAnInPlaceEdit:
 
         after = protocol.estimate_write_mb(sizing=SIZING, video_fps=VIDEO_FPS)
         assert after > before
-        assert protocol.num_steps() == 2, 'the step count is unchanged; only the size moved'
+        assert protocol.num_steps == 2, 'the step count is unchanged; only the size moved'
 
 
 class TestTheAbortMessageNamesTheRealStepCount:
@@ -370,6 +370,6 @@ class TestTheAbortMessageNamesTheRealStepCount:
 
     def test_the_step_count_is_assigned_before_the_message(self):
         source = self._run_loop_source()
-        assigned = source.index('num_steps = p._protocol.num_steps()')
+        assigned = source.index('num_steps = p._protocol.num_steps')
         message = source.index('{num_steps} steps')
         assert assigned < message

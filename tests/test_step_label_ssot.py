@@ -676,7 +676,7 @@ def test_insert_step_refuses_name_that_sanitizes_to_empty():
             before_step_index=0,
             after_step_index=None,
         )
-    assert proto.num_steps() == 1, 'refused insert must not add a step'
+    assert proto.num_steps == 1, 'refused insert must not add a step'
 
 
 # ---------------------------------------------------------------------------

@@ -22,18 +22,18 @@ session.set_channel_settings('BF', acquire='image', illumination_ma=5)   # BF is
 protocol = session.create_empty_protocol()
 scope.motion.move_to_well('B2')
 print(session.add_step(protocol, channels=('BF',)))     # a step here, on the protocol's plate
-print(protocol.step_records()[0])
+print(protocol.step_records[0])
 
 path = session.save_protocol(protocol, session.live_folder_path('Protocols/guide.tsv'))
 assert not protocol.has_unsaved_changes
-assert session.load_protocol(path).num_steps() == 1
+assert session.load_protocol(path).num_steps == 1
 ```
 
 ```python
 session.update_settings('zstack.range', 20.0)    # a stack's extent and step are settings
 session.update_settings('zstack.step_size', 5.0)
 plate = session.new_protocol(tiling='2x2', use_zstacking=True)
-print(plate.num_steps(), plate.tiling())
+print(plate.num_steps, plate.tiling)
 ```
 
 Every z-stack is the stored one: `new_protocol` and `add_step` with
@@ -65,7 +65,7 @@ A protocol is edited only through the session (`add_step`, `update_step`,
 `set_protocol_schedule`, `set_protocol_labware`, `set_protocol_capture_root`,
 `set_step_autofocus`, `apply_focus_to_channel_steps`,
 `point_steps_at_turret_slot`, ...), and each edit is a write, refused under
-another's control session. Its records (`step_records()`) are read-only, and a
+another's control session. Its records (`step_records`) are read-only, and a
 run works on its own copy. `protocol_size_advisory(protocol)` says, before a
 run, whether it is large enough to warn about, with one scan's size and a full
 run's (a run whose whole size does not fit its save folder's free space is
@@ -85,7 +85,7 @@ protocol, not in a loop.
 
 ```python
 session.set_protocol_schedule(protocol, period_s=600.0, duration_s=3600.0)
-assert protocol.num_scans() == 6
+assert protocol.num_scans == 6
 ```
 
 **The protocol file** is tab-separated. Its first row is

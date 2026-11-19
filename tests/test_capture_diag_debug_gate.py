@@ -86,7 +86,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         ),
     )
     protocol = MagicMock()
-    protocol.capture_root.return_value = ''
+    protocol.capture_root = ''
     writer.capture(
         scan_count=0,
         curr_step=0,

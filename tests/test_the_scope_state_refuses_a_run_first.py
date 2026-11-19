@@ -149,7 +149,7 @@ def test_a_scope_that_cannot_reach_the_wells_is_told_so_before_it_is_told_to_hom
         Well=['A1', 'A2', 'A3', 'A4'],
     )
     session = make_session('LS820', homed=False)
-    assert session.scope.motion.axes_without_position()
+    assert session.scope.motion.axes_without_position
     protocol = session.load_protocol(path)
 
     with pytest.raises(ProtocolRunRefusedError) as refused:

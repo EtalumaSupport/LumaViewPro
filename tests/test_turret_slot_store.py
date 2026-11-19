@@ -75,19 +75,19 @@ def _move_turret_in_thread(motion, slot):
 
 class TestTheCommandedSlot:
     def test_a_home_leaves_slot_1(self, session):
-        assert session.scope.motion.turret_status().slot == 1
+        assert session.scope.motion.turret_status.slot == 1
 
     def test_a_turret_move_records_its_slot(self, session):
         motion = session.scope.motion
         motion.move_turret(2)
-        assert motion.turret_status().slot == 2
+        assert motion.turret_status.slot == 2
 
     def test_a_started_turret_change_records_its_slot_once_done(self, session):
         motion = session.scope.motion
 
         assert motion.start_move_turret(2).result(timeout=10) is None
 
-        assert motion.turret_status().slot == 2
+        assert motion.turret_status.slot == 2
 
     def test_a_started_turret_change_to_no_slot_is_refused_at_its_call(self, session):
         """Refused to the caller, never handed back as an operation that fails."""
@@ -97,7 +97,7 @@ class TestTheCommandedSlot:
             motion.start_move_turret(5)
 
         assert refused.value.reason == 'position_out_of_range'
-        assert motion.turret_status().slot == 1
+        assert motion.turret_status.slot == 1
 
     def test_a_started_turret_change_without_a_turret_is_refused_at_its_call(self, tmp_path):
         s = ScopeSession.create(
@@ -122,12 +122,12 @@ class TestTheCommandedSlot:
         with pytest.raises(MoveNotCompletedError):
             motion.move_turret(2)
 
-        assert motion.turret_status().slot is None
+        assert motion.turret_status.slot is None
 
     def test_losing_the_turret_position_loses_the_slot(self, session):
         motion = session.scope.motion
         motion._set_axis_state('T', AxisState.UNKNOWN)
-        assert motion.turret_status().slot is None
+        assert motion.turret_status.slot is None
 
 
 class TestAStopIsNotAnArrival:
@@ -159,7 +159,7 @@ class TestAStopIsNotAnArrival:
 
         assert isinstance(outcome.get('raised'), MoveNotCompletedError), outcome
         assert outcome['raised'].reason == 'stopped'
-        assert motion.turret_status().slot is None
+        assert motion.turret_status.slot is None
 
 
 class TestNothingElseMovesTheTurret:
@@ -203,7 +203,7 @@ class TestNothingElseMovesTheTurret:
 
         assert result['passed'] is True, result
         # The turret home left the turret in slot 1, and the record says so.
-        assert motion.turret_status().slot == 1
+        assert motion.turret_status.slot == 1
 
 
 class TestTheRecordIsLostWhenTheTurretIs:
@@ -225,7 +225,7 @@ class TestTheRecordIsLostWhenTheTurretIs:
 
         motion._home_turret_impl()
 
-        assert motion.turret_status().slot is None
+        assert motion.turret_status.slot is None
 
     def test_a_stop_during_the_full_home_leaves_no_slot(self, session, monkeypatch):
         motion = session.scope.motion
@@ -243,13 +243,13 @@ class TestTheRecordIsLostWhenTheTurretIs:
 
         motion._home_impl()
 
-        assert motion.turret_status().slot is None
+        assert motion.turret_status.slot is None
 
     def test_disconnect_loses_the_slot(self, session):
         motion = session.scope.motion
-        assert motion.turret_status().slot == 1
+        assert motion.turret_status.slot == 1
         motion._disconnect()
-        assert motion.turret_status().slot is None
+        assert motion.turret_status.slot is None
 
 
 def test_a_run_names_the_slot_not_the_step_counter(tmp_path, monkeypatch):
@@ -264,7 +264,7 @@ def test_a_run_names_the_slot_not_the_step_counter(tmp_path, monkeypatch):
     settings = headless_settings(tmp_path)
     with open_composite_session(settings, engineering_mode=True) as (session, runner):
         motion = session.scope.motion
-        slot = motion.turret_status().slot
+        slot = motion.turret_status.slot
         assert slot is not None, 'the session left the turret in no known slot'
         real_position = motion.get_current_position
 

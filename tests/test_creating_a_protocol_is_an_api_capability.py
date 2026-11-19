@@ -41,7 +41,7 @@ class TestTheSessionBuilds:
 
         protocol = session.new_protocol()
 
-        assert protocol.num_steps() > 0
+        assert protocol.num_steps > 0
         assert set(protocol.steps()['channel']) == {'BF'}
 
     def test_a_labware_with_no_wells_gives_an_empty_protocol(self, session):
@@ -50,7 +50,7 @@ class TestTheSessionBuilds:
 
         protocol = session.new_protocol()
 
-        assert protocol.num_steps() == 0
+        assert protocol.num_steps == 0
 
 
 class TestOnePredicate:

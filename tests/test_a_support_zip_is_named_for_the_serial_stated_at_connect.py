@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """A support zip is named for the serial number the motor board stated at connect.
 
-The name comes from ``DiagnosticsAPI.motor_info().serial_number``, the
+The name comes from ``DiagnosticsAPI.motor_info.serial_number``, the
 connect-time record, never from a question put to the board when the zip is
 made: while a run or a control session holds the scope the raw command
 channel is refused, and a field zip taken during a run lost its serial
@@ -92,7 +92,7 @@ def test_a_logs_only_zip_taken_while_the_scope_is_held_names_its_serial(
 ):
     # parametrize-justified: a run and a control session hold the scope through
     # different gates, each its own refusal of the raw channel.
-    serial = ls850.scope.diagnostics.motor_info().serial_number
+    serial = ls850.scope.diagnostics.motor_info.serial_number
     assert serial
 
     zip_path, sent = _logs_only_while_held(ls850, tmp_path, hold, caplog)
@@ -118,7 +118,7 @@ def _full_report_name(report, tmp_path):
 def test_a_full_report_is_named_for_the_serial_stated_at_connect_not_a_reply_now(ls850, tmp_path):
     # The board does not answer FULLINFO when the report is made; the name
     # is the serial it stated at connect all the same.
-    serial = ls850.scope.diagnostics.motor_info().serial_number
+    serial = ls850.scope.diagnostics.motor_info.serial_number
     ls850.scope.simulation.drop_replies('motor', count=None, command='FULLINFO')
 
     name = _full_report_name(TechSupportReport(session=ls850), tmp_path)
@@ -127,7 +127,7 @@ def test_a_full_report_is_named_for_the_serial_stated_at_connect_not_a_reply_now
 
 
 def test_a_scope_whose_board_stated_no_serial_keeps_each_zips_unknown_name(ls620, tmp_path, caplog):
-    assert ls620.scope.diagnostics.motor_info().serial_number is None
+    assert ls620.scope.diagnostics.motor_info.serial_number is None
     report = TechSupportReport(session=ls620)
 
     with caplog.at_level(logging.ERROR):

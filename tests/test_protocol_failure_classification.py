@@ -17,7 +17,7 @@ scan scheduler kept restarting on a fault that wasn't transient.
 After this fix:
 - ``scan_loop`` no longer catches exceptions; they propagate to
   ``_run_loop_inner``'s outer except.
-- The outer except classifies via ``scope.unconnected_parts()``:
+- The outer except classifies via ``scope.unconnected_parts``:
     * disconnected -> fatal, fire "Protocol Aborted" + cleanup + break
     * connected   -> transient, log warning only, do not increment
       ``_scan_count``, do not break; outer loop's next iteration
@@ -46,7 +46,6 @@ class TestRunLoopInnerClassifiesByConnection:
     def _drive_failing_run_loop(self, centre_posts, *, connected):
         """run_loop on a runner whose every scan raises; classification
         is steered by the mocked unconnected_parts."""
-        from unittest.mock import MagicMock
 
         from _lumascope.modules.notification_center import Severity
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
@@ -59,9 +58,7 @@ class TestRunLoopInnerClassifiesByConnection:
         # the other slip past unseen.
         runner = run_loop_ready_runner(protocol_step())
         runner._protocol.step_row.side_effect = BoardPortFailedError('serial dropped mid-step')
-        runner._scope.unconnected_parts = MagicMock(
-            return_value=() if connected else (Board.CAMERA,)
-        )
+        runner._scope.unconnected_parts = () if connected else (Board.CAMERA,)
         runner._run_loop_executor.run_loop(runner._last_run())
         captured = [
             (n.category, n.title, n.message)
@@ -132,14 +129,13 @@ class TestOurOwnDefectEndsTheRunAtOnce:
 
     @staticmethod
     def _run(raised, *, lost_axes=None):
-        from unittest.mock import MagicMock
 
         from tests.protocol_drives import protocol_step, run_loop_ready_runner
 
         runner = run_loop_ready_runner(protocol_step())
         runner._protocol.step_row.side_effect = raised
-        runner._scope.unconnected_parts = MagicMock(return_value=())
-        runner._scope.motion.axes_without_position = MagicMock(return_value=lost_axes or {})
+        runner._scope.unconnected_parts = ()
+        runner._scope.motion.axes_without_position = lost_axes or {}
         runner._run_loop_executor.run_loop(runner._last_run())
         return runner
 

@@ -92,7 +92,7 @@ def _phase(session, phase):
         imaging.disable_streaming()
     else:
         imaging.enable_streaming()
-    figure('streaming when the hand comes', imaging.is_streaming())
+    figure('streaming when the hand comes', imaging.read_streaming())
     check('the camera starts connected', not camera_api.camera_removed)
     if phase == 'writes':
         camera_api.set_gain_db(0.0)

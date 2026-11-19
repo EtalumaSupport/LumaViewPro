@@ -46,7 +46,7 @@ def _runner():
     session = MagicMock()
     session.settings = _zstack_settings()
     session.capture_settings_snapshot.return_value = session.settings
-    session.settings_snapshot.return_value = session.settings
+    session.settings_snapshot = session.settings
     session.plate_position_on.return_value = _POSITION
     session.scope.objective_helper.get_objective_info.return_value = objective(magnification=10)
     return ProtocolRunner(session, engine=session._sequenced_capture_runner)
@@ -218,7 +218,7 @@ class TestTheConfigActuallyBuildsASliceEach:
 
     def test_a_configured_stack_builds_more_than_one_slice(self):
         protocol = self._protocol()
-        assert protocol.num_steps() > 1
+        assert protocol.num_steps > 1
 
     def test_every_slice_sits_at_its_own_z(self):
         protocol = self._protocol()

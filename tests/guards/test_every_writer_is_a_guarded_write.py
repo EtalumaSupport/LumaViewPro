@@ -180,6 +180,11 @@ def _marked_a_read(marks: list[ast.expr]) -> bool:
     )
 
 
+def _is_a_property(fn: ast.FunctionDef) -> bool:
+    """A property is a read by its kind and carries no read mark."""
+    return any(isinstance(d, ast.Name) and d.id == 'property' for d in fn.decorator_list)
+
+
 def test_every_session_member_given_a_protocol_reads_it_or_is_a_guarded_write():
     """An edit of a protocol is a write past a control session unless it is guarded.
 
@@ -219,7 +224,7 @@ def test_every_fault_injection_is_a_guarded_write():
         if not isinstance(fn, ast.FunctionDef):
             continue
         marks = _api_marks(fn)
-        if marks is None or _marked_a_read(marks):
+        if marks is None or _marked_a_read(marks) or _is_a_property(fn):
             continue
         walked += 1
         if not _is_guarded(fn):

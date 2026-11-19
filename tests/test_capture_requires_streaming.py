@@ -17,7 +17,7 @@ from _lumascope.drivers import host_clock
 def test_capture_still_succeeds_while_streaming(sim_scope):
     # The precondition guard must not block the normal grabbing path: a
     # streaming sim camera still delivers a frame.
-    assert sim_scope.imaging.is_streaming()
+    assert sim_scope.imaging.read_streaming()
     result = sim_scope.imaging.capture_still(timeout_s=2.0).image
     assert result is not None
 

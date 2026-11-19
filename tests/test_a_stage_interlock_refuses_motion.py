@@ -97,7 +97,7 @@ class TestAMoveTheLidRefuses:
         assert (raised.value.reason, raised.value.member) == ('lid_open_before_motion', member)
         assert isinstance(raised.value.__cause__, MotionInterlockError)
         assert scope.motion.get_axis_state('X') == AxisState.IDLE
-        assert 'X' not in scope.motion.axes_without_position()
+        assert 'X' not in scope.motion.axes_without_position
 
     def test_a_z_move_in_flight_that_the_refusal_stopped_ends_idle_where_it_stopped(
         self, scope, monkeypatch
@@ -189,13 +189,13 @@ class TestAHomeTheInterlockRefuses:
         )
         bind_settings_like_a_session(scope)
         try:
-            assert scope.motion.turret_status().slot == 1
+            assert scope.motion.turret_status.slot == 1
             monkeypatch.setattr(scope._motion_driver, 'home', _refuse('lid_open', stopped=False))
 
             with pytest.raises(HardwareCommandRefusedError):
                 scope.motion.home('ALL')
 
-            assert scope.motion.turret_status().slot == 1
+            assert scope.motion.turret_status.slot == 1
         finally:
             scope.disconnect()
 
@@ -205,7 +205,7 @@ class TestAHomeTheInterlockRefuses:
         )
         bind_settings_like_a_session(scope)
         try:
-            before = scope.motion.turret_status()
+            before = scope.motion.turret_status
             monkeypatch.setattr(
                 scope._motion_driver, 'move_abs_pos', _refuse('lid_open', stopped=False)
             )
@@ -214,7 +214,7 @@ class TestAHomeTheInterlockRefuses:
                 scope.motion.home('T')
 
             assert raised.value.reason == 'lid_open_before_motion'
-            assert scope.motion.turret_status() == before
+            assert scope.motion.turret_status == before
         finally:
             scope.disconnect()
 
@@ -301,7 +301,7 @@ class TestALidOpenedDuringAMove:
 
 class TestTheInterlocksRead:
     def test_a_board_without_interlocks_answers_none(self, scope):
-        assert scope.motion.interlocks() == frozenset()
+        assert scope.motion.read_interlocks() == frozenset()
 
     def test_an_open_interlock_is_answered_as_the_member(self):
         ls720 = build_scope(simulate=True, sim_model='LS720', register_atexit=False)
@@ -309,7 +309,7 @@ class TestTheInterlocksRead:
         try:
             ls720.simulation.interlock(lid_open=True, powered=False)
 
-            answered = ls720.motion.interlocks()
+            answered = ls720.motion.read_interlocks()
 
             assert sorted((type(i), i) for i in answered) == [
                 (Interlock, 'lid_open'),
@@ -330,7 +330,7 @@ class TestTheInterlocksRead:
         assert running.wait(5), 'the lane never started the task holding it'
         try:
             started = time.monotonic()
-            assert scope.motion.interlocks() == {'lid_open'}
+            assert scope.motion.read_interlocks() == {'lid_open'}
             assert time.monotonic() - started < 1.0
         finally:
             release.set()

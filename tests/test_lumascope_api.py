@@ -589,7 +589,7 @@ class TestRunGrabLifecycleBenchmark:
         bind_settings_like_a_session(scope)
         # SimulatedCamera is wired by the registry; ensure it is in the
         # active grabbing state the benchmark expects.
-        if scope._camera_driver and not scope.imaging.is_streaming():
+        if scope._camera_driver and not scope.imaging.read_streaming():
             scope.imaging.enable_streaming()
         return scope
 

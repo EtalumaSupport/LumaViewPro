@@ -169,7 +169,7 @@ def _add_3rd_location_via_insert_step(protocol):
             plate_position=PlateLocation(x_mm=ADDED_X, y_mm=ADDED_Y, z_um=ADDED_Z),
             objective_id='4x Oly',
             before_step_index=None,
-            after_step_index=protocol.num_steps() - 1,
+            after_step_index=protocol.num_steps - 1,
         )
 
 
@@ -317,8 +317,8 @@ class TestAddedLocationLedOrdering:
     def test_leds_off_precedes_move_at_added_location_boundary(self, executor, tmp_path):
         protocol = _build_tsv_only_protocol()
         _add_3rd_location_via_insert_step(protocol)
-        assert protocol.num_steps() == 12, (
-            f'setup error: expected 12 steps (8 TSV + 4 added), got {protocol.num_steps()}'
+        assert protocol.num_steps == 12, (
+            f'setup error: expected 12 steps (8 TSV + 4 added), got {protocol.num_steps}'
         )
 
         # Sanity-check the added steps are at the 3rd X/Y.

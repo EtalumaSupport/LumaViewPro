@@ -14,7 +14,7 @@ try:
     runner = s.protocol_runner()
     parent = pathlib.Path(live) / 'Manual' / 'Composites'
     # (a) not streaming -- does the ENGINE refuse, or only the GUI pre-check?
-    print('streaming?', s.scope.imaging.is_streaming(), 'active', s.scope.camera.active)
+    print('streaming?', s.scope.imaging.read_streaming(), 'active', s.scope.camera.active)
     try:
         out = runner.start_composite(sequence_name='composite', parent_dir=parent)
         print('a: start_composite while NOT streaming -> ACCEPTED', out)

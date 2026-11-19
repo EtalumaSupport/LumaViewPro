@@ -75,7 +75,7 @@ def _camera_and_api_rates(imaging, camera, span_s=1.0):
     started = time.monotonic()
     readings = []
     while time.monotonic() - started < span_s:
-        readings.append(imaging.delivered_rate().frame_rate_fps)
+        readings.append(imaging.delivered_rate.frame_rate_fps)
         time.sleep(TICK_S / 2)
     frames_after, _ = camera.delivered_counts
     camera_rate = (frames_after - frames_before) / (time.monotonic() - started)
@@ -85,7 +85,7 @@ def _camera_and_api_rates(imaging, camera, span_s=1.0):
 class TestTheRateIsTheCameras:
     def test_the_delivered_rate_is_the_cameras_with_no_display(self, session):
         imaging, camera, _camera_fps = _streaming_fast(session)
-        assert _wait_for(lambda: imaging.delivered_rate().frame_rate_fps > 0, 5.0), (
+        assert _wait_for(lambda: imaging.delivered_rate.frame_rate_fps > 0, 5.0), (
             'a session with no display read no delivered rate'
         )
         camera_rate, api_rate = _camera_and_api_rates(imaging, camera)
@@ -94,8 +94,8 @@ class TestTheRateIsTheCameras:
 
     def test_the_wire_rate_is_the_bytes_each_delivered_frame_took(self, session):
         imaging, camera, _camera_fps = _streaming_fast(session)
-        assert _wait_for(lambda: imaging.delivered_rate().frame_rate_fps > 0, 5.0)
-        rate = imaging.delivered_rate()
+        assert _wait_for(lambda: imaging.delivered_rate.frame_rate_fps > 0, 5.0)
+        rate = imaging.delivered_rate
         # Mono8 on the simulated USB3 link: one byte a pixel of the acquired window.
         assert session.scope.camera.pixel_format == 'Mono8'
         acquired_bytes = camera._width * camera._height
@@ -103,10 +103,10 @@ class TestTheRateIsTheCameras:
 
     def test_a_rate_whose_check_stopped_reads_zero(self, session):
         imaging, _camera, _camera_fps = _streaming_fast(session)
-        assert _wait_for(lambda: imaging.delivered_rate().frame_rate_fps > 0, 5.0)
+        assert _wait_for(lambda: imaging.delivered_rate.frame_rate_fps > 0, 5.0)
         imaging.stop_stream_check()
         time.sleep(3 * TICK_S)
-        rate = imaging.delivered_rate()
+        rate = imaging.delivered_rate
         assert rate.frame_rate_fps == 0
         assert rate.bytes_per_s == 0
 
@@ -125,7 +125,9 @@ class TestEveryHostLogsIt:
             answered.append(rate)
             return rate
 
-        monkeypatch.setattr(session.scope.imaging, 'delivered_rate', _answer)
+        monkeypatch.setattr(
+            type(session.scope.imaging), 'delivered_rate', property(lambda self: _answer())
+        )
 
         monkeypatch.setattr(app_context, 'ctx', None)
         session.set_live_folder(str(tmp_path))

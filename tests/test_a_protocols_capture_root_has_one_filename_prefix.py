@@ -59,7 +59,7 @@ class TestTheRootAndItsPrefix:
 
         protocol.modify_capture_root(TYPED)
 
-        assert protocol.capture_root() == TYPED
+        assert protocol.capture_root == TYPED
 
     def test_the_prefix_is_the_root_as_a_filename_can_hold_it(self):
         assert _protocol(TYPED).capture_prefix() == PREFIX
@@ -69,7 +69,7 @@ class TestTheRootAndItsPrefix:
             _file(tmp_path, TYPED),
         )
 
-        assert (loaded.capture_root(), loaded.capture_prefix()) == (TYPED, PREFIX)
+        assert (loaded.capture_root, loaded.capture_prefix()) == (TYPED, PREFIX)
 
     def test_a_root_outside_ascii_opens_on_a_machine_with_another_locale(self, tmp_path):
         """A protocol saved where the locale encoding is not UTF-8, as on
@@ -82,7 +82,7 @@ class TestTheRootAndItsPrefix:
         with a_latin1_locale():
             protocol.to_file(saved)
 
-        assert protocol_from_file(saved).capture_root() == accented
+        assert protocol_from_file(saved).capture_root == accented
 
     def test_no_root_is_no_prefix(self):
         assert _protocol('').capture_prefix() == ''
@@ -114,5 +114,5 @@ def test_both_filename_builders_read_the_prefix_and_not_the_root():
     ):
         assert _calls(path, 'capture_prefix'), f'{path} must name files with capture_prefix()'
         assert not _calls(path, 'capture_root'), (
-            f'{path} reads capture_root(): the typed root is not a filename prefix'
+            f'{path} reads capture_root: the typed root is not a filename prefix'
         )

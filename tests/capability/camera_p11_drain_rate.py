@@ -675,9 +675,9 @@ def _measure(session):
     cam = scope.camera
     figure('camera_model', scope.capabilities.camera_model)
     figure('firmware', scope.diagnostics.run_pylon_diagnostic_probe(0).get('camera'))
-    if not scope.imaging.is_streaming():
+    if not scope.imaging.read_streaming():
         scope.imaging.enable_streaming()
-    check('the camera is streaming', scope.imaging.is_streaming())
+    check('the camera is streaming', scope.imaging.read_streaming())
     figure('exposure_ms', cam.set_exposure_ms(EXPOSURE_MS))
     cam.set_image_mode('8bit')
 

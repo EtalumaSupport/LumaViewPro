@@ -1709,7 +1709,7 @@ class Lumascope:
                     # region's at the factor applied; the binning's notice tells
                     # the change of scale, and the frame's below only a refit.
                     rescaled = binning.native_to_displayed(
-                        region, camera_binning, self.camera.pixel_alignment()
+                        region, camera_binning, self.camera.pixel_alignment
                     )
                     asked = (rescaled['width'], rescaled['height'])
                     logger.info(
@@ -2032,6 +2032,7 @@ class Lumascope:
             )
         return self._settings_reader(path)
 
+    @property
     def bring_up_record(self) -> BringUpRecord:
         """What this scope's bring-up found, substituted and set aside.
 
@@ -2742,7 +2743,7 @@ class Lumascope:
             return
         if not self.capabilities.has_focus:
             return
-        if 'Z' in self.motion.axes_without_position():
+        if 'Z' in self.motion.axes_without_position:
             logger.info(
                 '[SCOPE API ] Simulated sample plane not applied: Z has no reference position'
             )
@@ -2768,9 +2769,10 @@ class Lumascope:
         Returns:
             bool: True if all three components are connected.
         """
-        return not self.unconnected_parts()
+        return not self.unconnected_parts
 
-    @api(reads=True)
+    @api
+    @property
     def unconnected_parts(self) -> tuple[Board, ...]:
         """The parts this scope needs that are not connected.
 

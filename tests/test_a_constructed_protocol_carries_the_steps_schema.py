@@ -35,7 +35,7 @@ SHIPPED_DEFAULT = REPO / 'data' / 'new_default_protocol.tsv'
 def test_a_column_less_frame_from_a_caller_is_queryable():
     protocol = protocol_of(config={'steps': pd.DataFrame()})
 
-    assert protocol.num_steps() == 0
+    assert protocol.num_steps == 0
     assert protocol.steps()[['X', 'Y']].shape == (0, 2)
 
 

@@ -166,7 +166,7 @@ def _scan_leg(session, runner):
     motion = session.scope.motion
     _arrive(motion, motion.start_move_z(0.0), timeout_s=30.0)
     _refuse_unless_z_is_down(motion, 'X')
-    start = session.plate_position()
+    start = session.plate_position
     figure('scan: start (plate mm, z um)', start)
 
     import _lumascope.modules.config_helpers as config_helpers
@@ -174,7 +174,7 @@ def _scan_leg(session, runner):
     # The protocol's plate is the session's, so the steps' plate positions
     # are the live position's frame; its own steps are replaced by two.
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
-        session.settings_snapshot(),
+        session.settings_snapshot,
         objective_helper=session.scope.objective_helper,
         wellplate_loader=session.scope.wellplate_loader,
         current_z=start.z_um,
@@ -185,7 +185,7 @@ def _scan_leg(session, runner):
     cfg['channel_configs'][LAYER]['acquire'] = 'image'
     protocols = session.scope.protocols
     protocol = protocols.create_protocol(input_config=cfg)
-    while protocol.num_steps() > 0:
+    while protocol.num_steps > 0:
         protocols.delete_step(protocol, 0)
     for dx in (SPAN_MM, -SPAN_MM):
         at = PlateLocation(x_mm=start.x_mm + dx, y_mm=start.y_mm, z_um=start.z_um)
@@ -199,7 +199,7 @@ def _scan_leg(session, runner):
         return_to_position=start,
     )
     _stop_and_read(session, handle, 'X', 'scan', motion.is_any_axis_moving, SCAN_INTO_THE_MOVE_S)
-    figure('scan: X, Y back at the start (plate mm)', session.plate_position())
+    figure('scan: X, Y back at the start (plate mm)', session.plate_position)
 
 
 def _autofocus_leg(session, runner):

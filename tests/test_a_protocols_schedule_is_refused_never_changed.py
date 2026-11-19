@@ -58,7 +58,7 @@ RUNNABLE = [
 
 
 def _schedule_s(protocol: Protocol) -> tuple:
-    return protocol.period_s(), protocol.duration_s()
+    return protocol.period_s, protocol.duration_s
 
 
 def _protocol(period=PERIOD, duration=DURATION) -> Protocol:
@@ -201,7 +201,7 @@ class TestAReaderThatNeverRunsTheProtocol:
             self._run_folder(tmp_path) / 'unsaved_protocol.tsv', unit=StoredNames.KEPT
         )
 
-        assert protocol.period_s() == 0.005 * 60
+        assert protocol.period_s == 0.005 * 60
 
 
 class TestAValueInItsUnits:

@@ -283,7 +283,7 @@ def test_a_refused_start_is_shown_once_and_the_button_draws_idle(app_ctx, engine
 def test_an_empty_protocol_is_the_engines_refusal_not_the_panels(app_ctx, engine, centre_posts):
     engine.prepare.side_effect = ProtocolRunRefusedError('empty_protocol', 'Protocol has no steps.')
     panel = _Panel()
-    panel._protocol.num_steps.return_value = 0
+    panel._protocol.num_steps = 0
 
     panel.run_protocol_from_ui()
 

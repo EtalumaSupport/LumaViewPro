@@ -100,7 +100,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
 
         assert turret_session.select_objective('20x Oly') is True
 
-        assert turret_session.scope.motion.turret_status().slot == 2
+        assert turret_session.scope.motion.turret_status.slot == 2
         assert turret_session.settings['turret_objectives'] == before
         assert turret_session.scope.runtime_state.get_current_objective_id() == '20x Oly'
 
@@ -122,7 +122,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
 
             assert excinfo.value.reason == 'objective_in_several_slots'
             assert excinfo.value.offered == (2, 3)
-            assert session.scope.motion.turret_status().slot == 1
+            assert session.scope.motion.turret_status.slot == 1
         finally:
             session.shutdown()
 
@@ -134,7 +134,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
 
         assert excinfo.value.reason == 'objective_not_on_turret'
         assert excinfo.value.offered == ('10x Oly', '20x Oly', '4x Oly')
-        assert turret_session.scope.motion.turret_status().slot == 1
+        assert turret_session.scope.motion.turret_status.slot == 1
 
     def test_an_empty_turret_says_it_holds_nothing(self, turret_session):
         """Its words name what the slots hold, so a turret holding nothing says so."""
@@ -151,7 +151,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
         pick = turret_session.start_select_objective('20x Oly')
 
         assert pick.result(timeout=10) is True
-        assert turret_session.scope.motion.turret_status().slot == 2
+        assert turret_session.scope.motion.turret_status.slot == 2
         assert turret_session.scope.runtime_state.get_current_objective_id() == '20x Oly'
 
     def test_a_started_pick_no_slot_holds_is_refused_at_its_call(self, turret_session):
@@ -160,7 +160,7 @@ class TestPickingAnObjectiveTurnsTheTurret:
             turret_session.start_select_objective('40x Phase')
 
         assert excinfo.value.reason == 'objective_not_on_turret'
-        assert turret_session.scope.motion.turret_status().slot == 1
+        assert turret_session.scope.motion.turret_status.slot == 1
 
     def test_a_started_pick_of_the_active_objective_is_done_unchanged(self, turret_session):
         active = turret_session.scope.runtime_state.get_current_objective_id()
@@ -229,7 +229,7 @@ class TestATurretScopeReportsTheSlotsObjective:
         turret_session.scope.motion.move_turret(3)
 
         assert turret_session.objective_id == '4x Oly'
-        assert turret_session.settings_snapshot()['objective_id'] == '4x Oly'
+        assert turret_session.settings_snapshot['objective_id'] == '4x Oly'
 
 
 _REQUIRED_KEYS = {

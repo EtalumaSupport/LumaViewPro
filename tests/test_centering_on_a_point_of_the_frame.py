@@ -63,7 +63,7 @@ def turret_session(tmp_path):
 
 
 def _xy(motion) -> tuple[float, float]:
-    targets = motion.target_positions()
+    targets = motion.target_positions
     return targets['X'], targets['Y']
 
 
@@ -211,7 +211,7 @@ def test_a_point_reads_a_plate_position_after_a_binning_change_before_a_new_fram
 
 def test_the_point_at_the_frame_centre_is_where_the_stage_is(turret_session):
     scope = turret_session.scope
-    stage = scope.motion.axis_positions()
+    stage = scope.motion.axis_positions
 
     assert scope.runtime_state.frame_point_plate(0.5, 0.5) == scope.runtime_state.stage_to_plate(
         stage['X'].position_um, stage['Y'].position_um

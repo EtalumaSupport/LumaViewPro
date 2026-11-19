@@ -622,7 +622,7 @@ def show_objective_selection_popup(
     """
     global _objective_popup_open, _objective_popup_folded
     if _objective_popup_open:
-        # Every trigger asks the same question -- objective_question() takes
+        # Every trigger asks the same question -- objective_question takes
         # no arguments and is a pure read of the store -- so the prompt on
         # screen IS this caller's prompt, and a second cancel-less modal
         # would stack a duplicate whose answer overwrites the first. The

@@ -479,7 +479,7 @@ class AutofocusRunner:
             # The camera snapshot must precede the auto-gain lock below: it
             # records a live-view arm BEFORE the lock consumes it, and the
             # restore in the finally is what puts that arm back.
-            self._saved_led_state = self._scope.illumination.led_states()
+            self._saved_led_state = self._scope.illumination.led_states
             self._saved_camera_state = self._scope.camera.save_camera_state('autofocus')
             # A live-view auto-gain arm is locked ONCE for the whole sweep
             # and resumed in the finally below. Left standing, every sweep
@@ -616,7 +616,7 @@ class AutofocusRunner:
             # the run on it, sending the user to home. An unattended run's
             # mute keeps the rest off the screen; the run captures at its
             # fallback Z and the report is the record.
-            if 'Z' in self._scope.motion.axes_without_position():
+            if 'Z' in self._scope.motion.axes_without_position:
                 _af_log.info(f'[AF] {failed} -- on a lost Z, which was told, so not reported')
             elif isinstance(failed, MoveStoppedError):
                 # A STOP cut the sweep's move: its run ends on it, as a
@@ -716,7 +716,7 @@ class AutofocusRunner:
                         # Z known, where the sweep parked it, and only this
                         # tells that. Chained, so the one report logs the
                         # restore's traceback.
-                        if 'Z' in self._scope.motion.axes_without_position():
+                        if 'Z' in self._scope.motion.axes_without_position:
                             _af_log.info(
                                 f'[AF DIAG] Non-success exit: Z not restored, its position '
                                 f'is lost ({type(restore_ex).__name__}: {restore_ex})'

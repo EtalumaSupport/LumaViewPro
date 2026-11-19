@@ -59,7 +59,7 @@ def _refused(proto, capabilities, tiling):
 def test_a_tiled_protocol_refuses_another_grid(scale_capabilities, second):
     proto = _build_protocol([_labeled_step()])
     _tile(proto, scale_capabilities, '2x2')
-    assert proto.num_steps() == 4
+    assert proto.num_steps == 4
 
     refusal = _refused(proto, scale_capabilities, second)
     assert refusal.reason == 'already_tiled'
@@ -132,10 +132,10 @@ def test_a_protocol_tiled_in_no_offered_grid_refuses_another(scale_capabilities)
 
 def test_the_protocol_names_the_grid_its_steps_carry(scale_capabilities):
     proto = _build_protocol([_labeled_step()])
-    assert proto.tiling() == '1x1'
+    assert proto.tiling == '1x1'
     _tile(proto, scale_capabilities, '2x2')
-    assert proto.tiling() == '2x2'
-    assert _tiled_in_no_offered_grid().tiling() is None
+    assert proto.tiling == '2x2'
+    assert _tiled_in_no_offered_grid().tiling is None
 
 
 def test_the_panel_decides_nothing_about_a_grid():

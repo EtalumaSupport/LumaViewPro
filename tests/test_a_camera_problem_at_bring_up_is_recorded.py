@@ -72,7 +72,7 @@ def _create(
 
 
 def _camera_part(session):
-    (camera,) = [p for p in session.bring_up_record().parts if p.part == 'camera']
+    (camera,) = [p for p in session.bring_up_record.parts if p.part == 'camera']
     return camera
 
 
@@ -101,7 +101,7 @@ def test_a_bf_setting_the_camera_does_not_take_is_recorded_and_the_scope_comes_u
         assert session.scope.camera_connected
         assert (camera.up, camera.cause) == (True, 'settings_not_applied')
         assert words in camera.detail.lower()
-        assert session.status.parts == session.bring_up_record().parts
+        assert session.status.parts == session.bring_up_record.parts
         (notice,) = _told(heard, reason)
         assert notice.solicited is False
     finally:
@@ -215,7 +215,7 @@ def test_a_read_failure_declared_on_the_record_is_armed_by_create():
             InjectedFault(
                 'refuse_camera_read', {'node': 'minimum_exposure', 'answer': 'failed', 'count': 1}
             )
-            in session.scope.simulation.injected()
+            in session.scope.simulation.injected
         )
     finally:
         session.shutdown()
@@ -247,7 +247,7 @@ def test_a_camera_range_unread_at_bring_up_is_told_once_and_the_scope_comes_up()
         maxima = session.channel_slider_maxima('BF')
         assert (maxima.slider_max_exposure_ms, maxima.slider_max_gain_db) == (None, None)
         assert maxima.slider_max_illumination_ma == 50
-        assert session.capped_channels() == ()
+        assert session.capped_channels == ()
         with pytest.raises(CameraSettingRejected) as refused:
             session.show_channel('BF')
         assert refused.value.reason == 'camera_read_failed'
@@ -259,7 +259,7 @@ def test_a_camera_range_unread_at_bring_up_is_told_once_and_the_scope_comes_up()
 
         assert camera.known_setting_limits is not None
         assert session.channel_slider_maxima('BF').slider_max_gain_db == 48.0
-        assert 'BF' in session.capped_channels()
+        assert 'BF' in session.capped_channels
         session.show_channel('BF')
     finally:
         session.shutdown()
@@ -329,7 +329,7 @@ def test_an_fx2_not_on_the_bus_takes_its_camera_and_led_board_and_is_told_as_a_r
     heard = []
     session = _create(heard, microscope=microscope, camera_present=False)
     try:
-        parts = {p.part: p for p in session.bring_up_record().parts}
+        parts = {p.part: p for p in session.bring_up_record.parts}
         assert {part: (parts[part].up, parts[part].cause) for part in ('camera', 'led')} == {
             'camera': (False, 'not_detected'),
             'led': (False, 'not_detected'),

@@ -120,7 +120,7 @@ def _video_step(session, runner, layer, live):
     # One step at the live position, as the GUI's Add then Run One Scan.
     protocol = session.create_empty_protocol()
     session.add_step(protocol)
-    figure('video_step.protocol_steps', protocol.num_steps())
+    figure('video_step.protocol_steps', protocol.num_steps)
     parent = live / 'video_step'
     parent.mkdir(parents=True, exist_ok=True)
     before = _manifests(parent)
@@ -148,7 +148,7 @@ def main():
         if HARDWARE:
             import pathlib
 
-            live = pathlib.Path(session.settings_snapshot()['live_folder'])
+            live = pathlib.Path(session.settings_snapshot['live_folder'])
             figure('live_folder', str(live))
         _manual(session, args.layer, live)
         _video_step(session, runner, args.layer, live)

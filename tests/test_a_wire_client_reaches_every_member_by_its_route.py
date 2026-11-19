@@ -56,6 +56,9 @@ def live(tmp_path):
 @pytest.fixture
 def session(live):
     s = ScopeSession.create(complete_settings(live_folder=str(live)), simulate=True)
+    # Homed, so every read the walks take answers: a held position read
+    # refuses on a scope that has not placed its axes.
+    s.scope.motion.home()
     yield s
     s.shutdown()
 
@@ -196,7 +199,7 @@ def test_a_wire_client_reads_settings_by_path_and_not_by_document(client, sessio
     assert client.get('/api/v1/settings_snapshot').status_code == 404
     one = client.get('/api/v1/setting', params={'path': 'video.max_fps'})
     assert one.status_code == 200, one.text
-    assert one.json() == session.settings_snapshot()['video']['max_fps']
+    assert one.json() == session.settings_snapshot['video']['max_fps']
 
 
 def test_the_versions_are_answered_unversioned(client):
@@ -429,7 +432,7 @@ def test_an_led_is_lit_over_the_wire_by_its_channels_name_and_no_address(client,
     )
 
     assert answer.status_code == 422, answer.text
-    assert [r for r in session.scope.illumination.led_states() if r.state != LedState.DARK] == []
+    assert [r for r in session.scope.illumination.led_states if r.state != LedState.DARK] == []
     for ask in (client.get, client.post):
         assert ask('/api/v1/scope/illumination/led_address_of').status_code == 404
 

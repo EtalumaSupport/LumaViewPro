@@ -125,7 +125,7 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
         image=np.zeros((4, 4), dtype=np.uint8), record=frame_record(saturated_fraction=0.0)
     )
     protocol = MagicMock()
-    protocol.capture_root.return_value = ''
+    protocol.capture_root = ''
 
     try:
         release = _park_worker(ex)
@@ -224,7 +224,7 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
         image=np.zeros((4, 4), dtype=np.uint8), record=frame_record(saturated_fraction=0.0)
     )
     protocol = MagicMock()
-    protocol.capture_root.return_value = ''
+    protocol.capture_root = ''
 
     fired = []
     # remove_listener unregisters by identity, so the exact same callable

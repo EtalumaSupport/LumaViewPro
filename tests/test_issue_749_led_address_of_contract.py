@@ -202,7 +202,7 @@ class TestDarkFloorKeysOnLedDrivability:
         if writer_setup is not None:
             writer_setup(writer, scope)
         protocol = MagicMock()
-        protocol.capture_root.return_value = ''
+        protocol.capture_root = ''
         writer.capture(
             scan_count=0,
             curr_step=0,
@@ -270,7 +270,7 @@ class TestCaptureAbortWording:
         scope.imaging.capture_still.side_effect = CaptureFailedError('no_frame')
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
-        protocol.capture_root.return_value = ''
+        protocol.capture_root = ''
         writer.capture(
             scan_count=0,
             curr_step=0,

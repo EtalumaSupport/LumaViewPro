@@ -219,7 +219,7 @@ class TestTheMove:
 
         assert (refused.value.reason, refused.value.axis) == ('position_out_of_range', 'Y')
         motion.wait_until_finished_moving(timeout_s=_MOVE_WAIT_S)
-        assert (motion.target_positions()['X'], motion.target_positions()['Y']) == (
+        assert (motion.target_positions['X'], motion.target_positions['Y']) == (
             60_000.0,
             40_000.0,
         )
@@ -232,7 +232,7 @@ class TestTheMove:
         turret_session.go_to_step(protocol, 0)
 
         _settled_position(turret_session)
-        assert turret_session.scope.motion.turret_status().slot == slots[objective]
+        assert turret_session.scope.motion.turret_status.slot == slots[objective]
         targets = turret_session.scope.protocols.step_targets(protocol, 0)
         assert targets.turret_slot == slots[objective]
 
@@ -457,7 +457,7 @@ class TestTheStepIntoItsLayer:
         )
         stimulating = [
             layer
-            for layer, values in no_motor_session.settings_snapshot().items()
+            for layer, values in no_motor_session.settings_snapshot.items()
             if isinstance(values, dict) and values.get('stim_config') is not None
         ]
         for layer in stimulating:
@@ -481,7 +481,7 @@ class TestTheLedPreview:
         """The name of every lit LED address (None for one the identity does not name)."""
         return {
             reading.name
-            for reading in built.scope.illumination.led_states()
+            for reading in built.scope.illumination.led_states
             if reading.state is LedState.LIT
         }
 

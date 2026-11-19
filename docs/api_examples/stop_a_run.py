@@ -28,7 +28,7 @@ def main():
         # A new install has not been told which objective is mounted, and a
         # saved still and a run are refused until it has. Answer with the
         # objective in the light path (on the simulator, the one it proposes).
-        question = session.objective_question()
+        question = session.objective_question
         if question is not None:
             session.confirm_objective(question.proposed, slot=question.turret_slot)
         scope = session.scope
@@ -40,7 +40,7 @@ def main():
             scope.motion.move_to_well(well)
             session.add_step(protocol, channels=('BF',))
         session.set_protocol_schedule(protocol, period_s=60.0, duration_s=3600.0)
-        print(f'Protocol: {protocol.num_steps()} steps, {protocol.num_scans()} scans')
+        print(f'Protocol: {protocol.num_steps} steps, {protocol.num_scans} scans')
 
         # A run's events arrive on the run's threads: this one only says so.
         first_scan_ended = threading.Event()

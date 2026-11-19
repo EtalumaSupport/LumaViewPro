@@ -59,7 +59,7 @@ ENTRY_POINT_GROUP = 'lvp.plugins'
 # fail mid-use. A host change the plugin must follow raises the value
 # here, in the same commit, to the plugin version that follows it.
 MINIMUM_PLUGIN_VERSIONS = {
-    'etaluma_engineering': '1.0.226',
+    'etaluma_engineering': '1.0.228',
 }
 
 # Etaluma's bench tool. Once installed it cannot be disabled any other way,
@@ -75,7 +75,7 @@ ENGINEERING_PLUGIN = 'etaluma_engineering'
 # reads it at its own entry through session.plugin_api_level and refuses
 # below what it needs; a host older than the level has no such member,
 # which the plugin reads as 0.
-PLUGIN_API_LEVEL = 131
+PLUGIN_API_LEVEL = 132
 
 
 class UIMountPoint(enum.StrEnum):
@@ -548,7 +548,7 @@ class RESTRegistry(_BaseNamespace):
 
     **Stub mode**: while a plugin is being developed, its author can opt
     into ``enable_stub_mode()``. In stub mode, register() accepts the
-    spec and records it, so ``session.plugin_health()`` reflects the
+    spec and records it, so ``session.plugin_health`` reflects the
     registration, but serves nothing, so the rest of the plugin -- its
     load and unregister hooks -- can be tried. Stub mode is opt-in and
     not the default, so a shipped plugin's registration is refused,
@@ -566,7 +566,7 @@ class RESTRegistry(_BaseNamespace):
         """Opt into accepting REST registrations as stubs.
 
         After enable_stub_mode(), register(spec, router) records the
-        registration (visible in ``session.plugin_health()``) and serves
+        registration (visible in ``session.plugin_health``) and serves
         nothing, since a plugin cannot add REST routes in this release. A
         plugin author uses this while developing a plugin, to try the rest
         of its lifecycle.

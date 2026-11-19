@@ -87,7 +87,7 @@ class TestCreateHeadlessComposesARealSession:
         it does not release the start gate every capture times out --
         which is the reason the release is in the factory at all.
         """
-        assert headless_session.scope.imaging.is_streaming()
+        assert headless_session.scope.imaging.read_streaming()
 
     def test_the_session_s_lanes_are_the_scope_s(self, headless_session):
         """The scope's commands and the session's run go through one IO and

@@ -451,7 +451,7 @@ class TestIntegrationMultiChannel:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
-        lit = [r for r in scope.illumination.led_states() if r.state is not LedState.DARK]
+        lit = [r for r in scope.illumination.led_states if r.state is not LedState.DARK]
         assert lit == [], f'LEDs still on: {lit}'
 
 
@@ -646,7 +646,7 @@ class TestIntegrationStateAssertions:
         assert completed
 
         # Camera grabbing state is managed externally, should still be active
-        assert scope.imaging.is_streaming()
+        assert scope.imaging.read_streaming()
 
     def test_second_run_after_first(self, executor, scope, tmp_path):
         """A second protocol run completes after the first finishes."""

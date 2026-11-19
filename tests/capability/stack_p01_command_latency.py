@@ -72,7 +72,7 @@ def _timed(fn, n=N):
 def body(session):
     m = session.scope.motion
     il = session.scope.illumination
-    z0 = m.target_positions()['Z']
+    z0 = m.target_positions['Z']
     zl = m.axis_limits('Z')
     step = 100.0
     lo, hi = z0, min(zl.max_um, z0 + step)
@@ -96,7 +96,7 @@ def body(session):
     during = None
     if has_x:
         xl = m.axis_limits('X')
-        x0 = m.target_positions()['X']
+        x0 = m.target_positions['X']
         far = xl.max_um if (xl.max_um - x0) > (x0 - xl.min_um) else xl.min_um
         t = time.perf_counter()
         m.move_xy(x_um=far)

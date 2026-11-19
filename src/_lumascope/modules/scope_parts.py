@@ -19,7 +19,7 @@ class Board(enum.StrEnum):
     """A board a scope is brought up from, in the order bring-up connects them.
 
     The parts that connect, and so the ones that can be not connected: the
-    bring-up record's parts, ``Lumascope.unconnected_parts()``, and the
+    bring-up record's parts, ``Lumascope.unconnected_parts``, and the
     boards a simulated fault targets. Each is also a ``Part``, by the same
     value, so ``Part(board)`` is the board's part.
     """

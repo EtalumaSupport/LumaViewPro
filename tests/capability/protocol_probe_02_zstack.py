@@ -25,7 +25,7 @@ try:
     from _lumascope.modules.zstack_config import ZStackConfig
 
     runner = session.protocol_runner()
-    settings = session.settings_snapshot()
+    settings = session.settings_snapshot
     engine = session._sequenced_capture_runner
 
     captured = {}
@@ -66,7 +66,7 @@ try:
     active_layer_config['acquire'] = 'image'
     active_layer_config['autofocus'] = False
 
-    curr_position = session.plate_position()
+    curr_position = session.plate_position
     zstack_position = {
         'x': curr_position.x_mm,
         'y': curr_position.y_mm,
@@ -92,7 +92,7 @@ try:
         }
     )
     gui_seq = session.scope.protocols.create_protocol(input_config=gui_cfg)
-    print('GUI-lane protocol steps:', gui_seq.num_steps())
+    print('GUI-lane protocol steps:', gui_seq.num_steps)
 
     gui_kwargs = dict(
         protocol=gui_seq,
@@ -103,7 +103,7 @@ try:
         enable_image_saving=True,  # not ProtocolSettings.saving_disabled -- GUI checkbox
         autogain_settings=config_helpers.get_auto_gain_settings(settings),
         events="RunEvents(the GUI button's four handlers)",
-        return_to_position=session.plate_position(),
+        return_to_position=session.plate_position,
         engineering_mode=session.engineering_mode,
         **config_helpers.get_sequenced_run_settings(
             settings, run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK
@@ -137,7 +137,7 @@ try:
         g = captured['gui'].get(k, '<ABSENT>')
         a = captured['api'].get(k, '<ABSENT>')
         if k == 'protocol':
-            gs, as_ = g.num_steps(), a.num_steps()
+            gs, as_ = g.num_steps, a.num_steps
             same = gs == as_
             print(f'  protocol.num_steps  GUI={gs} API={as_} {"SAME" if same else "DIFFER"}')
             gcols = g.steps()

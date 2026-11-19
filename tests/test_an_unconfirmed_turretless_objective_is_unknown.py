@@ -86,9 +86,9 @@ def test_an_unconfirmed_objective_is_unknown_and_asked_for(tmp_path, case):
             _ = session.objective_id
         assert no_objective.value.reason == 'none_selected'
         with pytest.raises(ObjectiveUnknownError) as no_scale:
-            session.scope.runtime_state.pixel_size_um()
+            _ = session.scope.runtime_state.pixel_size_um
         assert no_scale.value.reason == 'none_selected'
-        assert session.objective_question() is not None
+        assert session.objective_question is not None
     finally:
         session.shutdown()
 
@@ -101,7 +101,7 @@ def test_saying_which_objective_is_mounted_confirms_it(tmp_path, member):
         getattr(session, member)('10x Oly')
         assert session.objective_id == '10x Oly'
         assert session.settings['objective_confirmed'] == '10x Oly'
-        assert session.objective_question() is None
+        assert session.objective_question is None
         assert session.capture_settings_snapshot()['objective_id'] == '10x Oly'
     finally:
         session.shutdown()
@@ -124,7 +124,7 @@ def test_a_light_path_confirmation_from_a_file_is_the_id_stored_beside_it(tmp_pa
     try:
         assert session.settings['objective_confirmed'] == '4x Oly'
         assert session.objective_id == '4x Oly'
-        assert session.objective_question() is None
+        assert session.objective_question is None
     finally:
         session.shutdown()
 

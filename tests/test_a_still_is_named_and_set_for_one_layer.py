@@ -121,8 +121,8 @@ def test_a_still_after_a_run_is_one_layers(session, tmp_path):
         session.set_channel_settings(layer, acquire=None)
     session.set_channel_settings(LED0, acquire='image')
     protocol = session.new_protocol()
-    while protocol.num_steps() > 1:
-        session.delete_step(protocol, protocol.num_steps() - 1)
+    while protocol.num_steps > 1:
+        session.delete_step(protocol, protocol.num_steps - 1)
     runner = session.protocol_runner()
     runner.start_single_scan(
         protocol=protocol,

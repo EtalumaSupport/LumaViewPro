@@ -183,9 +183,9 @@ def host(monkeypatch, tmp_path, sim_scope):
     # The simulated scope, its delivered rate fixed so the line's words are known.
     host.scope = sim_scope
     monkeypatch.setattr(
-        sim_scope.imaging,
+        type(sim_scope.imaging),
         'delivered_rate',
-        lambda: DeliveredRate(frame_rate_fps=25.0, bytes_per_s=5.0e7),
+        property(lambda self: DeliveredRate(frame_rate_fps=25.0, bytes_per_s=5.0e7)),
     )
     host.executors = types.SimpleNamespace(
         snapshot=lambda: {'io': 3, 'protocol': 0},
@@ -298,7 +298,10 @@ def test_a_failed_probe_names_itself_at_warning_and_the_tick_goes_on(caplog, hos
 
 
 def test_a_raise_in_any_line_no_longer_ends_the_tick(caplog, host, monkeypatch):
-    monkeypatch.setattr(host.scope.imaging, 'delivered_rate', _raising(RuntimeError('camera gone')))
+    raising = _raising(RuntimeError('camera gone'))
+    monkeypatch.setattr(
+        type(host.scope.imaging), 'delivered_rate', property(lambda self: raising())
+    )
     lines = _tick(caplog, host)
     assert _line(lines, 'BUFFER METRICS') == (
         logging.WARNING,

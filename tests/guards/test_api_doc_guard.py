@@ -297,6 +297,9 @@ def live_objects(tmp_path_factory):
     session = ScopeSession.create(
         complete_settings(live_folder=str(tmp_path_factory.mktemp('live'))), simulate=True
     )
+    # Homed, so a documented held read of a position resolves to its answer:
+    # it refuses on a scope that has not placed its axes.
+    session.scope.motion.home()
     # The namespaces a plugin is handed (`ctx.plugins`) exist once the host
     # loads plugins. A stand-in by design: no installed plugin is discovered,
     # since what is installed in this environment is not what the docs teach.
@@ -1061,7 +1064,7 @@ _PLANTED_BRINGUP = Bringup(
     "session = ScopeSession.create(settings, source_path='.', simulate=True)\n"
     'session.run_application_session()\n'
     'scope = session.scope\n'
-    'question = session.objective_question()\n'
+    'question = session.objective_question\n'
     'if question is not None:\n'
     '    session.confirm_objective(question.proposed, slot=question.turret_slot)\n',
 )
@@ -1455,7 +1458,7 @@ class _ProseOwners:
         self.routes = [
             (route.path, getattr(route, 'methods', None) or set()) for route in app.routes
         ]
-        self.settings = live_objects['session'].settings_snapshot().keys()
+        self.settings = live_objects['session'].settings_snapshot.keys()
         self.reasons = (
             # A kind itself (Refusal, Fault, ...) carries no reasons; its classes do.
             {r for cls in outcome_classes().values() for r in getattr(cls, 'causes', ())}
@@ -1560,7 +1563,7 @@ class TestLumascopeSkillsProseNamesResolve:
             'Read `scope.motion.get_turret_slot()` and `session.controls_locked`.\n'
             "The record is `BringUpRecord.substitution`, its reason `'merge_timeout'`.\n"
             'Read `GET /api/v1/handles/Protocol/<id>/period` and `video.max_fsp`.\n'
-            'Every right one: `scope.motion.turret_status()`, `BringUpRecord.substitutions`,\n'
+            'Every right one: `scope.motion.turret_status`, `BringUpRecord.substitutions`,\n'
             "`'not_offered'`, `GET /api/v1/handles/Protocol/<id>/period_s`, `video.max_fps`.\n"
             '## Changelog\n'
             '`session.retired_member` was removed.\n'
@@ -1722,7 +1725,7 @@ class TestTheDocsTeachOnlyTheSurface:
             '```\n'
             'Import `_lumascope.modules.scope_session` if you must.\n'
             'Every route under `/api/v1/scope/camera/`, and none under `/api/v1/nowhere/`.\n'
-            'Right: `ScopeSession.capture_still`, `ctx.scope.motion.axis_positions()`.\n'
+            'Right: `ScopeSession.capture_still`, `ctx.scope.motion.axis_positions`.\n'
             f'{_LEVEL_TABLE_SECTION}\n'
             '| Level | Added |\n'
             '|---|---|\n'

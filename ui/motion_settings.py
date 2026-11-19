@@ -267,7 +267,7 @@ class XYStageControl(BoxLayout):
         current-position reads still answer its last number.
         """
         scope = _app_ctx.ctx.lumaview.scope
-        stage = scope.motion.axis_positions()
+        stage = scope.motion.axis_positions
         x_um, y_um = stage['X'].position_um, stage['Y'].position_um
         if x_um is None or y_um is None:
             return None

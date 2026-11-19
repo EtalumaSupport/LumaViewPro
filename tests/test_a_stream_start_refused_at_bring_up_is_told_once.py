@@ -56,14 +56,14 @@ def test_the_scope_comes_up_and_the_refused_start_is_told_once(refused_at_bring_
     assert notice.category == 'Camera'
     assert notice.solicited is False
     assert refused_at_bring_up.scope.camera_connected
-    assert not refused_at_bring_up.scope.imaging.is_streaming()
+    assert not refused_at_bring_up.scope.imaging.read_streaming()
     # Three stall bounds: a stall would be reported inside one.
     time.sleep(1.5)
     assert [n for n in heard if n.title == CameraStreamStalledError.title] == []
 
 
 def test_the_bring_up_record_names_the_stream_that_did_not_start(refused_at_bring_up):
-    (camera,) = [p for p in refused_at_bring_up.bring_up_record().parts if p.part == 'camera']
+    (camera,) = [p for p in refused_at_bring_up.bring_up_record.parts if p.part == 'camera']
 
     assert camera.up
     assert camera.cause == 'stream_not_started'
@@ -76,4 +76,4 @@ def test_the_camera_streams_when_started_again(refused_at_bring_up):
 
     imaging.enable_streaming()
 
-    assert imaging.is_streaming()
+    assert imaging.read_streaming()

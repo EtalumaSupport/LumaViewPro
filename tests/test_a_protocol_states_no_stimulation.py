@@ -105,7 +105,7 @@ def test_a_saved_protocol_states_no_stimulation(session, tmp_path):
 
     assert 'Stim' not in saved.read_text()
     assert 'Stim_Config' not in Protocol.CURRENT_COLUMNS
-    assert all('stim' not in field for field in vars(protocol.step_records()[0]))
+    assert all('stim' not in field for field in vars(protocol.step_records[0]))
 
 
 def test_an_old_file_whose_stimulation_is_all_off_loads_without_it(session, tmp_path):
@@ -120,7 +120,7 @@ def test_an_old_file_whose_stimulation_is_all_off_loads_without_it(session, tmp_
 
     assert list(protocol.steps()['channel']) == ['Ex405', 'Ex488']
     assert 'Stim_Config' not in protocol.steps().columns
-    assert set(protocol.channel_settings()) == {'Ex405', 'Ex488'}
+    assert set(protocol.channel_settings) == {'Ex405', 'Ex488'}
 
 
 def test_an_old_file_whose_step_asks_for_stimulation_is_refused_naming_it_and_the_remedy(

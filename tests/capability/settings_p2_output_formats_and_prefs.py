@@ -20,7 +20,7 @@ from _lumascope.modules.exceptions import SettingRefusedError
 
 s, live = _common.make_session()
 try:
-    snap = s.settings_snapshot()
+    snap = s.settings_snapshot
     print('image_output_format   :', snap['image_output_format'])
     print('jpg_quality           :', snap.get('jpg_quality'))
     print('video_recording_format:', snap.get('video_recording_format'))
@@ -32,7 +32,7 @@ try:
     before = dict(snap['image_output_format'])
     s.update_settings('image_output_format.live', 'JPG')
     s.update_settings('image_output_format.sequenced', 'OME-TIFF')
-    back = s.settings_snapshot()['image_output_format']
+    back = s.settings_snapshot['image_output_format']
     _common.ok(
         'live/sequenced format took effect',
         back['live'] == 'JPG' and back['sequenced'] == 'OME-TIFF',
@@ -45,7 +45,7 @@ try:
         _common.ok(
             'bogus live format refused at update_settings',
             False,
-            f'stored as {s.settings_snapshot()["image_output_format"]["live"]!r}',
+            f'stored as {s.settings_snapshot["image_output_format"]["live"]!r}',
         )
     except SettingRefusedError as e:
         _common.ok('bogus live format refused at update_settings', True, f'{e.reason}: {e}')
@@ -68,12 +68,10 @@ try:
 
     # --- jpg quality ------------------------------------------------------
     s.update_settings('jpg_quality', 55)
-    _common.ok('jpg_quality took effect', s.settings_snapshot()['jpg_quality'] == 55)
+    _common.ok('jpg_quality took effect', s.settings_snapshot['jpg_quality'] == 55)
     try:
         s.update_settings('jpg_quality', 500)
-        _common.ok(
-            'jpg_quality 500 refused', False, f'stored {s.settings_snapshot()["jpg_quality"]}'
-        )
+        _common.ok('jpg_quality 500 refused', False, f'stored {s.settings_snapshot["jpg_quality"]}')
     except SettingRefusedError as e:
         _common.ok('jpg_quality 500 refused', True, f'{e.reason}: {e}')
     from _lumascope.modules.image_mode import ImageCaptureConfig
@@ -95,14 +93,14 @@ try:
     s.update_settings('video_recording_format', 'frames')
     _common.ok(
         'video_recording_format took effect',
-        s.settings_snapshot()['video_recording_format'] == 'frames',
+        s.settings_snapshot['video_recording_format'] == 'frames',
     )
     try:
         s.update_settings('video_recording_format', 'banana')
         _common.ok(
             "video_recording_format 'banana' refused",
             False,
-            f'stored {s.settings_snapshot()["video_recording_format"]!r}',
+            f'stored {s.settings_snapshot["video_recording_format"]!r}',
         )
     except SettingRefusedError as e:
         _common.ok("video_recording_format 'banana' refused", True, f'{e.reason}: {e}')
@@ -129,7 +127,7 @@ try:
     s.update_settings('show_tooltips', False)
     _common.ok(
         'show_tooltips took effect (store only)',
-        s.settings_snapshot()['show_tooltips'] is False,
+        s.settings_snapshot['show_tooltips'] is False,
     )
 finally:
     s.shutdown()

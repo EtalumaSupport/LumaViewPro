@@ -203,7 +203,7 @@ class RuntimeState:
             objective_id = self._scope.read_setting('objective_id')
             objective = self._scope.objective_helper.get_objective_info(objective_id=objective_id)
             return objective_id, objective, None
-        slot = self._scope.motion.turret_status().slot
+        slot = self._scope.motion.turret_status.slot
         if slot is None:
             return None, None, ObjectiveUnknownError('slot_unknown')
         objective_id = self.turret_config().get(slot)
@@ -251,7 +251,8 @@ class RuntimeState:
         """
         return self._derive_current_objective()[1]
 
-    @api(reads=True)
+    @api
+    @property
     def pixel_size_um(self) -> float:
         """The effective pixel size: micrometres per pixel at the current
         objective and the camera's binning, the scale a saved image carries.
@@ -301,7 +302,8 @@ class RuntimeState:
         """
         return self.resolve_field_of_view('field_of_view')
 
-    @api(reads=True)
+    @api
+    @property
     def optics_status(self) -> OpticsStatus:
         """The objective in the light path and the frame's extent on the sample, each its value or why it is unknown.
 
@@ -510,7 +512,7 @@ class RuntimeState:
             absent = motion.absent_refusal('frame_point_plate', axis)
             if absent is not None:
                 return absent
-        stage = motion.axis_positions()
+        stage = motion.axis_positions
         unplaced = {
             axis: stage[axis].state for axis in ('X', 'Y') if stage[axis].position_um is None
         }
@@ -550,7 +552,8 @@ class RuntimeState:
             return {}
         return assignments
 
-    @api(reads=True)
+    @api
+    @property
     def stage_offset(self) -> coord_transformations.StageOffset:
         """The stage offset for coordinate transformations, from the settings.
 
@@ -575,7 +578,7 @@ class RuntimeState:
             if labware_id is None
             else self._scope.wellplate_loader.get_plate(labware_id=labware_id)
         )
-        return labware, self.stage_offset() if stage_offset is None else stage_offset
+        return labware, self.stage_offset if stage_offset is None else stage_offset
 
     @api(reads=True)
     def stage_to_plate(
@@ -724,7 +727,7 @@ class RuntimeState:
         # One read: it leaves out an axis the scope lacks and answers None for
         # one whose position is not known, from the same snapshot as the
         # numbers, so a home starting between two reads cannot pass.
-        targets = self._scope.motion.target_positions()
+        targets = self._scope.motion.target_positions
         x_um, y_um = targets.get('X'), targets.get('Y')
         if x_um is None or y_um is None:
             return None

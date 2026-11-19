@@ -100,7 +100,7 @@ class TestTheBuilderRefuses:
             input_config=_standalone_config({'range': 20.0, 'step_size': 5.0})
         )
 
-        assert protocol.num_steps() > 1, 'a configured stack is more than one plane'
+        assert protocol.num_steps > 1, 'a configured stack is more than one plane'
 
     @pytest.mark.parametrize('zstack', UNCONFIGURED)
     def test_a_caller_not_asking_for_a_stack_is_unaffected(self, zstack, sim_scope):
@@ -114,7 +114,7 @@ class TestTheBuilderRefuses:
             input_config=_standalone_config(zstack, use_zstacking=False)
         )
 
-        assert protocol.num_steps() >= 1
+        assert protocol.num_steps >= 1
 
 
 class TestTheRefusalReachesTheUser:

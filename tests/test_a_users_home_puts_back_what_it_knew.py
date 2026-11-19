@@ -52,9 +52,9 @@ def _on_slot_and_focused(scope):
 
 def _where(scope):
     return (
-        scope.motion.turret_status().slot,
+        scope.motion.turret_status.slot,
         scope._motion_driver.target_pos('T'),
-        scope.motion.target_positions()['Z'],
+        scope.motion.target_positions['Z'],
     )
 
 
@@ -99,7 +99,7 @@ def test_a_z_home_puts_the_focus_back(session):
 
     scope.motion.home('Z', put_back=True)
 
-    assert scope.motion.target_positions()['Z'] == _FOCUS_UM
+    assert scope.motion.target_positions['Z'] == _FOCUS_UM
 
 
 def test_a_turret_home_puts_the_turret_back_and_z_with_it(session):
@@ -156,7 +156,7 @@ def test_a_stop_during_the_put_back_leaves_every_axis_known(session):
     with pytest.raises(MoveStoppedError):
         scope.motion.home('Z', put_back=True)
     assert scope.motion.get_axis_state('Z') == AxisState.IDLE
-    assert scope.motion.axes_without_position() == {}
+    assert scope.motion.axes_without_position == {}
 
 
 def test_the_startup_motion_starts_on_slot_1_whatever_the_setting(session):
@@ -166,4 +166,4 @@ def test_the_startup_motion_starts_on_slot_1_whatever_the_setting(session):
 
     session.run_application_session()
 
-    assert scope.motion.turret_status().slot == 1
+    assert scope.motion.turret_status.slot == 1

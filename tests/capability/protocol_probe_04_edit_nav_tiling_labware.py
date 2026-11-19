@@ -10,13 +10,13 @@ session, live = make_session('edit', home=True)
 try:
     import _lumascope.modules.config_helpers as config_helpers
 
-    settings = session.settings_snapshot()
+    settings = session.settings_snapshot
     banner('base protocol')
     cfg = config_helpers.get_sequenced_capture_config_from_settings(
         settings,
         objective_helper=session.scope.objective_helper,
         wellplate_loader=session.scope.wellplate_loader,
-        current_z=session.plate_position().z_um,
+        current_z=session.plate_position.z_um,
         tiling='1x1',
         use_zstacking=False,
     )
@@ -24,10 +24,10 @@ try:
     cfg['channel_configs']['BF']['acquire'] = 'image'
     cfg['labware_id'] = 'Center Plate'
     p = session.scope.protocols.create_protocol(input_config=cfg)
-    print('steps:', p.num_steps())
+    print('steps:', p.num_steps)
 
     banner('ADD a step (insert_step)')
-    pos = session.plate_position()
+    pos = session.plate_position
     obj_id, _ = session.scope.runtime_state.resolve_current_objective()
     lc = config_helpers.get_channel_configs(settings, specific_channels=['BF'])['BF']
     lc['acquire'] = 'image'
@@ -42,7 +42,7 @@ try:
         before_step_index=None,
         after_step_index=0,
     )
-    print('insert -> idx', idx, 'steps now', p.num_steps())
+    print('insert -> idx', idx, 'steps now', p.num_steps)
 
     banner('EDIT a step (modify_step)')
     lc2 = dict(lc)
@@ -62,9 +62,9 @@ try:
     print('ASSERT edit landed:', 'PASS' if (s['Gain'] == 7.5 and s['Exposure'] == 42.0) else 'FAIL')
 
     banner('DELETE a step')
-    before = p.num_steps()
+    before = p.num_steps
     p.delete_step(step_index=1)
-    print(f'{before} -> {p.num_steps()}', 'PASS' if p.num_steps() == before - 1 else 'FAIL')
+    print(f'{before} -> {p.num_steps}', 'PASS' if p.num_steps == before - 1 else 'FAIL')
 
     banner('NAVIGATE to a step -- is there an API for it?')
     names = [n for n in dir(session) if 'step' in n.lower()]
@@ -80,7 +80,7 @@ try:
     print('step0 X/Y/Z/Color/Objective:', st['X'], st['Y'], st['Z'], st['channel'], st['Objective'])
     session.scope.motion.move_to_plate(PlateLocation(x_mm=st['X'], y_mm=st['Y'], z_um=None))
     session.scope.motion.move_z(st['Z'])
-    now = session.plate_position()
+    now = session.plate_position
     print('landed at:', now)
     print(
         'ASSERT stage at step:',
@@ -89,12 +89,12 @@ try:
 
     banner('SET TILING')
     tc = session.scope.protocols.tiling_grids()
-    print('tiling catalogue:', session.tiling_config().available)
+    print('tiling catalogue:', session.tiling_config.available)
     print('no-tiling label :', tc.no_tiling_label())
-    before = p.num_steps()
+    before = p.num_steps
     session.apply_tiling(p, '2x2')
-    print(f'{before} -> {p.num_steps()} steps')
-    print('ASSERT tiled 4x:', 'PASS' if p.num_steps() == before * 4 else f'CHECK ({p.num_steps()})')
+    print(f'{before} -> {p.num_steps} steps')
+    print('ASSERT tiled 4x:', 'PASS' if p.num_steps == before * 4 else f'CHECK ({p.num_steps})')
     print('Tile column:', p.steps()['Tile'].tolist()[:6])
 
     banner('LABWARE / PLATE SELECTION')

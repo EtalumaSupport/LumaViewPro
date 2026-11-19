@@ -1,6 +1,6 @@
-"""Camera P08: whether `imaging.is_streaming()` waits while the camera stops its grab.
+"""Camera P08: whether `imaging.read_streaming()` waits while the camera stops its grab.
 
-`ScopeSession.status` reads `is_streaming()` for its `camera_streaming`
+`ScopeSession.status` reads `read_streaming()` for its `camera_streaming`
 field, and the run-state event builds that record on the thread whose
 transition it announces, which must not block (the claim's contract). The
 read asks the camera SDK (`is_grabbing`), and a grab stop holds the SDK's
@@ -8,7 +8,7 @@ lock for as long as the camera takes to stop, measured near 11 s on a Pylon
 body. The W3d plan's bench row asks whether the read waits that out.
 
 The probe stops the feed with `imaging.disable_streaming()` on a thread of
-its own, times every `is_streaming()` asked from the main thread while the
+its own, times every `read_streaming()` asked from the main thread while the
 stop runs, and restarts the feed with `imaging.enable_streaming()`; it does
 this CYCLES times, after timing the read on a running feed. A read that
 waits on the stop takes about as long as the stop; one that does not stays
@@ -36,7 +36,7 @@ POLL_GAP_S = 0.005
 
 def _timed_read(imaging):
     start = time.perf_counter()
-    imaging.is_streaming()
+    imaging.read_streaming()
     return time.perf_counter() - start
 
 
@@ -47,7 +47,7 @@ def _ms(timings):
 
 def _measure(session):
     imaging = session.scope.imaging
-    check('the feed is running before the first stop', imaging.is_streaming())
+    check('the feed is running before the first stop', imaging.read_streaming())
 
     figure('read_on_a_running_feed_ms', _ms([_timed_read(imaging) for _ in range(BASELINE_READS)]))
 
@@ -85,7 +85,7 @@ def _measure(session):
         imaging.enable_streaming()
         figure(f'cycle_{cycle}_start_ms', round((time.perf_counter() - start) * 1e3, 1))
 
-    check('the feed is running at the end', imaging.is_streaming())
+    check('the feed is running at the end', imaging.read_streaming())
 
 
 def main():

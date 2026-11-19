@@ -3,7 +3,7 @@
 
 A client that subscribed at creation hears each bring-up outcome once,
 typed; a client that connects later reads the same facts from
-``ScopeSession.bring_up_record()``: which parts came up, the cause for each
+``ScopeSession.bring_up_record``: which parts came up, the cause for each
 that did not, what bring-up substituted for a saved setting the camera
 could not take, and the settings file set aside. Nothing came up is one
 notice. A camera's heading is its own, not doubled with its category.
@@ -145,7 +145,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            motor = _status(s.bring_up_record(), Board.MOTOR)
+            motor = _status(s.bring_up_record, Board.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, True, 'port_in_use')
             assert motor.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
@@ -220,10 +220,10 @@ class TestEachPartNamesItsCause:
             microscope='LS620',
         )
         try:
-            motor = _status(s.bring_up_record(), Board.MOTOR)
+            motor = _status(s.bring_up_record, Board.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, 'not_detected')
             assert not motor.missing
-            assert s.bring_up_record().missing == ()
+            assert s.bring_up_record.missing == ()
             assert _outcomes(centre_posts, OutcomeKind.FAULT) == []
         finally:
             s.shutdown()
@@ -245,9 +245,9 @@ class TestEachPartNamesItsCause:
         )
         try:
             assert s.scope.channel_identity.source == 'stock'
-            led = _status(s.bring_up_record(), Board.LED)
+            led = _status(s.bring_up_record, Board.LED)
             assert (led.up, led.expected, led.cause) == (False, True, 'port_in_use')
-            assert led in s.bring_up_record().missing
+            assert led in s.bring_up_record.missing
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason) for n in faults] == [
                 (LedBoardUnavailableError.title, 'port_in_use')
@@ -266,7 +266,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            led = _status(s.bring_up_record(), Board.LED)
+            led = _status(s.bring_up_record, Board.LED)
             assert (led.up, led.cause) == (False, 'not_responding')
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
             assert [(n.title, n.reason) for n in faults] == [
@@ -287,7 +287,7 @@ class TestEachPartNamesItsCause:
             microscope='LS850T',
         )
         try:
-            camera = _status(s.bring_up_record(), Board.CAMERA)
+            camera = _status(s.bring_up_record, Board.CAMERA)
             assert (camera.up, camera.cause) == (False, 'port_in_use')
             assert 'PermissionError' in camera.detail
             faults = _outcomes(centre_posts, OutcomeKind.FAULT)
@@ -327,7 +327,7 @@ class TestASimulatedScopeReportsNothing:
             complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
         )
         try:
-            record = s.bring_up_record()
+            record = s.bring_up_record
             assert [p.up for p in record.parts] == [True, True, True]
             assert record.missing == ()
             assert centre_posts == []
@@ -343,9 +343,9 @@ class TestASimulatedManualScope:
             warn_pre_release=False,
         )
         try:
-            motor = _status(s.bring_up_record(), Board.MOTOR)
+            motor = _status(s.bring_up_record, Board.MOTOR)
             assert (motor.up, motor.expected, motor.cause) == (False, False, None)
-            assert s.bring_up_record().missing == ()
+            assert s.bring_up_record.missing == ()
             assert centre_posts == []
         finally:
             s.shutdown()
@@ -365,7 +365,7 @@ class TestAClassicRefusedItsDriver:
             warn_pre_release=False,
         )
         try:
-            record = s.bring_up_record()
+            record = s.bring_up_record
             assert s.scope.no_hardware
             assert _status(record, Board.CAMERA).cause == 'camera_driver_unusable'
             assert _status(record, Board.LED).cause == 'fx2_failed'
@@ -392,7 +392,7 @@ class TestAClassicRefusedItsDriver:
             microscope='LS620',
         )
         try:
-            assert _status(s.bring_up_record(), Board.LED).cause == 'fx2_failed'
+            assert _status(s.bring_up_record, Board.LED).cause == 'fx2_failed'
             assert [n.reason for n in centre_posts] == ['camera_driver_unusable']
         finally:
             s.shutdown()
@@ -411,7 +411,7 @@ class TestNothingCameUp:
         )
         try:
             assert s.scope.no_hardware
-            record = s.bring_up_record()
+            record = s.bring_up_record
             assert [p.up for p in record.parts] == [False, False, False]
             assert [n.reason for n in centre_posts] == ['no_hardware']
             assert centre_posts[0].kind == OutcomeKind.NOTICE
@@ -450,7 +450,7 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
             monkeypatch, tmp_path, camera=_no_camera_with_the_fx2_declined(), microscope='LS850T'
         )
         try:
-            camera = _status(s.bring_up_record(), Board.CAMERA)
+            camera = _status(s.bring_up_record, Board.CAMERA)
             assert camera.cause == 'not_detected'
             # The record still names the driver that did not load.
             assert (
@@ -492,7 +492,7 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
             microscope='LS720',
         )
         try:
-            record = s.bring_up_record()
+            record = s.bring_up_record
             assert _status(record, Board.CAMERA).cause == 'camera_driver_unavailable'
             assert _status(record, Board.LED).cause == 'led_driver_unavailable'
             assert _told(centre_posts) == [
@@ -514,7 +514,7 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
             microscope='LS850T',
         )
         try:
-            assert _status(s.bring_up_record(), Board.LED).cause == 'not_detected'
+            assert _status(s.bring_up_record, Board.LED).cause == 'not_detected'
             assert _told(centre_posts) == [('Illumination', 'not_detected')]
         finally:
             s.shutdown()
@@ -533,7 +533,7 @@ class TestADeclinedFx2IsToldOnlyWhereItCouldBeTheBoard:
             microscope='LS850T',
         )
         try:
-            record = s.bring_up_record()
+            record = s.bring_up_record
             assert _status(record, Board.LED).cause == 'port_in_use'
             assert _status(record, Board.CAMERA).cause == 'not_detected'
             assert _told(centre_posts) == [
@@ -551,7 +551,7 @@ class TestAProblemOnAPartThatCameUp:
     ):
         s = _bring_up(monkeypatch, tmp_path, led=_FirstAllOffUnanswered(), microscope='LS850T')
         try:
-            led = _status(s.bring_up_record(), Board.LED)
+            led = _status(s.bring_up_record, Board.LED)
             assert (led.up, led.cause) == (True, 'safety_off_failed')
             assert led.detail == 'BoardNoReplyError: LEDS_OFF: no reply from the board'
             assert not led.missing
@@ -571,7 +571,7 @@ class TestAProblemOnAPartThatCameUp:
         )
         s = _bring_up(monkeypatch, tmp_path, motor=board, microscope='LS850T')
         try:
-            motor = _status(s.bring_up_record(), Board.MOTOR)
+            motor = _status(s.bring_up_record, Board.MOTOR)
             assert (motor.up, motor.cause) == (True, 'acceleration_not_set')
             assert motor.detail == 'BoardNoReplyError: AMAXX: no reply from the board'
             assert not motor.missing
@@ -590,7 +590,7 @@ class TestSubstitutions:
     ):
         s = _bring_up(monkeypatch, tmp_path, microscope='LS850T', binning={'size': '8x8'})
         try:
-            sub = _substitution(s.bring_up_record(), 'binning')
+            sub = _substitution(s.bring_up_record, 'binning')
             assert (sub.saved, sub.used) == (8, 1)
             notices = [n for n in centre_posts if n.reason == BinningSubstitutedNotice.reason]
             assert len(notices) == 1
@@ -612,7 +612,7 @@ class TestSubstitutions:
         monkeypatch.setattr(SimulatedCamera, 'get_supported_pixel_formats', lambda self: ('Mono8',))
         s = _bring_up(monkeypatch, tmp_path, microscope='LS850T', image_mode='12bit_scientific')
         try:
-            assert _substitution(s.bring_up_record(), 'image_mode') is None
+            assert _substitution(s.bring_up_record, 'image_mode') is None
             assert _outcomes(centre_posts, OutcomeKind.NOTICE) == []
             assert s.settings['image_mode'] == '12bit_scientific'
         finally:
@@ -631,7 +631,7 @@ class TestSubstitutions:
             frame={'width': 900, 'height': 600},
         )
         try:
-            assert s.bring_up_record().substitutions == ()
+            assert s.bring_up_record.substitutions == ()
             assert _outcomes(centre_posts, OutcomeKind.NOTICE) == []
         finally:
             s.shutdown()
@@ -660,7 +660,7 @@ class TestSubstitutions:
             monkeypatch, tmp_path, microscope=microscope, binning={'size': '1x1'}, frame=frame
         )
         try:
-            sub = _substitution(first.bring_up_record(), 'frame')
+            sub = _substitution(first.bring_up_record, 'frame')
             assert (sub.saved, sub.used) == (saved, ran)
             assert first.scope.camera.frame_size.to_dict() == {'width': ran[0], 'height': ran[1]}
             stored = {k: dict(first.settings[k]) for k in ('binning', 'frame')}
@@ -682,7 +682,7 @@ class TestSubstitutions:
         centre_posts.clear()
         again = _bring_up(monkeypatch, tmp_path, microscope=microscope, **stored)
         try:
-            assert again.bring_up_record().substitutions == ()
+            assert again.bring_up_record.substitutions == ()
             assert [n for n in centre_posts if n.reason == 'frame_refitted'] == []
         finally:
             again.shutdown()
@@ -704,7 +704,7 @@ class TestSubstitutions:
             frame={'width': 0, 'height': 0},
         )
         try:
-            record = s.bring_up_record()
+            record = s.bring_up_record
             binned = _substitution(record, 'binning')
             assert (binned.saved, binned.used) == (3, 1)
             assert _substitution(record, 'frame') is None
@@ -724,12 +724,12 @@ class TestTheSettingsFileSetAside:
             complete_settings(live_folder=str(tmp_path)), simulate=True, warn_pre_release=False
         )
         try:
-            assert session.bring_up_record().settings_set_aside is None
+            assert session.bring_up_record.settings_set_aside is None
 
             monkeypatch.setattr(
                 settings_init, 'rejected_current_json', ('/x/data/current.json', 'not valid JSON')
             )
-            assert session.bring_up_record().settings_set_aside == SettingsSetAside(
+            assert session.bring_up_record.settings_set_aside == SettingsSetAside(
                 pathlib.Path('/x/data/current.json'), 'not valid JSON'
             )
         finally:
@@ -752,27 +752,27 @@ class TestTheSettingsFileSetAside:
         )
         try:
             set_aside = SettingsSetAside(current, 'not valid JSON')
-            assert session.scope.bring_up_record().settings_set_aside == set_aside
-            assert session.scope.bring_up_record() == session.bring_up_record()
+            assert session.scope.bring_up_record.settings_set_aside == set_aside
+            assert session.scope.bring_up_record == session.bring_up_record
 
             session.retire_rejected_settings()
 
-            assert session.scope.bring_up_record().settings_set_aside is None
-            assert session.bring_up_record().settings_set_aside is None
+            assert session.scope.bring_up_record.settings_set_aside is None
+            assert session.bring_up_record.settings_set_aside is None
         finally:
             session.shutdown()
 
     def test_a_scope_no_session_composed_refuses_its_record(self, no_hardware_scope):
         """Unbound, whether a settings file was set aside is unknown, so no record is answered."""
         with pytest.raises(ConfigurationDefectError) as refused:
-            no_hardware_scope.bring_up_record()
+            _ = no_hardware_scope.bring_up_record
 
         assert refused.value.reason == 'scope_not_composed'
 
     def test_the_host_s_question_reads_the_reason_from_the_record(self):
         fn = find_def('lumaviewpro.py', '_ask_about_rejected_settings', class_name='LumaViewProApp')
         source = ast.unparse(fn)
-        assert 'bring_up_record().settings_set_aside.reason' in source
+        assert 'bring_up_record.settings_set_aside.reason' in source
         assert 'rejected_current_json' not in source
 
 

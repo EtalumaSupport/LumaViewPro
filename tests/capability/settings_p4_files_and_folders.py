@@ -30,16 +30,14 @@ try:
     # --- live_folder ------------------------------------------------------
     newdir = _common.SCRATCH / 'chosen_live'
     s.set_live_folder(str(newdir))
-    _common.ok(
-        'live_folder set through Session', s.settings_snapshot()['live_folder'] == str(newdir)
-    )
+    _common.ok('live_folder set through Session', s.settings_snapshot['live_folder'] == str(newdir))
     _common.ok('live_folder creates the directory', newdir.exists(), str(newdir))
     try:
         s.set_live_folder('/definitely/not/a/real/place/\x00bad')
         _common.ok(
             'a live_folder that is not a path is refused',
             False,
-            repr(s.settings_snapshot()['live_folder']),
+            repr(s.settings_snapshot['live_folder']),
         )
     except SettingRefusedError as e:
         _common.ok('a live_folder that is not a path is refused', True, str(e))
@@ -50,7 +48,7 @@ try:
         _common.ok(
             'a live_folder under a file is refused',
             False,
-            repr(s.settings_snapshot()['live_folder']),
+            repr(s.settings_snapshot['live_folder']),
         )
     except SettingRefusedError as e:
         _common.ok('a live_folder under a file is refused', True, str(e))

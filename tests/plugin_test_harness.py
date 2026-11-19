@@ -24,7 +24,7 @@ and has only what a session has:
     ctx.post_processing      -- mocked post-processing builds
     ctx.engineering_mode     -- False, a read; ctx.set_engineering_mode(enabled) writes it
     ctx.no_engineering       -- False
-    ctx.settings_snapshot() -- a copy of the settings, the shipped template to begin with
+    ctx.settings_snapshot -- a copy of the settings, the shipped template to begin with
     ctx.update_settings      -- the Session's own check against the shipped template, then the
                                 store, so a write the Session would refuse is refused here too
 
@@ -73,6 +73,10 @@ class _HarnessSession(types.SimpleNamespace):
     def set_engineering_mode(self, enabled: bool) -> None:
         self._engineering_mode = enabled
 
+    @property
+    def settings_snapshot(self) -> dict:
+        return copy.deepcopy(self._settings)
+
 
 def _make_ctx() -> _HarnessSession:
     """Build a fresh session-shaped ctx with a real PluginRegistry."""
@@ -82,7 +86,7 @@ def _make_ctx() -> _HarnessSession:
     ctx.post_processing = MagicMock(name='post_processing')
     ctx.no_engineering = False
     settings = complete_settings()
-    ctx.settings_snapshot = lambda: copy.deepcopy(settings)
+    ctx._settings = settings
     ctx.update_settings = settings_writer(settings)
     return ctx
 

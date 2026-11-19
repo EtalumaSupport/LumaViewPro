@@ -134,7 +134,7 @@ def test_a_run_whose_grab_state_read_fails_is_refused_as_state_unknown(tmp_path)
 
 
 def _camera_part(session):
-    (camera,) = [p for p in session.bring_up_record().parts if p.part == 'camera']
+    (camera,) = [p for p in session.bring_up_record.parts if p.part == 'camera']
     return camera
 
 

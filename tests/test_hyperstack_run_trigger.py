@@ -299,9 +299,9 @@ def test_run_mode_scan_count_matches_its_declared_row():
         from _lumascope.modules.sequenced_capture_runner import SequencedCaptureRunner
 
         protocol = MagicMock()
-        protocol.period_s.return_value = 60.0
-        protocol.duration_s.return_value = 300.0
-        protocol.num_scans.return_value = 5
+        protocol.period_s = 60.0
+        protocol.duration_s = 300.0
+        protocol.num_scans = 5
 
         n_scans = SequencedCaptureRunner._calculate_num_scans(
             protocol=protocol, run_mode=run_mode, max_scans=1

@@ -5,7 +5,7 @@
 no declared shape keyed by the steps table's column names, and a caller
 wanting every step asked once per step. A step is now a ``StepRecord``, a
 field per column, its video config a record of its own, and
-``step_records()`` answers every step at once.
+``step_records`` answers every step at once.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def test_a_step_reads_as_its_record_with_its_video_config_as_a_record(session):
     protocol = _bf_and_blue(session)
     row = protocol.step_row(step_index=1)
 
-    step = protocol.step_records()[1]
+    step = protocol.step_records[1]
 
     assert isinstance(step, StepRecord)
     assert (step.name, step.channel, step.x_mm, step.y_mm, step.z_um) == (
@@ -61,9 +61,9 @@ def test_a_step_reads_as_its_record_with_its_video_config_as_a_record(session):
 def test_the_step_table_is_every_step_in_order(session):
     protocol = _bf_and_blue(session)
 
-    table = protocol.step_records()
+    table = protocol.step_records
 
-    assert len(table) == protocol.num_steps()
+    assert len(table) == protocol.num_steps
     assert [step.channel for step in table] == ['BF', LED0]
 
 
@@ -73,7 +73,7 @@ def test_a_step_with_no_position_on_an_axis_reads_none_there(session):
         protocol, channels=('BF',), at=PlateLocation(x_mm=None, y_mm=None, z_um=6000.0)
     )
 
-    step = protocol.step_records()[0]
+    step = protocol.step_records[0]
 
     assert (step.x_mm, step.y_mm, step.z_um) == (None, None, 6000.0)
 
@@ -98,7 +98,7 @@ def test_a_step_with_no_slice_group_or_slot_reads_none_where_the_table_holds_min
     columns = ('Z-Slice', 'Tile Group ID', 'Z-Stack Group ID', 'Turret Slot')
     assert [row[column] for column in columns] == [-1, -1, -1, -1]
 
-    step = protocol.step_records()[0]
+    step = protocol.step_records[0]
 
     assert (step.z_slice, step.tile_group_id, step.z_stack_group_id, step.turret_slot) == (
         None,
@@ -118,7 +118,7 @@ def test_every_value_of_a_record_is_a_python_value_not_a_numpy_one(session):
 
     numpy_values = [
         (step.name, field.name, type(value).__name__)
-        for step in protocol.step_records()
+        for step in protocol.step_records
         for field in dataclasses.fields(step)
         if isinstance(value := getattr(step, field.name), np.generic)
     ]

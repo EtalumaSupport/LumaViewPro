@@ -326,10 +326,9 @@ def make_session(name='probe', *, home=False, settings_file=None, **overrides):
     if home:
         session.run_application_session()
         deadline = time.monotonic() + 60
-        while (
-            time.monotonic() < deadline
-            and session.scope.motion.axes_without_position().keys() - {'T'}
-        ):
+        while time.monotonic() < deadline and session.scope.motion.axes_without_position.keys() - {
+            'T'
+        }:
             time.sleep(0.25)
     return session, live
 
@@ -438,7 +437,7 @@ def hardware_session(objective=None):
         scope = session.scope
         IDENTITY.update(
             model=scope.channel_identity.model,
-            motor=scope.diagnostics.motor_info().to_dict(),
+            motor=scope.diagnostics.motor_info.to_dict(),
             camera={
                 'model': scope.capabilities.camera_model,
                 'serial': scope.capabilities.camera_serial_number,
@@ -448,7 +447,7 @@ def hardware_session(objective=None):
         print(f'SCOPE: {IDENTITY}', flush=True)
         if objective is not None:
             session.select_objective(objective)
-        question = session.objective_question()
+        question = session.objective_question
         if question is not None:
             print(
                 f'STOPPED: the objective is not confirmed ({question}). '

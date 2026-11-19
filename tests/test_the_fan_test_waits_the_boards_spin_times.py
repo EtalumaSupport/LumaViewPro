@@ -52,7 +52,7 @@ def test_the_api_answers_the_boards_spin_times(make_session):
     session = make_session('LS850')
     board = session.scope._motion_driver
 
-    assert session.scope.diagnostics.motor_fan_spin_times() == {
+    assert session.scope.diagnostics.motor_fan_spin_times == {
         'spin_up_s': board.fan_spin_up_s,
         'spin_down_s': board.fan_spin_down_s,
     }
@@ -61,4 +61,4 @@ def test_the_api_answers_the_boards_spin_times(make_session):
 def test_a_scope_without_fan_control_has_no_spin_times(make_session):
     session = make_session('LS620')
 
-    assert session.scope.diagnostics.motor_fan_spin_times() is None
+    assert session.scope.diagnostics.motor_fan_spin_times is None
