@@ -1,14 +1,21 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""The headless REST server, run as ``python -m lumascope.rest [--simulate]``.
+"""The headless REST server, run as ``python -m lumascope.rest [--simulate] [--source-path FOLDER]``.
 
 Brings the scope up as the GUI does -- the single-instance lock, the
 prepared settings, ``ScopeSession.create``, the startup motion, the
 plugins, the metrics -- and serves the declared API through
 ``_lumascope.rest.server.build_server`` on ``rest_api.address`` and ``rest_api.port``
-(shipped ``127.0.0.1:8000``, this computer only). It has no credentials:
+(shipped ``127.0.0.1:8000``, this computer only). ``--source-path`` names
+the installation folder it runs on, its ``data/`` the settings and the
+catalogues, as ``ScopeSession.create`` takes it; by default this one. A
+copy of ``data/`` keeps a simulated server's writes out of the user's
+files; it carries the same instance-lock port, so one server runs at a
+time whichever folder it runs on. It has no credentials:
 anyone who can reach the address drives the scope, unless
 ``rest_api.allowed_clients`` names the clients served. A ``current.json``
-that cannot be used, a scope model it names that this version does not
+that cannot be used, an installation whose shipped ``settings.json`` is
+missing or unusable (a ``--source-path`` that holds none), a scope model it
+names that this version does not
 know (on a scope whose board names none), a ``rest_api`` setting that
 cannot be used, or an address and port that cannot be taken, is printed
 and it exits 1. SIGINT or SIGTERM
@@ -28,6 +35,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         '--simulate', action='store_true', help='drive the simulated scope, not hardware'
+    )
+    parser.add_argument(
+        '--source-path',
+        metavar='FOLDER',
+        help="the installation folder whose data/ the server runs on; by default this one's",
     )
     args = parser.parse_args(argv)
 
@@ -50,10 +62,18 @@ def main(argv: list[str] | None = None) -> int:
     capture_installer_logs(log_dir)
 
     from _lumascope.modules import lvp_lock
+    from _lumascope.modules.exceptions import InstallationFileError
     from _lumascope.modules.path_utils import get_source_root
 
-    source_path = get_source_root()
-    instance_lock = lvp_lock.take_instance_lock(source_path)
+    source_path = get_source_root(args.source_path)
+    # The lock's port is the installation's own setting, so a folder with no
+    # installation in it is refused here, naming the file it lacks.
+    try:
+        instance_lock = lvp_lock.take_instance_lock(source_path)
+    except InstallationFileError as e:
+        logger.error(f'[REST     ] {e}')
+        print(e, file=sys.stderr)
+        return 1
     if instance_lock is None:
         message = 'Another LumaViewPro or REST server is already running on this computer.'
         logger.error(f'[REST     ] {message}')

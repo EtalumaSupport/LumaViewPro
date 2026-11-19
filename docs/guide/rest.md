@@ -41,6 +41,18 @@ shuts down with the event stream open, and the stream's last event is
 folder, `capture/` under the source folder as shipped (`live_folder`
 `./capture`, a relative path being the source folder's).
 
+`--source-path FOLDER` runs it on another folder's `data/` instead: its
+settings, its catalogues, and the live folder they name. A simulated server
+on a copy of `data/` leaves your own settings and captures untouched. The
+copy carries the same single-instance lock, so one server still runs at a
+time. A folder with no `data/settings.json` in it is refused, and the
+server exits `1`.
+
+```bash
+mkdir -p /tmp/lvp-sim && cp -R data /tmp/lvp-sim/    # from the source folder
+python -m lumascope.rest --simulate --source-path /tmp/lvp-sim
+```
+
 To serve a session your own program has brought up, build its server, the one
 every host serves through:
 
