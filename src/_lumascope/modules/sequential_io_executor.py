@@ -900,7 +900,6 @@ class SequentialIOExecutor:
         own waiter gets the refusal back instead, for ``submit`` to raise:
         that waiter has already been handed on as accepted work.
         """
-        logger.warning(f'[{self.executor_name}] REFUSED {_task_named(task)} -- {refusal}')
         task.protocol = False
         # The waiter is created below, after the report, so whether there
         # will be one is what return_future says.
@@ -1848,7 +1847,6 @@ class SequentialIOExecutor:
             fut = self.caller_futures.pop(task, None)
             if fut is not None:
                 self._caller_futures_pop_count += 1
-        logger.warning(f'[{self.executor_name}] NOT RUN {_task_named(task)} -- {refusal}')
         if fut is not None:
             fut.set_exception(refusal)
         self._report_task_failure(

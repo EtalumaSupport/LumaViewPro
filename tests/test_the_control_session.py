@@ -837,6 +837,21 @@ class TestTheRestDoor:
         assert written.status_code == 200, written.text
         assert sim_session.labware_id == '384 well microplate'
 
+    def test_a_refused_lane_write_is_logged_once(self, client, caplog):
+        """Logged by the one reporter where the refusal's flight stops, never also by the lane."""
+        import logging
+
+        client.post('/api/v1/take_control', json={'name': 'plate reader'})
+
+        with caplog.at_level(logging.DEBUG):
+            refused = client.post('/api/v1/scope/illumination/leds_off')
+
+        assert (refused.status_code, refused.json()['reason']) == (409, 'control_session_held')
+        logged = [
+            r.getMessage() for r in caplog.records if refused.json()['detail'] in r.getMessage()
+        ]
+        assert len(logged) == 1, logged
+
     def test_the_status_names_the_session_and_never_its_id(self, client):
         session_id = client.post('/api/v1/take_control', json={'name': 'plate reader'}).json()
         status = client.get('/api/v1/status')
