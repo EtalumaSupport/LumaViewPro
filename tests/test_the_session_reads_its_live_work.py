@@ -220,6 +220,32 @@ def test_a_runs_recording_step_says_how_long_it_has_recorded_of_its_length(
     assert (item.elapsed_s, item.total_s) == (3.0, 10.0)
 
 
+@pytest.mark.slow
+def test_a_runs_video_step_is_read_while_it_records(tmp_path):
+    """A real run's video step, read from inside its recording: the run's item
+    carries the step's seconds so far and its length."""
+    from _lumascope.modules.run_events import RunEvents, VideoPhase
+    from tests.test_composite_run_e2e import headless_settings, open_composite_session
+    from tests.test_what_a_run_keeps_is_bounded_by_its_protocol import _protocol, _run, _videos
+
+    read = []
+    with open_composite_session(headless_settings(tmp_path)) as (session, runner):
+
+        def video_progress(progress):
+            # Delivered on the run's thread from inside the recording.
+            if progress.phase == VideoPhase.RECORDING and not read:
+                read.append(_item(session, live_work.WorkKind.PROTOCOL))
+
+        outcome = _run(
+            runner, tmp_path, _protocol(_videos(1), 1), RunEvents(video_progress=video_progress)
+        )
+
+    assert outcome.status == 'completed', outcome
+    (item,) = read
+    assert item.elapsed_s is not None and item.elapsed_s >= 0, item
+    assert item.total_s == 0.4, item
+
+
 def test_a_finished_runs_images_count_down(sim_session):
     from _lumascope.modules.protocol_image_writer import RunWriteBatch
 
