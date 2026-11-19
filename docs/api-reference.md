@@ -13666,6 +13666,19 @@ name and derivation record carry the name lower-cased
 
 Every outcome class: its kind, its reasons, whether the same request could succeed later (each reason's cause), and the HTTP status REST answers it with.
 
+<a id="LumascopeError"></a>
+### `lumascope.LumascopeError`
+
+Bases `BaseException`. Every outcome class carries its fields.
+
+The root of every exception the scope raises: catch it to catch them all.
+
+**Fields**
+
+- <a id="LumascopeError.reason"></a>`reason`: `str` -- The machine-readable code a client branches on: one of the reasons its class lists under Outcomes, set where the outcome is raised, or the class's one reason.
+- <a id="LumascopeError.cause"></a>`cause`: `RefusalCause | None` -- Whether the same request could succeed later: its reason's cause in its class's list; None for a fault and a notice that is only reported.
+- <a id="LumascopeError.title"></a>`title`: `str` -- The heading a person reads: its class's one title, or its reason's.
+
 <a id="AccelerationLimitRefusedError"></a>
 ### `lumascope.AccelerationLimitRefusedError`
 
@@ -16730,6 +16743,10 @@ caller changing nothing.
 
 - `title`: The heading the person reads above the message.
 - `remedy`: The action that answers this refusal, when one exists; the reporter then shows the refusal as an offer to take it. Set per instance: one reason of a refusal type can have a remedy that its others do not.
+
+**Fields**
+
+- <a id="Refusal.remedy"></a>`remedy`: `Remedy | None` -- The action that answers this refusal, when one exists; the reporter then shows the refusal as an offer to take it. Set per instance: one reason of a refusal type can have a remedy that its others do not.
 
 <a id="RestServerNotStartedError"></a>
 ### `lumascope.RestServerNotStartedError`

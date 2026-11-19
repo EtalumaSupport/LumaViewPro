@@ -124,26 +124,26 @@ class LumascopeError(BaseException):
     and one refused where it is defined is never counted.
 
     Attributes:
-        reason: The machine-readable code a client branches on: one of
-            ``causes``, set where the outcome is raised, or the class's
-            one reason.
-        cause: Whether the same request could succeed later, read from
-            ``causes`` by ``reason``; None for a fault and a notice that is
-            only reported.
+        reason: The machine-readable code a client branches on: one of the
+            reasons its class lists under Outcomes, set where the outcome is
+            raised, or the class's one reason.
+        cause: Whether the same request could succeed later: its reason's
+            cause in its class's list; None for a fault and a notice that
+            is only reported.
         causes: Each reason the class carries, mapped to its
             ``RefusalCause``, or to None where the kind has no cause.
         same_fact_as: The classes whose reasons this class carries as the
             same fact.
-        title: The heading a person reads: the class's one ``title``, stated
-            in its body, or its reason's row in ``titles``.
+        title: The heading a person reads: its class's one title, or its
+            reason's.
         titles: Each reason's title, on a class whose title differs by
             reason; it may hold more reasons than the class carries, where
             it is a store several classes share.
     """
 
-    reason = _Reason()
-    cause = _Cause()
-    title = _Title()
+    reason: str = _Reason()
+    cause: RefusalCause | None = _Cause()
+    title: str = _Title()
     causes: ClassVar[Mapping[str, RefusalCause | None]]
     titles: ClassVar[Mapping[str, str]]
     same_fact_as: ClassVar[tuple[type['LumascopeError'], ...]] = ()

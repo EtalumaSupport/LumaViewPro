@@ -35,6 +35,7 @@ import typing
 from _lumascope.lib.lumascope_error import Fault, LumascopeError, defined_classes
 from _lumascope.modules import wire_encoding
 from _lumascope.modules.api_surface import (
+    API,
     IN_PROCESS,
     _to_dict,
     admitted_by_of,
@@ -70,6 +71,16 @@ _LINE = 88
 # A path a user cannot import or open: the private package, or the
 # checkout's source folder. What a reader is told to use is ``lumascope``.
 PRIVATE_PATH = re.compile(r'\b_lumascope\b|(?<![\w/.])src/')
+# The fields an outcome carries by its kind: the root's, on every outcome,
+# and a refusal's remedy. The reference publishes them in those classes'
+# entries, never with ``@api_fields``: each is a member every REST problem
+# carries already, which a published field would add twice
+# (``tests/guards/test_an_outcomes_published_fields_reach_its_problem.py``),
+# and the root is on the floor layer, which may not import the marker.
+OUTCOME_FIELDS: dict[type, tuple[str, ...]] = {
+    LumascopeError: ('reason', 'cause', 'title'),
+    Refusal: ('remedy',),
+}
 
 _PREFACE = f"""\
 # LumaViewPro API reference
@@ -475,6 +486,26 @@ def _kind(cls: type) -> str:
     return 'a subject: never raised, its children are'
 
 
+def _with_kind_fields(owner: _Owner) -> _Owner:
+    """*owner* with the fields its class carries by its kind (``OUTCOME_FIELDS``) added to its own."""
+    carried = OUTCOME_FIELDS.get(owner.owner, ())
+    fields = tuple(Marked(owner.owner, owner.name, f, API, field=True) for f in carried)
+    return _Owner(owner.owner, owner.name, owner.items + fields)
+
+
+def _root() -> str:
+    """The root's entry: the first paragraph of its docstring, and the fields every outcome carries."""
+    name = LumascopeError.__name__
+    return '\n\n'.join(
+        [
+            f'{_anchor(name)}\n### `lumascope.{name}`',
+            'Bases `BaseException`. Every outcome class carries its fields.',
+            markdown_of(own_doc(LumascopeError).split('\n\n')[0]),
+            _fields(_with_kind_fields(_Owner(LumascopeError, name, ()))),
+        ]
+    )
+
+
 def _reasons(cls: type) -> str:
     # A subclass carries its parent's reasons; a kind and a subject carry none.
     causes = getattr(cls, 'causes', None)
@@ -688,9 +719,10 @@ def render(sections: Declared) -> str:
         '## Outcomes\n\nEvery outcome class: its kind, its reasons, whether the same request could '
         "succeed later (each reason's cause), and the HTTP status REST answers it with."
     )
+    sections.append(_root())
     for name, cls in sorted(index.outcomes.items()):
         owner = outcome_owners.get(name, _Owner(cls, name, ()))
-        sections.append(_class(owner, index, outcome=True))
+        sections.append(_class(_with_kind_fields(owner), index, outcome=True))
     sections.append('## Routes\n\n' + _routes_table(index))
     sections.append('## Events\n\n' + _events_table(index))
     sections.append('## Saved-file facts\n\n' + _file_facts_table())
