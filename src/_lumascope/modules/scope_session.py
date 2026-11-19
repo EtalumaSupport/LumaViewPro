@@ -148,7 +148,7 @@ from _lumascope.modules.sequential_io_executor import (
     slow_task_budget,
 )
 from _lumascope.modules.api_surface import (
-    IN_PROCESS,
+    API,
     Admission,
     FilePath,
     ProgressCallback,
@@ -4852,8 +4852,8 @@ class ScopeSession:
             SettingRefusedError: ``'has_member'``, ``path`` is owned by a
                 member (named by its path from the session:
                 ``scope.camera.set_frame_size`` for the camera's); ``'host_only'``, its member is
-                in-process, so only the application hosting the scope changes
-                it (``live_folder``, ``protocol.filepath``);
+                not on the wire, so only the application hosting the scope
+                changes it (``live_folder``, ``protocol.filepath``);
                 ``'installation_only'``, it is set
                 only by the installation; ``'not_a_setting'``, it is not a
                 setting; ``'block'``, it names a block; ``'wrong_kind'``,
@@ -4894,10 +4894,10 @@ class ScopeSession:
         """
         value = python_values(value)
         member = settings_paths.member_for(path)
-        if member is not None and mark_of(getattr(_owner_of(member), member.name)) == IN_PROCESS:
-            # The live folder confines every path a wire caller sends, so only
-            # the host moves it; advice naming the member alone sends a REST
-            # client to a route that does not exist.
+        if member is not None and mark_of(getattr(_owner_of(member), member.name)) != API:
+            # A member no wire carries -- in-process, or not published at
+            # all -- is moved only by the host; advice naming the member
+            # alone sends a REST client to a route that does not exist.
             raise SettingRefusedError(
                 'host_only',
                 path,
