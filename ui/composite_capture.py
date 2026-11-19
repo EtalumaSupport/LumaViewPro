@@ -22,7 +22,6 @@ from _lumascope.modules.run_events import RunEvents
 from ui.ui_helpers import (
     run_reported,
     run_unasked,
-    set_title_event_text,
     show_captured_frame,
     show_captured_still,
     submit_reported,
@@ -142,8 +141,6 @@ class CompositeCapture(FloatLayout):
         gui_logger.display(
             'COMPOSITE_BUTTON', f'{"Stop" if live else "Composite"} held={self.composite_held}'
         )
-        if live:
-            set_title_event_text('Compositing...')
 
 
 def _still_settled(done) -> None:

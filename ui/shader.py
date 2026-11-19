@@ -10,11 +10,11 @@ from kivy.properties import ObjectProperty, StringProperty
 from kivy.uix.scatter import Scatter
 
 import _lumascope.modules.app_context as _app_ctx
-from _lumascope.modules import gui_logger
+from _lumascope.modules import gui_logger, live_work
 from _lumascope.modules.coord_transformations import PlatePosition
 from _lumascope.modules.exceptions import Refusal
 from _lumascope.modules.channel_record import GREY, Color, format_display_color
-from ui.ui_helpers import fixed_number, schedule_ui_interval
+from ui.ui_helpers import fixed_number, schedule_ui_interval, work_item_text
 
 logger = logging.getLogger('LVP.ui.shader')
 
@@ -75,6 +75,12 @@ def frame_rate_title(capture_fps: float, display_fps: float, *, engineering: boo
     capture = fixed_number(capture_fps, whole_digits=2, decimals=decimals)
     display = fixed_number(display_fps, whole_digits=2, decimals=decimals)
     return f'Capture: {capture} | Display: {display} FPS'
+
+
+def work_title(work: tuple[live_work.WorkItem, ...]) -> str:
+    """The status line's part saying what the session is doing: empty when nothing."""
+    doing = ' | '.join(work_item_text(item) for item in work)
+    return f' | {doing}' if doing else ''
 
 
 def cursor_title(pixel: tuple[int, int] | None, plate: PlatePosition | Refusal | None) -> str:
@@ -144,11 +150,10 @@ void main (void) {
         self.white = 1.0
         self.black = 0.0
 
-        # Status bar update interval. Drives FPS readout AND cursor
-        # XY/Plate readouts in the window title (#638 follow-up: 1 Hz
-        # was too sluggish for stage-position feedback during motion).
-        # 10 Hz keeps cursor XY responsive without saturating
-        # Window.set_title() on SDL2/Windows.
+        # Status bar update interval. Drives the FPS readout, the cursor
+        # XY/Plate readouts and what the session is doing on the status
+        # line; 1 Hz was too sluggish for stage-position feedback during
+        # motion, and 10 Hz keeps the cursor readout responsive.
         self._status_bar_tick = schedule_ui_interval(self._update_status_bar, 0.1, 'STATUS_BAR')
         self._mouse_pixel_x = -1
         self._mouse_pixel_y = -1
@@ -298,21 +303,17 @@ void main (void) {
             self._mouse_over_image = False
 
     def _update_status_bar(self, dt):
-        """Periodic status update (10 Hz). SOLE owner of Window.set_title().
+        """Periodic status update (10 Hz): the status line, the one writer of ``status_text``.
 
-        The status line (``status_text``) composes 'Capture: X | Display: Y FPS
-        [ | Camera: Z MB/s ] [ | Pixel: (px, py) [ | Plate: (sx, sy) mm ] ]';
-        the title is 'LumaViewPro {ver} [ -- {event_text} ]'. Other call sites
-        push their event text into ui_helpers.set_title_event_text() instead of
-        writing the title directly, which prevents product-name spelling
-        oscillation.
+        It composes 'Capture: X | Display: Y FPS [ | Camera: Z MB/s ]
+        [ | Pixel: (px, py) [ | Plate: (sx, sy) mm ] ]', then what the session
+        is doing (``ScopeSession.live_work``), each piece as ``work_item_text``
+        words it. The window's title is the product name and version, set
+        once at startup, and nothing here writes it.
         """
         ctx = _app_ctx.ctx
         if ctx is None:
             return
-
-        from kivy.core.window import Window
-        from ui.ui_helpers import get_title_event_text
 
         scope_display = self.ids.get('scope_display_id')
         if scope_display:
@@ -335,13 +336,16 @@ void main (void) {
                 # Anything that fails beyond the refusals the read answers
                 # is a fault, and is not hidden here.
                 plate = ctx.lumaview.scope.runtime_state.frame_point_plate(*self._mouse_fraction)
-            self.status_text = status + cursor_title(pixel, plate)
-
-            title = f'LumaViewPro {ctx.version}'
-            event_text = get_title_event_text()
-            if event_text:
-                title += f' -- {event_text}'
-            Window.set_title(title)
+            work = ctx.session.live_work.work
+            doing = work_title(work)
+            self.status_text = status + cursor_title(pixel, plate) + doing
+            # Named once per change of what is being done, not per tick of
+            # its figures.
+            gui_logger.display(
+                'STATUS_WORK',
+                doing.removeprefix(' | ') or None,
+                stage=' | '.join(item.name for item in work) or None,
+            )
 
     # The colour a live mono frame is shown in, the colour of what is drawn
     # now (None: a live mono frame, so the live colour) and the colour the

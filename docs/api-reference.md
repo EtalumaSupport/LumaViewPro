@@ -12742,11 +12742,13 @@ One piece of work the session is still doing.
 **Fields**
 
 - <a id="WorkItem.discardable"></a>`discardable`: `bool` -- True when `ScopeSession.discard_pending_video` drops what this work has left; a host offers that discard only while some item says so.
+- <a id="WorkItem.elapsed_s"></a>`elapsed_s`: `float | None` -- Seconds a recording has recorded so far, a manual one's or a run's video step's; None for all other work.
 - <a id="WorkItem.kind"></a>`kind`: `WorkKind` -- Where the work runs.
 - <a id="WorkItem.left"></a>`left`: `int | None` -- How many frames, images or builds it still has to finish, when it counts them; None when it does not.
 - <a id="WorkItem.name"></a>`name`: `str` -- What it is, in words a person reads.
 - <a id="WorkItem.progress_pct"></a>`progress_pct`: `float | None` -- How far a build has got, as its own progress last said; None before it has said, or for work that reports none.
 - <a id="WorkItem.stuck_write"></a>`stuck_write`: `str | None` -- The write in flight once it has run past the stall threshold a new run's refusal uses, named for a person: stuck, not slow. Only a run's images (`RUN_FILES`) are ever stuck; None while their writes make progress, and for all other work.
+- <a id="WorkItem.total_s"></a>`total_s`: `float | None` -- How long that recording records, when it has a length (a run's video step); None otherwise.
 
 <a id="ZProject"></a>
 ## `lumascope.ZProject`

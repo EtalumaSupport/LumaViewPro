@@ -17,7 +17,6 @@ from ui.ui_helpers import (
     SettingControls,
     run_reported,
     show_captured_frame,
-    show_video_progress,
     submit_reported,
     sync_channel_widgets_from_settings,
     typed_number,
@@ -163,7 +162,6 @@ class ZStack(FloatLayout, SettingControls):
             # Each slice redraws the button, which reads the step from the
             # engine: a redraw from any other edge draws the same thing.
             step_started=lambda step_index: self.draw_zstack_button(),
-            video_progress=show_video_progress,
             run_ended=lambda *ended: sync_channel_widgets_from_settings(),
             on_ui_thread=True,
         )

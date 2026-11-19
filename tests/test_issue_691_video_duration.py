@@ -9,8 +9,8 @@ not a protocol limit; a multi-minute protocol video is allowed. So:
   longer (up to a 1-hour sanity bound),
 - the protocol "video step exceeds limit" advisory is removed (its premise
   -- a protocol cap -- is gone),
-- the recording title shows elapsed/total seconds, matching manual
-  recording.
+- the status line shows a recording step's elapsed and total seconds,
+  matching manual recording.
 """
 
 from __future__ import annotations
@@ -29,32 +29,21 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 # ---------------------------------------------------------------------------
-# Recording title shows seconds, not percent
+# A recording step's line shows seconds, not percent
 # ---------------------------------------------------------------------------
 
 
-def test_recording_title_shows_seconds_not_percent():
+def test_a_recording_steps_line_shows_its_seconds_not_a_percent():
     import ui.ui_helpers as ui_helpers
-    from _lumascope.modules.run_events import VideoProgress
+    from _lumascope.modules import live_work
 
-    ui_helpers.show_video_progress(VideoProgress('recording', elapsed_s=12, total_s=30))
-    title = ui_helpers._title_event_text
-    assert '12s' in title and '30s' in title, title
-    assert '%' not in title, f'recording title must not show percent: {title!r}'
-
-
-def test_the_end_of_a_video_clears_only_its_own_title():
-    import ui.ui_helpers as ui_helpers
-    from _lumascope.modules.run_events import VideoProgress
-
-    ui_helpers.show_video_progress(VideoProgress('recording', elapsed_s=7, total_s=30))
-    ui_helpers.show_video_progress(VideoProgress('ended'))
-    assert ui_helpers._title_event_text is None
-
-    ui_helpers.show_video_progress(VideoProgress('writing', progress_pct=40))
-    ui_helpers.set_title_event_text('Homing, please wait...')
-    ui_helpers.show_video_progress(VideoProgress('ended'))
-    assert ui_helpers._title_event_text == 'Homing, please wait...'
+    text = ui_helpers.work_item_text(
+        live_work.WorkItem(
+            live_work.WorkKind.PROTOCOL, 'The protocol run', elapsed_s=12.0, total_s=30.0
+        )
+    )
+    assert '12.0s of 30s' in text, text
+    assert '%' not in text, f'a recording step must not show a percent: {text!r}'
 
 
 # ---------------------------------------------------------------------------

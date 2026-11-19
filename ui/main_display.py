@@ -116,47 +116,27 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             )
 
     def _poll_recording_state(self, dt=None):
-        """Main-thread poll: titles and button state only.
+        """Main-thread poll: the Record button, once the recording stops.
 
         The controller owns the recording AND its health bounds (the
         duration cap and camera-death detection arm themselves on the
-        session's scheduler); this poll purely reflects that state into
-        the display.
+        session's scheduler); what it is doing is on the status line, from
+        the session's live work. This poll only redraws the button when the
+        selection closes (Stop, the duration cap, or the budget full).
         """
-        from ui.ui_helpers import fixed_number, set_title_event_text
-
-        controller = _app_ctx.ctx.session.manual_recording
-        if controller.is_recording:
-            # Padded so a new digit does not jump the title; the title's own
-            # font still draws each digit a little differently wide.
-            elapsed = fixed_number(controller.elapsed_s, whole_digits=4, decimals=1)
-            set_title_event_text(
-                f'Recording Manual Video: {elapsed}s', stage='Recording Manual Video'
-            )
+        if _app_ctx.ctx.session.manual_recording.is_recording:
             return
-        # Selection closed (Stop, duration cap, or budget full); the
-        # recording announced that edge itself, so this tick only keeps the
-        # title counting down the drain.
         self.draw_record_button()
-        if controller.is_draining:
-            set_title_event_text(
-                f'Writing Manual Video: '
-                f'{fixed_number(controller.pending_writes, whole_digits=5, decimals=0)} frames remaining',
-                stage='Writing Manual Video',
-            )
 
     def _on_recording_complete(self, _recording):
         """The recording's done-callback, on the callback thread; dispatch to GUI."""
         schedule_ui(lambda dt: self._finish_recording_ui())
 
     def _finish_recording_ui(self):
-        """Main thread: drain + finish done -- clear poll, title, button."""
-        from ui.ui_helpers import set_title_event_text
-
+        """Main thread: drain + finish done -- clear the poll, redraw the button."""
         if self._recording_poll is not None:
             Clock.unschedule(self._recording_poll)
             self._recording_poll = None
-        set_title_event_text(None)
         self.draw_record_button()
         logger.info('[LVP Main  ] Manual recording UI cleanup complete')
 

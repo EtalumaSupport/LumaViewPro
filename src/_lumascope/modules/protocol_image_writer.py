@@ -959,6 +959,16 @@ class ProtocolImageWriter:
         """Frames across all video steps enqueued but not yet on disk."""
         return sum(step.pending_writes for step in self._video_steps)
 
+    @property
+    def video_draining(self) -> bool:
+        """True while any video step's kept frames are still being written."""
+        return any(step.is_draining for step in self._video_steps)
+
+    @property
+    def recording_video_step(self) -> ProtocolVideoStep | None:
+        """The video step recording now, if one is."""
+        return next((step for step in self._video_steps if step.elapsed_s is not None), None)
+
     def discard_video_pending(self) -> None:
         """Drop every video step's unwritten backlog loudly (app-close
         discard); frames already on disk stay."""

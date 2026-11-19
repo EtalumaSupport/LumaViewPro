@@ -1431,11 +1431,9 @@ class LumaViewProApp(TooltipMixin, App):
         # ScopeSession owns startup orchestration so REST API, headless tools and
         # the GUI all hit the same path. The window draws and stays live while
         # the startup motion runs; the scope is the motion's until it ends.
-        from ui.ui_helpers import move_home_cb, set_title_event_text
+        from ui.ui_helpers import move_home_cb
 
         started = ctx.session.start_application_session(disable_homing=disable_homing)
-        if not started.done():
-            set_title_event_text('Homing, please wait...')
         started.add_done_callback(lambda done: schedule_ui(lambda dt: startup_motion_settled(done)))
 
     def _on_resize(self, window, w: int, h: int) -> None:

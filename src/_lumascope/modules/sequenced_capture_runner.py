@@ -23,6 +23,7 @@ from _lumascope.modules.protocol_image_writer import (
     WRITE_STALL_FATAL_S,
 )
 from _lumascope.modules.protocol_cleanup import run_cleanup, send_files_written, send_run_ended
+from _lumascope.modules.protocol_recording import ProtocolVideoStep
 from _lumascope.modules.protocol_step_runner import ProtocolStepRunner
 from _lumascope.modules.protocol_run_loop import ProtocolRunLoop
 
@@ -892,6 +893,18 @@ class SequencedCaptureRunner:
         """Frames across the run's video steps not yet on disk."""
         writer = self._image_writer
         return writer.video_pending_writes if writer is not None else 0
+
+    @property
+    def video_draining(self) -> bool:
+        """True while a video step's kept frames are still being written."""
+        writer = self._image_writer
+        return writer is not None and writer.video_draining
+
+    @property
+    def recording_video_step(self) -> ProtocolVideoStep | None:
+        """The run's video step recording now, if one is: its ``elapsed_s`` and ``total_s``."""
+        writer = self._image_writer
+        return writer.recording_video_step if writer is not None else None
 
     def discard_video_pending(self) -> None:
         """Drop the run's unwritten video backlog loudly (app-close discard)."""

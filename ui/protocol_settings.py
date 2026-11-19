@@ -29,7 +29,6 @@ from ui.ui_helpers import (
     run_reported,
     run_unasked,
     show_captured_frame,
-    show_video_progress,
     submit_reported,
     sync_channel_widgets_from_settings,
     typed_number,
@@ -1271,7 +1270,6 @@ class ProtocolSettings(FloatLayout):
             scan_started=lambda *_scan: self._run_scan_pre_callback(),
             scan_ended=lambda *_scan: self.draw_protocol_buttons(),
             step_started=lambda step_index: go_to_step(protocol, step_index, include_move=False),
-            video_progress=show_video_progress,
             run_ended=_ended,
             on_ui_thread=True,
         )
@@ -1374,7 +1372,6 @@ class ProtocolSettings(FloatLayout):
             scan_started=scan_started,
             scan_ended=scan_ended,
             step_started=lambda step_index: go_to_step(protocol, step_index, include_move=False),
-            video_progress=show_video_progress,
             run_ended=_ended,
             on_ui_thread=True,
         )

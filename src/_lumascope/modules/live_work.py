@@ -51,7 +51,9 @@ SCOPE_HOLDERS = frozenset(
 )
 
 
-@api_fields('kind', 'name', 'left', 'progress_pct', 'discardable', 'stuck_write')
+@api_fields(
+    'kind', 'name', 'left', 'progress_pct', 'elapsed_s', 'total_s', 'discardable', 'stuck_write'
+)
 @dataclasses.dataclass(frozen=True)
 class WorkItem:
     """One piece of work the session is still doing.
@@ -63,6 +65,10 @@ class WorkItem:
             when it counts them; None when it does not.
         progress_pct: How far a build has got, as its own progress last said;
             None before it has said, or for work that reports none.
+        elapsed_s: Seconds a recording has recorded so far, a manual one's or
+            a run's video step's; None for all other work.
+        total_s: How long that recording records, when it has a length (a
+            run's video step); None otherwise.
         discardable: True when ``ScopeSession.discard_pending_video`` drops
             what this work has left; a host offers that discard only while
             some item says so.
@@ -76,6 +82,8 @@ class WorkItem:
     name: str
     left: int | None = None
     progress_pct: float | None = None
+    elapsed_s: float | None = None
+    total_s: float | None = None
     discardable: bool = False
     stuck_write: str | None = None
 

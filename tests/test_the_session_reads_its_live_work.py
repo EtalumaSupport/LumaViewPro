@@ -129,7 +129,7 @@ def test_a_live_recording_is_its_claim_not_its_finish(sim_session):
 
 
 def test_a_runs_video_finish_counts_its_frames(sim_session, monkeypatch):
-    writer = MagicMock(video_busy=True, video_pending_writes=7)
+    writer = MagicMock(video_busy=True, video_draining=True, video_pending_writes=7)
     monkeypatch.setattr(sim_session._sequenced_capture_runner, '_image_writer', writer)
     assert _item(sim_session, live_work.WorkKind.RUN_VIDEO_FINISH).left == 7
 
@@ -144,7 +144,7 @@ def test_only_the_video_finishes_are_discardable(sim_session, monkeypatch):
     sim_session.manual_recording._engine = MagicMock(
         is_recording=False, is_draining=True, pending_writes=3
     )
-    writer = MagicMock(video_busy=True, video_pending_writes=4)
+    writer = MagicMock(video_busy=True, video_draining=True, video_pending_writes=4)
     monkeypatch.setattr(sim_session._sequenced_capture_runner, '_image_writer', writer)
     try:
         work = sim_session.live_work.work
@@ -156,6 +156,68 @@ def test_only_the_video_finishes_are_discardable(sim_session, monkeypatch):
     finally:
         sim_session.manual_recording._engine = None
         held.release()
+
+
+def test_a_finish_past_its_drain_is_listed_with_nothing_left_to_discard(sim_session, monkeypatch):
+    """A recording closing its file or building its stack, and a run's video
+    step finishing, are still work the close waits on, but have no frames
+    left, so they say none and offer no discard (a discard offered then
+    dropped nothing and stopped nothing, bundle 'logs-LVP wont close')."""
+    # Stand-ins by design: the simulator cannot yet hold a recording's or a
+    # run's video finish open past its drain.
+    sim_session.manual_recording._engine = MagicMock(
+        is_recording=False, is_draining=False, pending_writes=0
+    )
+    monkeypatch.setattr(sim_session.manual_recording, '_finishing', True)
+    writer = MagicMock(video_busy=True, video_draining=False, video_pending_writes=0)
+    monkeypatch.setattr(sim_session._sequenced_capture_runner, '_image_writer', writer)
+    try:
+        work = {item.kind: item for item in sim_session.live_work.work}
+    finally:
+        sim_session.manual_recording._engine = None
+
+    said = {
+        kind: (item.name, item.left, item.discardable)
+        for kind, item in work.items()
+        if kind in (live_work.WorkKind.RECORDING_FINISH, live_work.WorkKind.RUN_VIDEO_FINISH)
+    }
+    assert said == {
+        live_work.WorkKind.RECORDING_FINISH: ('A recording, finishing', None, False),
+        live_work.WorkKind.RUN_VIDEO_FINISH: ("A run's video, finishing", None, False),
+    }
+
+
+def test_a_manual_recording_says_how_long_it_has_recorded(sim_session):
+    recording = sim_session.manual_recording.start()
+    try:
+        item = _item(sim_session, live_work.WorkKind.RECORDING)
+    finally:
+        sim_session.manual_recording.stop()
+        recording.result(timeout=SETTLE_S)
+
+    assert item.elapsed_s is not None and item.elapsed_s >= 0, item
+    assert item.total_s is None, 'a manual recording records until it is stopped'
+
+
+def test_a_runs_recording_step_says_how_long_it_has_recorded_of_its_length(
+    sim_session, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from tests.protocol_drives import run_identity
+
+    # Stand-ins by design: the subject is the session's reading of the step
+    # in flight, which the run's own video tests record for real.
+    step = SimpleNamespace(elapsed_s=3.0, total_s=10.0)
+    writer = MagicMock(video_busy=False, recording_video_step=step)
+    monkeypatch.setattr(sim_session._sequenced_capture_runner, '_image_writer', writer)
+    held = sim_session._activity_claim.try_claim('protocol', run=run_identity())
+    try:
+        item = _item(sim_session, live_work.WorkKind.PROTOCOL)
+    finally:
+        held.release()
+
+    assert (item.elapsed_s, item.total_s) == (3.0, 10.0)
 
 
 def test_a_finished_runs_images_count_down(sim_session):
@@ -195,7 +257,7 @@ def test_a_runs_hyperstack_is_post_processing_work_until_it_ends(sim_session, tm
     assert started.wait(SETTLE_S), 'the lane never began the build'
     assert (
         _item(sim_session, live_work.WorkKind.POST_PROCESSING).name
-        == f'run_hyperstack of {tmp_path}'
+        == f"Building a run's hyperstacks in {tmp_path.name}"
     )
     gate.set()
     concurrent.futures.wait([build], SETTLE_S)
@@ -245,7 +307,8 @@ def test_a_build_reports_its_progress_and_the_builds_behind_it_wait(sim_session,
     behind = sim_session.post_processing.lane.submit(IOTask(action=lambda: None), 'queued build')
 
     running = _item(sim_session, live_work.WorkKind.POST_PROCESSING)
-    assert running.name == f'stitch of {folder_a}'
+    # A person's words and the folder's own name, never a member or a path.
+    assert running.name == f'Stitching in {folder_a.name}'
     assert running.progress_pct == 10
     assert _item(sim_session, live_work.WorkKind.POST_PROCESSING_QUEUED).left == 1
 

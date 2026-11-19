@@ -3,7 +3,7 @@
 
 The GUI record held what a person did -- presses, picks, popup answers -- but
 not what the window then showed: the controls greyed for a home, the homing
-banner, the title's "Homing, please wait...". Whether they appeared could
+banner, the status line's "A home". Whether they appeared could
 only be asked of whoever was watching. Each is now a line when it changes,
 and only then, so a writer that runs on every edge does not repeat it.
 """
@@ -105,12 +105,12 @@ def test_a_change_is_recorded_once(record):
 
 def test_each_name_is_its_own_record(record):
     gui_logger.display('CONTROLS_LOCKED', 'True by=A home is in progress. recording=False')
-    gui_logger.display('TITLE_EVENT', 'Homing, please wait...')
+    gui_logger.display('STATUS_WORK', 'A home', stage='A home')
     gui_logger.display('CONTROLS_LOCKED', 'True by=A home is in progress. recording=False')
 
     assert record() == [
         'DISPLAY CONTROLS_LOCKED True by=A home is in progress. recording=False',
-        'DISPLAY TITLE_EVENT Homing, please wait...',
+        'DISPLAY STATUS_WORK A home',
     ]
 
 
@@ -132,36 +132,15 @@ def test_a_number_that_names_what_is_shown_is_recorded_each_time_it_changes(reco
 
 
 def test_progress_is_recorded_once_per_stage_its_caller_names(record):
+    # The status line names its stage by what is being done, so a recording's
+    # counting seconds are one line, and what follows it another.
     for elapsed in range(1, 4):
-        gui_logger.display(
-            'TITLE_EVENT', f'Recording Manual Video: {elapsed}s', stage='Recording Manual Video'
-        )
-    gui_logger.display('TITLE_EVENT', None)
+        gui_logger.display('STATUS_WORK', f'A recording ({elapsed}.0s)', stage='A recording')
+    gui_logger.display('STATUS_WORK', None, stage=None)
 
     assert record() == [
-        'DISPLAY TITLE_EVENT Recording Manual Video: 1s',
-        'DISPLAY TITLE_EVENT None',
-    ]
-
-
-def test_a_video_step_of_another_length_is_another_stage(record):
-    from types import SimpleNamespace
-
-    from ui import ui_helpers
-
-    def recording(elapsed_s, total_s):
-        # a stand-in by design: the run's video progress record, a plain value
-        return SimpleNamespace(phase='recording', elapsed_s=elapsed_s, total_s=total_s)
-
-    ui_helpers.show_video_progress(recording(1, 30))
-    ui_helpers.show_video_progress(recording(2, 30))
-    ui_helpers.show_video_progress(recording(1, 60))
-    ui_helpers.show_video_progress(SimpleNamespace(phase='ended'))
-
-    assert record() == [
-        'DISPLAY TITLE_EVENT Recording Video... 1s / 30s',
-        'DISPLAY TITLE_EVENT Recording Video... 1s / 60s',
-        'DISPLAY TITLE_EVENT None',
+        'DISPLAY STATUS_WORK A recording (1.0s)',
+        'DISPLAY STATUS_WORK None',
     ]
 
 

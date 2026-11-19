@@ -1394,13 +1394,15 @@ class ScopeSession:
         runner = self._sequenced_capture_runner
         holder = self._activity_claim.holder
         if holder is not None:
-            work.append(WorkItem(holder.kind, the_holder_named(holder)))
+            work.append(self._holder_work(holder.kind, the_holder_named(holder)))
             # A run lent the holder's claim (an autofocus inside a
             # diagnostic) holds no claim of its own, so it is named here
             # beside the activity it runs inside.
             lent_run = self._activity_claim.run_holder
             if lent_run is not None and lent_run is not holder:
-                work.append(WorkItem(live_work.WorkKind.PROTOCOL, the_holder_named(lent_run)))
+                work.append(
+                    self._holder_work(live_work.WorkKind.PROTOCOL, the_holder_named(lent_run))
+                )
         elif runner.run_live:
             work.append(WorkItem(live_work.WorkKind.PROTOCOL, 'A run, starting or ending'))
         work.extend(self._finishing_work())
@@ -1414,6 +1416,16 @@ class ScopeSession:
             work=tuple(work), closing=self._activity_claim.closing, closed=self._shut_down
         )
 
+    def _holder_work(self, kind: 'live_work.WorkKind', name: str) -> WorkItem:
+        """What holds the scope, with how long it has recorded when it is recording."""
+        if kind == live_work.WorkKind.RECORDING:
+            return WorkItem(kind, name, elapsed_s=self.manual_recording.elapsed_s)
+        if kind == live_work.WorkKind.PROTOCOL:
+            step = self._sequenced_capture_runner.recording_video_step
+            if step is not None:
+                return WorkItem(kind, name, elapsed_s=step.elapsed_s, total_s=step.total_s)
+        return WorkItem(kind, name)
+
     def _finishing_work(self) -> list[WorkItem]:
         """What finishes after its activity let the scope go: a recording's file, a run's video and images.
 
@@ -1423,22 +1435,28 @@ class ScopeSession:
         work: list[WorkItem] = []
         runner = self._sequenced_capture_runner
         recording = self.manual_recording
+        # A recording is listed for as long as it is finishing: the close and
+        # the control session wait on it. Its frames left, and the discard of
+        # them, only while they are being written; after that it is closing
+        # its file or building its stack, which the lane's own item names.
         if recording.is_busy and not recording.is_recording:
+            draining = recording.is_draining
             work.append(
                 WorkItem(
                     live_work.WorkKind.RECORDING_FINISH,
-                    "A recording's file",
-                    left=recording.pending_writes,
-                    discardable=True,
+                    "A recording's file" if draining else 'A recording, finishing',
+                    left=recording.pending_writes if draining else None,
+                    discardable=draining,
                 )
             )
         if runner.video_drain_busy:
+            draining = runner.video_draining
             work.append(
                 WorkItem(
                     live_work.WorkKind.RUN_VIDEO_FINISH,
-                    "A run's video",
-                    left=runner.video_pending_writes,
-                    discardable=True,
+                    "A run's video" if draining else "A run's video, finishing",
+                    left=runner.video_pending_writes if draining else None,
+                    discardable=draining,
                 )
             )
         files = self._draining_batch()

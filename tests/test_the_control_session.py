@@ -722,6 +722,28 @@ class TestATakeWaitsForWhatIsStillFinishing:
             assert run.files.result(timeout=WAIT_S) is not None
             assert session.take_control('plate reader')
 
+    def test_a_recording_past_its_drain(self, tmp_path, monkeypatch):
+        # Its frames are written and it is closing its MP4 or building its
+        # stack: no frames are left, and it is still finishing.
+        from unittest.mock import MagicMock
+
+        from tests.test_composite_run_e2e import headless_settings, open_composite_session
+
+        with open_composite_session(headless_settings(tmp_path)) as (session, _runner):
+            recording = session.manual_recording
+            # Stand-ins by design: the simulator cannot yet hold a
+            # recording's finish open past its drain.
+            recording._engine = MagicMock(is_recording=False, is_draining=False, pending_writes=0)
+            monkeypatch.setattr(recording, '_finishing', True)
+            try:
+                with pytest.raises(ControlSessionRefusedError) as refused:
+                    session.take_control('plate reader')
+                assert refused.value.reason == 'work_finishing'
+            finally:
+                recording._engine = None
+                monkeypatch.setattr(recording, '_finishing', False)
+            assert session.take_control('plate reader')
+
     def test_a_finished_runs_post_run_step(self, tmp_path, monkeypatch):
         import _lumascope.modules.image_mode as image_mode
         import _lumascope.modules.stack_builder as stack_builder

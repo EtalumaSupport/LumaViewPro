@@ -256,6 +256,10 @@ class ProtocolVideoStep:
         # last step, while still alive, and a listener told of that end must
         # read it as ended.
         self._finishing = False
+        # When the recording began on its own clock, and how long the step
+        # records: what ``elapsed_s`` and ``total_s`` answer.
+        self._recording_started: float | None = None
+        self._duration_s: float | None = None
 
     # ------------------------------------------------------------------
     # Drain-state surface (the runner's end-of-run wait and the app-close
@@ -274,6 +278,25 @@ class ProtocolVideoStep:
     def pending_writes(self) -> int:
         """Frames enqueued but not yet on disk."""
         return self._engine.pending_writes if self._engine is not None else 0
+
+    @property
+    def is_draining(self) -> bool:
+        """True while the recording has ended and its kept frames are still being written."""
+        engine = self._engine
+        return engine is not None and engine.is_draining
+
+    @property
+    def elapsed_s(self) -> float | None:
+        """Seconds the step has recorded, on its recording's own clock; None while it is not recording."""
+        engine, started = self._engine, self._recording_started
+        if engine is None or started is None or not engine.is_recording:
+            return None
+        return self._elapsed_clock() - started
+
+    @property
+    def total_s(self) -> float | None:
+        """How long the step records; None before it has started."""
+        return self._duration_s
 
     @property
     def kept_every_frame(self) -> bool:
@@ -321,6 +344,7 @@ class ProtocolVideoStep:
         step = self._step
         video_config = step['Video Config']
         duration_s = float(video_config['duration'])
+        self._duration_s = duration_s
         fps = effective_recording_fps(self._global_max_fps)
 
         # Per-step disk pre-flight at the run's sizing: the run was sized at
@@ -583,7 +607,7 @@ class ProtocolVideoStep:
         feed that dies without an event -- delivery just stops while
         ``active`` stays True.
         """
-        start_ts = self._elapsed_clock()
+        start_ts = self._recording_started = self._elapsed_clock()
         last_progress_ts = 0.0
         outcome, end_reason = COMPLETED, 'duration_elapsed'
         watch = StallWatch(stall_threshold)

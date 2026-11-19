@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """What every run shares is drawn once, from what holds the scope.
 
-Live histogram equalization, the window title's run suffix and the LED
-enable toggles belong to no one run control. Every control redraws on
+Live histogram equalization and the LED enable toggles belong to no one
+run control. Every control redraws on
 every run-state edge -- the edge where another run takes the scope
 included -- so one writer draws these from the edge's lock record and live
 work, and a control drawing itself idle cannot undo the live run's display.
@@ -29,7 +29,6 @@ def scene(monkeypatch):
         live_histo_setting=True,
         ui_listener_bridge=MagicMock(),
     )
-    ui_helpers.set_title_event_text('left by someone else')
     yield SimpleNamespace(
         lock=ControlsLock(run_named=None, control_named=None, recording=False),
         work=(),
@@ -37,7 +36,6 @@ def scene(monkeypatch):
         ctx=_app_ctx.ctx,
     )
     _app_ctx.ctx = saved
-    ui_helpers.set_title_event_text(None)
 
 
 def _draw(scene):
@@ -46,7 +44,7 @@ def _draw(scene):
     )
 
 
-def test_a_live_run_keeps_equalization_off_and_its_own_title(scene):
+def test_a_live_run_keeps_equalization_off_and_its_leds(scene):
     scene.lock = ControlsLock(
         run_named='A protocol run is in progress.', control_named=None, recording=False
     )
@@ -56,13 +54,10 @@ def test_a_live_run_keeps_equalization_off_and_its_own_title(scene):
     _draw(scene)
 
     assert scene.display.use_live_image_histogram_equalization is False
-    assert ui_helpers.get_title_event_text() == 'left by someone else', (
-        "a live run's title is its own writers'"
-    )
     scene.ctx.ui_listener_bridge.reconcile_led_buttons.assert_not_called()
 
 
-def test_a_drain_with_nothing_holding_the_scope_says_files_are_writing(scene):
+def test_a_drain_with_nothing_holding_the_scope_hands_back_the_leds(scene):
     scene.lock = ControlsLock(
         run_named="A protocol's files are still being written.", control_named=None, recording=False
     )
@@ -72,15 +67,13 @@ def test_a_drain_with_nothing_holding_the_scope_says_files_are_writing(scene):
     _draw(scene)
 
     assert scene.display.use_live_image_histogram_equalization is False
-    assert ui_helpers.get_title_event_text() == 'Writing protocol scan files to disk...'
     scene.ctx.ui_listener_bridge.reconcile_led_buttons.assert_called_once()
 
 
-def test_idle_hands_back_equalization_the_title_and_the_led_toggles(scene):
+def test_idle_hands_back_equalization_and_the_led_toggles(scene):
     _draw(scene)
 
     assert scene.display.use_live_image_histogram_equalization is True
-    assert ui_helpers.get_title_event_text() is None
     scene.ctx.ui_listener_bridge.reconcile_led_buttons.assert_called_once()
 
 
@@ -119,9 +112,9 @@ def test_equalization_comes_back_only_as_the_setting_says(scene):
 
 
 @pytest.mark.parametrize('holder', ['recording', 'diagnostic'])
-def test_another_holder_keeps_its_title_and_its_leds(scene, holder):
-    # A recording and a diagnostic title the window themselves, and a
-    # diagnostic may be lighting LEDs the toggles must not be reconciled over.
+def test_another_holder_keeps_its_leds(scene, holder):
+    # A diagnostic may be lighting LEDs the toggles must not be reconciled
+    # over, and a recording holds the scope as a run does.
     scene.lock = ControlsLock(
         run_named='A diagnostic is in progress.' if holder == 'diagnostic' else None,
         control_named=None,
@@ -131,5 +124,4 @@ def test_another_holder_keeps_its_title_and_its_leds(scene, holder):
 
     _draw(scene)
 
-    assert ui_helpers.get_title_event_text() == 'left by someone else'
     scene.ctx.ui_listener_bridge.reconcile_led_buttons.assert_not_called()

@@ -119,12 +119,6 @@ def rival(app_ctx):
     claim.release()
 
 
-@pytest.fixture(autouse=True)
-def _quiet_ui(monkeypatch):
-    """Neutralise the cosmetics so a test reads the toggle, not the theme."""
-    monkeypatch.setattr(cc, 'set_title_event_text', MagicMock())
-
-
 def _click(starter):
     cc.CompositeCapture.composite_capture(starter)
 
@@ -195,12 +189,11 @@ def test_a_started_run_keeps_its_handle_and_draws_running(homed):
 
 def test_a_redraw_draws_its_button_and_nothing_every_run_shares(app_ctx, monkeypatch):
     # The redraw fires on every run-state edge, including the one where
-    # another run takes the scope: were it to hand equalization, the title
-    # or the LED toggles back as it drew itself idle, it would undo that
-    # run's display. Those are draw_shared_run_displays', drawn once.
+    # another run takes the scope: were it to hand equalization or the LED
+    # toggles back as it drew itself idle, it would undo that run's
+    # display. Those are draw_shared_run_displays', drawn once.
     shared = MagicMock()
     monkeypatch.setattr(ui_helpers, 'live_histo_reverse', shared.live_histo_reverse)
-    monkeypatch.setattr(ui_helpers, 'reset_title', shared.reset_title)
     starter = _Starter()
 
     cc.CompositeCapture.draw_composite_button(starter)

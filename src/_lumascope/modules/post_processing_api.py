@@ -499,6 +499,30 @@ def _chained_folder(result: BuildsResult) -> None:
     return None
 
 
+# Each build the lane runs, by the member that put it there, as a person reads
+# it while it runs; the folder it works in follows. A row names a member
+# (checked below, once the class is defined); a member with no row fails at
+# its first build, so no build is named in code words.
+_BUILD_WORDS = {
+    'stitch': 'Stitching',
+    'zproject': 'Z-projecting',
+    'composite': 'Building a composite',
+    'video': 'Building a video',
+    'build': 'Building',
+    'enhance': 'Enhancing',
+    'count_cells': 'Counting cells',
+    'graph': 'Graphing',
+    'run_hyperstack': "Building a run's hyperstacks",
+    'run_composite': "Merging a run's composites",
+    'recording_hyperstack': "Building a recording's hyperstack",
+}
+
+
+def _build_named(member: str, folder) -> str:
+    """A lane build as a person reads it: what it does, in which folder."""
+    return f'{_BUILD_WORDS[member]} in {pathlib.Path(folder).name}'
+
+
 def _a_waiter() -> concurrent.futures.Future:
     """A future for a build put on the lane, marked running so only the lane settles it."""
     waiter = concurrent.futures.Future()
@@ -1023,7 +1047,7 @@ class PostProcessingAPI:
         takes: Callable = raw_rows
         for index, (operation, run) in enumerate(chosen):
             stage = f'Building {index + 1} of {len(chosen)}: {operation}'
-            self._name_running_build(f'{stage}, of {folder}')
+            self._name_running_build(f'{stage}, in {pathlib.Path(folder).name}')
 
             def stage_progress(percent: float, detail: str | None = None, index=index, stage=stage):
                 said = stage if detail is None else f'{stage}\n{detail}'
@@ -1923,7 +1947,7 @@ class PostProcessingAPI:
         )
         with self._builds_lock:
             self._builds[task] = WorkItem(
-                live_work.WorkKind.POST_PROCESSING, f'{member} of {folder}'
+                live_work.WorkKind.POST_PROCESSING, _build_named(member, folder)
             )
 
         def forget(*_settled) -> None:
@@ -2035,3 +2059,10 @@ class PostProcessingAPI:
                 for item in created
             ),
         )
+
+
+if not set(_BUILD_WORDS) <= set(dir(PostProcessingAPI)):
+    raise ImportError(
+        f'every _BUILD_WORDS row must name a PostProcessingAPI member: '
+        f'{sorted(set(_BUILD_WORDS) - set(dir(PostProcessingAPI)))}'
+    )

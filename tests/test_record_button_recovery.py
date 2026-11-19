@@ -209,8 +209,6 @@ class TestStartOrStopIsTheApisAnswer:
     def test_a_finished_recording_stops_the_poll_and_draws_the_button_idle(self, monkeypatch):
         controller = _Controller()
         display, toggle, _ctx = _make_display(monkeypatch, controller)
-        titles = []
-        monkeypatch.setattr(ui_helpers, 'set_title_event_text', titles.append)
         toggle.press()
         display.record_button()
         assert display._recording_poll is not None
@@ -220,5 +218,4 @@ class TestStartOrStopIsTheApisAnswer:
         join_callback_thread()
 
         assert display._recording_poll is None
-        assert titles == [None]
         assert toggle.state == 'normal'

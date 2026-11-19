@@ -1,6 +1,6 @@
 # Copyright Etaluma, Inc.
 """
-UI helper functions -- manipulate Kivy widgets, window titles, LED buttons.
+UI helper functions -- manipulate Kivy widgets, the status line, LED buttons.
 
 Moved from src/_lumascope/modules/ui_helpers.py to ui/ because this is GUI code (imports
 Kivy Window). A compatibility shim at src/_lumascope/modules/ui_helpers.py
@@ -21,7 +21,6 @@ from _lumascope.modules import gui_logger, live_work, wall_time
 from _lumascope.modules.acquire_mode import AcquireMode
 from _lumascope.modules.caller import Caller, calling
 from _lumascope.modules.ui_queue import schedule_ui as _schedule_ui
-from _lumascope.modules.run_events import VideoPhase
 from ui.scope_display import HeldFrame
 from ui.setting_controls import SettingControl, Toggle
 
@@ -821,8 +820,6 @@ def move_home(axis: str):
         ctx.scope.motion.start_home(axis).add_done_callback(
             lambda done: _schedule_ui(lambda _dt: _home_settled(done, axis))
         )
-        # Only a home that started says so; the settle clears it.
-        set_title_event_text('Homing, please wait...')
 
     run_reported(start, None, f'HOME_{axis}')
 
@@ -833,19 +830,8 @@ def _home_settled(done, axis: str) -> None:
 
 
 # ============================================================================
-# Window Title Helpers
+# Status Line Helpers
 # ============================================================================
-#
-# Single-owner title bar:
-# - shader.py::_update_status_bar is the ONLY caller of Window.set_title().
-# - Other callers set the event-suffix via set_title_event_text() -- the next
-#   status tick composes the title from the product name and the suffix; the
-#   live readouts are on the status line, not the title.
-# - This eliminates the LumaViewPro / Lumaview Pro spelling oscillation
-#   between tickers.
-# Canonical product spelling is `LumaViewPro` (matches the repo name).
-
-_title_event_text = None
 
 # A status-line readout is padded to the width of its largest value, so it
 # holds still as its value changes: the status line is drawn in Roboto, whose
@@ -870,56 +856,8 @@ def fixed_number(value: float, *, whole_digits: int, decimals: int, signed: bool
     return FIGURE_SPACE * max(0, width - len(text)) + text
 
 
-def get_title_event_text():
-    return _title_event_text
-
-
-def set_title_event_text(text, *, stage=None):
-    """Set the suffix shown after the product name in the window title.
-    Pass None or '' to clear. ``stage`` names what a counting text is doing,
-    so the GUI record logs it once per stage (``gui_logger.display``). Safe
-    to call from any thread (single attribute write on a module-level
-    CPython str/None -- atomic under GIL)."""
-    global _title_event_text
-    _title_event_text = text or None
-    gui_logger.display('TITLE_EVENT', _title_event_text, stage=stage)
-
-
-# The suffix the last video progress wrote, so its 'ended' clears only its
-# own text: the slot also holds homing, compositing and file-drain text.
-_video_progress_text = None
-
-
-def show_video_progress(progress) -> None:
-    """Every GUI run's ``video_progress``: say in the title what a video step is doing.
-
-    On the UI thread. ``'ended'`` clears the suffix only while it still holds
-    the text this wrote; anything another writer has put there since stays.
-    """
-    global _video_progress_text
-    if progress.phase == VideoPhase.ENDED:
-        if get_title_event_text() == _video_progress_text:
-            set_title_event_text(None)
-        _video_progress_text = None
-        return
-    if progress.phase == VideoPhase.RECORDING:
-        # The step's length is which video this is; its elapsed seconds are progress.
-        text = f'Recording Video... {int(progress.elapsed_s)}s / {int(progress.total_s)}s'
-        stage = f'Recording Video... / {int(progress.total_s)}s'
-    else:
-        text = f'Writing Video... {int(progress.progress_pct)}%'
-        stage = 'Writing Video...'
-    _video_progress_text = text
-    set_title_event_text(text, stage=stage)
-
-
-def reset_title():
-    set_title_event_text(None)
-
-
 def move_home_cb(axis):
     _handle_ui_update_for_axis(axis=axis)
-    set_title_event_text(None)
 
 
 # ============================================================================
@@ -943,11 +881,14 @@ def live_histo_reverse():
         gui_logger.display('LIVE_EQUALIZATION', 'on')
 
 
-_DRAIN_TITLE = 'Writing protocol scan files to disk...'
-
-
 def work_item_text(item: live_work.WorkItem) -> str:
-    """One piece of the session's live work, as the close's popups show it."""
+    """One piece of the session's live work, as the status line and the close's popups show it."""
+    if item.elapsed_s is not None:
+        # Padded, so the line holds still as the seconds count.
+        elapsed = fixed_number(item.elapsed_s, whole_digits=4, decimals=1)
+        if item.total_s is not None:
+            return f'{item.name} ({elapsed}s of {item.total_s:.0f}s)'
+        return f'{item.name} ({elapsed}s)'
     if item.progress_pct is not None:
         return f'{item.name} ({item.progress_pct:.0f}%)'
     if item.left is not None:
@@ -956,7 +897,7 @@ def work_item_text(item: live_work.WorkItem) -> str:
 
 
 def draw_shared_run_displays(lock, work) -> None:
-    """Draw the displays every run shares -- equalization, title, LED toggles.
+    """Draw the displays every run shares -- equalization and the LED toggles.
 
     Their only writer. Each run control redraws on every run-state edge,
     including the edge where ANOTHER run takes the scope, so a control
@@ -965,10 +906,9 @@ def draw_shared_run_displays(lock, work) -> None:
     a ``ControlsLock``) and live work (``work``, a ``LiveWork``), never
     from any one control's run.
 
-    While anything holds the scope its own writers title the window, so
-    the title is left to them; the LED toggles are reconciled only once
-    nothing holds the scope, after the run's hardware restore has settled
-    and with no diagnostic lighting the LEDs underneath them. A run still
+    The LED toggles are reconciled only once nothing holds the scope, after
+    the run's hardware restore has settled and with no diagnostic lighting
+    the LEDs underneath them. A run still
     unwinding at its release edge holds it here; the idle edge that
     follows draws the same.
     """
@@ -978,10 +918,6 @@ def draw_shared_run_displays(lock, work) -> None:
         live_histo_reverse()
     if any(work.has(kind) for kind in live_work.SCOPE_HOLDERS):
         return
-    if work.has(live_work.WorkKind.RUN_FILES):
-        set_title_event_text(_DRAIN_TITLE)
-    else:
-        reset_title()
     _app_ctx.ctx.ui_listener_bridge.reconcile_led_buttons()
 
 
