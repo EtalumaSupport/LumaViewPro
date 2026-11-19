@@ -34,7 +34,7 @@ from _lumascope.modules.run_outcome import ENDING_TITLES, FAILURE_REASONS
 
 if TYPE_CHECKING:
     from _lumascope.modules.frame_validity import FrameValiditySource
-    from _lumascope.modules.host_resources import HostReading, ProgramCpu
+    from _lumascope.modules.host_resources import GpuAdapter, HostReading, ProgramCpu
     from _lumascope.modules.plugins import PluginNotLoaded
     from _lumascope.modules.tech_support_report import SupportReportKind
 
@@ -489,13 +489,16 @@ class NoHardwareDetectedNotice(Notice, Exception):  # noqa: N818 -- a notice, no
 
 
 class LowSystemResourcesNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
-    """This PC was short of what LumaViewPro needs when its startup motion ended.
+    """This PC may slow LumaViewPro: what was past its line when its startup motion ended.
 
     Told once a session, by the session's startup reading
     (``ScopeSession.host_reading``), when available memory, free space on
     the drive LumaViewPro saves to, or another program's share of the CPU
-    is past its line. A PC without the resources looks to the person like a
-    LumaViewPro defect: slow, freezing, a camera that seems to drop.
+    is past its line, or when LumaViewPro draws on another maker's GPU than
+    the one Windows ranks for high performance. A PC like that looks to the
+    person like a LumaViewPro defect: slow, freezing, a camera that seems
+    to drop, a live view slower than the camera. The message opens with
+    what is past; the memory and disk figures lead only when one of them is.
 
     Attributes:
         reading: The whole reading (``HostReading``).
@@ -504,9 +507,12 @@ class LowSystemResourcesNotice(Notice, Exception):  # noqa: N818 -- a notice, no
             when the save folder could not be read.
         busy: Each other program over the CPU line (``ProgramCpu``),
             largest share first.
+        preferred_gpu: The GPU Windows ranks for high performance, when
+            LumaViewPro is drawing on another maker's (``GpuAdapter``);
+            None otherwise.
     """
 
-    title = 'Low system resources'
+    title = 'This PC may slow LumaViewPro'
     causes: ClassVar[dict[str, RefusalCause | None]] = {'low_system_resources': None}
 
     def __init__(
@@ -516,8 +522,20 @@ class LowSystemResourcesNotice(Notice, Exception):  # noqa: N818 -- a notice, no
         ram_low: bool,
         disk_low: bool,
         busy: 'tuple[ProgramCpu, ...]',
+        preferred_gpu: 'GpuAdapter | None',
     ):
-        sentences = [_the_host_read(reading)]
+        sentences = []
+        if preferred_gpu is not None:
+            # The judge names a preferred GPU only for a reading with a window drawing.
+            sentences.append(
+                f'LumaViewPro is drawing on the {reading.drawing_gpu.renderer}, '
+                f'not the {preferred_gpu.description} '
+                'Windows ranks for high performance, so the live view can be slower than the '
+                'camera. In Settings > System > Display > Graphics, set LumaViewPro (or, '
+                'running from source, its Python) to High performance, then restart LumaViewPro.'
+            )
+        if ram_low or disk_low:
+            sentences.append(_the_host_read(reading))
         if ram_low:
             sentences.append(
                 f'With {_gb(reading.ram_available_bytes)} of memory available, LumaViewPro '
@@ -538,6 +556,7 @@ class LowSystemResourcesNotice(Notice, Exception):  # noqa: N818 -- a notice, no
         self.ram_low = ram_low
         self.disk_low = disk_low
         self.busy = busy
+        self.preferred_gpu = preferred_gpu
 
 
 def _gb(size_bytes: int) -> str:

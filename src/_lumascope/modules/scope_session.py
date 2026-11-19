@@ -93,7 +93,7 @@ from _lumascope.modules.exceptions import (
     SettingsNotSavedNotice,
     ValueClampedNotice,
 )
-from _lumascope.modules.host_resources import HostReading
+from _lumascope.modules.host_resources import DrawingGpu, HostReading
 from _lumascope.modules.scope_parts import Board, Part
 from _lumascope.modules.ui_queue import UiDispatcher
 from _lumascope.modules.keep_awake import KeepAwake
@@ -795,6 +795,9 @@ class ScopeSession:
         # takes it for the session's one reading; the reading once taken.
         self._host_opened: host_resources.HostSnapshot | None = None
         self._host_reading: HostReading | None = None
+        # The GPU the host's window draws on, which the reading judges;
+        # None for a host with no window.
+        self._drawing_gpu: DrawingGpu | None = None
         # A diagnostic's claim whose lent run outlived the diagnostic's wait:
         # released when that run ends, so a claim is never left with nobody
         # to release it -- a close would wait on it for ever.
@@ -1777,6 +1780,7 @@ class ScopeSession:
         outcome_listener: Callable[['Notification'], None] | None = None,
         settings_file: FilePath | None = None,
         on_progress: ProgressCallback | None = None,
+        drawing_gpu: DrawingGpu | None = None,
     ) -> 'ScopeSession':
         """Create a session, constructing defaults for any missing components.
 
@@ -1850,6 +1854,11 @@ class ScopeSession:
                 thread can say what bring-up is doing. A raise from it is a
                 raise from here, and the teardown runs as for any other.
                 None (the default) reports the steps to the log only.
+            drawing_gpu: the GPU the host's window draws on, as its OpenGL
+                context names it, read on the thread that owns the context;
+                the startup reading judges it against the GPU Windows ranks
+                for high performance. None (the default) for a host with no
+                window: nothing drawn is judged.
 
         Raises:
             ArgumentRefusedError: ``'not_an_installation'``, a ``source_path``
@@ -1920,7 +1929,7 @@ class ScopeSession:
         # The startup reading's window opens first, so it holds the whole
         # bring-up: from create's return to a non-homing host's settle is
         # too short to read another program's share in.
-        host_opened = host_resources.read_host(None)
+        host_opened = host_resources.read_host(None, read_gpus=False)
 
         # Every host builds its session here, so the process's environment
         # is logged here, once, before anything below can refuse: a log from
@@ -2044,6 +2053,7 @@ class ScopeSession:
                 _composition=COMPOSED_BY_CREATE,
             )
             session._host_opened = host_opened
+            session._drawing_gpu = drawing_gpu
             if outcome_listener is not None:
                 session._outcome_listeners.append(outcome_listener)
             report_step(on_progress, CONFIGURING)
@@ -7508,8 +7518,8 @@ class ScopeSession:
         if opened is None:
             return
         save_folder = self.setting('live_folder')
-        settled = host_resources.read_host(save_folder)
-        reading = host_resources.reading_between(opened, settled, save_folder)
+        settled = host_resources.read_host(save_folder, read_gpus=True)
+        reading = host_resources.reading_between(opened, settled, save_folder, self._drawing_gpu)
         self._host_reading = reading
         logger.info(host_resources.log_line(reading, settled.read_s))
         notice = host_resources.judge(reading)

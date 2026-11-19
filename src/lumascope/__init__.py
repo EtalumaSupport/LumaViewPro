@@ -259,6 +259,8 @@ from _lumascope.modules.graph_analysis import (
     Trendline,
 )
 from _lumascope.modules.host_resources import (
+    DrawingGpu,
+    GpuAdapter,
     HostReading,
     ProgramCpu,
 )
@@ -632,6 +634,7 @@ __all__ = [
     'DisconnectFailure',
     'DisconnectStep',
     'DisplayRates',
+    'DrawingGpu',
     'DriverNotLiveError',
     'DuplicateCaptureFilenamesNotice',
     'EnhanceResult',
@@ -667,6 +670,7 @@ __all__ = [
     'FrameTime',
     'FrameValiditySource',
     'GainChanged',
+    'GpuAdapter',
     'GraphOptions',
     'GraphResult',
     'HardwareCommandRefusedError',

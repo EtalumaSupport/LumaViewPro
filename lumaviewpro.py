@@ -558,6 +558,7 @@ from _lumascope.modules.exceptions import (
     CatalogueNameRefusedError,
     ObjectiveUnknownError,
 )
+from _lumascope.modules.host_resources import DrawingGpu
 from _lumascope.modules.settings_init import fall_back_to_template
 
 # Kivy Factory imports: the classes below are referenced from ui/lumaviewpro.kv
@@ -624,6 +625,17 @@ class _Phase(enum.Enum):
     HANDED_TO_THE_CLOSE = 'handed to the close'
     # The control surface is built over the session.
     FITTED = 'fitted'
+
+
+def _the_drawing_gpu() -> DrawingGpu:
+    """The GPU the window draws on, as its GL context names it; on the thread that owns the context."""
+    from kivy.graphics.opengl import GL_RENDERER, GL_VENDOR, glGetString
+
+    # The driver's strings are bytes; a byte that is not UTF-8 is shown, not refused.
+    return DrawingGpu(
+        vendor=glGetString(GL_VENDOR).decode('utf-8', 'replace'),
+        renderer=glGetString(GL_RENDERER).decode('utf-8', 'replace'),
+    )
 
 
 class LumaViewProApp(TooltipMixin, App):
@@ -752,6 +764,9 @@ class LumaViewProApp(TooltipMixin, App):
         every exit that must wait for it waits on ``_bring_up``.
         """
         schedule_ui_interval(report_ui_thread_hold, UI_HOLD_TICK_S, 'UI_HOLD')
+        # The window's GL context is this thread's, so the GPU it draws on is
+        # read here, before bring-up's thread hands it to the session.
+        self._drawing_gpu = _the_drawing_gpu()
         self._bring_up = concurrent.futures.Future()
         threading.Thread(target=self._bring_up_on_its_thread, name='bring-up', daemon=True).start()
         self._bring_up.add_done_callback(lambda done: schedule_ui(lambda dt: self._hand_over(done)))
@@ -1050,6 +1065,7 @@ class LumaViewProApp(TooltipMixin, App):
                 outcome_listener=notification_popup_bridge,
                 settings_file=ScopeSession.user_settings_file(source_path),
                 on_progress=on_progress,
+                drawing_gpu=self._drawing_gpu,
             )
 
         # A stored value the scope refuses to be configured from -- a model

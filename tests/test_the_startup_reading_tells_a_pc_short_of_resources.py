@@ -8,7 +8,10 @@ the PC over a window from its ``create`` to its startup motion's end,
 keeps the reading (``ScopeSession.host_reading``, and ``status``), and
 tells ``LowSystemResourcesNotice`` naming each thing past its line: under
 4 GB of memory, under 50 GB free on the save drive, another program over
-30% of the machine. Inside every line, nothing is told.
+30% of the machine, or a window drawn on another maker's GPU than the one
+Windows ranks for high performance (a laptop's Intel beside its NVIDIA
+showed the live view at 12 fps against 42). Inside every line, nothing is
+told.
 """
 
 from __future__ import annotations
@@ -26,13 +29,25 @@ from _lumascope.modules.exceptions import (
     MoveStoppedError,
     SessionClosingError,
 )
-from _lumascope.modules.host_resources import HostReading, ProgramCpu, judge
+from _lumascope.modules.host_resources import (
+    DrawingGpu,
+    GpuAdapter,
+    HostReading,
+    ProgramCpu,
+    judge,
+    log_line,
+)
 from _lumascope.modules.scope_session import ScopeSession
 from tests.conftest import a_roomy_host
 from tests.settings_fixtures import complete_settings
 
 GB = 2**30
-TITLE = 'Low system resources'
+TITLE = 'This PC may slow LumaViewPro'
+# The laptop's two GPUs, the NVIDIA ranked for high performance.
+INTEL = GpuAdapter('Intel(R) HD Graphics 530', 0x8086)
+NVIDIA = GpuAdapter('NVIDIA GeForce GTX 970M', 0x10DE)
+ON_INTEL = DrawingGpu('Intel', 'Intel(R) HD Graphics 530')
+ON_NVIDIA = DrawingGpu('NVIDIA Corporation', 'NVIDIA GeForce GTX 970M/PCIe/SSE2')
 SETTLED_S = 30.0
 
 # The real reader, bound before the suite's fixture replaces it.
@@ -49,6 +64,8 @@ def _reading(**changed) -> HostReading:
         programs=(),
         unread_processes=0,
         window_s=10.0,
+        drawing_gpu=None,
+        gpus=None,
     )
     return dataclasses.replace(roomy, **changed)
 
@@ -123,6 +140,98 @@ def test_a_popup_names_up_to_three_programs():
     words = str(judge(_reading(programs=busy)))
 
     assert all(f'program{i} is using 32% of the CPU' in words for i in range(3))
+
+
+# ------------------------------------------------------------------ the GPU
+
+
+def test_a_window_on_the_intel_beside_a_higher_ranked_nvidia_is_told_first_without_the_figures():
+    notice = judge(_reading(drawing_gpu=ON_INTEL, gpus=(NVIDIA, INTEL)))
+
+    assert notice.preferred_gpu == NVIDIA
+    assert (notice.ram_low, notice.disk_low, notice.busy) == (False, False, ())
+    assert str(notice).startswith(
+        'LumaViewPro is drawing on the Intel(R) HD Graphics 530, not the NVIDIA GeForce GTX 970M '
+        'Windows ranks for high performance'
+    )
+    assert 'Settings > System > Display > Graphics' in str(notice)
+    assert 'At startup this PC had' not in str(notice)
+    assert notice.title == TITLE
+
+
+def test_the_gpu_and_low_memory_are_told_in_one_notice_the_gpu_first():
+    notice = judge(_reading(drawing_gpu=ON_INTEL, gpus=(NVIDIA, INTEL), ram_available_bytes=GB))
+    words = str(notice)
+
+    assert notice.preferred_gpu == NVIDIA and notice.ram_low
+    assert words.index('LumaViewPro is drawing on') < words.index('At startup this PC had 1.0 GB')
+
+
+def test_a_window_on_the_higher_ranked_gpu_is_told_nothing():
+    assert judge(_reading(drawing_gpu=ON_NVIDIA, gpus=(NVIDIA, INTEL))) is None
+
+
+@pytest.mark.parametrize(
+    'drawing_gpu, gpus, unjudged',
+    [
+        (None, (NVIDIA, INTEL), 'no window draws'),
+        (ON_INTEL, None, 'no ranking of the GPUs on this system'),
+        (ON_INTEL, (INTEL,), 'fewer than two makers among the GPUs'),
+        (
+            ON_INTEL,
+            (GpuAdapter('Intel(R) Arc(TM) A770', 0x8086), INTEL),
+            'fewer than two makers among the GPUs',
+        ),
+        (
+            DrawingGpu('Google Inc.', 'ANGLE (Intel HD 530)'),
+            (NVIDIA, INTEL),
+            "no known maker in 'Google Inc.'",
+        ),
+    ],
+    ids=['no_window', 'unranked', 'one_gpu', 'one_maker', 'unknown_maker'],
+)
+def test_a_gpu_that_cannot_be_told_apart_is_not_judged_and_the_log_says_why(
+    drawing_gpu, gpus, unjudged
+):
+    reading = _reading(drawing_gpu=drawing_gpu, gpus=gpus)
+
+    assert judge(reading) is None
+    assert f'not judged: {unjudged}' in log_line(reading, 0.0)
+
+
+def test_each_makers_vendor_string_is_matched_by_whole_word():
+    amd = GpuAdapter('AMD Radeon RX 6600M', 0x1002)
+    # "Corporation" holds "ati" as letters, not as a word: NVIDIA's string is NVIDIA's.
+    vendors = {
+        'ATI Technologies Inc.': amd,
+        'AMD': amd,
+        'NVIDIA Corporation': NVIDIA,
+        'Intel': INTEL,
+    }
+
+    drawn_elsewhere = {
+        vendor: judge(_reading(drawing_gpu=DrawingGpu(vendor, 'r'), gpus=(INTEL, NVIDIA, amd)))
+        for vendor, own in vendors.items()
+    }
+    on_its_own = {
+        vendor: judge(_reading(drawing_gpu=DrawingGpu(vendor, 'r'), gpus=(own, INTEL, NVIDIA, amd)))
+        for vendor, own in vendors.items()
+        if own != INTEL
+    }
+
+    assert drawn_elsewhere['Intel'] is None
+    assert all(drawn_elsewhere[v].preferred_gpu == INTEL for v in vendors if vendors[v] != INTEL)
+    assert all(notice is None for notice in on_its_own.values())
+
+
+def test_the_log_line_names_the_gpu_drawing_and_every_gpu_in_windows_order():
+    line = log_line(_reading(drawing_gpu=ON_INTEL, gpus=(NVIDIA, INTEL)), 0.0)
+
+    assert (
+        'drawing on: Intel(R) HD Graphics 530 (Intel) | GPUs, high performance first: '
+        'NVIDIA GeForce GTX 970M (0x10DE), Intel(R) HD Graphics 530 (0x8086) | '
+        'not on the high-performance GPU'
+    ) in line
 
 
 # ------------------------------------------------------- the shares by process
@@ -233,8 +342,9 @@ def test_a_process_whose_name_psutil_cannot_give_is_counted_by_its_pid(monkeypat
 
 
 def test_a_save_folder_that_does_not_exist_is_unread_never_the_drive_above_it(tmp_path):
-    assert _REAL_READ_HOST(str(tmp_path / 'unplugged' / 'data')).disk_free_bytes is None
-    assert _REAL_READ_HOST(str(tmp_path)).disk_free_bytes > 0
+    unplugged = _REAL_READ_HOST(str(tmp_path / 'unplugged' / 'data'), read_gpus=False)
+    assert unplugged.disk_free_bytes is None
+    assert _REAL_READ_HOST(str(tmp_path), read_gpus=False).disk_free_bytes > 0
 
 
 # ------------------------------------------------------- the session's reading
@@ -247,8 +357,8 @@ class _Host:
         self.settled = settled
         monkeypatch.setattr(host_resources, 'read_host', self.read)
 
-    def read(self, save_folder):
-        roomy = a_roomy_host(save_folder)
+    def read(self, save_folder, *, read_gpus):
+        roomy = a_roomy_host(save_folder, read_gpus=read_gpus)
         if save_folder is None:
             return roomy
         return dataclasses.replace(roomy, at_s=10.0, **self.settled)
@@ -390,5 +500,24 @@ def test_a_start_that_is_refused_reads_nothing_and_leaves_the_reading_open(monke
 
         assert refused.value.reason == 'home_in_flight'
         assert session.host_reading is not None and len(notices) == 1
+    finally:
+        session.shutdown()
+
+
+def test_the_gpu_the_host_hands_create_is_judged_in_the_reading(monkeypatch, notices):
+    _Host(monkeypatch, gpus=(NVIDIA, INTEL))
+    session = ScopeSession.create(
+        complete_settings(microscope='LS850T'),
+        simulate=True,
+        warn_pre_release=False,
+        outcome_listener=lambda n: notices.append(n) if n.title == TITLE else None,
+        drawing_gpu=ON_INTEL,
+    )
+    try:
+        _settle(session.start_application_session(disable_homing=True))
+
+        assert session.host_reading.drawing_gpu == ON_INTEL
+        assert session.host_reading.gpus == (NVIDIA, INTEL)
+        assert len(notices) == 1 and notices[0].message.startswith('LumaViewPro is drawing on')
     finally:
         session.shutdown()

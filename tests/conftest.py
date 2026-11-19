@@ -781,8 +781,8 @@ def _no_test_reads_the_host_it_runs_on():
     host_resources.read_host = real
 
 
-def a_roomy_host(save_folder):
-    """A PC inside every line of the startup reading: 16 GB available, 500 GB free, nothing else running."""
+def a_roomy_host(save_folder, *, read_gpus):
+    """A PC inside every line of the startup reading: 16 GB available, 500 GB free, nothing else running, one GPU."""
     from collections import namedtuple
 
     from _lumascope.modules import host_resources
@@ -796,6 +796,9 @@ def a_roomy_host(save_folder):
         cores=8,
         ram_available_bytes=16 * 2**30,
         disk_free_bytes=None if save_folder is None else 500 * 2**30,
+        gpus=(host_resources.GpuAdapter('Intel(R) UHD Graphics 630', 0x8086),)
+        if read_gpus
+        else None,
         read_s=0.0,
     )
 

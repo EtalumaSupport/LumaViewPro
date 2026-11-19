@@ -69,6 +69,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`DeliveredRate`](#DeliveredRate)
 - [`DisconnectFailure`](#DisconnectFailure)
 - [`DisplayRates`](#DisplayRates)
+- [`DrawingGpu`](#DrawingGpu)
 - [`EnhanceResult`](#EnhanceResult)
 - [`EnhancedFile`](#EnhancedFile)
 - [`ExcludedInput`](#ExcludedInput)
@@ -86,6 +87,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`FrameSize`](#FrameSize)
 - [`FrameTime`](#FrameTime)
 - [`GainChanged`](#GainChanged)
+- [`GpuAdapter`](#GpuAdapter)
 - [`GraphOptions`](#GraphOptions)
 - [`GraphResult`](#GraphResult)
 - [`HeldClaim`](#HeldClaim)
@@ -1106,6 +1108,7 @@ def create(
     outcome_listener: Callable[[Notification], None] | None = None,
     settings_file: FilePath | None = None,
     on_progress: ProgressCallback | None = None,
+    drawing_gpu: DrawingGpu | None = None,
 ) -> ScopeSession
 ```
 
@@ -1147,6 +1150,7 @@ settings, then the camera start gate released) and is torn down by
 - `outcome_listener`: heard from before the scope is built, so it hears what bring-up reports; the session's `add_outcome_listener` says what it receives. A factory that raises takes it back; otherwise the session's `shutdown()` does.
 - `settings_file`: the file the session saves its settings to, one second after the first unsaved write and once at `shutdown()`, whole or not at all; the hosts name the installation's `user_settings_file(source_path)`. None (the default) saves nothing: a script's or a test's handed dict stays in memory. Writes are kept unsaved, and the session says so once (`SettingsNotSavedNotice`), while the settings are provisional or when the scope found no hardware at bring-up. Saving starts once the scope is up, so a factory that raises writes no file.
 - `on_progress`: told before each of bring-up's steps (each part connected, then the scope configured), with the share of the steps already done, 0 to 75, and the step's words, on this call's thread, so a caller running this off its UI thread can say what bring-up is doing. A raise from it is a raise from here, and the teardown runs as for any other. None (the default) reports the steps to the log only.
+- `drawing_gpu`: the GPU the host's window draws on, as its OpenGL context names it, read on the thread that owns the context; the startup reading judges it against the GPU Windows ranks for high performance. None (the default) for a host with no window: nothing drawn is judged.
 
 **Raises**
 
@@ -10957,6 +10961,23 @@ frames, in ms, and `n` the samples; empty before the first.
 
 Nothing.
 
+<a id="DrawingGpu"></a>
+## `lumascope.DrawingGpu`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Held in: [`HostReading.drawing_gpu`](#HostReading.drawing_gpu).  
+Taken by: [`ScopeSession.create`](#ScopeSession.create).
+
+The GPU LumaViewPro's window draws on, as its OpenGL context names it.
+
+Handed to `ScopeSession.create` by the host that draws; a host with
+no window hands none.
+
+**Fields**
+
+- <a id="DrawingGpu.renderer"></a>`renderer`: `str` -- The context's `GL_RENDERER`, such as `Intel(R) HD Graphics 530`.
+- <a id="DrawingGpu.vendor"></a>`vendor`: `str` -- The context's `GL_VENDOR`, such as `Intel` or `NVIDIA Corporation`.
+
 <a id="EnhanceResult"></a>
 ## `lumascope.EnhanceResult`
 
@@ -11238,6 +11259,19 @@ A gain event.
 
 - <a id="GainChanged.gain_db"></a>`gain_db`: `float` -- The gain now in effect, in dB.
 
+<a id="GpuAdapter"></a>
+## `lumascope.GpuAdapter`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Held in: [`HostReading.gpus`](#HostReading.gpus).
+
+One of this PC's GPUs, as Windows lists it.
+
+**Fields**
+
+- <a id="GpuAdapter.description"></a>`description`: `str` -- Windows' name for it, such as `NVIDIA GeForce GTX 970M`.
+- <a id="GpuAdapter.vendor_id"></a>`vendor_id`: `int` -- Its maker's PCI vendor id: 0x8086 Intel, 0x10DE NVIDIA, 0x1002 AMD.
+
 <a id="GraphOptions"></a>
 ## `lumascope.GraphOptions`
 
@@ -11312,6 +11346,8 @@ home.
 
 - <a id="HostReading.cpu_pct"></a>`cpu_pct`: `float | None` -- The whole machine's CPU busy over the window, LumaViewPro's own startup included; None when no CPU time passed.
 - <a id="HostReading.disk_free_bytes"></a>`disk_free_bytes`: `int | None` -- Its drive's free space at the window's end; None when the folder did not exist or could not be read.
+- <a id="HostReading.drawing_gpu"></a>`drawing_gpu`: `DrawingGpu | None` -- The GPU LumaViewPro's window draws on; None when nothing draws (no window: the REST server, a script).
+- <a id="HostReading.gpus"></a>`gpus`: `tuple[GpuAdapter, ...] | None` -- This PC's GPUs, the one Windows ranks for high performance first; None off Windows, or on a Windows that cannot rank them (before Windows 10 1803).
 - <a id="HostReading.programs"></a>`programs`: `tuple[ProgramCpu, ...]` -- The other programs with the largest shares of the CPU over the window, up to three, largest first. LumaViewPro is not one; a process the OS would not let LumaViewPro read is not either.
 - <a id="HostReading.ram_available_bytes"></a>`ram_available_bytes`: `int` -- The memory available at the window's end.
 - <a id="HostReading.save_folder"></a>`save_folder`: `str` -- The save folder (`live_folder`) whose drive was read.
@@ -17167,13 +17203,16 @@ refusal.
 
 A notice; bases `Notice`, `Exception`.
 
-This PC was short of what LumaViewPro needs when its startup motion ended.
+This PC may slow LumaViewPro: what was past its line when its startup motion ended.
 
 Told once a session, by the session's startup reading
 (`ScopeSession.host_reading`), when available memory, free space on
 the drive LumaViewPro saves to, or another program's share of the CPU
-is past its line. A PC without the resources looks to the person like a
-LumaViewPro defect: slow, freezing, a camera that seems to drop.
+is past its line, or when LumaViewPro draws on another maker's GPU than
+the one Windows ranks for high performance. A PC like that looks to the
+person like a LumaViewPro defect: slow, freezing, a camera that seems
+to drop, a live view slower than the camera. The message opens with
+what is past; the memory and disk figures lead only when one of them is.
 
 **Attributes**
 
@@ -17181,6 +17220,7 @@ LumaViewPro defect: slow, freezing, a camera that seems to drop.
 - `ram_low`: Available memory is under its line.
 - `disk_low`: Free space on the save drive is under its line; False when the save folder could not be read.
 - `busy`: Each other program over the CPU line (`ProgramCpu`), largest share first.
+- `preferred_gpu`: The GPU Windows ranks for high performance, when LumaViewPro is drawing on another maker's (`GpuAdapter`); None otherwise.
 
 | Reason | Cause | REST status |
 |---|---|---|
