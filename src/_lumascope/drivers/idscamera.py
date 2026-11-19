@@ -1411,6 +1411,12 @@ class IDSCamera(Camera):
             # actually applies -- its same-value short-circuit must not
             # match a stale cached value against freshly-reset hardware.
             self._pixel_format_cache = None
+            # The user set leaves the window off zero (the U3-34L's Default
+            # does), and Width/Height .Maximum() shrinks by the offset; the
+            # first frame grid caches the sensor max on the premise that the
+            # offsets are at zero here.
+            self.write_node('OffsetX', 0)
+            self.write_node('OffsetY', 0)
 
         def pixel_format():
             # Log the camera's actual PixelFormat options once at init --

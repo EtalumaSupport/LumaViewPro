@@ -27,8 +27,10 @@ from _lumascope.drivers.camera_profiles import CameraProfile
 from _lumascope.drivers.exceptions import CameraReadFailedError, CameraWriteFailedError
 from tests.camera_fakes import bare_ids_camera
 
-# Bench-confirmed IMX676 AOI maxima (binned-space probe, 2026-06-25): 3504x3544.
-SENSOR_W, SENSOR_H = 3504, 3544
+# The IMX676's AOI maxima with the offsets at zero (the U3-34L bench, 2026-11-18):
+# 3552x3552. The 3504x3544 an earlier probe read was taken under the Default
+# user set's offsets.
+SENSOR_W, SENSOR_H = 3552, 3552
 
 
 class _FakeIdsAoiNodemap:
@@ -244,6 +246,64 @@ def test_max_frame_size_is_offset_independent():
 
     # Offset is now non-zero, yet the sensor max is recovered in full.
     assert cam.remote_nodemap.off_x > 0
+    assert cam.get_max_frame_size() == {'width': SENSOR_W, 'height': SENSOR_H}
+
+
+class _FakeIdsNodemapWithUserSet(_FakeIdsAoiNodemap):
+    """The AOI nodemap with the Default user set and the reverse nodes a
+    connect's configuration reaches. Loading the set leaves the window at
+    ``default_offsets``, as the U3-34L's does: its first frame plan after the
+    load read the maxima 3504x3544, not the sensor's 3552x3552 (the bench,
+    2026-11-18). Every other node is absent, so the configuration's steps for
+    them are not applied, as on a body that lacks them.
+    """
+
+    def __init__(self, reverse_nodes, default_offsets, **kwargs):
+        super().__init__(**kwargs)
+        self.reverse_nodes = reverse_nodes
+        self.default_offsets = default_offsets
+
+    def HasNode(self, name):
+        return name in self.reverse_nodes or name in (
+            'Width',
+            'Height',
+            'OffsetX',
+            'OffsetY',
+            'BinningHorizontal',
+            'BinningVertical',
+            'UserSetSelector',
+            'UserSetLoad',
+        )
+
+    def FindNode(self, name):
+        if name in self.reverse_nodes:
+            return self.reverse_nodes[name]
+        if name == 'UserSetSelector':
+            return MagicMock()
+        if name == 'UserSetLoad':
+            load = MagicMock()
+            load.Execute.side_effect = self._load_default
+            return load
+        return super().FindNode(name)
+
+    def _load_default(self):
+        self.off_x, self.off_y = self.default_offsets
+        self.width = self.sensor_w - 48
+        self.height = self.sensor_h - 8
+
+
+def test_a_connect_offers_the_whole_sensor_after_the_default_user_set_moves_the_window():
+    """The camera's configuration at connect loads the Default user set,
+    which leaves the offsets off zero; the largest frame the camera then
+    offers is still the whole sensor, not the sensor less those offsets."""
+    cam = bare_ids_camera()
+    cam.profile = CameraProfile(alignment={'width': 48, 'height': 4})
+    cam.remote_nodemap = _FakeIdsNodemapWithUserSet(cam.reverse_nodes, default_offsets=(24, 8))
+
+    cam.init_camera_config()
+
+    assert 'the Default user set' not in cam.config_not_applied
+    assert 'the 1900x1900 frame' not in cam.config_not_applied
     assert cam.get_max_frame_size() == {'width': SENSOR_W, 'height': SENSOR_H}
 
 
