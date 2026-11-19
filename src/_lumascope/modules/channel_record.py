@@ -46,7 +46,7 @@ from _lumascope.modules.exceptions import (
 )
 from _lumascope.modules.scope_parts import Part
 from _lumascope.modules.path_utils import read_installation_file, resolve_data_file
-from _lumascope.modules.api_surface import api, api_fields
+from _lumascope.modules.api_surface import api_fields
 from _lumascope.modules.closed_sets import member_of
 from _lumascope.modules.scope_capabilities import FrameSize
 
@@ -159,7 +159,6 @@ class CatalogueChannel:
     'display_color',
     'display_name',
     'excitation_nm',
-    'id',
     'key_name',
     'label',
     'led_addresses',
@@ -261,8 +260,8 @@ class ChannelIdentity:
     """The resolved per-unit identity snapshot.
 
     Attributes:
-        channels: The unit's channel records, in the release's order
-            (``ChannelRecord.id``); empty when ``source`` is ``UNRESOLVED``.
+        channels: The unit's channel records, in the release's order;
+            empty when ``source`` is ``UNRESOLVED``.
         filterset: The name of the unit's filterset: its board block's
             ``Filterset``, else its model's row's; an empty string where
             neither names one.
@@ -300,7 +299,6 @@ class ChannelIdentity:
     model: str | None
     model_named_by_board: bool
 
-    @api(in_process=True, reads=True)
     def find(self, key_name: str) -> ChannelRecord | None:
         """Return the channel whose stable key name matches, else None.
 
@@ -326,7 +324,6 @@ class ChannelIdentity:
                 return record.key_name
         return None
 
-    @api(in_process=True)
     def refuse_unless_on_scope(self, channel: str, member: str, *, then: str) -> None:
         """Refuse ``channel`` unless it is a channel of this release and this unit has it.
 
@@ -666,8 +663,6 @@ class MotorBoardFamily(enum.StrEnum):
     'has_focus',
     'has_xy_stage',
     'has_turret',
-    'led_board',
-    'motor_board',
     'channels',
     'filterset',
     'pixel_size_um',

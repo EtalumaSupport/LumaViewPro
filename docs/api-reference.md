@@ -5121,48 +5121,6 @@ carries the old name; the plate it now lives under is answered.
 
 - 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `labware_unknown`
 
-<a id="Lumascope.scope_model"></a>
-### `Lumascope.scope_model`
-
-```python
-def scope_model(self, model: str) -> ScopeModel
-```
-
-Marks: reads (changes nothing).  
-Route: `GET /api/v1/scope/scope_model`.
-
-The installation's scope model `model` names, by its catalogue name.
-
-**Args**
-
-- `model`: The model's name in the scope catalogue.
-
-**Raises**
-
-- `CatalogueNameRefusedError`: `'model_unknown'`, the catalogue does not list `model`; `offered` carries the models it lists, in its order.
-
-**Refusals by REST status**
-
-- 422: [`CatalogueNameRefusedError`](#CatalogueNameRefusedError): `model_unknown`
-
-<a id="Lumascope.settings_template"></a>
-### `Lumascope.settings_template`
-
-```python
-settings_template: dict  # property
-```
-
-Route: `GET /api/v1/scope/settings_template`.
-
-The shipped settings template: which settings exist, and their shipped values.
-
-The caller's own copy: a caller that changed what it was given
-would otherwise change every later reader's template.
-
-**Raises**
-
-Nothing.
-
 <a id="Lumascope.simulation"></a>
 ### `Lumascope.simulation`
 
@@ -10010,73 +9968,16 @@ The resolved per-unit identity snapshot.
 
 **Fields**
 
-- <a id="ChannelIdentity.channels"></a>`channels`: `tuple[ChannelRecord, ...]` -- The unit's channel records, in the release's order (`ChannelRecord.id`); empty when `source` is `UNRESOLVED`.
+- <a id="ChannelIdentity.channels"></a>`channels`: `tuple[ChannelRecord, ...]` -- The unit's channel records, in the release's order; empty when `source` is `UNRESOLVED`.
 - <a id="ChannelIdentity.filterset"></a>`filterset`: `str` -- The name of the unit's filterset: its board block's `Filterset`, else its model's row's; an empty string where neither names one.
 - <a id="ChannelIdentity.model"></a>`model`: `str | None` -- The scope model the resolver settled on, whichever rung answered: the override, else the model the board reports, else the operator's selection -- the only identity an FX2 scope has, since it cannot report its own. A model the catalogue lacks is still carried: with the stock module's channels, or with none when an override names it; None means there was no model at all. Every reader of "which model is this scope" takes it from here, so the channels, the capabilities and the saved files name one model.
 - <a id="ChannelIdentity.model_named_by_board"></a>`model_named_by_board`: `bool` -- Whether the motor board named the model itself, so the board's name outranked the operator's selection: every EL-0940 board answering FULLINFO, the LS720's board, every OEM unit. Such a scope runs as the board's model at every start, whatever is selected. False where the selection decided: a Classic FX2, which has no board to ask, and a simulated scope built as the selection. It describes the board, not an engineering override.
 - <a id="ChannelIdentity.source"></a>`source`: `IdentitySource` -- Which rung answered: `MOTORCONFIG` (the unit's own block, authoritative and complete when present), `SCOPES` (the model's rows, what a pre-block unit of this model has), `STOCK` (the model is one the catalogue does not list, an OEM unit's own name, so the rows are those of the stock optics module, which every OEM unit carries), or `UNRESOLVED` (no block and no model, or an override naming a model the catalogue lacks; empty, and loud at the point of LED use rather than silently wrong here).
 
-<a id="ChannelIdentity.find"></a>
-### `ChannelIdentity.find`
-
-```python
-def find(self, key_name: str) -> ChannelRecord | None
-```
-
-Marks: in-process; reads (changes nothing).
-
-Return the channel whose stable key name matches, else None.
-
-The deserialisation boundary: a name arriving from disk or from
-an API caller is mapped to its record exactly once, here.
-
-**Args**
-
-- `key_name`: The channel's stable key name, such as `'BF'` or `'Ex488'`.
-
-**Raises**
-
-Nothing.
-
-<a id="ChannelIdentity.refuse_unless_on_scope"></a>
-### `ChannelIdentity.refuse_unless_on_scope`
-
-```python
-def refuse_unless_on_scope(self, channel: str, member: str, *, then: str) -> None
-```
-
-Marks: in-process.
-
-Refuse `channel` unless it is a channel of this release and this unit has it.
-
-The one question for a command that takes a channel: its settings,
-its focus, a still or a recording named for it. The name first
-(`refuse_unknown_channel`), so a name that is no channel is never
-told it is missing hardware.
-
-**Args**
-
-- `channel`: The channel's key name the command was given.
-- `member`: The name of the command asking, which the hardware refusal names as the command refused.
-- `then`: What the command would have the channel do, as words completing "so &lt;channel> cannot ...", such as `'be captured'`; the unresolved refusal's message ends with it.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'channel_unknown'`.
-- `HardwareCommandRefusedError`: `'not_on_this_scope'`, naming the channel (`Part.CHANNEL`).
-- `ConfigurationDefectError`: `'channels_unresolved'`, this unit's channels could not be resolved, so `channel` cannot `then`.
-
-**Refusals**
-
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `channel_unknown`
-- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_on_this_scope`
-- [`ConfigurationDefectError`](#ConfigurationDefectError): `channels_unresolved`
-
 <a id="ChannelRecord"></a>
 ## `lumascope.ChannelRecord`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`ChannelIdentity.find`](#ChannelIdentity.find).  
 Held in: [`ChannelIdentity.channels`](#ChannelIdentity.channels), [`ScopeModel.channels`](#ScopeModel.channels).
 
 Identity of one channel on one unit.
@@ -10087,7 +9988,6 @@ Identity of one channel on one unit.
 - <a id="ChannelRecord.display_color"></a>`display_color`: `str` -- The unit's colour for the channel, `'#rrggbb'`: its board block row's, else the catalogue record's.
 - <a id="ChannelRecord.display_name"></a>`display_name`: `str | None` -- The unit's name for the channel, free to change: a rename touches this field and nothing stored. None for a fluorescence channel a board's Channels block names by its excitation alone.
 - <a id="ChannelRecord.excitation_nm"></a>`excitation_nm`: `float | None` -- The excitation wavelength, in nm, and the number a fluorescence key names (`Ex<nm>`). None for broadband transmitted light and for a channel with no LED.
-- <a id="ChannelRecord.id"></a>`id`: `int` -- The internal key and the display position, assigned from the release catalogue's order; never stored in any per-unit or user file, so it can renumber freely between releases.
 - <a id="ChannelRecord.key_name"></a>`key_name`: `str` -- The stable name the channel is stored under (settings block keys, the protocol TSV's `Color`, file name tokens, the metadata's `channel`); it never changes when a channel is renamed.
 - <a id="ChannelRecord.label"></a>`label`: `str` -- What the channel is called wherever it is shown or written: a fluorescence channel's excitation (`'405 nm'`), any other channel's `display_name`.
 - <a id="ChannelRecord.led_addresses"></a>`led_addresses`: `tuple[int, ...]` -- The LED board addresses this channel drives, empty for a channel with no LED (luminescence). A tuple because a channel may drive several switches as one; every shipped row carries zero or one. A row in a model's file names them `led_channel`, read into this field by the one row reader.
@@ -12861,7 +12761,7 @@ tuple.
 ## `lumascope.ScopeModel`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`Lumascope.all_scope_models`](#Lumascope.all_scope_models), [`Lumascope.scope_model`](#Lumascope.scope_model).
+Returned by: [`Lumascope.all_scope_models`](#Lumascope.all_scope_models).
 
 One model of the installation's catalogue (`scopes.json`'s `Models`), read once at bring-up.
 
@@ -12873,10 +12773,8 @@ One model of the installation's catalogue (`scopes.json`'s `Models`), read once 
 - <a id="ScopeModel.has_turret"></a>`has_turret`: `bool` -- Whether the model is built with an objective turret (T): the answer `ScopeCapabilities.has_turret` gives when the scope's motor board did not come up.
 - <a id="ScopeModel.has_xy_stage"></a>`has_xy_stage`: `bool` -- Whether the model is built with an XY stage (X and Y).
 - <a id="ScopeModel.id"></a>`id`: `str` -- The model's name, the key the operator selects and a board reports.
-- <a id="ScopeModel.led_board"></a>`led_board`: `LedBoardFamily` -- The kind of board the model's LEDs are on. Production finds the boards it has and does not read it; the simulator builds from it.
 - <a id="ScopeModel.lens_focal_length_mm"></a>`lens_focal_length_mm`: `float | None` -- The tube lens's focal length, in mm, for a Classic model; None where the row declares none.
 - <a id="ScopeModel.max_frame"></a>`max_frame`: `FrameSize | None` -- The largest frame, unbinned, of a model whose lens images less than its sensor; None where the row declares none.
-- <a id="ScopeModel.motor_board"></a>`motor_board`: `MotorBoardFamily | None` -- The kind of motor board the model has; None for a model with no motor axes. Read, like `led_board`, only by the simulator.
 - <a id="ScopeModel.pixel_size_um"></a>`pixel_size_um`: `float | None` -- The sensor's pixel pitch, in um, for a Classic model, whose optics no motorconfig carries; None where the row declares none.
 
 <a id="SensorExposure"></a>
@@ -14122,19 +14020,6 @@ a command it stopped before anything moved is refused with its
 - `lid_open`
 - `stage_unpowered`
 
-<a id="LedBoardFamily"></a>
-### `lumascope.LedBoardFamily`
-
-Held in: [`ScopeModel.led_board`](#ScopeModel.led_board).
-
-The kind of board a model's LEDs are on, as its catalogue row names it.
-
-An EL-0940 is an LED board of its own; an FX2 drives its scope's camera
-and LEDs both.
-
-- `EL-0940` (`EL_0940`)
-- `FX2` (`FX2`)
-
 <a id="LedCommandSet"></a>
 ### `lumascope.LedCommandSet`
 
@@ -14203,16 +14088,6 @@ The kind of light a channel images.
 - `transmitted`
 - `fluorescence`
 - `luminescence`
-
-<a id="MotorBoardFamily"></a>
-### `lumascope.MotorBoardFamily`
-
-Held in: [`ScopeModel.motor_board`](#ScopeModel.motor_board).
-
-The kind of board a model's motor axes are on, as its catalogue row names it.
-
-- `EL-0940` (`EL_0940`)
-- `TMCM-6110` (`TMCM_6110`)
 
 <a id="MotorCommandSet"></a>
 ### `lumascope.MotorCommandSet`
@@ -15510,8 +15385,8 @@ A refusal; bases `Refusal`, `ConfigError`.
 A labware, objective or scope model name the installation's catalogue does not hold.
 
 Raised by the catalogue's lookup -- `Lumascope.plate` for a plate,
-`Lumascope.objective` for an objective, `Lumascope.scope_model` for
-a scope model -- before anything is stored, so every door that names one
+`Lumascope.objective` for an objective, the scope model lookup
+`ScopeSession.select_model` asks for a scope model -- before anything is stored, so every door that names one
 is refused alike. A scope model is also refused at bring-up when the
 scope is to be built as a model the catalogue does not list. A
 `ConfigError`, because the same check reads a stored setting at
@@ -18607,8 +18482,6 @@ reads what the person was shown.
 | `GET` | `/api/v1/scope/runtime_state/stage_to_plate` | [`RuntimeState.stage_to_plate`](#RuntimeState.stage_to_plate) |
 | `GET` | `/api/v1/scope/runtime_state/turret_config` | [`RuntimeState.turret_config`](#RuntimeState.turret_config) |
 | `GET` | `/api/v1/scope/runtime_state/well_label` | [`RuntimeState.well_label`](#RuntimeState.well_label) |
-| `GET` | `/api/v1/scope/scope_model` | [`Lumascope.scope_model`](#Lumascope.scope_model) |
-| `GET` | `/api/v1/scope/settings_template` | [`Lumascope.settings_template`](#Lumascope.settings_template) |
 | `POST` | `/api/v1/scope/simulation/answer_model` | [`SimulationAPI.answer_model`](#SimulationAPI.answer_model) |
 | `POST` | `/api/v1/scope/simulation/bind_camera_usb_driver` | [`SimulationAPI.bind_camera_usb_driver`](#SimulationAPI.bind_camera_usb_driver) |
 | `POST` | `/api/v1/scope/simulation/clear` | [`SimulationAPI.clear`](#SimulationAPI.clear) |

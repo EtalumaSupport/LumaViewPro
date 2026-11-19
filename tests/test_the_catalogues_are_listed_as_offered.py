@@ -61,13 +61,11 @@ def test_a_wire_client_lists_each_catalogue_in_one_request_in_order(session):
         plates = client.get('/api/v1/scope/all_labware')
         models = client.get('/api/v1/scope/all_scope_models')
         one = client.get('/api/v1/scope/objective', params={'objective_id': '10x Oly'})
-        one_model = client.get('/api/v1/scope/scope_model', params={'model': 'LS850T'})
         whole_mapping = client.get('/api/v1/scope/scope_models')
     assert objectives.status_code == plates.status_code == models.status_code == 200
-    assert one.status_code == one_model.status_code == 200
+    assert one.status_code == 200
     assert [o['id'] for o in objectives.json()] == [o.id for o in session.scope.all_objectives]
     assert [p['name'] for p in plates.json()] == [p.name for p in session.scope.all_labware]
     assert [m['id'] for m in models.json()] == [m.id for m in session.scope.all_scope_models]
     assert one.json() == next(o for o in objectives.json() if o['id'] == '10x Oly')
-    assert one_model.json() == next(m for m in models.json() if m['id'] == 'LS850T')
     assert whole_mapping.status_code == 404

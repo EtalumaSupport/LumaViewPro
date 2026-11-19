@@ -86,9 +86,7 @@ from _lumascope.modules.channel_record import (
     ChannelRecord,
     ChannelSliderMaxima,
     IdentitySource,
-    LedBoardFamily,
     Modality,
-    MotorBoardFamily,
     ScopeModel,
 )
 from _lumascope.modules.coord_transformations import (
@@ -691,7 +689,6 @@ __all__ = [
     'KeepAwakeNotHeldNotice',
     'Labware',
     'LaneCallStillRunningError',
-    'LedBoardFamily',
     'LedBoardInfo',
     'LedBoardUnavailableError',
     'LedCommandSet',
@@ -718,7 +715,6 @@ __all__ = [
     'MotionAPI',
     'MotionInterlockError',
     'MotionNotCompletedError',
-    'MotorBoardFamily',
     'MotorBoardInfo',
     'MotorBoardUnavailableError',
     'MotorCommandSet',

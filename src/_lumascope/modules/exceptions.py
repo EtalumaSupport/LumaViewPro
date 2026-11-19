@@ -1841,8 +1841,8 @@ class CatalogueNameRefusedError(Refusal, ConfigError):
     """A labware, objective or scope model name the installation's catalogue does not hold.
 
     Raised by the catalogue's lookup -- ``Lumascope.plate`` for a plate,
-    ``Lumascope.objective`` for an objective, ``Lumascope.scope_model`` for
-    a scope model -- before anything is stored, so every door that names one
+    ``Lumascope.objective`` for an objective, the scope model lookup
+    ``ScopeSession.select_model`` asks for a scope model -- before anything is stored, so every door that names one
     is refused alike. A scope model is also refused at bring-up when the
     scope is to be built as a model the catalogue does not list. A
     ``ConfigError``, because the same check reads a stored setting at

@@ -2325,7 +2325,6 @@ class Lumascope:
         """
         return self._scope_models
 
-    @api(reads=True)
     def scope_model(self, model: str) -> 'ScopeModel':
         """The installation's scope model ``model`` names, by its catalogue name.
 
@@ -2360,7 +2359,6 @@ class Lumascope:
         """
         return tuple(self._scope_models.values())
 
-    @api
     @property
     def settings_template(self) -> dict:
         """The shipped settings template: which settings exist, and their shipped values.

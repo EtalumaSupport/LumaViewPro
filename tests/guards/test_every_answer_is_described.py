@@ -64,8 +64,9 @@ from tests.ast_seams import MemberNames
 # 16 since the cell-count method is a record; 15 since the bookmark saves
 # answer the PlateLocation the bookmark read does; 14 since a protocol's
 # channel settings are records; 13 since the whole-settings snapshot, a
-# dict, left the wire for setting.
-UNTYPED_PIN = 13
+# dict, left the wire for setting; 12 since the settings template, a
+# dict, left the surface.
+UNTYPED_PIN = 12
 
 _SERVER_MODELS = MemberNames(
     ('src/_lumascope/rest/routes.py', 'src/_lumascope/rest/app.py'),
