@@ -4195,21 +4195,6 @@ One still at a time, captured on the camera lane and saved.
 - `channel_colors`: Reads every channel's colour, from the Session's one read of it, once per capture, when the capture is asked for.
 - `on_saved`: Told the folder of each still once its files are on disk, on the camera lane, before the caller is answered.
 
-<a id="ManualCaptureController.in_flight"></a>
-### `ManualCaptureController.in_flight`
-
-```python
-in_flight: bool  # property
-```
-
-Route: `GET /api/v1/manual_capture/in_flight`.
-
-True from a `start_save_still` call until its camera-lane body has ended.
-
-**Raises**
-
-Nothing.
-
 <a id="ManualCaptureController.start_save_still"></a>
 ### `ManualCaptureController.start_save_still`
 
@@ -4286,46 +4271,6 @@ elapsed_s: float  # property
 Route: `GET /api/v1/manual_recording/elapsed_s`.
 
 Seconds since the recording started; 0.0 when idle.
-
-**Raises**
-
-Nothing.
-
-<a id="ManualRecordingController.end_reason"></a>
-### `ManualRecordingController.end_reason`
-
-```python
-end_reason: str | None  # property
-```
-
-Route: `GET /api/v1/manual_recording/end_reason`.
-
-Why the most recent recording ended, or None before any has.
-
-Manifest vocabulary ('user_stop', 'duration_elapsed',
-'camera_stalled', ...), read from the recording's engine as soon
-as its selection closes, so a caller watching is_recording flip
-False can tell a camera death from a user stop while the frames
-still drain. The first close names it: a later stop does not
-rewrite it.
-
-**Raises**
-
-Nothing.
-
-<a id="ManualRecordingController.is_busy"></a>
-### `ManualRecordingController.is_busy`
-
-```python
-is_busy: bool  # property
-```
-
-Route: `GET /api/v1/manual_recording/is_busy`.
-
-True until the recording, its drain, AND the finish complete.
-
-The app-close gate reads this: the recording is not safely over
-until the post-drain finish (MP4 close, hyperstack) has run.
 
 **Raises**
 
@@ -6886,54 +6831,6 @@ name are kept).
 
 - [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
 
-<a id="ImagingAPI.buffered_image"></a>
-### `ImagingAPI.buffered_image`
-
-```python
-def buffered_image(
-    self,
-    force_to_8bit: bool = True,
-    out_8bit: np.ndarray | None = None,
-    unless_seq: int | None = None,
-    stride: int = 1,
-) -> tuple
-```
-
-Marks: in-process; reads (changes nothing).
-
-Grab the latest buffered frame from the camera without forcing a new capture.
-
-Copy budget (per frame):
-  - grab(): 0 copies (returns the read-only stored frame)
-  - add_scale_bar(): 1 copy when the bar is drawn (the stored frame
-    is shared with every other consumer and is never written)
-  - convert_to_8bit(): 1 copy (LUT indexing creates new array),
-    or 0 fresh allocations when the caller supplies out_8bit.
-  - Total without the bar: 0 copies (8-bit) or 1 copy (12-bit with
-    force_to_8bit); the bar adds 1
-  The caller adds 1 more copy via tobytes() for GPU blit.
-
-**Args**
-
-- `force_to_8bit`: Convert 12-bit images to 8-bit output.
-- `out_8bit`: Optional caller-owned (H, W) uint8 buffer reused as the 12->8 LUT destination, avoiding a fresh per-frame allocation on the 30 fps preview path. Each caller must supply its OWN buffer (the preview thread and the histogram run on different threads); a None / mismatched buffer falls back to a fresh allocation. The returned array is the buffer itself when used, so the caller must copy (e.g. tobytes()) before the next call overwrites it.
-- `unless_seq`: The `seq` of the frame the caller already has. When the buffer still holds that frame, nothing is drawn or converted: a poll faster than the camera delivers costs no conversion.
-- `stride`: Take every `stride`-th pixel of every `stride`-th row, 1 or more. A read with a stride above 1 samples the raw frame and converts only the sample, and draws no scale bar, whose size would be wrong on a sample: the pixels are the image's own.
-
-**Returns**
-
-tuple: (image, frame) where image is numpy.ndarray and frame is the store's record of the frame it was read from (`Frame`: its `seq`, `stored` count and `arrived_ns` among it), the same record for every read of one frame; (None, frame) when the buffered frame is `unless_seq`'s; or (None, None) if unavailable. Per the Sentinel-return contract: `if image is None: ...`.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'wrong_kind'`, a `stride` that is not a whole number 1 or more.
-- `ConfigurationDefectError`: `'scope_not_composed'`, a read with no stride when no session has bound this scope, so it has no scale-bar setting to read.
-
-**Refusals**
-
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `wrong_kind`
-- [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
-
 <a id="ImagingAPI.changes_in_force"></a>
 ### `ImagingAPI.changes_in_force`
 
@@ -6962,37 +6859,6 @@ never a camera command.
 **Returns**
 
 bool: True when a frame arriving now counts for every change.
-
-**Raises**
-
-Nothing.
-
-<a id="ImagingAPI.changes_in_force_limit_s"></a>
-### `ImagingAPI.changes_in_force_limit_s`
-
-```python
-def changes_in_force_limit_s(
-    self,
-    exclude_sources: tuple[FrameValiditySource, ...] = (),
-) -> float
-```
-
-Marks: in-process.
-
-How long the changes now recorded may take to come into force, in seconds.
-
-The capture's own limit for its wait (`capture_still`), so a
-recording that waits for `changes_in_force` gives up when a capture
-would: the frames owed, each at the exposure in force or the slowest
-frame period, with a margin, and a floor for one grab's timeout.
-
-**Args**
-
-- `exclude_sources`: Sources whose changes are not waited for.
-
-**Returns**
-
-float: Seconds, measured from now.
 
 **Raises**
 
@@ -7180,36 +7046,6 @@ axis settled.
 
 Nothing.
 
-<a id="ImagingAPI.map_camera_clock"></a>
-### `ImagingAPI.map_camera_clock`
-
-```python
-def map_camera_clock(self) -> ClockMapping | None
-```
-
-Marks: in-process.
-
-The camera's clock mapped onto the host's steady and wall clocks, now.
-
-The latch is a command to the camera, so it runs on the camera's
-lane, as a capture's own latch does: a latch and the read of what it
-latched never interleave with another's. A recording takes one as it
-starts and maps every frame's tick through it.
-
-**Returns**
-
-ClockMapping | None: The mapping; None for a camera without a latch (`capabilities.camera_has_clock_latch`), and when the latch probe failed as the camera came up.
-
-**Raises**
-
-- `HardwareCommandRefusedError`: `'not_connected'`, naming the camera, with none connected; `'scope_disconnected'` after the scope's shutdown.
-- `CameraReadFailedError`: The latch or the read of what it latched failed.
-
-**Refusals**
-
-- [`CameraReadFailedError`](#CameraReadFailedError): `camera_read_failed`
-- [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`, `scope_disconnected`
-
 <a id="ImagingAPI.recorded_changes"></a>
 ### `ImagingAPI.recorded_changes`
 
@@ -7289,41 +7125,6 @@ wrong depth. A frame you are HOLDING carries its own depth
 **Refusals by REST status**
 
 - 503: [`HardwareCommandRefusedError`](#HardwareCommandRefusedError): `not_connected`
-
-<a id="ImagingAPI.wait_for_delivered_rate"></a>
-### `ImagingAPI.wait_for_delivered_rate`
-
-```python
-def wait_for_delivered_rate(self, wait_s: float) -> DeliveredRate
-```
-
-Marks: in-process; reads (changes nothing).
-
-Read the delivered rate, waiting up to `wait_s` for one to be measured.
-
-A stream that has just started has no window measured yet: the rate
-is measured over the stream check's 1 s ticks, so the first one is
-published up to two ticks after the stream starts, and
-`delivered_rate` reads 0 until then. A caller that needs the
-rate, not the absence of one, waits here for it.
-
-In-process: it blocks the caller's thread.
-
-**Args**
-
-- `wait_s`: The longest to wait, in seconds.
-
-**Returns**
-
-DeliveredRate: The rate as `delivered_rate` answers it once one is measured; `NOT_DELIVERING` when none is measured within `wait_s`.
-
-**Raises**
-
-- `ArgumentRefusedError`: `'not_a_number'` or `'out_of_range'`, `wait_s` is not a wait every host can hold.
-
-**Refusals**
-
-- [`ArgumentRefusedError`](#ArgumentRefusedError): `not_a_number`, `out_of_range`
 
 <a id="MotionAPI"></a>
 ## `lumascope.MotionAPI`
@@ -10407,7 +10208,6 @@ never by this record.
 ## `lumascope.ClockMapping`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`ImagingAPI.map_camera_clock`](#ImagingAPI.map_camera_clock).  
 Held in: [`FrameRecord.clock_mapping`](#FrameRecord.clock_mapping).
 
 The camera's timestamp clock against the host's steady and wall clocks, measured once.
@@ -10545,7 +10345,7 @@ A file a build made by its fallback algorithm, and why.
 ## `lumascope.DeliveredRate`
 
 A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
-Returned by: [`ImagingAPI.delivered_rate`](#ImagingAPI.delivered_rate), [`ImagingAPI.wait_for_delivered_rate`](#ImagingAPI.wait_for_delivered_rate).
+Returned by: [`ImagingAPI.delivered_rate`](#ImagingAPI.delivered_rate).
 
 What the camera delivered to the host over the last second.
 
@@ -14317,7 +14117,7 @@ A chunk the simulated camera's frames carry, which a fault can withhold.
 
 Returned by: [`ImagingAPI.recorded_changes`](#ImagingAPI.recorded_changes).  
 Held in: [`CaptureFailedError.source`](#CaptureFailedError.source), [`Change.source`](#Change.source), [`ScopeCapabilities.frame_rules`](#ScopeCapabilities.frame_rules).  
-Taken by: [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force), [`ImagingAPI.changes_in_force_limit_s`](#ImagingAPI.changes_in_force_limit_s), [`ScopeSession.capture_still`](#ScopeSession.capture_still).
+Taken by: [`ImagingAPI.changes_in_force`](#ImagingAPI.changes_in_force), [`ScopeSession.capture_still`](#ScopeSession.capture_still).
 
 What changed, for a capture to wait out.
 
@@ -18768,11 +18568,8 @@ reads what the person was shown.
 | `POST` | `/api/v1/light_shown_channel` | [`ScopeSession.light_shown_channel`](#ScopeSession.light_shown_channel) |
 | `GET` | `/api/v1/live_folder_listing` | [`ScopeSession.live_folder_listing`](#ScopeSession.live_folder_listing) |
 | `POST` | `/api/v1/load_protocol` | [`ScopeSession.load_protocol`](#ScopeSession.load_protocol) |
-| `GET` | `/api/v1/manual_capture/in_flight` | [`ManualCaptureController.in_flight`](#ManualCaptureController.in_flight) |
 | `POST` | `/api/v1/manual_capture/start_save_still` | [`ManualCaptureController.start_save_still`](#ManualCaptureController.start_save_still) |
 | `GET` | `/api/v1/manual_recording/elapsed_s` | [`ManualRecordingController.elapsed_s`](#ManualRecordingController.elapsed_s) |
-| `GET` | `/api/v1/manual_recording/end_reason` | [`ManualRecordingController.end_reason`](#ManualRecordingController.end_reason) |
-| `GET` | `/api/v1/manual_recording/is_busy` | [`ManualRecordingController.is_busy`](#ManualRecordingController.is_busy) |
 | `GET` | `/api/v1/manual_recording/is_draining` | [`ManualRecordingController.is_draining`](#ManualRecordingController.is_draining) |
 | `GET` | `/api/v1/manual_recording/is_recording` | [`ManualRecordingController.is_recording`](#ManualRecordingController.is_recording) |
 | `GET` | `/api/v1/manual_recording/pending_writes` | [`ManualRecordingController.pending_writes`](#ManualRecordingController.pending_writes) |

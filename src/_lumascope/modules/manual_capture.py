@@ -144,7 +144,6 @@ class ManualCaptureController:
         # grab. Released on the lane, which a plain Lock allows.
         self._in_flight = threading.Lock()
 
-    @api
     @property
     def in_flight(self) -> bool:
         """True from a ``start_save_still`` call until its camera-lane body has ended.

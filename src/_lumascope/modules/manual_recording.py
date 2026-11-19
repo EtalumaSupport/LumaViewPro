@@ -286,7 +286,6 @@ class ManualRecordingController:
         """
         return self._engine.pending_writes if self._engine is not None else 0
 
-    @api
     @property
     def is_busy(self) -> bool:
         """True until the recording, its drain, AND the finish complete.
@@ -786,7 +785,6 @@ class ManualRecordingController:
         # lands between the two is dropped, as one after the removal is.
         self._scope.imaging.remove_frame_listener(self._on_camera_frame)
 
-    @api
     @property
     def end_reason(self) -> str | None:
         """Why the most recent recording ended, or None before any has.

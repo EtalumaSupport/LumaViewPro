@@ -1232,7 +1232,6 @@ class ImagingAPI:
             auto_gain=auto_gain,
         )
 
-    @api(in_process=True)
     def map_camera_clock(self) -> ClockMapping | None:
         """The camera's clock mapped onto the host's steady and wall clocks, now.
 
@@ -1308,7 +1307,6 @@ class ImagingAPI:
         n, settle_s = self._settle_budget(exclude_sources, frame_cost_s)
         return n, self._CAPTURE_DEADLINE_FLOOR_S + settle_s
 
-    @api(in_process=True)
     def changes_in_force_limit_s(
         self, exclude_sources: tuple[FrameValiditySource, ...] = ()
     ) -> float:
@@ -2203,7 +2201,6 @@ class ImagingAPI:
         self._tell_clamped_sum(asked_sum, sum_count)
         return grabbed.image
 
-    @api(in_process=True, reads=True)
     def buffered_image(
         self,
         force_to_8bit: bool = True,
@@ -2692,7 +2689,6 @@ class ImagingAPI:
             return NOT_DELIVERING
         return rate
 
-    @api(in_process=True, reads=True)
     def wait_for_delivered_rate(self, wait_s: float) -> DeliveredRate:
         """Read the delivered rate, waiting up to ``wait_s`` for one to be measured.
 
