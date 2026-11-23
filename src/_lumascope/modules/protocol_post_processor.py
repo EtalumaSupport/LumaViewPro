@@ -263,6 +263,12 @@ class ProtocolPostProcessor(abc.ABC):
     # through it, and a build that needs every scan whole builds from the
     # scans before it.
     _WHOLE_SCANS_ONLY = False
+    # Whether a folder whose every group holds one image is a complete
+    # answer (nothing to combine) rather than a refusal. It is complete for
+    # a build only the run that wrote the folder asks for, where it means
+    # the run had nothing to combine; it is a refusal for a build a person
+    # points at a folder, where it means the folder was the wrong one.
+    _SINGLES_ARE_COMPLETE = False
 
     def __init__(
         self,
@@ -753,6 +759,9 @@ class ProtocolPostProcessor(abc.ABC):
         output_significant_bits = None
         completed_group_ms = []
         skipped_single_paths = []
+        # Each one-image group whose image is not in the folder: counted
+        # apart from the skipped singles, which are saved and these are not.
+        no_image_groups = 0
         # The build that made each removed group's images (``_removed``).
         removed_groups: list[PostProcessingOperation] = []
         # Where each produced artifact landed. The return used to carry only
@@ -804,10 +813,17 @@ class ProtocolPostProcessor(abc.ABC):
             missing = group[_missing(group)]
             frames = len(group) - len(missing) + int(missing['Frames'].sum() if len(missing) else 0)
             if frames == 1:
-                if missing.empty:
-                    skipped_single_paths.append(str(group.iloc[0]['Filepath']))
+                if len(group) > len(missing):
+                    present = group[~_missing(group)]
+                    skipped_single_paths.append(str(present.iloc[0]['Filepath']))
                     logger.debug(
-                        f'[{self._name} ] Skipping generation for {group.iloc[0]["Filepath"]} since only {len(group)} image found.'
+                        f'[{self._name} ] Skipping generation for {present.iloc[0]["Filepath"]} since only {len(group)} image found.'
+                    )
+                else:
+                    no_image_groups += 1
+                    logger.info(
+                        f'[{self._name} ] Nothing to combine at {_subject(group)}, and its '
+                        f'one image is not in the folder: {_missing_frames_error(missing)}'
                     )
                 continue
 
@@ -984,6 +1000,12 @@ class ProtocolPostProcessor(abc.ABC):
             if skipped_single_paths
             else ''
         )
+        no_image_note = (
+            f' {no_image_groups} single-image group(s) have no image in the folder '
+            '(the log names each).'
+            if no_image_groups
+            else ''
+        )
         remedy = _remedy_for(self._post_function, excluded_kinds)
         excluded_note = (
             f' Excluded from this operation: {excluded_text}.{remedy}' if excluded_text else ''
@@ -1001,8 +1023,13 @@ class ProtocolPostProcessor(abc.ABC):
             if left_out
             else ''
         )
-        accounting_note = f'{single_skip_note}{excluded_note}{removed_note}{left_out_note}'
+        accounting_note = (
+            f'{single_skip_note}{no_image_note}{excluded_note}{removed_note}{left_out_note}'
+        )
 
+        # The answer for a build that declares a folder of single images
+        # complete, so its reader need not infer it from the counts.
+        nothing_to_combine = False
         # A removed group is a complete answer, as an output already made is.
         if (new_count == 0) and (existing_count == 0) and not removed_groups:
             fname = self.operation_label
@@ -1030,7 +1057,11 @@ class ProtocolPostProcessor(abc.ABC):
             needed = _MULTI_FRAME_REQUIREMENT.get(
                 self._post_function, 'multiple frames per scan position'
             )
-            if last_error is None:
+            # Every group held one image: for a build that declares that a
+            # complete answer, it falls through to the success below.
+            only_singles = bool(skipped_single_paths or no_image_groups)
+            nothing_to_combine = last_error is None and self._SINGLES_ARE_COMPLETE and only_singles
+            if last_error is None and not nothing_to_combine:
                 raise self._refuse(
                     'no_data',
                     f'No {fname} was generated. {fname} requires {needed}. '
@@ -1081,6 +1112,7 @@ class ProtocolPostProcessor(abc.ABC):
             'status': True,
             'message': f'Success.{accounting_note}',
             'new_count': new_count,
+            'nothing_to_combine': nothing_to_combine,
             'output_root': str(root_path),
             'artifact_paths': artifact_paths,
             'carried_forward': frozenset(carried),

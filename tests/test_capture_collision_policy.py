@@ -325,6 +325,9 @@ def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monk
         'status': True,
         'message': 'Success.',
         'new_count': 0,
+        # Outputs already made, not single images: there was something to
+        # combine, and it was combined before.
+        'nothing_to_combine': False,
         'output_root': str(tmp_path),
         # Everything was already in the record, so nothing was produced this
         # run -- the empty list is the honest answer, not a missing key.

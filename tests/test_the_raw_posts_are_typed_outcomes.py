@@ -51,7 +51,12 @@ _NOTICES = [
     (exc.HyperstacksSavingNotice(), 'hyperstacks_saving'),
     (
         exc.HyperstacksSavedNotice(
-            {'new_count': 3, 'output_root': '/data/run', 'accounting_note': ''}
+            {
+                'new_count': 3,
+                'nothing_to_combine': False,
+                'output_root': '/data/run',
+                'accounting_note': '',
+            }
         ),
         'hyperstacks_saved',
     ),

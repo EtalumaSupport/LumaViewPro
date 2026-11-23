@@ -85,6 +85,7 @@ class TestRunnerHyperstackTrigger:
                 'message': 'Success.',
                 'degraded': False,
                 'new_count': 0,
+                'nothing_to_combine': False,
                 'output_root': path,
                 'accounting_note': '',
             }

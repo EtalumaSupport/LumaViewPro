@@ -444,6 +444,13 @@ class HyperstacksSavedNotice(Notice, Exception):  # noqa: N818 -- a notice, not 
     def __init__(self, result: dict):
         if result.get('degraded'):
             message = result['message']
+        elif result['nothing_to_combine']:
+            # Said of the folder alone: a run stopped after its first scan
+            # leaves the same folder as a run of one scan.
+            message = (
+                f'Nothing to stack: no place in {result["output_root"]} has more than one '
+                f'image; its images are saved.{result["accounting_note"]}'
+            )
         else:
             message = (
                 f'{result["new_count"]} hyperstack(s) saved to {result["output_root"]}.'

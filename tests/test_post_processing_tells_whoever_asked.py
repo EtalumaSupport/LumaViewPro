@@ -246,6 +246,7 @@ def test_the_post_run_build_announces_then_answers_under_one_key(
         'status': True,
         'message': 'Success.',
         'new_count': 4,
+        'nothing_to_combine': False,
         'output_root': str(tmp_path),
         'artifact_paths': [],
         'accounting_note': '',

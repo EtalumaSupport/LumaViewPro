@@ -196,6 +196,7 @@ def no_post_run_builds() -> MagicMock:
                 'message': 'Nothing was built.',
                 'degraded': False,
                 'new_count': 0,
+                'nothing_to_combine': False,
                 'output_root': '',
                 'accounting_note': '',
                 'artifact_paths': [],

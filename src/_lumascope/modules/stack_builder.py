@@ -97,6 +97,9 @@ class StackBuilder(ProtocolPostProcessor):
     # A stack's T axis is its scans, so one the run ended partway through
     # is left out rather than refusing the stack its complete ones.
     _WHOLE_SCANS_ONLY = True
+    # Only the run that wrote a folder builds its hyperstacks, so a folder
+    # of single images means that run had nothing to stack.
+    _SINGLES_ARE_COMPLETE = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(
