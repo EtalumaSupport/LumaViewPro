@@ -6763,7 +6763,7 @@ answering; either ends it in `HomingFaultError`.
 - `BlockingCallRefusedError`: `'wait_on_ui_thread'`, called on the UI thread; nothing was started (`start_home` is the form for a button).
 - `ArgumentRefusedError`: `'not_offered'`, `axis` is not `'Z'`, `'T'` or `'ALL'`; nothing was asked of the scope.
 - `HardwareCommandRefusedError`: `'not_connected'` or `'axis_absent'`, no motor controller, or no Z or turret to home; `'exclusive_activity_running'`, a run, a diagnostic or a recording holds the scope; `'home_in_flight'`, a home asked earlier, by any caller, has not ended; or `'lid_open_before_motion'`, the stage's lid is open, and nothing moves. After a home that succeeded, the put-back's move refused before it drove (`'lid_open_before_motion'`, `'monitor_ended'`). For `'T'`, the Z park before the turret's home refused before Z moved (`'monitor_ended'`, or an interlock reason), the turret as it was.
-- `HomingFaultError`: the home was driven and did not establish a reference: `'error'`, the driver raised; `'board_lost'`, the motor board is no longer connected; `'unread'`, a homed axis's position could not be read; `'lid_open'` or `'stage_unpowered'`, an interlock opened while the home moved. The axes it names are UNKNOWN.
+- `HomingFaultError`: the home was driven and did not establish a reference: `'driver_failed'`, the driver raised; `'board_lost'`, the motor board is no longer connected; `'position_unread_after_move'`, a homed axis's position could not be read; `'lid_open'` or `'stage_unpowered'`, an interlock opened while the home moved. The axes it names are UNKNOWN.
 - `HomingStoppedError`: a Stop ended the home. The axes it names are UNKNOWN; none, when the Stop landed before the home was driven.
 - `AxisStateUnknownError`: for `'T'`, an axis of the scope has no known position; nothing was driven. `'ALL'` recovers it.
 - `MoveFaultError`: for `'T'`, the Z park before the turret's home or the Z restore after it failed; the turret keeps its state and slot when it was never driven, else it is UNKNOWN. A park refused before Z moved is a `HardwareCommandRefusedError`, above. After a home that succeeded, the put-back's turret change or Z move did not arrive; every homed axis keeps the position the home established.
@@ -6785,7 +6785,7 @@ as that activity's work and takes no claim of its own.
 - [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - [`BlockingCallRefusedError`](#BlockingCallRefusedError): `wait_on_ui_thread`, `blocking_on_worker`, `blocking_inline`
 - [`ArgumentRefusedError`](#ArgumentRefusedError): `not_offered`
-- [`HomingFaultError`](#HomingFaultError): `error`, `board_lost`, `unread`, `lid_open`, `stage_unpowered`
+- [`HomingFaultError`](#HomingFaultError): `driver_failed`, `board_lost`, `position_unread_after_move`, `lid_open`, `stage_unpowered`
 - [`MoveFaultError`](#MoveFaultError): `driver_failed`, `faulted`, `stalled`, `monitor_ended_mid_move`, `board_lost`, `position_unread_after_move`, `status_unread`
 - [`ConfigurationDefectError`](#ConfigurationDefectError): `scope_not_composed`
 - [`LaneCallStillRunningError`](#LaneCallStillRunningError): `call_overran`, `lane_closed`
@@ -15433,17 +15433,20 @@ Each leaves the axes UNKNOWN, so no caller may take the scope as
 knowing where it is. The motors may have moved. Chained from the
 driver's exception when there is one.
 
+Its reasons are a failed move's words for the same facts, so a caller
+branching on one reads it the same from a home and from a move.
+
 **Attributes**
 
-- `reason`: `'error'` -- the home raised; `'board_lost'` -- the home raised and the motor board is no longer connected; `'unread'` -- homed, but `axes` could not be read; `'lid_open'` -- the lid was opened while the home was moving.
+- `reason`: `'driver_failed'` -- the home raised; `'board_lost'` -- the home raised and the motor board is no longer connected; `'position_unread_after_move'` -- homed, but `axes` could not be read; `'lid_open'` -- the lid was opened while the home was moving; `'stage_unpowered'` -- the stage lost its power while the home was moving.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `board_lost` | -- | 500 |
-| `error` | -- | 500 |
+| `driver_failed` | -- | 500 |
 | `lid_open` | -- | 500 |
+| `position_unread_after_move` | -- | 500 |
 | `stage_unpowered` | -- | 500 |
-| `unread` | -- | 500 |
 
 <a id="HomingStoppedError"></a>
 ### `lumascope.HomingStoppedError`

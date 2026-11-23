@@ -758,13 +758,13 @@ class MotionAPI:
         moves the stop generation but is no one's Stop, so a home it ended
         ends in its fault: ``'board_lost'`` when the motor board is no
         longer connected, so the home that finds the loss says so, else
-        ``'error'``. The caller chains it from what was raised.
+        ``'driver_failed'``. The caller chains it from what was raised.
         """
         with self._stop_lock:
             stopped = self._stops_asked != stops_asked
         if stopped:
             return HomingStoppedError(home, 'stopped', axes)
-        return HomingFaultError(home, 'board_lost' if self._board_lost() else 'error', axes)
+        return HomingFaultError(home, 'board_lost' if self._board_lost() else 'driver_failed', axes)
 
     @api(reads=True)
     def read_interlocks(self) -> frozenset[Interlock]:
@@ -1239,7 +1239,8 @@ class MotionAPI:
                 ``refuse_absent``); or an interlock reason, the stage's
                 interlock refused the home before anything moved. Nothing
                 was driven, and every axis keeps the state it had.
-            HomingFaultError: the driver raised a hardware fault, or a homed
+            HomingFaultError: ``'driver_failed'``, the driver raised a
+                hardware fault; ``'position_unread_after_move'``, a homed
                 axis's position could not be read; ``'board_lost'``, the
                 motor board is no longer connected; ``'lid_open'``, the lid
                 was opened while the home moved.
@@ -2193,8 +2194,9 @@ class MotionAPI:
                 ``refuse_absent``); or an interlock reason, the stage's
                 interlock refused the home before anything moved. Nothing
                 was driven, and Z keeps the state it had.
-            HomingFaultError: the driver raised a hardware fault (no
-                response, a firmware error), or Z's position could not be
+            HomingFaultError: ``'driver_failed'``, the driver raised a
+                hardware fault (no response, a firmware error);
+                ``'position_unread_after_move'``, Z's position could not be
                 read; ``'board_lost'``, the motor board is no longer
                 connected; ``'lid_open'``, the lid was opened while the home
                 moved.
@@ -2451,12 +2453,13 @@ class MotionAPI:
         home on a scope with no turret) is never counted unread.
 
         Raises:
-            HomingFaultError: ``'unread'``, naming the unread axes.
+            HomingFaultError: ``'position_unread_after_move'``, naming the
+                unread axes.
         """
         present = self._scope.capabilities.axes
         unread = [ax for ax in homed if ax in present and ax not in read]
         if unread:
-            raise HomingFaultError(home, 'unread', unread)
+            raise HomingFaultError(home, 'position_unread_after_move', unread)
 
     def _refresh_position_cache(self) -> set[str]:
         """Read every axis's position from the hardware into the cache.
@@ -3924,9 +3927,10 @@ class MotionAPI:
                 Z moved (``'monitor_ended'``, or an interlock reason), the
                 turret as it was.
             HomingFaultError: the home was driven and did not establish
-                a reference: ``'error'``, the driver raised;
+                a reference: ``'driver_failed'``, the driver raised;
                 ``'board_lost'``, the motor board is no longer connected;
-                ``'unread'``, a homed axis's position could not be read;
+                ``'position_unread_after_move'``, a homed axis's position
+                could not be read;
                 ``'lid_open'`` or ``'stage_unpowered'``, an interlock opened
                 while the home moved. The axes it names are UNKNOWN.
             HomingStoppedError: a Stop ended the home. The axes it names

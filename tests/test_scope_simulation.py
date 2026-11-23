@@ -396,7 +396,7 @@ def test_a_firmware_home_fault_raises_from_the_firmwares_reply(firmware_scope):
     firmware_scope.simulation.fail_home('X', 'absent')
     with pytest.raises(HomingFailedError) as failed:
         firmware_scope.motion.home()
-    assert failed.value.reason == 'error'
+    assert failed.value.reason == 'driver_failed'
     assert isinstance(failed.value.__cause__, HardwareError)
 
 
@@ -451,7 +451,7 @@ def test_the_ls720s_broken_home_switch_fails_the_home_until_cleared(ls720, monke
     ls720.simulation.fail_home('Z', 'switch_never_trips')
     with pytest.raises(HomingFailedError) as failed:
         ls720.motion.home()
-    assert failed.value.reason == 'error'
+    assert failed.value.reason == 'driver_failed'
     ls720.simulation.clear()
     ls720.motion.home()
     assert not (ls720.motion.axes_without_position.keys() - {'T'})

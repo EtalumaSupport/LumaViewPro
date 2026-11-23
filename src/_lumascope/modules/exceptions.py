@@ -5599,22 +5599,27 @@ class HomingFaultError(Fault, HomingFailedError):
     knowing where it is. The motors may have moved. Chained from the
     driver's exception when there is one.
 
+    Its reasons are a failed move's words for the same facts, so a caller
+    branching on one reads it the same from a home and from a move.
+
     Attributes:
-        reason: ``'error'`` -- the home raised; ``'board_lost'`` -- the
-            home raised and the motor board is no longer connected;
-            ``'unread'`` -- homed, but ``axes`` could not be read;
-            ``'lid_open'`` -- the lid was opened while the home was moving.
+        reason: ``'driver_failed'`` -- the home raised; ``'board_lost'`` --
+            the home raised and the motor board is no longer connected;
+            ``'position_unread_after_move'`` -- homed, but ``axes`` could
+            not be read; ``'lid_open'`` -- the lid was opened while the home
+            was moving; ``'stage_unpowered'`` -- the stage lost its power
+            while the home was moving.
     """
 
     words_for_person = True
     title = 'Homing Failed'
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
-        ('error', 'board_lost', 'unread', *INTERLOCK_TITLES)
+        ('driver_failed', 'board_lost', 'position_unread_after_move', *INTERLOCK_TITLES)
     )
     same_fact_as = (MotionInterlockError, MoveFaultError)
 
     def _sentence(self, subject: str) -> str:
-        if self.reason == 'unread':
+        if self.reason == 'position_unread_after_move':
             return (
                 f'Homing finished but the position of {", ".join(self.axes)} '
                 'could not be read. Position is unknown.'

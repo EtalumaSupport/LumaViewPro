@@ -471,7 +471,7 @@ def _stopped(slot) -> None:
 
 
 def _failed(target) -> None:
-    raise HomingFaultError('ALL', 'error', ('Z',))
+    raise HomingFaultError('ALL', 'driver_failed', ('Z',))
 
 
 def _defect(target) -> None:

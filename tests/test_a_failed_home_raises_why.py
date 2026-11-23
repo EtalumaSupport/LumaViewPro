@@ -21,10 +21,12 @@ import threading
 import pytest
 
 from _lumascope.drivers.exceptions import BoardNoReplyError
+from _lumascope.lib.stage_interlock import INTERLOCK_TITLES
 from _lumascope.modules.exceptions import (
     HardwareCommandRefusedError,
     HomingFailedError,
     HomingFaultError,
+    MoveFaultError,
 )
 from _lumascope.modules.axes import AxisState
 from tests.scope_fakes import bind_settings_like_a_session, build_scope
@@ -61,6 +63,14 @@ def test_no_motor_controller_is_a_refusal_in_the_cables_words(scope, monkeypatch
     assert scope.posts == []
 
 
+def test_a_home_fault_says_each_fact_in_a_failed_moves_words():
+    """A caller branching on a reason reads one word for one fact from a
+    home and a move: every reason a home's fault carries is a failed
+    move's, or an interlock's, which no move fault carries."""
+    own = set(HomingFaultError.causes) - set(MoveFaultError.causes) - set(INTERLOCK_TITLES)
+    assert own == set()
+
+
 @pytest.mark.parametrize('route', ROUTES)
 def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route):
     cause = BoardNoReplyError('no response from motor board')
@@ -73,7 +83,7 @@ def test_a_driver_that_raises_is_chained_not_rewrapped(scope, monkeypatch, route
     with pytest.raises(HomingFaultError) as raised:
         scope.motion.home(route)
 
-    assert raised.value.reason == 'error'
+    assert raised.value.reason == 'driver_failed'
     assert str(raised.value) == f'{SUBJECT[route]} encountered an error. Position is unknown.'
     assert raised.value.__cause__ is cause
     assert raised.value.axes == _axes_of(scope, route)
@@ -109,7 +119,7 @@ def test_a_home_whose_position_is_unread_names_the_unread_axis(scope, route):
     with pytest.raises(HomingFaultError) as raised:
         scope.motion.home(route)
 
-    assert raised.value.reason == 'unread'
+    assert raised.value.reason == 'position_unread_after_move'
     assert raised.value.axes == (unread,)
     assert raised.value.__cause__ is None
     assert f'position of {unread} could not be read' in str(raised.value)

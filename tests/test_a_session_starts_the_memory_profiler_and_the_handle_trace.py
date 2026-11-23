@@ -137,7 +137,7 @@ def test_a_startup_home_that_succeeds_is_followed_by_the_post_homing_snapshot(se
 
 def test_a_startup_home_that_fails_takes_no_snapshot(session, snapshots):
     def failed(target):
-        raise HomingFaultError('ALL', 'error', ('X', 'Y', 'Z', 'T'))
+        raise HomingFaultError('ALL', 'driver_failed', ('X', 'Y', 'Z', 'T'))
 
     session.run_application_session(home_fn=failed)
 

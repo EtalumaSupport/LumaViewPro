@@ -37,7 +37,7 @@ def _raises(exc):
 
 def test_a_homing_fault_is_shown_once_and_the_turret_is_not_moved(session, centre_posts):
     turret = []
-    fault = HomingFaultError('ALL', 'error', ('X', 'Y', 'Z', 'T'))
+    fault = HomingFaultError('ALL', 'driver_failed', ('X', 'Y', 'Z', 'T'))
     session.run_application_session(home_fn=_raises(fault), turret_fn=turret.append)
 
     assert [(n.severity, n.title, n.message) for n in centre_posts] == [
