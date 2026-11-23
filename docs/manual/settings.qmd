@@ -69,7 +69,9 @@ and composites.
 - TIFF and OME-TIFF: as for [Live Image Format]{.guilabel}.
 - Hyperstack: at the end of the run, the images of each well are combined
   into one OME-TIFF stack, which ImageJ and Fiji open through Bio-Formats.
-  A protocol's video steps follow
+  A run you stop partway through a scan is stacked from its complete
+  scans; the images of the scan it didn't finish are left out of the
+  stack, and LumaViewPro tells you which. A protocol's video steps follow
   [Video Recording Format]{.guilabel} instead (@sec-video-format).
 - JPG: as for [Live Image Format]{.guilabel}. A run saved as JPG can't be
   Z-projected, stitched, combined into a composite or made into a video.
