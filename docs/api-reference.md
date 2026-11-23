@@ -17516,6 +17516,27 @@ words.
 |---|---|---|
 | `video_frames_dropped` | -- | 500 |
 
+<a id="VideoNotFinishedError"></a>
+### `lumascope.VideoNotFinishedError`
+
+A fault; bases `Fault`, `CaptureError`.
+
+A video file could not be finished, so it may not open.
+
+Raised when the encoder's last flush or the file's close fails at the
+end of a recording or a video build (a full disk, a drive lost at the
+close), chained from what failed. The file is released either way; a recording
+keeps it, since it is the only copy of what was captured, and a video
+build removes it, since its source frames remain.
+
+**Attributes**
+
+- `output_path`: The video file that was not finished.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `video_not_finished` | -- | 500 |
+
 <a id="VideoWriterFailedError"></a>
 ### `lumascope.VideoWriterFailedError`
 

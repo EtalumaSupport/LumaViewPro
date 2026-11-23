@@ -10,6 +10,7 @@ The "FPS budget exceeded" notice is gone: the setting is a limit, and a
 camera slower than a limit is not a problem.
 """
 
+import pathlib
 import threading
 
 import pytest
@@ -25,11 +26,15 @@ from _lumascope.modules.exceptions import (
     RecordingFramesUnstampedError,
     RecordingStoppedError,
     VideoFramesDroppedError,
+    VideoNotFinishedError,
+    VideoWriterFailedError,
 )
 from _lumascope.modules.notification_center import outcome_of
+from _lumascope.modules.run_outcome import RunEnding, RunStatus
 from _lumascope.modules.image_mode import RecordingFormat
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
-from tests.video_step_drives import record_first_frame, video_step_on
+from tests.video_close_faults import fail_the_close
+from tests.video_step_drives import record_first_frame, record_first_mp4_frame, video_step_on
 from tests.video_engine_harness import NotifyRecorder
 
 
@@ -59,6 +64,12 @@ def _record_reports(monkeypatch, module):
             'Free disk space fell below the safety floor, so the recording was '
             'stopped early. Frames captured so far are saved; free up space before '
             'recording again.',
+        ),
+        (
+            VideoNotFinishedError('/data/clip.mp4'),
+            'Video Not Finished',
+            'The video /data/clip.mp4 could not be finished and may not open. '
+            'Check disk space and the log.',
         ),
         (
             RecordingFinalizeError(protocol_step=False),
@@ -164,6 +175,7 @@ def _record_reports(monkeypatch, module):
     ids=[
         'stalled',
         'disk',
+        'video-not-finished',
         'finalize-manual',
         'finalize-step',
         'dropped-manual',
@@ -390,6 +402,100 @@ def test_a_video_steps_failed_finish_is_chained_under_protocol(sim_scope, tmp_pa
     assert isinstance(fault, RecordingFinalizeError) and fault.protocol_step is True
     assert fault.__cause__ is failure
     assert kw == {'solicited': False, 'category': 'Protocol'}
+
+
+def test_a_manual_video_that_cannot_be_finished_is_reported_as_itself(
+    tmp_path, monkeypatch, post_processing
+):
+    # The disk fills mid-stream: frames fail to encode, then the close fails.
+    # Their counts describe a file that may not open, so the one report is
+    # the video not finished, and the file is kept.
+    controller, scope, clock = make_controller(
+        tmp_path, recording_format=RecordingFormat.MP4, post_processing=post_processing
+    )
+    reported = _record_reports(monkeypatch, manual_recording_module)
+    failing = fail_the_close(monkeypatch, after_packets=2)
+
+    controller.start()
+    feed_frames(scope, clock, 40, fps=10.0)
+    controller.stop()
+    finish(controller)
+
+    ((fault, kw),) = reported
+    assert isinstance(fault, VideoNotFinishedError)
+    assert str(fault.output_path) == failing[0]
+    assert kw == {'solicited': False, 'category': 'Recording'}
+    assert failing.packets_refused, 'no frame failed to encode; the case is not mid-stream'
+    assert pathlib.Path(failing[0]).exists(), 'the only copy of the recording was removed'
+
+
+def test_a_manual_video_that_cannot_be_finished_is_never_said_saved_slowly(
+    tmp_path, monkeypatch, post_processing
+):
+    # The disk fills only at the trailer: every frame encoded, the close
+    # failed. A slow save is told as every frame kept, untrue of this file.
+    controller, scope, clock = make_controller(
+        tmp_path, recording_format=RecordingFormat.MP4, post_processing=post_processing
+    )
+    reported = _record_reports(monkeypatch, manual_recording_module)
+    monkeypatch.setattr(video_recording, 'RECORDING_SAVE_WAIT_NOTICE_S', -1.0)
+    fail_the_close(monkeypatch)
+
+    controller.start()
+    feed_frames(scope, clock, 3, fps=10.0)
+    controller.stop()
+    finish(controller)
+
+    assert [type(fault) for fault, _kw in reported] == [VideoNotFinishedError]
+
+
+def test_a_video_step_that_cannot_be_finished_is_one_file_not_written(
+    sim_scope, tmp_path, monkeypatch
+):
+    reported = _record_reports(monkeypatch, protocol_recording)
+    failing = fail_the_close(monkeypatch)
+
+    step = record_first_mp4_frame(sim_scope, tmp_path, monkeypatch)
+
+    ((fault, kw),) = reported
+    assert isinstance(fault, VideoNotFinishedError)
+    assert str(fault.output_path) == failing[0]
+    assert kw == {'solicited': False, 'category': 'Protocol'}
+    step._record_dropped_capture.assert_called_once_with(
+        reason='video_finalize_failed', capture_time=step._start_dt
+    )
+    step._record_step_row.assert_not_called()
+    # Its loss is the file: the run's end neither counts its frames nor
+    # says every frame was kept.
+    assert step.frame_losses is None
+    assert step.kept_every_frame is False
+
+
+def test_a_video_steps_writer_death_still_ends_the_run_when_its_close_fails(
+    sim_scope, tmp_path, monkeypatch
+):
+    reported = _record_reports(monkeypatch, protocol_recording)
+    fail_the_close(monkeypatch)
+
+    class _LaneKiller(BaseException):
+        """Not an Exception, so the writer thread treats it as its own death."""
+
+    def _dying_write(self, *args, **kwargs):
+        raise _LaneKiller('scripted writer death')
+
+    monkeypatch.setattr(protocol_recording.ProtocolVideoStep, '_write_frame', _dying_write)
+    # False color colors the stream, so the writer opens its file at once
+    # and has a close to fail though no frame reaches it.
+    step = record_first_mp4_frame(sim_scope, tmp_path, monkeypatch, step={'False_Color': True})
+
+    assert {type(fault) for fault, _kw in reported} == {
+        VideoNotFinishedError,
+        VideoWriterFailedError,
+    }
+    (died,) = [fault for fault, _kw in reported if isinstance(fault, VideoWriterFailedError)]
+    step._abort_run_fatal.assert_called_once_with(
+        RunEnding(RunStatus.FAILED, 'video_writer_died', str(died)), 'Recording'
+    )
 
 
 def test_a_video_step_sent_only_unstamped_frames_says_so(sim_scope, tmp_path, monkeypatch):

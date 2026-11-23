@@ -66,6 +66,7 @@ from _lumascope.modules.exceptions import (
     RecordingSavedLateNotice,
     RecordingStoppedError,
     VideoFramesDroppedError,
+    VideoNotFinishedError,
     VideoWriterFailedError,
 )
 from _lumascope.modules.lumascope_api.frame_record import (
@@ -1048,13 +1049,20 @@ class ManualRecordingController:
 
         result = None
         writer_dropped = 0
+        unfinished = None
         try:
             # Close the encoder before reading measured truth. An unclosed
             # container is a corrupt file on disk, while the result is only a
             # report -- and result() raises when the engine never finished
             # finalizing, which is exactly when the close matters most.
             if recording.writer is not None:
-                recording.writer.close()
+                try:
+                    recording.writer.close()
+                except VideoNotFinishedError as not_finished:
+                    # Kept, not raised: the measured truth is still read, so a
+                    # writer that died is told as itself. The file stays where
+                    # it is, the only copy of what was captured.
+                    unfinished = not_finished
                 # The MP4 writer swallows per-frame encode errors into its
                 # own counter; fold them into the user-facing total. The
                 # manifest carries the engine-counted failures -- the
@@ -1078,6 +1086,8 @@ class ManualRecordingController:
             # Reporting needs the measured truth; completing the recording
             # does not. Keeping them apart is what lets the operation end --
             # and the UI leave its recording state -- after a failed finish.
+            if unfinished is not None:
+                notifications.report_outcome(unfinished, solicited=False, category='Recording')
             if result is not None:
                 if result.writer_failure is not None:
                     died = VideoWriterFailedError(protocol_step=False)
@@ -1103,7 +1113,7 @@ class ManualRecordingController:
                         '[ManualRecord] No video written: the recording captured 0 '
                         'frames, so no file was produced'
                     )
-                elif recording.writer is not None:
+                elif recording.writer is not None and unfinished is None:
                     logger.info(f'[ManualRecord] Video written to {recording.writer.output_path}')
                 if result.frames_written:
                     self._on_saved(recording.plan.save_folder)
@@ -1117,7 +1127,11 @@ class ManualRecordingController:
                         solicited=False,
                         category='Recording',
                     )
-                elif result.lost_frames(writer_dropped) and not result.aborted:
+                elif (
+                    result.lost_frames(writer_dropped) and not result.aborted and unfinished is None
+                ):
+                    # An unfinished video's counts describe a file that may
+                    # not open: its own report above is the whole answer.
                     notifications.report_outcome(
                         VideoFramesDroppedError(
                             dropped,
@@ -1131,7 +1145,9 @@ class ManualRecordingController:
                         category='Recording',
                     )
                 save_wait_s = result.save_wait_to_tell(writer_dropped)
-                if save_wait_s is not None:
+                # The notice says every frame was kept, untrue of a file that
+                # may not open.
+                if save_wait_s is not None and unfinished is None:
                     notifications.report_outcome(
                         RecordingSavedLateNotice(
                             save_wait_s=save_wait_s,

@@ -3257,6 +3257,31 @@ class RecordingDetailsNotSavedError(Fault, CaptureError):
         )
 
 
+class VideoNotFinishedError(Fault, CaptureError):
+    """A video file could not be finished, so it may not open.
+
+    Raised when the encoder's last flush or the file's close fails at the
+    end of a recording or a video build (a full disk, a drive lost at the
+    close), chained from what failed. The file is released either way; a recording
+    keeps it, since it is the only copy of what was captured, and a video
+    build removes it, since its source frames remain.
+
+    Attributes:
+        output_path: The video file that was not finished.
+    """
+
+    title = 'Video Not Finished'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'video_not_finished': None}
+
+    def __init__(self, output_path):
+        super().__init__(
+            f'The video {output_path} could not be finished and may not open. '
+            'Check disk space and the log.',
+            'video_not_finished',
+        )
+        self.output_path = output_path
+
+
 class ImageSaveError(Fault, CaptureError):
     """An image could not be written to disk.
 

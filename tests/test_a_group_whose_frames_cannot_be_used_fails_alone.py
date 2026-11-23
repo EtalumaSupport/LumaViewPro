@@ -40,6 +40,7 @@ from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.zproject_method import ZProjectMethod
 from tests.stock_channels import LED0, LED1
 from tests.installation_fixtures import shipped_grids
+from tests.video_close_faults import fail_the_close
 
 
 def _write_frame(path: pathlib.Path, *, x: float, seed: int, size: int = 256) -> None:
@@ -258,6 +259,36 @@ def test_a_video_none_of_whose_frames_can_be_read_is_a_failed_group(tmp_path):
 
     assert 'none of its 3 frames' in str(incomplete.value)
     assert all(pathlib.Path(p).exists() for p in incomplete.value.produced_paths)
+    record = (folder / 'protocol_post_record.tsv').read_text()
+    assert 'A1_BF' not in record and 'A2_BF' in record
+
+
+def test_a_video_that_cannot_be_finished_fails_alone_and_leaves_no_file(tmp_path, monkeypatch):
+    folder = _run_folder(
+        tmp_path,
+        [
+            {'name': f'{well}_BF', 'well': well, 'x': 14.38 + 9 * w, 'scan': scan}
+            for w, well in enumerate(('A1', 'A2'))
+            for scan in range(3)
+        ],
+    )
+    failing = fail_the_close(monkeypatch, of=lambda path: 'A1' in pathlib.Path(path).name)
+
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        VideoBuilder(has_turret=False).load_folder(
+            path=folder,
+            tiling_grids=shipped_grids(),
+            frame_rate_fps=5,
+            enable_timestamp_overlay=False,
+            channel_colors=release_colors(),
+        )
+
+    assert len(failing) == 1
+    told = str(incomplete.value)
+    assert 'could not be finished' in told
+    assert pathlib.Path(failing[0]).name not in told, 'the words named the temporary file'
+    assert not pathlib.Path(failing[0]).exists()
+    assert [p.name for p in folder.rglob('*.mp4') if 'A1' in p.name] == []
     record = (folder / 'protocol_post_record.tsv').read_text()
     assert 'A1_BF' not in record and 'A2_BF' in record
 

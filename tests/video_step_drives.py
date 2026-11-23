@@ -108,3 +108,33 @@ def record_first_frame(scope, save_folder, monkeypatch, *, write_fails=False, **
     step.run_blocking()
     assert step.wait_until_finished(timeout=10.0), 'the finish never ended'
     return step, written
+
+
+def record_first_mp4_frame(scope, save_folder, monkeypatch, **overrides):
+    """Run an MP4-leg step on *scope* to its finish; its first frame encoded ends it.
+
+    The step's own ``VideoWriter`` encodes the frame; only its duration is
+    held, passing once the frame is in. Returns the step.
+    """
+    import _lumascope.modules.protocol_recording as protocol_recording
+
+    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    elapsed = ElapsedClock()
+    real_writer = protocol_recording.VideoWriter
+
+    class _EndsAtItsFirstFrame(real_writer):
+        def add_frame(self, *args, **kwargs):
+            super().add_frame(*args, **kwargs)
+            elapsed.pass_duration()
+
+    monkeypatch.setattr(protocol_recording, 'VideoWriter', _EndsAtItsFirstFrame)
+    step = video_step_on(
+        scope,
+        save_folder,
+        recording_format=RecordingFormat.MP4,
+        elapsed_clock=elapsed,
+        **overrides,
+    )
+    step.run_blocking()
+    assert step.wait_until_finished(timeout=10.0), 'the finish never ended'
+    return step

@@ -15,7 +15,7 @@ from _lumascope.modules.channel_record import GREY, ChannelColors, Color
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.common_utils import PostFunction
-from _lumascope.modules.exceptions import InputFramesUnusableError
+from _lumascope.modules.exceptions import InputFramesUnusableError, VideoNotFinishedError
 from _lumascope.modules.api_surface import ProgressCallback
 from _lumascope.modules.protocol_post_processor import (
     ProtocolPostProcessor,
@@ -428,7 +428,19 @@ class VideoBuilder(ProtocolPostProcessor):
 
             i += 1
 
-        video.close()
+        try:
+            video.close()
+        except VideoNotFinishedError as not_finished:
+            # The source frames remain, so the unfinished file goes and the
+            # build can be run again. The words name no file: the caller puts
+            # the video's planned name in front, never the writer's temporary,
+            # which PyAV's own message names, so only its reason is told.
+            pathlib.Path(video.output_path).unlink(missing_ok=True)
+            return {
+                'status': False,
+                'error': f'The video could not be finished ({not_finished.__cause__.strerror}).',
+                'metadata': {},
+            }
 
         if i - video.dropped_frames <= 0:
             # Not one frame reached the video: there is no video to record,

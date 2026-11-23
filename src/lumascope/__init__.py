@@ -239,6 +239,7 @@ from _lumascope.modules.exceptions import (
     UnfitArgument,
     ValueClampedNotice,
     VideoFramesDroppedError,
+    VideoNotFinishedError,
     VideoWriterFailedError,
 )
 from _lumascope.modules.frame_validity import (
@@ -875,6 +876,7 @@ __all__ = [
     'Video',
     'VideoConfig',
     'VideoFramesDroppedError',
+    'VideoNotFinishedError',
     'VideoPhase',
     'VideoProgress',
     'VideoWriterFailedError',

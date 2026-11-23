@@ -7,12 +7,15 @@ against a fake av module so no real encode runs.
 """
 
 import datetime
+import errno
+import os
 from unittest import mock
 
 import numpy as np
 import pytest
 
 import _lumascope.modules.video_writer as video_writer_module
+from _lumascope.modules.exceptions import VideoNotFinishedError
 from _lumascope.modules.video_writer import VideoWriter
 from _lumascope.modules.channel_record import GREY, release_color
 from tests.stock_channels import LED0, LED2
@@ -284,6 +287,60 @@ class TestVideoWriterDropAccounting:
             writer.add_frame(image=np.zeros((24, 32, 3), dtype=np.uint8), timestamp=None)
         assert writer._frame_count == 0, 'a failed encode must not count as a written frame'
         assert writer.dropped_frames == 1
+
+
+class TestAVideoThatCannotBeFinished:
+    """A flush or a close that fails is raised as the video not finished,
+    naming the file, and the file is released either way: a flush that
+    raised once left the container open for the writer's life."""
+
+    class _Container(_FakeContainer):
+        def __init__(self, stream, close_fails):
+            super().__init__(stream)
+            self.close_fails = close_fails
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+            if self.close_fails:
+                raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+    def _closed(self, tmp_path, *, flush_fails=False, close_fails=False):
+        fake_av, fake_stream = _make_fake_av([])
+        container = self._Container(fake_stream, close_fails)
+        fake_av.open.return_value = container
+
+        def _encode(frame=None):
+            if frame is None and flush_fails:
+                raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+            return []
+
+        fake_stream.encode = _encode
+        with mock.patch.object(video_writer_module, 'av', fake_av):
+            writer = VideoWriter(
+                output_path=tmp_path / 'out.mp4',
+                fps=30,
+                width=32,
+                height=24,
+                color=release_color(LED2),
+                include_timestamp_overlay=False,
+            )
+            writer.add_frame(image=np.zeros((24, 32, 3), dtype=np.uint8), timestamp=None)
+            with pytest.raises(VideoNotFinishedError) as raised:
+                writer.close()
+            writer.close()  # a second close is a no-op, never a second raise
+        return writer, container, raised.value
+
+    def test_a_close_that_fails_is_raised_naming_the_file(self, tmp_path):
+        writer, _container, raised = self._closed(tmp_path, close_fails=True)
+        assert raised.output_path == writer.output_path
+        assert str(writer.output_path) in str(raised)
+        assert isinstance(raised.__cause__, OSError) and raised.__cause__.errno == errno.ENOSPC
+
+    def test_a_flush_that_fails_still_closes_the_file(self, tmp_path):
+        _writer, container, raised = self._closed(tmp_path, flush_fails=True)
+        assert container.closed, 'a flush that raised left the file open'
+        assert raised.__cause__.errno == errno.ENOSPC
 
 
 class TestProtocolVideoDropNotification:

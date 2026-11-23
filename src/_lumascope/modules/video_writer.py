@@ -11,11 +11,13 @@ from fractions import Fraction
 # a different container and codec.
 import av
 import numpy as np
+from av.error import FFmpegError
 
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.wall_time as wall_time
 from _lumascope.modules.channel_record import GREY, Color
+from _lumascope.modules.exceptions import VideoNotFinishedError
 from _lumascope.lvp_logger import logger
 
 
@@ -364,20 +366,32 @@ class VideoWriter:
                 self._dropped_frames += 1
 
     def close(self) -> None:
-        """Flush encoder and close the container. Idempotent."""
+        """Flush encoder and close the container. Idempotent.
+
+        Raises:
+            VideoNotFinishedError: The flush or the close failed (a full
+                disk, a drive lost at the close), so the file may not open.
+                The file is released either way.
+        """
         with self._frame_lock:
             if self._finished:
                 return
             self._finished = True
         if self._container is not None:
             try:
-                # Flush encoder
-                for packet in self._stream.encode():
-                    self._container.mux(packet)
-                self._container.close()
-                logger.info(f'VideoWriter: H.264 video closed ({self._frame_count} frames)')
-            except Exception as e:
-                logger.error(f'VideoWriter: PyAV close failed: {e}')
+                try:
+                    # Flush encoder
+                    for packet in self._stream.encode():
+                        self._container.mux(packet)
+                finally:
+                    # Closed whatever the flush did: the flag above makes a
+                    # second close a no-op, so a flush that raised would
+                    # otherwise hold the file open for the writer's life,
+                    # and Windows cannot remove or replace an open file.
+                    self._container.close()
+            except (OSError, FFmpegError) as failed:
+                raise VideoNotFinishedError(self._output_path) from failed
+            logger.info(f'VideoWriter: H.264 video closed ({self._frame_count} frames)')
         else:
             # Reached only when the encoder was never opened -- _init_pyav
             # creates the container eagerly, so a recording that ran and

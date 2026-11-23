@@ -56,6 +56,7 @@ from _lumascope.modules.exceptions import (
     RecordingFinalizeError,
     RecordingFramesUnstampedError,
     VideoFramesDroppedError,
+    VideoNotFinishedError,
     VideoWriterFailedError,
 )
 from _lumascope.modules.run_events import RunEvents, VideoPhase, VideoProgress, deliver
@@ -828,13 +829,20 @@ class ProtocolVideoStep:
 
         result = None
         writer_dropped = 0
+        unfinished = None
         try:
             # Close the encoder before reading measured truth: an unclosed
             # container is a corrupt file on disk, while the result is only
             # a report -- and result() raises when the engine never finished
             # finalizing, which is exactly when the close matters most.
             if self._writer is not None:
-                self._writer.close()
+                try:
+                    self._writer.close()
+                except VideoNotFinishedError as not_finished:
+                    # Kept, not raised: the measured truth is still read, so a
+                    # writer that died still ends the run as itself. The file
+                    # stays where it is, the only copy of what was captured.
+                    unfinished = not_finished
                 # The MP4 writer swallows per-frame encode errors into its
                 # own counter; fold them into the user-facing total. The
                 # manifest carries the engine-counted failures.
@@ -846,6 +854,8 @@ class ProtocolVideoStep:
             notifications.report_outcome(fault, solicited=False, category='Protocol')
         finally:
             self._end_progress()
+            if unfinished is not None:
+                notifications.report_outcome(unfinished, solicited=False, category='Protocol')
             if result is None:
                 # The finish failed before any measured truth existed. The
                 # step still owes the run a row: a video step that vanishes
@@ -875,6 +885,12 @@ class ProtocolVideoStep:
                     )
                     self._record_dropped_capture(
                         reason='video_write_failed', capture_time=self._start_dt
+                    )
+                elif unfinished is not None:
+                    # Frames reached the file and it did not finish: one file
+                    # not written, which the run's end counts.
+                    self._record_dropped_capture(
+                        reason='video_finalize_failed', capture_time=self._start_dt
                     )
                 elif result.frames_written == 0:
                     if all_unstamped:
@@ -919,10 +935,17 @@ class ProtocolVideoStep:
                     notifications.report_outcome(
                         unsaved, solicited=False, category='Video Recording'
                     )
-                if result.lost_frames(writer_dropped) and not result.aborted and not all_unstamped:
+                if (
+                    result.lost_frames(writer_dropped)
+                    and not result.aborted
+                    and not all_unstamped
+                    and unfinished is None
+                ):
                     # Logged, with the step's counts: the run's end shows
                     # every step's losses in one report, so a run of many
                     # steps is told once and an unattended run is told at all.
+                    # An unfinished video's counts describe a file that may
+                    # not open, so its own report is the whole answer there.
                     notifications.report_outcome(
                         VideoFramesDroppedError(
                             dropped,
@@ -936,9 +959,14 @@ class ProtocolVideoStep:
                         category='Protocol',
                         log_only=True,
                     )
-                if not result.aborted:
+                # A file lost, to the writer's death or to an unfinished
+                # close, tells its own loss: its frame counts are not told
+                # beside it, nor is every frame said to be kept.
+                if not result.aborted and unfinished is None:
                     self._frame_losses = result.losses(writer_dropped)
-                self._kept_every_frame = result.kept_every_frame(writer_dropped)
+                self._kept_every_frame = (
+                    result.kept_every_frame(writer_dropped) and unfinished is None
+                )
                 logger.info(f'[PROTOCOL-VIDEO] Finished: {result.summary()}')
 
     # ------------------------------------------------------------------
