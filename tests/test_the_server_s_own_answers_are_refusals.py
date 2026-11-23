@@ -55,7 +55,7 @@ def test_each_reason_s_status_and_title_are_the_type_s():
         'overloaded': (503, 'Overloaded'),
         'server_closing': (503, 'Server Closing'),
         'no_frame_yet': (503, 'No Frame Yet'),
-        'not_cancelable': (409, 'Not Cancellable'),
+        'not_cancelable': (409, 'Not Cancelable'),
         'idempotency_key_reused': (422, 'Idempotency Key Reused'),
         'client_not_allowed': (403, 'Client Not Allowed'),
         'wrong_host': (421, 'Wrong Host'),

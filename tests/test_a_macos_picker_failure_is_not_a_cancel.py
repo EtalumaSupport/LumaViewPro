@@ -139,4 +139,4 @@ def test_a_cancel_is_recorded_under_the_button_s_own_name(
         lambda btn, open_, deliver, *, on_cancel: on_cancel(),
     )
     button.choose(SimpleNamespace(), context)
-    assert selects == [(record, f'context={context} cancelled')]
+    assert selects == [(record, f'context={context} canceled')]
