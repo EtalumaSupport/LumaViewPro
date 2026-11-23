@@ -17,7 +17,7 @@ in a channel's drawer.
   [BF-Phase]{.channel}.
 - **Fluorescence**: each drawer is named for its excitation wavelength, for
   example [488 nm Excitation]{.channel}, and lit by that LED.
-- **Bioluminescence**: the [Lumi]{.channel} channel, on the Lumi microscope. It has no
+- **Bioluminescence**: the [Luminescence]{.channel} channel, on the Lumi microscope. It has no
   LED: the camera images the light the sample emits.
 
 ## Showing a channel {#sec-showing-a-channel}
@@ -38,7 +38,7 @@ each step's channel in turn.
 
 ## Turning the light on and setting its brightness {#sec-channel-illumination}
 
-*Channels with an LED only.* The [Lumi]{.channel} channel has no
+*Channels with an LED only.* The [Luminescence]{.channel} channel has no
 Illumination section. If LumaViewPro doesn't find the microscope's LED
 board when it starts, the section is hidden: check the microscope's cables
 and power, and restart LumaViewPro.
@@ -67,12 +67,12 @@ typed beyond the camera's limit is applied at that limit.
 
 Defaults: [Brightfield]{.channel} [1 dB]{.default setting="BF.gain_db"} and [2 ms]{.default setting="BF.exposure_ms"}; [Phase Contrast]{.channel}
 [1 dB]{.default setting="PC.gain_db"} and [5 ms]{.default setting="PC.exposure_ms"}; [Darkfield]{.channel} [1 dB]{.default setting="DF.gain_db"} and [30 ms]{.default setting="DF.exposure_ms"}; each fluorescence
-channel and the [Lumi]{.channel} channel [10 dB]{.default setting="channel_defaults.fluorescence.gain_db Lumi.gain_db"} and [100 ms]{.default setting="channel_defaults.fluorescence.exposure_ms Lumi.exposure_ms"}.
+channel and the [Luminescence]{.channel} channel [10 dB]{.default setting="channel_defaults.fluorescence.gain_db Lumi.gain_db"} and [100 ms]{.default setting="channel_defaults.fluorescence.exposure_ms Lumi.exposure_ms"}.
 
 ### Letting the camera set gain and exposure {#sec-auto-gain}
 
 *Cameras with automatic gain and exposure only.* The control isn't
-shown on the LS460, LS560, LS620 and LS720, nor on the [Lumi]{.channel} channel.
+shown on the LS460, LS560, LS620 and LS720, nor on the [Luminescence]{.channel} channel.
 
 [Auto Gain/Exp]{.guilabel} lets the camera adjust the gain and exposure
 itself, continuously, to bring the image to a target brightness of 30% of
@@ -99,7 +99,7 @@ overexposed. Set the gain and exposure by hand for such images.
 
 ### Adding frames together for a dim sample {#sec-sum}
 
-*[Lumi]{.channel} channel only.*
+*[Luminescence]{.channel} channel only.*
 
 [Sum]{.guilabel} adds several frames, each at the set exposure, into one
 image to collect more of a faint signal, 1 to 100 frames. Default: [1]{.default setting="channel_defaults.fluorescence.sum Lumi.sum"}, one frame.
@@ -108,7 +108,7 @@ In the [8-bit]{.guilabel} image mode, a summed image is saved in 8 bits and
 the added range is lost; a note in the drawer warns you of this. Select a
 full-depth [Image Mode]{.guilabel} to keep it (@sec-image-mode).
 
-![The Lumi drawer on a Lumi: Sum, and no Illumination
+![The Luminescence drawer on a Lumi: Sum, and no Illumination
 section](images/channels-lumi.png){#fig-channels-lumi width=35%}
 
 ## Saving the channel's focus {#sec-channel-focus}
@@ -163,7 +163,7 @@ channels to change.
 
 ### Which pixels go into a composite {#sec-cbt}
 
-*Fluorescence and [Lumi]{.channel} channels only.*
+*Fluorescence and [Luminescence]{.channel} channels only.*
 
 [CBT (%)]{.guilabel}, the composite brightness threshold, sets which pixels
 of this channel are laid over the transmitted-light image in a composite: a
@@ -189,7 +189,7 @@ Under [Display Properties]{.guilabel}:
 
 - [False Color]{.guilabel}: shows the channel in its swatch's color
   instead of gray. Available on the fluorescence channels and
-  the [Lumi]{.channel} channel; default: [on]{.default setting="channel_defaults.fluorescence.false_color"}. Images saved in the
+  the [Luminescence]{.channel} channel; default: [on]{.default setting="channel_defaults.fluorescence.false_color"}. Images saved in the
   [RGB (full depth)]{.guilabel} image mode are saved in this color
   (@sec-image-mode).
 - [Log]{.guilabel}: draws the histogram's counts on a logarithmic scale,

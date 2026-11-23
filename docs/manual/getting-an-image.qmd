@@ -63,7 +63,7 @@ images will include them.
 
 ## A bioluminescence image {#sec-image-lumi}
 
-*[Lumi]{.channel} channel only.*
+*[Luminescence]{.channel} channel only.*
 
 A luminescent sample is often too faint to focus by its own light, so
 focus in a transmitted-light channel first:
@@ -71,7 +71,7 @@ focus in a transmitted-light channel first:
 1. Open the [Brightfield]{.channel} or [Phase Contrast]{.channel} drawer,
    turn on [Enable LED]{.guilabel}, focus on the sample, and click
    [Save Focus]{.guilabel}.
-2. Open the [Lumi]{.channel} drawer. [Lumi]{.channel} has no LED; the
+2. Open the [Luminescence]{.channel} drawer. [Luminescence]{.channel} has no LED; the
    camera images the light the sample gives off.
 3. Raise [Gain (dB)]{.guilabel} and [Exp (ms)]{.guilabel} toward the top
    of their ranges.
@@ -82,8 +82,8 @@ focus in a transmitted-light channel first:
 5. Click Capture in the toolbar. The image you took shows for a few
    seconds; check that the luminescence shows.
 
-To image [Lumi]{.channel} at the focus you found in transmitted light,
-click [Save Focus]{.guilabel} in the [Lumi]{.channel} drawer too, before
+To image [Luminescence]{.channel} at the focus you found in transmitted light,
+click [Save Focus]{.guilabel} in the [Luminescence]{.channel} drawer too, before
 you move the focus.
 
 ## A composite image {#sec-image-composite}
@@ -97,7 +97,7 @@ transmitted-light channel.
    [Image]{.guilabel} (@sec-channel-acquire). You need at least two
    channels set to [Image]{.guilabel}; with fewer, LumaViewPro won't make
    the composite and shows "Not Enough Channels".
-2. For each fluorescence or [Lumi]{.channel} channel, set
+2. For each fluorescence or [Luminescence]{.channel} channel, set
    [CBT (%)]{.guilabel}. Pixels brighter than this are laid over the
    transmitted-light image (@sec-cbt).
 3. Click Composite in the toolbar. Each channel is captured in turn with

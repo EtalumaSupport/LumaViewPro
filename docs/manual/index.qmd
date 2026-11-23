@@ -24,7 +24,7 @@ that needs particular hardware starts with a note naming it, for example
 | LS850T | yes | yes | yes | Brightfield, Phase Contrast, Darkfield, 405 nm, 488 nm, 589 nm |
 | LS850T-0 | yes | yes | yes | Brightfield, Phase Contrast, Darkfield |
 | | | | | |
-| Lumi | yes | no | no | Brightfield, Phase Contrast, Darkfield, Lumi |
+| Lumi | yes | no | no | Brightfield, Phase Contrast, Darkfield, Luminescence |
 | | | | | |
 | LS460 | no | no | no | BF-Phase |
 | LS560 | no | no | no | BF-Phase, 488 nm |

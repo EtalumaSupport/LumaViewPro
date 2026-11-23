@@ -43,7 +43,7 @@
                 },
                 {
                     "key_name": "Lumi",
-                    "display_name": "Lumi",
+                    "display_name": "Luminescence",
                     "led_channel": null,
                     "excitation_nm": null
                 }

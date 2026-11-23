@@ -135,7 +135,7 @@ channels.
 
 [Create Composites...]{.guilabel} combines the channels taken at the same
 position in the same scan into one color image: each fluorescence or
-[Lumi]{.channel} channel in its color, laid over a transmitted-light
+[Luminescence]{.channel} channel in its color, laid over a transmitted-light
 channel (Brightfield, Phase Contrast or Darkfield) in gray if one was
 taken. Each color channel shows over the gray where it's brighter than its
 [CBT (%)]{.guilabel}, as set in its channel drawer when the tool runs
