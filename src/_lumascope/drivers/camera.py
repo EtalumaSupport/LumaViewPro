@@ -786,6 +786,9 @@ class Camera(ABC):
         # configuration write; held only while the grab is wanted, and written
         # with it by _want_grab and _hold_failed_restart alone (see failed_restart).
         self._failed_restart: CameraStreamStartFailedError | None = None
+        # The session's longest stop that returned, in seconds, written only by
+        # _record_stop (see longest_stop_s); None until a stop is recorded.
+        self._longest_stop_s: float | None = None
 
         self.connect()
         # `found` is a derived property (below) that reads `active`, so it
@@ -1175,6 +1178,30 @@ class Camera(ABC):
         """
         with self._state_lock:
             return self._failed_restart
+
+    @property
+    def longest_stop_s(self) -> float | None:
+        """The longest the camera took to stop its grab this session, in seconds.
+
+        Measured by the driver around its SDK's own stop, for every stop that
+        returned, whoever asked for it; a stop that raised is an unplug's or a
+        fault's and is not counted. Never cleared, so a stalled stop followed
+        by fast ones still reads. None while no stop is recorded, and always
+        on a driver that times none. Reading it changes nothing.
+        """
+        with self._state_lock:
+            return self._longest_stop_s
+
+    @property
+    def resets_at_connect(self) -> bool:
+        """Whether this camera was reset when it connected, so restarting LumaViewPro resets it again."""
+        return False
+
+    def _record_stop(self, elapsed_s: float) -> None:
+        """Count a stop that returned after ``elapsed_s`` seconds toward ``longest_stop_s``."""
+        with self._state_lock:
+            if self._longest_stop_s is None or elapsed_s > self._longest_stop_s:
+                self._longest_stop_s = elapsed_s
 
     def _want_grab(self, wanted: bool) -> None:
         """Record whether the grab is wanted; every start or stop clears a failed restart."""

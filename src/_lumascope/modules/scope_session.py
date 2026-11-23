@@ -100,6 +100,7 @@ from _lumascope.modules.ui_queue import UiDispatcher
 from _lumascope.modules.keep_awake import KeepAwake
 from _lumascope.modules.live_work import LiveWork, WorkItem, WorkKind
 from _lumascope.modules.lumascope_api import AxisPosition, TurretStatus
+from _lumascope.modules.lumascope_api.imaging import SlowCameraStop
 from _lumascope.modules.lumascope_api._constants import (
     refuse_inverted_gain_range,
     refuse_unless_turret_slot,
@@ -514,6 +515,7 @@ class ControlsLock:
     'parts',
     'camera_streaming',
     'host_reading',
+    'slow_camera_stop',
 )
 @dataclasses.dataclass(frozen=True)
 class Status:
@@ -551,6 +553,10 @@ class Status:
         host_reading: This PC's resources as read over the session's
             startup (``ScopeSession.host_reading``); None until the startup
             motion has ended.
+        slow_camera_stop: The camera's slow stop (``SlowCameraStop``): the
+            first stop this session that outlasted the camera's maximum
+            exposure by 5 s, told then as ``CameraStopStalledNotice``. None
+            until one is told.
     """
 
     live_work: LiveWork
@@ -562,6 +568,7 @@ class Status:
     parts: tuple[PartStatus, ...]
     camera_streaming: bool | None
     host_reading: HostReading | None
+    slow_camera_stop: SlowCameraStop | None
 
 
 @api_fields('paths')
@@ -1539,6 +1546,7 @@ class ScopeSession:
             'turret': self.scope.motion.turret_status,
             'parts': self.scope.bring_up_record.parts,
             'host_reading': self._host_reading,
+            'slow_camera_stop': self.scope.imaging.slow_camera_stop,
         }
         return lambda: Status(**at_edge, camera_streaming=self._camera_streaming())
 

@@ -40,6 +40,7 @@ from _lumascope.lib.log_helpers import VERBOSE
 from _lumascope.modules.activity_claim import a_guarded_write
 from _lumascope.modules.exceptions import (
     ArgumentRefusedError,
+    CameraStopStalledNotice,
     CameraStreamStalledError,
     CaptureFailedError,
     FrameHandlerRemovedError,
@@ -225,6 +226,25 @@ def _capture_line(grabbed: _Grabbed, record: FrameRecord, previous_seq: int | No
             f'skip={f["skip"]} by={_counted_by(judgment.change)}'
         )
     return ' | '.join(parts)
+
+
+@api_fields('stop_s', 'resets_at_connect')
+@dataclasses.dataclass(frozen=True)
+class SlowCameraStop:
+    """The camera's slowest stop this session, told because it outlasted every exposure the camera takes.
+
+    The stream check tells it once a session as ``CameraStopStalledNotice``,
+    the first time the driver's longest stop outlasts the camera's maximum
+    exposure by 5 s.
+
+    Attributes:
+        stop_s: How long the stop took.
+        resets_at_connect: Whether LumaViewPro resets the camera when it
+            connects to it, so a restart clears what a stall left.
+    """
+
+    stop_s: float
+    resets_at_connect: bool
 
 
 @api_fields('bytes_per_s', 'frame_rate_fps')
@@ -478,6 +498,9 @@ class ImagingAPI:
         # The failed restart last told, so each is told once whatever the
         # stall flag held when it came.
         self._failed_restart_told: Exception | None = None
+        # The camera's slow stop, told once a session by _judge_stop on the
+        # scheduler's thread and never cleared (see slow_camera_stop).
+        self._slow_camera_stop: SlowCameraStop | None = None
         # The delivered rate (_sample_delivery), written only on the
         # scheduler's thread: the last (frames, wire bytes, time) reading, and
         # the published (rate, time) pair, replaced whole so a reader on any
@@ -2622,6 +2645,11 @@ class ImagingAPI:
     # shortest stall bound (video_cadence.STALL_FLOOR_S), so a stall is seen
     # within a second of the bound passing.
     _STREAM_CHECK_INTERVAL_S = 1.0
+    # A camera stop is told as slow past the camera's maximum exposure by
+    # this much: the stalled stops of 1.1.0 daA3840s took 11.0-11.7 s at
+    # 15-134 ms exposure, and healthy stops at most 0.61 s
+    # (PERFORMANCE_BUDGETS.md, camera_stop_s).
+    _SLOW_STOP_MARGIN_S = 5.0
 
     def start_stream_check(self, scheduler: Scheduler) -> None:
         """Watch the camera stream, and report a stall when frames stop arriving.
@@ -2769,6 +2797,7 @@ class ImagingAPI:
         # nobody asked, and is watched as a stall like a grab that delivers
         # nothing; a stop someone asked for is not wanted.
         driver = self._driver
+        self._judge_stop(driver)
         streaming = self._scope.camera_connected and driver is not None and driver.grab_wanted
         self._sample_delivery(streaming)
         if not streaming:
@@ -2835,6 +2864,40 @@ class ImagingAPI:
         notifications.report_outcome(
             CameraStreamStalledError(seconds), solicited=False, category='Camera'
         )
+
+    def _judge_stop(self, driver: Camera | None) -> None:
+        """Tell, once a session, a camera stop that outlasted every exposure the camera takes by the margin.
+
+        Judged against the camera's maximum exposure, fixed for the body,
+        never the exposure in force now: the stop may have waited out a
+        longer exposure set before it. Read streaming or not, so a stall at
+        bring-up, before the first tick, is told at that tick.
+        """
+        if self._slow_camera_stop is not None or driver is None:
+            return
+        stop_s = driver.longest_stop_s
+        limits = self._camera.known_setting_limits
+        if stop_s is None or limits is None or limits.exposure_max_ms is None:
+            return
+        if stop_s <= limits.exposure_max_ms / 1000.0 + self._SLOW_STOP_MARGIN_S:
+            return
+        stop = SlowCameraStop(stop_s=stop_s, resets_at_connect=driver.resets_at_connect)
+        self._slow_camera_stop = stop
+        notifications.report_outcome(
+            CameraStopStalledNotice(stop), solicited=False, category='Camera'
+        )
+
+    @property
+    def slow_camera_stop(self) -> SlowCameraStop | None:
+        """The camera's slow stop the stream check told this session; None until one is told.
+
+        Read by ``ScopeSession.status`` (``Status.slow_camera_stop``), so a
+        client that was not listening when it was told still learns of it.
+
+        Raises:
+            Nothing.
+        """
+        return self._slow_camera_stop
 
     @api(in_process=True, event=FrameDelivered)
     def add_frame_listener(

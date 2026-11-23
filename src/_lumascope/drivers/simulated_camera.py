@@ -11,6 +11,7 @@ import collections
 import dataclasses
 from dataclasses import dataclass
 import threading
+import time
 import random
 from collections.abc import Callable
 from typing import ClassVar
@@ -487,6 +488,8 @@ class SimulatedCamera(Camera):
         self._grabbing = False
         # How many starts in a row are refused (refuse_start).
         self._refused_starts = 0
+        # How long the next stop takes (slow_next_stop), in seconds; 0 for a stop at once.
+        self._next_stop_s = 0.0
         self._auto_gain_enabled = False
         self._auto_gain_target_brightness = 0.5
         self._auto_gain_min = 0.0
@@ -792,11 +795,18 @@ class SimulatedCamera(Camera):
         self._start_acquisition()
 
     def _stop_grabbing(self) -> None:
-        """Stop acquiring frames in the simulator."""
+        """Stop acquiring frames in the simulator, timed as a real driver times its SDK's stop."""
+        started_ns = host_clock.steady_ns()
         with self._lock:
             self._grabbing = False
+            stall_s, self._next_stop_s = self._next_stop_s, 0.0
             _cam_log.info('sim stop_grabbing')
             logger.info('[CAM Sim   ] stop_grabbing')
+        if stall_s > 0:
+            time.sleep(stall_s)
+        # The camera's stop alone is timed, never the joins of the simulator's
+        # own threads that follow, as IDS times its SDK's stop and not its joins.
+        self._record_stop((host_clock.steady_ns() - started_ns) / 1e9)
         self._stop_acquisition()
 
     def _start_acquisition(self) -> None:
@@ -941,6 +951,11 @@ class SimulatedCamera(Camera):
         real driver's start that does not take does; the camera stays on the bus."""
         with self._lock:
             self._refused_starts = count
+
+    def slow_next_stop(self, stop_s: float) -> None:
+        """The next stop takes ``stop_s`` before it returns, as a 1.1.0 daA3840's stalled stop does."""
+        with self._lock:
+            self._next_stop_s = stop_s
 
     def allow_start(self) -> None:
         """Take back a ``refuse_start`` that no start has met yet."""

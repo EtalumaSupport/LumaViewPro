@@ -36,6 +36,7 @@ from _lumascope.modules.run_outcome import ENDING_TITLES, FAILURE_REASONS
 if TYPE_CHECKING:
     from _lumascope.modules.frame_validity import FrameValiditySource
     from _lumascope.modules.host_resources import GpuAdapter, HostReading, ProgramCpu
+    from _lumascope.modules.lumascope_api.imaging import SlowCameraStop
     from _lumascope.modules.plugins import PluginNotLoaded
     from _lumascope.modules.tech_support_report import SupportReportKind
 
@@ -558,6 +559,40 @@ class LowSystemResourcesNotice(Notice, Exception):  # noqa: N818 -- a notice, no
         self.disk_low = disk_low
         self.busy = busy
         self.preferred_gpu = preferred_gpu
+
+
+class CameraStopStalledNotice(Notice, Exception):  # noqa: N818 -- a notice, not an error
+    """The camera took far longer to stop streaming than any exposure explains.
+
+    Told once a session, by the imaging API's stream check, the first time
+    the session's longest stop (the driver's ``longest_stop_s``) outlasts the
+    camera's maximum exposure by the check's margin, and kept on
+    ``Status.slow_camera_stop`` for a client that was not listening. The
+    change that stopped the camera completed; every frame-size, binning or
+    pixel-format change stops it again, and on a camera that stalls once each
+    may take as long. The words name no cause: the driver measured only how
+    long the stop took.
+
+    Attributes:
+        stop: The stop told (``SlowCameraStop``): how long it took, and
+            whether the camera is reset when LumaViewPro connects to it,
+            which decides what the words say clears it.
+    """
+
+    title = 'Camera Slow to Stop'
+    causes: ClassVar[dict[str, RefusalCause | None]] = {'camera_stop_stalled': None}
+
+    def __init__(self, stop: 'SlowCameraStop'):
+        clears = (
+            'Restarting LumaViewPro resets the camera, which usually clears it for a while.'
+            if stop.resets_at_connect
+            else 'Turning the scope off and on again may clear it.'
+        )
+        super().__init__(
+            f'The camera took {stop.stop_s:.0f} s to stop streaming. If it happens again, '
+            'each change of frame size, binning or pixel format may take as long. ' + clears
+        )
+        self.stop = stop
 
 
 def _gb(size_bytes: int) -> str:

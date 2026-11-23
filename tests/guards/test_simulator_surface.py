@@ -131,8 +131,10 @@ _SIM_ONLY_NAME_BUDGET = {
     # light_outside, which no real camera has a node for; REVERSE_NODES, the
     # body's reverse nodes a test declares, which a real driver reads from
     # the camera at connect; refuse_start and allow_start, the start a real
-    # driver does not take, behind the door refuse_stream_start.
-    'Camera': 38,
+    # driver does not take, behind the door refuse_stream_start;
+    # slow_next_stop, the stalled stop of a 1.1.0 daA3840, behind the door
+    # of the same name.
+    'Camera': 39,
 }
 
 # Parameter divergences that stay until the simulators gain a shared
@@ -183,6 +185,7 @@ _SIM_ONLY_CALL_ALLOWLIST = {
     (_SIMULATION, 'set_outside_light'),
     (_SIMULATION, 'refuse_start'),
     (_SIMULATION, 'allow_start'),
+    (_SIMULATION, 'slow_next_stop'),
 }
 
 

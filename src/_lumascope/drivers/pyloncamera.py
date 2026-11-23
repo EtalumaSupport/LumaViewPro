@@ -861,6 +861,7 @@ class PylonCamera(Camera):
             )
             raise
         elapsed_s = time.perf_counter() - t0
+        self._record_stop(elapsed_s)
         level = logging.WARNING if elapsed_s >= self._SLOW_GRAB_STOP_S else logging.INFO
         _cam_log.log(
             level,
@@ -1213,6 +1214,7 @@ class PylonCamera(Camera):
 
     def connect(self) -> bool:
         """Try to connect to the first available basler camera"""
+        self._reset_at_this_connect = False
         try:
             # Enumerate ALL Basler devices visible to pylon BEFORE
             # CreateFirstDevice() so the "no device available" failure
@@ -1276,6 +1278,7 @@ class PylonCamera(Camera):
                 else:
                     self.active = None
                     camera.DestroyDevice()
+                    self._reset_at_this_connect = True
                     reset_at = time.monotonic()
                     fault = CameraUsbNotFoundError
                     step = 'its return after its reset'
@@ -1539,6 +1542,11 @@ class PylonCamera(Camera):
                 f'[CAM Class ] {failure}', exc_info=not isinstance(ex, genicam.RuntimeException)
             )
             raise fault(failure) from ex
+
+    @property
+    def resets_at_connect(self) -> bool:
+        """Whether this connect reset the camera (``_resets_at_connect``, with ``DeviceReset``)."""
+        return self._reset_at_this_connect
 
     def _resets_at_connect(self, device_info) -> bool:
         """Whether ``connect`` resets this camera before configuring it.

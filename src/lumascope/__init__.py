@@ -123,6 +123,7 @@ from _lumascope.modules.exceptions import (
     CameraNotAvailableError,
     CameraSettingRejected,
     CameraSettingUnsupportedError,
+    CameraStopStalledNotice,
     CameraStreamStalledError,
     CaptureError,
     CaptureFailedError,
@@ -328,6 +329,7 @@ from _lumascope.modules.lumascope_api.imaging import (
     DeliveredRate,
     FrameDelivered,
     ImagingAPI,
+    SlowCameraStop,
 )
 from _lumascope.modules.lumascope_api.motion import (
     HomeTarget,
@@ -571,6 +573,7 @@ __all__ = [
     'CameraSettingUnsupportedError',
     'CameraSetupFailedError',
     'CameraShutter',
+    'CameraStopStalledNotice',
     'CameraStreamStalledError',
     'CameraStreamStartFailedError',
     'CameraUsbDriverUnusableError',
@@ -838,6 +841,7 @@ __all__ = [
     'SizeSliderStops',
     'SkippedBuild',
     'Slide',
+    'SlowCameraStop',
     'SlowFileWritesNotice',
     'StageAxis',
     'StageDistance',

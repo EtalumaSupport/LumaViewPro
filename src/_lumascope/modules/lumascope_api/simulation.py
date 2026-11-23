@@ -1141,6 +1141,32 @@ class SimulationAPI:
 
     @api(admitted_by=(Admission.GUARDED_WRITE,))
     @_guarded_write
+    def slow_next_stop(self, stop_s: float) -> None:
+        """The camera's next stream stop takes ``stop_s`` to return, as a stalled 1.1.0 daA3840's does.
+
+        The stop is a caller's, or a frame-size, binning or pixel-format
+        change's; whatever asked for it waits it out, and the camera then
+        stops and is restarted as it would be. ``clear`` takes back a slow
+        stop that no stop has met yet.
+
+        Args:
+            stop_s: How long the stop takes, above 0 s, at most 30 days.
+
+        Raises:
+            ArgumentRefusedError: ``'needs_simulated_scope'``;
+                ``'not_a_number'`` or ``'fault_bound'`` for a time outside
+                its range; ``'not_injectable_on_board'`` on the FX2, whose
+                stops are not timed.
+        """
+        target = self._camera_board('slow_next_stop')
+        self._bound('stop_s', stop_s, 'a time above 0 s, at most 30 days', 0 < stop_s <= WAIT_S[1])
+        if not isinstance(target, SimulatedCamera):
+            raise self._not_injectable('slow_next_stop', target)
+        target.slow_next_stop(float(stop_s))
+        self._record('slow_next_stop', lambda: target.slow_next_stop(0.0), stop_s=stop_s)
+
+    @api(admitted_by=(Admission.GUARDED_WRITE,))
+    @_guarded_write
     def bind_camera_usb_driver(
         self, hardware_id: str, service: str | None, *, problem_code: int | None
     ) -> None:

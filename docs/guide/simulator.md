@@ -54,6 +54,7 @@ member's own fault, and its arguments, are in the
 | `remove_camera` | camera | camera | FX2 |
 | `refuse_camera_write`, `refuse_camera_read`, `stall_stream`, `delay_delivery`, `light_outside`, `withhold_chunk` | camera | camera | refused |
 | `refuse_stream_start` | camera | camera | FX2 |
+| `slow_next_stop` | camera | camera | refused |
 | `refuse_led_write`, `bind_camera_usb_driver` | refused | refused | FX2 |
 
 `hold_axis` halts the axis's next move part of the way and returns an

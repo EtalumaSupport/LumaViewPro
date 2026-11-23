@@ -1582,9 +1582,13 @@ class IDSCamera(Camera):
             if self.cam_image_handler:
                 threads_quiesced = self.cam_image_handler.stop()
 
+            # The camera's stop alone is timed, never the thread joins above,
+            # which wait on LVP's threads, not on the camera.
+            t0 = time.perf_counter()
             if not device_suspect:
                 self.write_node('AcquisitionStop', self.RUN)
             self.data_stream.StopAcquisition()
+            self._record_stop(time.perf_counter() - t0)
 
             # Release the transport-layer parameter lock taken in start_grabbing
             # (IDS brackets acquisition with TLParamsLocked 1/0).

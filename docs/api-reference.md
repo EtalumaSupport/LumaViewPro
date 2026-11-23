@@ -146,6 +146,7 @@ NaN stays a NaN, and a key keeps its type.
 - [`SimulatedUsbBinding`](#SimulatedUsbBinding)
 - [`SizeSliderStops`](#SizeSliderStops)
 - [`SkippedBuild`](#SkippedBuild)
+- [`SlowCameraStop`](#SlowCameraStop)
 - [`StageDistance`](#StageDistance)
 - [`StageOffset`](#StageOffset)
 - [`StagePosition`](#StagePosition)
@@ -8812,6 +8813,36 @@ The board answers no command from now on, until `unsilence`.
 - 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
 - 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_offered`, `fault_unknown`, `not_injectable_on_board`
 
+<a id="SimulationAPI.slow_next_stop"></a>
+### `SimulationAPI.slow_next_stop`
+
+```python
+def slow_next_stop(self, stop_s: float) -> None
+```
+
+Marks: enters: `guarded_write`.  
+Route: `POST /api/v1/scope/simulation/slow_next_stop`.
+
+The camera's next stream stop takes `stop_s` to return, as a stalled 1.1.0 daA3840's does.
+
+The stop is a caller's, or a frame-size, binning or pixel-format
+change's; whatever asked for it waits it out, and the camera then
+stops and is restarted as it would be. `clear` takes back a slow
+stop that no stop has met yet.
+
+**Args**
+
+- `stop_s`: How long the stop takes, above 0 s, at most 30 days.
+
+**Raises**
+
+- `ArgumentRefusedError`: `'needs_simulated_scope'`; `'not_a_number'` or `'fault_bound'` for a time outside its range; `'not_injectable_on_board'` on the FX2, whose stops are not timed.
+
+**Refusals by REST status**
+
+- 409: [`ControlSessionRefusedError`](#ControlSessionRefusedError): `control_session_held`
+- 422: [`ArgumentRefusedError`](#ArgumentRefusedError): `needs_simulated_scope`, `not_a_number`, `fault_bound`, `not_injectable_on_board`
+
 <a id="SimulationAPI.stall_stream"></a>
 ### `SimulationAPI.stall_stream`
 
@@ -12320,6 +12351,23 @@ A build `build` was asked for that had nothing to do in the folder.
 - <a id="SkippedBuild.message"></a>`message`: `str` -- Why, in the build's own words.
 - <a id="SkippedBuild.operation"></a>`operation`: `PostProcessingOperation` -- The build.
 
+<a id="SlowCameraStop"></a>
+## `lumascope.SlowCameraStop`
+
+A record: it crosses the wire as its data, and answers [`to_dict()`](#to_dict) in-process.  
+Held in: [`Status.slow_camera_stop`](#Status.slow_camera_stop).
+
+The camera's slowest stop this session, told because it outlasted every exposure the camera takes.
+
+The stream check tells it once a session as `CameraStopStalledNotice`,
+the first time the driver's longest stop outlasts the camera's maximum
+exposure by 5 s.
+
+**Fields**
+
+- <a id="SlowCameraStop.resets_at_connect"></a>`resets_at_connect`: `bool` -- Whether LumaViewPro resets the camera when it connects to it, so a restart clears what a stall left.
+- <a id="SlowCameraStop.stop_s"></a>`stop_s`: `float` -- How long the stop took.
+
 <a id="StageDistance"></a>
 ## `lumascope.StageDistance`
 
@@ -12384,6 +12432,7 @@ axis can read HOMING in `axes` a moment before the home appears in
 - <a id="Status.lock"></a>`lock`: `ControlsLock` -- Which of a person's controls the Session locks, and why (`ScopeSession.controls_lock`): its editing policy, not a refusal.
 - <a id="Status.parts"></a>`parts`: `tuple[PartStatus, ...]` -- Which parts came up at bring-up, and why each that did not (`ScopeSession.bring_up_record`).
 - <a id="Status.run_refused"></a>`run_refused`: `ProtocolRunRefusedError | None` -- The refusal a run's start would give now for the scope's state alone, None when the state refuses none. None does not promise a run starts: the protocol, an axis's position, the camera feed and the interlocks are judged when the run is asked.
+- <a id="Status.slow_camera_stop"></a>`slow_camera_stop`: `SlowCameraStop | None` -- The camera's slow stop (`SlowCameraStop`): the first stop this session that outlasted the camera's maximum exposure by 5 s, told then as `CameraStopStalledNotice`. None until one is told.
 - <a id="Status.turret"></a>`turret`: `TurretStatus | None` -- The turret's state and slot (`MotionAPI.turret_status`), None on a scope with no turret; `moving` or `homing` while it turns.
 
 <a id="StepFrames"></a>
@@ -14463,6 +14512,30 @@ name the step and the library's error.
 | Reason | Cause | REST status |
 |---|---|---|
 | `camera_setup_failed` | -- | 500 |
+
+<a id="CameraStopStalledNotice"></a>
+### `lumascope.CameraStopStalledNotice`
+
+A notice; bases `Notice`, `Exception`.
+
+The camera took far longer to stop streaming than any exposure explains.
+
+Told once a session, by the imaging API's stream check, the first time
+the session's longest stop (the driver's `longest_stop_s`) outlasts the
+camera's maximum exposure by the check's margin, and kept on
+`Status.slow_camera_stop` for a client that was not listening. The
+change that stopped the camera completed; every frame-size, binning or
+pixel-format change stops it again, and on a camera that stalls once each
+may take as long. The words name no cause: the driver measured only how
+long the stop took.
+
+**Attributes**
+
+- `stop`: The stop told (`SlowCameraStop`): how long it took, and whether the camera is reset when LumaViewPro connects to it, which decides what the words say clears it.
+
+| Reason | Cause | REST status |
+|---|---|---|
+| `camera_stop_stalled` | -- | 409 |
 
 <a id="CameraStreamStalledError"></a>
 ### `lumascope.CameraStreamStalledError`
@@ -17753,6 +17826,7 @@ reads what the person was shown.
 | `POST` | `/api/v1/scope/simulation/remove_camera` | [`SimulationAPI.remove_camera`](#SimulationAPI.remove_camera) |
 | `POST` | `/api/v1/scope/simulation/replug` | [`SimulationAPI.replug`](#SimulationAPI.replug) |
 | `POST` | `/api/v1/scope/simulation/silence` | [`SimulationAPI.silence`](#SimulationAPI.silence) |
+| `POST` | `/api/v1/scope/simulation/slow_next_stop` | [`SimulationAPI.slow_next_stop`](#SimulationAPI.slow_next_stop) |
 | `POST` | `/api/v1/scope/simulation/stall_stream` | [`SimulationAPI.stall_stream`](#SimulationAPI.stall_stream) |
 | `POST` | `/api/v1/scope/simulation/unplug` | [`SimulationAPI.unplug`](#SimulationAPI.unplug) |
 | `POST` | `/api/v1/scope/simulation/unsilence` | [`SimulationAPI.unsilence`](#SimulationAPI.unsilence) |
