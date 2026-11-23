@@ -48,7 +48,7 @@ _JSON_PARSERS = {
     ('src/_lumascope/modules/image_utils.py', '_read_ome_input_metadata'): (
         "a saved image's own metadata"
     ),
-    ('src/_lumascope/modules/video_builder.py', 'VideoBuilder._read_recording_manifest'): (
+    ('src/_lumascope/modules/video_builder.py', 'VideoBuilder._manifest_facts'): (
         "a recording's manifest"
     ),
     ('src/_lumascope/modules/tech_support_report.py', 'validate_motorconfig'): (

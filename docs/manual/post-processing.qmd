@@ -95,9 +95,9 @@ reports any image the record lists but the folder no longer has
 Its settings:
 
 - [Frames/Second]{.guilabel}: the speed the video plays at. Left blank
-  ("auto"), a recording plays at the rate it was recorded and a protocol
-  run at 5 frames a second. A typed value must be a whole number, 1 or
-  more.
+  ("auto"), a recording -- by hand or a protocol's video step saved as
+  frames -- plays as it was recorded, and a protocol's stills at 5 frames
+  a second. A typed value must be a whole number, 1 or more.
 - [Overlay Timestamp]{.guilabel}: when on, each frame shows the date and
   time it was taken, to the millisecond, in its lower left corner. Default: on.
 

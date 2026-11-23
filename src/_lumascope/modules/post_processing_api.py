@@ -372,7 +372,8 @@ class Video:
         frame_rate_fps: The playback rate, a finite number of at least 1 or its
             text; None plays a recording as it was recorded: each frame at
             the time it was taken, so a lost frame is a gap, or evenly at its
-            measured rate when its first frame states no time.
+            measured rate when its first frame states no time; a protocol's
+            stills then play at 5 frames a second.
         timestamp_overlay: Whether each frame shows its time.
     """
 
@@ -837,7 +838,9 @@ class PostProcessingAPI:
             frame_rate_fps: The playback rate, a finite number of at least 1 or its
                 text; None plays a recording as it was recorded: each frame
                 at the time it was taken, so a lost frame is a gap, or evenly
-                at its measured rate when its first frame states no time.
+                at its measured rate when its first frame states no time; a
+                protocol's stills then play at 5 frames a second. A recording
+                is a manual one or a protocol's video step saved as frames.
 
         Raises:
             LiveFolderPathRefusedError: ``'path_not_found'``, nothing is at

@@ -17,7 +17,11 @@ import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.common_utils import PostFunction
 from _lumascope.modules.exceptions import InputFramesUnusableError
 from _lumascope.modules.api_surface import ProgressCallback
-from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor, group_progress
+from _lumascope.modules.protocol_post_processor import (
+    ProtocolPostProcessor,
+    group_progress,
+    rows_of,
+)
 from _lumascope.modules.protocol_post_processing_result import PostProcResult
 from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 from _lumascope.modules.tiling_config import TilingGrids
@@ -26,11 +30,31 @@ from _lumascope.modules.video_writer import VideoWriter
 from _lumascope.lvp_logger import logger
 
 
-# Build rate for folders with no measured capture rate ('auto' on a
-# protocol scan, or a recording that predates rate manifests): the
-# long-standing Create Video default, kept so those builds keep working
-# instead of refusing.
+# The automatic rate where nothing recorded one: a protocol's stills (a
+# timelapse, one still a scan, taken at no playback rate), and a recording
+# whose first frame states no time and whose manifest states no measured
+# rate. The long-standing Create Video default, kept so those builds keep
+# working instead of refusing.
 DEFAULT_BUILD_FPS = 5
+
+_a_recordings_frames = rows_of(stills=False, recordings=True)
+
+
+def _is_recording(group: pd.DataFrame) -> bool:
+    """Whether a video group is a recording's frames, not a protocol's stills.
+
+    A group is one or the other (``VideoBuilder._get_groups`` keys a
+    recording by its own folder), so its first row answers for it.
+    """
+    return bool(_a_recordings_frames(group).iloc[0])
+
+
+def _recording_folder(filepath: object) -> str:
+    """The folder of the recording a row belongs to: a frame's own folder,
+    or, for a recording the folder lacks, the recording's folder the run
+    recorded."""
+    path = pathlib.PurePath(str(filepath))
+    return str(path.parent if recording_frames.is_video_frame(path) else path)
 
 
 def _states_a_time(frame_path: pathlib.Path) -> bool:
@@ -74,9 +98,21 @@ class VideoBuilder(ProtocolPostProcessor):
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
-        # One group = one output video; per-recording identity comes from
-        # the shared derived key (see _with_recording_scan).
+        # One group = one output video. A recording's identity is its own
+        # folder: the shared scan key (_with_recording_scan) tells one scan's
+        # recordings from another's, but two video steps at one place in one
+        # scan (added steps at two Z, say) share it, and their frames would
+        # interleave in one video. The stills share one value, so their
+        # cross-scan grouping is untouched. Not in the shared key: the
+        # hyperstack stacks a recording's channels, one folder a channel.
         df = VideoBuilder._with_recording_scan(df)
+        df = df.assign(
+            **{
+                'Recording Folder': df['Filepath']
+                .map(_recording_folder)
+                .where(_a_recordings_frames(df), '')
+            }
+        )
         return df.groupby(
             by=[
                 'Well',
@@ -90,6 +126,7 @@ class VideoBuilder(ProtocolPostProcessor):
                 'Channel Group ID',
                 'Raw',
                 'Recording Scan',
+                'Recording Folder',
                 'Derivation',
             ],
             dropna=False,
@@ -97,12 +134,22 @@ class VideoBuilder(ProtocolPostProcessor):
 
     def _derivation_step(self, group: pd.DataFrame, **kwargs) -> post_derivation.Step:
         # A video's frames are drawn at its rate, with or without the time
-        # stamped on them, in its channel's colour.
+        # stamped on them, in its channel's colour. At the automatic rate a
+        # recording plays as it was recorded, named so (its timing is read
+        # from its frames when it is built), and a timelapse of stills at
+        # the default, the name it has always had.
         color = channel_record.output_color(group.iloc[0]['channel'], kwargs['channel_colors'])
+        rate = kwargs['frame_rate_fps']
+        if rate is not None:
+            fps = f'{float(rate):g}'
+        elif _is_recording(group):
+            fps = 'recorded'
+        else:
+            fps = f'{float(DEFAULT_BUILD_FPS):g}'
         return post_derivation.Step(
             PostFunction.VIDEO,
             (
-                ('fps', f'{float(kwargs["frame_rate_fps"]):g}'),
+                ('fps', fps),
                 ('timestamp', 'on' if kwargs['enable_timestamp_overlay'] else 'off'),
                 ('color', post_derivation.color_text(color)),
             ),
@@ -170,14 +217,30 @@ class VideoBuilder(ProtocolPostProcessor):
         # and is unique, so the picker never moves it.
         planned = pathlib.Path(kwargs['output_file_loc'])
         temporary = planned.with_name(f'{planned.stem}.{uuid.uuid4().hex}.tmp{planned.suffix}')
+        frame_rate_fps = kwargs['frame_rate_fps']
+        vfr = False
+        if _is_recording(df):
+            # One group is one recording (_get_groups), its frames in its
+            # own folder beside its manifest. Filepath is relative to the
+            # run's root even when the recording's folder was the one chosen.
+            first = min(
+                (path / filepath for filepath in df['Filepath']),
+                key=lambda frame: recording_frames.frame_number(frame.name),
+            )
+            facts = self._manifest_facts(first.parent)
+            vfr, frame_rate_fps = self._playback(
+                first, frame_rate_fps, None if facts is None else facts['measured_fps']
+            )
+        elif frame_rate_fps is None:
+            frame_rate_fps = DEFAULT_BUILD_FPS
         try:
             # One group is one channel (_get_groups), so its first row's
             # channel colours the whole video.
             result = self._create_video(
                 path=path,
                 df=df[['Filepath', 'Scan Count', 'Timestamp']],
-                frame_rate_fps=kwargs['frame_rate_fps'],
-                vfr=False,
+                frame_rate_fps=frame_rate_fps,
+                vfr=vfr,
                 enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
                 output_file_loc=temporary,
                 on_progress=kwargs['on_progress'],
@@ -423,18 +486,15 @@ class VideoBuilder(ProtocolPostProcessor):
         record-less single-video build instead. Protocol scans keep the
         standard load_folder path. Mirrors load_folder's signature so the
         caller can swap one entry point for the other without rewiring.
+
+        The automatic rate (``frame_rate_fps`` None) goes to each video as
+        None and is decided there, where the video's frames are known: a
+        recording plays as it was recorded (``_playback``), a protocol's
+        stills at ``DEFAULT_BUILD_FPS``.
         """
         path = pathlib.Path(path)
-        # The UI's 'auto' rate is None (or no rate passed), resolved HERE
-        # where the folder type is known: a manual recording resolves it from
-        # its own frames and manifest (_build_manual_recording_video); a
-        # protocol scan, which states no measured rate, builds at the
-        # standard default.
         if self._is_manual_recording_folder(path):
-            kwargs['frame_rate_fps'] = kwargs.get('frame_rate_fps')
             return self._build_manual_recording_video(path, on_progress=on_progress, **kwargs)
-        if kwargs.get('frame_rate_fps') is None:
-            kwargs['frame_rate_fps'] = DEFAULT_BUILD_FPS
         return self.load_folder(
             path=path,
             tiling_grids=tiling_grids,
@@ -456,7 +516,9 @@ class VideoBuilder(ProtocolPostProcessor):
             return False
 
     def _read_recording_manifest(self, path: pathlib.Path) -> dict:
-        """Read a manual recording's manifest facts for the video build.
+        """Read a manual recording's manifest facts for the video build,
+        warning when the folder holds no readable manifest (see
+        ``_manifest_facts``).
 
         Manual frames are saved mono at a measured cadence, so both the
         false-color channel and the true capture rate live in the
@@ -473,6 +535,30 @@ class VideoBuilder(ProtocolPostProcessor):
 
         Returns:
             ``{'channel_color': str | None, 'measured_fps': float | None}``
+        """
+        facts = self._manifest_facts(path)
+        if facts is None:
+            # Neither manifest generation is readable. Say so: a LOST
+            # manifest is otherwise indistinguishable from deliberate
+            # grayscale, and the build quietly plays colorless at the
+            # default rate. Log-only -- a pre-manifest legacy folder
+            # takes this path legitimately, so a popup would misfire.
+            logger.warning(
+                f'[{self._name}] No readable recording manifest in {path.name}; '
+                f'the video will build grayscale at the default rate. The '
+                f'manifest carries the channel color and measured rate.'
+            )
+            return {'channel_color': None, 'measured_fps': None}
+        return facts
+
+    @staticmethod
+    def _manifest_facts(path: pathlib.Path) -> dict | None:
+        """A recording folder's manifest facts, None when it holds neither
+        manifest generation readable.
+
+        A protocol video step's recording is coloured by its step's channel,
+        so only its rate is read from here, and the manual leg's grayscale
+        warning is not its to give.
         """
         manifest_path = path / 'recording_manifest.json'
         try:
@@ -496,23 +582,45 @@ class VideoBuilder(ProtocolPostProcessor):
             with open(legacy_path, encoding='utf-8') as fh:
                 legacy = json.load(fh)
         except (OSError, ValueError):
-            # Neither manifest generation is readable. Say so: a LOST
-            # manifest is otherwise indistinguishable from deliberate
-            # grayscale, and the build quietly plays colorless at the
-            # default rate. Log-only -- a pre-manifest legacy folder
-            # takes this path legitimately, so a popup would misfire.
-            logger.warning(
-                f'[{self._name}] No readable recording manifest in {path.name}; '
-                f'the video will build grayscale at the default rate. The '
-                f'manifest carries the channel color and measured rate.'
-            )
-            return {'channel_color': None, 'measured_fps': None}
+            return None
         recording = legacy.get('recording', {})
         fps = recording.get('actual_fps', {}).get('mean')
         return {
             'channel_color': recording.get('channel_color'),
             'measured_fps': float(fps) if fps else None,
         }
+
+    def _playback(
+        self,
+        first_frame: pathlib.Path,
+        frame_rate_fps: float | None,
+        measured_fps: float | None,
+    ) -> tuple[bool, float | None]:
+        """How a recording's frames play: whether each at its own time, and the rate.
+
+        At a chosen ``frame_rate_fps`` the frames play evenly at it. At the
+        automatic rate (None) each frame plays at the time it was taken, so
+        a frame the recording lost shows as the gap it is, when the
+        recording's numerically first frame states a time; the rate is then
+        the container's nominal one only, the measured rate or None. When
+        the first frame states none, the frames play evenly at the
+        recording's measured rate, else at ``DEFAULT_BUILD_FPS``. The
+        writer's timing is fixed when it opens, so the first frame decides
+        it. Both Create Video legs, a manual recording and a protocol video
+        step's, play by this one rule.
+        """
+        measured = measured_fps if measured_fps is not None and measured_fps > 0 else None
+        if frame_rate_fps is not None:
+            return False, frame_rate_fps
+        if _states_a_time(first_frame):
+            logger.info(f'[{self._name}] auto rate: each frame plays at the time it was taken')
+            return True, measured
+        rate = measured if measured is not None else DEFAULT_BUILD_FPS
+        logger.info(
+            f'[{self._name}] auto rate: the first frame states no time, so the frames '
+            f'play evenly at {rate:.3g} fps'
+        )
+        return False, rate
 
     def _build_manual_recording_video(
         self,
@@ -526,14 +634,9 @@ class VideoBuilder(ProtocolPostProcessor):
     ) -> dict:
         """Build one video from a manual recording's frames.
 
-        At a chosen ``frame_rate_fps`` the frames play evenly at it. At the
-        automatic rate (None) each frame plays at the time it was taken, so
-        a frame the recording lost shows as the gap it is, when the first
-        frame states a time; a later frame with no time after the one before
-        it is left out and counted. When the first frame states none, the
-        frames play evenly at the recording's measured rate, else at
-        ``DEFAULT_BUILD_FPS``. The writer's timing is fixed when it opens, so
-        the first frame decides it.
+        The frames play by ``_playback``'s rule; at each frame's time, a
+        later frame with no time after the one before it is left out and
+        counted.
         """
         frame_paths = [
             p
@@ -563,18 +666,9 @@ class VideoBuilder(ProtocolPostProcessor):
         # authoritatively controls whether the video shows a timestamp.
         manifest = self._read_recording_manifest(path)
         channel_color = manifest['channel_color']
-        measured = manifest['measured_fps']
-        vfr = frame_rate_fps is None and _states_a_time(frame_paths[0])
-        if frame_rate_fps is None and not vfr:
-            frame_rate_fps = (
-                measured if measured is not None and measured > 0 else DEFAULT_BUILD_FPS
-            )
-            logger.info(
-                f'[{self._name}] auto rate: the first frame states no time, so the frames '
-                f'play evenly at {frame_rate_fps:.3g} fps'
-            )
-        elif vfr:
-            logger.info(f'[{self._name}] auto rate: each frame plays at the time it was taken')
+        vfr, frame_rate_fps = self._playback(
+            frame_paths[0], frame_rate_fps, manifest['measured_fps']
+        )
         df = pd.DataFrame(
             {
                 'Filepath': [p.name for p in frame_paths],
@@ -590,13 +684,7 @@ class VideoBuilder(ProtocolPostProcessor):
             result = self._create_video(
                 path=path,
                 df=df,
-                # At each frame's time the rate is the container's nominal
-                # one only: the measured rate, or none.
-                frame_rate_fps=(
-                    (measured if measured is not None and measured > 0 else None)
-                    if vfr
-                    else frame_rate_fps
-                ),
+                frame_rate_fps=frame_rate_fps,
                 vfr=vfr,
                 enable_timestamp_overlay=enable_timestamp_overlay,
                 output_file_loc=output_file_loc,
