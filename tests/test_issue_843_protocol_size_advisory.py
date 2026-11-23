@@ -19,7 +19,6 @@ advisory gives one scan's size and a full run's.
 Reuses the Protocol builders from test_protocol_roundtrip.
 """
 
-import pathlib
 from types import SimpleNamespace
 
 import pytest
@@ -35,8 +34,6 @@ from _lumascope.modules.write_size import estimate_step_write_mb
 from tests.protocol_drives import a_frame_sizing
 from tests.test_protocol_roundtrip import _build_protocol, _make_step
 from ui.protocol_settings import ProtocolSettings
-
-_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def _mixed_steps():
@@ -342,34 +339,3 @@ class TestTheEstimateTracksAnInPlaceEdit:
         after = protocol.estimate_write_mb(sizing=SIZING, video_fps=VIDEO_FPS)
         assert after > before
         assert protocol.num_steps == 2, 'the step count is unchanged; only the size moved'
-
-
-class TestTheAbortMessageNamesTheRealStepCount:
-    """T2b: the run-loop guard's refusal must name the count, never 0.
-
-    The step count is bound inside the memoization branch and read outside it,
-    in the abort message. Dropping that binding while moving the guard onto
-    the shared estimator would make the refusal read "for 0 steps"; removing
-    its initialiser instead makes the abort a NameError, so the run ends as a
-    crash rather than as the disk refusal.
-
-    Locked as source rather than by driving the loop: the guard sits inside
-    the scan loop and reaching it needs a full fake run. Named here so the
-    substitution is visible -- this checks the binding survives, not that the
-    rendered message is correct at runtime.
-    """
-
-    def _run_loop_source(self):
-        # pin-justified: the count is interpolated into an f-string inside the
-        # scan loop's body, which has no importable seam -- reaching it for
-        # real needs a fully faked run.
-        return (_REPO_ROOT / 'src/_lumascope/modules/protocol_run_loop.py').read_text()
-
-    def test_the_message_interpolates_the_step_count(self):
-        assert '{num_steps} steps' in self._run_loop_source()
-
-    def test_the_step_count_is_assigned_before_the_message(self):
-        source = self._run_loop_source()
-        assigned = source.index('num_steps = p._protocol.num_steps')
-        message = source.index('{num_steps} steps')
-        assert assigned < message

@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import ast
 
-from tests.ast_seams import iter_package_modules, parse_module, walk_defs
+from tests.ast_seams import MemberNames, Words, iter_package_modules, parse_module, walk_defs
 
-_READS = ('check_disk_space_ok', 'disk_usage')
 _COMMON = 'src/_lumascope/modules/common_utils.py'
+_PROBE = MemberNames(_COMMON, {'check_disk_space_ok'})
+_LIBRARY_READ = Words({'disk_usage'})
+_READS = _PROBE | _LIBRARY_READ
 
 # (module, function) -> what it reads, and why it may.
 _OWNERS = {

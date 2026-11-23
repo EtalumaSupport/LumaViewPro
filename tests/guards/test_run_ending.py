@@ -524,6 +524,9 @@ class TestTheRunLoopsOwnEndings:
         assert '12.0 MB is free' in ending.message and '1000.0 MB' in ending.message, (
             f'the message must name the shortfall; got {ending.message!r}'
         )
+        # The step count is bound on the scan's first check and read after
+        # it: a dropped binding would say 0 steps, a dropped initialiser crash.
+        assert 'a scan of 1 steps' in ending.message, ending.message
 
 
 # ---------------------------------------------------------------------------
