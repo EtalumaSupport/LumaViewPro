@@ -5629,14 +5629,14 @@ class HomingFaultError(Fault, HomingFailedError):
             the home raised and the motor board is no longer connected;
             ``'position_unread_after_move'`` -- homed, but ``axes`` could
             not be read; ``'lid_open'`` -- the lid was opened while the home
-            was moving; ``'stage_unpowered'`` -- the stage lost its power
-            while the home was moving.
+            was moving. The stage's power is read before a home, never during
+            one, so a home without it is refused, never failed.
     """
 
     words_for_person = True
     title = 'Homing Failed'
     causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(
-        ('driver_failed', 'board_lost', 'position_unread_after_move', *INTERLOCK_TITLES)
+        ('driver_failed', 'board_lost', 'position_unread_after_move', 'lid_open')
     )
     same_fact_as = (MotionInterlockError, MoveFaultError)
 

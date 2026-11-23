@@ -3962,9 +3962,8 @@ class MotionAPI:
                 a reference: ``'driver_failed'``, the driver raised;
                 ``'board_lost'``, the motor board is no longer connected;
                 ``'position_unread_after_move'``, a homed axis's position
-                could not be read;
-                ``'lid_open'`` or ``'stage_unpowered'``, an interlock opened
-                while the home moved. The axes it names are UNKNOWN.
+                could not be read; ``'lid_open'``, the lid was opened while
+                the home moved. The axes it names are UNKNOWN.
             HomingStoppedError: a Stop ended the home. The axes it names
                 are UNKNOWN; none, when the Stop landed before the home was
                 driven.
