@@ -621,10 +621,12 @@ def test_a_run_groups_video_whose_encode_raises_leaves_no_file(tmp_path, monkeyp
     assert list(folder.rglob('*.mp4')) == []
 
 
-def test_a_run_groups_video_that_cannot_take_its_name_fails_that_group(tmp_path, monkeypatch):
+def test_a_run_groups_video_that_cannot_take_its_name_stops_the_build_naming_it(
+    tmp_path, monkeypatch
+):
     # The planned name held open (a player on Windows): the move fails, the
-    # earlier video keeps its bytes, the group fails with the OS's words, and
-    # no temporary is left behind.
+    # earlier video keeps its bytes, the build stops at it with the OS's
+    # words, and no temporary is left behind.
     import os
 
     folder = _a_run_with_one_video_group(tmp_path)
@@ -645,7 +647,7 @@ def test_a_run_groups_video_that_cannot_take_its_name_fails_that_group(tmp_path,
     with pytest.raises(PostProcessingFailedError) as failed:
         _build_the_runs_video(folder)
 
-    assert 'could not take its name' in str(failed.value)
+    assert f'{pathlib.Path(planned).name}: it could not be written' in str(failed.value)
     assert 'open in another program' in str(failed.value)
     assert pathlib.Path(planned).read_bytes() == earlier
     assert [video.name for video in folder.rglob('*.mp4')] == [pathlib.Path(planned).name]

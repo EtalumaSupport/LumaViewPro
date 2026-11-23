@@ -264,10 +264,9 @@ class VideoBuilder(ProtocolPostProcessor):
                 color=channel_record.output_color(df.iloc[0]['channel'], kwargs['channel_colors']),
             )
             if result['status']:
-                try:
-                    os.replace(path / temporary, path / planned)
-                except OSError as e:
-                    return PostProcResult.failed(f'The video could not take its name: {e}')
+                # A failed rename is the build's write failure, which the
+                # build loop answers, naming the planned video.
+                os.replace(path / temporary, path / planned)
             return PostProcResult.from_group_result(result)
         finally:
             (path / temporary).unlink(missing_ok=True)
@@ -351,7 +350,9 @@ class VideoBuilder(ProtocolPostProcessor):
             else:
                 image, significant_bits, white_bits = image_utils.load_pixels(image_path)
                 frame_ts = None
-        except Exception as e:
+        except InputFramesUnusableError as e:
+            # Only a frame the reader refuses is a dropped frame: anything
+            # else raised here is a defect, which ends the build as itself.
             logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
             return False, None
         if vfr and not _follows(frame_ts, previous_ts):
@@ -445,17 +446,12 @@ class VideoBuilder(ProtocolPostProcessor):
 
         try:
             video.close()
-        except VideoNotFinishedError as not_finished:
+        except VideoNotFinishedError:
             # The source frames remain, so the unfinished file goes and the
-            # build can be run again. The words name no file: the caller puts
-            # the video's planned name in front, never the writer's temporary,
-            # which PyAV's own message names, so only its reason is told.
+            # build can be run again. The build loop answers the failure,
+            # naming the video's planned name, never the writer's temporary.
             pathlib.Path(video.output_path).unlink(missing_ok=True)
-            return {
-                'status': False,
-                'error': f'The video could not be finished ({not_finished.__cause__.strerror}).',
-                'metadata': {},
-            }
+            raise
 
         if i - video.dropped_frames <= 0:
             # Not one frame reached the video: there is no video to record,

@@ -4,6 +4,7 @@ import abc
 import datetime
 import pathlib
 import time
+import typing
 from collections.abc import Callable
 
 import pandas as pd
@@ -22,6 +23,7 @@ from _lumascope.modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingOperation,
     PostProcessingRefusedError,
+    VideoNotFinishedError,
 )
 from _lumascope.modules.objectives_loader import objective_short_name
 from _lumascope.modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
@@ -31,6 +33,9 @@ from _lumascope.modules.stitch_mode import StitchMode
 from _lumascope.modules.tiling_config import TilingGrids
 
 from _lumascope.lvp_logger import logger
+
+if typing.TYPE_CHECKING:
+    from av.error import FFmpegError
 
 
 # What each post-processing function needs to find in a folder to produce
@@ -57,6 +62,43 @@ _EXCLUDED_REMEDY = {
         ' Composite then composites the projections.'
     ),
 }
+
+
+class _Unwritten(typing.NamedTuple):
+    """The output a build stopped at, and why it could not be written.
+
+    *written* is True when the output is on disk and the record's append
+    failed; *unrecorded* is the record's own rewrite failing at the end.
+    """
+
+    output: pathlib.Path
+    failed: OSError | VideoNotFinishedError
+    written: bool
+    unrecorded: OSError | None = None
+
+    def reason(self) -> str:
+        if isinstance(self.failed, VideoNotFinishedError):
+            # The writer's own words name its temporary, never the video.
+            return f'it could not be finished ({_system_words(self.failed.__cause__)})'
+        if self.written:
+            return (
+                'it was saved, and the post-processing record could not list it '
+                f'({_system_words(self.failed)})'
+            )
+        return f'it could not be written ({_system_words(self.failed)})'
+
+    def sentence(self) -> str:
+        return f'the build stopped at {self.output}: {self.reason()}'
+
+
+def _system_words(failed: 'OSError | FFmpegError') -> str:
+    """The system's words for *failed*, never Python's rendering of the errno and path.
+
+    An error raised with a message alone states no ``strerror``; its message
+    is its words.
+    """
+    return failed.strerror or str(failed)
+
 
 # Each operation's name as a person reads it, for the titles and words of
 # its outcomes; the enum values are file-record keys, not prose.
@@ -510,15 +552,21 @@ class ProtocolPostProcessor(abc.ABC):
         output_root: str,
         accounting_note: str,
         excluded_inputs: tuple[ExcludedInput, ...],
+        stopped: '_Unwritten | None' = None,
     ) -> PostProcessingFailedError:
         """The outcome of a build that did not produce everything asked of it.
 
         It carries what the build left out as a complete result does, so a
         group that failed does not also silence the inputs that were never
-        tried.
+        tried. *stopped* is the output a build stopped at, which it says
+        first.
         """
         label = self.operation_label.lower()
         missing = []
+        errors = list(group_errors)
+        if stopped is not None:
+            missing.append(stopped.sentence())
+            errors.append(f'{stopped.output}: {stopped.reason()}')
         if group_errors:
             shown = '; '.join(group_errors[:3])
             more = '; ...' if len(group_errors) > 3 else ''
@@ -538,12 +586,18 @@ class ProtocolPostProcessor(abc.ABC):
                 'shorter than its source'
             )
         sentence = '; '.join(missing)
+        record_note = ''
+        if stopped is not None and stopped.unrecorded is not None:
+            record_note = (
+                ' The post-processing record could not be updated '
+                f'({_system_words(stopped.unrecorded)}).'
+            )
         return PostProcessingFailedError(
             operation=self.operation_label,
-            missing=f'{sentence[0].upper()}{sentence[1:]}.{accounting_note}',
+            missing=f'{sentence[0].upper()}{sentence[1:]}.{record_note}{accounting_note}',
             produced_paths=artifact_paths,
             output_root=output_root,
-            errors=group_errors,
+            errors=errors,
             excluded_inputs=excluded_inputs,
         )
 
@@ -770,6 +824,9 @@ class ProtocolPostProcessor(abc.ABC):
         # distinguish a successful run from one that produced nothing, and
         # had to re-derive the filename to find out.
         artifact_paths = []
+        # The output the build could not write, when it stopped at one, and
+        # why: the builds after it would fail the same way on a full disk.
+        unwritten = None
 
         for _, group in groups:
             if len(group) == 0:
@@ -901,6 +958,11 @@ class ProtocolPostProcessor(abc.ABC):
                 # sizes or pixel types that cannot share one output -- cost
                 # this group, not the groups after it: answered as its failure.
                 alg_results = PostProcResult.failed(str(unusable))
+            except (OSError, VideoNotFinishedError) as failed:
+                # Every read of a source raises the refusal above, so an
+                # OSError here is the write of this group's output.
+                unwritten = _Unwritten(output_file_loc_rel, failed, written=False)
+                break
             group_ms = (time.perf_counter() - group_t0) * 1000.0
 
             if not alg_results.status:
@@ -938,16 +1000,21 @@ class ProtocolPostProcessor(abc.ABC):
             # tifffile (RGB-native; auto-detects photometric). cv2.imwrite was
             # retired here -- cv2 is BGR-native and would silently swap channels
             # relative to the RGB-native readers (tifffile / FIJI / OS preview).
-            # A subclass that fails to write must return a failed result.
-
-            self._add_record(
-                protocol_post_record=protocol_post_record,
-                alg_metadata=alg_results.record_metadata,
-                root_path=root_path,
-                file_path=output_file_loc_rel,
-                row0=row0,
-                derivation=derivation,
-            )
+            # A write that fails raises, and the build stops there.
+            try:
+                self._add_record(
+                    protocol_post_record=protocol_post_record,
+                    alg_metadata=alg_results.record_metadata,
+                    root_path=root_path,
+                    file_path=output_file_loc_rel,
+                    row0=row0,
+                    derivation=derivation,
+                )
+            except OSError as failed:
+                # The output is on disk, though the record does not list it.
+                artifact_paths.append(str(root_path / output_file_loc_rel))
+                unwritten = _Unwritten(output_file_loc_rel, failed, written=True)
+                break
 
             artifact_paths.append(str(root_path / output_file_loc_rel))
             carried -= set(group['Filepath'])
@@ -982,10 +1049,30 @@ class ProtocolPostProcessor(abc.ABC):
                     )
                 on_progress((new_count / group_count) * 100, status)
 
-        protocol_post_record.complete()
+        try:
+            protocol_post_record.complete()
+        except OSError as unrecorded:
+            # Told beside the stop, never in its place.
+            if unwritten is None:
+                raise
+            unwritten = unwritten._replace(unrecorded=unrecorded)
 
         if on_progress is not None:
             on_progress(100, None)
+
+        if unwritten is not None:
+            raise self._incomplete(
+                group_errors=group_errors,
+                attempted=len(group_errors) + new_count,
+                refused_count=refused_count,
+                colliding_names=colliding_names,
+                dropped_frames=dropped_frames,
+                artifact_paths=artifact_paths,
+                output_root=str(root_path),
+                accounting_note='',
+                excluded_inputs=excluded_inputs,
+                stopped=unwritten,
+            ) from unwritten.failed
 
         if skipped_single_paths:
             shown = ', '.join(skipped_single_paths[:3])

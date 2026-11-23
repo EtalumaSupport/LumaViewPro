@@ -281,12 +281,10 @@ class CompositeGeneration(ProtocolPostProcessor):
         # The composite's own depth, set from the built array (always 8-bit).
         composite_significant_bits = None
 
-        # Validated before the try, not inside it: a missing threshold is the
-        # caller omitting an argument, and the try below turns everything it
-        # catches into a per-group error dict -- which would report a coding
-        # mistake as "every image group failed". Only checked when a
-        # transmitted base is present, since that is the only case that
-        # blends and therefore the only case that consults a threshold.
+        # A missing threshold is the caller omitting an argument, refused
+        # before anything is merged. Only checked when a transmitted base is
+        # present, since that is the only case that blends and therefore the
+        # only case that consults a threshold.
         if BF_present:
             missing = sorted(
                 channel
@@ -306,11 +304,10 @@ class CompositeGeneration(ProtocolPostProcessor):
             # A percentage outside 0-100 is a corrupt value, not a preference to
             # be honoured approximately: clamping it would silently produce an
             # image nobody asked for, and the raw captures survive on disk, so
-            # refusing costs a composite that can be regenerated. Refused here
-            # rather than at the conversion below for the reason the missing
-            # check gives -- inside the try it would read as a failed image
-            # group instead of a bad argument. The type check is part of the
-            # same question: a string reaches the arithmetic otherwise.
+            # refusing costs a composite that can be regenerated. Refused here,
+            # before anything is merged, as the missing check is. The type
+            # check is part of the same question: a string reaches the
+            # arithmetic otherwise.
             out_of_range = sorted(
                 (channel, brightness_thresholds_percent[channel])
                 for channel in df['channel']
@@ -329,128 +326,122 @@ class CompositeGeneration(ProtocolPostProcessor):
         error = None
         status = True
 
-        try:
-            transmitted = None
-            channel_images = {}
-            brightness_thresholds = {}
-            img_dtype = None
+        transmitted = None
+        channel_images = {}
+        brightness_thresholds = {}
+        img_dtype = None
 
+        if BF_present:
+            logger.info('CompositeGeneration] Generating transmitted channel composite')
+            BF_row = df[df['channel'] == BF_channel]
+            BF_image_filename = BF_row['Filepath'].iloc[0]
+            BF_image = images[BF_image_filename]
+            img_dtype = BF_image.dtype
+            # 3-channel TIFFs come from the false-color save path
+            # (per-channel TIFFs widened to RGB with one plane
+            # populated). The RGB2GRAY luminance collapse used
+            # before attenuated single-plane data by 41-89% of its
+            # original intensity, producing a "mostly green"
+            # composite for Blue and Red channels. rgb_image_to_gray
+            # detects the single-populated-plane case and uses
+            # max-axis extraction instead, preserving the full
+            # value. Mono 2D inputs (the common path) pass through.
+            transmitted = TransmittedBase(
+                image_utils.rgb_image_to_gray(BF_image, baked=True),
+                *scales[BF_image_filename],
+            )
+        else:
+            logger.info('CompositeGeneration] Generating fluorescent channel composite')
+
+        for _, row in df.iterrows():
+            channel = row['channel']
+
+            # Skip transmitted channel (already captured above)
+            if channel == BF_channel:
+                continue
+
+            # Skip non-fluorescence channels
+            if channel not in common_utils.get_image_channels():
+                continue
+
+            f_image = images[row['Filepath']]
+            if img_dtype is None:
+                img_dtype = f_image.dtype
+
+            # Same collapse as the transmitted path: detect
+            # single-populated-plane (the false-color save shape)
+            # and preserve via max-axis; pass through mono 2D
+            # inputs unchanged. RGB2GRAY luminance was destroying
+            # 41-89% of single-plane signal pre-fix.
+            img_gray = image_utils.rgb_image_to_gray(f_image, baked=True)
+
+            channel_images[channel] = CompositeChannel(
+                img_gray, channel_colors[channel], *scales[row['Filepath']]
+            )
+
+            # The mapping onto the composite's 8-bit output scale belongs to
+            # the builder, which owns that scale and the comparison the
+            # cutoff feeds; computing it here would be a second copy free
+            # to drift from either.
             if BF_present:
-                logger.info('CompositeGeneration] Generating transmitted channel composite')
-                BF_row = df[df['channel'] == BF_channel]
-                BF_image_filename = BF_row['Filepath'].iloc[0]
-                BF_image = images[BF_image_filename]
-                img_dtype = BF_image.dtype
-                # 3-channel TIFFs come from the false-color save path
-                # (per-channel TIFFs widened to RGB with one plane
-                # populated). The RGB2GRAY luminance collapse used
-                # before attenuated single-plane data by 41-89% of its
-                # original intensity, producing a "mostly green"
-                # composite for Blue and Red channels. rgb_image_to_gray
-                # detects the single-populated-plane case and uses
-                # max-axis extraction instead, preserving the full
-                # value. Mono 2D inputs (the common path) pass through.
-                transmitted = TransmittedBase(
-                    image_utils.rgb_image_to_gray(BF_image, baked=True),
-                    *scales[BF_image_filename],
-                )
-            else:
-                logger.info('CompositeGeneration] Generating fluorescent channel composite')
-
-            for _, row in df.iterrows():
-                channel = row['channel']
-
-                # Skip transmitted channel (already captured above)
-                if channel == BF_channel:
-                    continue
-
-                # Skip non-fluorescence channels
-                if channel not in common_utils.get_image_channels():
-                    continue
-
-                f_image = images[row['Filepath']]
-                if img_dtype is None:
-                    img_dtype = f_image.dtype
-
-                # Same collapse as the transmitted path: detect
-                # single-populated-plane (the false-color save shape)
-                # and preserve via max-axis; pass through mono 2D
-                # inputs unchanged. RGB2GRAY luminance was destroying
-                # 41-89% of single-plane signal pre-fix.
-                img_gray = image_utils.rgb_image_to_gray(f_image, baked=True)
-
-                channel_images[channel] = CompositeChannel(
-                    img_gray, channel_colors[channel], *scales[row['Filepath']]
+                brightness_thresholds[channel] = brightness_cutoff_from_percent(
+                    brightness_thresholds_percent[channel]
                 )
 
-                # The mapping onto the composite's 8-bit output scale belongs to
-                # the builder, which owns that scale and the comparison the
-                # cutoff feeds; computing it here would be a second copy free
-                # to drift from either.
-                if BF_present:
-                    brightness_thresholds[channel] = brightness_cutoff_from_percent(
-                        brightness_thresholds_percent[channel]
-                    )
-
-            if not channel_images and transmitted is None:
-                status = False
-                error = 'Composite Generation Error: no channel images available for this group'
-            else:
-                # build_composite returns 8-bit RGB (a composite is a viewing
-                # product; the native depth belongs to the raw single-channel
-                # captures, not the merged image). Both the manual composite
-                # path (ui/composite_capture.py) and this protocol
-                # post-processing path now save RGB-native via tifffile;
-                # no cvtColor RGB->BGR detour (which the old cv2.imwrite
-                # path required and which produced the R/B channel swap
-                # at the heart of #672). Save here so the base-class
-                # cv2.imwrite branch (protocol_post_processor.py:190) is
-                # bypassed for the composite case -- returning
-                # 'image': None below tells the base class the subclass
-                # has already written.
-                logger.info(
-                    'CompositeGeneration] Channel colors: '
-                    + ', '.join(
-                        f'{channel} {tuple(round(w, 3) for w in channel.color)}'
-                        for channel, channel in channel_images.items()
-                    )
-                )
-                img = build_composite(
-                    channels=channel_images,
-                    transmitted=transmitted,
-                    brightness_thresholds=brightness_thresholds,
-                )
-                composite_significant_bits = img.dtype.itemsize * 8
-                if output_file_loc is not None:
-                    output_file_loc.parent.mkdir(parents=True, exist_ok=True)
-                    metadata = image_utils.build_postproc_output_metadata(
-                        input_records=[
-                            image_utils.read_file_record(path / name) for name in df['Filepath']
-                        ],
-                        channel='Composite',
-                        significant_bits=composite_significant_bits,
-                        adds_frames=False,
-                    )
-                    image_utils.write_tiff(
-                        data=img,
-                        file_loc=output_file_loc,
-                        metadata=metadata,
-                        ome=image_utils.is_ome_tiff(output_file_loc),
-                        # An RGB composite: a colour image's colour is its own.
-                        color=GRAY,
-                        significant_bits=metadata['significant_bits'],
-                        # A merged composite is a viewing product, always
-                        # 8-bit RGB; like every derived file it is encoded
-                        # from its own pixels, never from the live image mode.
-                        save_encoding=image_mode.encoding_for_array(img),
-                        # Already rendered for display, shown as it is.
-                        white_bits=None,
-                    )
-
-        except Exception as e:
-            logger.error(f'CompositeGeneration] Error generating composite: {e}')
-            error = f'Error generating composite: {e}'
+        if not channel_images and transmitted is None:
             status = False
+            error = 'Composite Generation Error: no channel images available for this group'
+        else:
+            # build_composite returns 8-bit RGB (a composite is a viewing
+            # product; the native depth belongs to the raw single-channel
+            # captures, not the merged image). Both the manual composite
+            # path (ui/composite_capture.py) and this protocol
+            # post-processing path now save RGB-native via tifffile;
+            # no cvtColor RGB->BGR detour (which the old cv2.imwrite
+            # path required and which produced the R/B channel swap
+            # at the heart of #672). Save here so the base-class
+            # cv2.imwrite branch (protocol_post_processor.py:190) is
+            # bypassed for the composite case -- returning
+            # 'image': None below tells the base class the subclass
+            # has already written.
+            logger.info(
+                'CompositeGeneration] Channel colors: '
+                + ', '.join(
+                    f'{channel} {tuple(round(w, 3) for w in channel.color)}'
+                    for channel, channel in channel_images.items()
+                )
+            )
+            img = build_composite(
+                channels=channel_images,
+                transmitted=transmitted,
+                brightness_thresholds=brightness_thresholds,
+            )
+            composite_significant_bits = img.dtype.itemsize * 8
+            if output_file_loc is not None:
+                output_file_loc.parent.mkdir(parents=True, exist_ok=True)
+                metadata = image_utils.build_postproc_output_metadata(
+                    input_records=[
+                        image_utils.read_file_record(path / name) for name in df['Filepath']
+                    ],
+                    channel='Composite',
+                    significant_bits=composite_significant_bits,
+                    adds_frames=False,
+                )
+                image_utils.write_tiff(
+                    data=img,
+                    file_loc=output_file_loc,
+                    metadata=metadata,
+                    ome=image_utils.is_ome_tiff(output_file_loc),
+                    # An RGB composite: a colour image's colour is its own.
+                    color=GRAY,
+                    significant_bits=metadata['significant_bits'],
+                    # A merged composite is a viewing product, always
+                    # 8-bit RGB; like every derived file it is encoded
+                    # from its own pixels, never from the live image mode.
+                    save_encoding=image_mode.encoding_for_array(img),
+                    # Already rendered for display, shown as it is.
+                    white_bits=None,
+                )
 
         # When output_file_loc is provided: this subclass wrote the
         # composite TIFF itself; signal to the base-class
