@@ -10,13 +10,14 @@ tick is longer than the whole test still ends with its recording.
 import threading
 
 import _lumascope.modules.protocol_recording as protocol_recording
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.video_step_drives import ElapsedClock, video_step_on
 
 WAIT_S = 10.0
 
 
 def test_the_step_returns_when_the_engine_ends_the_recording(tmp_path, monkeypatch, sim_scope):
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    free_space_is(monkeypatch, PLENTY_MB)
     monkeypatch.setattr(protocol_recording, 'write_frame', lambda *a, **k: None)
     # A tick longer than the test: only the engine's end can end this wait.
     monkeypatch.setattr(protocol_recording, '_WAIT_TICK_S', 3 * WAIT_S)

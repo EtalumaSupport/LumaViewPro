@@ -22,7 +22,7 @@ from _lumascope.modules.exceptions import CaptureError, RunImagesNotSavedError, 
 from _lumascope.modules.run_events import RunEvents
 from _lumascope.modules.scope_parts import Board
 
-from tests.disk_fakes import the_start_finds_room
+from tests.disk_fakes import the_first_readings_find_room, the_start_finds_room
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
 from tests.stock_channels import LED0, LED1
@@ -309,16 +309,15 @@ class TestTheFileCountCountsImages:
             _reports_of(RunImagesNotSavedError) as lost,
             open_composite_session(headless_settings(tmp_path)) as (_session, runner),
         ):
-            # The loop binds its own name for the check at import; the
-            # start's judge and the per-write floor read this one, and the
-            # start's reading finds room: a disk that fills once the run has
-            # started.
+            # The run's start and its scan's check find room, and the
+            # still's write meets a full disk: a disk that fills once the
+            # scan has begun.
             import _lumascope.modules.protocol_run_loop  # noqa: F401
 
             monkeypatch.setattr(
                 common_utils,
                 'check_disk_space_ok',
-                the_start_finds_room(lambda path, mb: (False, 1.0)),
+                the_first_readings_find_room(2, lambda path, mb: (False, 1.0)),
             )
             outcome = _run(
                 runner,
@@ -348,7 +347,7 @@ class TestTheFileCountCountsImages:
             monkeypatch.setattr(
                 common_utils,
                 'check_disk_space_ok',
-                the_start_finds_room(lambda path, mb: (False, 1.0)),
+                the_first_readings_find_room(2, lambda path, mb: (False, 1.0)),
             )
             start = len(centre_posts)
             outcome = _run(
@@ -476,7 +475,7 @@ class TestTheFilesLineAndItsReport:
             monkeypatch.setattr(
                 common_utils,
                 'check_disk_space_ok',
-                the_start_finds_room(lambda path, mb: (False, 1.0)),
+                the_first_readings_find_room(2, lambda path, mb: (False, 1.0)),
             )
             _run(
                 runner,

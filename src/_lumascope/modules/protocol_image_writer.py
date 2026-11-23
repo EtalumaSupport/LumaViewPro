@@ -1919,38 +1919,26 @@ class ProtocolImageWriter:
             self._execution_record.note_capture_attempt()
 
         # Check disk space before writing -- long protocols can fill disk.
-        # Require headroom for THIS step's predicted write, never below the
-        # per-write minimum. A write that saves no image is not sized, as
-        # prepare() sizes no run that saves none.
-        # The estimate is outside the catch: prepare() sized the run, so a
+        # Require room for THIS step's predicted write. A write that saves no
+        # image is not sized, as prepare() sizes no run that saves none.
+        # The estimate is outside the judge: prepare() sized the run, so a
         # failure of it is LumaViewPro's own and is raised where it happens
         # instead of switching the disk guard off.
         if save_folder is not None and enable_image_saving:
-            required_mb = max(
-                common_utils.MIN_PER_WRITE_DISK_MB,
+            no_room = common_utils.room_to_write(
+                save_folder,
+                'a still',
                 write_size.estimate_step_write_mb(
                     step, sizing=self._frame_sizing, video_fps=self._video_sizing_fps
                 ),
             )
-            try:
-                ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
-            except OSError as e:
-                # The probe's own failure: the folder's free space cannot be
-                # read, and the write proceeds unguarded, said where it is seen.
-                logger.warning(f'[Protocol-Writer] Disk space check failed (proceeding): {e}')
-                ok = True
-            if not ok:
+            if no_room is not None:
                 # Runs on the file-IO thread: the funnel's abort-first
                 # ordering matters here -- the protocol thread may be
                 # mid-capture, and abort must close its step-lighting
                 # gates before force_off darkens the sample.
                 self._abort_run_fatal(
-                    RunEnding(
-                        RunStatus.FAILED,
-                        'disk_space_critical',
-                        f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
-                    ),
-                    'FileIO',
+                    RunEnding(RunStatus.FAILED, 'disk_space_critical', no_room), 'FileIO'
                 )
                 # Answered, not raised: the floor is told by the funnel, or
                 # by the files report once the run has settled, and the batch

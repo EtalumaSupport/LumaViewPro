@@ -32,7 +32,8 @@ from _lumascope.modules.exceptions import (
 from _lumascope.modules.notification_center import outcome_of
 from _lumascope.modules.run_outcome import RunEnding, RunStatus
 from _lumascope.modules.image_mode import RecordingFormat
-from tests.disk_fakes import PLENTY_MB, free_space_is
+import _lumascope.modules.common_utils as common_utils
+from tests.disk_fakes import PLENTY_MB, free_space_is, the_start_finds_room
 from tests.test_manual_recording_controller import feed_frames, finish, make_controller
 from tests.video_close_faults import fail_the_close
 from tests.video_step_drives import record_first_frame, record_first_mp4_frame, video_step_on
@@ -60,8 +61,8 @@ def _record_reports(monkeypatch, module):
             'recording again.',
         ),
         (
-            RecordingStoppedError('disk_floor'),
-            'Recording Stopped -- Disk Almost Full',
+            RecordingStoppedError('disk_space_critical'),
+            'Disk Space Critical',
             'Free disk space fell below the safety floor, so the recording was '
             'stopped early. Frames captured so far are saved; free up space before '
             'recording again.',
@@ -213,8 +214,9 @@ def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch, post_pr
     controller, scope, clock = make_controller(tmp_path, post_processing=post_processing)
     reported = _record_reports(monkeypatch, manual_recording_module)
     # The start finds room; every rolling probe finds the disk full.
-    free_space_is(monkeypatch, PLENTY_MB)
-    monkeypatch.setattr(manual_recording_module, 'check_disk_space_ok', lambda *_: (False, 100.0))
+    monkeypatch.setattr(
+        common_utils, 'check_disk_space_ok', the_start_finds_room(lambda *_: (False, 100.0))
+    )
     controller.start()
     feed_frames(scope, clock, 5, fps=10.0)
     controller._engine.wait_for_drain(timeout=10)
@@ -222,7 +224,7 @@ def test_a_full_disk_is_reported_once_unsolicited(tmp_path, monkeypatch, post_pr
 
     stopped = [(f, kw) for f, kw in reported if isinstance(f, RecordingStoppedError)]
     ((fault, kw),) = stopped
-    assert fault.reason == 'disk_floor'
+    assert fault.reason == 'disk_space_critical'
     # The recording's end, so the repeat window does not hold it back.
     assert kw == {'solicited': False, 'category': 'Recording', 'ends_a_run': True}
 
@@ -497,7 +499,7 @@ def test_a_video_steps_writer_death_still_ends_the_run_when_its_close_fails(
 
 def test_a_video_step_sent_only_unstamped_frames_says_so(sim_scope, tmp_path, monkeypatch):
     reported = _record_reports(monkeypatch, protocol_recording)
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    free_space_is(monkeypatch, PLENTY_MB)
     # The step's elapsed clock moves 0.4 s with each frame the camera
     # delivers, so its one-second recording ends on frames, never on wall
     # time, and a feed that delivers is never taken for a stalled one.

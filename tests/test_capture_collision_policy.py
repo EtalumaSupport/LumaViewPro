@@ -40,6 +40,7 @@ from _lumascope.modules.objectives_loader import ObjectiveLoader
 from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
 from _lumascope.modules.protocol_post_processing_result import PostProcResult
 
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.test_protocol_overwrite_guard import _build_tsv, _step_row
 from tests.test_validate_steps import (
     _make_protocol,
@@ -418,7 +419,7 @@ def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch, sim_s
     import _lumascope.modules.protocol_recording as protocol_recording
     from tests.video_step_drives import ElapsedClock, video_step_on
 
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    free_space_is(monkeypatch, PLENTY_MB)
 
     # The first frame the writer takes ends the 1 s recording.
     elapsed = ElapsedClock()
@@ -470,7 +471,7 @@ def test_two_video_steps_of_one_name_each_keep_their_own_manifest(tmp_path, monk
     import _lumascope.modules.protocol_recording as protocol_recording
     from tests.video_step_drives import ElapsedClock, video_step_on
 
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    free_space_is(monkeypatch, PLENTY_MB)
     real_writer = protocol_recording.VideoWriter
     frame_counts = {}
     for _ in range(2):

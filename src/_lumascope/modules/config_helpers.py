@@ -581,13 +581,11 @@ def _system_line(tick: _Tick) -> str:
 
 def _disk_line(tick: _Tick) -> str:
     # The live folder as stored: the tick never creates it, and a folder it
-    # cannot read fails this line rather than reporting another volume.
+    # cannot read fails this line rather than reporting another volume. It
+    # reports and judges nothing: whether there is room is the disk judges'
+    # (common_utils.room_to_start, room_to_write), told where work starts
+    # or writes.
     disk = psutil.disk_usage(tick.live_folder)
-    free_mb = disk.free / _MIB
-    if free_mb < 1024:  # Less than 1 GB
-        logger.error(
-            f'Low disk space: {free_mb:.1f} MB remaining',
-        )
     return f'Disk Free: {disk.free / 1024**3:.1f} GB | Disk Usage: {disk.percent:.1f}%'
 
 

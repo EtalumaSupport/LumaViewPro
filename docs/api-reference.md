@@ -16827,19 +16827,19 @@ A fault; bases `Fault`, `CaptureError`.
 A manual recording was stopped before anyone asked it to stop.
 
 Built by the recording's own watch when the camera stops delivering
-frames or the free disk falls below the floor, and reported where it is
-detected: no caller is waiting on a recording that is running. The
+frames or the free disk falls below what it needs, and reported where it
+is detected: no caller is waiting on a recording that is running. The
 frames written so far are on disk.
 
 **Attributes**
 
-- `reason`: `'camera_disconnected'` -- the camera is no longer active. `'camera_stalled'` -- the camera stopped delivering frames for longer than the recording's exposure allows. `'disk_floor'` -- free disk fell below the safety floor.
+- `reason`: `'camera_disconnected'` -- the camera is no longer active. `'camera_stalled'` -- the camera stopped delivering frames for longer than the recording's exposure allows. `'disk_space_critical'`, as `RunFailedError` explains it: a recording stops as a run ends.
 
 | Reason | Cause | REST status |
 |---|---|---|
 | `camera_disconnected` | -- | 500 |
 | `camera_stalled` | -- | 500 |
-| `disk_floor` | -- | 500 |
+| `disk_space_critical` | -- | 500 |
 
 <a id="Refusal"></a>
 ### `lumascope.Refusal`

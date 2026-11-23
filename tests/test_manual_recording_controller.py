@@ -33,7 +33,8 @@ from _lumascope.modules.notification_center import Severity
 from _lumascope.modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
 from _lumascope.modules.scope_capabilities import FrameSize
 from _lumascope.modules.video_cadence import stall_threshold_s
-from tests.disk_fakes import PLENTY_MB, free_space_is, free_space_unreadable
+import _lumascope.modules.common_utils as common_utils
+from tests.disk_fakes import PLENTY_MB, free_space_is, free_space_unreadable, the_start_finds_room
 from tests.scope_fakes import identity_with_layers
 from tests.settings_fixtures import complete_settings
 from tests.video_engine_harness import FakeClock, ManualFireScheduler, NotifyRecorder
@@ -1044,7 +1045,7 @@ class TestTheStopIsTheUsers:
         feed_frames(scope, clock, 3, fps=10.0)
 
         with pytest.raises(TypeError):
-            controller.stop(reason='disk_floor')
+            controller.stop(reason='disk_space_critical')
         assert controller.is_recording
 
         controller.stop()
@@ -1393,10 +1394,9 @@ class TestDiskFloor:
         controller, scope, clock = make_controller(tmp_path)
         recorder = NotifyRecorder(centre_posts)
 
-        # The start finds room (the fixture's disk); every rolling probe
-        # reports a full disk.
+        # The start finds room; every rolling probe reports a full disk.
         monkeypatch.setattr(
-            manual_recording_module, 'check_disk_space_ok', lambda *_: (False, 100.0)
+            common_utils, 'check_disk_space_ok', the_start_finds_room(lambda *_: (False, 100.0))
         )
         controller.start()
         feed_frames(scope, clock, 5, fps=10.0)
@@ -2034,12 +2034,11 @@ class TestARecordingsLanesAreItsOwn:
         probes = []
 
         def _a_full_disk(path, required_mb):
-            # The start finds room (the fixture's disk); every rolling probe
-            # finds it full.
             probes.append(threading.current_thread().name)
             return (False, 10.0)
 
-        monkeypatch.setattr(manual_recording_module, 'check_disk_space_ok', _a_full_disk)
+        # The start finds room; every rolling probe finds it full.
+        monkeypatch.setattr(common_utils, 'check_disk_space_ok', the_start_finds_room(_a_full_disk))
         # One elapsed instant for every probe: the interval admits the first
         # and refuses every later one, whichever lane asks.
         controller, scope, clock = make_controller(tmp_path, elapsed_clock=lambda: 100.0)

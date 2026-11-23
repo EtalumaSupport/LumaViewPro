@@ -499,21 +499,21 @@ class TestTheRunLoopsOwnEndings:
         anyway'; a raise from the probe dropped the abort and the run walked
         into the next step on a full disk.
         """
-        import _lumascope.modules.protocol_run_loop as prl
+        from tests.disk_fakes import free_space_is
         from tests.protocol_drives import a_frame_sizing, protocol_step, run_loop_ready_runner
 
         runner = run_loop_ready_runner(protocol_step())
         runner._parent_dir = '/tmp'
-        # Real numbers: the estimate is compared with max() against a float, so
-        # a mock here raises and the run ends as a crash -- masking the case
-        # under test.
+        # Real numbers: the estimate is added to the headroom and compared
+        # against a float, so a mock here raises and the run ends as a crash
+        # -- masking the case under test.
         runner._protocol.estimate_write_mb.return_value = 500.0
         runner._protocol.num_steps = 1
         # start() always sets these from the run's plan; the bare harness
         # does not, and the run loop reads them to size the run.
         runner._video_sizing_fps = 30.0
         runner._frame_sizing = a_frame_sizing()
-        monkeypatch.setattr(prl, 'check_disk_space_ok', lambda folder, needed: (False, 12.0))
+        free_space_is(monkeypatch, 12.0)
 
         runner._run_loop_executor.run_loop(runner._last_run())
 
@@ -521,7 +521,7 @@ class TestTheRunLoopsOwnEndings:
         assert len(aborts) >= 1, 'a disk floor below the run estimate must end the run'
         ending, _domain = aborts[0].args
         assert ending.reason == 'disk_space_critical'
-        assert '12 MB free' in ending.message, (
+        assert '12.0 MB is free' in ending.message and '1000.0 MB' in ending.message, (
             f'the message must name the shortfall; got {ending.message!r}'
         )
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-import _lumascope.modules.protocol_recording as protocol_recording
+from _lumascope.modules.common_utils import DiskCheckInterval
 from _lumascope.modules.exceptions import HardwareCommandRefusedError
 from _lumascope.modules.lumascope_api.illumination import LedState
 from _lumascope.modules.scope_session import ScopeSession
@@ -76,19 +76,12 @@ def _run_a_video_step(session, tmp_path, monkeypatch, frame_write_disk):
     """Run one video step whose frame writes meet ``frame_write_disk``; return the outcome.
 
     A stand-in by design: a disk that fails mid-recording, which the
-    simulator cannot make. The step asks the disk once before it records;
-    every later ask is a frame write's, on the recording's writer thread.
+    simulator cannot make. The step's frame writes ask the recording's disk
+    check on its writer thread, and meet ``frame_write_disk``'s answer.
     """
-    asks = []
-    real_probe = protocol_recording.check_disk_space_ok
-
-    def disk(*args, **kwargs):
-        asks.append(args)
-        if len(asks) == 1:
-            return real_probe(*args, **kwargs)
-        return frame_write_disk()
-
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', disk)
+    monkeypatch.setattr(
+        DiskCheckInterval, 'room_to_write', lambda self, folder, what: frame_write_disk()
+    )
     base = _make_single_step_protocol().step_row(step_index=0)
     video = {**base, 'X': 20.0, 'Y': 20.0, 'Acquire': 'video', 'Name': 'video', 'Step Index': 0}
     run = session.protocol_runner().start_single_scan(
@@ -101,7 +94,9 @@ def test_a_video_steps_disk_floor_ends_the_run_dark_and_told(
     session, tmp_path, monkeypatch, centre_posts
 ):
     """The floor is met on the recording's writer thread, which acts for the run."""
-    outcome = _run_a_video_step(session, tmp_path, monkeypatch, lambda: (False, 1.0))
+    outcome = _run_a_video_step(
+        session, tmp_path, monkeypatch, lambda: '1.0 MB is free, and the frames need 2.5 GB.'
+    )
 
     assert (outcome.status, outcome.reason) == ('failed', 'disk_space_critical')
     shown = [n.title for n in centre_posts if n.shown and n.fatal]

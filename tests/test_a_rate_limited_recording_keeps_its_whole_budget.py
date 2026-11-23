@@ -33,9 +33,7 @@ def _the_manifest(folder):
 
 
 def test_a_video_steps_last_frame_held_on_its_way_is_kept(sim_scope, tmp_path, monkeypatch):
-    import _lumascope.modules.protocol_recording as protocol_recording
-
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    free_space_is(monkeypatch, PLENTY_MB)
     sim_scope.simulation.delay_delivery(BACKLOG_FRAMES)
     step = video_step_on(
         sim_scope,

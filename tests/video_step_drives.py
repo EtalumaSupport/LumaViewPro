@@ -17,6 +17,7 @@ from _lumascope.modules.image_mode import ImageCaptureConfig, RecordingFormat
 from _lumascope.modules.channel_record import release_colors
 from _lumascope.modules.protocol_recording import ProtocolVideoStep
 from _lumascope.modules.run_events import RunEvents
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.frame_records import plate
 from tests.protocol_drives import a_frame_sizing, lent_run_claim
 from tests.stock_channels import LED0
@@ -93,7 +94,7 @@ def record_first_frame(scope, save_folder, monkeypatch, *, write_fails=False, **
     """
     import _lumascope.modules.protocol_recording as protocol_recording
 
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    free_space_is(monkeypatch, PLENTY_MB)
     elapsed = ElapsedClock()
     written = []
 
@@ -118,7 +119,7 @@ def record_first_mp4_frame(scope, save_folder, monkeypatch, **overrides):
     """
     import _lumascope.modules.protocol_recording as protocol_recording
 
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    free_space_is(monkeypatch, PLENTY_MB)
     elapsed = ElapsedClock()
     real_writer = protocol_recording.VideoWriter
 

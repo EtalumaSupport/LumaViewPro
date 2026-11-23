@@ -20,8 +20,7 @@ from __future__ import annotations
 import pytest
 
 import _lumascope.modules.autofocus_functions as autofocus_functions
-import _lumascope.modules.manual_recording as manual_recording_module
-from tests.disk_fakes import PLENTY_MB, free_space_is
+import _lumascope.modules.common_utils as common_utils
 from tests.protocol_drives import fault_the_live_run, a_claim_its_scope_asks
 from _lumascope.modules.exceptions import ProtocolNotSavedError, RunEndedByStopNotice
 from _lumascope.modules.channel_record import release_colors
@@ -212,21 +211,18 @@ def test_two_recordings_stopped_by_a_full_disk_both_say_so(
         scheduler=scheduler,
         post_processing=post_processing,
     )
-    # The start finds room; every probe while recording finds the floor
+    # Each start finds room; every probe while recording finds the floor
     # crossed, so each recording stops at its first.
-    free_space_is(monkeypatch, PLENTY_MB)
     monkeypatch.setattr(
-        manual_recording_module,
-        'check_disk_space_ok',
-        lambda *_: (not controller.is_recording, 100.0),
+        common_utils, 'check_disk_space_ok', lambda *_: (not controller.is_recording, 100.0)
     )
     try:
         ends = [controller.start().result(timeout=COMPLETION_TIMEOUT).end_reason for _ in range(2)]
     finally:
         scheduler.shutdown()
 
-    assert ends == ['disk_floor', 'disk_floor']
-    assert len(_shown(centre_posts, title='Recording Stopped -- Disk Almost Full')) == 2
+    assert ends == ['disk_space_critical', 'disk_space_critical']
+    assert len(_shown(centre_posts, title='Disk Space Critical')) == 2
 
 
 def test_an_ordinary_post_inside_the_window_after_an_ending_is_held_back():

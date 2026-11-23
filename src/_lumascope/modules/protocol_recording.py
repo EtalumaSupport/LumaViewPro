@@ -38,12 +38,7 @@ from _lumascope.drivers import host_clock
 from _lumascope.drivers.camera import Frame
 from _lumascope.lvp_logger import logger, version as lvp_version
 from _lumascope.modules.activity_claim import BorrowedClaim, Taking, acting, current_taking
-from _lumascope.modules.common_utils import (
-    DISK_FLOOR_CHECK_INTERVAL_S,
-    MIN_PER_WRITE_DISK_MB,
-    MIN_REQUIRED_DISK_MB,
-    check_disk_space_ok,
-)
+from _lumascope.modules.common_utils import DiskCheckInterval, room_to_write
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.wall_time as wall_time
 import _lumascope.modules.channel_record as channel_record
@@ -246,10 +241,8 @@ class ProtocolVideoStep:
         self._camera: RecordingCamera | None = None
         self._output_dir: Path | None = None
         self._frames_seen = 0
-        # The disk-floor probe's interval, read and set under its lock: the
-        # step's writer lanes reach it concurrently.
-        self._disk_check_lock = threading.Lock()
-        self._last_disk_check_ts = 0.0
+        # The step's writer lanes reach the free-space check concurrently.
+        self._disk_check = DiskCheckInterval(elapsed_clock)
         self._start_dt: datetime.datetime | None = None
         self._finish_thread: threading.Thread | None = None
         # Whether the post-drain finish has yet to end. Its own store, not
@@ -351,8 +344,9 @@ class ProtocolVideoStep:
         # Per-step disk pre-flight at the run's sizing: the run was sized at
         # its start and each scan at the scan's, but a long recording must
         # re-check against what is free NOW, before frames start landing.
-        required_mb = max(
-            MIN_PER_WRITE_DISK_MB,
+        no_room = room_to_write(
+            self._save_folder,
+            'the video step',
             estimate_step_write_mb(
                 step,
                 sizing=self._frame_sizing,
@@ -360,20 +354,9 @@ class ProtocolVideoStep:
                 video_fps=self._video_sizing_fps,
             ),
         )
-        try:
-            ok, free_mb = check_disk_space_ok(self._save_folder, required_mb)
-        except OSError as e:
-            logger.warning(f'[PROTOCOL-VIDEO] Pre-flight disk probe failed (proceeding): {e}')
-            ok, free_mb = True, 0.0
-        if not ok:
+        if no_room is not None:
             self._abort_run_fatal(
-                RunEnding(
-                    RunStatus.FAILED,
-                    'disk_space_critical',
-                    f'Only {free_mb:.0f} MB free -- the video step needs ~{required_mb:.0f} MB. '
-                    'Aborting protocol to prevent data loss.',
-                ),
-                'FileIO',
+                RunEnding(RunStatus.FAILED, 'disk_space_critical', no_room), 'FileIO'
             )
             return ABORTED
 
@@ -705,7 +688,7 @@ class ProtocolVideoStep:
 
     def _write_frame(self, image, timestamp_s, frame_number, config, chunks, facts) -> Path:
         """Write one kept frame as its final artifact (runs on the lane)."""
-        self._check_disk_floor(config)
+        self._check_room_to_write(config)
 
         image = fit_to_recording(image, config.width, config.height)
 
@@ -734,40 +717,20 @@ class ProtocolVideoStep:
         writer.add_frame(image=image, timestamp=timestamp_s, significant_bits=significant_bits)
         return writer.output_path
 
-    def _check_disk_floor(self, config) -> None:
+    def _check_room_to_write(self, config) -> None:
         """Rolling floor probe on the write lanes; a breach aborts the RUN.
 
         The protocol's disk contract is run-fatal (matching the per-write
         guard the stills lane keeps): a disk that hits the floor mid-step
         aborts the whole run loudly rather than letting later steps fail
-        one by one. Frames already on disk stay. The interval is read and
-        set under one lock, so of lanes reaching it together one probes,
-        and at most one reports.
+        one by one. Frames already on disk stay. Of lanes reaching it
+        together one probes, and at most one reports (``DiskCheckInterval``).
         """
-        now = self._elapsed_clock()
-        with self._disk_check_lock:
-            if now - self._last_disk_check_ts < DISK_FLOOR_CHECK_INTERVAL_S:
-                return
-            self._last_disk_check_ts = now
-        try:
-            ok, free_mb = check_disk_space_ok(config.output_dir, MIN_REQUIRED_DISK_MB)
-        except OSError as e:
-            logger.warning(f'[PROTOCOL-VIDEO] Disk-floor probe failed: {e}')
-            return
-        if not ok and self._engine is not None and self._engine.is_recording:
-            logger.error(
-                f'[PROTOCOL-VIDEO] Free disk fell to {free_mb:.0f} MB (floor '
-                f'{MIN_REQUIRED_DISK_MB} MB); aborting the run'
-            )
-            self._engine.stop('disk_floor')
+        no_room = self._disk_check.room_to_write(config.output_dir, "the video step's frames")
+        if no_room is not None and self._engine is not None and self._engine.is_recording:
+            self._engine.stop('disk_space_critical')
             self._abort_run_fatal(
-                RunEnding(
-                    RunStatus.FAILED,
-                    'disk_space_critical',
-                    f'Free disk fell to {free_mb:.0f} MB during a video step. '
-                    'Aborting protocol to prevent data loss.',
-                ),
-                'FileIO',
+                RunEnding(RunStatus.FAILED, 'disk_space_critical', no_room), 'FileIO'
             )
 
     # ------------------------------------------------------------------

@@ -608,6 +608,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 135 | `ZProjectMethod`'s members are UPPER_CASE, as every other published closed set's: `MIN`, `MAX`, `AVERAGE`, `MEDIAN`, `SUM` and `STD_DEV`. Their values, the words a caller sends and REST answers (`'Min'` ... `'StdDev'`), and a projection's file name are unchanged. |
 | level 136 | The API spells a word one way, the US way: `CatalogueNameRefusedError` is `CatalogNameRefusedError`, and the reasons `'not_in_catalogue'`, `'objective_not_in_catalogue'` and `'not_cancellable'` are `'not_in_catalog'`, `'objective_not_in_catalog'` and `'not_cancelable'`, on the wire too. |
 | level 137 | A start short of free disk is refused one way: `RecordingRefusedError` says `'disk_space_insufficient'` ("Not Enough Disk Space") where it said `'insufficient_disk'`; a run, a recording and a build whose drive's free space cannot be read are refused `'capture_location_unusable'` (a run started unguarded, a recording and a build raised the `OSError`). |
+| level 138 | A disk filling while work writes is told one way: a manual recording stopped for it is `RecordingStoppedError` `'disk_space_critical'` ("Disk Space Critical"), as a run ends, where it was `'disk_floor'`, and its `RecordingFinished.end_reason` and manifest say `'disk_space_critical'`. Each write while a run or a recording writes needs its own size plus 500 MB; a recording keeps 2 GB beyond that for what it writes after a stop, so it stops at 2.5 GB free where it stopped at 2 GB. |
 
 ---
 

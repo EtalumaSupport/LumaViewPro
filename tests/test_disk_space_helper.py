@@ -16,10 +16,9 @@ finding 3.
 Fix
 ---
 common_utils.check_disk_space_ok(path, required_mb) -> (bool, float)
-performs the canonical psutil-backed probe + threshold compare. The
-three call sites use the helper; each keeps its own threshold + abort
-+ notification policy (the audit's "shared probe, separate policy"
-recommendation).
+performs the canonical psutil-backed probe + threshold compare. Whether
+there is room is decided by its two judges, room_to_start and
+room_to_write, whose arithmetic is pinned here.
 
 Test approach
 -------------
@@ -41,6 +40,7 @@ import pytest
 
 from _lumascope.modules import common_utils
 from _lumascope.modules.common_utils import check_disk_space_ok
+from tests.disk_fakes import free_space_is, free_space_unreadable
 from tests.case_walk import failing_cases
 
 
@@ -152,13 +152,68 @@ def test_propagates_oserror(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# The running judge: a write needs its own size plus the headroom
+# ---------------------------------------------------------------------------
+
+
+def test_a_write_needs_its_size_plus_the_headroom(monkeypatch):
+    # 900 MB free and a 600 MB scan: the scan fits alone, but writing it
+    # would land in the last 500 MB, where each still's check would end the
+    # run partway through the scan. The scan's check refuses it first.
+    needs = 600.0 + common_utils.MIN_PER_WRITE_DISK_MB
+    free_space_is(monkeypatch, 900.0)
+    short = common_utils.room_to_write('/', 'a scan of 3 steps', 600.0)
+    free_space_is(monkeypatch, needs)
+    fits = common_utils.room_to_write('/', 'a scan of 3 steps', 600.0)
+
+    assert short is not None and '900.0 MB is free at /' in short, short
+    assert 'a scan of 3 steps needs 1.1 GB' in short, short
+    assert fits is None
+
+
+def test_a_running_check_that_cannot_read_the_disk_lets_the_write_go(monkeypatch, caplog):
+    free_space_unreadable(monkeypatch)
+
+    assert common_utils.room_to_write('/', 'a still', 10.0) is None
+    assert any('could not be read' in r.getMessage() for r in caplog.records), caplog.records
+
+
+def test_a_recordings_frames_keep_the_room_a_start_needs(monkeypatch):
+    # What a recording writes after a stop (its backlog in memory, a stack
+    # of its frames) is not known, so its check keeps a start's room.
+    needs = common_utils.MIN_REQUIRED_DISK_MB + common_utils.MIN_PER_WRITE_DISK_MB
+    check = common_utils.DiskCheckInterval(elapsed_clock=lambda: 100.0)
+    free_space_is(monkeypatch, needs - 1)
+    short = check.room_to_write('/', "the recording's frames")
+    free_space_is(monkeypatch, needs)
+    again = common_utils.DiskCheckInterval(elapsed_clock=lambda: 100.0)
+
+    assert short is not None and 'needs 2.5 GB' in short, short
+    assert again.room_to_write('/', "the recording's frames") is None
+
+
+def test_a_recordings_check_reads_once_an_interval(monkeypatch):
+    readings = []
+    monkeypatch.setattr(
+        common_utils, 'check_disk_space_ok', lambda path, mb: readings.append(path) or (False, 1.0)
+    )
+    check = common_utils.DiskCheckInterval(elapsed_clock=lambda: 100.0)
+
+    first = check.room_to_write('/', "the recording's frames")
+    second = check.room_to_write('/', "the recording's frames")
+
+    assert first is not None and second is None
+    assert readings == ['/']
+
+
+# ---------------------------------------------------------------------------
 # Source-text guards: 3 call sites use the helper, not shutil.disk_usage
 # ---------------------------------------------------------------------------
 
 SITES = {
-    'src/_lumascope/modules/protocol_image_writer.py': 'common_utils.check_disk_space_ok',
-    'src/_lumascope/modules/protocol_run_loop.py': 'check_disk_space_ok',
-    'src/_lumascope/modules/manual_recording.py': 'check_disk_space_ok',
+    'src/_lumascope/modules/protocol_image_writer.py': 'common_utils.room_to_write',
+    'src/_lumascope/modules/protocol_run_loop.py': 'room_to_write',
+    'src/_lumascope/modules/manual_recording.py': 'DiskCheckInterval',
 }
 
 

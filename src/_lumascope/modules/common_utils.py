@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple
 import psutil
 
 from _lumascope.lib.real_numbers import is_finite_number, is_integer_number
+from _lumascope.lvp_logger import logger
 from _lumascope.modules.exceptions import Refusal
 
 if TYPE_CHECKING:
@@ -1471,16 +1472,14 @@ def read_video_config(step) -> dict:
     return video_config if isinstance(video_config, dict) else {}
 
 
-# Free-space floor (2 GB) below which capture work refuses to start and
-# a running manual recording stops gracefully. One canonical value: the
-# protocol scan loop and the recording controllers share it so the
-# capture paths cannot drift on what "disk almost full" means.
+# Free-space floor (2 GB) below which capture work refuses to start
+# (room_to_start), and the room a running recording keeps for what it
+# writes after a stop (DiskCheckInterval).
 MIN_REQUIRED_DISK_MB = 2048
 
-# Minimum free disk for a SINGLE protocol write, in MB. Distinct from the
-# whole-run MIN_REQUIRED_DISK_MB above: each individual capture must have
-# at least this much headroom beyond its own estimated size before it is
-# allowed to write, so one write cannot fill the last sliver of a disk.
+# Headroom every write keeps beyond its own estimated size while a run or
+# a recording writes (room_to_write), so one write cannot fill the last
+# sliver of a disk.
 MIN_PER_WRITE_DISK_MB = 500
 
 # How often a recording's write lane re-probes free disk while draining.
@@ -1516,12 +1515,11 @@ def format_disk_size_mb(mb: float) -> str:
 def check_disk_space_ok(path: str | os.PathLike, required_mb: float) -> tuple[bool, float]:
     """Probe free disk space and compare against a threshold.
 
-    Single canonical disk probe shared by protocol_image_writer, the
-    protocol scan loop, and the record pre-flight in main_display. Each
-    caller keeps its own threshold + abort/notification policy; only
-    the probe itself is shared so the three sites cannot drift on
-    backend choice (shutil vs psutil disagree on Windows partition
-    mounts) or unit conversion.
+    The one reading of free space, so no two readers drift on backend
+    choice (shutil vs psutil disagree on Windows partition mounts) or unit
+    conversion. Whether there is room is decided by its two judges,
+    ``room_to_start`` and ``room_to_write``; the startup notice reads it
+    and judges its own line (``host_resources``).
 
     Args:
         path: Filesystem path to probe (str or pathlib.Path). It need not
@@ -1607,6 +1605,66 @@ def room_to_start(
             'save location, then try again.'
         ),
     )
+
+
+def room_to_write(folder: str | os.PathLike, what: str, write_mb: float) -> str | None:
+    """Whether *folder* still has room for *what*, a write about to land there.
+
+    The one judge of free space while a run or a recording writes: a write
+    needs its own size plus ``MIN_PER_WRITE_DISK_MB``, so no write lands in
+    the last of the disk. A folder whose free space cannot be read is said
+    in the log and the write goes ahead: a write that then fails is
+    reported where it fails.
+
+    Args:
+        folder: Where the write lands.
+        what: The write, as the words name it mid-sentence ("a scan of 12
+            steps", "a still").
+        write_mb: The write's size in MB.
+
+    Returns:
+        None when it fits or the free space could not be read, else the
+        words for the person: what is free, where, and what was needed.
+    """
+    needs_mb = write_mb + MIN_PER_WRITE_DISK_MB
+    try:
+        fits, free_mb = check_disk_space_ok(folder, needs_mb)
+    except OSError as e:
+        logger.warning(f'[Disk] Free space at {folder} could not be read; {what} goes ahead: {e}')
+        return None
+    if fits:
+        return None
+    message = (
+        f'{format_disk_size_mb(free_mb)} is free at {folder}, and {what} needs '
+        f'{format_disk_size_mb(needs_mb)}. Stopped so that what is on disk is kept.'
+    )
+    logger.error(f'[Disk] {message}')
+    return message
+
+
+class DiskCheckInterval:
+    """A recording's free-space check, read at most once every ``DISK_FLOOR_CHECK_INTERVAL_S``.
+
+    A recording's write lanes reach it concurrently; the interval is read
+    and set under one lock, so of lanes reaching it together one reads, and
+    at most one reports. What a recording still has to write after a stop
+    is not known (its backlog in memory, and a stack of its frames when it
+    builds one), so it keeps the room a start needs for that.
+    """
+
+    def __init__(self, elapsed_clock) -> None:
+        self._elapsed_clock = elapsed_clock
+        self._lock = threading.Lock()
+        self._last_s = 0.0
+
+    def room_to_write(self, folder: str | os.PathLike, what: str) -> str | None:
+        """``room_to_write`` for the recording's frames when the interval is due, else None."""
+        now = self._elapsed_clock()
+        with self._lock:
+            if now - self._last_s < DISK_FLOOR_CHECK_INTERVAL_S:
+                return None
+            self._last_s = now
+        return room_to_write(folder, what, MIN_REQUIRED_DISK_MB)
 
 
 def get_extra_disks_info(exclude_path: str = '/') -> str | None:

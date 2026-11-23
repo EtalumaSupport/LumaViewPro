@@ -110,25 +110,22 @@ def test_a_stop_halts_the_move_while_a_video_step_s_frames_still_drain(
     """
     import threading
 
-    import _lumascope.modules.protocol_recording as protocol_recording
+    from _lumascope.modules.common_utils import DiskCheckInterval
 
     # A stand-in by design: a slow disk, which the simulator cannot yet make.
-    # The video step asks the disk once before it records, then its frame
-    # writes ask it on the write lane; those wait here until the test lets
-    # them go, so the step's frames are still draining when the run moves on.
+    # The video step's frame writes ask the recording's disk check on the
+    # write lane; those wait here until the test lets them go, so the step's
+    # frames are still draining when the run moves on.
     disk = threading.Event()
-    real_probe = protocol_recording.check_disk_space_ok
-    asked = []
+    real_check = DiskCheckInterval.room_to_write
     recording = threading.Event()
 
-    def slow_disk(*args, **kwargs):
-        asked.append(args)
-        if len(asked) > 1:
-            recording.set()
-            disk.wait(COMPLETION_TIMEOUT)
-        return real_probe(*args, **kwargs)
+    def slow_disk(self, *args, **kwargs):
+        recording.set()
+        disk.wait(COMPLETION_TIMEOUT)
+        return real_check(self, *args, **kwargs)
 
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', slow_disk)
+    monkeypatch.setattr(DiskCheckInterval, 'room_to_write', slow_disk)
     base = _make_single_step_protocol().step_row(step_index=0)
     video = {**base, 'X': 20.0, 'Y': 20.0, 'Acquire': 'video', 'Name': 'video', 'Step Index': 0}
     image = {**base, 'X': 60.0, 'Y': 20.0, 'Name': 'image', 'Step Index': 1}

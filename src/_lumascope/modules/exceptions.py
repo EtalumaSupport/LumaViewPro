@@ -3042,45 +3042,6 @@ class PostProcessingFailedError(Fault, CaptureError):
         return self._TITLES[(self.operation, self.reason)]
 
 
-class RecordingStoppedError(Fault, CaptureError):
-    """A manual recording was stopped before anyone asked it to stop.
-
-    Built by the recording's own watch when the camera stops delivering
-    frames or the free disk falls below the floor, and reported where it is
-    detected: no caller is waiting on a recording that is running. The
-    frames written so far are on disk.
-
-    Attributes:
-        reason: ``'camera_disconnected'`` -- the camera is no longer active.
-            ``'camera_stalled'`` -- the camera stopped delivering frames for
-            longer than the recording's exposure allows.
-            ``'disk_floor'`` -- free disk fell below the safety floor.
-    """
-
-    titles: ClassVar[dict[str, str]] = {
-        'camera_disconnected': 'Recording Stopped',
-        'camera_stalled': 'Recording Stopped',
-        'disk_floor': 'Recording Stopped -- Disk Almost Full',
-    }
-    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
-    _WORDS: ClassVar[dict[str, str]] = {
-        'camera_disconnected': (
-            'The camera stopped delivering frames, so the recording was stopped. '
-            'Frames captured so far are saved; check the camera connection before '
-            'recording again.'
-        ),
-        'disk_floor': (
-            'Free disk space fell below the safety floor, so the recording was '
-            'stopped early. Frames captured so far are saved; free up space before '
-            'recording again.'
-        ),
-    }
-    _WORDS['camera_stalled'] = _WORDS['camera_disconnected']
-
-    def __init__(self, reason: str):
-        super().__init__(self._WORDS[reason], reason)
-
-
 class RecordingFinalizeError(Fault, CaptureError):
     """A recording finished but its output could not be fully assembled.
 
@@ -3646,6 +3607,47 @@ class RunFailedToStartError(Fault, CaptureError):
 
     def __init__(self, *, reason: str, message: str):
         super().__init__(message, reason)
+
+
+class RecordingStoppedError(Fault, CaptureError):
+    """A manual recording was stopped before anyone asked it to stop.
+
+    Built by the recording's own watch when the camera stops delivering
+    frames or the free disk falls below what it needs, and reported where it
+    is detected: no caller is waiting on a recording that is running. The
+    frames written so far are on disk.
+
+    Attributes:
+        reason: ``'camera_disconnected'`` -- the camera is no longer active.
+            ``'camera_stalled'`` -- the camera stopped delivering frames for
+            longer than the recording's exposure allows.
+            ``'disk_space_critical'``, as ``RunFailedError`` explains it: a
+            recording stops as a run ends.
+    """
+
+    titles: ClassVar[dict[str, str]] = {
+        'camera_disconnected': 'Recording Stopped',
+        'camera_stalled': 'Recording Stopped',
+        'disk_space_critical': ENDING_TITLES['disk_space_critical'],
+    }
+    causes: ClassVar[dict[str, RefusalCause | None]] = dict.fromkeys(titles)
+    same_fact_as = (RunFailedError,)
+    _WORDS: ClassVar[dict[str, str]] = {
+        'camera_disconnected': (
+            'The camera stopped delivering frames, so the recording was stopped. '
+            'Frames captured so far are saved; check the camera connection before '
+            'recording again.'
+        ),
+        'disk_space_critical': (
+            'Free disk space fell below the safety floor, so the recording was '
+            'stopped early. Frames captured so far are saved; free up space before '
+            'recording again.'
+        ),
+    }
+    _WORDS['camera_stalled'] = _WORDS['camera_disconnected']
+
+    def __init__(self, reason: str):
+        super().__init__(self._WORDS[reason], reason)
 
 
 @api_fields('run_ending', 'merge_failure')

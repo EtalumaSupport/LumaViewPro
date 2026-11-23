@@ -17,6 +17,7 @@ import threading
 
 import _lumascope.modules.protocol_recording as protocol_recording
 from _lumascope.modules.activity_claim import ActivityClaim
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.protocol_drives import run_identity
 from tests.video_step_drives import ElapsedClock, video_step_on
 
@@ -24,7 +25,7 @@ WAIT_S = 10.0
 
 
 def test_the_finish_end_is_announced_and_reads_not_busy(tmp_path, monkeypatch, sim_scope):
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    free_space_is(monkeypatch, PLENTY_MB)
     # The first frame written ends the 1 s recording, so no wall time is waited.
     elapsed = ElapsedClock()
     monkeypatch.setattr(protocol_recording, 'write_frame', elapsed.pass_duration)

@@ -28,7 +28,7 @@ from _lumascope.modules.run_outcome import (
     RunEnding,
     RunStatus,
 )
-from tests.disk_fakes import the_start_finds_room
+from tests.disk_fakes import the_first_readings_find_room
 from tests.test_a_late_write_records_its_frame import _protocol, _step
 from tests.test_audit_fixes import _bare_protocol_writer
 from tests.test_composite_run_e2e import headless_settings, open_composite_session
@@ -233,7 +233,9 @@ def test_a_floor_met_after_the_run_settled_is_told_once_as_lost_images(
         caplog.at_level(logging.DEBUG),
         open_composite_session(headless_settings(tmp_path)) as (_session, runner),
     ):
-        monkeypatch.setattr(common_utils, 'check_disk_space_ok', the_start_finds_room(slow_floor))
+        monkeypatch.setattr(
+            common_utils, 'check_disk_space_ok', the_first_readings_find_room(2, slow_floor)
+        )
         start = len(centre_posts)
         steps = [_step(f'C{i}', i, x=20.0 + 5 * i, gain=1.0) for i in range(3)]
         run = runner.start_single_scan(protocol=_protocol(steps), parent_dir=str(tmp_path / 'runs'))

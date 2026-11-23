@@ -17,6 +17,7 @@ import pytest
 import _lumascope.modules.protocol_recording as protocol_recording
 from _lumascope.modules.channel_record import GRAY, release_color
 from _lumascope.modules.image_mode import RecordingFormat
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.stock_channels import LED0
 from tests.video_step_drives import ElapsedClock, video_step_on
 
@@ -57,7 +58,7 @@ def _video_step(scope, monkeypatch, tmp_path, *, timestamp_overlay, false_color=
     elapsed = ElapsedClock()
     monkeypatch.setattr(_OverlayCapturingWriter, 'on_frame', elapsed.pass_duration)
     monkeypatch.setattr(protocol_recording, 'VideoWriter', _OverlayCapturingWriter)
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    free_space_is(monkeypatch, PLENTY_MB)
 
     recorder = video_step_on(
         scope,

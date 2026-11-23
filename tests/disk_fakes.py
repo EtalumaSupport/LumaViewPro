@@ -37,19 +37,24 @@ def free_space_unreadable(monkeypatch) -> None:
     monkeypatch.setattr(common_utils.psutil, 'disk_usage', unreadable)
 
 
-def the_start_finds_room(answer):
-    """A probe whose first reading, the start's, finds room, and whose later ones *answer*.
+def the_first_readings_find_room(count: int, answer):
+    """A probe whose first *count* readings find room, and whose later ones *answer*.
 
-    A disk that fills once a run or a recording has started: the start's
-    judge and the running checks read the same probe, and only the start
-    reads it first.
+    A disk that fills once work is under way: the judges read one probe, in
+    the order the work reaches them -- a run's start, then its scan's check,
+    then each write's.
     """
     readings = []
 
     def probe(path, required_mb):
         readings.append(path)
-        if len(readings) == 1:
+        if len(readings) <= count:
             return (True, PLENTY_MB)
         return answer(path, required_mb)
 
     return probe
+
+
+def the_start_finds_room(answer):
+    """A probe whose first reading, the start's, finds room, and whose later ones *answer*."""
+    return the_first_readings_find_room(1, answer)

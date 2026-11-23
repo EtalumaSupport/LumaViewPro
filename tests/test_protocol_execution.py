@@ -10,6 +10,8 @@ Uses Lumascope(simulate=True) with real SimulatedLEDBoard, SimulatedMotorBoard,
 and SimulatedCamera -- no hardware or Kivy needed.
 """
 
+import _lumascope.modules.common_utils as common_utils
+from tests.disk_fakes import the_start_finds_room
 from tests.protocol_drives import no_post_run_builds
 import dataclasses
 import datetime
@@ -17,7 +19,7 @@ import json
 import logging
 import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -1934,21 +1936,20 @@ class TestCleanupConcurrency:
 
 
 class TestDiskSpaceCheck:
-    """P0-2: Protocol aborts when disk space is below 2 GB.
+    """A run whose disk fills once it has started ends at its scan's check.
 
-    Rule-35 audit 2026-05-19 finding 3 consolidated the disk probe onto
-    common_utils.check_disk_space_ok; mocks target the imported alias in
-    protocol_run_loop's namespace and return the helper's (ok, free_mb)
-    tuple shape.
+    The arithmetic of the running rule is the judge's
+    (``tests/test_disk_space_helper.py``); these drive a run through it.
     """
 
-    @patch('_lumascope.modules.protocol_run_loop.check_disk_space_ok')
     def test_low_disk_aborts_image_protocol(
-        self, mock_check, executor, scope, tmp_path, centre_posts
+        self, executor, scope, tmp_path, centre_posts, monkeypatch
     ):
         """With very low disk space, image capture should abort without hanging,
         ending failed at the disk floor and shown once under its title."""
-        mock_check.return_value = (False, 500.0)  # 500 MB free, threshold exceeded
+        monkeypatch.setattr(
+            common_utils, 'check_disk_space_ok', the_start_finds_room(lambda *_: (False, 500.0))
+        )
 
         protocol = _make_single_step_protocol(color='BF')
         completed, ended = _run_and_wait(executor, protocol, tmp_path)
@@ -1958,37 +1959,17 @@ class TestDiskSpaceCheck:
         fatal = [(n.category, n.title) for n in centre_posts if n.shown and n.fatal]
         assert fatal == [('Protocol', 'Disk Space Critical')], fatal
 
-    @patch('_lumascope.modules.protocol_run_loop.check_disk_space_ok')
-    def test_large_protocol_needs_more_than_2gb(self, mock_check, executor, scope, tmp_path):
-        """300 image steps need 2400 MB (300 * 8 MB), so 2.0 GB free should abort."""
-        mock_check.return_value = (False, 2000.0)  # 2.0 GB free vs max(2048, 2400) MB
+    def test_disk_check_exception_does_not_crash(self, executor, scope, tmp_path, monkeypatch):
+        """A running check that cannot read the disk lets the run go on to complete."""
 
-        protocol = _make_multi_step_protocol([{'color': 'BF'} for _ in range(300)])
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed, (
-            'Protocol did not abort within timeout when disk space is low for large protocol'
-        )
+        def unreadable(path, required_mb):
+            raise OSError('disk error')
 
-    @patch('_lumascope.modules.protocol_run_loop.check_disk_space_ok')
-    def test_video_steps_need_500mb_each(self, mock_check, executor, scope, tmp_path):
-        """5 video steps need 2.5 GB (5 * 500 MB), so 2.2 GB free should abort."""
-        mock_check.return_value = (False, 2200.0)  # 2.2 GB free; 5*500=2500 MB required
-
-        protocol = _make_multi_step_protocol(
-            [{'color': 'BF', 'acquire': 'video', 'video_config': {'duration': 1}} for _ in range(5)]
-        )
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
-        assert completed, 'Protocol did not abort for video steps requiring more disk space'
-
-    @patch(
-        '_lumascope.modules.protocol_run_loop.check_disk_space_ok',
-        side_effect=OSError('disk error'),
-    )
-    def test_disk_check_exception_does_not_crash(self, mock_check, executor, scope, tmp_path):
-        """If the probe raises OSError, protocol continues (swallow in caller)."""
+        monkeypatch.setattr(common_utils, 'check_disk_space_ok', the_start_finds_room(unreadable))
         protocol = _make_single_step_protocol(color='BF')
-        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        completed, ended = _run_and_wait(executor, protocol, tmp_path)
         assert completed
+        assert ended['outcome'].status == 'completed', ended['outcome']
 
 
 # ---------------------------------------------------------------------------

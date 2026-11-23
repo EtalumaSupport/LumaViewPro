@@ -26,7 +26,7 @@ import functools
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -41,12 +41,7 @@ import _lumascope.modules.wall_time as wall_time
 import _lumascope.modules.path_utils as path_utils
 from _lumascope.lvp_logger import logger, version as lvp_version
 from _lumascope.modules.activity_claim import ControlSession, guarded_write
-from _lumascope.modules.common_utils import (
-    DISK_FLOOR_CHECK_INTERVAL_S,
-    MIN_REQUIRED_DISK_MB,
-    check_disk_space_ok,
-    room_to_start,
-)
+from _lumascope.modules.common_utils import DiskCheckInterval, room_to_start
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.labware import Labware
 from _lumascope.modules.axes import StageAxis
@@ -590,7 +585,7 @@ class ManualRecordingController:
             )
             return claimed['config'], mapping
 
-        recording = _Recording()
+        recording = _Recording(disk_check=DiskCheckInterval(self._elapsed_clock))
         engine = VideoRecordingEngine(
             write_frame=functools.partial(self._write_frame, recording),
             writers=RECORDED_FRAME_WRITERS if recording_format.writes_frames else 1,
@@ -927,7 +922,7 @@ class ManualRecordingController:
         self, recording, image, timestamp_s, frame_number, config, chunks, facts
     ) -> Path:
         """Write one kept frame of *recording* as its final artifact (runs on a lane)."""
-        self._check_disk_floor(recording, config)
+        self._check_room_to_write(recording, config)
 
         image = fit_to_recording(image, config.width, config.height)
 
@@ -987,37 +982,24 @@ class ManualRecordingController:
         writer.add_frame(image=image, timestamp=timestamp_s, significant_bits=significant_bits)
         return writer.output_path
 
-    def _check_disk_floor(self, recording, config) -> None:
+    def _check_room_to_write(self, recording, config) -> None:
         """Rolling floor probe; a breach stops selection, never the drain.
 
         Runs on the write lanes -- the threads consuming disk -- so the
-        probe needs no scheduler and works headless. The interval is read
-        and set under the recording's lock, so of lanes reaching it
-        together one probes, and at most one reports. Stopping selection
-        yields an honest short delivery; frames already on disk stay.
+        probe needs no scheduler and works headless. Of lanes reaching it
+        together one probes, and at most one reports
+        (``DiskCheckInterval``). Stopping selection yields an honest short
+        delivery; frames already on disk stay.
         """
-        now = self._elapsed_clock()
-        with recording.disk_check_lock:
-            if now - recording.last_disk_check_ts < DISK_FLOOR_CHECK_INTERVAL_S:
-                return
-            recording.last_disk_check_ts = now
-        try:
-            ok, free_mb = check_disk_space_ok(config.output_dir, MIN_REQUIRED_DISK_MB)
-        except OSError as e:
-            logger.warning(f'[ManualRecord] Disk-floor probe failed: {e}')
-            return
-        if not ok and recording.engine.is_recording:
-            logger.info(
-                f'[ManualRecord] Free disk fell to {free_mb:.0f} MB (floor '
-                f'{MIN_REQUIRED_DISK_MB} MB)'
-            )
+        no_room = recording.disk_check.room_to_write(config.output_dir, "the recording's frames")
+        if no_room is not None and recording.engine.is_recording:
             notifications.report_outcome(
-                RecordingStoppedError('disk_floor'),
+                RecordingStoppedError('disk_space_critical'),
                 solicited=False,
                 category='Recording',
                 ends_a_run=True,
             )
-            self._end('disk_floor')
+            self._end('disk_space_critical')
 
     # ------------------------------------------------------------------
     # Post-drain finish (its own short-lived thread, one per recording)
@@ -1292,6 +1274,8 @@ class _Recording:
     so a late write lands in the recording it was taken for.
     """
 
+    # The lanes' free-space check, its interval this recording's.
+    disk_check: DiskCheckInterval
     plan: '_RecordingPlan | None' = None
     writer: VideoWriter | None = None
     # One row per frame written, for the hyperstack build; None when the
@@ -1299,8 +1283,6 @@ class _Recording:
     # the build orders the rows by frame number.
     hyperstack_rows: list | None = None
     engine: VideoRecordingEngine | None = None
-    disk_check_lock: threading.Lock = field(default_factory=threading.Lock)
-    last_disk_check_ts: float = 0.0
 
 
 @dataclass(frozen=True)

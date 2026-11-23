@@ -40,6 +40,7 @@ from unittest.mock import MagicMock
 
 import _lumascope.modules.config_helpers as config_helpers
 
+from tests.disk_fakes import PLENTY_MB, free_space_is
 from tests.camera_fakes import bare_pylon_camera
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -284,7 +285,7 @@ def _video_step_autogain_call(scope, tmp_path, monkeypatch, autogain_settings):
     import _lumascope.modules.protocol_recording as protocol_recording
     from tests.video_step_drives import ElapsedClock, video_step_on
 
-    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
+    free_space_is(monkeypatch, PLENTY_MB)
     # The first frame written ends the 1 s recording.
     elapsed = ElapsedClock()
     monkeypatch.setattr(protocol_recording, 'write_frame', elapsed.pass_duration)

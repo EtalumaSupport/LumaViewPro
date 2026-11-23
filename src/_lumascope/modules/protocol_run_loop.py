@@ -15,7 +15,7 @@ from _lumascope.drivers import host_clock
 from _lumascope.lib.lumascope_error import LumascopeError
 from _lumascope.lvp_logger import logger
 
-from _lumascope.modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
+from _lumascope.modules.common_utils import room_to_write
 from _lumascope.modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from _lumascope.modules.protocol_state_machine import ProtocolState
 from _lumascope.modules.exceptions import (
@@ -176,7 +176,7 @@ class ProtocolRunLoop:
         # it, instead of re-walking every step on each scan's disk check. Stays
         # None (and unevaluated) until a scan with an output dir actually needs
         # it.
-        scan_required_mb = None
+        scan_mb = None
         num_steps = 0
 
         # When the next scan is due (monotonic seconds), decided once the
@@ -256,43 +256,26 @@ class ProtocolRunLoop:
                 # summed on the first check and reused thereafter: prepare()
                 # refused a run whose whole size did not fit, and this is the
                 # backstop for space something else takes during the run. A
-                # run that saves no images is not sized.
-                # As with the connection probe: the handler computes the
-                # numbers, the abort happens outside it. The estimate is
-                # outside the catch: prepare() sized the run, so a failure of
+                # run that saves no images is not sized. The estimate is
+                # outside the judge: prepare() sized the run, so a failure of
                 # it is LumaViewPro's own and ends the run where it happens
                 # instead of switching the disk guard off.
-                disk_ok, free_mb = True, 0.0
+                no_room = None
                 if p._parent_dir is not None and p._frame_sizing is not None:
-                    if scan_required_mb is None:
+                    if scan_mb is None:
                         num_steps = p._protocol.num_steps
-                        scan_required_mb = max(
-                            MIN_REQUIRED_DISK_MB,
-                            p._protocol.estimate_write_mb(
-                                sizing=p._frame_sizing,
-                                recording_format=p._recording_format,
-                                video_fps=p._video_sizing_fps,
-                            ),
+                        scan_mb = p._protocol.estimate_write_mb(
+                            sizing=p._frame_sizing,
+                            recording_format=p._recording_format,
+                            video_fps=p._video_sizing_fps,
                         )
-                    try:
-                        disk_ok, free_mb = check_disk_space_ok(p._parent_dir, scan_required_mb)
-                    except OSError as e:
-                        # The probe's own failure: the folder's free space
-                        # cannot be read, and the scan proceeds unguarded,
-                        # said where it is seen.
-                        logger.warning(
-                            f'[PROTOCOL] Free disk at {p._parent_dir} could not be read '
-                            f'(proceeding without the disk check this scan): {e}'
-                        )
-                if not disk_ok:
-                    msg = (
-                        f'Insufficient disk space: {free_mb:.0f} MB free, '
-                        f'need ~{scan_required_mb:.0f} MB for a scan of {num_steps} steps.'
+                    no_room = room_to_write(
+                        p._parent_dir, f'a scan of {num_steps:,} steps', scan_mb
                     )
-                    logger.error(f'[PROTOCOL] {msg} -- aborting protocol')
+                if no_room is not None:
                     # The funnel sets the abort this site used to set by hand,
                     # so the next iteration still exits and cleanup still runs.
-                    p.abort_run_fatal(RunEnding(RunStatus.FAILED, 'disk_space_critical', msg))
+                    p.abort_run_fatal(RunEnding(RunStatus.FAILED, 'disk_space_critical', no_room))
                     break
 
                 # No nuclear leds_off before step 0: each step's capture makes
