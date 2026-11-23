@@ -19,6 +19,7 @@ import sys
 import time
 
 from harness import HARDWARE, check, figure, hardware_session, report
+from _lumascope.modules.scope_parts import Board
 
 from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.scope_fakes import channel_reading
@@ -54,7 +55,7 @@ def _ls620_simulator():
 
 
 def main():
-    session_cm = hardware_session() if HARDWARE else _ls620_simulator()
+    session_cm = hardware_session(needs=(Board.CAMERA,)) if HARDWARE else _ls620_simulator()
     with session_cm as (session, _runner):
         scope = session.scope
         illumination = scope.illumination

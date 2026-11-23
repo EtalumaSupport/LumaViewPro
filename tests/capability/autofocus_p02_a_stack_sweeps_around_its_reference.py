@@ -30,6 +30,7 @@ import sys
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
+from _lumascope.modules.scope_parts import Board
 
 RUN_TIMEOUT_S = 600.0
 # The AF log prints the centre to 0.1 um and the best to 0.01 um.
@@ -83,7 +84,7 @@ def _ladder(protocol):
 def main():
     args = _arguments()
     if HARDWARE:
-        session_cm = hardware_session()
+        session_cm = hardware_session(needs=(Board.CAMERA,))
     else:
         session_cm = headless_session(probe_dir('af_stack_reference'), acquiring=(args.layer,))
 

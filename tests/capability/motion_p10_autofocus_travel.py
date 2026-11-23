@@ -20,6 +20,7 @@ Run with --hardware for the connected scope; the simulator otherwise.
 import sys
 
 from harness import HARDWARE, check, figure, hardware_session, headless_session, live_dir, report
+from _lumascope.modules.scope_parts import Board
 
 LAYER = 'BF'
 TIMEOUT_S = 300
@@ -75,7 +76,7 @@ def body(session, runner):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, runner):
             body(session, runner)
     else:
         with headless_session(live_dir('p10')) as (session, runner):

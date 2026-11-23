@@ -22,6 +22,7 @@ import traceback
 import pandas as pd
 
 from harness import HARDWARE, SCRATCH, check, figure, hardware_session, headless_session, report
+from _lumascope.modules.scope_parts import Board
 
 from _lumascope.modules.lumascope_api.illumination import LedState
 from tests.protocol_fixtures import protocol_of
@@ -84,7 +85,7 @@ def main():
     from _lumascope.modules.run_events import RunEvents
 
     session_cm = (
-        hardware_session()
+        hardware_session(needs=(Board.CAMERA,))
         if HARDWARE
         else headless_session(SCRATCH / 'p10_live', microscope='LS850T')
     )

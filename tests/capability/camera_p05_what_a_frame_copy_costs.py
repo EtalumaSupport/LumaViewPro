@@ -24,6 +24,7 @@ import traceback
 
 import numpy as np
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 FRAMES = 60
 SAMPLE_S = 30.0
@@ -141,7 +142,7 @@ def _measure(session):
 def main():
     _host()
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             _measure(session)
     else:
         session, _live = make_session('probe_frame_copy_cost')

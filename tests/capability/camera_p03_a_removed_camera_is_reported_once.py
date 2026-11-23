@@ -46,6 +46,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 WINDOW_S = 300.0
 AUTO_GAIN = {
@@ -240,7 +241,7 @@ def _phase(phase):
     # A simulated field with nothing to focus on, as a scope with no sample sees.
     blank = 'blank' in sys.argv[1:]
     if HARDWARE:
-        session_cm = hardware_session()
+        session_cm = hardware_session(needs=(Board.CAMERA,))
     else:
 
         @contextlib.contextmanager

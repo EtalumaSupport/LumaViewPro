@@ -32,6 +32,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 WINDOW_S = 300.0
 # How long after the unplug the camera may take to be declared removed. The
@@ -138,7 +139,7 @@ def main():
     for phase in asked or PHASES:
         figure('phase', phase)
         if HARDWARE:
-            session_cm = hardware_session()
+            session_cm = hardware_session(needs=(Board.CAMERA,))
         else:
 
             @contextlib.contextmanager

@@ -42,6 +42,7 @@ import sys
 import numpy as np
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 
 from _lumascope.modules.coord_transformations import PlateLocation
@@ -131,7 +132,9 @@ def main():
     args = _arguments()
     live = probe_dir('capture_p01')
     session_cm = (
-        hardware_session() if HARDWARE else headless_session(live, acquiring=(args.channel,))
+        hardware_session(needs=(Board.CAMERA,))
+        if HARDWARE
+        else headless_session(live, acquiring=(args.channel,))
     )
     with session_cm as (session, _runner):
         scope = session.scope

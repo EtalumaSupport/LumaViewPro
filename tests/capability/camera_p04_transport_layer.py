@@ -19,6 +19,7 @@ import sys
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 SAMPLE_S = 1.0
 
@@ -47,7 +48,7 @@ def _read(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             _read(session)
     else:
         session, _live = make_session('probe_transport_layer')

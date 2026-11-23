@@ -389,8 +389,15 @@ def headless_session(live_folder, acquiring=('BF', LED0), **extra):
 
 
 @contextlib.contextmanager
-def hardware_session(objective=None):
+def hardware_session(objective=None, needs=()):
     """The scope connected to this machine, brought up the way any script does.
+
+    `needs`, the `Board`s the probe measures, is checked against the scope's
+    `unconnected_parts` once it is up: a part it needs that is not
+    connected is refused by name, so a camera probe on a desk with no
+    camera says so instead of failing on the camera's absent limits. A part
+    the probe does not name may be missing: a camera probe runs on a camera
+    with no scope around it.
 
     `objective`, a catalogue key, is selected after bring-up and before the
     objective is asked about: on a turret scope that turns the turret to the
@@ -445,6 +452,15 @@ def hardware_session(objective=None):
             },
         )
         print(f'SCOPE: {IDENTITY}', flush=True)
+        missing = [part for part in scope.unconnected_parts if part in needs]
+        if missing:
+            print(
+                f'REFUSED: {PROBE} needs the {" and the ".join(p.noun for p in missing)}, '
+                f'not connected. Connect {"it" if len(missing) == 1 else "them"} '
+                'and run the probe again.',
+                flush=True,
+            )
+            sys.exit(2)
         if objective is not None:
             session.select_objective(objective)
         question = session.objective_question

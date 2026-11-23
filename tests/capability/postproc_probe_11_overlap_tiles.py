@@ -24,6 +24,7 @@ import pathlib
 import sys
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 from runfolder import run_protocol_folder
 
@@ -116,7 +117,7 @@ def main():
     live.mkdir(parents=True, exist_ok=True)
     # Simulated, a second layer acquires so the probe sets it off and back.
     session_cm = (
-        hardware_session(objective=args.objective)
+        hardware_session(objective=args.objective, needs=(Board.CAMERA,))
         if HARDWARE
         else headless_session(live, acquiring=(args.layer, harness.LED0))
     )

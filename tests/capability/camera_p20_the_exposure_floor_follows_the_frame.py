@@ -32,6 +32,7 @@ import sys
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report, void
+from _lumascope.modules.scope_parts import Board
 
 from _lumascope.modules.image_mode import ImageMode
 
@@ -131,7 +132,7 @@ def _measure(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             _measure(session)
         return
     session, _live = make_session('probe_exposure_floor')

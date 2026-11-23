@@ -42,6 +42,7 @@ import traceback
 
 import cv2
 import harness
+from _lumascope.modules.scope_parts import Board
 import numpy as np
 from harness import HARDWARE, RECORD, check, figure, hardware_session, make_session, report, void
 
@@ -360,7 +361,7 @@ def body(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             body(session)
         sys.exit(report())
     session, _live = make_session('camera_p19', home=True, microscope='LS720')

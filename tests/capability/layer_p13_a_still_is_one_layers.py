@@ -27,6 +27,7 @@ import time
 import traceback
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, report, void
 from _lumascope.modules.image_utils import read_file_record
 from tests.stock_channels import LED0
@@ -181,7 +182,7 @@ def body(session, runner):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, runner):
             body(session, runner)
         sys.exit(report())
     from tests.scope_fakes import TEST_TURRET_OBJECTIVES

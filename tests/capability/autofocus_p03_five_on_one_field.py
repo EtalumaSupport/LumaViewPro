@@ -25,6 +25,7 @@ import re
 import sys
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 
 _RUNS = 5
@@ -82,7 +83,11 @@ def _one(runner, motion, layer, start_z, index):
 def main():
     args = _arguments()
     live = probe_dir('autofocus_five')
-    session_cm = hardware_session() if HARDWARE else headless_session(live, acquiring=(args.layer,))
+    session_cm = (
+        hardware_session(needs=(Board.CAMERA,))
+        if HARDWARE
+        else headless_session(live, acquiring=(args.layer,))
+    )
     with session_cm as (session, runner):
         motion = session.scope.motion
         if not HARDWARE:

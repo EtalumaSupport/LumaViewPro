@@ -28,6 +28,7 @@ import sys
 import time
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 from tests.stock_channels import LED0
 
@@ -141,7 +142,7 @@ def main():
     args = _arguments()
     live = probe_dir('recording_600')
     if HARDWARE:
-        session_cm = hardware_session()
+        session_cm = hardware_session(needs=(Board.CAMERA,))
     else:
         session_cm = headless_session(live, acquiring=(args.layer, LED0))
     with session_cm as (session, runner):

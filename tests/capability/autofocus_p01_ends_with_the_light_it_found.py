@@ -22,6 +22,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 from tests.scope_fakes import channel_reading
 
 LAYER = sys.argv[sys.argv.index('--layer') + 1] if '--layer' in sys.argv else 'BF'
@@ -63,7 +64,7 @@ def _autofocus(session, runner, current_ma, *, stop):
 
 def main():
     if HARDWARE:
-        session_cm = hardware_session()
+        session_cm = hardware_session(needs=(Board.CAMERA,))
     else:
         from contextlib import contextmanager
 

@@ -26,6 +26,7 @@ import threading
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 SHORT_MS = 18.0
 LONG_MS = 134.0
@@ -101,7 +102,7 @@ def _measure(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             _measure(session)
     else:
         session, _live = make_session('probe_listener_lateness')

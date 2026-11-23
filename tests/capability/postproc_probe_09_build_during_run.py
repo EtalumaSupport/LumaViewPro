@@ -42,6 +42,7 @@ import sys
 import time
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 from tests.stock_channels import LED0
 
@@ -189,7 +190,11 @@ def _report_run(name, outcome, started, ended, record):
 def main():
     args = _arguments()
     live = probe_dir('build_during_run')
-    session_cm = hardware_session() if HARDWARE else headless_session(live, acquiring=('BF', LED0))
+    session_cm = (
+        hardware_session(needs=(Board.CAMERA,))
+        if HARDWARE
+        else headless_session(live, acquiring=('BF', LED0))
+    )
     with session_cm as (session, runner):
         if args.labware is not None:
             session.select_labware(args.labware)

@@ -41,6 +41,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 EVENTS = ('binning', 'disconnect', 'pull')
 SAMPLE_HZ = 100.0
@@ -160,7 +161,7 @@ def main():
         if len(asked) != 1:
             print(f'REFUSED: name one event of {EVENTS}; each is its own run on hardware.')
             sys.exit(2)
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             _event(session, asked[0])
         return
     for event in asked or EVENTS:

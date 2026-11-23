@@ -11,6 +11,7 @@ import time
 import traceback
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, report
 
 N = 5
@@ -46,7 +47,7 @@ def body(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             body(session)
         sys.exit(report())
     from tests.scope_fakes import TEST_TURRET_OBJECTIVES

@@ -22,6 +22,7 @@ would carry.
 import sys
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 from tests.stock_channels import LED0
 
 
@@ -106,7 +107,7 @@ def body(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             body(session)
     else:
         session = _sim()

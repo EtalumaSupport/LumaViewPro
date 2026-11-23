@@ -19,6 +19,7 @@ import sys
 import traceback
 
 import harness
+from _lumascope.modules.scope_parts import Board
 import numpy as np
 import tifffile
 from harness import HARDWARE, check, figure, hardware_session, report
@@ -145,7 +146,7 @@ def body(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             body(session)
         sys.exit(report())
     session, _live = harness.make_session('write_size_p01', home=True, microscope='LS620')

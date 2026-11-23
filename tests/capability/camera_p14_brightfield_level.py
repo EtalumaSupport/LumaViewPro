@@ -27,6 +27,7 @@ import traceback
 import numpy as np
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 LAYER = 'BF'
 # The transition stage's stated start, given for the 40x on a Ronchi.
@@ -71,7 +72,7 @@ def _read(session, label, light):
 
 
 def main():
-    session_cm = hardware_session() if HARDWARE else _sim()
+    session_cm = hardware_session(needs=(Board.CAMERA,)) if HARDWARE else _sim()
     with session_cm as (session, _runner):
         scope = session.scope
         figure('has turret', scope.capabilities.has_turret)

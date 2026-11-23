@@ -36,6 +36,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 from _lumascope.modules.image_mode import ImageMode
 
@@ -250,7 +251,7 @@ def _frame_only(scope, sizes=None, leg='F'):
 
 def main():
     if HARDWARE:
-        with hardware_session(objective=OBJECTIVE) as (session, _runner):
+        with hardware_session(objective=OBJECTIVE, needs=(Board.CAMERA,)) as (session, _runner):
             _measure(session)
         return
     session, _live = make_session('probe_geometry_restart_pace')

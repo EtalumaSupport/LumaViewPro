@@ -23,6 +23,7 @@ import argparse
 import sys
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 
 
@@ -76,7 +77,11 @@ def _mean(session, layer):
 def main():
     args = _arguments()
     live = probe_dir('camera_p15')
-    session_cm = hardware_session() if HARDWARE else headless_session(live, acquiring=(args.layer,))
+    session_cm = (
+        hardware_session(needs=(Board.CAMERA,))
+        if HARDWARE
+        else headless_session(live, acquiring=(args.layer,))
+    )
     with session_cm as (session, _runner):
         caps = session.scope.capabilities
         camera = session.scope.camera

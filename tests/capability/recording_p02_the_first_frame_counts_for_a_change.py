@@ -30,6 +30,7 @@ import sys
 import threading
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 
 from _lumascope.modules.acquire_mode import AcquireMode
@@ -160,7 +161,11 @@ def main():
 
     args = _arguments()
     live = probe_dir('recording_p02')
-    session_cm = hardware_session() if HARDWARE else headless_session(live, acquiring=(args.layer,))
+    session_cm = (
+        hardware_session(needs=(Board.CAMERA,))
+        if HARDWARE
+        else headless_session(live, acquiring=(args.layer,))
+    )
     with session_cm as (session, runner):
         scope = session.scope
         if HARDWARE:

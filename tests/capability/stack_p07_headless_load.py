@@ -15,6 +15,7 @@ import traceback
 import psutil
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, report
 
 SECONDS = 60.0
@@ -62,7 +63,7 @@ def body(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             body(session)
         sys.exit(report())
     session = harness.new_session(microscope='LS850T')

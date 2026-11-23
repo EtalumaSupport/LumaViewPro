@@ -28,6 +28,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 CYCLES = 5
 BASELINE_READS = 200
@@ -90,7 +91,7 @@ def _measure(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             _measure(session)
     else:
         session, _live = make_session('probe_is_streaming_during_a_grab_stop')

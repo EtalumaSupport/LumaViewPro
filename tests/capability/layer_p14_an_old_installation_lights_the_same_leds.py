@@ -24,6 +24,7 @@ import pathlib
 import sys
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, probe_dir, report
+from _lumascope.modules.scope_parts import Board
 
 SAVE = '--compare' not in sys.argv
 PROTOCOL_NAME = 'old_installation.tsv'
@@ -114,7 +115,7 @@ def main():
     folder = _folder()
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / PROTOCOL_NAME
-    session_cm = hardware_session() if HARDWARE else _ls850_simulator()
+    session_cm = hardware_session(needs=(Board.CAMERA,)) if HARDWARE else _ls850_simulator()
     with session_cm as (session, _runner):
         scope = session.scope
         session.update_settings('protocol_led_on', True)

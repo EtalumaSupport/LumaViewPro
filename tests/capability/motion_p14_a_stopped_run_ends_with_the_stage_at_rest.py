@@ -46,6 +46,7 @@ import time
 import traceback
 
 from harness import HARDWARE, SCRATCH, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 from motion_p11_stop_halts_and_progress_reads import (
     _actual_reads,
     _arrive,
@@ -227,7 +228,7 @@ def _autofocus_leg(session, runner):
 
 def main():
     if HARDWARE:
-        session_cm = hardware_session()
+        session_cm = hardware_session(needs=(Board.CAMERA,))
     else:
 
         @contextlib.contextmanager

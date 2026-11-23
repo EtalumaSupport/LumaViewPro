@@ -28,6 +28,7 @@ import sys
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 
 def _read(session, label):
@@ -57,7 +58,7 @@ def _read(session, label):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             _read(session, 'held')
         return
     for size in ('1x1', '2x2'):

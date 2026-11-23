@@ -22,6 +22,7 @@ import sys
 import traceback
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, report
 
 from _lumascope.modules.exceptions import ValueClampedNotice
@@ -96,7 +97,7 @@ def body(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             body(session)
         return
     session, _live = harness.make_session('camera_p22', microscope='Lumi')

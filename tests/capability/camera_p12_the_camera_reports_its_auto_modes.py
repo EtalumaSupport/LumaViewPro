@@ -29,6 +29,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 AUTO_GAIN = {
     'target_brightness': 0.5,
@@ -210,7 +211,7 @@ def _probe(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             _probe(session)
         return
     session, _live = make_session('probe_auto_modes')

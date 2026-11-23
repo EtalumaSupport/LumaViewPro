@@ -26,6 +26,7 @@ import time
 import traceback
 
 from harness import HARDWARE, check, figure, hardware_session, make_session, report
+from _lumascope.modules.scope_parts import Board
 
 CAPTURES = 50
 DRIFT_S = 60.0
@@ -109,7 +110,7 @@ def _measure(session):
 
 def main():
     if HARDWARE:
-        with hardware_session() as (session, _runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, _runner):
             _measure(session)
     else:
         session, _live = make_session('probe_clock_mapping_figures')

@@ -18,6 +18,7 @@ import sys
 import time
 
 import harness
+from _lumascope.modules.scope_parts import Board
 from harness import HARDWARE, check, figure, hardware_session, headless_session, probe_dir, report
 from _lumascope.lib import profile_trace
 from _lumascope.lvp_logger import git_revision
@@ -126,7 +127,7 @@ def body(session, runner, live):
 def main():
     live = probe_dir('stack_p06')
     if HARDWARE:
-        with hardware_session() as (session, runner):
+        with hardware_session(needs=(Board.CAMERA,)) as (session, runner):
             # The installation's layers may acquire nothing; this run captures
             # BF and LED 0's channel as stills, on the session's settings in memory only.
             for layer in ('BF', LED0):
