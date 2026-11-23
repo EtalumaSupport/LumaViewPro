@@ -617,6 +617,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 144 | One name per fact: the capability `camera_supports_conversion_gain_mode` is `camera_supports_high_conversion_gain` and `is_color_native` is `camera_is_color`; high conversion gain's refusal reason is `'high_conversion_gain_unsupported'` (was `'conversion_gain_mode_unsupported'`), its refusals name the setting `'high_conversion_gain'` with the `True` or `False` asked for where they named `'conversion_gain_mode'` with `'High'` or `'Low'`; the frame-readiness source is `FrameValiditySource.HIGH_CONVERSION_GAIN` (`'high_conversion_gain'`); the simulated scope's `conversion_gain_mode` is `camera_supports_high_conversion_gain`. |
 | level 145 | A sum says how far it has got: `sum_iteration_callback` (`capture_still`, `capture_image`) is called with one `SumProgress` (`kept`, `of`) where it was called with no arguments; `kept` starts again from 1 when a change lands while the sum is taken. |
 | level 146 | Why a run ended is one closed set: `RunOutcome.reason` is a `RunEndReason`, each member equal to the string it was (`'stopped'`, `'position_lost'`, ...), so a comparison with the string still holds. |
+| level 147 | Why a recording ended is one closed set: `RecordingFinished.end_reason` and the manual recording's `end_reason` are a `RecordingEndReason`, each member equal to the string it was, and a person's stop is `'stopped'` (was `'user_stop'`), as a run's is. |
 
 ---
 

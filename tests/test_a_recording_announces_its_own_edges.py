@@ -73,7 +73,7 @@ class TestTheEngine:
                 f'no listener was told the recording is live; heard {heard}'
             )
         finally:
-            engine.stop('user_stop')
+            engine.stop('stopped')
             assert engine.wait_for_drain(5.0)
 
     def test_a_listener_hears_it_go_to_draining(self, tmp_path, claim_for):
@@ -83,7 +83,7 @@ class TestTheEngine:
         image, ts, chunks = FrameFeed().frame(clock())
         engine.ingest_frame(image, ts, chunks, fact=None)
 
-        engine.stop('user_stop')
+        engine.stop('stopped')
         try:
             assert (False, True) in heard, (
                 f'no listener was told the recording stopped selecting and is draining; '

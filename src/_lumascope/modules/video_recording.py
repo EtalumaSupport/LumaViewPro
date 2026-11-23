@@ -152,11 +152,33 @@ def wait_for_changes_in_force(
     return PreRollEnd.READY, imaging.map_camera_clock()
 
 
-# End reason for a recording whose caller failed to finish starting it.
-# No manifest is published for one: nothing was recorded, and a manifest
-# describing a recording that never ran pollutes the shared output folder
-# and misleads anyone reading the tree afterwards.
-END_REASON_START_FAILED = 'start_failed'
+class RecordingEndReason(enum.StrEnum):
+    """Why a recording's frame selection ended, as its manifest states it.
+
+    ``STOPPED`` -- a person stopped it. ``DURATION_ELAPSED`` -- it ran
+    its length. ``FRAME_BUDGET_FILLED`` -- it kept the frames it was asked
+    for. ``RUN_STOP`` -- the run recording it was stopped.
+    ``CAMERA_DISCONNECTED``, ``CAMERA_STALLED`` -- the camera left, or
+    stopped delivering frames. ``DISK_SPACE_CRITICAL`` -- the save drive
+    reached its floor. ``START_FAILED`` -- its caller did not finish
+    starting it; no manifest is written for one, since nothing was
+    recorded. ``DISCARDED`` -- its frames were given up before they were
+    written. ``LANE_EXITED`` -- a writer lane ended abnormally.
+    ``ABORTED`` -- a writer failed, and its backlog was dropped.
+    """
+
+    STOPPED = 'stopped'
+    DURATION_ELAPSED = 'duration_elapsed'
+    FRAME_BUDGET_FILLED = 'frame_budget_filled'
+    RUN_STOP = 'run_stop'
+    CAMERA_DISCONNECTED = 'camera_disconnected'
+    CAMERA_STALLED = 'camera_stalled'
+    DISK_SPACE_CRITICAL = 'disk_space_critical'
+    START_FAILED = 'start_failed'
+    DISCARDED = 'discarded'
+    LANE_EXITED = 'lane_exited'
+    ABORTED = 'aborted'
+
 
 # How long saving may run on past a recording's end before the person is
 # told, once it finishes, that every frame was kept and how long saving took.
@@ -314,15 +336,14 @@ class RecordingFinished:
     """What a manual recording's operation answers once it is done.
 
     Attributes:
-        end_reason: Why frame selection ended ('user_stop',
-            'duration_elapsed', 'frame_budget_filled', 'camera_stalled',
-            ...), the manifest's ``end_reason``; None when the recording
-            never got as far as recording.
+        end_reason: Why frame selection ended, the manifest's
+            ``end_reason``; None when the recording never got as far as
+            recording.
         save_wait_s: Seconds saving ran on after the recording ended; None
             when its backlog was discarded or it has no measured result.
     """
 
-    end_reason: str | None
+    end_reason: RecordingEndReason | None
     save_wait_s: float | None
 
 
@@ -408,10 +429,9 @@ class RecordingResult:
             frame order.
         manifest_path: The written manifest file, or None if aborted
             before the manifest landed.
-        end_reason: Why frame SELECTION ended -- the caller's word at
-            the stop that closed it ('user_stop', 'duration_elapsed',
-            'camera_stalled', ...), 'frame_budget_filled' when the
-            budget did, 'discarded' on a discard-first close. A support
+        end_reason: Why frame SELECTION ended -- the caller's reason at
+            the stop that closed it, ``FRAME_BUDGET_FILLED`` when the
+            budget did, ``DISCARDED`` on a discard-first close. A support
             bundle needs this to tell a user stop from a camera death,
             which the frame counts alone cannot.
         save_wait_s: Seconds from selection closing to the last queued
@@ -434,7 +454,7 @@ class RecordingResult:
     timestamp_grade: TimestampSource
     frame_timestamps_s: tuple
     manifest_path: pathlib.Path | None
-    end_reason: str
+    end_reason: RecordingEndReason
     save_wait_s: float | None
 
     @property
@@ -561,7 +581,8 @@ class _Take:
     writer_failure: BaseException | None = None
     manifest_failure: OSError | None = None
     result: RecordingResult | None = None
-    end_reason: str = ''
+    # None until selection closes.
+    end_reason: RecordingEndReason | None = None
     # The steady clock when selection closed, which the save wait is
     # measured from.
     selection_closed_ns: int | None = None
@@ -647,10 +668,10 @@ class VideoRecordingEngine:
         return 0 if take is None else take.pending
 
     @property
-    def end_reason(self) -> str:
-        """Why selection closed, the result's ``end_reason``; read once it has closed."""
+    def end_reason(self) -> RecordingEndReason | None:
+        """Why selection closed, the result's ``end_reason``; None until it has closed."""
         take = self._take
-        return '' if take is None else take.end_reason
+        return None if take is None else take.end_reason
 
     @property
     def frames_selected(self) -> int:
@@ -829,7 +850,7 @@ class VideoRecordingEngine:
             # budget's last slot (below), so a frame past the duration still
             # fills a slot the budget owes.
             if config.fps is None and timestamp_s - take.start_ts >= config.duration_s:
-                self._close_selection_locked(take, 'duration_elapsed')
+                self._close_selection_locked(take, RecordingEndReason.DURATION_ELAPSED)
                 return
             self._count_camera_frame_locked(take, chunks)
             if not take.selector.slot_open(timestamp_s):
@@ -854,7 +875,7 @@ class VideoRecordingEngine:
                 take.lane_queue.put((image, timestamp_s, frame_number, chunks, fact))
             # A skipped last slot ends the recording as a kept one does.
             if take.selector.at_capacity:
-                self._close_selection_locked(take, 'frame_budget_filled')
+                self._close_selection_locked(take, RecordingEndReason.FRAME_BUDGET_FILLED)
             elif (
                 config.fps is not None
                 and timestamp_s >= take.start_ts + config.frame_budget / config.fps
@@ -864,7 +885,7 @@ class VideoRecordingEngine:
                 # slot it was owed, and the recording ends there on its
                 # frames' clock: a caller's own clock ending it would race
                 # the last frame on its way.
-                self._close_selection_locked(take, 'duration_elapsed')
+                self._close_selection_locked(take, RecordingEndReason.DURATION_ELAPSED)
 
     def note_unstamped(self, chunks: Mapping[str, int | float] | None) -> None:
         """Count one delivered frame that came without the camera's timestamp.
@@ -910,7 +931,7 @@ class VideoRecordingEngine:
                 'numbering restarted, so frames lost across the restart are not counted'
             )
 
-    def stop(self, reason: str, *, taken_for: ControlSession | None = None) -> bool:
+    def stop(self, reason: RecordingEndReason, *, taken_for: ControlSession | None = None) -> bool:
         """Close selection promptly (within one selection decision).
 
         Drain continues: frames already queued keep writing until the
@@ -930,7 +951,12 @@ class VideoRecordingEngine:
             Whether this stop closed selection, or found it closed: False
             only when ``taken_for`` names a session this recording was not
             taken for, and then nothing changed.
+
+        Raises:
+            ValueError: ``reason`` is not one of ``RecordingEndReason``;
+                nothing changed.
         """
+        reason = RecordingEndReason(reason)
         take = self._take
         with self._lock:
             if taken_for is not None:
@@ -960,7 +986,7 @@ class VideoRecordingEngine:
         if take is None:
             return
         with self._lock:
-            self._close_selection_locked(take, 'discarded')
+            self._close_selection_locked(take, RecordingEndReason.DISCARDED)
             take.discarding = True
             discarded = self._drop_backlog_locked(take)
             # A lane may reach get() after the drop emptied the queue
@@ -995,7 +1021,7 @@ class VideoRecordingEngine:
         if held is not None:
             held.release()
 
-    def _close_selection_locked(self, take: _Take, reason: str) -> None:
+    def _close_selection_locked(self, take: _Take, reason: RecordingEndReason) -> None:
         """Close selection exactly once; the caller holds the lock.
 
         First close names the end reason: a later stop or discard on an
@@ -1090,7 +1116,7 @@ class VideoRecordingEngine:
             # will not drain its share.
             logger.critical('[VideoEngine] writer lane exited abnormally', exc_info=True)
             with self._lock:
-                self._close_selection_locked(take, 'lane_exited')
+                self._close_selection_locked(take, RecordingEndReason.LANE_EXITED)
                 for _ in range(take.writers):
                     take.lane_queue.put(_END_OF_RECORDING)
             raise
@@ -1107,7 +1133,7 @@ class VideoRecordingEngine:
         with self._lock:
             if take.writer_failure is None:
                 take.writer_failure = ex
-            self._close_selection_locked(take, 'aborted')
+            self._close_selection_locked(take, RecordingEndReason.ABORTED)
             self._drop_backlog_locked(take)
             for _ in range(take.writers):
                 take.lane_queue.put(_END_OF_RECORDING)
@@ -1136,7 +1162,10 @@ class VideoRecordingEngine:
             # the markers that end the lanes; this names the end only when
             # none did.
             self._close_selection_locked(
-                take, 'aborted' if take.writer_failure is not None else 'lane_exited'
+                take,
+                RecordingEndReason.ABORTED
+                if take.writer_failure is not None
+                else RecordingEndReason.LANE_EXITED,
             )
             try:
                 self._finalize_locked(take)
@@ -1172,7 +1201,7 @@ class VideoRecordingEngine:
         # result in memory but no manifest on disk.
         if (
             take.writer_failure is None
-            and take.end_reason != END_REASON_START_FAILED
+            and take.end_reason != RecordingEndReason.START_FAILED
             and manifest_name is not None
         ):
             manifest_path = self._write_manifest(

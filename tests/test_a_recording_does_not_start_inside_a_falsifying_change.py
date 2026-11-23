@@ -181,7 +181,7 @@ class TestTheRecordingStart:
         try:
             assert claim.owner == 'recording'
         finally:
-            engine.stop('user_stop')
+            engine.stop('stopped')
 
     def test_a_write_that_does_not_falsify_it_does_not_refuse_it(self, claim, io_lane, tmp_path):
         fut, change = _run_top_level(io_lane, falsifies_recording=False)
@@ -189,7 +189,7 @@ class TestTheRecordingStart:
         try:
             engine.start(lambda: (_config(tmp_path), None))
             assert claim.owner == 'recording'
-            engine.stop('user_stop')
+            engine.stop('stopped')
         finally:
             change.release.set()
             fut.result(timeout=_WAIT_S)
@@ -203,7 +203,7 @@ class TestTheRecordingStart:
 
         engine = _engine(claim)
         engine.start(_build)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert seen == ['recording']
 
 

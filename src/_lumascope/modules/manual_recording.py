@@ -89,7 +89,7 @@ from _lumascope.modules.image_mode import RecordingFormat
 from _lumascope.modules.recording_manifest import gather_host_provenance
 from _lumascope.modules.video_cadence import StallWatch, effective_recording_fps, stall_threshold_s
 from _lumascope.modules.video_recording import (
-    END_REASON_START_FAILED,
+    RecordingEndReason,
     RecordingFinished,
     PreRollEnd,
     RecordingConfig,
@@ -247,7 +247,7 @@ class ManualRecordingController:
         # Why the most recent recording ended when its engine was dropped:
         # only a start unwound after its commit drops it. Every other end
         # is the engine's own reason.
-        self._failed_start_reason: str | None = None
+        self._failed_start_reason: RecordingEndReason | None = None
 
     # ------------------------------------------------------------------
     # Status surface (GUI polls these; all None-safe)
@@ -602,7 +602,7 @@ class ManualRecordingController:
         # current one: a late stop reaches an engine already closed, which
         # keeps the reason it closed with. The frame listener stays until
         # the finish removes it; it offers nothing to a closed engine.
-        operation = Operation(stop=lambda: engine.stop('user_stop'))
+        operation = Operation(stop=lambda: engine.stop(RecordingEndReason.STOPPED))
 
         # Engine start is the commit point: it acquires the claim or
         # raises. Assign the rest of the controller's state only after it
@@ -710,7 +710,7 @@ class ManualRecordingController:
         """
         # Idempotent no-op when the failure preceded the arming.
         self._disarm_health_check()
-        self._failed_start_reason = END_REASON_START_FAILED
+        self._failed_start_reason = RecordingEndReason.START_FAILED
         # The listener registers late in start(), so an earlier failure
         # unwinds without one ever having been added: the removal is then a
         # no-op.
@@ -721,7 +721,7 @@ class ManualRecordingController:
         # on the single-worker camera executor, so a wedged writer would take
         # the executor down with it rather than just this recording.
         try:
-            recording.engine.stop(END_REASON_START_FAILED)
+            recording.engine.stop(RecordingEndReason.START_FAILED)
         except Exception:
             logger.exception('[ManualRecord] engine did not end cleanly during start unwind')
 
@@ -750,7 +750,7 @@ class ManualRecordingController:
 
         Every caller of this -- the Record button, app close, a REST or SDK client
         -- is the user stopping the recording, so its
-        ``RecordingFinished.end_reason`` is ``'user_stop'``. The controller's
+        ``RecordingFinished.end_reason`` is ``STOPPED``. The controller's
         own enders (the duration backstop, the
         disk floor, a lost camera) name their own, and no caller can write
         one of those into the manifest.
@@ -758,18 +758,18 @@ class ManualRecordingController:
         Raises:
             Nothing.
         """
-        self._end('user_stop')
+        self._end(RecordingEndReason.STOPPED)
 
     def stop_the_recording_taken_for(self, session: ControlSession) -> None:
         """Stop the recording when it was taken for *session*; nothing otherwise.
 
         For the session ending a control session. A recording that has
         ended since, and the next one -- the operator's, admitted once the
-        session ended -- are not it. Ends as ``stop`` does, ``'user_stop'``.
+        session ended -- are not it. Ends as ``stop`` does, ``STOPPED``.
         """
-        self._end('user_stop', session)
+        self._end(RecordingEndReason.STOPPED, session)
 
-    def _end(self, reason: str, taken_for: ControlSession | None = None) -> None:
+    def _end(self, reason: RecordingEndReason, taken_for: ControlSession | None = None) -> None:
         """Close selection as *reason*, the manifest's ``end_reason``; with *taken_for*, only that session's recording."""
         engine = self._engine
         if engine is None or not engine.stop(reason, taken_for=taken_for):
@@ -780,11 +780,10 @@ class ManualRecordingController:
         self._scope.imaging.remove_frame_listener(self._on_camera_frame)
 
     @property
-    def end_reason(self) -> str | None:
+    def end_reason(self) -> RecordingEndReason | None:
         """Why the most recent recording ended, or None before any has.
 
-        Manifest vocabulary ('user_stop', 'duration_elapsed',
-        'camera_stalled', ...), read from the recording's engine as soon
+        The manifest's ``end_reason``, read from the recording's engine as soon
         as its selection closes, so a caller watching is_recording flip
         False can tell a camera death from a user stop while the frames
         still drain. The first close names it: a later stop does not
@@ -827,16 +826,16 @@ class ManualRecordingController:
         # between frames can grow after start: the bound follows it.
         stall_bound_s = self._stall_threshold_now(effective_fps)
         if self._elapsed_clock() - start_ts >= config.duration_s + stall_bound_s:
-            self._end('duration_elapsed')
+            self._end(RecordingEndReason.DURATION_ELAPSED)
             return
         if not self._scope.camera.active:
-            self._stop_for_camera_loss(reason='camera_disconnected')
+            self._stop_for_camera_loss(reason=RecordingEndReason.CAMERA_DISCONNECTED)
             return
         if stall_watch is None:
             return
         stall_watch.raise_threshold(stall_bound_s)
         if stall_watch.stalled(self._frames_delivered, self._elapsed_clock()):
-            self._stop_for_camera_loss(reason='camera_stalled')
+            self._stop_for_camera_loss(reason=RecordingEndReason.CAMERA_STALLED)
 
     def _stall_threshold_now(self, effective_fps: float | None, floor_ms: float = 0.0) -> float:
         """The feed-death bound for the longest exposure the camera may be using now."""
@@ -849,7 +848,7 @@ class ManualRecordingController:
         if handle is not None:
             self._scheduler.unschedule(handle)
 
-    def _stop_for_camera_loss(self, reason: str) -> None:
+    def _stop_for_camera_loss(self, reason: RecordingEndReason) -> None:
         # The person reads one sentence for both reasons; the log keeps which.
         logger.info(f'[ManualRecord] Camera feed lost mid-recording ({reason})')
         self._end(reason)
@@ -999,7 +998,7 @@ class ManualRecordingController:
                 category='Recording',
                 once_per_run=True,
             )
-            self._end('disk_space_critical')
+            self._end(RecordingEndReason.DISK_SPACE_CRITICAL)
 
     # ------------------------------------------------------------------
     # Post-drain finish (its own short-lived thread, one per recording)

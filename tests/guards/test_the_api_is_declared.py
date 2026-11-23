@@ -1051,7 +1051,6 @@ OPEN_STRINGS: dict[str, str] = {
     'ProtocolSizeAdvisory.message field': _PROSE,
     'MotionAPI.positions_to_keep parameter then': _PROSE,
     'OpticsStatus.objective field': _OBJECTIVE,
-    'RecordingFinished.end_reason field': _REASON,
     'Remedy.cancel_text field': _PROSE,
     'Remedy.confirm_text field': _PROSE,
     'RunEvents.frame_captured field': _CHANNEL,

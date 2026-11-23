@@ -3929,7 +3929,7 @@ Close selection; the drain and finish continue on their own.
 
 Every caller of this -- the Record button, app close, a REST or SDK client
 -- is the user stopping the recording, so its
-`RecordingFinished.end_reason` is `'user_stop'`. The controller's
+`RecordingFinished.end_reason` is `STOPPED`. The controller's
 own enders (the duration backstop, the
 disk floor, a lost camera) name their own, and no caller can write
 one of those into the manifest.
@@ -11843,7 +11843,7 @@ What a manual recording's operation answers once it is done.
 
 **Fields**
 
-- <a id="RecordingFinished.end_reason"></a>`end_reason`: `str | None` -- Why frame selection ended ('user_stop', 'duration_elapsed', 'frame_budget_filled', 'camera_stalled', ...), the manifest's `end_reason`; None when the recording never got as far as recording.
+- <a id="RecordingFinished.end_reason"></a>`end_reason`: `RecordingEndReason | None` -- Why frame selection ended, the manifest's `end_reason`; None when the recording never got as far as recording.
 - <a id="RecordingFinished.save_wait_s"></a>`save_wait_s`: `float | None` -- Seconds saving ran on after the recording ended; None when its backlog was discarded or it has no measured result.
 
 <a id="Remedy"></a>
@@ -13552,6 +13552,36 @@ where its outcome is built.
 - `Trendline` (`TRENDLINE`)
 - `Quick Enhance` (`QUICK_ENHANCE`)
 - `Post-Processing` (`POST_PROCESSING`)
+
+<a id="RecordingEndReason"></a>
+### `lumascope.RecordingEndReason`
+
+Held in: [`RecordingFinished.end_reason`](#RecordingFinished.end_reason).
+
+Why a recording's frame selection ended, as its manifest states it.
+
+`STOPPED` -- a person stopped it. `DURATION_ELAPSED` -- it ran
+its length. `FRAME_BUDGET_FILLED` -- it kept the frames it was asked
+for. `RUN_STOP` -- the run recording it was stopped.
+`CAMERA_DISCONNECTED`, `CAMERA_STALLED` -- the camera left, or
+stopped delivering frames. `DISK_SPACE_CRITICAL` -- the save drive
+reached its floor. `START_FAILED` -- its caller did not finish
+starting it; no manifest is written for one, since nothing was
+recorded. `DISCARDED` -- its frames were given up before they were
+written. `LANE_EXITED` -- a writer lane ended abnormally.
+`ABORTED` -- a writer failed, and its backlog was dropped.
+
+- `stopped`
+- `duration_elapsed`
+- `frame_budget_filled`
+- `run_stop`
+- `camera_disconnected`
+- `camera_stalled`
+- `disk_space_critical`
+- `start_failed`
+- `discarded`
+- `lane_exited`
+- `aborted`
 
 <a id="RefusalCause"></a>
 ### `lumascope.RefusalCause`

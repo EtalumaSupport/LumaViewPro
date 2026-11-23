@@ -54,7 +54,7 @@ def _record(engine, clock, tmp_path, *, output_dir=None, frames=10):
         clock.advance(0.1)
         image, ts, chunk = feed.frame(clock(), with_camera_chunks=True)
         engine.ingest_frame(image, ts, chunk, fact=None)
-    engine.stop('user_stop')
+    engine.stop('stopped')
     assert engine.wait_for_drain(timeout=5)
     return engine.result()
 

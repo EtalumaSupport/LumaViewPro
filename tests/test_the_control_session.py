@@ -521,7 +521,7 @@ class TestTheSessionsMembers:
 
         assert sim_session.control is None
         assert not sim_session.manual_recording.is_recording
-        assert sim_session.manual_recording.end_reason == 'user_stop'
+        assert sim_session.manual_recording.end_reason == 'stopped'
 
     def test_taking_back_an_ended_session_leaves_the_operators_recording_begun_since(
         self, sim_session

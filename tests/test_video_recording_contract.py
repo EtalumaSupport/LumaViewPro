@@ -146,7 +146,7 @@ class TestBudgetContract:
         config = make_config(tmp_path, fps=5, duration_s=1)  # budget 5
         engine.start(lambda: (config, None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=50, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().frames_selected == 5
 
@@ -213,7 +213,7 @@ class TestRateContract:
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=2), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=40, duration_s=2)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().frames_selected == 10
 
@@ -223,7 +223,7 @@ class TestRateContract:
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=50, duration_s=2), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=2)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert result.frames_selected == 20
@@ -243,7 +243,7 @@ class TestNoRateLimit:
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=None, duration_s=2), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=69, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert result.frames_selected == 69
@@ -268,7 +268,7 @@ class TestNoRateLimit:
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=None, duration_s=2), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
         manifest = json.loads(result.manifest_path.read_text())
@@ -286,7 +286,7 @@ class TestABacklogWithMemoryToSpareIsAllKept:
         engine, _, clock, _ = make_engine(tmp_path, writer=writer)
         engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=2), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=2)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         # Writer wrote nothing, yet every selected frame is queued.
         assert engine.pending_writes == 20
         writer.unblock()
@@ -303,7 +303,7 @@ class TestDrainContinuesAfterCapture:
         engine, _, clock, _ = make_engine(tmp_path, writer=writer)
         engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert not engine.is_recording
         assert engine.is_draining
         writer.unblock()
@@ -320,7 +320,7 @@ class TestStopPromptness:
         engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=10), None))
         feed = FrameFeed()
         feed_uniform(engine, clock, feed, delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert not engine.is_recording
         # The engine's own count: the writer lane runs on, and a sum of its
         # queue and its written list counts a frame twice mid-write.
@@ -331,6 +331,23 @@ class TestStopPromptness:
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().frames_selected == selected_at_stop
 
+    def test_a_stops_reason_is_one_of_the_published_set_and_any_other_word_is_refused(
+        self, tmp_path
+    ):
+        # The manifest and RecordingFinished carry the reason, and a caller
+        # branches on it, so a word outside the set never closes selection.
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=10), None))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        with pytest.raises(ValueError, match="'user_stop'"):
+            engine.stop('user_stop')
+        assert engine.is_recording, 'a refused word closed selection'
+        engine.stop('stopped')
+        assert engine.wait_for_drain(timeout=5)
+        from lumascope import RecordingEndReason
+
+        assert engine.result().end_reason is RecordingEndReason.STOPPED
+
 
 class TestLossIsNeverSilent:
     def test_per_frame_write_failure_costs_that_frame_only(self, tmp_path):
@@ -338,7 +355,7 @@ class TestLossIsNeverSilent:
         engine, _, clock, _ = make_engine(tmp_path, writer=writer)
         engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert result.frames_selected == 10
@@ -351,7 +368,7 @@ class TestLossIsNeverSilent:
         engine, _, clock, _ = make_engine(tmp_path, writer=writer)
         engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         engine.discard_pending()
         result = engine.result()
         assert result.frames_written < result.frames_selected
@@ -363,7 +380,7 @@ class TestLossIsNeverSilent:
         # measured statistics from zero timestamps must not crash.
         engine, _writer, _clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert result.frames_selected == 0
@@ -379,7 +396,7 @@ class TestFatalityClassification:
         engine, _, clock, _ = make_engine(tmp_path, writer=writer)
         engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert result.aborted is True
@@ -389,7 +406,7 @@ class TestFatalityClassification:
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=50, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().aborted is False
 
@@ -400,7 +417,7 @@ class TestMeasuredTruth:
         engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=2), None))
         # Camera actually delivers at 7 fps: measured truth must say so.
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=7, duration_s=2)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert result.configured_fps == 10
@@ -421,7 +438,7 @@ class TestMeasuredTruth:
                 )
             )
             feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1, chunks=True)
-            engine.stop('user_stop')
+            engine.stop('stopped')
             assert engine.wait_for_drain(timeout=5)
             assert engine.result().timestamp_grade is source
             manifest = json.loads(engine.result().manifest_path.read_text())
@@ -434,7 +451,7 @@ class TestMeasuredTruth:
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=0.3)
         engine.note_unstamped(None)
         engine.note_unstamped(None)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert (result.frames_selected, result.frames_unstamped) == (3, 2)
@@ -446,7 +463,7 @@ class TestManifestTruth:
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=2), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         manifest_path = engine.result().manifest_path
         assert manifest_path is not None and manifest_path.exists()
@@ -476,7 +493,7 @@ class TestManifestNamesTheArtifactItDescribes:
             clock.advance(1.0 / 5)
             image, ts, chunk = feed.frame(clock(), with_camera_chunks=True)
             engine.ingest_frame(image, ts, chunk, fact=None)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         return engine.result(), writer
 
@@ -507,7 +524,7 @@ class TestManifestNamesTheArtifactItDescribes:
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         result = engine.result()
         assert result.manifest_path.name == video_recording_module.MANIFEST_FILENAME
@@ -518,7 +535,7 @@ class TestManifestNamesTheArtifactItDescribes:
         engine.start(
             lambda: (make_config(tmp_path, fps=5, duration_s=10, manifest_filename=None), None)
         )
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         # No frames, so no container was ever opened and no file exists to
         # attach a manifest to. Naming one after the request would describe
@@ -541,7 +558,7 @@ class TestFrameIdentityTravelsWithTheFrame:
         engine, writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         assert writer.written, 'no frames written'
         assert len(writer.written_chunks) == len(writer.written)
@@ -551,7 +568,7 @@ class TestFrameIdentityTravelsWithTheFrame:
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         manifest = json.loads(engine.result().manifest_path.read_text())
         assert manifest['frame_index'], 'empty frame index'
@@ -585,7 +602,7 @@ class TestConfigSnapshotContract:
             lambda: (make_config(tmp_path, fps=5, duration_s=1, manifest_extra=extra), None)
         )
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         manifest = json.loads(engine.result().manifest_path.read_text())
         assert manifest['provenance'] == {'hostname': 'bench-host'}
@@ -644,7 +661,7 @@ class TestExclusivity:
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=run.lend())
 
         engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=10), None))
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
 
         assert claim.owner == 'protocol', "the recording's end released the run's claim"
@@ -700,7 +717,7 @@ class TestExclusivity:
         engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=1), None))
         assert claim.owner == 'recording'
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         assert claim.owner is None
 
@@ -813,7 +830,7 @@ class TestEndReason:
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=5, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().end_reason == 'frame_budget_filled'
 
@@ -916,7 +933,7 @@ class TestClaimLifetime:
         engine, _writer, clock, claim = make_engine(tmp_path, writer=writer)
         engine.start(lambda: (make_config(tmp_path, fps=10, duration_s=1), None))
         feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         engine.discard_pending()
         assert claim.owner is None
         assert engine.result().frames_written < engine.result().frames_selected
@@ -1275,7 +1292,7 @@ class TestTheCamerasOwnLossesAreCounted:
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(lambda: (make_config(tmp_path, fps=fps, duration_s=60), None))
         feed(engine, clock)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         return engine.result()
 

@@ -942,10 +942,10 @@ class TestARecordingIsAnOperation:
         finally:
             release.set()
 
-        assert recording.result(timeout=15).end_reason == 'user_stop'
+        assert recording.result(timeout=15).end_reason == 'stopped'
         following = controller.start()
         following.stop()
-        assert following.result(timeout=15).end_reason == 'user_stop'
+        assert following.result(timeout=15).end_reason == 'stopped'
 
     def test_its_stop_leaves_a_recording_started_before_it_is_done(self, tmp_path):
         # A new recording may start from the finish's last announce, before
@@ -968,7 +968,7 @@ class TestARecordingIsAnOperation:
 
         assert controller.is_recording
         held[1].stop()
-        assert held[1].result(timeout=15).end_reason == 'user_stop'
+        assert held[1].result(timeout=15).end_reason == 'stopped'
 
     def test_a_stop_while_its_end_is_announced_leaves_its_end_reason(self, tmp_path):
         # The finish's last announce runs the claim's listener once a new
@@ -1006,8 +1006,8 @@ class TestARecordingIsAnOperation:
         feed_frames(scope, clock, 3, fps=10.0)
         recording.stop()
 
-        assert recording.result(timeout=15).end_reason == 'user_stop'
-        assert controller.end_reason == 'user_stop'
+        assert recording.result(timeout=15).end_reason == 'stopped'
+        assert controller.end_reason == 'stopped'
 
 
 class TestFinishThreadResilience:
@@ -1032,7 +1032,7 @@ class TestFinishThreadResilience:
         feed_frames(scope, clock, 3, fps=10.0)
         controller.stop()
 
-        assert recording.result(timeout=15).end_reason == 'user_stop'
+        assert recording.result(timeout=15).end_reason == 'stopped'
         assert made['writer'].close_calls == 1
         assert 'error' in recorder.severities()
         assert not controller.is_busy
@@ -1049,7 +1049,7 @@ class TestTheStopIsTheUsers:
         assert controller.is_recording
 
         controller.stop()
-        assert controller.end_reason == 'user_stop'
+        assert controller.end_reason == 'stopped'
         finish(controller)
 
 
@@ -1540,7 +1540,7 @@ class TestFeedLossDetection:
         controller.stop()
         finish(controller)
 
-        assert controller.end_reason == 'user_stop'
+        assert controller.end_reason == 'stopped'
         errors = [c for c in notify.calls if c[0] == 'error']
         assert [title for _, (_, title, _), _ in errors] == ['Recording Saved No Frames']
 
@@ -1802,7 +1802,7 @@ class TestARecordingThatCannotBeOneHyperstackSaysWhy:
 
 
 class TestTheEndReason:
-    def test_one_stopped_through_its_operation_reads_user_stop_while_it_drains(
+    def test_one_stopped_through_its_operation_reads_stopped_while_it_drains(
         self, tmp_path, monkeypatch
     ):
         writing = threading.Event()
@@ -1821,10 +1821,10 @@ class TestTheEndReason:
 
             assert not controller.is_recording
             assert controller.is_draining
-            assert controller.end_reason == 'user_stop'
+            assert controller.end_reason == 'stopped'
         finally:
             writing.set()
-        assert recording.result(timeout=15).end_reason == 'user_stop'
+        assert recording.result(timeout=15).end_reason == 'stopped'
 
     def test_a_stop_after_the_duration_ended_it_leaves_duration_elapsed(self, tmp_path):
         controller, scope, clock = make_controller(tmp_path, duration_s=2)

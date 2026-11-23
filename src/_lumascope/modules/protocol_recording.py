@@ -82,10 +82,10 @@ from _lumascope.modules.video_cadence import (
     stall_threshold_s,
 )
 from _lumascope.modules.video_recording import (
-    END_REASON_START_FAILED,
     FrameLosses,
     PreRollEnd,
     RecordingConfig,
+    RecordingEndReason,
     VideoRecordingEngine,
     wait_for_changes_in_force,
 )
@@ -577,7 +577,7 @@ class ProtocolVideoStep:
 
     def _wait_for_recording(
         self, engine: VideoRecordingEngine, duration_s: float, stall_threshold: float
-    ) -> tuple[str, str]:
+    ) -> tuple[str, RecordingEndReason]:
         """Wait until the recording ends; say how and why.
 
         Returns ``(outcome, end_reason)`` as one value so the manifest's
@@ -589,19 +589,19 @@ class ProtocolVideoStep:
         """
         start_ts = self._recording_started = self._elapsed_clock()
         last_progress_ts = 0.0
-        outcome, end_reason = COMPLETED, 'duration_elapsed'
+        outcome, end_reason = COMPLETED, RecordingEndReason.DURATION_ELAPSED
         watch = StallWatch(stall_threshold)
         while engine.is_recording:
             now = self._elapsed_clock()
             elapsed = now - start_ts
             if self._stop_requested():
-                outcome, end_reason = CANCELED, 'run_stop'
+                outcome, end_reason = CANCELED, RecordingEndReason.RUN_STOP
                 break
             if not self._scope.camera.active:
                 logger.warning(
                     '[PROTOCOL-VIDEO] Camera went inactive mid-step; ending the recording'
                 )
-                outcome, end_reason = CAMERA_LOST, 'camera_disconnected'
+                outcome, end_reason = CAMERA_LOST, RecordingEndReason.CAMERA_DISCONNECTED
                 break
             if watch.stalled(self._frames_seen, now):
                 logger.warning(
@@ -609,7 +609,7 @@ class ProtocolVideoStep:
                     f'{stall_threshold:.0f} s with the camera still active; '
                     'ending the recording'
                 )
-                outcome, end_reason = CAMERA_LOST, 'camera_stalled'
+                outcome, end_reason = CAMERA_LOST, RecordingEndReason.CAMERA_STALLED
                 break
             if elapsed >= duration_s + stall_threshold:
                 # The engine ends the recording at its duration on its
@@ -724,7 +724,7 @@ class ProtocolVideoStep:
         """
         no_room = self._disk_check.room_to_write(config.output_dir, 'the video step')
         if no_room is not None and self._engine is not None and self._engine.is_recording:
-            self._engine.stop('disk_space_critical')
+            self._engine.stop(RecordingEndReason.DISK_SPACE_CRITICAL)
             self._abort_run_fatal(
                 RunEnding(RunStatus.FAILED, 'disk_space_critical', no_room), 'FileIO'
             )
@@ -744,7 +744,7 @@ class ProtocolVideoStep:
         self._scope.imaging.remove_frame_listener(self._on_camera_frame)
 
         try:
-            engine.stop(END_REASON_START_FAILED)
+            engine.stop(RecordingEndReason.START_FAILED)
         except Exception:
             logger.exception('[PROTOCOL-VIDEO] engine did not end cleanly during start unwind')
 

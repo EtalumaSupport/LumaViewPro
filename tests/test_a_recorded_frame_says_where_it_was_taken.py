@@ -107,7 +107,7 @@ class TestTheFactRidesWithItsFrame:
         # Nothing has been written yet; whatever the world does now must
         # not change what the frame records.
         writer.unblock()
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
         assert writer.written_facts == [A_FACT]
 
@@ -120,7 +120,7 @@ class TestTheFactRidesWithItsFrame:
         image, ts, chunk = feed.frame(clock(), with_camera_chunks=True)
         with pytest.raises(TypeError):
             engine.ingest_frame(image, ts, chunk)
-        engine.stop('user_stop')
+        engine.stop('stopped')
         assert engine.wait_for_drain(timeout=5)
 
 

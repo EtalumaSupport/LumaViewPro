@@ -500,6 +500,7 @@ from _lumascope.modules.ui_queue import (
     UiDispatcher,
 )
 from _lumascope.modules.video_recording import (
+    RecordingEndReason,
     RecordingFinished,
 )
 from _lumascope.modules.wire_encoding import (
@@ -786,6 +787,7 @@ __all__ = [
     'RESTRegistry',
     'RecordIncompleteError',
     'RecordingDetailsNotSavedError',
+    'RecordingEndReason',
     'RecordingFinalizeError',
     'RecordingFinished',
     'RecordingFramesUnstampedError',
