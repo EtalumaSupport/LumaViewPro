@@ -992,7 +992,6 @@ OPEN_STRINGS: dict[str, str] = {
     'Objective.short_name field': _CATALOGUE_TEXT,
     'ObjectiveQuestion.choices field': _OBJECTIVE,
     'ObjectiveQuestion.proposed field': _OBJECTIVE,
-    'PartStatus.cause field': _REASON,
     'PartStatus.detail field': _PROSE,
     'PluginNotLoaded.name field': _PLUGIN,
     'PluginNotLoaded.reason field': _REASON,

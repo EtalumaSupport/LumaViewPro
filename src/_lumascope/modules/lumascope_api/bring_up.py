@@ -10,6 +10,7 @@ from these facts once, through the reporter, and this is what stays behind.
 
 from __future__ import annotations
 
+import enum
 import pathlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -46,27 +47,46 @@ def report_step(on_progress: ProgressCallback | None, step: str) -> None:
         on_progress(percent, step)
 
 
-# A cause's words inside a list of parts: "Motor Controller (port in use)".
-CAUSE_PHRASES = {
-    'not_detected': 'not detected on USB',
-    'port_in_use': 'port in use',
-    'not_responding': 'not responding',
-    'connect_failed': 'connect failed',
-    'no_driver': 'no driver',
-    'camera_driver_unavailable': 'not detected; a driver did not load',
-    'led_driver_unavailable': 'not detected; a driver did not load',
-    'fx2_failed': 'failed with the camera, the one USB device it is part of',
-    'camera_firmware_missing': 'firmware file missing',
-    'camera_driver_unusable': "on no driver, one not LumaViewPro's, or ours not started",
-    'camera_not_initialized': 'not opened',
-    'camera_setup_failed': 'opened, set-up failed',
-    'camera_bring_up_failed': 'LumaViewPro failed bringing it up',
-    'safety_off_failed': 'safety LEDs-off not confirmed',
-    'stream_not_started': 'stream did not start',
-    'settings_not_applied': 'settings not applied',
-    'camera_left': 'left during bring-up',
-    'acceleration_not_set': 'acceleration limit not set',
-}
+class PartCause(enum.StrEnum):
+    """Why a part is not up, or the problem a part that is up met coming up.
+
+    Each has the phrase a list of parts names it by: "Motor Controller
+    (port in use)".
+    """
+
+    _phrase: str
+
+    def __new__(cls, value: str, phrase: str) -> PartCause:
+        member = str.__new__(cls, value)
+        member._value_ = value
+        member._phrase = phrase
+        return member
+
+    NOT_DETECTED = 'not_detected', 'not detected on USB'
+    PORT_IN_USE = 'port_in_use', 'port in use'
+    NOT_RESPONDING = 'not_responding', 'not responding'
+    CONNECT_FAILED = 'connect_failed', 'connect failed'
+    NO_DRIVER = 'no_driver', 'no driver'
+    CAMERA_DRIVER_UNAVAILABLE = 'camera_driver_unavailable', 'not detected; a driver did not load'
+    LED_DRIVER_UNAVAILABLE = 'led_driver_unavailable', 'not detected; a driver did not load'
+    FX2_FAILED = 'fx2_failed', 'failed with the camera, the one USB device it is part of'
+    CAMERA_FIRMWARE_MISSING = 'camera_firmware_missing', 'firmware file missing'
+    CAMERA_DRIVER_UNUSABLE = (
+        'camera_driver_unusable',
+        "on no driver, one not LumaViewPro's, or ours not started",
+    )
+    CAMERA_NOT_INITIALIZED = 'camera_not_initialized', 'not opened'
+    CAMERA_SETUP_FAILED = 'camera_setup_failed', 'opened, set-up failed'
+    CAMERA_BRING_UP_FAILED = 'camera_bring_up_failed', 'LumaViewPro failed bringing it up'
+    SAFETY_OFF_FAILED = 'safety_off_failed', 'safety LEDs-off not confirmed'
+    STREAM_NOT_STARTED = 'stream_not_started', 'stream did not start'
+    SETTINGS_NOT_APPLIED = 'settings_not_applied', 'settings not applied'
+    CAMERA_LEFT = 'camera_left', 'left during bring-up'
+    ACCELERATION_NOT_SET = 'acceleration_not_set', 'acceleration limit not set'
+
+
+# A cause's words inside a list of parts.
+CAUSE_PHRASES: dict[str, str] = {cause: cause._phrase for cause in PartCause}
 
 
 @api_fields('cause', 'detail', 'expected', 'part', 'up')
@@ -80,7 +100,7 @@ class PartStatus:
         expected: Whether this scope's model has one. A manual scope has no
             motor board, so its absence is not a failure; until the model is
             known every part is expected.
-        cause: Why it is not up, as a code from ``CAUSE_PHRASES``; or, on a
+        cause: Why it is not up; or, on a
             part that is up, a problem it met coming up (the LED board's
             safety LEDs-off not confirmed; the camera's stream that did not
             start, which a later start that succeeds does not clear, a
@@ -96,7 +116,7 @@ class PartStatus:
     part: Board
     up: bool
     expected: bool = True
-    cause: str | None = None
+    cause: PartCause | None = None
     detail: str = ''
 
     @property

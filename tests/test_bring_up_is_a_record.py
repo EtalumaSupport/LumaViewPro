@@ -31,6 +31,7 @@ from _lumascope.drivers.simulated_ledboard import SimulatedLEDBoard
 from _lumascope.drivers.simulated_motorboard import SimulatedMotorBoard
 from _lumascope.drivers.usb_driver_binding import FX2_FIRMWARE
 from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
     BinningSubstitutedNotice,
     CameraNotAvailableError,
     ConfigurationDefectError,
@@ -134,6 +135,17 @@ class TestEachPartNamesItsCause:
         assert PartStatus(Board.CAMERA, up=False, cause='camera_firmware_missing').describe() == (
             'Camera (firmware file missing)'
         )
+
+    def test_a_cause_is_a_member_of_the_published_set_and_any_other_word_is_refused(self):
+        # A client branches on a part's cause, so it is one closed set the
+        # reference lists, judged as the record is built.
+        status = PartStatus(Board.CAMERA, up=False, cause='camera_firmware_missing')
+        with pytest.raises(ArgumentRefusedError) as refused:
+            PartStatus(Board.CAMERA, up=False, cause='camera_usb_driver_unusable')
+        assert refused.value.reason == 'not_offered'
+        from lumascope import PartCause
+
+        assert status.cause is PartCause.CAMERA_FIRMWARE_MISSING
 
     def test_a_motor_board_whose_port_is_held_is_on_the_record_and_told_once_with_its_remedy(
         self, monkeypatch, tmp_path, centre_posts

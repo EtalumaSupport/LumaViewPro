@@ -378,7 +378,7 @@ def _endings_kinds():
 
 
 def _part_causes_kinds():
-    return dict.fromkeys(CAUSE_PHRASES, _KINDS_OF_PART_CAUSE)
+    return dict.fromkeys(map(str, CAUSE_PHRASES), _KINDS_OF_PART_CAUSE)
 
 
 def test_a_run_ending_a_class_carries_is_carried_with_the_ending_s_kind():

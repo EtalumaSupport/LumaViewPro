@@ -10655,7 +10655,7 @@ One part of the scope at bring-up.
 
 **Fields**
 
-- <a id="PartStatus.cause"></a>`cause`: `str | None` -- Why it is not up, as a code from `CAUSE_PHRASES`; or, on a part that is up, a problem it met coming up (the LED board's safety LEDs-off not confirmed; the camera's stream that did not start, which a later start that succeeds does not clear, a setting it did not take, or its leaving, the camera keeping the one of these a person acts on first; the motor controller's stored acceleration limit not taken). None when nothing is wrong.
+- <a id="PartStatus.cause"></a>`cause`: `PartCause | None` -- Why it is not up; or, on a part that is up, a problem it met coming up (the LED board's safety LEDs-off not confirmed; the camera's stream that did not start, which a later start that succeeds does not clear, a setting it did not take, or its leaving, the camera keeping the one of these a person acts on first; the motor controller's stored acceleration limit not taken). None when nothing is wrong.
 - <a id="PartStatus.detail"></a>`detail`: `str` -- The driver's or the error's own words, for the log and the record, each problem's joined with "; "; empty when there are none.
 - <a id="PartStatus.expected"></a>`expected`: `bool` -- Whether this scope's model has one. A manual scope has no motor board, so its absence is not a failure; until the model is known every part is expected.
 - <a id="PartStatus.part"></a>`part`: `Board` -- Which board.
@@ -13548,6 +13548,35 @@ the one it lacked as a `MissingPart`.
 - `fan_control`
 - `led_engineering_mode`
 - `text_commands`
+
+<a id="PartCause"></a>
+### `lumascope.PartCause`
+
+Held in: [`PartStatus.cause`](#PartStatus.cause).
+
+Why a part is not up, or the problem a part that is up met coming up.
+
+Each has the phrase a list of parts names it by: "Motor Controller
+(port in use)".
+
+- `not_detected`
+- `port_in_use`
+- `not_responding`
+- `connect_failed`
+- `no_driver`
+- `camera_driver_unavailable`
+- `led_driver_unavailable`
+- `fx2_failed`
+- `camera_firmware_missing`
+- `camera_driver_unusable`
+- `camera_not_initialized`
+- `camera_setup_failed`
+- `camera_bring_up_failed`
+- `safety_off_failed`
+- `stream_not_started`
+- `settings_not_applied`
+- `camera_left`
+- `acceleration_not_set`
 
 <a id="PostProcessingOperation"></a>
 ### `lumascope.PostProcessingOperation`

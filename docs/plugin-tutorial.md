@@ -619,6 +619,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 146 | Why a run ended is one closed set: `RunOutcome.reason` is a `RunEndReason`, each member equal to the string it was (`'stopped'`, `'position_lost'`, ...), so a comparison with the string still holds. |
 | level 147 | Why a recording ended is one closed set: `RecordingFinished.end_reason` and the manual recording's `end_reason` are a `RecordingEndReason`, each member equal to the string it was, and a person's stop is `'stopped'` (was `'user_stop'`), as a run's is. |
 | level 148 | Why a run's merge produced no file is one closed set: `RunOutcome.merge_reason` is a `MergeReason` (`'no_run_dir'`, `'no_composite_config'`, `'merge_failed'`, `'merge_error'`, `'merge_not_started'`, `'cleanup_error'`), None where it was `''`; the reason of the outcome the merge failed with (`'write_batch_timeout'`, ...) is the new `RunOutcome.merge_failure`, beside `'merge_error'`, where it was `merge_reason` itself. `CompositeFailedError` takes every `MergeReason` as its reason. |
+| level 149 | Why a part did not come up is one closed set: `PartStatus.cause` is a `PartCause`, each member equal to the string it was (`'not_detected'`, `'port_in_use'`, ...). |
 
 ---
 

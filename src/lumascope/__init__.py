@@ -286,6 +286,7 @@ from _lumascope.modules.lumascope_api._lumascope import (
 )
 from _lumascope.modules.lumascope_api.bring_up import (
     BringUpRecord,
+    PartCause,
     PartStatus,
     SettingsSetAside,
     Substitution,
@@ -751,6 +752,7 @@ __all__ = [
     'PackagesNotAsPinnedError',
     'Part',
     'PartAbsentError',
+    'PartCause',
     'PartStatus',
     'PixelSizeUnknownError',
     'PlateLocation',
