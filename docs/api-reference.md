@@ -4000,13 +4000,13 @@ the members one by one.
 **Raises**
 
 - `LiveFolderPathRefusedError`: `'path_not_found'`, nothing is at *folder*; `'not_a_folder'`, a file is.
-- `PostProcessingRefusedError`: `'invalid_setting'`, no build is chosen, or a chosen build's setting is one its own member refuses, before anything is queued; or the refusal of the build that stopped the call, its `operation` naming it: `'protocol_data_unreadable'`, `'no_images'`, `'unsupported_source_format'`, `'output_outside_folder'`, `'collision'`, `'excluded_inputs'` or `'names_exhausted'`. A build with nothing to do is skipped, never raised.
+- `PostProcessingRefusedError`: `'invalid_setting'`, no build is chosen, or a chosen build's setting is one its own member refuses, before anything is queued; or the refusal of the build that stopped the call, its `operation` naming it: `'protocol_data_unreadable'`, `'no_images'`, `'unsupported_source_format'`, `'output_outside_folder'`, `'collision'`, `'excluded_inputs'`, `'names_exhausted'` or `'manifest_unreadable'` (a recording's details file that cannot be read). A build with nothing to do is skipped, never raised.
 - `PostProcessingFailedError`: the build that stopped the call did not produce everything; its `operation` names it.
 - `SessionClosingError`: `'session_closing'`, the session's close is running or has finished; nothing was started.
 
 **Refusals**
 
-- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`, `invalid_setting`, `protocol_data_unreadable`, `no_images`, `unsupported_source_format`, `output_outside_folder`, `collision`, `excluded_inputs`
+- [`PostProcessingRefusedError`](#PostProcessingRefusedError): `names_exhausted`, `scope_held`, `files_writing`, `disk_space_insufficient`, `capture_location_unusable`, `invalid_setting`, `protocol_data_unreadable`, `no_images`, `unsupported_source_format`, `output_outside_folder`, `collision`, `excluded_inputs`, `manifest_unreadable`
 - [`LiveFolderPathRefusedError`](#LiveFolderPathRefusedError): `path_not_found`, `not_a_folder`
 - [`PostProcessingFailedError`](#PostProcessingFailedError): `post_processing_failed`, `post_processing_incomplete`
 - [`SessionClosingError`](#SessionClosingError): `session_closing`
@@ -16423,7 +16423,8 @@ What a post-processing operation was given cannot yield the output asked of it.
 Nothing broke: the folder holds no images, no groups this operation can
 combine, only derived outputs, only groups whose outputs would share a
 name, source images in a format the operation cannot re-read, protocol
-data that could not be loaded, or outputs the folder's protocol would
+data that could not be loaded, a recording's details file that cannot be
+read, or outputs the folder's protocol would
 name outside the folder; or the cell-count method it was
 given cannot be used. The message says which, in words written for the
 person, and what to do. Or the scope's state refused it: a build
@@ -16436,7 +16437,7 @@ has less free than a run needs to start (`'disk_space_insufficient'`).
 **Attributes**
 
 - `operation`: The operation's name as a person reads it ("Stitch").
-- `reason`: Machine-readable refusal code. `'axis_not_plottable'` -- a graph's X or Y names a column of the results file that axis cannot take. `'collision'` -- every image group would write an output under a name another group's output shares, so nothing could be built. `'excluded_inputs'` -- the folder holds only derived outputs, which the build does not take as input. `'fit_impossible'` -- the graphed values cannot give the trendline asked for. `'graph_incomplete'` -- a graph was asked for without a results file, an X axis and a Y axis. `'invalid_path'` -- no folder was given to process. `'invalid_setting'` -- a setting of the build is not one it can use, such as no build chosen, an image shape or scale that is not one, or a playback rate below 1 frame per second. `'method_invalid'` -- the cell-count method holds something the count cannot use. `'method_unreadable'` -- the cell-count method file cannot be read, is not JSON, or has no metadata naming its type and version. `'no_data'` -- the folder holds images, but not the data this operation needs: no Z-stack for a z-projection, no recording frames for a video, nothing a count could count, or a recording where stills are needed. `'no_images'` -- the folder holds no image files. `'no_scale'` -- the image states no scale, so it is counted in pixels, and the method filters a size in microns. `'output_outside_folder'` -- the folder's protocol names a step whose output would be written outside the folder. `'protocol_data_unreadable'` -- the folder's protocol data could not be loaded. `'results_unreadable'` -- the cell-count results file cannot be read as one LumaViewPro writes. `'unsupported_source_format'` -- the source images are not TIFF or OME-TIFF, which the build re-reads. `'scope_held'` -- something holds the scope, and a build now would share the computer with its work. `'files_writing'` and `'disk_space_insufficient'` (the drive the build writes on has less free than a run needs to start), as `ProtocolRunRefusedError` explains them, `'capture_location_unusable'` (the free space where the build would write cannot be read), as `CaptureLocationError` explains it, `'unreadable'`, as `InputFramesUnusableError` explains it, and `'names_exhausted'`, as `CaptureLocationError` explains it (a cell count's results and every numbered name after them), are the same facts.
+- `reason`: Machine-readable refusal code. `'axis_not_plottable'` -- a graph's X or Y names a column of the results file that axis cannot take. `'collision'` -- every image group would write an output under a name another group's output shares, so nothing could be built. `'excluded_inputs'` -- the folder holds only derived outputs, which the build does not take as input. `'fit_impossible'` -- the graphed values cannot give the trendline asked for. `'graph_incomplete'` -- a graph was asked for without a results file, an X axis and a Y axis. `'invalid_path'` -- no folder was given to process. `'invalid_setting'` -- a setting of the build is not one it can use, such as no build chosen, an image shape or scale that is not one, or a playback rate below 1 frame per second. `'manifest_unreadable'` -- a recording's details file is there but cannot be opened, is not JSON, or holds a fact that is not its kind, so the video would build without the color and rate it records. `'method_invalid'` -- the cell-count method holds something the count cannot use. `'method_unreadable'` -- the cell-count method file cannot be read, is not JSON, or has no metadata naming its type and version. `'no_data'` -- the folder holds images, but not the data this operation needs: no Z-stack for a z-projection, no recording frames for a video, nothing a count could count, or a recording where stills are needed. `'no_images'` -- the folder holds no image files. `'no_scale'` -- the image states no scale, so it is counted in pixels, and the method filters a size in microns. `'output_outside_folder'` -- the folder's protocol names a step whose output would be written outside the folder. `'protocol_data_unreadable'` -- the folder's protocol data could not be loaded. `'results_unreadable'` -- the cell-count results file cannot be read as one LumaViewPro writes. `'unsupported_source_format'` -- the source images are not TIFF or OME-TIFF, which the build re-reads. `'scope_held'` -- something holds the scope, and a build now would share the computer with its work. `'files_writing'` and `'disk_space_insufficient'` (the drive the build writes on has less free than a run needs to start), as `ProtocolRunRefusedError` explains them, `'capture_location_unusable'` (the free space where the build would write cannot be read), as `CaptureLocationError` explains it, `'unreadable'`, as `InputFramesUnusableError` explains it, and `'names_exhausted'`, as `CaptureLocationError` explains it (a cell count's results and every numbered name after them), are the same facts.
 
 | Reason | Cause | REST status |
 |---|---|---|
@@ -16450,6 +16451,7 @@ has less free than a run needs to start (`'disk_space_insufficient'`).
 | `graph_incomplete` | request | 422 |
 | `invalid_path` | request | 422 |
 | `invalid_setting` | request | 422 |
+| `manifest_unreadable` | request | 422 |
 | `method_invalid` | request | 422 |
 | `method_unreadable` | request | 422 |
 | `names_exhausted` | state | 409 |

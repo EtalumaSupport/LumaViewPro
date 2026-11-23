@@ -856,9 +856,11 @@ class PostProcessingAPI:
                 ``'output_outside_folder'``, ``'collision'``,
                 ``'excluded_inputs'`` or ``'no_data'``; or
                 ``'names_exhausted'``, a manual recording's every numbered
-                video name is taken.
+                video name is taken; or ``'manifest_unreadable'``, a manual
+                recording's details file is there but cannot be read as one.
             PostProcessingFailedError: some groups could not be built; the
-                files that were are named.
+                files that were are named. A protocol recording whose details
+                file cannot be read is one such group.
         """
         build = self._video_build(
             Video(frame_rate_fps=frame_rate_fps, timestamp_overlay=timestamp_overlay)
@@ -935,8 +937,10 @@ class PostProcessingAPI:
                 build that stopped the call, its ``operation`` naming it:
                 ``'protocol_data_unreadable'``, ``'no_images'``,
                 ``'unsupported_source_format'``, ``'output_outside_folder'``,
-                ``'collision'``, ``'excluded_inputs'`` or
-                ``'names_exhausted'``. A build with nothing to do is
+                ``'collision'``, ``'excluded_inputs'``,
+                ``'names_exhausted'`` or ``'manifest_unreadable'`` (a
+                recording's details file that cannot be read). A build with
+                nothing to do is
                 skipped, never raised.
             PostProcessingFailedError: the build that stopped the call did not
                 produce everything; its ``operation`` names it.

@@ -26,7 +26,7 @@ import pytest
 import tifffile as tf
 
 import _lumascope.modules.image_utils as image_utils
-from _lumascope.modules.exceptions import PostProcessingFailedError
+from _lumascope.modules.exceptions import PostProcessingFailedError, PostProcessingRefusedError
 from _lumascope.modules.video_builder import DEFAULT_BUILD_FPS, VideoBuilder
 from _lumascope.modules.channel_record import release_colors
 from tests.log_capture import records_of
@@ -155,6 +155,73 @@ def test_frames_without_any_manifest_warn_loudly(tmp_path, caplog):
     assert warned, 'a folder with no readable manifest must warn about the degraded build'
     message = warned[-1]
     assert 'manifest' in message.lower() and 'grayscale' in message.lower()
+
+
+# A manifest that is there but broken is not a folder from before the
+# manifest: building it at the defaults would make a video without the
+# colour and rate its recording states, so the build is refused, naming the
+# file. Each entry is the file's text and what is wrong with it.
+_BROKEN_MANIFESTS = {
+    'cut short': '{"channel": "' + LED2 + '", "false_col',
+    'not text': b'\xff\xfe\x00garbage',
+    'not an object': '[1, 2]',
+    'null': 'null',
+    'false colour without its channel': json.dumps({'false_color': True}),
+    'a channel this release lacks': json.dumps({'channel': 'Purple', 'false_color': True}),
+    'false colour not a flag': json.dumps({'channel': LED2, 'false_color': 'no'}),
+    'a rate that is not a number': json.dumps({'measured_fps': 'fast'}),
+    'a rate that is a flag': json.dumps({'measured_fps': True}),
+}
+
+
+def _refusal_of(folder):
+    with pytest.raises(PostProcessingRefusedError) as refused:
+        _build(folder)
+    return refused.value
+
+
+def test_a_manual_recordings_broken_manifest_refuses_its_video_naming_the_file(tmp_path):
+    wrong = {}
+    for case, text in _BROKEN_MANIFESTS.items():
+        folder = tmp_path / case.replace(' ', '_')
+        folder.mkdir()
+        _make_manual_folder(folder)
+        manifest = folder / 'recording_manifest.json'
+        if isinstance(text, bytes):
+            manifest.write_bytes(text)
+        else:
+            manifest.write_text(text)
+        try:
+            refused = _refusal_of(folder)
+        except BaseException as other:  # each case's outcome is collected and named
+            wrong[case] = repr(other)
+            continue
+        if refused.reason != 'manifest_unreadable' or str(manifest) not in str(refused):
+            wrong[case] = f'{refused.reason}: {refused}'
+        elif list(folder.glob('*.mp4')):
+            wrong[case] = 'a video was written'
+    assert not wrong, wrong
+
+
+def test_a_broken_manifest_is_never_passed_over_for_the_legacy_one(tmp_path):
+    folder = _make_manual_folder(tmp_path)
+    (folder / 'recording_manifest.json').write_text('{"measured_fps": 9.')
+    (folder / 'session_manifest.json').write_text(
+        json.dumps({'recording': {'channel_color': 'Red', 'actual_fps': {'mean': 3.25}}})
+    )
+
+    assert _refusal_of(folder).reason == 'manifest_unreadable'
+
+
+def test_a_broken_legacy_manifest_refuses_its_video(tmp_path):
+    folder = _make_manual_folder(tmp_path)
+    manifest = folder / 'session_manifest.json'
+    manifest.write_text(json.dumps({'recording': 'Red'}))
+
+    refused = _refusal_of(folder)
+
+    assert refused.reason == 'manifest_unreadable'
+    assert str(manifest) in str(refused)
 
 
 def _write_timed_frames(scope, folder, seconds, first=0):
@@ -336,6 +403,28 @@ def test_a_chosen_rate_plays_a_protocol_recording_evenly_at_it(sim_scope, tmp_pa
     (video,) = _protocol_build(folder, frame_rate_fps=10)
 
     assert _frame_times_s(video) == pytest.approx([0.0, 0.1, 0.2, 0.3], abs=1e-3)
+
+
+def test_a_protocol_recordings_broken_manifest_fails_its_video_alone(sim_scope, tmp_path):
+    # Frames with no stated time, so each video's rate is its manifest's.
+    folder = run_folder(
+        sim_scope,
+        tmp_path,
+        [
+            Recording('A1_BF', (0.0, 0.1, 0.2), timed=False, measured_fps=40.0),
+            Recording('B1_BF', (0.0, 0.1, 0.2), well='B1', timed=False, measured_fps=10.0),
+        ],
+    )
+    (broken,) = [m for m in folder.rglob('recording_manifest.json') if 'A1' in m.parent.name]
+    broken.write_text('{"measured_fps": 4')
+
+    with pytest.raises(PostProcessingFailedError) as incomplete:
+        _build(folder)
+
+    assert str(broken) in str(incomplete.value)
+    (video,) = incomplete.value.produced_paths
+    assert 'B1' in pathlib.Path(video).name
+    assert _frame_times_s(video) == pytest.approx([0.0, 0.1, 0.2], abs=1e-3)
 
 
 def test_two_video_steps_at_one_place_in_one_scan_build_a_video_each(sim_scope, tmp_path):

@@ -612,6 +612,7 @@ whose change concerns only Etaluma's own tools says so.
 | level 139 | A failed home says each fact in a failed move's words: `HomingFaultError` is `'driver_failed'` where it was `'error'`, and `'position_unread_after_move'` where it was `'unread'`. |
 | level 140 | A move the lid stopped says so: an X, Y, Z or turret move halted because the lid opened while the stage moved ends `MoveStoppedError` `'lid_open_mid_move'` ("Lid Open") where it ended `'stopped'`, and a run that meets it ends failed naming the lid (`'interlock'`) where it ended as a person's Stop. |
 | level 141 | A recording's hyperstack fault is named for its kind: `HyperstackRefusedError` is `HyperstackNotBuiltError`, its `'hyperstack_refused'` is `'builder_declined'`, and frames not all one size are `'input_frames_not_one_size'` where they were folded into the builder's reason. |
+| level 142 | A recording's broken details file refuses its video: Create Video on a recording whose `recording_manifest.json` (or legacy `session_manifest.json`) is there but cut short, not JSON or holding a fact not its kind is `PostProcessingRefusedError` `'manifest_unreadable'` naming the file, where it built the video grey at the default rate or raised a Python error; in a protocol folder that recording's video alone fails. A missing one builds as before. |
 
 ---
 

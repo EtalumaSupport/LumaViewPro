@@ -2818,7 +2818,8 @@ class PostProcessingRefusedError(Refusal, CaptureError):
     Nothing broke: the folder holds no images, no groups this operation can
     combine, only derived outputs, only groups whose outputs would share a
     name, source images in a format the operation cannot re-read, protocol
-    data that could not be loaded, or outputs the folder's protocol would
+    data that could not be loaded, a recording's details file that cannot be
+    read, or outputs the folder's protocol would
     name outside the folder; or the cell-count method it was
     given cannot be used. The message says which, in words written for the
     person, and what to do. Or the scope's state refused it: a build
@@ -2843,7 +2844,10 @@ class PostProcessingRefusedError(Refusal, CaptureError):
             was given to process. ``'invalid_setting'`` -- a setting of the
             build is not one it can use, such as no build chosen, an image
             shape or scale that is not one, or a playback rate below 1 frame
-            per second. ``'method_invalid'`` -- the cell-count method holds
+            per second. ``'manifest_unreadable'`` -- a recording's details
+            file is there but cannot be opened, is not JSON, or holds a fact
+            that is not its kind, so the video would build without the
+            color and rate it records. ``'method_invalid'`` -- the cell-count method holds
             something the count cannot use. ``'method_unreadable'`` -- the
             cell-count method file cannot be read, is not JSON, or has no
             metadata naming its type and version. ``'no_data'`` -- the
@@ -2882,6 +2886,7 @@ class PostProcessingRefusedError(Refusal, CaptureError):
         'graph_incomplete': RefusalCause.REQUEST,
         'invalid_path': RefusalCause.REQUEST,
         'invalid_setting': RefusalCause.REQUEST,
+        'manifest_unreadable': RefusalCause.REQUEST,
         'method_invalid': RefusalCause.REQUEST,
         'method_unreadable': RefusalCause.REQUEST,
         'no_data': RefusalCause.REQUEST,

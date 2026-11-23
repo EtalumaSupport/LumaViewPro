@@ -8,6 +8,7 @@ import uuid
 
 import pandas as pd
 
+from _lumascope.lib.real_numbers import is_finite_number
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.post_derivation as post_derivation
@@ -15,7 +16,12 @@ from _lumascope.modules.channel_record import GRAY, ChannelColors, Color
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.common_utils import PostFunction
-from _lumascope.modules.exceptions import InputFramesUnusableError, VideoNotFinishedError
+from _lumascope.modules.exceptions import (
+    ArgumentRefusedError,
+    InputFramesUnusableError,
+    PostProcessingRefusedError,
+    VideoNotFinishedError,
+)
 from _lumascope.modules.api_surface import ProgressCallback
 from _lumascope.modules.protocol_post_processor import (
     ProtocolPostProcessor,
@@ -25,6 +31,7 @@ from _lumascope.modules.protocol_post_processor import (
 from _lumascope.modules.protocol_post_processing_result import PostProcResult
 from _lumascope.modules.protocol_post_record import ProtocolPostRecord
 from _lumascope.modules.tiling_config import TilingGrids
+from _lumascope.modules.video_recording import MANIFEST_FILENAME
 from _lumascope.modules.video_writer import VideoWriter
 
 from _lumascope.lvp_logger import logger
@@ -36,6 +43,9 @@ from _lumascope.lvp_logger import logger
 # rate. The long-standing Create Video default, kept so those builds keep
 # working instead of refusing.
 DEFAULT_BUILD_FPS = 5
+
+# What a broken recording manifest is told as, whatever about it is broken.
+_NOT_A_MANIFEST = 'is not a recording details file LumaViewPro can read.'
 
 _a_recordings_frames = rows_of(stills=False, recordings=True)
 
@@ -227,7 +237,12 @@ class VideoBuilder(ProtocolPostProcessor):
                 (path / filepath for filepath in df['Filepath']),
                 key=lambda frame: recording_frames.frame_number(frame.name),
             )
-            facts = self._manifest_facts(first.parent)
+            try:
+                facts = self._manifest_facts(first.parent)
+            except PostProcessingRefusedError as broken:
+                # One recording's broken manifest costs its own video, not
+                # the run's others.
+                return PostProcResult.failed(str(broken))
             vfr, frame_rate_fps = self._playback(
                 first, frame_rate_fps, None if facts is None else facts['measured_fps']
             )
@@ -529,8 +544,7 @@ class VideoBuilder(ProtocolPostProcessor):
 
     def _read_recording_manifest(self, path: pathlib.Path) -> dict:
         """Read a manual recording's manifest facts for the video build,
-        warning when the folder holds no readable manifest (see
-        ``_manifest_facts``).
+        warning when the folder holds no manifest (see ``_manifest_facts``).
 
         Manual frames are saved mono at a measured cadence, so both the
         false-color channel and the true capture rate live in the
@@ -538,69 +552,144 @@ class VideoBuilder(ProtocolPostProcessor):
         recording_manifest.json first, then the legacy
         session_manifest.json written by pre-engine releases (their
         schemas nest differently). Fields are None when the folder
-        predates both manifests, the file is unreadable, or the field is
-        absent -- channel None encodes grayscale; rate None means no
-        measured rate is known. ``channel_color`` is the channel to color
-        the video by, None when it was recorded with false color off: a
-        manifest records the channel and a ``false_color`` flag, and one
-        written before the flag records the channel only when it was on.
+        predates both manifests or the field is absent -- channel None
+        encodes grayscale; rate None means no measured rate is known.
+        ``channel_color`` is the channel to color the video by, None when
+        it was recorded with false color off: a manifest records the
+        channel and a ``false_color`` flag, and one written before the
+        flag records the channel only when it was on.
 
         Returns:
             ``{'channel_color': str | None, 'measured_fps': float | None}``
+
+        Raises:
+            PostProcessingRefusedError: ``'manifest_unreadable'``, as
+                ``_manifest_facts``.
         """
         facts = self._manifest_facts(path)
         if facts is None:
-            # Neither manifest generation is readable. Say so: a LOST
+            # Neither manifest generation is there. Say so: a LOST
             # manifest is otherwise indistinguishable from deliberate
             # grayscale, and the build quietly plays colorless at the
             # default rate. Log-only -- a pre-manifest legacy folder
             # takes this path legitimately, so a popup would misfire.
             logger.warning(
-                f'[{self._name}] No readable recording manifest in {path.name}; '
-                f'the video will build grayscale at the default rate. The '
-                f'manifest carries the channel color and measured rate.'
+                f'[{self._name}] No recording manifest in {path.name}; '
+                f"the video will build grayscale, at its frames' own times or, "
+                f'where they state none, the default rate. The manifest carries '
+                f'the channel color and measured rate.'
             )
             return {'channel_color': None, 'measured_fps': None}
         return facts
 
-    @staticmethod
-    def _manifest_facts(path: pathlib.Path) -> dict | None:
+    def _manifest_facts(self, path: pathlib.Path) -> dict | None:
         """A recording folder's manifest facts, None when it holds neither
-        manifest generation readable.
+        manifest generation.
+
+        A manifest that is absent and one that is there but broken are
+        different states: the first is a folder from before the manifest,
+        which builds at the defaults; the second would build a video
+        without the color and rate its recording states, so it is
+        refused. A broken engine manifest is never passed over for a
+        legacy one beside it.
 
         A protocol video step's recording is colored by its step's channel,
         so only its rate is read from here, and the manual leg's grayscale
         warning is not its to give.
-        """
-        manifest_path = path / 'recording_manifest.json'
-        try:
-            with open(manifest_path, encoding='utf-8') as fh:
-                manifest = json.load(fh)
-        except (OSError, ValueError):
-            manifest = None
-        if manifest is not None:
-            fps = manifest.get('measured_fps')
-            if 'false_color' in manifest:
-                channel_color = manifest['channel'] if manifest['false_color'] else None
-            else:
-                channel_color = manifest.get('channel_color')
-            return {
-                'channel_color': channel_color,
-                'measured_fps': float(fps) if fps else None,
-            }
 
-        legacy_path = path / 'session_manifest.json'
-        try:
-            with open(legacy_path, encoding='utf-8') as fh:
-                legacy = json.load(fh)
-        except (OSError, ValueError):
-            return None
-        recording = legacy.get('recording', {})
-        fps = recording.get('actual_fps', {}).get('mean')
+        Raises:
+            PostProcessingRefusedError: ``'manifest_unreadable'``, a manifest
+                is there but cannot be opened, is not JSON, or holds a fact
+                that is not its kind.
+        """
+        for name, facts_of in (
+            (MANIFEST_FILENAME, self._engine_manifest_facts),
+            ('session_manifest.json', self._legacy_manifest_facts),
+        ):
+            manifest_path = path / name
+            try:
+                with open(manifest_path, encoding='utf-8') as fh:
+                    manifest = json.load(fh)
+            except FileNotFoundError:
+                continue
+            except OSError as e:
+                raise self._unreadable_manifest(
+                    manifest_path,
+                    f'could not be opened ({e.strerror or e}). Close any program '
+                    f'that has it open and build again.',
+                ) from e
+            except ValueError as e:
+                # Not JSON: cut short, edited, or not text at all
+                # (UnicodeDecodeError is a ValueError too).
+                raise self._unreadable_manifest(manifest_path, _NOT_A_MANIFEST) from e
+            if not isinstance(manifest, dict):
+                raise self._unreadable_manifest(manifest_path, _NOT_A_MANIFEST)
+            return facts_of(manifest, manifest_path)
+        return None
+
+    def _engine_manifest_facts(self, manifest: dict, manifest_path: pathlib.Path) -> dict:
+        if 'false_color' in manifest:
+            false_color = manifest['false_color']
+            if not isinstance(false_color, bool):
+                raise self._unreadable_manifest(manifest_path, _NOT_A_MANIFEST)
+            channel_color = (
+                self._manifest_channel(manifest.get('channel'), manifest_path)
+                if false_color
+                else None
+            )
+        else:
+            channel_color = self._manifest_channel(
+                manifest.get('channel_color'), manifest_path, absent_ok=True
+            )
         return {
-            'channel_color': recording.get('channel_color'),
-            'measured_fps': float(fps) if fps else None,
+            'channel_color': channel_color,
+            'measured_fps': self._manifest_rate(manifest.get('measured_fps'), manifest_path),
         }
+
+    def _legacy_manifest_facts(self, legacy: dict, manifest_path: pathlib.Path) -> dict:
+        recording = legacy.get('recording', {})
+        actual_fps = recording.get('actual_fps', {}) if isinstance(recording, dict) else None
+        if not isinstance(actual_fps, dict):
+            raise self._unreadable_manifest(manifest_path, _NOT_A_MANIFEST)
+        return {
+            'channel_color': self._manifest_channel(
+                recording.get('channel_color'), manifest_path, absent_ok=True
+            ),
+            'measured_fps': self._manifest_rate(actual_fps.get('mean'), manifest_path),
+        }
+
+    def _manifest_channel(
+        self, channel: object, manifest_path: pathlib.Path, *, absent_ok: bool = False
+    ) -> str | None:
+        """A manifest's channel, refused when it names no channel of this release."""
+        if channel is None and absent_ok:
+            return None
+        try:
+            channel_record.refuse_unknown_channel(channel_record.stored_key(channel))
+        except ArgumentRefusedError as e:
+            raise self._unreadable_manifest(
+                manifest_path, f'names a channel this release does not have ({channel!r}).'
+            ) from e
+        return channel
+
+    def _manifest_rate(self, rate: object, manifest_path: pathlib.Path) -> float | None:
+        """A manifest's measured rate: None when it states none or zero, else a finite number."""
+        if rate is None:
+            return None
+        if not is_finite_number(rate):
+            raise self._unreadable_manifest(manifest_path, _NOT_A_MANIFEST)
+        return float(rate) if rate else None
+
+    def _unreadable_manifest(
+        self, manifest_path: pathlib.Path, problem: str
+    ) -> PostProcessingRefusedError:
+        return self._refuse(
+            'manifest_unreadable',
+            f"This recording's details file, {manifest_path}, {problem} It holds "
+            f"the recording's measured rate, and a manual recording's color. To "
+            f'build the video without them, move the file out of the folder and '
+            f'build again.',
+        )
 
     def _playback(
         self,
