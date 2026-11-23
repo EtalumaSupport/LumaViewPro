@@ -31,7 +31,7 @@ from _lumascope.modules import image_utils
 from _lumascope.modules.common_utils import recover_step_label
 from _lumascope.modules.exceptions import InstallationFileError, PostProcessingOperation
 from _lumascope.modules.channel_record import (
-    GREY,
+    GRAY,
     load_channel_catalog,
     load_old_channel_names,
     read_scope_models,
@@ -237,7 +237,7 @@ def test_an_old_names_image_is_written_as_fluorescence(installation, tmp_path):
             'significant_bits': 12,
         },
         ome=False,
-        color=GREY,
+        color=GRAY,
         significant_bits=12,
         save_encoding='right_aligned',
         white_bits=None,

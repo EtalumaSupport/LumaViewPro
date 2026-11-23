@@ -45,7 +45,7 @@ from tests.test_validate_steps import (
     _make_protocol,
     _valid_step,
 )
-from _lumascope.modules.channel_record import GREY, release_colors
+from _lumascope.modules.channel_record import GRAY, release_colors
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.image_mode import RecordingFormat
 from tests.log_capture import records_of
@@ -537,7 +537,7 @@ def test_video_builder_create_video_reports_actual_output_file(tmp_path):
         on_progress=None,
         total_groups=1,
         current_group=1,
-        color=GREY,
+        color=GRAY,
     )
     assert result['status'] is True
     actual = pathlib.Path(str(result['actual_output_file_loc']))

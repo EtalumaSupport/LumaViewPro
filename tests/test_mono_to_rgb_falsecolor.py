@@ -16,7 +16,7 @@ import tifffile
 
 from _lumascope.modules import image_utils
 from _lumascope.modules.image_utils import mono_to_rgb_falsecolor
-from _lumascope.modules.channel_record import GREY, parse_display_color, release_color
+from _lumascope.modules.channel_record import GRAY, parse_display_color, release_color
 from tests.stock_channels import LED0, LED1, LED2
 
 
@@ -126,7 +126,7 @@ def test_each_plane_is_the_mono_times_its_weight_rounded_for_every_layout():
         (0.0, 1.0, 0.0),
         (0.0, 0.0, 1.0),
         (1.0, 1.0, 0.0),
-        GREY,
+        GRAY,
         (0.0, 0.0, 0.0),
         parse_display_color('#ff8000'),
     ]
@@ -214,7 +214,7 @@ class TestAColourIsAValue:
             file_loc=reference,
             metadata={**_METADATA, 'channel': 'BF'},
             ome=True,
-            color=GREY,
+            color=GRAY,
             significant_bits=8,
             save_encoding='right_aligned',
             white_bits=None,

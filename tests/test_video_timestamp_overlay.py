@@ -15,7 +15,7 @@ from typing import ClassVar
 import pytest
 
 import _lumascope.modules.protocol_recording as protocol_recording
-from _lumascope.modules.channel_record import GREY, release_color
+from _lumascope.modules.channel_record import GRAY, release_color
 from _lumascope.modules.image_mode import RecordingFormat
 from tests.stock_channels import LED0
 from tests.video_step_drives import ElapsedClock, video_step_on
@@ -79,12 +79,12 @@ def test_protocol_video_hands_the_choice_to_the_writer(tmp_path, monkeypatch, ov
 
 
 def test_grayscale_stream_encodes_grey(tmp_path, monkeypatch, sim_scope):
-    """False-color off must encode true grayscale (GREY), the same
+    """False-color off must encode true grayscale (GRAY), the same
     contract the manual leg uses."""
     captured = _video_step(
         sim_scope, monkeypatch, tmp_path, timestamp_overlay=True, false_color=False
     )
-    assert captured['color'] == GREY
+    assert captured['color'] == GRAY
 
 
 def test_false_color_stream_carries_the_layer(tmp_path, monkeypatch, sim_scope):

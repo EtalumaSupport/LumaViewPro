@@ -26,7 +26,7 @@ import tifffile as tf
 import _lumascope.modules.app_context as _app_ctx
 import _lumascope.modules.image_utils as image_utils
 from _lumascope.modules.composite_generation import CompositeGeneration
-from _lumascope.modules.channel_record import GREY
+from _lumascope.modules.channel_record import GRAY
 from _lumascope.modules.channel_record import release_colors
 from tests.ast_seams import parse_module
 from tests.stock_channels import LED0, LED2
@@ -149,7 +149,7 @@ class TestTheCompositeMergeIsEightBitRgb:
         _merge(tmp_path)
 
         assert len(recorded_writes) == 1
-        assert recorded_writes[0]['color'] == GREY
+        assert recorded_writes[0]['color'] == GRAY
         assert recorded_writes[0]['save_encoding'] == '8bit', recorded_writes[0]['save_encoding']
 
     def test_the_merge_writes_the_same_with_no_context(

@@ -25,7 +25,7 @@ from _lumascope.modules.exceptions import (
     FrameDepthError,
     InputFramesUnusableError,
 )
-from _lumascope.modules.channel_record import GREY, Color, stored_key
+from _lumascope.modules.channel_record import GRAY, Color, stored_key
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.objectives_loader as objectives_loader
@@ -319,7 +319,7 @@ def scaled_preview_target(base_wh: tuple[int, int] | None, scale: float) -> tupl
 
 
 # The caller resolves a colour (``channel_record.Color``); nothing here maps a
-# channel to one. A writer keeps a ``GREY`` frame mono rather than storing
+# channel to one. A writer keeps a ``GRAY`` frame mono rather than storing
 # three equal planes.
 
 
@@ -336,7 +336,7 @@ def mono_to_rgb_falsecolor(
 
     Args:
         mono: 2D ndarray of uint8 / uint16 dtype.
-        color: Each plane is ``mono`` times its weight, rounded; ``GREY``
+        color: Each plane is ``mono`` times its weight, rounded; ``GRAY``
             tiles the mono into all three planes.
         output: A C-contiguous ``(H, W, 3)`` array of ``mono``'s dtype to
             write into, reused across frames; another shape, dtype or
@@ -1948,7 +1948,7 @@ def add_false_color(array: np.ndarray, color: Color) -> np.ndarray:
     save-path convention shared with composite_builder. OpenCV consumers
     (cv2.VideoWriter) convert RGB->BGR at their own boundary.
     """
-    if image_utils.is_color_image(array) or color == GREY:
+    if image_utils.is_color_image(array) or color == GRAY:
         return array
     return mono_to_rgb_falsecolor(array, color)
 
@@ -2096,7 +2096,7 @@ def encode_display_jpg(
 
     Args:
         array: Source image (2D mono, 8/12/16-bit) for one channel.
-        color: The color the channel is shown in; ``GREY`` for gray.
+        color: The color the channel is shown in; ``GRAY`` for gray.
         significant_bits: Payload depth of ``array`` so the 8-bit downconvert
             scales against the real range -- a summed frame is not indexed as
             12-bit (out of range) and a 10-bit frame is not crushed.
@@ -2610,7 +2610,7 @@ def write_tiff(
                 # (imagej type) or OME Channel metadata (ome type).
                 # Grey: always MINISBLACK, no colormap needed.
                 colormap_array = None
-                if data.dtype == np.uint8 and color != GREY:
+                if data.dtype == np.uint8 and color != GRAY:
                     colormap_array = get_tiff_colormap(color=color, dtype=data.dtype)
 
                 tif.write(
@@ -2642,7 +2642,7 @@ def generate_tiff_data(
     if is_color_image(data):
         photometric = tf.PHOTOMETRIC.RGB
         axes = 'YXS'  # 3rd dimension is samples (RGB channels)
-    elif color != GREY and data.dtype == np.uint8:
+    elif color != GRAY and data.dtype == np.uint8:
         # 8-bit: PALETTE with colormap -- works in Windows Preview and ImageJ.
         photometric = tf.PHOTOMETRIC.PALETTE
     else:
@@ -2768,7 +2768,7 @@ def generate_tiff_data(
         # ImageJ reads its own metadata -> auto-applies color LUT -> shows color.
         # mode='color' tells FIJI to apply the LUT (otherwise defaults to grayscale).
         tiff_metadata['LUTs'] = [get_imagej_lut(color)]
-        if color != GREY:
+        if color != GRAY:
             tiff_metadata['mode'] = 'color'
         # The record as a person reads it: ImageJ's Info, which Show Info and
         # Bio-Formats list line by line. ImageJ consumes its own description,

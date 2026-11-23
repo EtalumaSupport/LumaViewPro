@@ -20,7 +20,7 @@ from _lumascope.modules.channel_record import (
     UNRESOLVED,
     ChannelIdentity,
     ChannelRecord,
-    GREY,
+    GRAY,
     STOCK_OPTICS_MODEL,
     Background,
     IdentitySource,
@@ -257,15 +257,15 @@ class TestTheColourRead:
 
     def test_a_layer_reads_its_release_colour(self):
         assert release_color(LED1) == (0.0, 1.0, 0.0)
-        assert release_color('BF') == GREY
+        assert release_color('BF') == GRAY
 
     def test_a_composite_is_written_grey_and_a_layer_in_its_colour(self):
-        assert output_color('Composite', colors=release_colors()) == GREY
+        assert output_color('Composite', colors=release_colors()) == GRAY
         assert output_color(LED2, colors=release_colors()) == (1.0, 0.0, 0.0)
 
     def test_false_colour_off_shows_grey(self):
         assert shown_color(LED0, True, colors=release_colors()) == (0.0, 0.0, 1.0)
-        assert shown_color(LED0, False, colors=release_colors()) == GREY
+        assert shown_color(LED0, False, colors=release_colors()) == GRAY
 
     def test_a_name_that_is_no_layer_has_no_colour(self):
         refused = []

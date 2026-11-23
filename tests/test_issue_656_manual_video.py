@@ -22,7 +22,7 @@ import tifffile as tf
 import _lumascope.modules.image_utils as image_utils
 from _lumascope.modules.lumascope_api.frame_record import FrameTime, TimestampSource
 from _lumascope.modules.video_builder import VideoBuilder
-from _lumascope.modules.channel_record import GREY, release_colors
+from _lumascope.modules.channel_record import GRAY, release_colors
 from tests.frame_records import recorded_record, write_recorded
 from tests.stock_channels import LED0, LED1, LED2
 from tests.installation_fixtures import shipped_grids
@@ -425,7 +425,7 @@ def _overlay_frame(folder, cells, *, overlay=True):
         on_progress=None,
         total_groups=1,
         current_group=1,
-        color=GREY,
+        color=GRAY,
     )
     assert result['status'] is True
     return _first_frame(_find_video(folder, 'out'))
@@ -490,7 +490,7 @@ def test_create_video_missing_timestamp_no_crash(tmp_path):
         on_progress=None,
         total_groups=1,
         current_group=1,
-        color=GREY,
+        color=GRAY,
     )
     assert result['status'] is True
     assert _find_video(folder, 'out').is_file()

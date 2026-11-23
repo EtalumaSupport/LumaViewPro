@@ -93,7 +93,7 @@ class FrameSizing:
     def _shown_in_color(self, channel: str, false_color_on: bool) -> bool:
         return (
             channel_record.shown_color(channel, false_color_on, self.channel_colors)
-            != channel_record.GREY
+            != channel_record.GRAY
         )
 
     def saved_frame_bytes(self, *, channel: str, sum_count: int, false_color_on: bool) -> int:

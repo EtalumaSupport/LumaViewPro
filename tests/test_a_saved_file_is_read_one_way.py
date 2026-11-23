@@ -20,7 +20,7 @@ import tifffile as tf
 
 from _lumascope.modules import image_utils
 from _lumascope.modules.exceptions import InputFramesUnusableError
-from _lumascope.modules.channel_record import GREY, release_colors
+from _lumascope.modules.channel_record import GRAY, release_colors
 from _lumascope.modules.stack_builder import StackBuilder
 from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED1
@@ -59,7 +59,7 @@ def _write(path, record, *, dtype=np.uint16, ome=False) -> pathlib.Path:
         file_loc=path,
         metadata=record,
         ome=ome,
-        color=GREY,
+        color=GRAY,
         significant_bits=8 if dtype == np.uint8 else 12,
         save_encoding='8bit' if dtype == np.uint8 else 'right_aligned',
         white_bits=None,
@@ -280,7 +280,7 @@ def _hyperstack(path, record, *, channels, z_positions, positions=True):
         image_utils.build_hyperstack_output_metadata(
             [record],
             channel_names=channels,
-            channel_colors=[GREY] * len(channels),
+            channel_colors=[GRAY] * len(channels),
             plane_positions={
                 'PositionX': [12.5] * planes if positions else unknown,
                 'PositionY': [30.25] * planes if positions else unknown,

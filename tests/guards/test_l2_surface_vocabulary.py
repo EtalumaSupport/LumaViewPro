@@ -168,7 +168,7 @@ def test_the_unit_string_is_untouched():
     import numpy as np
 
     from _lumascope.modules import image_utils
-    from _lumascope.modules.channel_record import GREY
+    from _lumascope.modules.channel_record import GRAY
 
     plane = image_utils.generate_tiff_data(
         data=np.zeros((4, 4), dtype=np.uint8),
@@ -181,7 +181,7 @@ def test_the_unit_string_is_untouched():
             'illumination_by_channel_ma': {'BF': 50.0},
         },
         image_type=None,
-        color=GREY,
+        color=GRAY,
         white_bits=None,
     )['metadata']['Plane']
     units = [plane['IlluminationUnit'], plane['IlluminationByChannelUnit']]

@@ -13,7 +13,7 @@ import _lumascope.modules.app_context as _app_ctx
 from _lumascope.modules import gui_logger, live_work
 from _lumascope.modules.coord_transformations import PlateLocation
 from _lumascope.modules.exceptions import Refusal
-from _lumascope.modules.channel_record import GREY, Color, format_display_color
+from _lumascope.modules.channel_record import GRAY, Color, format_display_color
 from ui.ui_helpers import fixed_number, schedule_ui_interval, work_item_text
 
 logger = logging.getLogger('LVP.ui.shader')
@@ -350,7 +350,7 @@ void main (void) {
     # The colour a live mono frame is shown in, the colour of what is drawn
     # now (None: a live mono frame, so the live colour) and the colour the
     # canvas was last given.
-    _live_color: Color = GREY
+    _live_color: Color = GRAY
     _drawn_color: Color | None = None
     _shown_color: Color | None = None
 
@@ -376,7 +376,7 @@ void main (void) {
                 for a live frame.
         """
         if colorfmt in ('rgb', 'bgr'):
-            self._drawn_color = GREY
+            self._drawn_color = GRAY
         elif held_channel is not None:
             self._drawn_color = _app_ctx.ctx.image_settings.channel_control_lookup(
                 channel=held_channel
@@ -393,7 +393,7 @@ void main (void) {
 
     def _show_in(self, color: Color):
         """Show the view in ``color``: each plane's white point is the view's
-        white times the color's weight on that plane (``GREY`` shows mono)."""
+        white times the color's weight on that plane (``GRAY`` shows mono)."""
         c = self.canvas
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))

@@ -76,7 +76,7 @@ _DISPLAY_COLOR = re.compile(r'#[0-9a-f]{6}')
 # multiplied by. White is grey: it is what a transmitted channel is and what
 # any channel is shown in with false colour off.
 Color = tuple[float, float, float]
-GREY: Color = (1.0, 1.0, 1.0)
+GRAY: Color = (1.0, 1.0, 1.0)
 
 
 def parse_display_color(text: object) -> Color:
@@ -595,7 +595,7 @@ def release_colors() -> dict[str, Color]:
 
 def output_color(name: object, colors: ChannelColors) -> Color:
     """The color an image named for ``name`` is written in: the channel's
-    color in ``colors``, and ``GREY`` for a composite
+    color in ``colors``, and ``GRAY`` for a composite
     (``PostFunction.COMPOSITE``), which is RGB and carries its own -- and is
     gray once collapsed into a stack. A stored old name is its stock key's
     color (``stored_key``).
@@ -607,7 +607,7 @@ def output_color(name: object, colors: ChannelColors) -> Color:
     from _lumascope.modules.common_utils import PostFunction
 
     if name == PostFunction.COMPOSITE.value:
-        return GREY
+        return GRAY
     key = stored_key(name)
     refuse_unknown_channel(key)
     return colors[key]
@@ -615,14 +615,14 @@ def output_color(name: object, colors: ChannelColors) -> Color:
 
 def shown_color(name: object, false_color_on: bool, colors: ChannelColors) -> Color:
     """The color an image named for ``name`` is shown in: its
-    ``output_color`` with false color on, ``GREY`` with it off.
+    ``output_color`` with false color on, ``GRAY`` with it off.
 
     Raises:
         ArgumentRefusedError: as ``output_color``, whether false color is
             on or off.
     """
     color = output_color(name, colors)
-    return color if false_color_on else GREY
+    return color if false_color_on else GRAY
 
 
 # The keys a model's channel row may carry, by its channel's modality; each but

@@ -47,7 +47,7 @@ class TestWaitForRecordingOutcome:
         recorder._aborted.set()
         engine = MagicMock(is_recording=True)
         outcome, _ = recorder._wait_for_recording(engine, 10.0, stall_threshold=5.0)
-        assert outcome == protocol_recording.CANCELLED
+        assert outcome == protocol_recording.CANCELED
 
     def test_a_step_its_frames_never_end_completes_one_stall_bound_past_its_duration(
         self, tmp_path, sim_scope
@@ -104,8 +104,8 @@ class TestZeroFrameOutcomeMapping:
             return recorder.run_blocking()
 
     def test_user_stop_with_zero_frames_stays_cancelled(self, tmp_path, sim_scope):
-        result = self._run_with_outcome(sim_scope, tmp_path, protocol_recording.CANCELLED)
-        assert result == protocol_recording.CANCELLED
+        result = self._run_with_outcome(sim_scope, tmp_path, protocol_recording.CANCELED)
+        assert result == protocol_recording.CANCELED
 
     def test_run_abort_with_zero_frames_stays_aborted(self, tmp_path, sim_scope):
         result = self._run_with_outcome(sim_scope, tmp_path, protocol_recording.ABORTED)
@@ -211,7 +211,7 @@ class TestPrologueFeedDeath:
         result = self._prologue_result(
             sim_scope, tmp_path, monkeypatch, stop_at_s=0.0, frame_arrives=False
         )
-        assert result == protocol_recording.CANCELLED
+        assert result == protocol_recording.CANCELED
 
     def test_arriving_frames_suppress_the_death_verdict(self, tmp_path, sim_scope, monkeypatch):
         # A change never in force while frames arrive is a settle fault, not
@@ -220,7 +220,7 @@ class TestPrologueFeedDeath:
         result = self._prologue_result(
             sim_scope, tmp_path, monkeypatch, stop_at_s=60.0, frame_arrives=True
         )
-        assert result == protocol_recording.CANCELLED
+        assert result == protocol_recording.CANCELED
 
 
 class TestWaitLoopFeedStall:
@@ -271,9 +271,9 @@ class TestWaitLoopFeedStall:
 
     def test_stop_beats_the_stall_verdict(self, tmp_path, sim_scope):
         # Stop is checked first: even with the watch past threshold, a
-        # stop requested in the same tick returns CANCELLED.
+        # stop requested in the same tick returns CANCELED.
         recorder = self._advancing_recorder(sim_scope, tmp_path)
         recorder._aborted.set()
         engine = MagicMock(is_recording=True)
         outcome, _ = recorder._wait_for_recording(engine, 60.0, stall_threshold=5.0)
-        assert outcome == protocol_recording.CANCELLED
+        assert outcome == protocol_recording.CANCELED

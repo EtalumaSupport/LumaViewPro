@@ -21,7 +21,7 @@ import numpy as np
 from _lumascope.lib.real_numbers import is_integer_number
 from _lumascope.lvp_logger import logger
 from _lumascope.modules import image_mode, image_utils, path_utils, wall_time
-from _lumascope.modules.channel_record import GREY, ChannelColors, Color, stored_key
+from _lumascope.modules.channel_record import GRAY, ChannelColors, Color, stored_key
 from _lumascope.modules.exceptions import (
     PostProcessingFailedError,
     PostProcessingOperation,
@@ -191,7 +191,7 @@ class QuickEnhancer:
         color in ``channel_colors`` (a stored old name's is its stock key's),
         and gray for a source that names none (a foreign file, a composite,
         an unrecognized token)."""
-        return channel_colors.get(stored_key(channel), GREY)
+        return channel_colors.get(stored_key(channel), GRAY)
 
     @staticmethod
     def colorize_mono_for_visual_output(
@@ -205,7 +205,7 @@ class QuickEnhancer:
         output.
         """
         color = QuickEnhancer._channel_color(channel, channel_colors)
-        if image.ndim == 2 and color != GREY:
+        if image.ndim == 2 and color != GRAY:
             return image_utils.mono_to_rgb_falsecolor(image, color)
         return image
 

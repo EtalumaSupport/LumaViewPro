@@ -16,7 +16,7 @@ from av.error import FFmpegError
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.path_utils as path_utils
 import _lumascope.modules.wall_time as wall_time
-from _lumascope.modules.channel_record import GREY, Color
+from _lumascope.modules.channel_record import GRAY, Color
 from _lumascope.modules.exceptions import VideoNotFinishedError
 from _lumascope.lvp_logger import logger
 
@@ -54,7 +54,7 @@ class VideoWriter:
         width: int | None = None,
         height: int | None = None,
         *,
-        color: Color = GREY,
+        color: Color = GRAY,
         include_timestamp_overlay: bool = False,
         vfr: bool = False,
     ):
@@ -75,7 +75,7 @@ class VideoWriter:
             width: Frame width in pixels. Optional; None defers to first frame.
             height: Frame height in pixels. Optional; None defers to first frame.
             color: The color mono frames are shown in (``channel_record.Color``).
-                ``GREY`` encodes grayscale (gray pixfmt).
+                ``GRAY`` encodes grayscale (gray pixfmt).
             include_timestamp_overlay: Overlay frame timestamps via image_utils.
             vfr: Variable-frame-rate timing: each frame's presentation
                 time comes from its real capture timestamp, so a delivery
@@ -126,7 +126,7 @@ class VideoWriter:
         """True when the color is not gray: gray mono input stays mono and
         gets a gray encode instead of a 3-channel replica.
         """
-        return self._color != GREY
+        return self._color != GRAY
 
     @property
     def output_path(self) -> pathlib.Path:

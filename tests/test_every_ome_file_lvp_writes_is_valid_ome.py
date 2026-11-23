@@ -18,7 +18,7 @@ import numpy as np
 import tifffile as tf
 
 from _lumascope.modules import image_utils
-from _lumascope.modules.channel_record import GREY, release_color
+from _lumascope.modules.channel_record import GRAY, release_color
 from tests.ome_schema import q, schema_errors, valid_description
 
 _RECORD = {
@@ -39,11 +39,11 @@ def test_every_shape_of_ome_still_is_valid_ome(tmp_path):
     composite on an OME run each write a schema-valid description carrying
     the Instrument."""
     shapes = {
-        'mono 8': (np.uint8, 8, '8bit', GREY, {}),
-        'mono 16': (np.uint16, 12, 'right_aligned', GREY, {}),
+        'mono 8': (np.uint8, 8, '8bit', GRAY, {}),
+        'mono 16': (np.uint16, 12, 'right_aligned', GRAY, {}),
         'palette': (np.uint8, 8, '8bit', release_color('Ex488'), {'channel': 'Ex488'}),
         'false colour 16': (np.uint16, 12, 'rgb', release_color('Ex488'), {'channel': 'Ex488'}),
-        'RGB composite': (np.uint8, 8, '8bit', GREY, {'channel': 'Composite', 'rgb': True}),
+        'RGB composite': (np.uint8, 8, '8bit', GRAY, {'channel': 'Composite', 'rgb': True}),
     }
     offenders = {}
     for name, (dtype, bits, encoding, color, overrides) in shapes.items():
@@ -76,7 +76,7 @@ def test_the_gate_refuses_a_misordered_instrument_and_the_splice_orders_it(tmp_p
         file_loc=path,
         metadata=_RECORD,
         ome=True,
-        color=GREY,
+        color=GRAY,
         significant_bits=12,
         save_encoding='right_aligned',
         white_bits=None,

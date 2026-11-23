@@ -97,7 +97,7 @@ from _lumascope.modules.video_writer import VideoWriter
 
 # Outcomes of run_blocking(), consumed by ProtocolImageWriter's video leg.
 COMPLETED = 'completed'  # recording ended normally (full or honest short delivery)
-CANCELLED = 'canceled'  # run stop/abort ended the step early; kept frames are final
+CANCELED = 'canceled'  # run stop/abort ended the step early; kept frames are final
 NO_FRAMES = 'no_frames'  # the camera delivered nothing -- a capture failure (strike)
 CAMERA_LOST = 'camera_lost'  # camera went inactive mid-step; kept frames are final (strike)
 ABORTED = 'aborted'  # the controller aborted the run (disk); no strike, no row here
@@ -339,7 +339,7 @@ class ProtocolVideoStep:
         """Record this video step; blocks the protocol thread until
         selection closes (the drain finishes on its own).
 
-        Returns one of COMPLETED / CANCELLED / NO_FRAMES / CAMERA_LOST /
+        Returns one of COMPLETED / CANCELED / NO_FRAMES / CAMERA_LOST /
         ABORTED.
         """
         step = self._step
@@ -510,7 +510,7 @@ class ProtocolVideoStep:
             # a zero-frame Stop would land a bogus strike toward the
             # 3-strike run abort. A camera lost before delivering anything
             # IS "delivered nothing" -- it keeps the failure row + strike.
-            if outcome in (CANCELLED, ABORTED):
+            if outcome in (CANCELED, ABORTED):
                 return outcome
             return NO_FRAMES
 
@@ -532,7 +532,7 @@ class ProtocolVideoStep:
         """Arm the first-frame autogain, then wait until every change is in force.
 
         Returns None when the recording may start, or the outcome to
-        return when it may not: CANCELLED on a run stop (checked first,
+        return when it may not: CANCELED on a run stop (checked first,
         so Stop always wins), NO_FRAMES when the feed is dead. Dead
         means zero frame ARRIVALS for the stall threshold, not a change
         that stays owed while frames keep arriving: blaming the camera
@@ -587,7 +587,7 @@ class ProtocolVideoStep:
                 'treating the feed as dead'
             )
             return NO_FRAMES
-        return CANCELLED if self._stop_requested() else None
+        return CANCELED if self._stop_requested() else None
 
     def _stop_requested(self) -> bool:
         return self._aborted.is_set() or not self._is_run_in_progress()
@@ -616,7 +616,7 @@ class ProtocolVideoStep:
             now = self._elapsed_clock()
             elapsed = now - start_ts
             if self._stop_requested():
-                outcome, end_reason = CANCELLED, 'run_stop'
+                outcome, end_reason = CANCELED, 'run_stop'
                 break
             if not self._scope.camera.active:
                 logger.warning(

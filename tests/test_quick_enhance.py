@@ -17,7 +17,7 @@ from _lumascope.modules.quick_enhance import (
     QuickEnhanceSettings,
     QuickEnhancer,
 )
-from _lumascope.modules.channel_record import GREY, release_color
+from _lumascope.modules.channel_record import GRAY, release_color
 from _lumascope.modules.channel_record import release_colors
 from tests.settings_fixtures import quick_enhance_settings, shipped_template
 from tests.stock_channels import LED0, LED1, LED2
@@ -45,7 +45,7 @@ def _write_source(path, data: np.ndarray, significant_bits: int, channel: str = 
         metadata=_metadata(significant_bits, channel),
         ome=False,
         # A composite source is RGB, and carries its own colour.
-        color=GREY if data.ndim == 3 else release_color(channel),
+        color=GRAY if data.ndim == 3 else release_color(channel),
         significant_bits=significant_bits,
         save_encoding='right_aligned',
         white_bits=None,

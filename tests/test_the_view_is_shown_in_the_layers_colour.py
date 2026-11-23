@@ -53,7 +53,7 @@ def test_each_plane_is_the_views_white_times_the_colours_weight(caplog):
     with caplog.at_level(logging.DEBUG, logger='LVP.gui_interactions'):
         for color in (
             _BLUE,
-            channel_record.GREY,
+            channel_record.GRAY,
             channel_record.parse_display_color('#ff00ff'),
             channel_record.parse_display_color('#ff8000'),
         ):
@@ -104,7 +104,7 @@ def test_a_held_frame_keeps_its_channels_colour_until_a_live_frame_is_drawn(chan
     view.show_drawn('luminance', LED2)
     assert _white(view) == (1.0, 0.0, 0.0)
     # The run's next step shows its channel while the frame is held.
-    view.set_live_color(channel_record.GREY)
+    view.set_live_color(channel_record.GRAY)
     assert _white(view) == (1.0, 0.0, 0.0)
 
     view.show_drawn('luminance')
@@ -122,8 +122,8 @@ def test_a_new_live_colour_shows_at_once_over_a_live_frame(channels):
     ('layer', 'false_color', 'shown'),
     [
         (LED0, True, (0.0, 0.0, 1.0)),
-        (LED0, False, channel_record.GREY),
-        ('BF', True, channel_record.GREY),
+        (LED0, False, channel_record.GRAY),
+        ('BF', True, channel_record.GRAY),
     ],
 )
 def test_a_layers_shown_colour_is_its_colour_with_false_colour_on_and_grey_off(

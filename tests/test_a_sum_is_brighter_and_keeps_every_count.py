@@ -43,7 +43,7 @@ from _lumascope.modules.zprojector import ZProjector
 from tests.scope_fakes import build_scope, bind_settings_like_a_session
 from tests.settings_fixtures import complete_settings
 from _lumascope.modules.channel_record import release_color
-from _lumascope.modules.channel_record import GREY, release_colors
+from _lumascope.modules.channel_record import GRAY, release_colors
 from _lumascope.modules.zproject_method import ZProjectMethod
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -577,7 +577,7 @@ def test_a_video_of_summed_frames_shows_them_as_taken(tmp_path):
         vfr=False,
         enable_timestamp_overlay=False,
         output_file_loc=pathlib.Path('out.mp4'),
-        color=GREY,
+        color=GRAY,
     )
 
     with av.open(str(tmp_path / 'out.mp4')) as container:

@@ -25,7 +25,7 @@ import pytest
 import tifffile as tf
 
 from _lumascope.modules import image_utils
-from _lumascope.modules.channel_record import GREY, release_catalog, release_color
+from _lumascope.modules.channel_record import GRAY, release_catalog, release_color
 from tests.ome_schema import q, valid_description
 from tests.stock_channels import LED0, LED1, LED2
 
@@ -866,7 +866,7 @@ class TestGetTiffColormap:
         assert cmap[2].sum() == 0  # Blue = 0
 
     def test_gray_all_channels_equal(self):
-        cmap = image_utils.get_tiff_colormap(GREY, np.uint8)
+        cmap = image_utils.get_tiff_colormap(GRAY, np.uint8)
         np.testing.assert_array_equal(cmap[0], cmap[1])
         np.testing.assert_array_equal(cmap[1], cmap[2])
 
@@ -880,7 +880,7 @@ class TestGetTiffColormap:
             release_color(LED2),
             release_color(LED1),
             release_color(LED0),
-            GREY,
+            GRAY,
         ],
     )
     def test_colormap_spans_tiff_full_scale(self, colormap):
@@ -957,7 +957,7 @@ class TestGetImagejLut:
         assert lut[2].sum() == 0  # Blue = 0
 
     def test_gray_lut_all_equal(self):
-        lut = image_utils.get_imagej_lut(GREY)
+        lut = image_utils.get_imagej_lut(GRAY)
         np.testing.assert_array_equal(lut[0], lut[1])
         np.testing.assert_array_equal(lut[1], lut[2])
 
@@ -1568,7 +1568,7 @@ def test_a_derived_file_states_a_well_only_with_the_plate_every_input_was_on(sim
                 inputs, 'BF', significant_bits=8, adds_frames=False
             ),
             ome=False,
-            color=GREY,
+            color=GRAY,
             significant_bits=8,
             save_encoding='8bit',
             white_bits=None,
@@ -1623,7 +1623,7 @@ def test_every_key_a_derived_file_keeps_reads_back_and_a_composite_keeps_no_laye
             file_loc=path,
             metadata=metadata,
             ome=ome,
-            color=GREY,
+            color=GRAY,
             significant_bits=metadata['significant_bits'],
             save_encoding='right_aligned',
             white_bits=None,
@@ -1671,7 +1671,7 @@ def test_a_stills_objective_names_its_id_and_units_and_an_older_file_still_reads
             'objective': {'aperture': 0.16, 'working_distance': 13.0, 'DOF': 40.0},
         },
         ome=False,
-        color=GREY,
+        color=GRAY,
         significant_bits=8,
         save_encoding='8bit',
         white_bits=None,
@@ -1724,7 +1724,7 @@ def test_a_derived_file_and_a_hyperstack_state_their_time_in_the_tiff_form(sim_s
             [image_utils.read_file_record(still)], 'BF', significant_bits=8, adds_frames=False
         ),
         ome=False,
-        color=GREY,
+        color=GRAY,
         significant_bits=8,
         save_encoding='8bit',
         white_bits=None,
@@ -1738,7 +1738,7 @@ def test_a_derived_file_and_a_hyperstack_state_their_time_in_the_tiff_form(sim_s
         hyperstack_metadata=image_utils.build_hyperstack_output_metadata(
             [image_utils.read_file_record(still)],
             channel_names=['BF'],
-            channel_colors=[GREY],
+            channel_colors=[GRAY],
             plane_positions={
                 'PositionX': [None],
                 'PositionY': [None],
@@ -1909,7 +1909,7 @@ def test_a_hyperstack_shows_its_record_and_its_build_time(sim_scope, tmp_path):
     metadata = image_utils.build_hyperstack_output_metadata(
         [image_utils.read_file_record(still)],
         channel_names=['BF'],
-        channel_colors=[GREY],
+        channel_colors=[GRAY],
         plane_positions={
             'PositionX': [10.0],
             'PositionY': [20.0],
@@ -1963,7 +1963,7 @@ def test_a_derived_file_shows_the_record_it_states(sim_scope, tmp_path):
         file_loc=derived,
         metadata=metadata,
         ome=True,
-        color=GREY,
+        color=GRAY,
         significant_bits=12,
         save_encoding='right_aligned',
         white_bits=None,
@@ -1998,7 +1998,7 @@ def test_the_view_is_plain_text_and_a_plain_tiffs_is_ascii(tmp_path):
             file_loc=tmp_path / name,
             metadata=record,
             ome=ome,
-            color=GREY,
+            color=GRAY,
             significant_bits=bits,
             save_encoding=encoding,
             white_bits=None,

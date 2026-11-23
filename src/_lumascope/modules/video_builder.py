@@ -11,7 +11,7 @@ import pandas as pd
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.post_derivation as post_derivation
-from _lumascope.modules.channel_record import GREY, ChannelColors, Color
+from _lumascope.modules.channel_record import GRAY, ChannelColors, Color
 import _lumascope.modules.common_utils as common_utils
 import _lumascope.modules.recording_frames as recording_frames
 from _lumascope.modules.common_utils import PostFunction
@@ -704,7 +704,7 @@ class VideoBuilder(ProtocolPostProcessor):
                 total_groups=1,
                 current_group=1,
                 color=(
-                    GREY
+                    GRAY
                     if channel_color is None
                     else channel_record.output_color(channel_color, channel_colors)
                 ),

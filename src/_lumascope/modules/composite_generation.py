@@ -16,7 +16,7 @@ import _lumascope.modules.image_mode as image_mode
 import _lumascope.modules.image_utils as image_utils
 import _lumascope.modules.channel_record as channel_record
 import _lumascope.modules.post_derivation as post_derivation
-from _lumascope.modules.channel_record import GREY
+from _lumascope.modules.channel_record import GRAY
 from _lumascope.modules.common_utils import PostFunction
 from _lumascope.modules.exceptions import ConfigurationDefectError
 from _lumascope.modules.protocol_post_processor import ProtocolPostProcessor
@@ -437,7 +437,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                         metadata=metadata,
                         ome=image_utils.is_ome_tiff(output_file_loc),
                         # An RGB composite: a colour image's colour is its own.
-                        color=GREY,
+                        color=GRAY,
                         significant_bits=metadata['significant_bits'],
                         # A merged composite is a viewing product, always
                         # 8-bit RGB; like every derived file it is encoded

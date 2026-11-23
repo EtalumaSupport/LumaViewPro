@@ -19,7 +19,7 @@ import pytest
 
 from _lumascope.modules import post_derivation
 from _lumascope.modules.video_builder import VideoBuilder
-from _lumascope.modules.channel_record import GREY, release_colors
+from _lumascope.modules.channel_record import GRAY, release_colors
 
 
 def _frame_name(n):
@@ -57,7 +57,7 @@ def _consumed_order(tmp_path, frame_numbers):
             vfr=False,
             enable_timestamp_overlay=False,
             output_file_loc=pathlib.Path('out.mp4'),
-            color=GREY,
+            color=GRAY,
         )
     return consumed
 
@@ -87,7 +87,7 @@ def test_unparseable_frame_name_fails_loudly(tmp_path):
             vfr=False,
             enable_timestamp_overlay=False,
             output_file_loc=pathlib.Path('out.mp4'),
-            color=GREY,
+            color=GRAY,
         )
 
 
